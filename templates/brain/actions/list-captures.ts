@@ -9,6 +9,7 @@ import {
   latestDistillationQueuesForCaptures,
   sourceUrlFromMetadataRecord,
 } from "../server/lib/brain.js";
+import { publicSourceTitle } from "../server/lib/capture-sanitization.js";
 import {
   parseCaptureMetadata,
   publicCaptureExternalId,
@@ -175,13 +176,20 @@ export default defineAction({
         const source = sourceMap.get(row.sourceId);
         if (!source) return [];
         const metadata = parseCaptureMetadata(row.metadataJson);
+        const withheldPassages = withheldPassageCount(
+          metadata,
+          source.provider,
+          row.kind,
+        );
         return [
           {
             id: row.id,
             sourceId: row.sourceId,
             source: {
               id: source.id,
-              title: redactSensitiveText(source.title),
+              title: redactSensitiveText(
+                publicSourceTitle(source.title, withheldPassages),
+              ),
               provider: source.provider,
               status: source.status,
             },
@@ -193,11 +201,7 @@ export default defineAction({
             status: row.status,
             capturedAt: row.capturedAt,
             sourceUrl: sourceUrlFromMetadataRecord(metadata ?? {}),
-            withheldPassages: withheldPassageCount(
-              metadata,
-              source.provider,
-              row.kind,
-            ),
+            withheldPassages,
             distillationQueue: redactDistillationQueue(
               queueByCapture.get(row.id) ?? null,
             ),

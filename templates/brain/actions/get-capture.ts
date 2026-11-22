@@ -3,6 +3,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getAccessibleCapture, serializeCapture } from "../server/lib/brain.js";
+import { publicSourceTitle } from "../server/lib/capture-sanitization.js";
 import {
   parseCaptureMetadata,
   withheldPassageCount,
@@ -75,7 +76,9 @@ export default defineAction({
       },
       source: {
         id: access.source.id,
-        title: redactSensitiveText(access.source.title),
+        title: redactSensitiveText(
+          publicSourceTitle(access.source.title, capture.withheldPassages),
+        ),
         provider: access.source.provider,
       },
       accessRole: access.role,

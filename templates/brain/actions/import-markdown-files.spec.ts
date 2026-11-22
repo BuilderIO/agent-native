@@ -258,6 +258,38 @@ describe("import-markdown-files", () => {
     expect(result.summary.failed).toBe(2);
   });
 
+  it("stops screening files once the request time budget is used up", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.createCapture.mockImplementationOnce(async (input) => {
+        vi.setSystemTime(Date.now() + 120_000);
+        return {
+          id: "capture-slow",
+          sourceId: input.sourceId,
+          status: "queued",
+          ...input,
+        };
+      });
+      const result = await action.run({
+        sourceTitle: "Onboarding docs",
+        files: [
+          { path: "first.md", content: "First" },
+          { path: "second.md", content: "Second" },
+        ],
+        enqueueDistillation: false,
+      });
+      expect(mocks.createCapture).toHaveBeenCalledTimes(1);
+      expect(result.summary).toMatchObject({ imported: 1, failed: 1 });
+      expect(result.files[1]).toMatchObject({
+        path: "second.md",
+        status: "failed",
+        errorCode: "batch_time_budget",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns a sensitivity receipt for a blocked file", async () => {
     const receipt = { id: "receipt-1", disposition: "quarantined" };
     mocks.createCapture.mockRejectedValue(

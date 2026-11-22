@@ -15,7 +15,10 @@ import {
   recordBlockedCapture,
   stableJson,
 } from "../server/lib/brain.js";
-import { sanitizeCaptureForStorage } from "../server/lib/capture-sanitization.js";
+import {
+  BrainUnsafeSourceIdentityError,
+  sanitizeCaptureForStorage,
+} from "../server/lib/capture-sanitization.js";
 import { enqueueCaptureInvalidation } from "../server/lib/ingest-queue.js";
 import {
   parseCaptureMetadata,
@@ -169,27 +172,49 @@ export default defineAction({
       const hasDerivedRefs =
         derivedRefs.knowledgeIds.length > 0 ||
         derivedRefs.proposalIds.length > 0;
-      const sanitized = await sanitizeCaptureForStorage({
-        kind: row.capture.kind as BrainCaptureKind,
-        title: row.capture.title,
-        content: row.capture.content,
-        metadata: parseJson<Record<string, unknown>>(
-          row.capture.metadataJson,
-          {},
-        ),
-        capturedAt: row.capture.capturedAt,
-        source: {
-          id: row.source.id,
-          title: row.source.title,
-          provider: row.source.provider as BrainSourceProvider,
-          ownerEmail: row.source.ownerEmail,
-          orgId: row.source.orgId,
-        },
-        sourceConfig: parseCaptureMetadata(row.source.configJson) ?? {
-          unreadableSourceConfig: true,
-        },
-        settings,
-      });
+      let sanitized: Awaited<ReturnType<typeof sanitizeCaptureForStorage>>;
+      try {
+        sanitized = await sanitizeCaptureForStorage({
+          kind: row.capture.kind as BrainCaptureKind,
+          title: row.capture.title,
+          content: row.capture.content,
+          metadata: parseJson<Record<string, unknown>>(
+            row.capture.metadataJson,
+            {},
+          ),
+          capturedAt: row.capture.capturedAt,
+          source: {
+            id: row.source.id,
+            title: row.source.title,
+            provider: row.source.provider as BrainSourceProvider,
+            ownerEmail: row.source.ownerEmail,
+            orgId: row.source.orgId,
+          },
+          sourceConfig: parseCaptureMetadata(row.source.configJson) ?? {
+            unreadableSourceConfig: true,
+          },
+          settings,
+        });
+      } catch (error) {
+        if (!(error instanceof BrainUnsafeSourceIdentityError)) throw error;
+        results.push({
+          id: row.capture.id,
+          sourceId: row.capture.sourceId,
+          externalId: null,
+          title: "Incomplete transcript",
+          capturedAt: row.capture.capturedAt,
+          beforeLength,
+          afterLength: beforeLength,
+          method: "not-sanitized",
+          rawContentRetained: false,
+          skipped: true,
+          skipReason: "unsafe-source-identity",
+          dependentKnowledgeIds: derivedRefs.knowledgeIds,
+          dependentProposalIds: derivedRefs.proposalIds,
+          preview: "",
+        });
+        continue;
+      }
       const publicExternalId = publicCaptureExternalId(
         publicCaptureExternalId(
           row.capture.externalId,

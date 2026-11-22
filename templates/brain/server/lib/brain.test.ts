@@ -600,6 +600,7 @@ const mocks = vi.hoisted(() => {
           : undefined;
       if (!existingSensitivityEvent) tableRows(tableRef).push({ ...row });
       return {
+        onConflictDoNothing: vi.fn(async () => ({ rowsAffected: 0 })),
         onConflictDoUpdate: vi.fn(async ({ set }: { set: Row }) => {
           const existing =
             existingSensitivityEvent ??
@@ -967,6 +968,10 @@ vi.mock("@agent-native/core/sharing", () => ({
   }),
 }));
 
+import {
+  deletePrivateBlob,
+  putPrivateBlob,
+} from "@agent-native/core/private-blob";
 import { getOrgSetting, mutateOrgSetting } from "@agent-native/core/settings";
 import { assertAccess } from "@agent-native/core/sharing";
 
@@ -1820,6 +1825,40 @@ describe("Brain knowledge quality gates", () => {
     ).toMatchObject({
       sourceUrl: "https://docs.example.test/new",
     });
+  });
+
+  it("deletes a new quarantine blob when the blocked event cannot be written", async () => {
+    const source = seedSource({ provider: "generic" });
+    vi.mocked(putPrivateBlob).mockResolvedValueOnce({
+      id: "blob-new",
+    } as never);
+    mocks.insertControls.error = new Error("database unavailable");
+
+    await expect(
+      recordBlockedCapture({
+        id: "blocked-capture-blob",
+        existing: null,
+        source: source as never,
+        values: {
+          sourceId: "source-1",
+          externalId: "blocked-external-blob",
+          title: "Blocked capture blob",
+          kind: "note" as const,
+          content: "Ambiguous company note for a persistence test.",
+        },
+        decision: {
+          disposition: "quarantined" as const,
+          categories: [],
+          confidenceBand: "uncertain" as const,
+          policyVersion: "test-policy-v1",
+          safeSegments: [],
+          safeContent: "",
+          classifier: "deterministic" as const,
+        },
+        retentionHours: 72,
+      }),
+    ).rejects.toThrow("database unavailable");
+    expect(deletePrivateBlob).toHaveBeenCalledWith({ id: "blob-new" });
   });
 
   it("persists and updates classifier failure reasons on blocked events", async () => {

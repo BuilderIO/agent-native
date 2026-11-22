@@ -12,6 +12,7 @@ import { getDb, schema } from "../db/index.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
 import {
   BrainCaptureBlockedError,
+  BrainCaptureConcurrentError,
   createCapture,
   commitPreparedCapture,
   prepareCapture,
@@ -91,6 +92,8 @@ async function createConnectorCapture(
     if (error instanceof BrainCaptureBlockedError) {
       return { capture: null, blocked: true };
     }
+    if (error instanceof BrainCaptureConcurrentError)
+      return { capture: null, blocked: false };
     throw error;
   }
 }
@@ -101,6 +104,8 @@ async function commitConnectorCapture(prepared: PreparedCapture) {
   } catch (error) {
     if (error instanceof BrainCaptureBlockedError)
       return { capture: null, blocked: true };
+    if (error instanceof BrainCaptureConcurrentError)
+      return { capture: null, blocked: false };
     throw error;
   }
 }
@@ -1166,6 +1171,8 @@ async function createSlackThreadCapture(input: {
     if (error instanceof BrainCaptureBlockedError) {
       return { capture: null, blocked: true };
     }
+    if (error instanceof BrainCaptureConcurrentError)
+      return { capture: null, blocked: false };
     throw error;
   }
 }

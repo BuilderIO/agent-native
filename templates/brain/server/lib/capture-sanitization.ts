@@ -664,7 +664,29 @@ const safeSourceConfig = z.strictObject({
 });
 
 const SOURCE_LOCATOR =
-  /[\\/\\\\\r\n]|%[\da-f]{2}|\b(?:https?|ftp|file|data|mailto):|\b(?:[a-z\d-]+\.)+(?:[a-z]{2,}|\d{1,3})\b/i;
+  /[\\/\r\n]|%[\da-f]{2}|\b(?:https?|ftp|file|data|mailto):|\b(?:[a-z\d-]+\.)+[a-z]{2,}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b/i;
+
+const BARE_LINK =
+  /(?:\bwww\.|\b(?:[a-z\d-]+\.)+[a-z]{2,}(?::\d+)?\/)[^\s<>"')\]]*/gi;
+const LINK_REMOVED = "[link removed]";
+
+export class BrainUnsafeSourceIdentityError extends Error {
+  constructor() {
+    super(
+      "Cannot safely process an incomplete transcript while its source identity may expose the original.",
+    );
+    this.name = "BrainUnsafeSourceIdentityError";
+  }
+}
+
+export function publicSourceTitle(
+  title: string,
+  withheldPassages: number | null,
+): string {
+  return withheldPassages !== 0 && SOURCE_LOCATOR.test(title)
+    ? "Transcript source"
+    : title;
+}
 
 function safeSourceIdentity(
   source: CaptureSanitizationInput["source"],
@@ -702,13 +724,16 @@ async function withholdRestrictedTranscriptLines(
     text.filter((line) => line.trim() === WITHHELD_MARKER).length;
   const render = () => {
     const out: string[] = [];
+    const partial =
+      withheld.size > 0 ||
+      lines.some((line) => line.trim() === WITHHELD_MARKER);
     for (const [index, line] of lines.entries()) {
       const afterGap = out[out.length - 1] === WITHHELD_MARKER;
       // Gaps from an earlier pass merge with new ones rather than doubling up.
       if (withheld.has(index) || line.trim() === WITHHELD_MARKER) {
         if (!afterGap) out.push(WITHHELD_MARKER);
       } else if (line.trim() || !afterGap) {
-        out.push(line);
+        out.push(partial ? line.replace(BARE_LINK, LINK_REMOVED) : line);
       }
     }
     return {
@@ -728,8 +753,11 @@ async function withholdRestrictedTranscriptLines(
   let judged:
     | { content: string; outcome: JevClassificationOutcome }
     | undefined;
+  const hadEarlierGap = lines.some((line) => line.trim() === WITHHELD_MARKER);
   const giveUp = () => ({
-    content: judged?.content ?? input.content,
+    content: hadEarlierGap
+      ? (judged?.content ?? input.content).replace(BARE_LINK, LINK_REMOVED)
+      : (judged?.content ?? input.content),
     withheldPassages: 0,
     ...(judged ? { jev: judged.outcome } : {}),
   });
@@ -834,9 +862,7 @@ export async function sanitizeCaptureForStorage(
     !safeIdentity &&
     (prior !== undefined || hadGap)
   ) {
-    throw new Error(
-      "Cannot safely process an incomplete transcript while its source identity may expose the original.",
-    );
+    throw new BrainUnsafeSourceIdentityError();
   }
   const screened =
     input.kind === "transcript" &&

@@ -25,6 +25,7 @@ const source = {
 };
 
 const mocks = vi.hoisted(() => ({
+  BrainUnsafeSourceIdentityError: class extends Error {},
   contentHash: vi.fn(async () => "changed-hash"),
   enqueueCaptureInvalidation: vi.fn(async () => undefined),
   getAccessibleCapture: vi.fn(),
@@ -95,6 +96,7 @@ vi.mock("../server/lib/brain.js", () => ({
 }));
 
 vi.mock("../server/lib/capture-sanitization.js", () => ({
+  BrainUnsafeSourceIdentityError: mocks.BrainUnsafeSourceIdentityError,
   sanitizeCaptureForStorage: mocks.sanitizeCaptureForStorage,
 }));
 
@@ -269,5 +271,27 @@ describe("resanitize-captures", () => {
     expect(mocks.recordBlockedCapture).not.toHaveBeenCalled();
     expect(mocks.invalidateDerivedForCapture).not.toHaveBeenCalled();
     expect(mocks.enqueueCaptureInvalidation).not.toHaveBeenCalled();
+  });
+
+  it("reports a capture whose source identity is unsafe instead of aborting the batch", async () => {
+    mocks.sanitizeCaptureForStorage.mockRejectedValue(
+      new mocks.BrainUnsafeSourceIdentityError("unsafe source identity"),
+    );
+
+    const result = await action.run({
+      captureIds: [capture.id],
+      limit: 25,
+      dryRun: false,
+      includeNonTranscript: false,
+      allowCitationDrift: true,
+    });
+
+    expect(result.updated).toBe(0);
+    expect(result.results[0]).toMatchObject({
+      id: capture.id,
+      skipped: true,
+      skipReason: "unsafe-source-identity",
+    });
+    expect(mocks.getDb().update).not.toHaveBeenCalled();
   });
 });

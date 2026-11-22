@@ -4,6 +4,7 @@ import { DEFAULT_BRAIN_SETTINGS } from "../../shared/types.js";
 import {
   BrainClassifierUnavailableError,
   buildSanitizerSystemPrompt,
+  publicSourceTitle,
   sanitizeCaptureForStorage,
 } from "./capture-sanitization.js";
 import { jevSensitivityDecision } from "./jev-classifier.js";
@@ -1161,6 +1162,58 @@ describe("Zoom restricted-line withholding", () => {
       version: 1,
       withheldPassages: 1,
     });
+  });
+
+  it("removes scheme-less links from the retained lines of a partial manual transcript", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const lines = withLine(
+      5,
+      "Full recording at www.example.test/full-transcript for everyone",
+    );
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details", lines)), {
+        source: { ...baseInput.source, provider: "manual" as const },
+      }),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).toContain("[…]");
+    expect(result.content).not.toContain("MEDICAL_LEAVE");
+    expect(result.content).not.toContain("example.test");
+    expect(result.content).toContain("[link removed]");
+  });
+
+  it.each(["Sprint v1.2 review", "Standup 2026.11.20"])(
+    "keeps passage withholding for an ordinary source title (%s)",
+    async (title) => {
+      mocks.classifyWithJev.mockImplementation(
+        judge(mentions("MEDICAL_LEAVE")),
+      );
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details")), {
+          source: { ...baseInput.source, provider: "manual", title },
+        }),
+      );
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.metadata.passageQuarantine).toEqual({
+        version: 1,
+        withheldPassages: 1,
+      });
+    },
+  );
+
+  it("shows a locator-shaped source title only when no passages were withheld", () => {
+    expect(publicSourceTitle("www.example.test/full-recording", 2)).toBe(
+      "Transcript source",
+    );
+    expect(publicSourceTitle("www.example.test/full-recording", null)).toBe(
+      "Transcript source",
+    );
+    expect(publicSourceTitle("www.example.test/full-recording", 0)).toBe(
+      "www.example.test/full-recording",
+    );
+    expect(publicSourceTitle("Sprint v1.2 review", 2)).toBe(
+      "Sprint v1.2 review",
+    );
   });
 
   it("withholds manual transcript passages and removes every source link", async () => {

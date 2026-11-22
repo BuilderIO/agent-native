@@ -24,6 +24,7 @@ import {
 const MAX_MARKDOWN_FILES = 100;
 const MAX_MARKDOWN_FILE_CHARS = 250_000;
 const MAX_MARKDOWN_BATCH_CHARS = 4_000_000;
+const BATCH_SCREENING_BUDGET_MS = 90_000;
 
 type ImportedMarkdownResult =
   | {
@@ -180,8 +181,19 @@ export default defineAction({
     }
 
     const importedResults: ImportedMarkdownResult[] = [];
+    const batchStartedAt = Date.now();
     for (const file of validFiles) {
       const normalizedPath = file.normalizedPath;
+      if (Date.now() - batchStartedAt > BATCH_SCREENING_BUDGET_MS) {
+        importedResults.push({
+          path: normalizedPath,
+          status: "failed",
+          error:
+            "This request ran out of screening time before reaching this file. Import it again in a smaller batch.",
+          errorCode: "batch_time_budget",
+        });
+        continue;
+      }
       try {
         const { capture, postCommitWarnings } = await createCaptureWithWarnings(
           {
