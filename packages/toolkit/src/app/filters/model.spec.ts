@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   activeFilterRuleCount,
@@ -855,6 +855,42 @@ describe("date ranges and times", () => {
     );
   });
 
+  it("reads a row's time without an offset in the caller's zone, as its rules", () => {
+    const after = createFilterRule(timedField, ["2026-10-22T09:00"], "after");
+    expect(matches("2026-10-22T08:30", after, "America/New_York")).toBe(false);
+    expect(matches("2026-10-22T09:30", after, "America/New_York")).toBe(true);
+  });
+
+  it("resolves a rule's bounds once, not for every row", () => {
+    const state = addFilterRule(
+      createFilterState(timedFields),
+      createFilterRule(
+        timedField,
+        ["2026-10-01T09:00", "2026-10-31T17:00"],
+        "between",
+      ),
+    );
+    const rows = Array.from({ length: 50 }, (_, index) => ({
+      ...clip,
+      created: `2026-10-${String((index % 28) + 1).padStart(2, "0")}T12:00:00Z`,
+    }));
+    const formatToParts = vi.spyOn(
+      Intl.DateTimeFormat.prototype,
+      "formatToParts",
+    );
+    try {
+      for (const row of rows) {
+        matchesFilter(row, state, timedFields, {
+          today,
+          timeZone: "America/New_York",
+        });
+      }
+      expect(formatToParts.mock.calls.length).toBeLessThan(rows.length * 2);
+    } finally {
+      formatToParts.mockRestore();
+    }
+  });
+
   it("reads a skipped time forward and a repeated time as the first", () => {
     expect(filterDateInstant("2026-03-08T02:30", "America/New_York")).toBe(
       Date.UTC(2026, 2, 8, 7, 30),
@@ -888,9 +924,8 @@ describe("date ranges and times", () => {
     expect(
       matches("2026-10-22T09:00:00+05", at("2026-10-22T09:00:00+05")),
     ).toBe(true);
-    expect(
-      matches("2026-10-22t09:00", at("2026-10-22T09:00Z"), "America/New_York"),
-    ).toBe(true);
+    // oracle-change: a row's time without an offset is now read in the caller's zone, as Content's server reads it, so this syntax check runs in UTC; the caller's-zone test above covers the zone
+    expect(matches("2026-10-22t09:00", at("2026-10-22T09:00Z"))).toBe(true);
     expect(matches("2026-10-22 09:00", at("2026-10-22T09:00Z"))).toBe(true);
   });
 
