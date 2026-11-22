@@ -1544,11 +1544,6 @@ export function CommentsSidebar({
       ),
     [threadSuggestions],
   );
-  // A suggestion the page can't draw, because its text is gone or it changes
-  // a block with no text to mark, such as a divider, still waits on a
-  // decision, so like a comment whose text is gone it stays in the margin,
-  // under "Highlight unavailable". Under a Property, only its own threads
-  // show: a suggested edit to the Page's text isn't about it.
   const inlineSuggestions = useMemo(
     () =>
       underSubject

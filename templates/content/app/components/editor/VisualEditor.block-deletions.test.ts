@@ -17,10 +17,6 @@ import {
   suggestionHighlightSpec,
 } from "./VisualEditor";
 
-// One of each block Suggesting mode lets a person change. A saved suggestion
-// that removes or replaces one must still be reviewable: its card reads what
-// it changes, and the page marks it where it can. One the page can't mark
-// stays in the margin under "Highlight unavailable" (CommentsSidebar).
 const page = [
   "Opening words.",
   "# A heading",
@@ -44,10 +40,11 @@ afterEach(() => {
 });
 
 function review(before: string, after: string) {
-  editor = new Editor({
+  const instance = new Editor({
     extensions: createVisualEditorExtensions(),
     content: nfmToDoc(before),
   });
+  editor = instance;
   const suggestions = markdownSuggestionOperations(before, after).map(
     (operation, index) => ({
       id: `suggestion-${index}`,
@@ -59,13 +56,11 @@ function review(before: string, after: string) {
     suggestionPresentations(suggestion, before),
   );
   const specs = presentations.map((presentation) =>
-    suggestionHighlightSpec(editor!.state.doc, presentation),
+    suggestionHighlightSpec(instance.state.doc, presentation),
   );
-  setSuggestionHighlights(editor.view, {
+  setSuggestionHighlights(instance.view, {
     specs: specs.filter((spec) => spec !== null),
   });
-  // What each card shows, read the way its card reads it: each side of the
-  // edit against the Page it came from.
   const previews = suggestions.flatMap(({ operations: [operation] }) => {
     const sides = operation as unknown as {
       kind: string;
@@ -107,7 +102,7 @@ function review(before: string, after: string) {
     previews,
     drawn: [
       ...new Set(
-        [...editor.view.dom.querySelectorAll("[data-suggestion-id]")].map(
+        [...instance.view.dom.querySelectorAll("[data-suggestion-id]")].map(
           (node) => node.getAttribute("data-suggestion-id"),
         ),
       ),
@@ -117,34 +112,39 @@ function review(before: string, after: string) {
 
 describe("saved suggestions to whole blocks", () => {
   const before = docToNfm(nfmToDoc(page));
-  const blocks = nfmToDoc(before).content ?? [];
-  // A block with no text of its own, or text beside one, has no text position
-  // the page can mark yet.
-  const markedInText = (index: number) =>
-    !["codeBlock", "horizontalRule"].includes(blocks[index]!.type) &&
+  const blocks = nfmToDoc(before).content;
+  const cases = blocks.map((block, index) => [block.type, index] as const);
+  const markedInText = ([type, index]: (typeof cases)[number]) =>
+    type !== "codeBlock" &&
+    type !== "horizontalRule" &&
     blocks[index - 1]?.type !== "horizontalRule";
+  const withoutBlock = (index: number) =>
+    docToNfm({
+      type: "doc",
+      content: blocks.filter((_, other) => other !== index),
+    });
 
   it("covers every top-level block Suggesting mode can change", () => {
     const covered = new Set(blocks.map((block) => block.type));
     for (const type of SUPPORTED_SUGGESTION_BLOCKS) {
       if (type === "listItem" || type === "taskItem") continue;
-      expect(covered, type).toContain(type);
+      expect([...covered]).toContain(type);
     }
   });
 
-  it.each(blocks.map((block, index) => [block.type, index] as const))(
-    "shows a saved deletion of a %s",
+  it.each(cases)("shows a saved deletion of a %s", (_type, index) => {
+    const result = review(before, withoutBlock(index));
+    expect(result.ids.length).toBeGreaterThan(0);
+    expect(result.presented).toEqual(result.ids);
+    expect(result.previews.length).toBeGreaterThan(0);
+    expect(result.previews).not.toContain(null);
+  });
+
+  it.each(cases.filter(markedInText))(
+    "draws a saved deletion of a %s",
     (_type, index) => {
-      const after = docToNfm({
-        type: "doc",
-        content: blocks.filter((_, other) => other !== index),
-      });
-      const result = review(before, after);
-      expect(result.ids.length).toBeGreaterThan(0);
-      expect(result.presented).toEqual(result.ids);
-      expect(result.previews.length).toBeGreaterThan(0);
-      expect(result.previews).not.toContain(null);
-      if (markedInText(index)) expect(result.drawn).toEqual(result.ids);
+      const result = review(before, withoutBlock(index));
+      expect(result.drawn).toEqual(result.ids);
     },
   );
 

@@ -182,12 +182,10 @@ describe("formatting source ranges", () => {
       { type: "block", text: "```" },
       { type: "break", text: "↵" },
     ]);
-    // Part of a divider or a fence isn't a whole line of syntax.
     expect(suggestionFormattingSourceSlice(source, from, from + 2)).toBeNull();
   });
 
   it("slices a tilde fence whose language holds a backtick", () => {
-    // Only a tilde fence can carry such a language, so the page writes one.
     const source = docToNfm(
       nfmToDoc(L("Before", "~~~a`b", "code line", "~~~", "After")),
     );

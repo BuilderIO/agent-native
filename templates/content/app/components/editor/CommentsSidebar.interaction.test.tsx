@@ -786,9 +786,6 @@ describe("comment review interactions", () => {
     },
   );
   it("keeps a pending suggestion the page can't draw in the margin, labeled", () => {
-    // Deleting a divider saves a suggestion with no text on the page to mark.
-    // It still waits on a decision, so the margin keeps its card, like a
-    // comment whose text is gone.
     render(null, [], "inline", {
       suggestions: [
         { ...proposalSuggestion("drawn"), proposalId: "drawn" },

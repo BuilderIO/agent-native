@@ -287,7 +287,6 @@ describe("comment tabs", () => {
       ],
       suggestions: [
         suggestion("single"),
-        // The page can't draw this one.
         suggestion("unplaced"),
         suggestion("accepted", { status: "accepted" }),
         suggestion("member-1", { proposalId: "proposal" }),
@@ -308,8 +307,6 @@ describe("comment tabs", () => {
         { operations: [notesOperation()] },
       ],
     });
-    // Two threads, two suggestions, one proposal, one draft. A suggestion the
-    // page can't draw still shows in the margin, so it counts.
     expect(counts.get(null)).toBe(6);
     // A thread, a suggestion, and a draft.
     expect(counts.get("notes")).toBe(3);

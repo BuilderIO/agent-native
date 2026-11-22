@@ -148,12 +148,6 @@ export function showsCommentTabs(
 
 export type BlockFieldOpenCounts = ReadonlyMap<string | null, number>;
 
-/**
- * Open review per tab, as the margin shows it: unresolved threads, pending
- * suggestions (a proposal of several edits counts once) and unsaved draft
- * suggestions, each in the tab it edits. Property threads and comments on the
- * whole page belong to no tab.
- */
 export function openReviewCountsByField({
   threads,
   suggestions,

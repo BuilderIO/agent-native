@@ -9469,8 +9469,6 @@ function PageEditorSessionBody({
       (thread) => !thread.resolved && !isPageCommentThread(thread),
     ) ??
       false);
-  // A suggestion the page can't draw still shows in the margin, under
-  // "Highlight unavailable", so it holds the margin open like any other.
   const hasOpenSuggestions =
     presentedSuggestions.some(
       (suggestion) => suggestion.status === "pending",
