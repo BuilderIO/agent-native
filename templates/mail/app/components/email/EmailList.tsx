@@ -1441,10 +1441,30 @@ export function EmailList({
     setSelectedIds,
   ]);
 
+  const focusAfterRemoving = useCallback(
+    (threadKeys: string[]) => {
+      const removed = new Set(threadKeys);
+      const lastIdx = threads.findIndex(
+        (t) =>
+          (t.latestMessage.threadId || t.latestMessage.id) ===
+          threadKeys[threadKeys.length - 1],
+      );
+      const remaining = threads.filter(
+        (t) => !removed.has(t.latestMessage.threadId || t.latestMessage.id),
+      );
+      const nextThread =
+        remaining.length > 0
+          ? remaining[Math.min(lastIdx, remaining.length - 1)]
+          : undefined;
+      setFocusedId(nextThread ? nextThread.latestMessage.id : null);
+      return nextThread;
+    },
+    [threads, setFocusedId],
+  );
+
   const archiveThreadKeys = useCallback(
     (threadKeys: string[]) => {
       if (threadKeys.length === 0) return;
-      const actionKeySet = new Set(threadKeys);
 
       const targets = threadKeys
         .map((key) =>
@@ -1460,26 +1480,13 @@ export function EmailList({
         threadId: t.latestMessage.threadId || t.latestMessage.id,
       }));
 
-      const lastIdx = threads.findIndex(
-        (t) =>
-          (t.latestMessage.threadId || t.latestMessage.id) ===
-          threadKeys[threadKeys.length - 1],
-      );
-      const remaining = threads.filter(
-        (t) =>
-          !actionKeySet.has(t.latestMessage.threadId || t.latestMessage.id),
-      );
-      if (remaining.length > 0) {
-        const nextIdx = Math.min(lastIdx, remaining.length - 1);
-        const nextThread = remaining[nextIdx];
-        setFocusedId(nextThread.latestMessage.id);
+      const nextThread = focusAfterRemoving(threadKeys);
+      if (nextThread) {
         const nextTid =
           nextThread.latestMessage.threadId || nextThread.latestMessage.id;
         void ensureThread(nextTid, nextThread.latestMessage.accountEmail).catch(
           () => {},
         );
-      } else {
-        setFocusedId(null);
       }
 
       const snapshots: EmailMessage[] = [];
@@ -1597,7 +1604,7 @@ export function EmailList({
       unarchiveEmail,
       onArchived,
       labelParam,
-      setFocusedId,
+      focusAfterRemoving,
       setSelectedIds,
       queryClient,
     ],
@@ -1610,7 +1617,6 @@ export function EmailList({
   const trashThreadKeys = useCallback(
     (threadKeys: string[]) => {
       if (threadKeys.length === 0) return;
-      const actionKeySet = new Set(threadKeys);
 
       const targets = threadKeys
         .map((key) =>
@@ -1625,21 +1631,7 @@ export function EmailList({
         threadId: t.latestMessage.threadId || t.latestMessage.id,
       }));
 
-      const lastIdx = threads.findIndex(
-        (t) =>
-          (t.latestMessage.threadId || t.latestMessage.id) ===
-          threadKeys[threadKeys.length - 1],
-      );
-      const remaining = threads.filter(
-        (t) =>
-          !actionKeySet.has(t.latestMessage.threadId || t.latestMessage.id),
-      );
-      if (remaining.length > 0) {
-        const nextIdx = Math.min(lastIdx, remaining.length - 1);
-        setFocusedId(remaining[nextIdx].latestMessage.id);
-      } else {
-        setFocusedId(null);
-      }
+      focusAfterRemoving(threadKeys);
 
       const snapshots: EmailMessage[] = [];
       for (const key of threadKeys) {
@@ -1745,7 +1737,7 @@ export function EmailList({
       trashEmail,
       bulkTrashEmails,
       untrashEmail,
-      setFocusedId,
+      focusAfterRemoving,
       setSelectedIds,
       queryClient,
     ],
@@ -1912,14 +1904,22 @@ export function EmailList({
 
   const labelFocused = useCallback(
     (action: LabelPickerAction, choice: LabelChoice) => {
-      const targets = resolveTargets(getActionThreadKeys()).map(
+      const keys = getActionThreadKeys();
+      const targets = resolveTargets(keys).map(
         (target) => target.latestMessage,
       );
       if (targets.length === 0) return;
+      if (action === "move") focusAfterRemoving(keys);
       setSelectedIds(new Set());
       void applyLabel(action, choice, targets);
     },
-    [applyLabel, getActionThreadKeys, resolveTargets, setSelectedIds],
+    [
+      applyLabel,
+      focusAfterRemoving,
+      getActionThreadKeys,
+      resolveTargets,
+      setSelectedIds,
+    ],
   );
 
   const getThreadMessagesForKey = useCallback(
