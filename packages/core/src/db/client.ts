@@ -1123,16 +1123,19 @@ async function withTransactionStatementTimeout<T>(
     afterFirstSetupMs > 1 &&
     installed > postgresStatementTimeoutMs(afterFirstSetupMs)
   ) {
+    const serverCap = postgresStatementTimeoutMs(afterFirstSetupMs);
     installed = Math.min(
       installed,
-      postgresStatementTimeoutMs(afterFirstSetupMs) - firstSetupElapsedMs,
+      serverCap,
+      Math.max(
+        Math.floor(afterFirstSetupMs / 2),
+        serverCap - firstSetupElapsedMs,
+      ),
     );
-    if (installed > 0) {
-      await runSetting(
-        { sql: SET_STATEMENT_TIMEOUT_SQL, args: [`${installed}ms`] },
-        afterFirstSetupMs,
-      );
-    }
+    await runSetting(
+      { sql: SET_STATEMENT_TIMEOUT_SQL, args: [`${installed}ms`] },
+      afterFirstSetupMs,
+    );
   }
   const remaining = remainingMs();
   if (

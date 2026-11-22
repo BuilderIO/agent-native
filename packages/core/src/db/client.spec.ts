@@ -2528,10 +2528,14 @@ describe("db/client postgres-js request pool recovery", () => {
     { previousMs: 3_450, firstRtt: 300, secondRtt: 0, succeeds: true },
     { previousMs: 2_000, firstRtt: 300, secondRtt: 0, succeeds: true },
     { previousMs: 0, firstRtt: 1_875, secondRtt: 0, succeeds: true },
-    { previousMs: 0, firstRtt: 1_900, secondRtt: 0, succeeds: false },
-    { previousMs: 0, firstRtt: 2_100, secondRtt: 300, succeeds: false },
-    { previousMs: 3_725, firstRtt: 2_100, secondRtt: 0, succeeds: false },
+    { previousMs: 0, firstRtt: 1_894, secondRtt: 0, succeeds: true },
+    { previousMs: 0, firstRtt: 1_900, secondRtt: 0, succeeds: true },
+    { previousMs: 0, firstRtt: 2_100, secondRtt: 0, succeeds: true },
+    { previousMs: 0, firstRtt: 2_100, secondRtt: 300, succeeds: true },
+    { previousMs: 3_725, firstRtt: 2_100, secondRtt: 0, succeeds: true },
     { previousMs: 1_000, firstRtt: 2_100, secondRtt: 0, succeeds: true },
+    { previousMs: 0, firstRtt: 2_100, secondRtt: 850, succeeds: false },
+    { previousMs: 3_725, firstRtt: 2_100, secondRtt: 850, succeeds: false },
     { previousMs: 0, firstRtt: 300, secondRtt: 301, succeeds: false },
     { previousMs: 0, firstRtt: 300, secondRtt: 549, succeeds: false },
     { previousMs: 0, firstRtt: 300, secondRtt: 1_000, succeeds: false },
@@ -2641,11 +2645,19 @@ describe("db/client postgres-js request pool recovery", () => {
           expect(statementCap).toBe(3_150);
         }
         if (previousMs === 3_450) expect(setupCaps).toEqual([3_450]);
-        if (firstRtt === 1_875) expect(statementCap).toBe(38);
+        if (firstRtt === 1_875) expect(statementCap).toBe(1_062);
+        if (firstRtt === 1_894) {
+          expect(statementRemaining).toBe(2_106);
+          expect(statementCap).toBe(1_053);
+        }
+        if (firstRtt === 2_100 && secondRtt === 0 && previousMs !== 1_000) {
+          expect(statementRemaining).toBe(1_900);
+          expect(statementCap).toBe(950);
+        }
       } else {
         expect(statementCap).toBeUndefined();
-        if (firstRtt === 1_900 || firstRtt === 2_100) {
-          expect(setupCaps).toEqual([previousMs > 0 ? previousMs : 3_750]);
+        if (firstRtt === 2_100 && secondRtt === 850) {
+          expect(setupCaps.at(-1)).toBe(950);
         }
       }
       expect(txSql.unsafe).toHaveBeenCalledWith("SELECT 2", []);
