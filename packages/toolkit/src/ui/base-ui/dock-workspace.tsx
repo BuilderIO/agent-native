@@ -195,21 +195,25 @@ function dropTarget(
   let header = el?.closest<HTMLElement>("[data-dock-tab]");
   const rtl = getComputedStyle(group).direction === "rtl";
   const rail = el?.closest<HTMLElement>('[role="tablist"]');
-  if (
-    !header &&
-    rail?.parentElement === group &&
-    rail.scrollWidth > rail.clientWidth
-  ) {
-    const first = rail.querySelector<HTMLElement>(
-      "[data-dock-tab]:first-of-type",
-    );
-    const last = rail.querySelector<HTMLElement>(
-      "[data-dock-tab]:last-of-type",
-    );
-    const start = first?.getBoundingClientRect(),
-      end = last?.getBoundingClientRect();
-    if (start && (rtl ? x >= start.right : x <= start.left)) header = first;
-    else if (end && (rtl ? x <= end.left : x >= end.right)) header = last;
+  if (!header && rail?.parentElement === group) {
+    const tabs = rail.getElementsByTagName("button");
+    let low = 0;
+    let high = tabs.length - 1;
+    let nearest = Infinity;
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      const tab = tabs.item(middle);
+      if (!tab) break;
+      const bounds = tab.getBoundingClientRect();
+      const distance = Math.max(bounds.left - x, x - bounds.right, 0);
+      if (distance < nearest) {
+        nearest = distance;
+        header = tab;
+      }
+      if (distance === 0) break;
+      if (x < bounds.left !== rtl) high = middle - 1;
+      else low = middle + 1;
+    }
   }
   if (header?.dataset.dockTab !== undefined) {
     const rect = header.getBoundingClientRect();
@@ -422,9 +426,11 @@ export function DockWorkspace({
   const menuMovedTab = React.useRef(false);
   const suppressClick = React.useRef(false);
   const preview = React.useRef<DropTarget | null>(null);
+  const paintedPoint = React.useRef<{ x: number; y: number } | null>(null);
   function showPreview(next: DropTarget | null) {
     const previous = preview.current;
     if (
+      previous?.tab === next?.tab &&
       previous?.element === next?.element &&
       previous?.position === next?.position
     )
@@ -464,14 +470,7 @@ export function DockWorkspace({
     }
     return map;
   }, [groups]);
-  function pointerTarget(
-    root: HTMLElement,
-    element: Element | null,
-    tab: string,
-    x: number,
-    y: number,
-  ) {
-    const hit = dropTarget(root, element, x, y);
+  function allowedTarget(tab: string, hit: DropTarget | null) {
     if (!hit) return null;
     const source = panelLeaves.get(tab),
       destination = panelLeaves.get(hit.tab);
@@ -490,6 +489,7 @@ export function DockWorkspace({
       );
     pendingFrame.current = null;
     drag.current = null;
+    paintedPoint.current = null;
     showPreview(null);
   }
   function cancelPointer(event: React.PointerEvent) {
@@ -790,8 +790,7 @@ export function DockWorkspace({
           const paint = (time: number) => {
             pendingFrame.current = null;
             if (drag.current !== d) return;
-            const hit = scope.elementFromPoint(d.x, d.y);
-            showPreview(pointerTarget(el, hit, d.tab, d.x, d.y));
+            let hit = scope.elementFromPoint(d.x, d.y);
             if (
               scrollDockRail(
                 el,
@@ -800,9 +799,12 @@ export function DockWorkspace({
                 Math.min(32, Math.max(0, time - lastFrame)),
               )
             ) {
+              hit = scope.elementFromPoint(d.x, d.y);
               lastFrame = time;
               pendingFrame.current = win.requestAnimationFrame(paint);
             }
+            paintedPoint.current = { x: d.x, y: d.y };
+            showPreview(allowedTarget(d.tab, dropTarget(el, hit, d.x, d.y)));
           };
           pendingFrame.current = win.requestAnimationFrame(paint);
         }}
@@ -812,20 +814,44 @@ export function DockWorkspace({
           if (!d || d.id !== e.pointerId) return;
           if (d.moved) {
             suppressClick.current = true;
-            const t = pointerTarget(
+            const scope = e.currentTarget.getRootNode() as
+              | Document
+              | ShadowRoot;
+            const release = scope.elementFromPoint(e.clientX, e.clientY);
+            const current = dropTarget(
               e.currentTarget,
-              (
-                e.currentTarget.getRootNode() as Document | ShadowRoot
-              ).elementFromPoint(e.clientX, e.clientY),
-              d.tab,
+              release,
               e.clientX,
               e.clientY,
             );
-            if (t)
+            const shown = preview.current;
+            const point = paintedPoint.current;
+            let target = current;
+            if (
+              point &&
+              shown &&
+              current?.element === shown.element &&
+              current.tab === shown.tab
+            ) {
+              const previous = dropTarget(
+                e.currentTarget,
+                scope.elementFromPoint(point.x, point.y),
+                point.x,
+                point.y,
+              );
+              if (
+                previous?.element === shown.element &&
+                previous.tab === shown.tab &&
+                previous.position === shown.position
+              )
+                target = shown;
+            }
+            const accepted = allowedTarget(d.tab, target);
+            if (accepted)
               move(d.tab, {
-                tab: t.tab,
-                position: t.position,
-                size: splitSize(t.element, t.position),
+                tab: accepted.tab,
+                position: accepted.position,
+                size: splitSize(accepted.element, accepted.position),
               });
           }
           cancel();

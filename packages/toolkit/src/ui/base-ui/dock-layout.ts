@@ -187,7 +187,6 @@ export function canPlaceDockTab(
   if (destination.type === "surface") return false;
   if (source !== destination) return true;
   if (tab === target) return false;
-  if (tab !== source.active) return true;
   const index = source.tabs.indexOf(tab);
   if (position === "center") return index !== source.tabs.length - 1;
   return (

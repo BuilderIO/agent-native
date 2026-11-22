@@ -287,24 +287,38 @@
       inset-inline: calc(-1 * var(--_shoulder));
       bottom: 0;
       height: var(--_shoulder);
+      color: var(--_tab-surface);
       background:
         radial-gradient(
             circle var(--_shoulder) at top left,
             transparent calc(100% - 0.5px),
-            var(--_tab-surface) calc(100% + 0.5px)
+            currentColor calc(100% + 0.5px)
           )
           left bottom / var(--_shoulder) 100% no-repeat,
         radial-gradient(
             circle var(--_shoulder) at top right,
             transparent calc(100% - 0.5px),
-            var(--_tab-surface) calc(100% + 0.5px)
+            currentColor calc(100% + 0.5px)
           )
           right bottom / var(--_shoulder) 100% no-repeat;
     }
 
     @media (hover: hover) {
+      > .tabs-list > .tabs-tab:not([data-active]) {
+        transition-property: color, background-color;
+      }
+
+      > .tabs-list > .tabs-tab:not([data-active])::after {
+        transition: color var(--duration-2) var(--ease-standard);
+      }
+
       > .tabs-list > .tabs-tab:not([data-active], [data-disabled]):hover {
         --_tab-surface: var(--fill-hover);
+      }
+
+      > .tabs-list
+        > .tabs-tab:not([data-active], [data-disabled]):focus-visible:hover {
+        --_tab-surface: var(--accent-a3);
       }
     }
 

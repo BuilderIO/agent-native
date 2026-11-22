@@ -247,3 +247,165 @@ it("returns focus to Arrange when the host declines a move and ignores unrelated
   rerender(view({ ...group }));
   expect(document.activeElement).toBe(input);
 });
+
+function dockPointerFixture() {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(540);
+  const host = document.body.appendChild(document.createElement("div"));
+  const shadow = host.attachShadow({ mode: "open" });
+  const container = shadow.appendChild(document.createElement("div"));
+  const request = vi.fn<(layout: DockLayout) => void>();
+  const layout: DockLayout = {
+    type: "split",
+    id: "split",
+    axis: "inline",
+    side: "end",
+    size: 240,
+    first: {
+      type: "group",
+      id: "left",
+      tabs: ["Layers", "Assets"],
+      active: "Layers",
+    },
+    second: {
+      type: "group",
+      id: "right",
+      tabs: ["Inspector"],
+      active: "Inspector",
+    },
+  };
+  const panels = ["Layers", "Assets", "Inspector"].map((id) => ({
+    id,
+    label: id,
+    content: id,
+  }));
+  const view = render(
+    <DockWorkspace
+      label="Tools"
+      panels={panels}
+      layout={layout}
+      onLayoutChange={request}
+    />,
+    { container, baseElement: container },
+  );
+  const tab = (name: string) => view.getByRole("tab", { name });
+  const rail = (name: string) => view.getByRole("tablist", { name });
+  const rect = (element: Element, x: number, width: number) =>
+    vi
+      .spyOn(element, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(x, 0, width, 24));
+  const layers = tab("Layers"),
+    assets = tab("Assets"),
+    inspector = tab("Inspector");
+  const leftRail = rail("Layers, Assets"),
+    rightRail = rail("Inspector");
+  rect(layers, 4, 60);
+  rect(assets, 64, 60);
+  const inspectorBounds = rect(inspector, 304, 80);
+  rect(leftRail, 0, 290);
+  rect(rightRail, 300, 230);
+  Object.assign(shadow, {
+    elementFromPoint(x: number) {
+      for (const element of [layers, assets, inspector, leftRail, rightRail]) {
+        const bounds = element.getBoundingClientRect();
+        if (x >= bounds.left && x < bounds.right) return element;
+      }
+      return null;
+    },
+  });
+  function gesture(source: HTMLElement, start: number) {
+    Object.assign(source, {
+      setPointerCapture: vi.fn<(pointerId: number) => void>(),
+    });
+    const pointer = {
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      button: 0,
+      clientY: 12,
+    };
+    fireEvent.pointerDown(source, { ...pointer, clientX: start });
+    return {
+      move: (x: number) =>
+        fireEvent.pointerMove(source, { ...pointer, buttons: 1, clientX: x }),
+      release: (x: number) =>
+        fireEvent.pointerUp(source, { ...pointer, clientX: x }),
+    };
+  }
+  return {
+    layers,
+    assets,
+    inspector,
+    inspectorBounds,
+    gesture,
+    request,
+    layout,
+    close() {
+      view.unmount();
+      host.remove();
+    },
+  };
+}
+
+it("inserts Assets before Layers from the rail gutter before the first preview frame", () => {
+  const dock = dockPointerFixture();
+  try {
+    const pointer = dock.gesture(dock.assets, 90);
+    pointer.move(3);
+    pointer.release(3);
+    expect(dock.request).toHaveBeenLastCalledWith({
+      ...dock.layout,
+      first: {
+        type: "group",
+        id: "left",
+        tabs: ["Assets", "Layers"],
+        active: "Assets",
+      },
+    });
+  } finally {
+    dock.close();
+  }
+});
+
+it.each([
+  { geometry: "stable", left: 304, width: 80, tabs: ["Layers", "Inspector"] },
+  { geometry: "resized", left: 240, width: 132, tabs: ["Inspector", "Layers"] },
+])(
+  "resolves Layers beside Inspector against a $geometry tab after the pointer crosses its midpoint",
+  async ({ left, width, tabs }) => {
+    const dock = dockPointerFixture();
+    try {
+      const pointer = dock.gesture(dock.layers, 32);
+      pointer.move(343);
+      await waitFor(() =>
+        expect(dock.inspector.getAttribute("data-dock-insert")).toBe("before"),
+      );
+      dock.inspectorBounds.mockReturnValue(new DOMRect(left, 0, width, 24));
+      pointer.move(345);
+      pointer.release(345);
+      expect(dock.request).toHaveBeenLastCalledWith({
+        ...dock.layout,
+        first: {
+          type: "group",
+          id: "left",
+          tabs: ["Assets"],
+          active: "Assets",
+        },
+        second: {
+          type: "group",
+          id: "right",
+          tabs,
+          active: "Layers",
+        },
+      });
+    } finally {
+      dock.close();
+    }
+  },
+);
