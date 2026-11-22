@@ -21,6 +21,7 @@ vi.mock("drizzle-orm", () => ({
   sql: (...args: unknown[]) => args,
 }));
 vi.mock("../server/lib/recording-comment-mirror.js", () => ({
+  lockRecordingCommentThreads: async () => {},
   prepareRecordingCommentMirror: async () => {},
 }));
 vi.mock("../server/lib/recording-comments.js", () => ({

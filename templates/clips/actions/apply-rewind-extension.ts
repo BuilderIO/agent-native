@@ -11,7 +11,10 @@ import { isPrivateClip } from "../app/lib/rewind-visibility.js";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
-import { prepareRecordingCommentMirror } from "../server/lib/recording-comment-mirror.js";
+import {
+  lockRecordingCommentThreads,
+  prepareRecordingCommentMirror,
+} from "../server/lib/recording-comment-mirror.js";
 import { shiftRecordingComments } from "../server/lib/recording-comments.js";
 import {
   getCurrentOwnerEmail,
@@ -366,6 +369,7 @@ export default defineAction({
 
         const outcome = await db
           .transaction(async (tx) => {
+            await lockRecordingCommentThreads(args.recordingId);
             const claimed = await tx
               .update(schema.recordings)
               .set({ trashedAt: now, expiresAt: now, updatedAt: now })

@@ -273,6 +273,21 @@ describe("an app's own comment emails", () => {
     expect(send).toHaveBeenCalledWith(comment());
   });
 
+  it("sends the kit's emails for a resource that keeps no emails of its own", async () => {
+    mocks.getReviewableResource.mockReturnValue({
+      type: "design",
+      displayName: "design",
+    });
+
+    expect((await notifyReviewCommentWithReceipt(comment()))?.status).toBe(
+      "delivered",
+    );
+    expect(mocks.notifyActivity).toHaveBeenCalledTimes(1);
+    expect(mocks.markReviewCommentNotificationCompleted).toHaveBeenCalledWith(
+      "c1",
+    );
+  });
+
   it("calls the app once for a keyed comment, even when some emails failed", async () => {
     const failed = {
       status: "delivery-failed" as const,

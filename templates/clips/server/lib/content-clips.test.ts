@@ -1596,6 +1596,7 @@ describe("video comments through a doc", () => {
 
   describe("a comment sent again with its key", () => {
     const KEY = "0f5b3c1e-6a4d-4c2b-9e7f-1a2b3c4d5e6f";
+    const OTHER_KEY = "7c2e9a40-1b3d-4f5e-8a6b-2c4d6e8f0a1b";
     const keyed = (key = KEY) => ({ [CONTENT_CLIP_COMMENT_KEY_HEADER]: key });
     const add = { operation: "add", content: "Once", videoTimestampMs: 2_500 };
 
@@ -1663,6 +1664,50 @@ describe("video comments through a doc", () => {
       expect(other.body).toMatchObject({ code: CONTENT_CLIP_COMMENT_KEY_USED });
       expect(await idsStored()).toEqual([
         { id: "sent-before", author_email: READER },
+      ]);
+      expect(state.notified).toEqual([]);
+    });
+
+    it("compares a key sent before comments moved to the kit with the comment as it is now", async () => {
+      for (const [id, key] of [
+        ["edited-before", KEY],
+        ["not-copied", OTHER_KEY],
+      ] as const) {
+        await state.db.insert(schema.recordingComments).values({
+          id,
+          recordingId: "rec-upload",
+          organizationId: "clips-org",
+          threadId: id,
+          authorEmail: READER,
+          content: "Once",
+          videoTimestampMs: 2_500,
+          idempotencyKey: key,
+          createdAt: "2026-11-20T00:00:00.000Z",
+          updatedAt: "2026-11-20T00:00:00.000Z",
+        });
+      }
+      await seedComment("edited-before", {
+        authorEmail: READER,
+        content: "Edited since",
+        videoTimestampMs: 2_500,
+      });
+      const write = await token({ scope: SCOPES.comment });
+
+      const original = await writeComment("rec-upload", write, add, keyed());
+      expect(original.status).toBe(409);
+      expect(original.body).toMatchObject({
+        code: CONTENT_CLIP_COMMENT_KEY_USED,
+      });
+      const pending = await writeComment(
+        "rec-upload",
+        write,
+        add,
+        keyed(OTHER_KEY),
+      );
+      expect(pending.status).toBe(409);
+      expect(pending.body).toMatchObject({ code: "comment_not_ready" });
+      expect(await idsStored()).toEqual([
+        { id: "edited-before", author_email: READER },
       ]);
       expect(state.notified).toEqual([]);
     });

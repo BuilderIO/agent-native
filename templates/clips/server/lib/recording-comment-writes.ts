@@ -5,6 +5,7 @@ import {
   getReviewCommentById,
   ReviewCommentSubmissionConflictError,
   reviewCommentIdForClientOperation,
+  type ReviewComment,
   type ReviewNotificationResult,
 } from "@agent-native/core/review";
 import createReviewComment from "@agent-native/core/review/actions/create-review-comment";
@@ -13,10 +14,7 @@ import { getRequestUserName } from "@agent-native/core/server/request-context";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import {
-  parseCommentMentions,
-  type CommentMention,
-} from "../../shared/comment-mentions.js";
+import type { CommentMention } from "../../shared/comment-mentions.js";
 import {
   CONTENT_CLIP_COMMENT_KEY,
   CONTENT_CLIP_COMMENT_KEY_USED,
@@ -69,6 +67,8 @@ const KEY_USED =
   "That idempotencyKey was already used for a different comment; send a new key for a new comment.";
 const KEY_DELETED =
   "The comment saved with that idempotencyKey was deleted; send a new key for a new comment.";
+const KEY_NOT_READY =
+  "The comment saved with that idempotencyKey isn't ready yet; send it again with the same key in a minute.";
 
 interface KeyedComment {
   recordingId: string;
@@ -91,16 +91,11 @@ function refuseKey(message: string): never {
   fail(message, { statusCode: 409, errorCode: CONTENT_CLIP_COMMENT_KEY_USED });
 }
 
-async function savedWithKey(
-  clientOperationId: string,
+function replayed(
+  saved: ReviewComment,
   target: KeyedComment,
-): Promise<SavedRecordingComment | null> {
-  const saved = await getReviewCommentById(
-    reviewCommentIdForClientOperation(clientOperationId),
-    {},
-    { bypassScope: true },
-  );
-  if (!saved) return null;
+  mentions: readonly { email?: string | null }[],
+): SavedRecordingComment {
   if (saved.status === "deleted") refuseKey(KEY_DELETED);
   if (
     saved.resourceId !== target.recordingId ||
@@ -109,11 +104,7 @@ async function savedWithKey(
     (target.parentId === null &&
       commentVideoTimestampMs(saved.anchor) !== target.videoTimestampMs) ||
     saved.body !== target.content ||
-    sortedEmails(saved.mentions) !==
-      sortedEmails([
-        ...target.mentions,
-        ...extractReviewMentions(target.content),
-      ])
+    sortedEmails(saved.mentions) !== sortedEmails(mentions)
   ) {
     refuseKey(KEY_USED);
   }
@@ -126,6 +117,23 @@ async function savedWithKey(
   };
 }
 
+async function savedWithKey(
+  clientOperationId: string,
+  target: KeyedComment,
+): Promise<SavedRecordingComment | null> {
+  const saved = await getReviewCommentById(
+    reviewCommentIdForClientOperation(clientOperationId),
+    {},
+    { bypassScope: true },
+  );
+  return saved
+    ? replayed(saved, target, [
+        ...target.mentions,
+        ...extractReviewMentions(target.content),
+      ])
+    : null;
+}
+
 async function savedBeforeKit(
   authorEmail: string,
   idempotencyKey: string,
@@ -134,15 +142,7 @@ async function savedBeforeKit(
   const comments = schema.recordingComments;
   const saved = firstRow(
     await getDb()
-      .select({
-        id: comments.id,
-        recordingId: comments.recordingId,
-        threadId: comments.threadId,
-        parentId: comments.parentId,
-        videoTimestampMs: comments.videoTimestampMs,
-        content: comments.content,
-        mentionsJson: comments.mentionsJson,
-      })
+      .select({ id: comments.id })
       .from(comments)
       .where(
         and(
@@ -153,26 +153,11 @@ async function savedBeforeKit(
       .limit(1),
   );
   if (!saved) return null;
-  if (
-    saved.recordingId !== target.recordingId ||
-    saved.parentId !== target.parentId ||
-    (target.threadId !== null && saved.threadId !== target.threadId) ||
-    saved.videoTimestampMs !== target.videoTimestampMs ||
-    saved.content !== target.content ||
-    sortedEmails(parseCommentMentions(saved.mentionsJson)) !==
-      sortedEmails(target.mentions)
-  ) {
-    refuseKey(KEY_USED);
-  }
   const copy = await getReviewCommentById(saved.id, {}, { bypassScope: true });
-  if (!copy || copy.status === "deleted") refuseKey(KEY_DELETED);
-  return {
-    id: copy.id,
-    threadId: copy.threadId,
-    parentId: copy.parentCommentId,
-    repeated: true,
-    notified: null,
-  };
+  if (!copy) {
+    fail(KEY_NOT_READY, { statusCode: 409, errorCode: "comment_not_ready" });
+  }
+  return replayed(copy, target, target.mentions);
 }
 
 async function unlessKeyConflict<T>(

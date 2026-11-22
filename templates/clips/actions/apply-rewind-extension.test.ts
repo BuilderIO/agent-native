@@ -271,7 +271,13 @@ vi.mock("./make-recording-private-for-rewind.js", () => ({
   assertNoDirectRecordingShares: vi.fn(),
 }));
 const shifted = vi.hoisted(() => [] as unknown[][]);
+const locked = vi.hoisted(
+  () => [] as { recordingId: string; writesBefore: number }[],
+);
 vi.mock("../server/lib/recording-comment-mirror.js", () => ({
+  lockRecordingCommentThreads: async (recordingId: string) => {
+    locked.push({ recordingId, writesBefore: written.length });
+  },
   prepareRecordingCommentMirror: async () => {},
 }));
 vi.mock("../server/lib/recording-comments.js", () => ({
@@ -324,6 +330,7 @@ beforeEach(() => {
   stored.changedBeforeWrite = [];
   written.length = 0;
   shifted.length = 0;
+  locked.length = 0;
 });
 
 describe("apply-rewind-extension", () => {
@@ -331,6 +338,16 @@ describe("apply-rewind-extension", () => {
     await action.run(args);
     expect(JSON.parse(stored.chaptersJson)).toEqual([
       { startMs: 30_000, title: "Intro" },
+    ]);
+  });
+
+  it("locks the recording's comment threads before it claims the pre-roll", async () => {
+    await action.run(args);
+    expect(locked).toEqual([
+      {
+        recordingId: "rec_1",
+        writesBefore: written.findIndex((w) => "trashedAt" in w.patch),
+      },
     ]);
   });
 
