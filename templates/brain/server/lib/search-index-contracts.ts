@@ -37,6 +37,24 @@ export function readWithheldPassages(
   return receipt.success ? receipt.data.withheldPassages : null;
 }
 
+const OMISSION_MARKER_LINE = /(?:^|\n)[ \t]*\[…\][ \t]*(?:\r?\n|$)/;
+
+export function withOmissionReceipt(
+  metadataJson: string | null,
+  content: string | null | undefined,
+  kind: string,
+): string | null {
+  if (kind !== "transcript" || !content || !OMISSION_MARKER_LINE.test(content))
+    return metadataJson;
+  const metadata = parseCaptureMetadata(metadataJson);
+  if (metadata === null || readWithheldPassages(metadata) !== undefined)
+    return metadataJson;
+  return JSON.stringify({
+    ...metadata,
+    passageQuarantine: { version: 1, withheldPassages: null },
+  });
+}
+
 export function withheldPassageCount(
   metadata: Record<string, unknown> | null,
   provider: string,

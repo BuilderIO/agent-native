@@ -276,6 +276,13 @@ vi.mock("drizzle-orm", () => ({
 
 import { bindFixtureProvenance } from "../../test-utils/knowledge-provenance.js";
 import {
+  parseCaptureMetadata,
+  publicCaptureExternalId,
+  publicCaptureMetadata,
+  withheldPassageCount,
+  withOmissionReceipt,
+} from "./search-index-contracts.js";
+import {
   buildFederatedSearchCoverage,
   buildSnippet,
   citationEvidenceMatchesCapture,
@@ -1050,6 +1057,38 @@ describe("Brain semantic capture hits", () => {
     });
     expect(allowed.some((row) => row.id === "knowledge-freemium-current")).toBe(
       true,
+    );
+  });
+});
+
+describe("receipt-free transcripts with an omission marker", () => {
+  const metadataJson = JSON.stringify({
+    sourceUrl: "https://example.test/full",
+  });
+  const content = "Alex: hello\n[…]\nSam: wrapping up";
+
+  it("counts as partial with an unknown number of withheld passages", () => {
+    const receipted = withOmissionReceipt(metadataJson, content, "transcript");
+    const metadata = parseCaptureMetadata(receipted);
+    expect(withheldPassageCount(metadata, "manual", "transcript")).toBeNull();
+    expect(
+      publicCaptureExternalId("recording.md", metadata, "transcript"),
+    ).toBe(null);
+    expect(publicCaptureMetadata(metadata)).not.toHaveProperty("sourceUrl");
+  });
+
+  it("leaves complete transcripts, documents and existing receipts alone", () => {
+    expect(withOmissionReceipt(metadataJson, "Alex: hello", "transcript")).toBe(
+      metadataJson,
+    );
+    expect(withOmissionReceipt(metadataJson, content, "document")).toBe(
+      metadataJson,
+    );
+    const receipted = JSON.stringify({
+      passageQuarantine: { version: 1, withheldPassages: 2 },
+    });
+    expect(withOmissionReceipt(receipted, content, "transcript")).toBe(
+      receipted,
     );
   });
 });

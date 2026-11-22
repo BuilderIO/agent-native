@@ -14,6 +14,7 @@ import { enqueueCaptureDistillation } from "../server/lib/distillation-queue.js"
 import {
   parseCaptureMetadata,
   withheldPassageCount,
+  withOmissionReceipt,
 } from "../server/lib/search-index-contracts.js";
 import { documentImportFormat } from "../shared/document-import.js";
 import {
@@ -229,7 +230,13 @@ export default defineAction({
           }
         }
         const withheldPassages = withheldPassageCount(
-          parseCaptureMetadata(capture.metadataJson),
+          parseCaptureMetadata(
+            withOmissionReceipt(
+              capture.metadataJson,
+              capture.content,
+              capture.kind,
+            ),
+          ),
           source.provider,
           capture.kind,
         );

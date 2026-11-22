@@ -42,6 +42,7 @@ import { resolveMeetingMemberEmails } from "./meeting-audience.js";
 import {
   parseCaptureMetadata,
   publicCaptureMetadata,
+  withOmissionReceipt,
 } from "./search-index-contracts.js";
 import {
   ensureSlackPublicChannelMembership,
@@ -2026,7 +2027,13 @@ async function githubRefsFromLinkedSources(
     for (const capture of captures) {
       if (refsByKey.size >= options.refLimit) break;
       const metadata = publicCaptureMetadata(
-        parseCaptureMetadata(capture.metadataJson),
+        parseCaptureMetadata(
+          withOmissionReceipt(
+            capture.metadataJson,
+            capture.content,
+            "transcript",
+          ),
+        ),
       );
       const linkedFrom = {
         sourceId,

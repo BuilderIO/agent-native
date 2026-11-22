@@ -7,6 +7,7 @@ import { publicSourceTitle } from "../server/lib/capture-sanitization.js";
 import {
   parseCaptureMetadata,
   withheldPassageCount,
+  withOmissionReceipt,
 } from "../server/lib/search-index-contracts.js";
 import {
   redactSensitiveText,
@@ -42,7 +43,13 @@ export default defineAction({
     const capture = {
       ...serializeCapture(access.capture),
       withheldPassages: withheldPassageCount(
-        parseCaptureMetadata(access.capture.metadataJson),
+        parseCaptureMetadata(
+          withOmissionReceipt(
+            access.capture.metadataJson,
+            access.capture.content,
+            access.capture.kind,
+          ),
+        ),
         access.source.provider,
         access.capture.kind,
       ),

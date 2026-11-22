@@ -25,6 +25,7 @@ import {
   parseCaptureMetadata,
   publicCaptureMetadata,
   withheldPassageCount,
+  withOmissionReceipt,
 } from "./search-index-contracts.js";
 import { personalGoogleSourceFilter } from "./source-access.js";
 import { sourceAnswerPolicyFromConfig } from "./source-policy.js";
@@ -394,8 +395,16 @@ function firstCitation(evidenceJson: string) {
 
 const CAPTURE_CONTENT_LIMIT = 4000;
 
-function captureMetadata(metadataJson: string | null): Record<string, unknown> {
-  return publicCaptureMetadata(parseCaptureMetadata(metadataJson));
+function captureMetadata(row: {
+  metadataJson: string | null;
+  content?: string | null;
+  kind: string;
+}): Record<string, unknown> {
+  return publicCaptureMetadata(
+    parseCaptureMetadata(
+      withOmissionReceipt(row.metadataJson, row.content, row.kind),
+    ),
+  );
 }
 
 function captureLocation(metadata: Record<string, unknown>): string | null {
@@ -633,7 +642,7 @@ async function searchCaptureResults(
   return rows.flatMap((row) => {
     const source = sources.get(row.sourceId);
     if (!source) return [];
-    const metadata = captureMetadata(row.metadataJson);
+    const metadata = captureMetadata(row);
     const sourceUrl = sourceUrlFromMetadata(metadata);
     const snippet = redactSensitiveText(buildSnippet(row.content, terms));
     return [
@@ -676,7 +685,9 @@ async function searchCaptureResults(
         location: captureLocation(metadata),
         content: captureContent(row.content),
         withheldPassages: withheldPassageCount(
-          parseCaptureMetadata(row.metadataJson),
+          parseCaptureMetadata(
+            withOmissionReceipt(row.metadataJson, row.content, row.kind),
+          ),
           source.provider,
           row.kind,
         ),
@@ -878,7 +889,7 @@ export async function searchEverythingWithLanes(args: {
             const source = sources.get(artifact.sourceId);
             const detail = details.get(artifact.captureId);
             if (!source || !detail) return [];
-            const metadata = captureMetadata(detail.metadataJson);
+            const metadata = captureMetadata(detail);
             const sourceUrl = sourceUrlFromMetadata(metadata);
             const snippet = redactSensitiveText(
               buildSnippet(artifact.text, terms),
@@ -911,7 +922,13 @@ export async function searchEverythingWithLanes(args: {
                 location: captureLocation(metadata),
                 content: captureContent(detail.content),
                 withheldPassages: withheldPassageCount(
-                  parseCaptureMetadata(detail.metadataJson),
+                  parseCaptureMetadata(
+                    withOmissionReceipt(
+                      detail.metadataJson,
+                      detail.content,
+                      detail.kind,
+                    ),
+                  ),
                   source.provider,
                   detail.kind,
                 ),

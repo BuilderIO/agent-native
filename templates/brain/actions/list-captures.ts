@@ -13,6 +13,7 @@ import { publicSourceTitle } from "../server/lib/capture-sanitization.js";
 import {
   parseCaptureMetadata,
   publicCaptureExternalId,
+  withOmissionReceipt,
   withheldPassageCount,
 } from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
@@ -150,6 +151,7 @@ export default defineAction({
         status: schema.brainRawCaptures.status,
         capturedAt: schema.brainRawCaptures.capturedAt,
         metadataJson: schema.brainRawCaptures.metadataJson,
+        omissionMarker: sql<boolean>`${schema.brainRawCaptures.content} LIKE ${"%[…]%"}`,
         createdAt: schema.brainRawCaptures.createdAt,
         updatedAt: schema.brainRawCaptures.updatedAt,
         ...(args.includePreview
@@ -175,7 +177,11 @@ export default defineAction({
       captures: rows.flatMap((row) => {
         const source = sourceMap.get(row.sourceId);
         if (!source) return [];
-        const metadata = parseCaptureMetadata(row.metadataJson);
+        const metadata = parseCaptureMetadata(
+          row.omissionMarker
+            ? withOmissionReceipt(row.metadataJson, "[…]", row.kind)
+            : row.metadataJson,
+        );
         const withheldPassages = withheldPassageCount(
           metadata,
           source.provider,

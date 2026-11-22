@@ -23,6 +23,7 @@ import { enqueueCaptureInvalidation } from "../server/lib/ingest-queue.js";
 import {
   parseCaptureMetadata,
   publicCaptureExternalId,
+  withOmissionReceipt,
 } from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import type { BrainCaptureKind, BrainSourceProvider } from "../shared/types.js";
@@ -218,7 +219,13 @@ export default defineAction({
       const publicExternalId = publicCaptureExternalId(
         publicCaptureExternalId(
           row.capture.externalId,
-          parseCaptureMetadata(row.capture.metadataJson),
+          parseCaptureMetadata(
+            withOmissionReceipt(
+              row.capture.metadataJson,
+              row.capture.content,
+              row.capture.kind,
+            ),
+          ),
           row.capture.kind,
         ),
         sanitized.metadata,

@@ -100,6 +100,7 @@ import {
   parseCaptureMetadata,
   publicCaptureExternalId,
   publicCaptureMetadata,
+  withOmissionReceipt,
   readWithheldPassages,
   type BrainAudienceAssignment,
   type BrainSensitivityDecision,
@@ -507,14 +508,20 @@ export function serializeCapture(
     sourceId: row.sourceId,
     externalId: publicCaptureExternalId(
       row.externalId,
-      parseCaptureMetadata(row.metadataJson),
+      parseCaptureMetadata(
+        withOmissionReceipt(row.metadataJson, row.content, row.kind),
+      ),
       row.kind,
     ),
     title: row.title,
     kind: row.kind as BrainCaptureKind,
     content: row.content,
     contentHash: row.contentHash,
-    metadata: publicCaptureMetadata(parseCaptureMetadata(row.metadataJson)),
+    metadata: publicCaptureMetadata(
+      parseCaptureMetadata(
+        withOmissionReceipt(row.metadataJson, row.content, row.kind),
+      ),
+    ),
     capturedAt: row.capturedAt,
     importedBy: row.importedBy,
     status: row.status,
@@ -2073,8 +2080,9 @@ export async function expireSensitivityQuarantines(at = nowIso()) {
   for (const row of rows) {
     await deleteQuarantineHandle(row.quarantineBlobHandle);
   }
-  if (rows.length) {
-    await db
+  let expired = 0;
+  for (const row of rows) {
+    const cleared = await db
       .update(schema.brainSensitivityEvents)
       .set({
         disposition: "expired",
@@ -2083,13 +2091,21 @@ export async function expireSensitivityQuarantines(at = nowIso()) {
         updatedAt: at,
       })
       .where(
-        inArray(
-          schema.brainSensitivityEvents.id,
-          rows.map((row) => row.id),
+        and(
+          eq(schema.brainSensitivityEvents.id, row.id),
+          eq(schema.brainSensitivityEvents.disposition, "quarantined"),
+          row.quarantineBlobHandle === null
+            ? isNull(schema.brainSensitivityEvents.quarantineBlobHandle)
+            : eq(
+                schema.brainSensitivityEvents.quarantineBlobHandle,
+                row.quarantineBlobHandle,
+              ),
         ),
-      );
+      )
+      .returning({ id: schema.brainSensitivityEvents.id });
+    if (cleared.length) expired += 1;
   }
-  return rows.length;
+  return expired;
 }
 
 export class EvidenceInputError extends Error {}
