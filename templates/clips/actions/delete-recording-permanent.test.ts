@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("../server/lib/recording-comment-mirror.js", () => ({
   prepareRecordingCommentMirror: async () => {},
+  lockRecordingCommentThreads: async () => {},
   deleteMirroredRecordingComments: async (...args: unknown[]) => {
     mocks.mirrorDeletes.push(args);
   },

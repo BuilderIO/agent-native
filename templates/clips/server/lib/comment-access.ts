@@ -1,5 +1,9 @@
 import { verifyShortLivedToken } from "@agent-native/core/server/short-lived-token";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  ForbiddenError,
+  type ResolvedAccess,
+} from "@agent-native/core/sharing";
 
 import {
   canReadRecordingComments,
@@ -84,7 +88,7 @@ export async function assertCommentAccess(
   recordingId: string,
   operation: CommentOperation = "write",
   requestHeaders?: Headers,
-): Promise<void> {
+): Promise<ResolvedAccess> {
   const access = await assertAccess("recording", recordingId, "viewer");
   const refusal = commentAccessRefusal(
     recordingId,
@@ -93,4 +97,5 @@ export async function assertCommentAccess(
     requestHeaders,
   );
   if (refusal) throw refusal;
+  return access;
 }

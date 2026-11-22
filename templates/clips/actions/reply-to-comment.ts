@@ -32,11 +32,11 @@ export default defineAction({
     idempotencyKey: commentIdempotencyKeySchema,
   }),
   run: async (args, ctx) => {
-    const saved = await saveRecordingReply(args, ctx?.requestHeaders);
+    const saved = await saveRecordingReply(args, ctx);
     return {
       id: saved.id,
       threadId: saved.threadId,
-      notified: saved.repeated ? null : await saved.notify(),
+      notified: saved.notified,
       repeated: saved.repeated,
       parentId: saved.parentId,
     };

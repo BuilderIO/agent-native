@@ -7,7 +7,7 @@ import {
 
 export async function resolveCommentMentions(
   value: unknown,
-  organizationId: string,
+  organizationId: string | null,
 ): Promise<CommentMention[]> {
   const mentions = normalizeCommentMentions(value);
   if (!organizationId || mentions.length === 0) return [];

@@ -69,7 +69,7 @@ export type ReviewNotificationResult = ActivityNotificationResult;
 
 export async function notifyReviewComment(
   comment: ReviewComment,
-): Promise<ReviewNotificationResult> {
+): Promise<ReviewNotificationResult | null> {
   return runActivityNotification(LOG_LABEL, () =>
     deliverReviewCommentEmails(comment),
   );
@@ -80,12 +80,18 @@ export async function notifyReviewCommentWithReceipt(
 ): Promise<ReviewNotificationResult | null> {
   try {
     if (await reviewCommentNotificationCompleted(comment.id)) return null;
+    if (getReviewableResource(comment.resourceType)?.email?.send) {
+      return (await markReviewCommentNotificationCompleted(comment.id))
+        ? await notifyReviewComment(comment)
+        : null;
+    }
     const result = await runActivityNotification(LOG_LABEL, () =>
       deliverReviewCommentEmails(comment, true),
     );
     if (
-      result.failed.length === 0 &&
-      (result.status === "delivered" || result.status === "no-recipients")
+      result === null ||
+      (result.failed.length === 0 &&
+        (result.status === "delivered" || result.status === "no-recipients"))
     ) {
       await markReviewCommentNotificationCompleted(comment.id);
     }
@@ -105,7 +111,10 @@ export async function notifyReviewCommentWithReceipt(
 async function deliverReviewCommentEmails(
   comment: ReviewComment,
   withReceipt = false,
-): Promise<ActivityNotificationResult> {
+): Promise<ActivityNotificationResult | null> {
+  const emailSettings = getReviewableResource(comment.resourceType)?.email;
+  if (emailSettings?.send) return emailSettings.send(comment);
+
   const mentioned = new Set(
     comment.mentions
       .map((mention) => mention.email?.trim().toLowerCase())
@@ -135,7 +144,6 @@ async function deliverReviewCommentEmails(
   const label = resourceLabel(comment);
   const url = await resourceUrl(comment);
   const title = await resourceTitle(comment);
-  const emailSettings = getReviewableResource(comment.resourceType)?.email;
 
   return notifyActivity({
     candidates: isReply

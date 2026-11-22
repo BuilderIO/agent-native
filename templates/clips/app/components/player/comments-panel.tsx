@@ -172,20 +172,16 @@ function buildCommentThread(comments: Comment[]): CommentThreadNode | null {
   return root;
 }
 
-export function collectCommentSubtreeIds(comments: Comment[], rootId: string) {
-  const ids = new Set([rootId]);
-  let frontier = [rootId];
-  while (frontier.length > 0) {
-    const nextIds = comments
-      .filter(
-        (comment) => comment.parentId && frontier.includes(comment.parentId),
-      )
-      .map((comment) => comment.id)
-      .filter((id) => !ids.has(id));
-    nextIds.forEach((id) => ids.add(id));
-    frontier = nextIds;
-  }
-  return ids;
+export function commentIdsDeletedWith(comments: Comment[], id: string) {
+  const target = comments.find((comment) => comment.id === id);
+  if (!target) return new Set<string>();
+  return new Set(
+    target.parentId
+      ? [target.id]
+      : comments
+          .filter((comment) => comment.threadId === target.threadId)
+          .map((comment) => comment.id),
+  );
 }
 
 function updateReactionUsers(
@@ -653,10 +649,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     errorNotification: "shared",
     onMutate: async (vars: any) => {
       const current = visibleCommentsRef.current;
-      const target = current.find((comment) => comment.id === vars.id);
-      const removedIds = target
-        ? collectCommentSubtreeIds(current, target.id)
-        : new Set<string>();
+      const removedIds = commentIdsDeletedWith(current, vars.id);
       const removed = current.filter((comment) => removedIds.has(comment.id));
       const withoutRemoved = (list: Comment[]) =>
         list.filter((comment) => !removedIds.has(comment.id));

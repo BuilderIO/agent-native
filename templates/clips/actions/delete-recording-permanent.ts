@@ -12,6 +12,7 @@ import {
 } from "../server/lib/recording-batch.js";
 import {
   deleteMirroredRecordingComments,
+  lockRecordingCommentThreads,
   prepareRecordingCommentMirror,
 } from "../server/lib/recording-comment-mirror.js";
 import { mediaCleanupSummary } from "../server/lib/recording-media-cleanup-worker.js";
@@ -172,6 +173,7 @@ async function deleteOne(
   await prepareRecordingCommentMirror();
   // False when another call deleted it first, while this one waited.
   const deletedHere = await db.transaction(async (tx) => {
+    await lockRecordingCommentThreads(id);
     const locked = await tx
       .select()
       .from(schema.recordings)

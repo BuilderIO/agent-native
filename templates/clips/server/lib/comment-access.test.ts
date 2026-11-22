@@ -20,26 +20,26 @@ describe("recording comment password access", () => {
   it.each(["private", "org"])(
     "allows authorized %s viewers with a dormant password",
     async (visibility) => {
-      mocks.access.mockResolvedValue({
+      const access = {
         role: "viewer",
         resource: { visibility, password: "encrypted", enableComments: true },
-      });
-      await expect(
-        assertCommentAccess("clip", "read"),
-      ).resolves.toBeUndefined();
+      };
+      mocks.access.mockResolvedValue(access);
+      await expect(assertCommentAccess("clip", "read")).resolves.toBe(access);
       expect(mocks.verify).not.toHaveBeenCalled();
     },
   );
 
   it("requires and validates a comment token for public password-protected viewers", async () => {
-    mocks.access.mockResolvedValue({
+    const access = {
       role: "viewer",
       resource: {
         visibility: "public",
         password: "encrypted",
         enableComments: true,
       },
-    });
+    };
+    mocks.access.mockResolvedValue(access);
     await expect(assertCommentAccess("clip", "read")).rejects.toThrow();
     await expect(
       assertCommentAccess(
@@ -47,7 +47,7 @@ describe("recording comment password access", () => {
         "read",
         new Headers({ "x-clips-comment-token": "token" }),
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(access);
     expect(mocks.verify).toHaveBeenCalledOnce();
   });
 

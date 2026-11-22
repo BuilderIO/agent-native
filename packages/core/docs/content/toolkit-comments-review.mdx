@@ -129,7 +129,12 @@ registerReviewableResource({
   thread is on, and reads each person's choice from the setting
   `email.preferenceKey` (default `activity-notification-prefs`), whose
   `emailNotifications: false` turns it off. `email.settingsName` tells them
-  where that setting is.
+  where that setting is. An app that keeps its own comment emails, with its
+  own recipients and settings, sets `email.send(comment)` instead; what it
+  returns is the comment's `notified`. Returning `null` means the app sends
+  them after it answers. A keyed comment calls it once: the kit marks the
+  comment's emails sent before it calls, so a retried or duplicate write never
+  sends them again, even when some failed.
 - `anchorKinds` types the anchor. Once a resource declares any, every anchored
   comment names its `anchorKind`, and `parse(anchor, version)` checks it and
   returns what's stored, so an older version can be read forward. A comment is
@@ -210,8 +215,23 @@ only adds the comments the kit lacks. A comment changed or deleted through the
 kit since stays as it is. The kit takes every comment with no parent for a
 thread's first, and deleting one deletes its thread, so an app that once saved
 replies with no parent gives each its parent in the copy, and links the ones
-the kit already has with `linkMirroredReviewReplies(resource, links)`. Slides
-has switched; its old table goes in a later release. Plan writes both stores:
+the kit already has with `linkMirroredReviewReplies(resource, links)`.
+
+A switched app keeps its own result shapes with a few reads and errors:
+
+- `listReviewCommentReactors(ids)` names who reacted with what on each
+  comment, for an app whose results list reactors rather than counts.
+- A keyed write (`clientOperationId`, a UUID) saves the comment as
+  `reviewCommentIdForClientOperation(id)`. Resending it with anything else
+  changed refuses with `ReviewCommentSubmissionConflictError` (409
+  `submission_conflict`), which an app can turn into its own error.
+- `moveMirroredReviewAnchors(resource, moves)` moves comments' anchors when
+  the app changes the resource under them, as footage added at the start of a
+  video moves every comment later. It runs no write hook, joins the app's
+  transaction, and leaves deleted comments alone.
+
+Slides and Clips have switched; their old tables go in a later release. Clips
+keeps its own comment emails through `email.send`. Plan writes both stores:
 its comments sit on the `plan` resource, keyed by plan ID, with one anchor kind,
 `plan-anchor`, and its local plans keep theirs in `comments.json`.
 

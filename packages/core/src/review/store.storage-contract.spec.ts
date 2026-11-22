@@ -6,8 +6,11 @@ vi.mock("./notifications.js", () => ({
 }));
 
 const { closeDbExec, getDbExec } = await import("../db/client.js");
-const { ReviewAnchorError, ReviewCommentLinkConflictError } =
-  await import("./errors.js");
+const {
+  ReviewAnchorError,
+  ReviewCommentLinkConflictError,
+  ReviewCommentSubmissionConflictError,
+} = await import("./errors.js");
 const { __resetReviewableResourcesForTests, registerReviewableResource } =
   await import("./registry.js");
 const {
@@ -243,6 +246,9 @@ describe.sequential("the review kit's storage contract", () => {
     await expect(
       insertReviewCommentIdempotently({ ...typed, body: "Another body" }),
     ).rejects.toThrow("conflicts with another submission");
+    await expect(
+      insertReviewCommentIdempotently({ ...typed, body: "Another body" }),
+    ).rejects.toBeInstanceOf(ReviewCommentSubmissionConflictError);
 
     // Once the resource drops the kind, the retry is compared as sent.
     registerReviewableResource({

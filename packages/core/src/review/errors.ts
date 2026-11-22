@@ -46,6 +46,21 @@ export class ReviewCommentRevisionConflictError extends ReviewStorageError {
   }
 }
 
+/**
+ * A retried comment whose submission ID was already used for a different
+ * comment; nothing was written.
+ */
+export class ReviewCommentSubmissionConflictError extends ReviewStorageError {
+  constructor() {
+    super(
+      "Review comment submission ID conflicts with another submission",
+      "submission_conflict",
+      409,
+    );
+    this.name = "ReviewCommentSubmissionConflictError";
+  }
+}
+
 /** An edit that would leave a comment with no text and no image. */
 export class ReviewCommentEmptyError extends ReviewStorageError {
   constructor(commentId: string) {

@@ -6,12 +6,21 @@ const mocks = vi.hoisted(() => ({
   select: vi.fn(),
   sendClipsTransactionalEmail: vi.fn(),
   filterRecipients: vi.fn(),
+  participants: vi.fn(),
+  isOrgMember: vi.fn(),
 }));
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ type: "and", conditions }),
   eq: (left: unknown, right: unknown) => ({ type: "eq", left, right }),
+  isNull: (column: unknown) => ({ type: "isNull", column }),
+  ne: (left: unknown, right: unknown) => ({ type: "ne", left, right }),
   sql: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/review", () => ({
+  listReviewThreadParticipantEmails: (...args: unknown[]) =>
+    mocks.participants(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -38,6 +47,10 @@ vi.mock("@agent-native/core/sharing", () => ({
     mocks.filterRecipients(...args),
 }));
 
+vi.mock("@agent-native/core/org", () => ({
+  isOrgMember: (...args: unknown[]) => mocks.isOrgMember(...args),
+}));
+
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: (...args: unknown[]) => mocks.getUserSetting(...args),
 }));
@@ -54,11 +67,6 @@ vi.mock("../db/index.js", () => ({
       expiresAt: "expires_at",
       trashedAt: "trashed_at",
     },
-    recordingComments: {
-      recordingId: "recording_id",
-      threadId: "thread_id",
-      authorEmail: "author_email",
-    },
   },
 }));
 
@@ -71,13 +79,15 @@ import { CLIPS_USER_PREFS_KEY } from "../../shared/clips-ai-prefs.js";
 import {
   notifyRecordingComment,
   notifyRecordingReaction,
+  sendRecordingCommentEmails,
 } from "./activity-notifications.js";
+import { withCommentEmailsLater } from "./recording-comments.js";
 
 const RECORDING = {
   id: "rec_1",
   title: "Sprint demo",
   ownerEmail: "owner@example.com",
-  orgId: null,
+  orgId: "org_1" as string | null,
   password: null as string | null,
   expiresAt: null as string | null,
   trashedAt: null as string | null,
@@ -87,9 +97,7 @@ function stubDb(options: {
   recording: typeof RECORDING | null;
   participants?: string[];
 }) {
-  const participants = (options.participants ?? []).map((authorEmail) => ({
-    authorEmail,
-  }));
+  mocks.participants.mockResolvedValue(options.participants ?? []);
   mocks.select.mockImplementation((columns: Record<string, unknown>) => ({
     from: () => ({
       where: () => {
@@ -103,12 +111,31 @@ function stubDb(options: {
               ),
             ]
           : [];
-        return Object.assign(Promise.resolve(participants), {
-          limit: async () => rows,
-        });
+        return { limit: async () => rows };
       },
     }),
   }));
+}
+
+function kitComment(
+  overrides: Partial<Parameters<typeof sendRecordingCommentEmails>[0]> = {},
+): Parameters<typeof sendRecordingCommentEmails>[0] {
+  return {
+    id: "comment_1",
+    resourceType: "recording",
+    resourceId: "rec_1",
+    threadId: "thread_1",
+    parentCommentId: null,
+    status: "open",
+    anchor: { videoTimestampMs: 4_000 },
+    body: "Nice work",
+    authorEmail: "viewer@example.com",
+    authorName: "Viewer",
+    mentions: [],
+    createdAt: "2026-11-22T12:00:00.000Z",
+    updatedAt: "2026-11-22T12:00:00.000Z",
+    ...overrides,
+  } as Parameters<typeof sendRecordingCommentEmails>[0];
 }
 
 function notifyArgs() {
@@ -129,6 +156,7 @@ describe("clips activity notifications", () => {
       failed: [],
     });
     mocks.getUserSetting.mockResolvedValue(null);
+    mocks.isOrgMember.mockResolvedValue(true);
     stubDb({ recording: RECORDING });
     mocks.filterRecipients.mockImplementation(
       async ({ emails }: { emails: string[] }) => [...emails],
@@ -168,6 +196,114 @@ describe("clips activity notifications", () => {
       "first@example.com",
       "second@example.com",
     ]);
+  });
+
+  it("asks the kit for the thread's participants", async () => {
+    await notifyRecordingComment({
+      recordingId: "rec_1",
+      threadId: "thread_1",
+      authorEmail: "second@example.com",
+      content: "Agreed",
+      isReply: true,
+    });
+
+    expect(mocks.participants).toHaveBeenCalledWith({
+      resourceType: "recording",
+      resourceId: "rec_1",
+      threadId: "thread_1",
+    });
+  });
+
+  it("sends a kit comment's emails by Clips' rules", async () => {
+    const result = await sendRecordingCommentEmails(
+      kitComment({
+        parentCommentId: "thread_1",
+        mentions: [{ label: "Member", email: "member@example.com" }],
+      }),
+    );
+
+    expect(result).toEqual({ status: "delivered", sent: [], failed: [] });
+    expect(notifyArgs().candidates).toEqual([
+      "owner@example.com",
+      "member@example.com",
+    ]);
+    expect(mocks.participants).toHaveBeenCalled();
+
+    await notifyArgs().send("member@example.com");
+
+    expect(mocks.sendClipsTransactionalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorEmail: "viewer@example.com",
+        content: "Nice work",
+        videoTimestampMs: 4_000,
+        isReply: true,
+        wasMentioned: true,
+      }),
+    );
+  });
+
+  it("mails a mention only to a member of the recording's organization", async () => {
+    mocks.isOrgMember.mockImplementation(
+      async (_orgId: string, email: string) => email === "member@example.com",
+    );
+
+    await sendRecordingCommentEmails(
+      kitComment({
+        mentions: [
+          { label: "Member", email: "member@example.com" },
+          { label: "Outsider", email: "outsider@example.com" },
+        ],
+      }),
+    );
+
+    expect(mocks.isOrgMember).toHaveBeenCalledWith(
+      "org_1",
+      "outsider@example.com",
+    );
+    expect(notifyArgs().candidates).toEqual([
+      "owner@example.com",
+      "member@example.com",
+    ]);
+  });
+
+  it("mentions no one on a recording outside an organization", async () => {
+    stubDb({ recording: { ...RECORDING, orgId: null } });
+
+    await sendRecordingCommentEmails(
+      kitComment({
+        mentions: [{ label: "Member", email: "member@example.com" }],
+      }),
+    );
+
+    expect(notifyArgs().candidates).toEqual(["owner@example.com"]);
+  });
+
+  it("reports a kit comment on a missing recording as a failed send", async () => {
+    stubDb({ recording: null });
+
+    expect(await sendRecordingCommentEmails(kitComment())).toEqual({
+      status: "notification-error",
+      error: "Recording rec_1 not found",
+      sent: [],
+      failed: [],
+    });
+  });
+
+  it("hands a kit comment's emails to whoever sends them after the answer", async () => {
+    const later: Promise<unknown>[] = [];
+
+    const result = await withCommentEmailsLater(
+      (sending) => later.push(sending),
+      () => sendRecordingCommentEmails(kitComment()),
+    );
+
+    expect(result).toBeNull();
+    expect(later).toHaveLength(1);
+    await expect(later[0]).resolves.toEqual({
+      status: "delivered",
+      sent: [],
+      failed: [],
+    });
   });
 
   it("adds mentioned organization members and marks their email", async () => {

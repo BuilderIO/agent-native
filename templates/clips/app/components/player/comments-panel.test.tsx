@@ -24,8 +24,8 @@ import {
   useCommentAccessToken,
 } from "../../hooks/use-comment-access-refresh";
 import {
-  collectCommentSubtreeIds,
   type Comment,
+  commentIdsDeletedWith,
   CommentsPanel,
   relativeTime,
 } from "./comments-panel";
@@ -2765,7 +2765,7 @@ describe("CommentsPanel reply composer", () => {
     ).toBe(false);
   });
 
-  it("collects every nested reply for optimistic deletion", () => {
+  it("removes what the server deletes: a first comment's thread, or one reply", () => {
     const firstReply = {
       ...rootComment,
       id: "reply-1",
@@ -2776,13 +2776,14 @@ describe("CommentsPanel reply composer", () => {
       id: "reply-2",
       parentId: firstReply.id,
     };
+    const comments = [rootComment, firstReply, secondReply];
 
-    expect(
-      collectCommentSubtreeIds(
-        [rootComment, firstReply, secondReply],
-        rootComment.id,
-      ),
-    ).toEqual(new Set([rootComment.id, firstReply.id, secondReply.id]));
+    expect(commentIdsDeletedWith(comments, rootComment.id)).toEqual(
+      new Set([rootComment.id, firstReply.id, secondReply.id]),
+    );
+    expect(commentIdsDeletedWith(comments, firstReply.id)).toEqual(
+      new Set([firstReply.id]),
+    );
   });
 
   it("rolls back one failed reaction without discarding another optimistic reaction", async () => {

@@ -18,6 +18,7 @@ import {
 } from "vitest";
 
 import * as schema from "../server/db/schema.js";
+import { reviewComments } from "../server/lib/recording-comments.js";
 
 const identity = vi.hoisted(() => ({
   email: "viewer@example.test" as string | undefined,
@@ -104,7 +105,7 @@ describe("list recordings expiry with PostgreSQL", () => {
       schema.recordingViewers,
       schema.recordingViews,
       schema.recordingAgentViews,
-      schema.recordingComments,
+      reviewComments,
       schema.recordingReactions,
       schema.recordingEvents,
       schema.recordingContentBindings,

@@ -22,7 +22,9 @@ vi.mock("drizzle-orm", () => ({
 }));
 vi.mock("../server/lib/recording-comment-mirror.js", () => ({
   prepareRecordingCommentMirror: async () => {},
-  mirrorRecordingComments: async () => {},
+}));
+vi.mock("../server/lib/recording-comments.js", () => ({
+  shiftRecordingComments: async () => {},
 }));
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
@@ -36,7 +38,6 @@ vi.mock("../server/db/index.js", () => ({
   schema: {
     recordings: { id: "recordings.id", visibility: "recordings.visibility" },
     recordingTranscripts: { recordingId: "transcripts.recordingId" },
-    recordingComments: { recordingId: "comments.recordingId" },
     recordingReactions: { recordingId: "reactions.recordingId" },
   },
 }));

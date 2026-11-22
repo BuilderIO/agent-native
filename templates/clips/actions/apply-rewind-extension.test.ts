@@ -21,10 +21,6 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
       recordingId: "versions.recordingId",
       segmentsJson: "versions.segmentsJson",
     },
-    recordingComments: {
-      recordingId: "recordingComments.recordingId",
-      videoTimestampMs: "recordingComments.videoTimestampMs",
-    },
     recordingReactions: {
       recordingId: "recordingReactions.recordingId",
       videoTimestampMs: "recordingReactions.videoTimestampMs",
@@ -274,11 +270,13 @@ vi.mock("../server/lib/s3-upload-provider.js", () => ({
 vi.mock("./make-recording-private-for-rewind.js", () => ({
   assertNoDirectRecordingShares: vi.fn(),
 }));
-const mirrored = vi.hoisted(() => [] as unknown[][]);
+const shifted = vi.hoisted(() => [] as unknown[][]);
 vi.mock("../server/lib/recording-comment-mirror.js", () => ({
   prepareRecordingCommentMirror: async () => {},
-  mirrorRecordingComments: async (...args: unknown[]) => {
-    mirrored.push(args);
+}));
+vi.mock("../server/lib/recording-comments.js", () => ({
+  shiftRecordingComments: async (...args: unknown[]) => {
+    shifted.push(args);
   },
 }));
 
@@ -325,7 +323,7 @@ beforeEach(() => {
   mockDispatch.mockReset();
   stored.changedBeforeWrite = [];
   written.length = 0;
-  mirrored.length = 0;
+  shifted.length = 0;
 });
 
 describe("apply-rewind-extension", () => {
@@ -346,11 +344,9 @@ describe("apply-rewind-extension", () => {
       { startMs: 78_000, title: "Demo" },
     ]);
     // Comments and the pre-roll are moved once, not once per attempt.
-    expect(
-      written.filter((w) => w.table === schema.recordingComments),
-    ).toHaveLength(1);
+    // oracle-change: comments move in the kit's table through shiftRecordingComments, which replaces the old table's write and the mirror call
+    expect(shifted).toEqual([[expect.any(Object), "rec_1", 30_000]]);
     expect(written.filter((w) => "trashedAt" in w.patch)).toHaveLength(1);
-    expect(mirrored).toEqual([[expect.anything(), "rec_1", "all"]]);
   });
 
   it("shifts cuts saved after it read", async () => {

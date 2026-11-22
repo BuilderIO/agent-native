@@ -12,6 +12,7 @@ import {
   ReviewCommentEmptyError,
   ReviewCommentLinkConflictError,
   ReviewCommentRevisionConflictError,
+  ReviewCommentSubmissionConflictError,
   ReviewCursorError,
 } from "./errors.js";
 import {
@@ -514,6 +515,36 @@ export async function getReviewDiscussionStateForComments(
   return { reactions, threadPreferences };
 }
 
+/**
+ * Who reacted to each comment, by reaction, in the order they reacted. Every
+ * comment asked about has an entry, empty when no one reacted.
+ */
+export async function listReviewCommentReactors(
+  commentIds: readonly string[],
+): Promise<Record<string, Record<string, string[]>>> {
+  const ids = [...new Set(commentIds)];
+  const reactors = new Map<string, Record<string, string[]>>(
+    ids.map((id) => [id, {}]),
+  );
+  if (!ids.length) return {};
+  await ensureReviewTables();
+  // raw-sql-ok: the IN list is placeholders only; every value is bound.
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT comment_id,reaction,actor_email FROM agent_review_comment_reactions WHERE comment_id IN (${ids.map(() => "?").join(",")}) ORDER BY comment_id,created_at,actor_email`,
+    args: ids,
+  });
+  for (const row of rows) {
+    const byReaction = reactors.get(String(row.comment_id));
+    if (!byReaction) continue;
+    const reaction = String(row.reaction);
+    byReaction[reaction] = [
+      ...(byReaction[reaction] ?? []),
+      String(row.actor_email),
+    ];
+  }
+  return Object.fromEntries(reactors);
+}
+
 export async function filterUnmutedReviewThreadRecipients(
   threadId: string,
   recipients: string[],
@@ -591,12 +622,13 @@ export async function reviewCommentNotificationCompleted(
 
 export async function markReviewCommentNotificationCompleted(
   id: string,
-): Promise<void> {
+): Promise<boolean> {
   await ensureReviewTables();
-  await getDbExec().execute({
+  const result = await getDbExec().execute({
     sql: "UPDATE agent_review_comments SET notification_completed_at = ? WHERE id = ? AND notification_completed_at IS NULL",
     args: [new Date().toISOString(), id],
   });
+  return result.rowsAffected > 0;
 }
 
 export async function claimReviewNotificationDelivery(
@@ -872,9 +904,7 @@ async function assertMatchingReplyRouteTarget(
     args: [commentId],
   });
   if (result.rows?.[0]?.reply_route_target !== routeTarget) {
-    throw new Error(
-      "Review comment submission ID conflicts with another submission",
-    );
+    throw new ReviewCommentSubmissionConflictError();
   }
 }
 
@@ -1211,9 +1241,7 @@ function assertMatchingReviewCommentReceipt(
       (field) => !reviewReceiptValueEquals(existing[field], submitted[field]),
     )
   ) {
-    throw new Error(
-      "Review comment submission ID conflicts with another submission",
-    );
+    throw new ReviewCommentSubmissionConflictError();
   }
 }
 

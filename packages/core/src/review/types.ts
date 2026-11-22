@@ -1,4 +1,5 @@
 import type { DbExec } from "../db/client.js";
+import type { ActivityNotificationResult } from "../server/activity-notifications.js";
 import type { Visibility } from "../sharing/schema.js";
 
 export type ReviewResourceRole =
@@ -63,6 +64,17 @@ export interface ReviewableResourceRegistration {
     preferenceKey?: string;
     /** Where people change it, named in each email, such as "Slides settings". */
     settingsName?: string;
+    /**
+     * Sends a new comment's emails in place of the kit's, for an app that
+     * keeps its own. What it returns is the comment's `notified`; return null
+     * when the emails go out after the write answers. A keyed comment calls
+     * it once: the kit marks the comment's emails sent before it calls, so a
+     * retried or duplicate write never sends them again, even when some
+     * failed.
+     */
+    send?: (
+      comment: ReviewComment,
+    ) => Promise<ActivityNotificationResult | null>;
   };
   resolveAccess?: (
     resourceId: string,

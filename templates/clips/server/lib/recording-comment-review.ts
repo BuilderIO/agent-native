@@ -1,6 +1,5 @@
 import { sql, type DbExec } from "@agent-native/core/db";
 import {
-  getReviewableResource,
   type ReviewableResourceRegistration,
   type ReviewCommentWriteEvent,
   type ReviewResourceAccess,
@@ -14,11 +13,12 @@ import {
 } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { sendRecordingCommentEmails } from "./activity-notifications.js";
 import { commentAccessRefusal } from "./comment-access.js";
 import {
   RECORDING_REVIEW_RESOURCE,
   VIDEO_TIME_ANCHOR,
-} from "./recording-comment-mirror.js";
+} from "./recording-comments.js";
 
 const videoTimeAnchorSchema = z
   .object({ videoTimestampMs: z.number().int().min(0) })
@@ -103,10 +103,6 @@ export async function guardRecordingCommentWrite(
   event: ReviewCommentWriteEvent,
   tx: DbExec,
 ): Promise<void> {
-  const writtenByClips = getReviewableResource(
-    RECORDING_REVIEW_RESOURCE,
-  )?.commentsWrittenByApp;
-  if (writtenByClips) throw new ForbiddenError(writtenByClips);
   if (event.type === "deleted") return;
   if (event.type === "anchor-moved") {
     throw new ForbiddenError(
@@ -117,7 +113,8 @@ export async function guardRecordingCommentWrite(
   // guard:allow-unscoped — the kit checked the writer's access before its write hook runs; this reads only whether comments are on.
   const { rows } = await tx.execute(sql`SELECT enable_comments
       FROM recordings
-     WHERE id = ${sql.value(recordingId)}`);
+     WHERE id = ${sql.value(recordingId)}
+       FOR KEY SHARE`);
   if (!rows[0]?.enable_comments) {
     throw new ForbiddenError("Comments are turned off for this recording.");
   }
@@ -140,8 +137,7 @@ export const recordingReviewResource: ReviewableResourceRegistration = {
     unmentionedRoute: "human",
     resolveRole: "viewer",
   },
+  email: { send: sendRecordingCommentEmails },
   resolveAccess: resolveRecordingCommentAccess,
   onCommentWrite: guardRecordingCommentWrite,
-  commentsWrittenByApp:
-    "Clips comments are written with add-comment, reply-to-comment, update-comment, resolve-comment, react-to-comment and delete-comment.",
 };

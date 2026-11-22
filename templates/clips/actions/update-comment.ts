@@ -1,22 +1,23 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { ReviewCommentRevisionConflictError } from "@agent-native/core/review";
+import updateReviewComment from "@agent-native/core/review/actions/update-review-comment";
 import { ForbiddenError } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
 import { assertCommentAccess } from "../server/lib/comment-access.js";
 import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
 import {
-  mirrorRecordingComments,
-  prepareRecordingCommentMirror,
-} from "../server/lib/recording-comment-mirror.js";
+  clipsMentions,
+  findRecordingComment,
+  kitMentions,
+  RECORDING_REVIEW_RESOURCE,
+  recordingReviewContext,
+} from "../server/lib/recording-comments.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 import {
   displayCommentMentions,
   mentionsForCommentText,
-  parseCommentMentions,
 } from "../shared/comment-mentions.js";
 
 const mentionSchema = z.object({
@@ -43,21 +44,17 @@ export default defineAction({
   }),
   mcpTool: "search",
   run: async (args, ctx) => {
-    const userEmail = getRequestUserEmail();
+    const reviewCtx = recordingReviewContext(ctx);
+    const userEmail = reviewCtx.userEmail;
     if (!userEmail) {
       throw new Error("Sign in required to edit comments.");
     }
 
-    const db = getDb();
-    const [existing] = await db
-      .select()
-      .from(schema.recordingComments)
-      .where(eq(schema.recordingComments.id, args.id))
-      .limit(1);
+    const existing = await findRecordingComment(args.id);
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
-    await assertCommentAccess(
-      existing.recordingId,
+    const access = await assertCommentAccess(
+      existing.resourceId,
       "write",
       ctx?.requestHeaders,
     );
@@ -68,52 +65,43 @@ export default defineAction({
       );
     }
 
+    const recording = access.resource as { organizationId: string | null };
     const mentions = await resolveCommentMentions(
       args.mentions === undefined
-        ? mentionsForCommentText(
-            args.content,
-            parseCommentMentions(existing.mentionsJson),
-          )
+        ? mentionsForCommentText(args.content, clipsMentions(existing.mentions))
         : args.mentions,
-      existing.organizationId,
+      recording.organizationId ?? "",
     );
 
-    const updatedAt = new Date().toISOString();
-    await prepareRecordingCommentMirror();
-    const updated = await db.transaction(async (tx) => {
-      const written = await tx
-        .update(schema.recordingComments)
-        .set({
-          content: args.content,
-          mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
-          updatedAt,
-        })
-        .where(
-          and(
-            eq(schema.recordingComments.id, args.id),
-            eq(schema.recordingComments.content, existing.content),
-          ),
-        )
-        .returning({ id: schema.recordingComments.id });
-      if (written.length > 0) {
-        await mirrorRecordingComments(tx, existing.recordingId, [args.id]);
+    const updated = await Promise.resolve(
+      updateReviewComment.run(
+        {
+          resourceType: RECORDING_REVIEW_RESOURCE,
+          resourceId: existing.resourceId,
+          commentId: existing.id,
+          body: args.content,
+          mentions: kitMentions(mentions),
+          ...(existing.revision ? { expectedRevision: existing.revision } : {}),
+        },
+        reviewCtx,
+      ),
+    ).catch((error: unknown) => {
+      if (error instanceof ReviewCommentRevisionConflictError) {
+        fail(
+          `Comment ${args.id} changed before this edit could be saved. Refresh and try again.`,
+          { errorCode: "comment_changed", statusCode: 409 },
+        );
       }
-      return written;
+      throw error;
     });
-
-    if (updated.length === 0) {
-      throw new Error(
-        `Comment ${args.id} changed before this edit could be saved. Refresh and try again.`,
-      );
-    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return {
       id: args.id,
-      content: args.content,
-      mentions: displayCommentMentions(mentions),
-      updatedAt,
+      content: updated.body,
+      mentions: displayCommentMentions(clipsMentions(updated.mentions)),
+      updatedAt: updated.updatedAt,
     };
   },
 });

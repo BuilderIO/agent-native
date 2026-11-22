@@ -1,9 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { eq, asc } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
 import { assertCommentAccess } from "../server/lib/comment-access.js";
+import { listRecordingComments } from "../server/lib/recording-comments.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { displayCommentMentions } from "../shared/comment-mentions.js";
 
@@ -18,15 +17,7 @@ export default defineAction({
   run: async (args, ctx) => {
     await assertCommentAccess(args.recordingId, "read", ctx?.requestHeaders);
 
-    const db = getDb();
-    const rows = await db
-      .select()
-      .from(schema.recordingComments)
-      .where(eq(schema.recordingComments.recordingId, args.recordingId))
-      .orderBy(
-        asc(schema.recordingComments.videoTimestampMs),
-        asc(schema.recordingComments.createdAt),
-      );
+    const rows = await listRecordingComments(args.recordingId);
 
     const comments = await hydrateCommentAuthorNames(
       rows.map((c) => ({
@@ -37,10 +28,10 @@ export default defineAction({
         authorEmail: c.authorEmail,
         authorName: c.authorName,
         content: c.content,
-        mentions: displayCommentMentions(c.mentionsJson),
+        mentions: displayCommentMentions(c.mentions),
         videoTimestampMs: c.videoTimestampMs,
         emojiReactionsJson: c.emojiReactionsJson,
-        resolved: Boolean(c.resolved),
+        resolved: c.resolved,
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
       })),
