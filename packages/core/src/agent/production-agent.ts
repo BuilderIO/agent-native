@@ -14574,7 +14574,7 @@ export function createProductionAgentHandler(
     runId?: string;
     runStarted: boolean;
     runRowState?: { foregroundInserted: boolean; durableInserted: boolean };
-    setupResumeClaim?: { release: () => Promise<unknown> } | null;
+    setupResumeClaim?: { release: () => Promise<unknown> } | null | undefined;
   };
   const handleAgentChatEvent = async (
     event: Parameters<typeof getMethod>[0],
