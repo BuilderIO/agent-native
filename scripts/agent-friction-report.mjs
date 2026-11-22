@@ -3239,19 +3239,22 @@ const FLEET_PATTERNS = [
   {
     key: "fleet-dropped-asks",
     label: "Dropped or overdue ask / empty dashboard",
-    fixedBy: "fleet-ops briefs/LEAD.md: Operator loop, Stay responsive (no specific overdue-ask rule)",
+    fixedBy:
+      "fleet-ops briefs/LEAD.md: Operator loop, Stay responsive (no specific overdue-ask rule)",
     re: /\b(?:asked|requested)\b[^.!?\n]{0,100}\b(?:24\s*(?:h|hours?)|yesterday|days? ago|still (?:not|hasn['’]t|haven['’]t))\b|\b(?:dropped|forgotten|missed)\s+(?:my |the |an? )?(?:asks?|requests?)\b|\b(?:dashboard|board)\b[^.!?\n]{0,70}\b(?:empty|blank)\b/i,
   },
   {
     key: "fleet-unmeasured-panels",
     label: "Dashboard panels unmeasured or unavailable",
-    fixedBy: "fleet-ops briefs/LEAD.md: Operator loop, report-only fleet health telemetry",
+    fixedBy:
+      "fleet-ops briefs/LEAD.md: Operator loop, report-only fleet health telemetry",
     re: /\b(?:dashboard|panels?|metrics?|scorecard)\b[^.!?\n]{0,80}\b(?:unmeasured|unavailable|not measured|missing data|no data)\b|\b(?:unmeasured|unavailable)\b[^.!?\n]{0,60}\b(?:dashboard|panels?|metrics?|scorecard)\b/i,
   },
   {
     key: "fleet-outward-copy",
     label: "Outward messages sound machine-written",
-    fixedBy: "fleet-ops briefs/RULES.md: 21 (contact boundary; no outward-copy quality rule)",
+    fixedBy:
+      "fleet-ops briefs/RULES.md: 21 (contact boundary; no outward-copy quality rule)",
     re: /\b(?:messages?|repl(?:y|ies)|emails?|posts?)\b[^.!?\n]{0,100}\b(?:sounds?|reads?|looks?)\s+(?:like\s+)?(?:an?\s+)?(?:ai|bot|robot|robotic|machine[- ]written)\b|\b(?:ai|bot|robotic)\b[^.!?\n]{0,60}\b(?:sounding|generated)\s+(?:messages?|repl(?:y|ies)|emails?|posts?)\b/i,
   },
 ];
@@ -3756,8 +3759,9 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...FLEET_REGEX_CASES.filter(
       ([key, expected, message]) =>
-        FLEET_PATTERNS.find((pattern) => pattern.key === key).re.test(message) !==
-        expected,
+        FLEET_PATTERNS.find((pattern) => pattern.key === key).re.test(
+          message,
+        ) !== expected,
     ),
   );
   failures.push(
