@@ -35,11 +35,18 @@ function installBootstrap(
   href = "https://example.test/apps?tab=activity#latest",
   userAgent = "Mozilla/5.0",
   sessionStorageThrows = false,
+  onLine = true,
 ) {
+  const windowListeners = new Map<string, () => void>();
   let onError: ((event: BootstrapResourceError) => void) | undefined;
   const sessionValues = new Map<string, string>();
   const dispatchEvent = vi.fn();
-  const windowState: Record<string, unknown> = { dispatchEvent };
+  const windowState: Record<string, unknown> = {
+    dispatchEvent,
+    addEventListener: (type: string, listener: () => void) => {
+      windowListeners.set(type, listener);
+    },
+  };
   const assign = vi.fn();
   const location = {
     assign,
@@ -63,7 +70,7 @@ function installBootstrap(
       },
     },
     location,
-    navigator: { userAgent },
+    navigator: { userAgent, onLine },
     sessionStorage: {
       getItem: (key: string) => {
         if (sessionStorageThrows)
@@ -83,11 +90,40 @@ function installBootstrap(
     location,
     onError,
     sessionValues,
+    windowListeners,
     windowState,
   };
 }
 
 describe("route chunk recovery bootstrap", () => {
+  it("keeps the page offline and retries the original URL once back online", () => {
+    const { assign, onError, sessionValues, windowListeners, windowState } =
+      installBootstrap(
+        "https://example.test/apps?tab=activity#latest",
+        "Mozilla/5.0",
+        false,
+        false,
+      );
+
+    onError({
+      target: {
+        getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+        hasAttribute: () => false,
+        rel: "modulepreload",
+        tagName: "LINK",
+      },
+      stopImmediatePropagation: vi.fn(),
+    });
+
+    expect(assign).not.toHaveBeenCalled();
+    expect(sessionValues.has(STALE_CHUNK_RELOAD_AT_KEY)).toBe(false);
+    expect(windowState[STALE_CHUNK_RELOAD_AT_KEY]).toBeUndefined();
+    expect(windowState[STALE_CHUNK_EXHAUSTED_KEY]).toBeUndefined();
+
+    windowListeners.get("online")?.();
+    expect(assign).toHaveBeenCalledExactlyOnceWith("/apps?tab=activity#latest");
+  });
+
   it("retries required module failures before client handlers can classify them", () => {
     const { assign, onError, sessionValues, windowState } = installBootstrap();
     const stopImmediatePropagation = vi.fn();

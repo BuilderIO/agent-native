@@ -32,6 +32,7 @@ function createFakeWindow(
     lockReload?: boolean;
     sessionStorageGetterThrows?: boolean;
     sessionStorageThrows?: boolean;
+    onLine?: boolean;
     userAgent?: string;
     viteDevRecovery?: boolean;
   } = {},
@@ -107,6 +108,7 @@ function createFakeWindow(
     sessionStorage,
     navigator: {
       userAgent: opts.userAgent ?? "Mozilla/5.0",
+      onLine: opts.onLine ?? true,
     },
     console: {
       error: vi.fn(),
@@ -519,6 +521,46 @@ describe("route chunk recovery", () => {
 
     expect(unrelatedPreventDefault).not.toHaveBeenCalled();
     expect(fakeLocation.assign).toHaveBeenCalledOnce();
+  });
+
+  it("stays on the current page while offline and navigates to the clicked target once online", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument, dispatchWindow } =
+      createFakeWindow(undefined, { onLine: false });
+    installRouteChunkRecovery(fakeWindow);
+
+    dispatchDocument("click", {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      target: {
+        tagName: "A",
+        href: "https://example.com/dispatch/new-app?x=1#top",
+        hasAttribute: () => false,
+        getAttribute: () => null,
+        parentElement: null,
+      },
+    } as unknown as MouseEvent);
+
+    const preventDefault = vi.fn();
+    dispatchWindow("unhandledrejection", {
+      reason: new Error(
+        "Failed to fetch dynamically imported module: https://example.com/dispatch/assets/new-app.js",
+      ),
+      preventDefault,
+    } as unknown as PromiseRejectionEvent);
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+    expect(fakeWindow.sessionStorage.setItem).not.toHaveBeenCalled();
+    expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
+
+    dispatchWindow("online", new Event("online"));
+    expect(fakeLocation.assign).toHaveBeenCalledExactlyOnceWith(
+      "https://example.com/dispatch/new-app?x=1#top",
+    );
   });
 
   it("recovers global dynamic import errors using the intended target", () => {

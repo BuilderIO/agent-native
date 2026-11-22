@@ -49,6 +49,7 @@ const reloadKey=${JSON.stringify(STALE_CHUNK_RELOAD_AT_KEY)};
 const navigatingKey=${JSON.stringify(STALE_CHUNK_NAVIGATING_AT_KEY)};
 const warmupAttr=${JSON.stringify(ROUTE_WARMUP_PRELOAD_ATTRIBUTE)};
 const externalEmbedKey=${JSON.stringify(EXTERNAL_EMBED_WINDOW_KEY)};
+const offlineKey="__agentNativeChunkOfflineRetryPending";
 const exhaustedKey=${JSON.stringify(STALE_CHUNK_EXHAUSTED_KEY)};
 const exhaustedEvent=${JSON.stringify(STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT)};
 document.addEventListener("error",event=>{
@@ -72,6 +73,13 @@ return;
 }
 if(/^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/.test(location.hostname))return;
 if(url.pathname.endsWith(pathSuffix)||url.pathname.endsWith(pathSuffix+"/")||url.searchParams.get(queryParam)===queryValue)return;
+if(navigator.onLine===false){
+if(!window[offlineKey]){
+window[offlineKey]=true;
+window.addEventListener("online",()=>{delete window[offlineKey];location.assign(url.pathname+url.search+url.hash);},{once:true});
+}
+return;
+}
 const now=Date.now();
 let last=Number(window[reloadKey])||0;
 try{

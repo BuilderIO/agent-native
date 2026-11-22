@@ -393,11 +393,40 @@ function reportStaleChunkRecoveryExhausted(
   );
 }
 
+const OFFLINE_RETRY_KEY = "__agentNativeChunkOfflineRetryPending";
+
+function isOffline(win: Window): boolean {
+  return win.navigator.onLine === false;
+}
+
+function retryNavigationWhenOnline(win: Window, target: string): void {
+  const flags = win as unknown as Record<string, unknown>;
+  if (flags[OFFLINE_RETRY_KEY]) return;
+  flags[OFFLINE_RETRY_KEY] = true;
+  win.addEventListener(
+    "online",
+    () => {
+      delete flags[OFFLINE_RETRY_KEY];
+      hardNavigate(win, target);
+    },
+    { once: true },
+  );
+}
+
 export function reloadForStaleChunk(
   win: Window | undefined = typeof window === "undefined" ? undefined : window,
   now = Date.now(),
 ): boolean {
   if (!win?.location) return false;
+  if (isOffline(win)) {
+    const state = recoveryStates.get(win);
+    retryNavigationWhenOnline(
+      win,
+      (state && getFreshIntendedNavigation(state, win.location.href, now)) ||
+        win.location.href,
+    );
+    return true;
+  }
   if (isAgentNativeDesktop(win)) {
     reportStaleChunkRecoveryExhausted(win, "desktop");
     return false;
@@ -447,7 +476,7 @@ function recoverToIntendedNavigation(
   win: Window,
   state: RouteChunkRecoveryState,
 ): boolean {
-  if (isExternalEmbed(win)) return false;
+  if (isExternalEmbed(win) || isOffline(win)) return false;
   const target = getFreshIntendedNavigation(state, win.location.href);
   const sameCurrentTarget =
     isAgentNativeDesktop(win) &&
