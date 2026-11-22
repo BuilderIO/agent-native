@@ -523,8 +523,8 @@ export async function listReviewCommentReactors(
   commentIds: readonly string[],
 ): Promise<Record<string, Record<string, string[]>>> {
   const ids = [...new Set(commentIds)];
-  const reactors = new Map<string, Record<string, string[]>>(
-    ids.map((id) => [id, {}]),
+  const reactors = new Map<string, Map<string, string[]>>(
+    ids.map((id) => [id, new Map()]),
   );
   if (!ids.length) return {};
   await ensureReviewTables();
@@ -537,12 +537,17 @@ export async function listReviewCommentReactors(
     const byReaction = reactors.get(String(row.comment_id));
     if (!byReaction) continue;
     const reaction = String(row.reaction);
-    byReaction[reaction] = [
-      ...(byReaction[reaction] ?? []),
+    byReaction.set(reaction, [
+      ...(byReaction.get(reaction) ?? []),
       String(row.actor_email),
-    ];
+    ]);
   }
-  return Object.fromEntries(reactors);
+  return Object.fromEntries(
+    [...reactors].map(([id, byReaction]) => [
+      id,
+      Object.fromEntries(byReaction),
+    ]),
+  );
 }
 
 export async function filterUnmutedReviewThreadRecipients(
@@ -2218,6 +2223,16 @@ export async function deleteReviewComment(
         now,
       )),
     );
+    for (
+      let start = 0;
+      start < deletedIds.length;
+      start += DELETED_REPLIES_PER_STATEMENT
+    ) {
+      await tx.execute(sql`DELETE FROM agent_review_comment_reactions
+          WHERE comment_id IN ${sql.in(
+            deletedIds.slice(start, start + DELETED_REPLIES_PER_STATEMENT),
+          )}`);
+    }
     if (target && deletedIds.length > 0) {
       const resourceType = String(target.resource_type);
       await runReviewCommentWriteHook(

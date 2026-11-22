@@ -101,11 +101,29 @@ async function assertMayResolve(
   );
 }
 
+const OLD_COPIES_DELETED_PER_STATEMENT = 1_000;
+
 export async function guardRecordingCommentWrite(
   event: ReviewCommentWriteEvent,
   tx: DbExec,
 ): Promise<void> {
-  if (event.type === "deleted") return;
+  if (event.type === "deleted") {
+    for (
+      let start = 0;
+      start < event.commentIds.length;
+      start += OLD_COPIES_DELETED_PER_STATEMENT
+    ) {
+      const ids = event.commentIds.slice(
+        start,
+        start + OLD_COPIES_DELETED_PER_STATEMENT,
+      );
+      // guard:allow-unscoped — the kit checked the deleter's access before its write hook runs; this removes those comments' copies from before the switch.
+      await tx.execute(sql`DELETE FROM recording_comments
+          WHERE recording_id = ${sql.value(event.resourceId)}
+            AND id IN ${sql.in(ids)}`);
+    }
+    return;
+  }
   if (event.type === "anchor-moved") {
     throw new ForbiddenError(
       "A Clips comment stays at the video time it was written at.",

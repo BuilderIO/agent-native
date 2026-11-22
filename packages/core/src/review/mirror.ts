@@ -615,12 +615,16 @@ export async function moveMirroredReviewAnchors(
   const updatedAt = new Date().toISOString();
   return inWrite(async (client) => {
     let moved = 0;
-    for (const move of moves) {
+    for (const batch of chunks(moves)) {
+      const anchors = batch.map(
+        (move) =>
+          sql`WHEN ${sql.value(move.id)} THEN ${sql.value(jsonOrNull(move.anchor))}`,
+      );
       const result = await client.execute(sql`UPDATE agent_review_comments
-            SET anchor_json = ${sql.value(jsonOrNull(move.anchor))},
+            SET anchor_json = CASE id ${sql.join(anchors, sql` `)} ELSE anchor_json END,
                 updated_at = ${sql.value(updatedAt)},
                 revision = revision + 1
-          WHERE id = ${sql.value(move.id)}
+          WHERE id IN ${sql.in(batch.map((move) => move.id))}
             AND resource_type = ${sql.value(resource.resourceType)}
             AND resource_id = ${sql.value(resource.resourceId)}
             AND deleted_at IS NULL

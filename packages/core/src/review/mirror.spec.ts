@@ -447,6 +447,25 @@ describe("moveMirroredReviewAnchors", () => {
     expect((await stored(elsewhere.id))?.anchor).toEqual({ x: 3, y: 3 });
     expect(await moveMirroredReviewAnchors(DECK, [])).toEqual({ moved: 0 });
   });
+
+  it("moves more comments than one statement takes", async () => {
+    const deck = { ...DECK, resourceId: "deck-many-moved" };
+    const many = Array.from({ length: 101 }, (_, x) =>
+      copy({ anchor: { x, y: 0 } }),
+    );
+    await mirrorReviewComments(deck, many);
+
+    expect(
+      await moveMirroredReviewAnchors(
+        deck,
+        many.map((comment, x) => ({ id: comment.id, anchor: { x, y: 1 } })),
+      ),
+    ).toEqual({ moved: 101 });
+    const anchors = await Promise.all(
+      many.map(async (comment) => (await stored(comment.id))?.anchor),
+    );
+    expect(anchors).toEqual(many.map((_, x) => ({ x, y: 1 })));
+  });
 });
 
 describe("listReviewCommentReactors", () => {

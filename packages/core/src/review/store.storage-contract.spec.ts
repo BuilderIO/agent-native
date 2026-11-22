@@ -285,6 +285,7 @@ describe.sequential("the review kit's storage contract", () => {
       [OWNER, "+1"],
       [VIEWER, "+1"],
       [OWNER, "party"],
+      [VIEWER, "constructor"],
     ] as const) {
       await setReviewCommentReaction({
         commentId: first.id,
@@ -309,11 +310,46 @@ describe.sequential("the review kit's storage contract", () => {
     expect(
       await listReviewCommentReactors([first.id, second.id, first.id, "none"]),
     ).toEqual({
-      [first.id]: { "+1": [OWNER, VIEWER], party: [OWNER] },
+      [first.id]: {
+        "+1": [OWNER, VIEWER],
+        party: [OWNER],
+        constructor: [VIEWER],
+      },
       [second.id]: {},
       none: {},
     });
     expect(await listReviewCommentReactors([])).toEqual({});
+  });
+
+  it("drops the reactions of every comment a delete takes", async () => {
+    const root = await insertReviewComment(comment(PLAIN, "doc-unreacted"));
+    const reply = await insertReviewReply(
+      comment(PLAIN, "doc-unreacted", {
+        threadId: root.threadId,
+        parentCommentId: root.id,
+      }),
+      null,
+      { resourceType: PLAIN, resourceId: "doc-unreacted" },
+    );
+    const kept = await insertReviewComment(comment(PLAIN, "doc-unreacted"));
+    for (const commentId of [root.id, reply.id, kept.id]) {
+      await setReviewCommentReaction({
+        commentId,
+        actorEmail: VIEWER,
+        reaction: "+1",
+        active: true,
+      });
+    }
+
+    await deleteReviewComment(root.id, OWNER);
+
+    expect(
+      await listReviewCommentReactors([root.id, reply.id, kept.id]),
+    ).toEqual({
+      [root.id]: {},
+      [reply.id]: {},
+      [kept.id]: { "+1": [VIEWER] },
+    });
   });
 
   it("marks a comment's emails sent once", async () => {

@@ -176,6 +176,14 @@ async function clipsRows(recordingId: string) {
     .where(eq(schema.recordingComments.recordingId, recordingId));
 }
 
+async function clipsRowsInFull(recordingId: string) {
+  const { getDb, schema } = dbModule;
+  return getDb()
+    .select()
+    .from(schema.recordingComments)
+    .where(eq(schema.recordingComments.recordingId, recordingId));
+}
+
 async function kitRows(recordingId: string) {
   const { rows } = await getDbExec().execute({
     sql: `SELECT id, status, revision, updated_at FROM agent_review_comments
@@ -443,6 +451,52 @@ describe("Clips comments in the review kit", () => {
     }
   });
 
+  it("deletes a comment's copy from before the switch along with it", async () => {
+    await createRecording("rec-old-copies");
+    const { getDb, schema } = dbModule;
+    await getDb()
+      .insert(schema.recordingComments)
+      .values(
+        [
+          { id: "old-root", threadId: "old-root", parentId: null },
+          { id: "old-reply", threadId: "old-root", parentId: "old-root" },
+          { id: "old-kept", threadId: "old-kept", parentId: null },
+        ].map((row) => ({
+          ...row,
+          recordingId: "rec-old-copies",
+          organizationId: ORG,
+          content: `Written as ${row.id}`,
+          videoTimestampMs: 5_000,
+          authorEmail: OWNER,
+          createdAt: "2026-10-01T09:00:00.000Z",
+          updatedAt: "2026-10-01T09:00:00.000Z",
+        })),
+      );
+    await mirrorReviewComments(
+      { resourceType: "recording", resourceId: "rec-old-copies" },
+      (await clipsRowsInFull("rec-old-copies")).map((row) =>
+        mirror.recordingCommentCopy(row),
+      ),
+    );
+    const oldIds = async () =>
+      (await clipsRows("rec-old-copies")).map((row) => row.id).sort();
+
+    await as(OWNER, () => deleteComment.run({ id: "old-reply" }));
+    expect(await oldIds()).toEqual(["old-kept", "old-root"]);
+    await as(OWNER, () =>
+      (deleteReviewComment as Runnable).run(
+        {
+          resourceType: "recording",
+          resourceId: "rec-old-copies",
+          commentId: "old-root",
+        },
+        { userEmail: OWNER, orgId: ORG, caller: "frontend" },
+      ),
+    );
+    expect(await oldIds()).toEqual(["old-kept"]);
+    expect(await stored("old-root")).toMatchObject({ status: "deleted" });
+  });
+
   it("adds the comments the kit lacks once, links replies saved without a parent, and changes nothing else", async () => {
     await createRecording("rec-legacy", { visibility: "public" });
     const { getDb, schema } = dbModule;
@@ -536,7 +590,11 @@ describe("Clips comments in the review kit", () => {
         },
       ],
     );
-    await as(OWNER, () => deleteComment.run({ id: "legacy-deleted" }));
+    await mirror.deleteMirroredRecordingComments(
+      "rec-legacy",
+      ["legacy-deleted"],
+      OWNER,
+    );
     const kitWritten = await as(OWNER, () =>
       addComment.run({
         recordingId: "rec-legacy",
