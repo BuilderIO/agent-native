@@ -2350,6 +2350,7 @@ interface VisualEditorExtensionOptions {
   onPickedImageFile?: ContentImageOptions["onPickedImageFile"];
   canMutateMedia?: () => boolean;
   isSuggesting?: () => boolean;
+  onSuggestionRefused?: () => void;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
   resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
@@ -3421,6 +3422,7 @@ export function createVisualEditorExtensions({
   onPickedImageFile,
   canMutateMedia,
   isSuggesting,
+  onSuggestionRefused,
   onJoinTitle,
   onOpenNotionPageLink,
   resolveNotionPageLink,
@@ -3518,7 +3520,14 @@ export function createVisualEditorExtensions({
       NormalizeTableAlignment,
       TablePresentation,
       ...(isSuggesting
-        ? [SuggestingReadOnlyBlocks.configure({ isSuggesting })]
+        ? [
+            SuggestingReadOnlyBlocks.configure({
+              isSuggesting,
+              ...(onSuggestionRefused
+                ? { onRefused: onSuggestionRefused }
+                : {}),
+            }),
+          ]
         : []),
       ...createNotionEditorExtensions({
         documentId,
@@ -4275,6 +4284,11 @@ export function VisualEditor({
   }, [documentId, fileStorageConfigured, uploadBodyImages]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
   const isSuggesting = useCallback(() => suggestingRef.current, []);
+  const onSuggestionRefused = useCallback(() => {
+    toast(t("editor.blockMenu.lockedSuggesting"), {
+      id: "suggesting-refused-block",
+    });
+  }, [t]);
   const analyticsLinks = useActionQuery(
     "get-analytics-links",
     {},
@@ -4378,6 +4392,7 @@ export function VisualEditor({
         onPickedImageFile,
         canMutateMedia,
         isSuggesting,
+        onSuggestionRefused,
         onJoinTitle,
         onOpenNotionPageLink,
         resolveNotionPageLink,
@@ -4462,6 +4477,7 @@ export function VisualEditor({
       onPickedImageFile,
       canMutateMedia,
       isSuggesting,
+      onSuggestionRefused,
       onJoinTitle,
       onOpenNotionPageLink,
       resolveNotionPageLink,

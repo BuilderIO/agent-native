@@ -11,7 +11,7 @@ import {
   type EditorState,
   type Transaction,
 } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 import {
   isOpenSuggestionFrame,
@@ -176,17 +176,47 @@ export function isSuggestingEdits(state: EditorState): boolean {
   return readOnlyBlocksKey.get(state)?.spec.isSuggesting?.() === true;
 }
 
-export function suggestingReadOnlyBlocksPlugin(isSuggesting: () => boolean) {
+export const SUGGESTING_REFUSAL_PROBE = "suggestingRefusalProbe";
+
+const INPUT_WINDOW_MS = 250;
+
+export function suggestingReadOnlyBlocksPlugin(
+  isSuggesting: () => boolean,
+  onRefused?: () => void,
+) {
   let cached: { doc: ProseMirrorNode; decorations: DecorationSet } | null =
     null;
+  let input: { view: EditorView; at: number } | null = null;
+  const noteInput = (view: EditorView) => {
+    input = { view, at: performance.now() };
+    return false;
+  };
   return new Plugin({
     key: readOnlyBlocksKey,
     isSuggesting,
-    filterTransaction: (transaction) =>
-      !isSuggesting() ||
-      !transaction.docChanged ||
-      !editsUnsupportedSuggestionNode(transaction),
+    filterTransaction: (transaction, state) => {
+      if (
+        !isSuggesting() ||
+        !transaction.docChanged ||
+        !editsUnsupportedSuggestionNode(transaction)
+      )
+        return true;
+      if (
+        !transaction.getMeta(SUGGESTING_REFUSAL_PROBE) &&
+        input?.view.state === state &&
+        performance.now() - input.at < INPUT_WINDOW_MS
+      )
+        onRefused?.();
+      return false;
+    },
     props: {
+      handleDOMEvents: {
+        keydown: noteInput,
+        beforeinput: noteInput,
+        paste: noteInput,
+        drop: noteInput,
+        cut: noteInput,
+      },
       decorations(state) {
         if (!isSuggesting()) return null;
         if (cached?.doc !== state.doc) {
@@ -208,6 +238,7 @@ export function suggestingReadOnlyBlocksPlugin(isSuggesting: () => boolean) {
 
 export const SuggestingReadOnlyBlocks = Extension.create<{
   isSuggesting: () => boolean;
+  onRefused?: () => void;
 }>({
   name: "suggestingReadOnlyBlocks",
 
@@ -216,6 +247,11 @@ export const SuggestingReadOnlyBlocks = Extension.create<{
   },
 
   addProseMirrorPlugins() {
-    return [suggestingReadOnlyBlocksPlugin(this.options.isSuggesting)];
+    return [
+      suggestingReadOnlyBlocksPlugin(
+        this.options.isSuggesting,
+        this.options.onRefused,
+      ),
+    ];
   },
 });
