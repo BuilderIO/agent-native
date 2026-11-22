@@ -37,6 +37,7 @@ export default defineAction({
   }),
   needsApproval: async (args, ctx) => {
     if (!isOutsideAgentCall(ctx)) return false;
+    if (args.status === "sent") return true;
     const me = getRequestUserEmail()?.trim().toLowerCase();
     if (
       args.ownerEmail !== undefined &&

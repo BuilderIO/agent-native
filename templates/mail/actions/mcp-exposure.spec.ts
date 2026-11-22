@@ -85,6 +85,7 @@ const ASKS_FIRST = [
   ["update-queued-draft", { id: "qd_1", status: "dismissed" }, FOR_TEAMMATE],
   ["update-queued-draft", { id: "qd_1", ownerEmail: ME }, FOR_TEAMMATE],
   ["update-queued-draft", { id: "qd_1", accountEmail: ME }, FROM_TEAMMATE],
+  ["update-queued-draft", { id: "qd_1", status: "sent" }, MINE],
   [
     "manage-gmail-filters",
     { operation: "create", from: "news@example.org", forward: "x@example.org" },
