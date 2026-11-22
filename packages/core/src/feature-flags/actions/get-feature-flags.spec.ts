@@ -128,6 +128,31 @@ describe("get-feature-flags action", () => {
     );
   });
 
+  it.each(["direct", "wrapped"])(
+    "propagates a %s database connection timeout without per-flag reads",
+    async (shape) => {
+      registry.registerFeatureFlags([{ key: "flag-a" }, { key: "flag-b" }]);
+      const timeout = Object.assign(
+        new Error("DB connect timed out after 10000ms"),
+        {
+          code: "CONNECT_TIMEOUT",
+        },
+      );
+      const error =
+        shape === "wrapped"
+          ? new Error("Failed query", { cause: timeout })
+          : timeout;
+      getSettingsRawMock.mockRejectedValueOnce(error);
+
+      await expect(
+        action.run({}, { userEmail: "a@b.com", orgId: "org-1" }),
+      ).rejects.toBe(error);
+      expect(getSettingsRawMock).toHaveBeenCalledTimes(1);
+      expect(getSettingMock).not.toHaveBeenCalled();
+      expect(captureErrorMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("returns an empty object when no flags are registered", async () => {
     await expect(
       action.run({}, { userEmail: "a@b.com", orgId: "org-1" }),

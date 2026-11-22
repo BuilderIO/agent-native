@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { isConnectionError } from "../../db/errors.js";
 import { getLabForLegacyFlag } from "../../labs/registry.js";
 import { getUserLabStates } from "../../labs/store.js";
 import { captureError } from "../../server/capture-error.js";
@@ -30,6 +31,7 @@ export default defineAction({
       definitions.map(({ key }) => key),
       scope,
     ).catch(async (error) => {
+      if (isConnectionError(error)) throw error;
       captureError(error, {
         tags: { source: "feature-flags", op: "get-feature-flags" },
       });
