@@ -3228,7 +3228,25 @@ function hasCommunityPrCorrection(message) {
 }
 const COMMUNITY_PR_HANDLING_PATTERN = { matches: hasCommunityPrCorrection };
 
-// Fleet corrections: match complaints, not routine status or requests to measure.
+// Exclude negated, completed, and measurement-only statements in the same clause.
+function fleetCorrection(re, text) {
+  return String(text)
+    .split(/[.!?;\n]|\b(?:but|however)\b/i)
+    .some(
+      (clause) =>
+        re.test(clause) &&
+        !/\b(?:not|isn['’]t|aren['’]t|wasn['’]t|weren['’]t|never|no longer)\s+(?:\w+\s+){0,4}(?:idle|idling|underused|underutili[sz]ed|sound|sounds|read|reads|look|looks|empty|blank|unavailable)\b/i.test(
+          clause,
+        ) &&
+        !/\b(?:you|we)\s+(?:have\s+)?(?:finished|completed|fixed|delivered|resolved)\b/i.test(
+          clause,
+        ) &&
+        !/\b(?:measure|measuring|count|track|report|evaluate|audit|assess)\b[^.!?\n]{0,100}\b(?:how (?:often|many)|whether|if)\b/i.test(
+          clause,
+        ),
+    );
+}
+
 const FLEET_PATTERNS = [
   {
     key: "fleet-m5-idle",
@@ -3257,18 +3275,32 @@ const FLEET_PATTERNS = [
       "fleet-ops briefs/RULES.md: 21 (contact boundary; no outward-copy quality rule)",
     re: /\b(?:messages?|repl(?:y|ies)|emails?|posts?)\b[^.!?\n]{0,100}\b(?:sounds?|reads?|looks?)\s+(?:like\s+)?(?:an?\s+)?(?:ai|bot|robot|robotic|machine[- ]written)\b|\b(?:ai|bot|robotic)\b[^.!?\n]{0,60}\b(?:sounding|generated)\s+(?:messages?|repl(?:y|ies)|emails?|posts?)\b/i,
   },
-];
+].map((pattern) => ({
+  ...pattern,
+  matches: (text) => fleetCorrection(pattern.re, text),
+}));
 
 const FLEET_REGEX_CASES = [
   ["fleet-m5-idle", true, "M5 idle again with work queued"],
   ["fleet-m5-idle", false, "M5 has work running"],
+  ["fleet-m5-idle", false, "M5 is not idle"],
+  ["fleet-m5-idle", true, "M5 was not idle, but M5 is idle again"],
   ["fleet-dropped-asks", true, "I asked for this 24 hours ago"],
   ["fleet-dropped-asks", true, "Why is the dashboard empty?"],
   ["fleet-dropped-asks", false, "Please add this to the dashboard"],
+  ["fleet-dropped-asks", false, "I asked yesterday and you finished it"],
+  ["fleet-dropped-asks", true, "I asked yesterday and it is still not done"],
   ["fleet-unmeasured-panels", true, "These dashboard panels are unavailable"],
   ["fleet-unmeasured-panels", false, "Measure the dashboard panels"],
+  [
+    "fleet-unmeasured-panels",
+    false,
+    "Measure how often dashboard panels are unavailable",
+  ],
+  ["fleet-unmeasured-panels", true, "The dashboard metrics are not measured"],
   ["fleet-outward-copy", true, "Those replies sound like a bot"],
   ["fleet-outward-copy", false, "Read the messages in the channel"],
+  ["fleet-outward-copy", false, "These replies do not sound like a bot"],
 ];
 
 function matchesPattern(pattern, text) {
@@ -3759,7 +3791,8 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...FLEET_REGEX_CASES.filter(
       ([key, expected, message]) =>
-        FLEET_PATTERNS.find((pattern) => pattern.key === key).re.test(
+        matchesPattern(
+          FLEET_PATTERNS.find((pattern) => pattern.key === key),
           message,
         ) !== expected,
     ),
