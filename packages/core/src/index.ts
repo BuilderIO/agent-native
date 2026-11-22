@@ -461,6 +461,7 @@ export * from "./review/index.js";
 export * from "./org-team/index.js";
 export * from "./navigation/index.js";
 export * from "./command-navigation/index.js";
+export * from "./manifest/index.js";
 export * from "./search/index.js";
 export * from "./embeddings/index.js";
 export {

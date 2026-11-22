@@ -209,6 +209,10 @@ const messages = {
       contentPagesRetry: "फिर से कोशिश करें",
       contentPagesEmpty: "कोई पेज नहीं मिला",
       contentFileMarkdown: "Markdown फ़ाइल",
+      contentFilePdf: "PDF फ़ाइल",
+      contentPageFormat: "पेज इस रूप में अटैच करें",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV फ़ाइल",
       bold: "बोल्ड",
       cancel: "रद्द करें",
@@ -470,6 +474,12 @@ const messages = {
       scheduledCancelFailed: "शेड्यूल ईमेल रद्द करने में विफल",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Content पेज संलग्न नहीं हो सका",
+      contentPagePdfTextUnsupported:
+        "इस पेज में ऐसा टेक्स्ट है जिसे PDF अभी नहीं दिखा सकता, जैसे चीनी, जापानी, कोरियाई, अरबी, हिब्रू या हिंदी। इसके बजाय इसे Markdown के रूप में संलग्न करें।",
+      contentPagePdfTooLong:
+        "यह पेज PDF के रूप में संलग्न करने के लिए बहुत लंबा या बहुत चौड़ा है। इसके बजाय इसे Markdown के रूप में संलग्न करें।",
+      contentPagePdfUnavailable:
+        "Content इस पेज का PDF नहीं बना सका। इसके बजाय इसे Markdown के रूप में संलग्न करें।",
       waitForAttachments: "अटैचमेंट जुड़ने तक प्रतीक्षा करें, फिर भेजें।",
       failedToUploadImage: "छवि अपलोड करने में विफल",
       storageBuilderRefused:

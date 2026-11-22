@@ -2021,6 +2021,7 @@ const messages = {
     "Storage credentials cleared. New uploads go to Builder.io.",
   "settings.storage.saveFailed": "Could not save file storage.",
   "settings.storage.clearFailed": "Could not clear storage credentials.",
+  "settings.timezoneLoadFailed": "Couldn't load your timezone.",
   "settings.storage.loadFailed": "Could not load file storage settings.",
   "settings.storage.retry": "Retry",
   "settings.storage.unreadable":

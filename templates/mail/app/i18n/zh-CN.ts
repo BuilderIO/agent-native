@@ -201,6 +201,10 @@ const messages = {
       contentPagesRetry: "重试",
       contentPagesEmpty: "未找到页面",
       contentFileMarkdown: "Markdown 文件",
+      contentFilePdf: "PDF 文件",
+      contentPageFormat: "页面附加格式",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV 文件",
       bold: "加粗",
       cancel: "取消",
@@ -460,6 +464,12 @@ const messages = {
       scheduledCancelFailed: "取消定时邮件失败",
       failedToAttachFile: "附加文件失败",
       failedToAttachContentPage: "附加 Content 页面失败",
+      contentPagePdfTextUnsupported:
+        "此页面包含 PDF 暂时无法显示的文字，例如中文、日文、韩文、阿拉伯文、希伯来文或印地文。请改为以 Markdown 格式附加。",
+      contentPagePdfTooLong:
+        "此页面太长或太宽，无法以 PDF 格式附加。请改为以 Markdown 格式附加。",
+      contentPagePdfUnavailable:
+        "Content 无法为此页面生成 PDF。请改为以 Markdown 格式附加。",
       waitForAttachments: "请等待附件添加完成后再发送。",
       failedToUploadImage: "上传图片失败",
       storageBuilderRefused:

@@ -209,6 +209,10 @@ const messages = {
       contentPagesRetry: "다시 시도",
       contentPagesEmpty: "페이지를 찾을 수 없습니다",
       contentFileMarkdown: "Markdown 파일",
+      contentFilePdf: "PDF 파일",
+      contentPageFormat: "페이지 첨부 형식",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV 파일",
       bold: "굵게",
       cancel: "취소",
@@ -471,6 +475,12 @@ const messages = {
       scheduledCancelFailed: "예약 이메일 취소 실패",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Content 페이지를 첨부하지 못했습니다",
+      contentPagePdfTextUnsupported:
+        "이 페이지에는 중국어, 일본어, 한국어, 아랍어, 히브리어, 힌디어처럼 PDF에서 아직 표시할 수 없는 텍스트가 있습니다. 대신 Markdown으로 첨부하세요.",
+      contentPagePdfTooLong:
+        "이 페이지는 너무 길거나 너무 넓어서 PDF로 첨부할 수 없습니다. 대신 Markdown으로 첨부하세요.",
+      contentPagePdfUnavailable:
+        "Content에서 이 페이지의 PDF를 만들지 못했습니다. 대신 Markdown으로 첨부하세요.",
       waitForAttachments: "첨부 파일 추가가 끝난 후 보내세요.",
       failedToUploadImage: "이미지 업로드 실패",
       storageBuilderRefused:

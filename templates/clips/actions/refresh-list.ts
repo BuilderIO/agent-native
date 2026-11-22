@@ -7,6 +7,7 @@ export default defineAction({
     "Refresh the recording / transcript / comments / viewers lists in the UI by bumping the refresh-signal timestamp.",
   schema: z.object({}),
   http: false,
+  mcpTool: false,
   run: async () => {
     await writeAppState("refresh-signal", { ts: Date.now() });
     return "Triggered UI refresh";

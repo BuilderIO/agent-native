@@ -496,12 +496,20 @@ describe("in-app agent tool schemas", () => {
       fs.writeFileSync(path.join(projectRoot, "actions", "pair.ts"), "");
       const template = await loadTemplateMcpConformance(
         projectRoot,
-        async () => ({ default: { pair: { default: pair } } }),
+        async () => ({
+          default: {
+            pair: { default: pair },
+            listed: { default: { ...pair, mcpTool: true } },
+          },
+        }),
       );
 
       expect(template.listAgentTools().map(({ name }) => name)).toContain(
         "pair",
       );
+      expect(
+        (await template.listCatalog("default")).map(({ name }) => name),
+      ).toEqual(expect.arrayContaining(["listed", "tool-search"]));
     } finally {
       fs.rmSync(projectRoot, { recursive: true, force: true });
     }

@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { ensureReviewTables } from "@agent-native/core/review";
 import {
   getRequestUserEmail,
   getRequestUserName,
@@ -20,6 +21,7 @@ import {
   resolvePlanAccessContext,
   resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
+import { mirrorPlanComments } from "../server/lib/plan-comment-mirror.js";
 import {
   buildUpdatedPlanCommentRows,
   commentResolutionFields,
@@ -203,51 +205,51 @@ export default defineAction({
         ? existingThreadCommentIds
         : [existing.id];
 
-    let insertedNoteId: string | undefined;
-    if (args.resolutionNote) {
-      const noteRows = buildUpdatedPlanCommentRows({
-        planId: args.planId,
-        comments: [
-          {
-            parentCommentId: threadRootId,
-            kind: existing.kind,
-            status: args.status,
-            message: args.resolutionNote,
-            createdBy: "agent" as const,
-          },
-        ],
-        existingComments: bundle.comments,
-        requestEmail: commentRequestEmail,
-        requestName: requesterName,
-        now,
-      });
-      const noteRow = noteRows[0];
-      if (noteRow) {
-        await db.insert(schema.planComments).values(noteRow);
-        insertedNoteId = noteRow.id;
-      }
-    }
+    const noteRow = args.resolutionNote
+      ? buildUpdatedPlanCommentRows({
+          planId: args.planId,
+          comments: [
+            {
+              parentCommentId: threadRootId,
+              kind: existing.kind,
+              status: args.status,
+              message: args.resolutionNote,
+              createdBy: "agent" as const,
+            },
+          ],
+          existingComments: bundle.comments,
+          requestEmail: commentRequestEmail,
+          requestName: requesterName ?? null,
+          now,
+        })[0]
+      : undefined;
+    const insertedNoteId = noteRow?.id;
     const allUpdatedCommentIds = insertedNoteId
       ? [...updatedCommentIds, insertedNoteId]
       : updatedCommentIds;
 
-    for (const commentId of allUpdatedCommentIds) {
-      await db
-        .update(schema.planComments)
-        .set({
-          status: args.status,
-          resolvedBy: resolution.resolvedBy,
-          resolvedAt: resolution.resolvedAt,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(schema.planComments.id, commentId),
-            eq(schema.planComments.planId, args.planId),
-            isNull(schema.planComments.deletedAt),
-          ),
-        );
-    }
+    await ensureReviewTables();
+    await db.transaction(async (tx) => {
+      if (noteRow) await tx.insert(schema.planComments).values(noteRow);
+      for (const commentId of allUpdatedCommentIds) {
+        await tx
+          .update(schema.planComments)
+          .set({
+            status: args.status,
+            resolvedBy: resolution.resolvedBy,
+            resolvedAt: resolution.resolvedAt,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.planComments.id, commentId),
+              eq(schema.planComments.planId, args.planId),
+              isNull(schema.planComments.deletedAt),
+            ),
+          );
+      }
+      await mirrorPlanComments(tx, args.planId, allUpdatedCommentIds);
+    });
 
     await writeEvent({
       planId: args.planId,

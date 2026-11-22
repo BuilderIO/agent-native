@@ -40,6 +40,7 @@ export default defineAction({
     intent: navigationIntentSchema,
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     if (
       !args.view &&

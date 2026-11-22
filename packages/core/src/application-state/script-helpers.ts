@@ -15,7 +15,7 @@ import {
   type AppStateCompareAndSetOperation,
 } from "./store.js";
 
-async function resolveSessionId(): Promise<string> {
+export async function resolveSessionId(): Promise<string> {
   try {
     const { getRequestUserEmail } =
       await import("../server/request-context.js");

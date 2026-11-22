@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { filterBuiltInApps, filterOtherApps } from "./other-apps.js";
+import {
+  chatFirstExternalApps,
+  filterBuiltInApps,
+  filterOtherApps,
+} from "./other-apps.js";
 
 describe("filterBuiltInApps", () => {
   it("keeps configured first-party apps not mounted in the workspace", () => {
@@ -293,5 +297,110 @@ describe("filterOtherApps", () => {
         source: "custom",
       },
     ]);
+  });
+});
+
+describe("connected apps in the chat-first pane", () => {
+  it("opens an app connected from another workspace at its own origin", async () => {
+    const { resolveChatFirstAppTarget } =
+      await import("@agent-native/core/client/agent-chat");
+    const { mergeChatFirstWorkspaceApps } = await import("./workspace-apps.js");
+    const mounted = [{ id: "mail-2", name: "Mail", path: "/mail-2" }];
+    const apps = mergeChatFirstWorkspaceApps(
+      mounted,
+      [],
+      chatFirstExternalApps(
+        [
+          {
+            id: "fleet",
+            name: "Fleet",
+            url: "https://agent-workspace.example.com/fleet",
+            source: "custom",
+          },
+        ],
+        mounted,
+      ),
+    );
+    const registrations = apps.map((app) => ({
+      id: app.id,
+      name: app.name,
+      source: app.source,
+      path: app.path,
+      url: app.url,
+      enabled: true,
+    }));
+
+    expect(
+      resolveChatFirstAppTarget(
+        {
+          app: "fleet",
+          url: "https://agent-workspace.example.com/fleet/home",
+        },
+        registrations,
+        { currentOrigin: "https://labs.example.com" },
+      ),
+    ).toEqual({ status: "ready", target: { appId: "fleet", path: "/home" } });
+    expect(
+      resolveChatFirstAppTarget(
+        { url: "https://agent-workspace.example.com/other/home" },
+        registrations,
+        { currentOrigin: "https://labs.example.com" },
+      ),
+    ).toEqual({ status: "unresolved", reason: "unknown-app" });
+  });
+});
+
+describe("chatFirstExternalApps", () => {
+  const connected = [
+    {
+      id: "slides",
+      name: "Slides",
+      url: "https://slides.example.com/deck",
+      homeUrl: "https://slides.example.com/home",
+      source: "builtin" as const,
+      hiddenFromLaunchers: true,
+    },
+    {
+      id: "fleet",
+      name: "Fleet",
+      description: "Fleet dashboard",
+      url: "https://agent-workspace.example.com/fleet",
+      source: "custom" as const,
+    },
+    {
+      id: "mail-2",
+      name: "Mail elsewhere",
+      url: "https://elsewhere.example.com/mail-2",
+      source: "custom" as const,
+    },
+  ];
+
+  it("lists hosted apps at their home URL, keeps hidden ones, and tags connected apps", () => {
+    expect(chatFirstExternalApps(connected, [{ id: "mail-2" }])).toEqual([
+      {
+        id: "slides",
+        name: "Slides",
+        url: "https://slides.example.com/home",
+        source: "builtin",
+        hiddenFromLaunchers: true,
+      },
+      {
+        id: "fleet",
+        name: "Fleet",
+        description: "Fleet dashboard",
+        url: "https://agent-workspace.example.com/fleet",
+        source: "connected",
+      },
+    ]);
+  });
+
+  it("lists nothing while the mounted app list is loading", () => {
+    expect(chatFirstExternalApps(connected, "loading")).toEqual([]);
+  });
+
+  it("keeps every hosted and connected app when the mounted list is unreadable", () => {
+    expect(
+      chatFirstExternalApps(connected, "unreadable").map((app) => app.id),
+    ).toEqual(["slides", "fleet", "mail-2"]);
   });
 });

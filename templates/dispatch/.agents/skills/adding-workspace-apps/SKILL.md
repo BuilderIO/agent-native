@@ -52,7 +52,7 @@ only apps in that workspace, with each deployed `path` matching its
 `APP_BASE_PATH` and proxy route. Do not reuse another organization's manifest.
 Always save a concise, human-readable `description` in each package manifest;
 Dispatch and A2A connected-agent context use the app name plus description so
-agents know what it does. Use relative workspace links like `/<app-name>` and never
+agents know what it does. Use the mount and home path returned by the running workspace registry, and never
 hardcode `localhost`, `127.0.0.1`, `8080`, `8100`, or any dev port in app
 cards, instructions, redirects, or navigation; the active workspace
 gateway/browser origin owns the port. React Router apps must keep the
@@ -89,13 +89,15 @@ saved to app tables.
 
 In local development, run
 `pnpm exec agent-native add-app <app-name> --template=<template>` from the
-workspace root. In production, Dispatch posts new-app requests to Builder
-branch creation; Builder should still scaffold the separate workspace app. The
+workspace root. In hosted Dispatch, a branch result means a build started. In a managed
+workspace, Dispatch returns the workspace link and creation continues there
+with New app and the same brief. In either case, scaffold the separate
+workspace app and verify the result in the registry. The
 workspace dev gateway (`pnpm dev`) detects new `apps/<app-name>` directories
 automatically.
 
 Scaffolding the directory is not the app being live. Before saying the app is
-created, request `/<app-name>` on the running gateway and confirm it returns
+created, request the resolved route on the running gateway and confirm it returns
 the new app, not a fallback route or another app's shell — then tell the user
 that exact path to open, since the preview root can still show a different
 app. If the preview/host isn't running the workspace gateway (root `pnpm
@@ -105,6 +107,12 @@ command); the agent cannot change a host's run/dev command itself. Never
 report the app as created while the preview still shows something else.
 
 ## Finishing A Chat-Template App
+
+Run the five stages in `app-quality-bar`. Refine the scaffold's `DESIGN.md`
+and `app.manifest.ts` around the actual workflow, and exercise both review
+gates against the mounted preview before reporting readiness. Use
+`app-quality-bar/preview-acceptance.md` for the evidence shared with the
+preview and publish workflow.
 
 When using the chat template, treat it as scaffolding only. The finished app
 must be branded as the requested app, with its own home screen, navigation,

@@ -90,6 +90,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: true,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     const access = await assertReviewCommentAccess(

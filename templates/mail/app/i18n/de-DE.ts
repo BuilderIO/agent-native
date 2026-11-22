@@ -225,6 +225,10 @@ const messages = {
       contentPagesRetry: "Erneut versuchen",
       contentPagesEmpty: "Keine Seiten gefunden",
       contentFileMarkdown: "Markdown-Datei",
+      contentFilePdf: "PDF-Datei",
+      contentPageFormat: "Seiten anhängen als",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV-Datei",
       bold: "Fett",
       cancel: "Abbrechen",
@@ -491,6 +495,12 @@ const messages = {
       scheduledCancelFailed: "Geplante E-Mail konnte nicht abgebrochen werden",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Content-Seite konnte nicht angehängt werden",
+      contentPagePdfTextUnsupported:
+        "Diese Seite enthält Text, den ein PDF noch nicht darstellen kann, etwa Chinesisch, Japanisch, Koreanisch, Arabisch, Hebräisch oder Hindi. Hänge sie stattdessen als Markdown an.",
+      contentPagePdfTooLong:
+        "Diese Seite ist zu lang oder zu breit, um sie als PDF anzuhängen. Hänge sie stattdessen als Markdown an.",
+      contentPagePdfUnavailable:
+        "Content konnte aus dieser Seite kein PDF erstellen. Hänge sie stattdessen als Markdown an.",
       waitForAttachments: "Warte, bis die Anhänge fertig sind, und sende dann.",
       failedToUploadImage: "Bild konnte nicht hochgeladen werden",
       storageBuilderRefused:

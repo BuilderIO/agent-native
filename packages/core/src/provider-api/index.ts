@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { AgentConnectionRequiredError, fail } from "../action.js";
 import {
+  getWorkspaceConnectionOAuth,
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionTemplateUse,
 } from "../connections/catalog.js";
@@ -647,6 +648,7 @@ interface OAuthTokens {
   expires_in?: number;
   token_type?: string;
   scope?: string;
+  personalProviderOAuth?: boolean;
   sigma_api_base_url?: string;
   sigma_token_url?: string;
   sigma_client_id?: string;
@@ -1812,8 +1814,10 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     defaultBaseUrl: "https://slack.com/api",
     bodyOkField: "ok",
     auth: {
-      type: "bearer",
-      keys: ["SLACK_BOT_TOKEN"],
+      type: "oauth-bearer-or-bearer-key",
+      oauthProvider: "slack",
+      tokenLabel: "Slack OAuth token",
+      key: "SLACK_BOT_TOKEN",
       workspaceProvider: "slack",
     },
     credentialKeys: ["SLACK_BOT_TOKEN", "SLACK_BOT_TOKEN_2"],
@@ -2806,12 +2810,15 @@ function providerAccessErrorGuidance(
  * exception is the provider's own remote MCP endpoint, which may receive it as
  * a per-request bearer (`mcp-client/workspace-connection-servers.ts`); it is
  * still never stored on the server config or shown to the agent.
+ * Pass the operation's requiredScopes with a workspace connection to verify
+ * both the connection grant and the scopes on the stored token.
  */
 export async function resolveProviderApiOAuthAccessToken(
   args: {
     provider: ProviderApiId;
     connectionId?: string | null;
     accountId?: string | null;
+    requiredScopes?: readonly string[];
   },
   runtime: ProviderApiRuntimeOptions,
 ): Promise<ProviderApiOAuthAccessToken> {
@@ -2873,6 +2880,7 @@ export async function resolveProviderApiOAuthAccessToken(
         workspaceProvider: oauthAuth.workspaceProvider,
         connectionId: args.connectionId,
         accountId: args.accountId,
+        requiredScopes: args.requiredScopes,
       })
     : await resolveOAuthBearerToken({
         auth: oauthAuth,
@@ -5127,10 +5135,7 @@ async function resolveAnyCredential(options: {
     const credential = await resolveOptionalCredential({ ...options, key });
     if (credential?.value) return credential;
   }
-  const scopeGap = await describeCredentialScopeGap(
-    options.keys,
-    options.ctx,
-  ).catch(() => null);
+  const scopeGap = await describeGenericScopeGap(options.keys, options);
   if (options.workspaceProvider && !scopeGap) {
     return throwWorkspaceConnectionRequired({
       runtime: options.runtime,
@@ -5140,9 +5145,8 @@ async function resolveAnyCredential(options: {
     });
   }
   throw new Error(
-    `${options.provider} credential not configured. Tried: ${options.keys.join(
-      ", ",
-    )}${scopeGap ? `. ${scopeGap}` : ""}`,
+    `${options.provider} credential not configured. ` +
+      `${scopeGap ? `${scopeGap} ` : ""}Tried: ${options.keys.join(", ")}`,
   );
 }
 
@@ -5156,10 +5160,7 @@ async function resolveRequiredCredential(options: {
 }): Promise<ProviderApiResolvedCredential> {
   const credential = await resolveOptionalCredential(options);
   if (credential?.value) return credential;
-  const scopeGap = await describeCredentialScopeGap([options.key], options.ctx)
-    // coercion-ok: only enriches an error we throw either way — losing the scope
-    // hint still surfaces the real "not configured" failure, never a success.
-    .catch(() => null);
+  const scopeGap = await describeGenericScopeGap([options.key], options);
   if (options.workspaceProvider && !scopeGap) {
     return throwWorkspaceConnectionRequired({
       runtime: options.runtime,
@@ -5170,6 +5171,22 @@ async function resolveRequiredCredential(options: {
   }
   throw new Error(
     `${options.key} not configured${scopeGap ? `. ${scopeGap}` : ""}`,
+  );
+}
+
+async function describeGenericScopeGap(
+  keys: readonly string[],
+  options: {
+    workspaceProvider: string | undefined;
+    ctx: CredentialContext;
+    connectionId?: string | null;
+  },
+): Promise<string | null> {
+  if (options.workspaceProvider && options.connectionId?.trim()) return null;
+  return (
+    describeCredentialScopeGap(keys, options.ctx)
+      // coercion-ok: only enriches an error we throw either way, never a success.
+      .catch(() => null)
   );
 }
 
@@ -5429,6 +5446,7 @@ async function resolveOAuthBearerToken(options: {
   ownerEmail?: string | null;
   salesforceLoginUrl?: string | null;
   connectionId?: string | null;
+  requiredScopes?: readonly string[];
 }): Promise<ProviderApiResolvedCredential> {
   if (credentialUseLedgerOrgCredentialsOnly()) {
     throw new Error(
@@ -5441,9 +5459,14 @@ async function resolveOAuthBearerToken(options: {
     options.auth.oauthProvider,
     ownerEmail,
   );
+  const eligibleAccounts = accounts.filter(
+    (entry) =>
+      options.connectionId ||
+      !(entry.tokens as OAuthTokens).personalProviderOAuth,
+  );
   const account = requestedAccountId
-    ? accounts.find((entry) => entry.accountId === requestedAccountId)
-    : accounts[0];
+    ? eligibleAccounts.find((entry) => entry.accountId === requestedAccountId)
+    : eligibleAccounts[0];
   if (
     !account &&
     options.auth.oauthProvider === "google_sheets" &&
@@ -5540,6 +5563,19 @@ async function resolveOAuthBearerToken(options: {
     );
   }
   const tokens = account.tokens as OAuthTokens;
+  if (
+    options.requiredScopes?.some(
+      (scope) => !oauthTokenScopes(tokens).includes(scope),
+    )
+  ) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.auth.oauthProvider,
+      connectionId: options.connectionId ?? null,
+      message: `${options.auth.tokenLabel} is missing required OAuth scopes.`,
+      reason: "reauthorize",
+    });
+  }
   const preserveSharedGoogleGrant =
     options.auth.oauthProvider === "google" &&
     Boolean(options.auth.workspaceProvider);
@@ -5550,10 +5586,20 @@ async function resolveOAuthBearerToken(options: {
       accountId: account.accountId,
       ownerEmail,
       tokens,
+      requiredScopes: options.requiredScopes,
       preserveTokensOnPermanentFailure: preserveSharedGoogleGrant,
       salesforceLoginUrl: options.salesforceLoginUrl,
     });
   } catch (error) {
+    if (error instanceof PersonalOAuthReauthorizationError) {
+      return throwWorkspaceConnectionRequired({
+        runtime: options.runtime,
+        provider: options.auth.oauthProvider,
+        connectionId: options.connectionId ?? null,
+        message: error.message,
+        reason: "reauthorize",
+      });
+    }
     if (
       preserveSharedGoogleGrant &&
       options.auth.workspaceProvider &&
@@ -5651,6 +5697,7 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   connectionId?: string | null;
   accountId?: string | null;
   allowUnbound?: boolean;
+  requiredScopes?: readonly string[];
 }): Promise<ProviderApiResolvedCredential | null> {
   const requestedConnectionId = options.connectionId?.trim();
   const requestedAccountId = options.accountId?.trim();
@@ -5707,6 +5754,42 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
       reason: "reauthorize",
     });
   }
+  const connection = resolved.connection;
+  const personal = isPersonalProviderConnection(connection);
+  if (personal && !requestedConnectionId && !requestedAccountId) return null;
+  if (personal && (!requestedConnectionId || !options.requiredScopes?.length)) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.workspaceProvider,
+      connectionId: requestedConnectionId ?? null,
+      message:
+        "Personal OAuth requires a selected connection and operation scopes.",
+    });
+  }
+  if (
+    (personal &&
+      (connection.config.workspaceConnectionScope !== "user" ||
+        options.ctx.credentialScope === "org" ||
+        connection.ownerEmail.toLowerCase() !==
+          options.ctx.userEmail.toLowerCase() ||
+        connection.orgId !== options.ctx.orgId)) ||
+    options.requiredScopes?.some(
+      (scope) =>
+        !connection.scopes.includes(scope) ||
+        (connection.explicitGrant &&
+          !connection.explicitGrant.scopes.includes(scope)),
+    )
+  ) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.workspaceProvider,
+      connectionId: requestedConnectionId ?? null,
+      message: `${options.auth.tokenLabel} is unavailable for this scope.`,
+    });
+  }
+  const requiredScopes = personal
+    ? [...new Set([...connection.scopes, ...(options.requiredScopes ?? [])])]
+    : options.requiredScopes;
   const connectionAccountId = resolved.connection.accountId?.trim();
   if (!connectionAccountId) {
     if (options.allowUnbound) return null;
@@ -5726,6 +5809,7 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
     accountId: connectionAccountId,
     ownerEmail: resolved.connection.ownerEmail,
     connectionId: resolved.connection.id,
+    requiredScopes,
     salesforceLoginUrl:
       options.auth.oauthProvider === "salesforce" &&
       typeof resolved.connection.config?.salesforceLoginUrl === "string"
@@ -5735,11 +5819,17 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   const endpointOwner = workspaceConnectionEndpointOwner(resolved.connection);
   return {
     ...credential,
-    scope: endpointOwner.scope,
-    scopeId: endpointOwner.scopeId,
+    scope: personal ? "user" : endpointOwner.scope,
+    scopeId: personal ? connection.ownerEmail : endpointOwner.scopeId,
     connectionId: endpointOwner.connectionId,
     connectionLabel: resolved.connection.label,
   };
+}
+
+function isPersonalProviderConnection(connection: {
+  config?: WorkspaceConnection["config"];
+}): boolean {
+  return connection.config?.personalProviderOAuth === true;
 }
 
 function isPermanentGoogleOAuthRefreshFailure(error: unknown): boolean {
@@ -5756,9 +5846,19 @@ async function getValidOAuthAccessToken(options: {
   accountId: string;
   ownerEmail: string;
   tokens: OAuthTokens;
+  requiredScopes?: readonly string[];
   preserveTokensOnPermanentFailure?: boolean;
   salesforceLoginUrl?: string | null;
 }): Promise<string> {
+  if (
+    options.tokens.personalProviderOAuth &&
+    (options.oauthProvider === "slack" || options.oauthProvider === "zoom")
+  ) {
+    return resolvePersonalProviderOAuthAccess({
+      ...options,
+      provider: options.oauthProvider,
+    });
+  }
   const accessToken =
     options.tokens.access_token ?? options.tokens.accessToken ?? "";
   if (!accessToken) {
@@ -5777,7 +5877,12 @@ async function getValidOAuthAccessToken(options: {
 
   const refreshToken =
     options.tokens.refresh_token ?? options.tokens.refreshToken;
-  if (!refreshToken) return accessToken;
+  if (!refreshToken) {
+    if (options.oauthProvider === "zoom" && expiresAt <= Date.now()) {
+      throw new Error("Zoom OAuth token has expired.");
+    }
+    return accessToken;
+  }
   if (
     options.oauthProvider === "google" ||
     options.oauthProvider === "google-docs" ||
@@ -5815,6 +5920,187 @@ async function getValidOAuthAccessToken(options: {
   throw new Error(
     `${options.oauthProvider} OAuth token is expired and automatic refresh is not configured for provider-api.`,
   );
+}
+
+class PersonalOAuthReauthorizationError extends Error {}
+
+function oauthTokenScopes(tokens: OAuthTokens): string[] {
+  return typeof tokens.scope === "string"
+    ? tokens.scope.split(/[\s,]+/).filter(Boolean)
+    : [];
+}
+
+async function resolvePersonalProviderOAuthAccess(options: {
+  provider: "slack" | "zoom";
+  accountId: string;
+  ownerEmail: string;
+  tokens: OAuthTokens;
+  requiredScopes?: readonly string[];
+}): Promise<string> {
+  const slack = options.provider === "slack";
+  const label = slack ? "Slack" : "Zoom";
+  const shouldRefresh = (tokens: OAuthTokens, now: number) =>
+    typeof tokens.expiry_date === "number" &&
+    tokens.expiry_date <= now + 60_000;
+  const tokens = shouldRefresh(options.tokens, Date.now())
+    ? await resolveOAuthTokenBundleAccess<OAuthTokens>(
+        {
+          provider: options.provider,
+          accountId: options.accountId,
+          resource: "provider-api",
+          owner: { scope: "user", id: options.ownerEmail },
+        },
+        {
+          storageOwner: options.ownerEmail,
+          shouldRefresh,
+          refresh: async (stored) => {
+            const refreshToken = stored.refresh_token;
+            if (!refreshToken)
+              throw new PersonalOAuthReauthorizationError(
+                `${label} OAuth token has expired.`,
+              );
+            const prefix = options.provider.toUpperCase();
+            const [clientId, clientSecret] = await Promise.all([
+              resolveSecret(`${prefix}_CLIENT_ID`),
+              resolveSecret(`${prefix}_CLIENT_SECRET`),
+            ]);
+            if (!clientId || !clientSecret) {
+              throw new Error(
+                `${prefix}_CLIENT_ID and ${prefix}_CLIENT_SECRET are required to refresh ${label} OAuth tokens.`,
+              );
+            }
+            const { response, data } = await fetchBoundedOAuthRefreshJson<{
+              ok?: boolean;
+              access_token?: string;
+              refresh_token?: string;
+              expires_in?: number;
+              token_type?: string;
+              scope?: string;
+              error?: string;
+              reason?: string;
+            }>(
+              slack
+                ? "https://slack.com/api/oauth.v2.access"
+                : "https://zoom.us/oauth/token",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/x-www-form-urlencoded",
+                  ...(slack
+                    ? {}
+                    : {
+                        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+                      }),
+                },
+                redirect: "error",
+                body: new URLSearchParams({
+                  grant_type: "refresh_token",
+                  refresh_token: refreshToken,
+                  ...(slack
+                    ? { client_id: clientId, client_secret: clientSecret }
+                    : {}),
+                }),
+              },
+              label,
+            );
+            if (
+              ["invalid_grant", "invalid_refresh_token", "token_revoked"].some(
+                (code) => data.error === code || data.reason === code,
+              )
+            ) {
+              throw new PersonalOAuthReauthorizationError(
+                `${label} OAuth refresh was refused. Reconnect the account.`,
+              );
+            }
+            const { expires_in: expiresIn } = data;
+            if (
+              !response.ok ||
+              (slack && (data.ok !== true || data.token_type !== "user")) ||
+              typeof data.access_token !== "string" ||
+              !data.access_token ||
+              typeof data.refresh_token !== "string" ||
+              !data.refresh_token ||
+              typeof expiresIn !== "number" ||
+              !Number.isFinite(expiresIn) ||
+              expiresIn <= 0
+            ) {
+              throw new Error(
+                `${label} OAuth refresh failed (${response.status}).`,
+              );
+            }
+            return {
+              ...stored,
+              access_token: data.access_token,
+              refresh_token: data.refresh_token,
+              expiry_date: Date.now() + expiresIn * 1_000,
+              ...(data.scope === undefined ? {} : { scope: data.scope }),
+            };
+          },
+        },
+      )
+    : options.tokens;
+  const accessToken = tokens.access_token;
+  const heldScopes = oauthTokenScopes(tokens);
+  const allowedScopes =
+    getWorkspaceConnectionOAuth(
+      getWorkspaceConnectionProvider(options.provider),
+    )?.scopes ?? [];
+  if (
+    !tokens.personalProviderOAuth ||
+    !accessToken ||
+    (!slack && !Number.isFinite(tokens.expiry_date)) ||
+    (tokens.expiry_date !== undefined &&
+      (!Number.isFinite(tokens.expiry_date) ||
+        tokens.expiry_date <= Date.now())) ||
+    !heldScopes.length ||
+    options.requiredScopes?.some((scope) => !heldScopes.includes(scope)) ||
+    heldScopes.some(
+      (scope) =>
+        !allowedScopes.includes(scope) && !(slack && scope === "identify"),
+    )
+  ) {
+    throw new PersonalOAuthReauthorizationError(
+      `${label} OAuth credential is expired or missing required access.`,
+    );
+  }
+  const { response, data } = await fetchBoundedOAuthRefreshJson<{
+    ok?: boolean;
+    id?: string;
+    error?: string;
+  }>(
+    slack
+      ? "https://slack.com/api/auth.test"
+      : "https://api.zoom.us/v2/users/me",
+    {
+      method: slack ? "POST" : "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      redirect: "error",
+    },
+    label,
+  );
+  if (
+    response.status === 401 ||
+    (slack &&
+      [
+        "invalid_auth",
+        "token_revoked",
+        "token_expired",
+        "account_inactive",
+      ].some((code) => data.error === code))
+  ) {
+    throw new PersonalOAuthReauthorizationError(
+      `${label} OAuth credential was revoked or has expired.`,
+    );
+  }
+  if (
+    !response.ok ||
+    (slack ? data.ok !== true : typeof data.id !== "string" || !data.id)
+  ) {
+    throw new Error(
+      `${label} OAuth credential could not be validated (${response.status}).`,
+    );
+  }
+  return accessToken;
 }
 
 async function refreshSigmaOAuthToken(options: {
