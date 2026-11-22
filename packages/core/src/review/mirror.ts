@@ -505,11 +505,12 @@ export async function deleteMirroredReviewComments(
 }
 
 /**
- * Deletes the comments among `ids` whose thread's first comment, or whose
- * parent, the kit has deleted or never held. A startup copy passes the
+ * Deletes the comments among `ids` whose thread's first comment the kit has
+ * deleted or never held, at any depth in the thread. A startup copy passes the
  * comments only the kit holds: a reply written through the kit's own actions
- * under a comment the app deleted only in its own table, which the kit would
- * have deleted with its thread had the delete gone through the kit.
+ * in a thread the app deleted only in its own table, which the kit would have
+ * deleted with its thread had the delete gone through the kit. Like the kit's
+ * own delete, a deleted reply takes no other reply with it.
  */
 export async function deleteOrphanedMirroredReplies(
   resource: ReviewMirrorResource,
@@ -526,18 +527,12 @@ export async function deleteOrphanedMirroredReplies(
              AND c.resource_id = ${sql.value(resource.resourceId)}
              AND c.deleted_at IS NULL
              AND c.id IN ${sql.in(batch)}
-             AND ((c.thread_id <> c.id
-                   AND NOT EXISTS (SELECT 1 FROM agent_review_comments root
-                                    WHERE root.id = c.thread_id
-                                      AND root.resource_type = c.resource_type
-                                      AND root.resource_id = c.resource_id
-                                      AND root.deleted_at IS NULL))
-               OR (c.parent_comment_id IS NOT NULL
-                   AND NOT EXISTS (SELECT 1 FROM agent_review_comments parent
-                                    WHERE parent.id = c.parent_comment_id
-                                      AND parent.resource_type = c.resource_type
-                                      AND parent.resource_id = c.resource_id
-                                      AND parent.deleted_at IS NULL)))`);
+             AND c.thread_id <> c.id
+             AND NOT EXISTS (SELECT 1 FROM agent_review_comments root
+                              WHERE root.id = c.thread_id
+                                AND root.resource_type = c.resource_type
+                                AND root.resource_id = c.resource_id
+                                AND root.deleted_at IS NULL)`);
       for (const row of rows) found.push(String(row.id));
     }
     return found;

@@ -590,7 +590,7 @@ describe("Clips comments in the review kit", () => {
     });
   });
 
-  it("deletes a reply written through the kit in a thread Clips deleted", async () => {
+  it("deletes an agent's reply through the kit in a thread Clips deleted, and keeps one in a thread Clips kept", async () => {
     await createRecording("rec-orphan");
     const add = (content: string) =>
       as(OWNER, () =>
@@ -607,10 +607,13 @@ describe("Clips comments in the review kit", () => {
       id,
       threadId,
       parentCommentId: threadId,
+      anchor: { videoTimestampMs: 0 },
+      anchorKind: "video-time",
+      anchorVersion: 1,
       body: "A reply through the kit's own actions",
       authorEmail: OWNER,
       authorName: null,
-      createdBy: "human" as const,
+      createdBy: "agent" as const,
       resolved: false,
       createdAt: at,
       updatedAt: at,

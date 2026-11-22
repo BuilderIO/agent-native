@@ -18,6 +18,7 @@ import { firstRow } from "./first-row.js";
 
 export const RECORDING_REVIEW_RESOURCE = "recording";
 export const VIDEO_TIME_ANCHOR = "video-time";
+const CLIPS_COMMENT_WRITER = "human";
 
 type RecordingCommentRow = typeof schema.recordingComments.$inferSelect;
 type ClipsReader = Pick<ReturnType<typeof getDb>, "select">;
@@ -63,7 +64,7 @@ export function recordingCommentCopy(
     body: row.content,
     authorEmail: row.authorEmail,
     authorName: row.authorName,
-    createdBy: "human",
+    createdBy: CLIPS_COMMENT_WRITER,
     mentions: parseCommentMentions(row.mentionsJson).map(({ email, name }) => ({
       label: name,
       email,
@@ -205,8 +206,13 @@ export async function copyRecordingCommentsToReviewKit(): Promise<RecordingComme
 
 async function copiedFromClips(recordingId: string): Promise<Set<string>> {
   const { rows } = await getDbExec().execute({
-    sql: "SELECT id FROM agent_review_comments WHERE resource_type = ? AND resource_id = ? AND anchor_kind = ?",
-    args: [RECORDING_REVIEW_RESOURCE, recordingId, VIDEO_TIME_ANCHOR],
+    sql: "SELECT id FROM agent_review_comments WHERE resource_type = ? AND resource_id = ? AND anchor_kind = ? AND created_by = ?",
+    args: [
+      RECORDING_REVIEW_RESOURCE,
+      recordingId,
+      VIDEO_TIME_ANCHOR,
+      CLIPS_COMMENT_WRITER,
+    ],
   });
   return new Set(rows.map((row: { id: unknown }) => String(row.id)));
 }
