@@ -2200,7 +2200,8 @@ export function applyRedactions(values: {
       })),
     ).map((item) => {
       const next = { ...item };
-      if (next.capturedAt && redact(next.capturedAt) !== next.capturedAt) {
+      if (next.capturedAt && explicit.length > 0) {
+        changed = true;
         delete next.capturedAt;
         delete next.capturedAtSource;
       }

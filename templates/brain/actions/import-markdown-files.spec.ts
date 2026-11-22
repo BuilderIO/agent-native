@@ -59,6 +59,12 @@ describe("import-markdown-files", () => {
       sourceId: input.sourceId,
       status: "queued",
       ...input,
+      metadataJson: JSON.stringify({
+        ...(input.capturedAt ? { capturedAtSource: "manual-markdown" } : {}),
+        ...(input.metadata?.participants?.length
+          ? { participantsCount: input.metadata.participants.length }
+          : {}),
+      }),
     }));
     mocks.enqueueCaptureDistillation.mockResolvedValue({
       existing: false,
@@ -288,7 +294,7 @@ describe("report BRAIN-IMPORT-001: markdown screening unavailable", () => {
 
 describe("import-markdown-files provenance races and extra fields", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mocks.ensureManualSource.mockResolvedValue(source);
     mocks.getAccessibleSource.mockResolvedValue({ resource: source });
     mocks.enqueueCaptureDistillation.mockResolvedValue({
@@ -312,6 +318,7 @@ describe("import-markdown-files provenance races and extra fields", () => {
         status: "queued",
         kind: input.kind,
         capturedAt: input.capturedAt,
+        metadataJson: JSON.stringify({ capturedAtSource: "manual-markdown" }),
       }));
 
     const result = await action.run({
@@ -327,6 +334,83 @@ describe("import-markdown-files provenance races and extra fields", () => {
       enqueueDistillation: false,
     });
 
+    expect(mocks.createCapture).toHaveBeenCalledTimes(2);
+    expect(result.summary).toMatchObject({ imported: 1, failed: 0 });
+  });
+
+  it("retries when a concurrent first import dropped supplied participants", async () => {
+    mocks.createCapture
+      .mockResolvedValueOnce({
+        id: "capture-raced",
+        status: "queued",
+        metadataJson: "{}",
+      })
+      .mockResolvedValueOnce({
+        id: "capture-raced",
+        status: "queued",
+        metadataJson: JSON.stringify({ participantsCount: 2 }),
+      });
+    const result = await action.run({
+      sourceId: "source-1",
+      files: [
+        {
+          path: "meeting.md",
+          content: "Meeting",
+          participants: ["Avery", "Jordan"],
+        },
+      ],
+      enqueueDistillation: false,
+    });
+    expect(mocks.createCapture).toHaveBeenCalledTimes(2);
+    expect(result.summary).toMatchObject({ imported: 1, failed: 0 });
+  });
+
+  it("reports failure if a participant count cannot be applied on retry", async () => {
+    mocks.createCapture.mockResolvedValue({
+      id: "capture-raced",
+      status: "queued",
+      metadataJson: "{}",
+    });
+    const result = await action.run({
+      sourceId: "source-1",
+      files: [
+        { path: "meeting.md", content: "Meeting", participants: ["Avery"] },
+      ],
+      enqueueDistillation: false,
+    });
+    expect(mocks.createCapture).toHaveBeenCalledTimes(2);
+    expect(result.summary).toMatchObject({ imported: 0, failed: 1 });
+    expect(result.files[0]).toMatchObject({
+      status: "failed",
+      errorCode: "capture_changed",
+    });
+  });
+
+  it("retries when the same time lacks explicit timestamp provenance", async () => {
+    mocks.createCapture
+      .mockResolvedValueOnce({
+        id: "capture-raced",
+        status: "queued",
+        capturedAt: "2026-11-18T12:00:00.000Z",
+        metadataJson: "{}",
+      })
+      .mockResolvedValueOnce({
+        id: "capture-raced",
+        status: "queued",
+        capturedAt: "2026-11-18T12:00:00.000Z",
+        metadataJson: JSON.stringify({ capturedAtSource: "manual-markdown" }),
+      });
+    const result = await action.run({
+      sourceId: "source-1",
+      files: [
+        {
+          path: "meeting.md",
+          content: "Meeting",
+          capturedAt: "2026-11-18T12:00:00.000Z",
+        },
+      ],
+      enqueueDistillation: false,
+    });
     expect(mocks.createCapture).toHaveBeenCalledTimes(2);
     expect(result.summary).toMatchObject({ imported: 1, failed: 0 });
   });
