@@ -60,7 +60,6 @@ export default defineAction({
           ? null
           : { fieldId: source.text.fieldId, fieldName: source.text.fieldName },
       title: source.document.title,
-      content: source.text.content,
       baseRevision: attempt.sourceRevision,
       quotedText: source.root.quotedText,
       // A thread on a Property value names it, with the value it had then
@@ -104,6 +103,7 @@ export default defineAction({
         })),
       retainedOperation:
         attempt.payloadJson === null ? null : JSON.parse(attempt.payloadJson),
+      content: source.text.content,
     };
   },
   changeResource: commentAiChangeResource,
