@@ -23,6 +23,7 @@
     --_tabs-default-frame: var(--surface-nav);
   }
   .dock-workspace-group.tabs > .tabs-list {
+    z-index: 1;
     border-start-end-radius: 0;
   }
   .dock-workspace-actions {
@@ -41,19 +42,22 @@
   }
   [data-dock-tab] {
     max-inline-size: 100%;
-    touch-action: none;
+    touch-action: pinch-zoom;
     cursor: grab;
   }
   [data-dock-tab]:active {
     cursor: grabbing;
   }
-  [data-overflowing] > [data-dock-tab] {
-    touch-action: pan-x pinch-zoom;
-  }
   [data-dock-tab] > span {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  [data-dock-tab] > span::before {
+    content: "";
+    position: absolute;
+    inset-block: calc(-1 * var(--_rail-inset));
+    inset-inline: 0;
   }
   [data-dock-insert] > span::after {
     content: "";

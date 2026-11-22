@@ -271,6 +271,132 @@ async function forcedSwitch(page: Page) {
   }
 }
 
+async function dockRoundTrip(page: Page, touch: boolean) {
+  await page.goto(
+    new URL(
+      "/iframe.html?id=patterns-dock-workspace--playground&viewMode=story",
+      base,
+    ).href,
+  );
+  const workspace = page.getByRole("region", { name: "Workspace panels" });
+  const assets = workspace.getByRole("tab", { name: "Assets", exact: true });
+  await assets.click();
+  const draft = workspace.getByRole("textbox", { name: "Filter assets" });
+  await draft.fill("Icon studies");
+
+  async function move(
+    target: "Layers" | "Inspector",
+    placement: "before" | "after",
+    grip: "label" | "upper shelf" | "lower shelf",
+    steps: number,
+  ) {
+    const from = await assets.boundingBox();
+    const to = await workspace
+      .getByRole("tab", { name: target, exact: true })
+      .boundingBox();
+    assert.ok(from && to);
+    const y =
+      grip === "upper shelf"
+        ? from.y - 2
+        : grip === "lower shelf"
+          ? from.y + from.height + 2
+          : from.y + from.height / 2;
+    await page.mouse.move(from.x + from.width / 2, y);
+    await page.mouse.down();
+    await page.mouse.move(
+      to.x + (placement === "before" ? 2 : to.width - 2),
+      y,
+      { steps },
+    );
+    await page.mouse.up();
+    const tabs =
+      placement === "before" ? "Assets, " + target : target + ", Assets";
+    const group = workspace.getByRole("tablist", { name: tabs, exact: true });
+    await group.getByRole("tab", { name: "Assets", selected: true }).waitFor();
+    assert.equal(await draft.inputValue(), "Icon studies");
+  }
+
+  await move("Inspector", "after", "label", 12);
+  await move("Layers", "before", "upper shelf", 1);
+  await move("Inspector", "before", "label", 1);
+  await move("Layers", "after", "lower shelf", 12);
+  await move("Layers", "before", "lower shelf", 1);
+  await move("Layers", "after", "upper shelf", 12);
+
+  if (touch) {
+    await move("Inspector", "after", "label", 1);
+    await workspace.getByRole("separator").press("Home");
+    const rail = workspace.getByRole("tablist", { name: "Inspector, Assets" });
+    const session = await page.context().newCDPSession(page);
+    await session.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+    try {
+      async function swipe(returnToLayers: boolean) {
+        await assets.evaluate((el) =>
+          el.scrollIntoView({ inline: "end", block: "nearest" }),
+        );
+        const start = await rail.evaluate((el) => {
+          const box = el.getBoundingClientRect();
+          return {
+            x: box.left + box.width / 2,
+            y: box.top + box.height / 2,
+            scroll: el.scrollLeft,
+            width: box.width,
+          };
+        });
+        assert.ok(start.scroll > 0, "Assets must begin on a scrolled tab rail");
+        const layers = await workspace
+          .getByRole("tab", { name: "Layers", exact: true })
+          .boundingBox();
+        assert.ok(layers);
+        const endX = returnToLayers
+          ? layers.x + layers.width - 2
+          : start.x + start.width / 3;
+        for (let i = 0; i <= 15; i++) {
+          await session.send("Input.dispatchTouchEvent", {
+            type: i === 0 ? "touchStart" : "touchMove",
+            touchPoints: [
+              {
+                x: start.x + ((endX - start.x) * i) / 15,
+                y: start.y,
+                radiusX: 2,
+                radiusY: 2,
+              },
+            ],
+          });
+        }
+        await session.send("Input.dispatchTouchEvent", {
+          type: "touchEnd",
+          touchPoints: [],
+        });
+        if (!returnToLayers) {
+          assert.ok(
+            (await rail.evaluate((el) => el.scrollLeft)) < start.scroll,
+            "A swipe inside the rail must scroll the tab strip",
+          );
+          assert.equal(
+            await rail
+              .getByRole("tab", { name: "Assets", selected: true })
+              .count(),
+            1,
+          );
+        }
+      }
+      await swipe(false);
+      await swipe(true);
+      await workspace
+        .getByRole("tablist", { name: "Layers, Assets" })
+        .getByRole("tab", { name: "Assets", selected: true })
+        .waitFor();
+      assert.equal(await draft.inputValue(), "Icon studies");
+    } finally {
+      await session.send("Emulation.setTouchEmulationEnabled", {
+        enabled: false,
+      });
+      await session.detach();
+    }
+  }
+}
+
 async function screenshot(page: Page, name: string) {
   await page.screenshot({
     path: output + "/" + name + ".png",
@@ -290,6 +416,7 @@ for (const engine of [chromium, webkit]) {
       reducedMotion: "reduce",
     });
     page.setDefaultTimeout(8000);
+    await dockRoundTrip(page, engine === chromium);
     await overlays(page);
     await treeKeyboard(page);
     await matrix(page);

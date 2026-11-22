@@ -98,6 +98,13 @@ function revealDockTab(list: HTMLElement, tab: HTMLElement) {
     list.scrollLeft += tab.offsetWidth > list.clientWidth ? left : right;
 }
 
+function railRectAt(rail: HTMLElement, x: number, y: number) {
+  const rect = rail.getBoundingClientRect();
+  return x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
+    ? rect
+    : null;
+}
+
 function DockTabList({
   tabs,
   label,
@@ -427,8 +434,12 @@ export function DockWorkspace({
     tab: string;
     x: number;
     y: number;
-    moved: boolean;
-    canPan: boolean;
+    mode: "pending" | "pan" | "dock";
+    panRail: {
+      element: HTMLElement;
+      startX: number;
+      startScroll: number;
+    } | null;
   } | null>(null);
   const pendingFrame = React.useRef<number | null>(null);
   const focus = React.useRef<{
@@ -497,7 +508,8 @@ export function DockWorkspace({
   }
   const name = (id: string) => byId.get(id)?.label ?? id;
   function cancel() {
-    if (drag.current?.moved) suppressClick.current = true;
+    if (drag.current && drag.current.mode !== "pending")
+      suppressClick.current = true;
     if (pendingFrame.current !== null)
       root.current?.ownerDocument.defaultView?.cancelAnimationFrame(
         pendingFrame.current,
@@ -518,9 +530,14 @@ export function DockWorkspace({
         cancel();
       }
     }
+    function cancelOnPinch(e: PointerEvent) {
+      if (drag.current && e.pointerType === "touch" && !e.isPrimary) cancel();
+    }
+    win?.addEventListener("pointerdown", cancelOnPinch, true);
     win?.addEventListener("keydown", escape);
     win?.addEventListener("blur", cancel);
     return () => {
+      win?.removeEventListener("pointerdown", cancelOnPinch, true);
       win?.removeEventListener("keydown", escape);
       win?.removeEventListener("blur", cancel);
       if (pendingFrame.current !== null)
@@ -663,17 +680,22 @@ export function DockWorkspace({
               onPointerDown={(e) => {
                 if (drag.current || e.button !== 0 || !e.isPrimary) return;
                 suppressClick.current = false;
+                const rail = e.currentTarget.parentElement;
                 drag.current = {
                   tab,
                   id: e.pointerId,
                   x: e.clientX,
                   y: e.clientY,
-                  moved: false,
-                  canPan:
+                  mode: "pending",
+                  panRail:
                     e.pointerType === "touch" &&
-                    e.currentTarget.parentElement?.hasAttribute(
-                      "data-overflowing",
-                    ) === true,
+                    rail?.hasAttribute("data-overflowing")
+                      ? {
+                          element: rail,
+                          startX: e.clientX,
+                          startScroll: rail.scrollLeft,
+                        }
+                      : null,
                 };
                 e.currentTarget.setPointerCapture(e.pointerId);
               }}
@@ -783,22 +805,26 @@ export function DockWorkspace({
         onPointerMove={(e) => {
           const d = drag.current;
           if (!d || d.id !== e.pointerId) return;
-          if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 5)
-            return;
-          if (
-            !d.moved &&
-            d.canPan &&
-            Math.abs(e.clientX - d.x) > Math.abs(e.clientY - d.y)
-          ) {
-            d.moved = true;
-            cancel();
-            return;
+          const el = e.currentTarget;
+          const dx = e.clientX - d.x;
+          const dy = e.clientY - d.y;
+          if (d.mode === "pending") {
+            if (Math.hypot(dx, dy) < 5) return;
+            d.mode = d.panRail && Math.abs(dx) > Math.abs(dy) ? "pan" : "dock";
           }
-          d.moved = true;
-          const el = e.currentTarget,
-            win = el.ownerDocument.defaultView;
           d.x = e.clientX;
           d.y = e.clientY;
+          if (d.mode === "pan" && d.panRail) {
+            const { element: rail, startX, startScroll } = d.panRail;
+            const rect = railRectAt(rail, d.x, d.y);
+            if (rect) {
+              rail.scrollLeft =
+                startScroll - ((d.x - startX) * rail.offsetWidth) / rect.width;
+              return;
+            }
+            d.mode = "dock";
+          }
+          const win = el.ownerDocument.defaultView;
           if (!win || pendingFrame.current !== null) return;
           const scope = el.getRootNode() as Document | ShadowRoot;
           let lastFrame = win.performance.now();
@@ -827,7 +853,12 @@ export function DockWorkspace({
         onPointerUp={(e) => {
           const d = drag.current;
           if (!d || d.id !== e.pointerId) return;
-          if (d.moved) {
+          if (
+            d.mode === "dock" ||
+            (d.mode === "pan" &&
+              d.panRail &&
+              !railRectAt(d.panRail.element, e.clientX, e.clientY))
+          ) {
             suppressClick.current = true;
             const scope = e.currentTarget.getRootNode() as
               | Document
@@ -878,8 +909,8 @@ export function DockWorkspace({
             e.stopPropagation();
           }
         }}
-        onPointerDownCapture={() => {
-          suppressClick.current = false;
+        onPointerDownCapture={(e) => {
+          if (e.isPrimary) suppressClick.current = false;
         }}
       >
         {renderNode(layout)}

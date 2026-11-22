@@ -71,12 +71,25 @@ export default {
     docs: {
       description: {
         component:
-          "Drag a tab along its strip to reorder it, or onto another strip to join that group. The line marks the insertion point, including over empty strip space and the Arrange button. To split a pane, drag into the panel content until an edge highlights. Releasing over the unmarked center keeps the layout in place. On an overflowing strip, swipe sideways to browse tabs or drag vertically to start docking. The Arrange menu also supports keyboard and touch. Keep panel IDs stable and store the layout separately from their content.",
+          "Drag a tab along its strip to reorder it, or onto another strip to join that group. The line marks the insertion point, including over empty strip space and the Arrange button. To split a pane, drag into the panel content until an edge highlights. Releasing over the unmarked center keeps the layout in place. On an overflowing strip, swipe sideways to browse tabs. Continue the swipe into another pane to dock, or drag vertically to start docking immediately. Pinch to zoom with two fingers. The Arrange menu also supports keyboard and touch. Keep panel IDs stable and store the layout separately from their content.",
       },
     },
   },
 } satisfies Meta;
-export const Playground: StoryObj = {};
+export const Playground: StoryObj = {
+  play: async ({ canvas, canvasElement }) => {
+    const assets = canvas.getByRole("tab", { name: "Assets" });
+    assets.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const { left, width, top, bottom } = assets.getBoundingClientRect();
+    for (const y of [top - 2, bottom + 2]) {
+      const hit = canvasElement.ownerDocument.elementFromPoint(
+        left + width / 2,
+        y,
+      );
+      await expect(hit?.closest('[role="tab"]')).toBe(assets);
+    }
+  },
+};
 export const KeyboardPlacement: StoryObj = {
   play: async ({ canvas, canvasElement, userEvent }) => {
     const doc = within(canvasElement.ownerDocument.body);
