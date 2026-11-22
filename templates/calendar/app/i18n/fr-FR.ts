@@ -585,6 +585,15 @@ export default {
     connectZoom: "Connectez Zoom",
     copyBookingLink: "Copier le lien de réservation",
     copyLink: "Copier le lien",
+    copySingleUseLink: "Copier le lien à usage unique",
+    singleUseLinkCopied:
+      "Lien à usage unique copié. Il permet une seule réservation.",
+    singleUseLinkReady: "Lien à usage unique prêt",
+    singleUseLinkCreateFailed: "Impossible de créer le lien à usage unique",
+    singleUseLinkUsed: "Ce lien a déjà été utilisé",
+    singleUseLinkInvalid: "Ce lien ne fonctionne plus",
+    singleUseLinkAskForNew:
+      "Il était prévu pour une seule réservation. Demandez un nouveau lien à la personne qui vous l'a envoyé.",
     createFirstLink: "Créez votre premier lien",
     createLink: "Créer un lien",
     custom: "Personnalisé",

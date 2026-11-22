@@ -339,6 +339,12 @@ export interface Booking {
   createdAt: string;
 }
 
+export type PublicSingleUseLinkStatus =
+  | "available"
+  | "used"
+  | "revoked"
+  | "missing";
+
 export interface BookingLink {
   id: string;
   slug: string;
