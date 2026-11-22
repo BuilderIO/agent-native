@@ -3228,7 +3228,6 @@ function hasCommunityPrCorrection(message) {
 }
 const COMMUNITY_PR_HANDLING_PATTERN = { matches: hasCommunityPrCorrection };
 
-// Exclude negated, completed, and measurement-only statements in the same clause.
 function fleetCorrection(re, text) {
   for (const sentence of String(text).split(/[.!?;\n]/)) {
     let offset = 0;
