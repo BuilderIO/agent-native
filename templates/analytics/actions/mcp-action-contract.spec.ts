@@ -383,6 +383,12 @@ describe("Analytics direct MCP tools", () => {
     expect(ANALYTICS_MCP.instructions).not.toMatch(/not warehouse row queries/);
   });
 
+  it("tells outside agents to report a dbt metric with no definition rather than compute it", () => {
+    expect(ANALYTICS_MCP.instructions).toMatch(
+      /dbt is connected but has no definition for a metric[^.]*do not compute that metric yourself from warehouse data unless the user asks/,
+    );
+  });
+
   it("names only tools a read-scoped token receives in keyToolNames and instructions", () => {
     const mentioned = Object.keys(actions).filter((name) =>
       new RegExp(`(?<![\\w-])${name}(?![\\w-])`).test(
