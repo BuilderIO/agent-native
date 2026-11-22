@@ -14570,7 +14570,16 @@ export function createProductionAgentHandler(
   const getEngineTools = (actions: Record<string, ActionEntry>) =>
     actionsToEngineTools(getRequestActions(actions));
 
-  return defineEventHandler(async (event) => {
+  type PrepCleanupState = {
+    runId?: string;
+    runStarted: boolean;
+    runRowState?: { foregroundInserted: boolean; durableInserted: boolean };
+    setupResumeClaim?: { release: () => Promise<unknown> } | null;
+  };
+  const handleAgentChatEvent = async (
+    event: Parameters<typeof getMethod>[0],
+    prepCleanup: PrepCleanupState,
+  ) => {
     let completionTrackingSource = options.onRunComplete
       ? snapshotAgentRunTrackingSource()
       : undefined;
@@ -16566,6 +16575,8 @@ export function createProductionAgentHandler(
       foregroundInserted: false,
       durableInserted: false,
     };
+    prepCleanup.runId = runId;
+    prepCleanup.runRowState = runRowState;
     let setupResumeClaim:
       | Awaited<ReturnType<typeof claimSetupResume>>
       | undefined;
@@ -16578,8 +16589,6 @@ export function createProductionAgentHandler(
     const deferExecutionContext =
       dispatchToBackground && !shouldRecoverCompletedExecutionSteps;
     let backgroundDispatchAttempted = false;
-    let runStarted = false;
-    try {
     if (deferExecutionContext) {
       backgroundDispatchAttempted = true;
       const slotResult = await claimForegroundRunSlot();
@@ -17376,6 +17385,7 @@ export function createProductionAgentHandler(
               turnId: effectiveTurnId,
             })
           : undefined;
+      prepCleanup.setupResumeClaim = setupResumeClaim;
       if (setupResumeOfRunId && ownerEmail && !setupResumeClaim) {
         return {
           earlyResponse: { ok: true, stopped: true, resumeAlreadySent: true },
@@ -18281,7 +18291,7 @@ export function createProductionAgentHandler(
     }
 
     // raw-sql-ok: run callback IDs and prompts reach static queries as bound arguments.
-    runStarted = true;
+    prepCleanup.runStarted = true;
     const startedRun = startRun(
       runId,
       effectiveThreadId,
@@ -19177,17 +19187,31 @@ export function createProductionAgentHandler(
     );
 
     return stream;
+  };
+
+  return defineEventHandler(async (event) => {
+    const prepCleanup: PrepCleanupState = { runStarted: false };
+    try {
+      return await handleAgentChatEvent(event, prepCleanup);
     } catch (error) {
       if (
-        !runStarted &&
-        (runRowState.foregroundInserted || runRowState.durableInserted)
+        !prepCleanup.runStarted &&
+        prepCleanup.runId &&
+        (prepCleanup.runRowState?.foregroundInserted ||
+          prepCleanup.runRowState?.durableInserted)
       ) {
         try {
-          const terminalized = await updateRunStatusIfRunning(runId, "errored");
+          const terminalized = await updateRunStatusIfRunning(
+            prepCleanup.runId,
+            "errored",
+          );
           if (terminalized) {
-            await setRunTerminalReason(runId, "run_preparation_failed");
+            await setRunTerminalReason(
+              prepCleanup.runId,
+              "run_preparation_failed",
+            );
             await setRunError(
-              runId,
+              prepCleanup.runId,
               "run_preparation_failed",
               error instanceof Error ? error.message : String(error),
             );
@@ -19200,7 +19224,7 @@ export function createProductionAgentHandler(
         }
       }
       try {
-        await setupResumeClaim?.release();
+        await prepCleanup.setupResumeClaim?.release();
       } catch (releaseErr) {
         console.warn(
           "[agent-chat] failed to release setup resume claim:",
