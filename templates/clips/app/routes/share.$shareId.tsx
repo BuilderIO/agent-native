@@ -2097,6 +2097,7 @@ export default function ShareRoute() {
                       currentUserName={session?.name}
                       enableComments={recording.enableComments}
                       canComment={viewerCanComment}
+                      canReopenAnyThread={viewerCanEdit}
                       onSeek={(ms) => playerRef.current?.seek(ms)}
                       onUnauthenticated={requireSignIn}
                       queryKey={[
