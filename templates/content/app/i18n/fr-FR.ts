@@ -156,6 +156,54 @@ const database = {
   githubNotShown: "{{count}} fichiers non affichés",
   githubNotShownHeading: "Non affichés",
   sourceShowingPagesAsOf: "Pages affichées telles qu’elles étaient {{time}}.",
+  sourcePanelFromGitHubFolder:
+    "Les pages viennent du dossier {{folder}} de {{repo}}.",
+  sourcePanelFromGitHubRepo: "Les pages viennent de {{repo}}.",
+  sourcePanelFromBuilderModel: "Les pages viennent du modèle {{name}}.",
+  sourcePanelDetailsFromBuilderModel:
+    "Les détails viennent du modèle {{name}} et s’ajoutent ici aux pages correspondantes.",
+  sourcePanelDetailsFromNotionDatabase:
+    "Les détails viennent de la base de données {{name}} et s’ajoutent ici aux pages correspondantes.",
+  sourceUpToDate: "À jour · vérifié {{time}}",
+  sourceNothingComingIn: "Rien n’arrive pour l’instant.",
+  sourceLoadingPageContent:
+    "Chargement du contenu des pages : {{done}} sur {{total}}",
+  sourceEditingGitHub:
+    "Vous ne pouvez pas modifier ces pages ici. Modifiez-les sur GitHub.",
+  sourceEditingNotion:
+    "Vous ne pouvez pas modifier ici les détails venant de Notion. Modifiez-les dans Notion.",
+  sourceEditingBuilderDetails:
+    "Vous ne pouvez pas modifier ici les détails venant de Builder. Modifiez-les dans Builder.",
+  sourceEditingBuilderReadOnly:
+    "Les modifications faites ici ne sont pas envoyées à Builder.",
+  sourceEditingBuilderStageOnly:
+    "Les modifications faites ici sont enregistrées dans Builder pour relecture, sans être publiées.",
+  sourceEditingBuilderPublish:
+    "Les modifications faites ici changent le site en ligne après relecture.",
+  sourceNoChangesWaiting: "Aucune modification en attente",
+  sourcePagesChangedOne: "1 page modifiée",
+  sourcePagesChanged: "{{count}} pages modifiées",
+  sourceChangesCheckFailed: "Impossible de vérifier les modifications.",
+  sourceReviewAndSend: "Relire et envoyer",
+  sourceMore: "Plus",
+  sourceBuilderEditsHeading: "Ce que deviennent mes modifications",
+  sourceBuilderEditsDontSend: "Ne pas envoyer",
+  sourceBuilderEditsSaveForReview: "Enregistrer dans Builder pour relecture",
+  sourceBuilderEditsPublish: "Publier sur le site en ligne",
+  sourceBuilderPublishConfirmTitle:
+    "Publier les modifications sur le site en ligne ?",
+  sourceBuilderPublishConfirmBody:
+    "Les modifications que vous envoyez d’ici après relecture changeront aussitôt le site en ligne.",
+  sourceMatchedOn: "Les pages sont associées par {{field}}.",
+  sourceMatchedOnIgnoringCase:
+    "Les pages sont associées par {{field}}, sans tenir compte des majuscules.",
+  sourceMatchedOnCustom:
+    "Les pages sont associées par {{field}} selon une règle personnalisée.",
+  sourceUnlinkKeepsPages:
+    "Les pages restent ici et deviennent modifiables par vous.",
+  sourceUnlinkKeepsDetailPages:
+    "Les pages restent ici et vous pouvez toujours les modifier.",
+  sourceChooseDetails: "Choisir les détails",
   githubSyncingProgress:
     "Récupération des modifications : {{done}} fichiers sur {{total}}",
   githubPicturesWaiting:

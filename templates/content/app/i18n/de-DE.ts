@@ -153,6 +153,54 @@ const database = {
   githubNotShown: "{{count}} Dateien nicht angezeigt",
   githubNotShownHeading: "Nicht angezeigt",
   sourceShowingPagesAsOf: "Stand der Seiten: {{time}}.",
+  sourcePanelFromGitHubFolder:
+    "Die Seiten kommen aus dem Ordner {{folder}} in {{repo}}.",
+  sourcePanelFromGitHubRepo: "Die Seiten kommen aus {{repo}}.",
+  sourcePanelFromBuilderModel: "Die Seiten kommen aus dem Modell {{name}}.",
+  sourcePanelDetailsFromBuilderModel:
+    "Details kommen aus dem Modell {{name}} und werden hier zu passenden Seiten hinzugefügt.",
+  sourcePanelDetailsFromNotionDatabase:
+    "Details kommen aus der Datenbank {{name}} und werden hier zu passenden Seiten hinzugefügt.",
+  sourceUpToDate: "Aktuell · geprüft {{time}}",
+  sourceNothingComingIn: "Noch kommt nichts an.",
+  sourceLoadingPageContent:
+    "Seiteninhalte werden geladen: {{done}} von {{total}}",
+  sourceEditingGitHub:
+    "Du kannst diese Seiten hier nicht bearbeiten. Bearbeite sie auf GitHub.",
+  sourceEditingNotion:
+    "Du kannst die Details aus Notion hier nicht bearbeiten. Bearbeite sie in Notion.",
+  sourceEditingBuilderDetails:
+    "Du kannst die Details aus Builder hier nicht bearbeiten. Bearbeite sie in Builder.",
+  sourceEditingBuilderReadOnly:
+    "Änderungen hier werden nicht an Builder gesendet.",
+  sourceEditingBuilderStageOnly:
+    "Änderungen hier werden zur Prüfung in Builder gespeichert, nicht veröffentlicht.",
+  sourceEditingBuilderPublish:
+    "Änderungen hier ändern nach der Prüfung die Live-Website.",
+  sourceNoChangesWaiting: "Keine Änderungen ausstehend",
+  sourcePagesChangedOne: "1 Seite geändert",
+  sourcePagesChanged: "{{count}} Seiten geändert",
+  sourceChangesCheckFailed: "Änderungen konnten nicht geprüft werden.",
+  sourceReviewAndSend: "Prüfen und senden",
+  sourceMore: "Mehr",
+  sourceBuilderEditsHeading: "Was mit meinen Änderungen passiert",
+  sourceBuilderEditsDontSend: "Nicht senden",
+  sourceBuilderEditsSaveForReview: "Zur Prüfung in Builder speichern",
+  sourceBuilderEditsPublish: "Auf der Live-Website veröffentlichen",
+  sourceBuilderPublishConfirmTitle:
+    "Änderungen auf der Live-Website veröffentlichen?",
+  sourceBuilderPublishConfirmBody:
+    "Änderungen, die du nach der Prüfung von hier sendest, ändern die Live-Website sofort.",
+  sourceMatchedOn: "Seiten werden über {{field}} zugeordnet.",
+  sourceMatchedOnIgnoringCase:
+    "Seiten werden über {{field}} zugeordnet, ohne Groß- und Kleinschreibung zu beachten.",
+  sourceMatchedOnCustom:
+    "Seiten werden über {{field}} mit einer eigenen Regel zugeordnet.",
+  sourceUnlinkKeepsPages:
+    "Die Seiten bleiben hier, und du kannst sie dann selbst bearbeiten.",
+  sourceUnlinkKeepsDetailPages:
+    "Die Seiten bleiben hier, und du kannst sie weiter bearbeiten.",
+  sourceChooseDetails: "Details auswählen",
   githubSyncingProgress:
     "Änderungen werden geholt: {{done}} von {{total}} Dateien",
   githubPicturesWaiting:

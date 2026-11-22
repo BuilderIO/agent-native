@@ -253,8 +253,7 @@ function WrapsAtSlashes({ text }: { text: string }) {
   ));
 }
 
-/** Where the folder is and how current it is, as Details and the Sources panel show it. */
-export function GitHubFolderFacts({
+function GitHubFolderFacts({
   status,
   now,
 }: {
@@ -402,23 +401,7 @@ export function GitHubSourceStatusLine({
   );
 }
 
-function GitHubStatusLineContent({
-  source,
-  status,
-  documentId,
-  canEdit,
-  pageCount,
-  onOpenSource,
-}: {
-  source: ContentDatabaseSource;
-  status: ContentGitHubSourceStatus;
-  documentId: string;
-  canEdit: boolean;
-  pageCount: number;
-  onOpenSource?: (() => void) | undefined;
-}) {
-  const now = useNow();
-  const sync = useSyncGitHubNow(source);
+export function githubSourceCondition(status: ContentGitHubSourceStatus) {
   const problem = status.problem;
   const stops = problem ? githubProblemStopsUpdates(problem.code) : false;
   const actions = problem && stops ? problemActions(problem.code) : null;
@@ -438,12 +421,6 @@ function GitHubStatusLineContent({
     storageFailed ||
     (!!problem && status.imagesWaiting > 0 && !status.storageReady);
   const paused = !!problem && !stops && !picturesOnly(problem.code);
-  useKeepFilling(
-    source.databaseId,
-    syncing && !stops,
-    status.progress ? status.progress.total - status.progress.done : null,
-    paused,
-  );
 
   const notes: string[] = [];
   if (paused) notes.push(githubProblemText(problem.code, status));
@@ -454,6 +431,34 @@ function GitHubStatusLineContent({
       ),
     );
   }
+  return { problem, stops, actions, syncing, paused, notes };
+}
+
+function GitHubStatusLineContent({
+  source,
+  status,
+  documentId,
+  canEdit,
+  pageCount,
+  onOpenSource,
+}: {
+  source: ContentDatabaseSource;
+  status: ContentGitHubSourceStatus;
+  documentId: string;
+  canEdit: boolean;
+  pageCount: number;
+  onOpenSource?: (() => void) | undefined;
+}) {
+  const now = useNow();
+  const sync = useSyncGitHubNow(source);
+  const { problem, stops, actions, syncing, paused, notes } =
+    githubSourceCondition(status);
+  useKeepFilling(
+    source.databaseId,
+    syncing && !stops,
+    status.progress ? status.progress.total - status.progress.done : null,
+    paused,
+  );
 
   return (
     <SourceStatusLine
@@ -500,62 +505,88 @@ function GitHubStatusLineContent({
       problem={
         problem && stops
           ? {
-              text: (
-                <>
-                  {githubProblemText(problem.code, status)}{" "}
-                  {status.syncedAt
-                    ? dbText("sourceShowingPagesAsOf", {
-                        time: sourceRelativeTime(status.syncedAt, now),
-                      })
-                    : null}
-                </>
-              ),
+              text: githubStoppedText(problem.code, status, now),
               actions: (
-                <>
-                  {actions?.reconnect && canEdit ? (
-                    <Button
-                      type="button"
-                      size="xs"
-                      variant="outline"
-                      onClick={reconnectGitHub}
-                    >
-                      <IconBrandGithub aria-hidden />
-                      {dbText("githubReconnect")}
-                    </Button>
-                  ) : null}
-                  {actions?.open ? (
-                    <Button asChild size="xs" variant="outline">
-                      <a
-                        href={status.folderUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {dbText("githubOpenFolder")}
-                        <IconExternalLink aria-hidden />
-                      </a>
-                    </Button>
-                  ) : null}
-                </>
+                <GitHubProblemActions
+                  status={status}
+                  code={problem.code}
+                  canEdit={canEdit}
+                />
               ),
               offerUnlink: !!actions?.unlink,
             }
           : null
       }
       notes={notes}
-      progress={
-        syncing && status.progress
-          ? {
-              label: dbText("githubSyncingProgress", {
-                done: status.progress.done,
-                total: status.progress.total,
-              }),
-              percent: Math.round(
-                (status.progress.done / Math.max(status.progress.total, 1)) *
-                  100,
-              ),
-            }
-          : null
-      }
+      progress={githubSyncProgress(status)}
     />
+  );
+}
+
+export function githubStoppedText(
+  code: GitHubSourceProblemCode,
+  status: ContentGitHubSourceStatus,
+  now: number,
+) {
+  return [
+    githubProblemText(code, status),
+    status.syncedAt
+      ? dbText("sourceShowingPagesAsOf", {
+          time: sourceRelativeTime(status.syncedAt, now),
+        })
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function githubSyncProgress(status: ContentGitHubSourceStatus) {
+  return status.pendingCommitSha && status.progress
+    ? {
+        label: dbText("githubSyncingProgress", {
+          done: status.progress.done,
+          total: status.progress.total,
+        }),
+        percent: Math.round(
+          (status.progress.done / Math.max(status.progress.total, 1)) * 100,
+        ),
+      }
+    : null;
+}
+
+export function GitHubProblemActions({
+  status,
+  code,
+  canEdit,
+  size = "xs",
+}: {
+  status: ContentGitHubSourceStatus;
+  code: GitHubSourceProblemCode;
+  canEdit: boolean;
+  size?: "xs" | "sm";
+}) {
+  const actions = problemActions(code);
+  return (
+    <>
+      {actions.reconnect && canEdit ? (
+        <Button
+          type="button"
+          size={size}
+          variant="outline"
+          onClick={reconnectGitHub}
+        >
+          <IconBrandGithub aria-hidden />
+          {dbText("githubReconnect")}
+        </Button>
+      ) : null}
+      {actions.open ? (
+        <Button asChild size={size} variant="outline">
+          <a href={status.folderUrl} target="_blank" rel="noreferrer">
+            {dbText("githubOpenFolder")}
+            <IconExternalLink aria-hidden />
+          </a>
+        </Button>
+      ) : null}
+    </>
   );
 }
