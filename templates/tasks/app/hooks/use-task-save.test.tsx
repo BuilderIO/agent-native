@@ -6,14 +6,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TaskWithFields } from "./use-tasks";
 
-const { mutateAsync, patchCachedTask, reportWriteFailure, trackEvent, cached } =
-  vi.hoisted(() => ({
-    mutateAsync: vi.fn(),
-    patchCachedTask: vi.fn(),
-    reportWriteFailure: vi.fn(),
-    trackEvent: vi.fn(),
-    cached: new Map<string, unknown>(),
-  }));
+const {
+  mutateAsync,
+  patchCachedTask,
+  setCachedTaskRecord,
+  reportWriteFailure,
+  trackEvent,
+  cached,
+  updateOptions,
+} = vi.hoisted(() => ({
+  mutateAsync: vi.fn(),
+  patchCachedTask: vi.fn(),
+  setCachedTaskRecord: vi.fn(),
+  reportWriteFailure: vi.fn(),
+  trackEvent: vi.fn(),
+  cached: new Map<string, unknown>(),
+  updateOptions: {} as {
+    overlay?: (taskId: string) => unknown;
+    onReload?: () => void;
+  },
+}));
 
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
 vi.mock("@agent-native/core/client/write-failure", () => ({
@@ -23,9 +35,16 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 vi.mock("./use-tasks", () => ({
-  useUpdateTask: () => ({ mutateAsync, isPending: false }),
+  useUpdateTask: (options: { overlay?: (taskId: string) => unknown }) => {
+    Object.assign(updateOptions, options);
+    return { mutateAsync, isPending: false };
+  },
   useReadCachedTask: () => (taskId: string) => cached.get(taskId),
   usePatchCachedTask: () => patchCachedTask,
+  useSetCachedTaskRecord: () => setCachedTaskRecord,
+  useOnListTasksReload: (onReload: () => void) => {
+    updateOptions.onReload = onReload;
+  },
 }));
 
 import {
@@ -103,6 +122,7 @@ const flush = () => act(async () => {});
 beforeEach(() => {
   mutateAsync.mockReset();
   patchCachedTask.mockClear();
+  setCachedTaskRecord.mockClear();
   reportWriteFailure.mockClear();
   trackEvent.mockClear();
   cached.clear();
@@ -251,13 +271,25 @@ describe("useTaskSave", () => {
     act(() => {
       saves = [
         save({ done: true }),
-        save({ title: "Write the brief" }),
-        save({ title: "Write the briefs" }),
+        save({ title: "Write the brief" }, task({ done: true })),
+        save(
+          { title: "Write the briefs" },
+          task({ title: "Write the brief", done: true }),
+        ),
       ];
     });
     await flush();
     expect(mutateAsync).toHaveBeenCalledTimes(1);
     expect(patchCachedTask).toHaveBeenLastCalledWith("t1", {
+      title: "Write the briefs",
+    });
+    expect(updateOptions.overlay?.("t1")).toEqual({
+      title: "Write the briefs",
+    });
+    patchCachedTask.mockClear();
+    updateOptions.onReload?.();
+    expect(patchCachedTask).toHaveBeenCalledWith("t1", {
+      done: true,
       title: "Write the briefs",
     });
 
@@ -266,20 +298,32 @@ describe("useTaskSave", () => {
       await Promise.all(saves);
     });
 
+    expect(setCachedTaskRecord).toHaveBeenCalledWith(
+      "t1",
+      { title: "Write brief", done: true, fields: {} },
+      "rev-2",
+    );
     expect(mutateAsync).toHaveBeenCalledTimes(2);
     expect(mutateAsync).toHaveBeenLastCalledWith({
       taskId: "t1",
       title: "Write the briefs",
       expectedRevision: "rev-2",
     });
+    expect(updateOptions.overlay?.("t1")).toBeUndefined();
   });
 
-  it("drops queued edits to a field when the other version is chosen for it", async () => {
+  it("drops queued edits to a field when the other version is chosen for it, and shows that version", async () => {
     let fail!: (error: unknown) => void;
     mutateAsync.mockReturnValueOnce(
       new Promise<TaskWithFields>((_resolve, reject) => {
         fail = reject;
       }),
+    );
+    mutateAsync.mockRejectedValueOnce(
+      conflict(
+        { title: "Write brief", done: false, fields: { estimate: 5 } },
+        "rev-2",
+      ),
     );
     mutateAsync.mockResolvedValueOnce(
       task({ done: true, estimate: 5, revision: "rev-3" }),
@@ -290,9 +334,16 @@ describe("useTaskSave", () => {
     act(() => {
       saves = [
         save({ fieldValues: [{ fieldId: "estimate", value: 3 }] }),
-        save({ fieldValues: [{ fieldId: "estimate", value: 4 }] }),
-        save({ done: true }),
+        save(
+          { fieldValues: [{ fieldId: "estimate", value: 4 }] },
+          task({ estimate: 3 }),
+        ),
+        save({ done: true }, task({ estimate: 4 })),
       ];
+    });
+    expect(updateOptions.overlay?.("t1")).toEqual({
+      done: true,
+      fieldValues: [{ fieldId: "estimate", value: 4 }],
     });
     await act(async () => {
       fail(
@@ -310,11 +361,88 @@ describe("useTaskSave", () => {
       await Promise.all(saves);
     });
 
-    expect(mutateAsync).toHaveBeenCalledTimes(2);
+    expect(setCachedTaskRecord).toHaveBeenCalledWith(
+      "t1",
+      { title: "Write brief", done: false, fields: { estimate: 5 } },
+      "rev-2",
+    );
+    expect(mutateAsync).toHaveBeenCalledTimes(3);
+    expect(mutateAsync).toHaveBeenNthCalledWith(2, {
+      taskId: "t1",
+      done: true,
+      expectedRevision: "rev-1",
+    });
     expect(mutateAsync).toHaveBeenLastCalledWith({
       taskId: "t1",
       done: true,
       expectedRevision: "rev-2",
+    });
+  });
+
+  it("checks an edit queued behind a merged save against what it was made from", async () => {
+    let fail!: (error: unknown) => void;
+    mutateAsync.mockReturnValueOnce(
+      new Promise<TaskWithFields>((_resolve, reject) => {
+        fail = reject;
+      }),
+    );
+    mutateAsync.mockResolvedValueOnce(
+      task({ title: "Write the brief", estimate: 5, revision: "rev-3" }),
+    );
+    mutateAsync.mockRejectedValueOnce(
+      conflict(
+        { title: "Write the brief", done: false, fields: { estimate: 5 } },
+        "rev-3",
+      ),
+    );
+    mutateAsync.mockResolvedValueOnce(
+      task({ title: "Write the brief", estimate: 4, revision: "rev-4" }),
+    );
+    const { save } = setup();
+
+    let saves: Promise<void>[] = [];
+    act(() => {
+      saves = [
+        save({ title: "Write the brief" }),
+        save(
+          { fieldValues: [{ fieldId: "estimate", value: 4 }] },
+          task({ title: "Write the brief" }),
+        ),
+      ];
+    });
+    await act(async () => {
+      fail(
+        conflict(
+          { title: "Write brief", done: false, fields: { estimate: 5 } },
+          "rev-2",
+        ),
+      );
+    });
+    await flush();
+    await flush();
+
+    expect(mutateAsync).toHaveBeenNthCalledWith(2, {
+      taskId: "t1",
+      title: "Write the brief",
+      expectedRevision: "rev-2",
+    });
+    expect(mutateAsync).toHaveBeenNthCalledWith(3, {
+      taskId: "t1",
+      fieldValues: [{ fieldId: "estimate", value: 4 }],
+      expectedRevision: "rev-1",
+    });
+    expect(findText("saveConflict.title")).toBeTruthy();
+
+    await act(async () => {
+      findText("saveConflict.keepMine")?.click();
+      await Promise.all(saves);
+    });
+
+    expect(mutateAsync).toHaveBeenCalledTimes(4);
+    expect(mutateAsync).toHaveBeenLastCalledWith({
+      taskId: "t1",
+      fieldValues: [{ fieldId: "estimate", value: 4 }],
+      expectedRevision: "rev-3",
     });
   });
 

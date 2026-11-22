@@ -9,7 +9,7 @@ import { SidePanel } from "@/components/shared/SidePanel";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import type { FieldValue, TaskFieldValue } from "@/hooks/use-custom-fields";
-import { useTaskSave, type TaskChange } from "@/hooks/use-task-save";
+import type { TaskChange } from "@/hooks/use-task-save";
 import type { TaskWithFields } from "@/hooks/use-tasks";
 
 import { FieldValueControl } from "./controls/FieldValueControl";
@@ -23,11 +23,15 @@ type RouteSuggestion = {
   urgentProbability: number;
 };
 
+type SaveTask = (task: TaskWithFields, change: TaskChange) => Promise<void>;
+
 export function TaskFieldsSidebar({
   task,
+  onSave,
   onClose,
 }: {
   task: TaskWithFields | null;
+  onSave: SaveTask;
   onClose: () => void;
 }) {
   const t = useT();
@@ -40,15 +44,20 @@ export function TaskFieldsSidebar({
       closeLabel={t("taskFields.closeLabel")}
       onClose={onClose}
     >
-      <TaskFieldsSidebarPanel task={task} />
+      <TaskFieldsSidebarPanel task={task} onSave={onSave} />
     </SidePanel>
   );
 }
 
-function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
+function TaskFieldsSidebarPanel({
+  task,
+  onSave,
+}: {
+  task: TaskWithFields;
+  onSave: SaveTask;
+}) {
   const t = useT();
   const fields = task.fields ?? [];
-  const taskSave = useTaskSave();
   const suggestRoute = useActionMutation<RouteSuggestion, { taskId: string }>(
     "suggest-task-route",
   );
@@ -81,10 +90,9 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
     }
   };
 
-  const { save } = taskSave;
   const saveUpdate = useCallback(
     (change: TaskChange) => {
-      void save(task, change).catch((caught: unknown) => {
+      void onSave(task, change).catch((caught: unknown) => {
         toast.error(
           caught instanceof Error
             ? caught.message
@@ -92,7 +100,7 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
         );
       });
     },
-    [task, save, t],
+    [task, onSave, t],
   );
 
   return (
@@ -171,7 +179,6 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
           })),
         }}
       />
-      {taskSave.conflictPrompt}
     </div>
   );
 }

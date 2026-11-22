@@ -343,6 +343,7 @@ export function TaskList({
 
       <TaskFieldsSidebar
         task={panelTask}
+        onSave={taskSave.save}
         onClose={() => setActiveTaskId(null)}
       />
       {taskSave.conflictPrompt}

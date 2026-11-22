@@ -8,7 +8,7 @@ import {
   type SaveOverlap,
 } from "@agent-native/core/save-conflict";
 import { useSaveConflictPrompt } from "@agent-native/toolkit/app/save-conflict";
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 
 import type { FieldValue } from "../../server/custom-fields/values/store.js";
 import {
@@ -17,8 +17,10 @@ import {
   type TaskRecord,
 } from "../../shared/task-record.js";
 import {
+  useOnListTasksReload,
   usePatchCachedTask,
   useReadCachedTask,
+  useSetCachedTaskRecord,
   useUpdateTask,
   type TaskWithFields,
 } from "./use-tasks";
@@ -31,6 +33,7 @@ export type TaskChange = {
 
 type PendingSave = {
   change: TaskChange;
+  start: SavedRecord<TaskRecord> | null;
   waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }>;
 };
 
@@ -109,16 +112,48 @@ export function withoutTaskPaths(
   return kept;
 }
 
+function editsOnTopOf(
+  entry: PendingSave,
+  start: SavedRecord<TaskRecord> | null,
+) {
+  if (!entry.start || !start) return !entry.start && !start;
+  return isSameRecord(
+    applyTaskChange(entry.start.value, entry.change),
+    start.value,
+  );
+}
+
 export function useTaskSave() {
   const t = useT();
-  const updateTask = useUpdateTask();
+  const pendingRef = useRef(new Map<string, PendingSave[]>());
+  const inFlightRef = useRef(new Map<string, TaskChange>());
+  const savedRef = useRef(new Map<string, SavedRecord<TaskRecord>>());
+  const runningRef = useRef(new Set<string>());
+  const overlapTaskRef = useRef(new WeakMap<TaskRecord, string>());
+  const queuedChange = (taskId: string) => {
+    const queued = pendingRef.current.get(taskId);
+    return queued?.length
+      ? queued.map((entry) => entry.change).reduce(mergeTaskChanges)
+      : undefined;
+  };
+  const updateTask = useUpdateTask({ overlay: queuedChange });
   const { mutateAsync } = updateTask;
   const readCachedTask = useReadCachedTask();
   const patchCachedTask = usePatchCachedTask();
-  const savedRef = useRef(new Map<string, SavedRecord<TaskRecord>>());
-  const pendingRef = useRef(new Map<string, PendingSave>());
-  const runningRef = useRef(new Set<string>());
-  const overlapTaskRef = useRef(new WeakMap<TaskRecord, string>());
+  const setCachedTaskRecord = useSetCachedTaskRecord();
+  const showUnsaved = useCallback(() => {
+    for (const taskId of runningRef.current) {
+      const changes = (pendingRef.current.get(taskId) ?? []).map(
+        (entry) => entry.change,
+      );
+      const inFlight = inFlightRef.current.get(taskId);
+      if (inFlight) changes.unshift(inFlight);
+      if (changes.length > 0) {
+        patchCachedTask(taskId, changes.reduce(mergeTaskChanges));
+      }
+    }
+  }, [patchCachedTask]);
+  useOnListTasksReload(showUnsaved);
 
   const conflict = useSaveConflictPrompt<TaskRecord>({
     record: TASK_RECORD,
@@ -143,8 +178,13 @@ export function useTaskSave() {
     },
   });
 
-  const saveOne = async (taskId: string, change: TaskChange) => {
-    const base = savedRef.current.get(taskId);
+  const saveOne = async (taskId: string, entry: PendingSave) => {
+    const { change, start } = entry;
+    const lastSaved = savedRef.current.get(taskId);
+    const base =
+      lastSaved && (!start || isSameRecord(lastSaved.value, start.value))
+        ? lastSaved
+        : start;
     if (!base) {
       const result = await mutateAsync({ taskId, ...change });
       if (result.fields && result.revision) {
@@ -164,9 +204,17 @@ export function useTaskSave() {
       overlapTaskRef.current.set(overlap.keepMine, taskId);
       overlapTaskRef.current.set(overlap.useTheirs, taskId);
       const chosen = await conflict.resolveOverlap(overlap, finished);
-      const pending = pendingRef.current.get(taskId);
-      if (pending && chosen === overlap.useTheirs) {
-        pending.change = withoutTaskPaths(pending.change, overlap.fields);
+      if (chosen === overlap.useTheirs) {
+        const inFlight = inFlightRef.current.get(taskId);
+        if (inFlight) {
+          inFlightRef.current.set(
+            taskId,
+            withoutTaskPaths(inFlight, overlap.fields),
+          );
+        }
+        for (const queued of pendingRef.current.get(taskId) ?? []) {
+          queued.change = withoutTaskPaths(queued.change, overlap.fields);
+        }
       }
       return chosen;
     };
@@ -188,6 +236,9 @@ export function useTaskSave() {
         },
       });
       savedRef.current.set(taskId, saved);
+      setCachedTaskRecord(taskId, saved.value, saved.revision);
+      const queued = queuedChange(taskId);
+      if (queued) patchCachedTask(taskId, queued);
     } catch (error) {
       if (error instanceof SaveOverlapError) return;
       throw error;
@@ -198,23 +249,24 @@ export function useTaskSave() {
     runningRef.current.add(taskId);
     try {
       for (
-        let next = pendingRef.current.get(taskId);
+        let next = pendingRef.current.get(taskId)?.shift();
         next;
-        next = pendingRef.current.get(taskId)
+        next = pendingRef.current.get(taskId)?.shift()
       ) {
-        pendingRef.current.delete(taskId);
+        inFlightRef.current.set(taskId, next.change);
         try {
-          await saveOne(taskId, next.change);
+          await saveOne(taskId, next);
           for (const waiter of next.waiters) waiter.resolve();
         } catch (error) {
           for (const waiter of next.waiters) waiter.reject(error);
+        } finally {
+          inFlightRef.current.delete(taskId);
         }
-        const queued = pendingRef.current.get(taskId);
-        if (queued) patchCachedTask(taskId, queued.change);
       }
     } finally {
       runningRef.current.delete(taskId);
       savedRef.current.delete(taskId);
+      pendingRef.current.delete(taskId);
     }
   };
 
@@ -224,23 +276,24 @@ export function useTaskSave() {
     startedFrom: TaskWithFields = task,
   ) => {
     const taskId = task.id;
-    if (
-      !runningRef.current.has(taskId) &&
-      startedFrom.fields &&
-      startedFrom.revision
-    ) {
-      savedRef.current.set(taskId, {
-        value: taskRecordOf(startedFrom, startedFrom.fields),
-        revision: startedFrom.revision,
-      });
-    }
+    const start =
+      startedFrom.fields && startedFrom.revision
+        ? {
+            value: taskRecordOf(startedFrom, startedFrom.fields),
+            revision: startedFrom.revision,
+          }
+        : null;
     patchCachedTask(taskId, change);
     return new Promise<void>((resolve, reject) => {
-      const pending = pendingRef.current.get(taskId);
-      pendingRef.current.set(taskId, {
-        change: pending ? mergeTaskChanges(pending.change, change) : change,
-        waiters: [...(pending?.waiters ?? []), { resolve, reject }],
-      });
+      const queued = pendingRef.current.get(taskId) ?? [];
+      pendingRef.current.set(taskId, queued);
+      const last = queued.length > 0 ? queued[queued.length - 1] : undefined;
+      if (last && editsOnTopOf(last, start)) {
+        last.change = mergeTaskChanges(last.change, change);
+        last.waiters.push({ resolve, reject });
+      } else {
+        queued.push({ change, start, waiters: [{ resolve, reject }] });
+      }
       if (!runningRef.current.has(taskId)) void run(taskId);
     });
   };
