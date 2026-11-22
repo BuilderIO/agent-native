@@ -49,6 +49,7 @@ export function SchedulingTimezoneField({
       })}
       onChange={(timezone) => save.mutate({ timezone })}
       size={compact ? "sm" : "default"}
+      unavailable={loadFailed}
     />
   );
 
@@ -62,6 +63,8 @@ export function SchedulingTimezoneField({
         type="button"
         variant="link"
         size="sm"
+        disabled={preference.isFetching}
+        aria-busy={preference.isFetching}
         onClick={() => void preference.refetch()}
       >
         {t("agentChat.common.retry")}

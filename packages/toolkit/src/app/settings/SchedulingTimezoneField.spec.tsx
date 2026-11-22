@@ -27,11 +27,18 @@ vi.mock("../agent-page/TimezoneSelect.js", () => ({
   TimezoneSelect: ({
     value,
     disabled,
+    unavailable,
   }: {
     value: string;
     disabled: boolean;
+    unavailable?: boolean;
   }) => (
-    <select data-testid="tz" value={value} disabled={disabled}>
+    <select
+      data-testid="tz"
+      value={value}
+      disabled={disabled}
+      data-unavailable={unavailable ? "true" : undefined}
+    >
       <option value="system">system</option>
       <option value="Europe/Paris">Europe/Paris</option>
     </select>
@@ -71,6 +78,37 @@ describe("SchedulingTimezoneField", () => {
     const retry = container.querySelector("button") as HTMLButtonElement;
     act(() => retry.click());
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks the select unavailable instead of showing the system value on failure", () => {
+    state.query = {
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      refetch: vi.fn(),
+    };
+    act(() => root.render(<SchedulingTimezoneField />));
+    expect(
+      container.querySelector("select")?.getAttribute("data-unavailable"),
+    ).toBe("true");
+  });
+
+  it("disables Retry and marks it busy while the refetch is in flight", () => {
+    const refetch = vi.fn();
+    state.query = {
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      isFetching: true,
+      refetch,
+    };
+    act(() => root.render(<SchedulingTimezoneField />));
+
+    const retry = container.querySelector("button") as HTMLButtonElement;
+    expect(retry.disabled).toBe(true);
+    expect(retry.getAttribute("aria-busy")).toBe("true");
+    act(() => retry.click());
+    expect(refetch).not.toHaveBeenCalled();
   });
 
   it("renders a loaded value without an error", () => {
