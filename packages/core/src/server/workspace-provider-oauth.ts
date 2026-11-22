@@ -414,7 +414,10 @@ export async function handleWorkspaceProviderOAuthStart(
     useRootGoogleCallback
       ? "/_agent-native/google/callback"
       : workspaceProviderOAuthPath(providerId, "callback"),
-    { allowRootCallback: useRootGoogleCallback },
+    {
+      allowRootCallback: useRootGoogleCallback,
+      appScopedCallback: !useRootGoogleCallback,
+    },
   );
   if (!redirectUri) {
     return oauthFlowFailure(event, 400, "Invalid OAuth redirect URI.");
