@@ -1,10 +1,6 @@
 function getUrlOrigin(url: string | undefined): string | null {
-  if (!url) return null;
-  try {
-    return new URL(url).origin;
-  } catch {
-    return null;
-  }
+  if (!url || !URL.canParse(url)) return null;
+  return new URL(url).origin;
 }
 
 function isLoopbackHostname(hostname: string): boolean {

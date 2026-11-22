@@ -1642,7 +1642,9 @@ export function useBuilderConnectFlow(
           const opened = openBuilderConnectPopup({
             url,
             source: clickTrackingSource,
-            flow: clickTrackingFlow,
+            ...(clickTrackingFlow !== undefined
+              ? { flow: clickTrackingFlow }
+              : {}),
           });
           if (opened) activePopupRef.current = opened;
         };
