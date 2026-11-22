@@ -58,7 +58,7 @@ export interface UseSemanticNavigationStateOptions<
   keepalive?: boolean;
   writeDebounceMs?: number;
   getCommandDedupKey?: (command: NavigateCommand) => string;
-  onCommand: (command: NavigateCommand) => void | Promise<void>;
+  onCommand: (command: NavigateCommand, key: string) => void | Promise<void>;
   onError?: (error: unknown) => void;
 }
 
@@ -417,8 +417,8 @@ export function useSemanticNavigationState<
     lastProcessedDedupKeyRef.current = dedupKey;
     consume();
 
-    Promise.resolve(onCommandRef.current(envelope.command)).catch((error) =>
-      onErrorRef.current?.(error),
+    Promise.resolve(onCommandRef.current(envelope.command, envelope.key)).catch(
+      (error) => onErrorRef.current?.(error),
     );
   }, [commandQuery.data, commandQueryKey, enabled, queryClient, requestSource]);
 
@@ -440,23 +440,6 @@ export function useAgentRouteState<
 
   const location = useLocation();
   const routerState = useContext(UNSAFE_DataRouterStateContext);
-  const [pendingAck, setPendingAck] = useState<{
-    writeId: string;
-    url: string;
-  }>();
-  const ackedWriteId = useRef<string>(undefined);
-  useEffect(() => {
-    if (!pendingAck || pendingAck.writeId === ackedWriteId.current) return;
-    if (currentRouterPath(location) !== pendingAck.url) return;
-    if (
-      routerState &&
-      (routerState.navigation.state !== "idle" ||
-        routerState.revalidation !== "idle")
-    )
-      return;
-    ackedWriteId.current = pendingAck.writeId;
-    postScreenSettled(pendingAck.writeId, pendingAck.url);
-  }, [location, pendingAck, routerState]);
   const navigate = useNavigate();
   const defaultTabId = defaultBrowserTabId();
   const explicitTabId = normalizeBrowserTabId(options.browserTabId);
@@ -473,6 +456,30 @@ export function useAgentRouteState<
   const requestSource = requestSourceFollowsDefault
     ? browserTabId
     : options.requestSource;
+  const [pendingAck, setPendingAck] = useState<{
+    writeId: string;
+    url: string;
+    tabId: string;
+  }>();
+  const ackedWriteId = useRef<string>(undefined);
+  useEffect(() => {
+    if (
+      options.enabled === false ||
+      !pendingAck ||
+      pendingAck.tabId !== browserTabId ||
+      pendingAck.writeId === ackedWriteId.current
+    )
+      return;
+    if (currentRouterPath(location) !== pendingAck.url) return;
+    if (
+      routerState &&
+      (routerState.navigation.state !== "idle" ||
+        routerState.revalidation !== "idle")
+    )
+      return;
+    ackedWriteId.current = pendingAck.writeId;
+    postScreenSettled(pendingAck);
+  }, [browserTabId, location, options.enabled, pendingAck, routerState]);
   const writeGlobalNavigation = options.writeGlobalNavigation ?? false;
   const readGlobalCommandFallback = options.readGlobalCommandFallback ?? false;
 
@@ -547,7 +554,8 @@ export function useAgentRouteState<
     writeDebounceMs: options.writeDebounceMs ?? 200,
     getCommandDedupKey: options.getCommandDedupKey,
     onError: options.onError,
-    onCommand: (command) => {
+    onCommand: (command, key) => {
+      setPendingAck(undefined);
       const target = options.getCommandPath(command);
       if (!target) return;
       const workspaceAppTarget = typeof target !== "string";
@@ -563,10 +571,16 @@ export function useAgentRouteState<
       }
       options.onNavigate?.(command, path);
       const writeId = (command as { _writeId?: unknown } | null)?._writeId;
-      if (!workspaceAppTarget && typeof writeId === "string") {
+      if (
+        !workspaceAppTarget &&
+        browserTabId &&
+        key === appStateKeyForBrowserTab(commandKey, browserTabId) &&
+        typeof writeId === "string"
+      ) {
         const targetUrl = resolvePath(path, location.pathname);
         setPendingAck({
           writeId,
+          tabId: browserTabId,
           url: targetUrl.pathname + targetUrl.search + targetUrl.hash,
         });
       }

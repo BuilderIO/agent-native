@@ -109,7 +109,6 @@ import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
 import { getFileUploadStatusForRequest } from "../file-upload/status.js";
 import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
-import { getAppManifest, getManifestActions } from "../manifest/server.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -3373,22 +3372,6 @@ export function mountApplicationStateRoutes(
   );
 }
 
-export function mountAppManifestRoute(
-  nitroApp: object,
-  app = getH3App(nitroApp),
-): void {
-  app.use(
-    `${FRAMEWORK_ROUTE_PREFIX}/manifest.json`,
-    defineEventHandler((event) => {
-      if (event.method !== "GET") {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-      return getAppManifest(getManifestActions(nitroApp));
-    }),
-  );
-}
-
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
@@ -3436,7 +3419,6 @@ export function createCoreRoutesPlugin(
       // an unrelated migration or connection pool is unavailable.
       excludedPaths: [
         `${FRAMEWORK_ROUTE_PREFIX}/ping`,
-        `${FRAMEWORK_ROUTE_PREFIX}/manifest.json`,
         `${FRAMEWORK_ROUTE_PREFIX}/health`,
         `${FRAMEWORK_ROUTE_PREFIX}/identity`,
         `${FRAMEWORK_ROUTE_PREFIX}/oauth/popup`,
@@ -3490,7 +3472,6 @@ export function createCoreRoutesPlugin(
     });
     try {
       const P = FRAMEWORK_ROUTE_PREFIX;
-      mountAppManifestRoute(nitroApp);
       mountUiActionCapabilityRoute(nitroApp, P);
       getH3App(nitroApp).use(
         `${P}/automations/email-unsubscribe`,
@@ -3501,7 +3482,6 @@ export function createCoreRoutesPlugin(
         createOpenAiAppsChallengeHandler(),
       );
       markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
-        `${P}/manifest.json`,
         ...(!options.disablePing ? [`${P}/ping`] : []),
         ...(!options.disableHealth ? [`${P}/health`] : []),
         `${P}/identity`,

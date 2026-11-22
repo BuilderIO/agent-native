@@ -7,18 +7,12 @@ import {
   type DetailViewPredicate,
 } from "../application-state/agent-navigation.js";
 import { readAppState } from "../application-state/index.js";
-import { navigationModeSchema, resolveScreenPath } from "../manifest/index.js";
-import { getAppManifest } from "../manifest/server.js";
+import { navigationModeSchema } from "../manifest/index.js";
 
 const navigateSchema = z
   .object({
     view: z.string().optional().describe("View name to navigate to"),
     path: z.string().optional().describe("URL path to navigate to"),
-    screen: z
-      .string()
-      .optional()
-      .describe("Screen ID from the app capability manifest"),
-    params: z.record(z.string(), z.unknown()).optional(),
     intent: navigationIntentSchema,
     navigationMode: navigationModeSchema.optional(),
   })
@@ -66,13 +60,9 @@ export function createNavigateAction(
     schema: navigateSchema,
     http: false,
     run: async (args, ctx) => {
-      const { intent, navigationMode, screen, params, ...target } = args;
-      if (screen) {
-        const manifest = getAppManifest();
-        target.path = resolveScreenPath(manifest, screen, params);
-      }
+      const { intent, navigationMode, ...target } = args;
       if (!target.view && !target.path) {
-        throw new Error("Specify a screen, view, or path.");
+        throw new Error("At least --view or --path is required.");
       }
       const navigation = options.normalize
         ? await options.normalize(target)

@@ -3,8 +3,14 @@ import {
   navigationIntentSchema,
   writeAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
+import { getUserLabEnabled } from "@agent-native/core/labs/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
+import { CLIPS_MEETINGS } from "../shared/labs.js";
 import { unreadLibraryFilterParts } from "../shared/library-filters.js";
 
 const Views = [
@@ -28,6 +34,15 @@ const Views = [
   "notifications",
   "settings",
 ] as const;
+
+function targetsMeetings(args: {
+  view?: (typeof Views)[number];
+  path?: string;
+}): boolean {
+  if (args.view === "meetings" || args.view === "meeting") return true;
+  const path = args.path?.trim().split(/[?#]/)[0] ?? "";
+  return path === "/meetings" || path.startsWith("/meetings/");
+}
 
 export default defineAction({
   description:
@@ -110,6 +125,19 @@ export default defineAction({
   mcpTool: "search",
   run: async (args) => {
     const path = args.path?.trim() ? args.path : undefined;
+    if (targetsMeetings({ view: args.view, path })) {
+      const userEmail = getRequestUserEmail();
+      const orgId = getRequestOrgId();
+      if (
+        userEmail &&
+        !(await getUserLabEnabled(userEmail, CLIPS_MEETINGS, {
+          userEmail,
+          orgId,
+        }))
+      ) {
+        return "Did not navigate: Meetings is a Lab that is turned off, so the meetings pages would redirect to the library. Answer from list-meetings or search-meetings, or tell the user to turn on Meetings and transcription in Settings › Labs, then navigate.";
+      }
+    }
     const nav: Record<string, string | number> = {};
     if (args.view) nav.view = args.view;
     if (args.recordingId) nav.recordingId = args.recordingId;

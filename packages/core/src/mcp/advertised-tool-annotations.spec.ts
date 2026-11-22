@@ -316,9 +316,7 @@ describe("MCP framework runtime boundary", () => {
         async (client) => {
           expect(
             (await client.listTools()).tools.map((tool) => tool.name),
-          ).toEqual(
-            fullCatalog ? ["get_app_manifest", "list-files"] : ["list-files"],
-          );
+          ).toEqual(["list-files"]);
           for (const name of ["future-runtime-tool", "loaded-runtime-tool"]) {
             expect(
               (await client.callTool({ name, arguments: {} })).isError,

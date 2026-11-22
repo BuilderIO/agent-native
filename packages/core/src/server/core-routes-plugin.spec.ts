@@ -1,21 +1,13 @@
+// oracle-change: Capabilities are published through authorized discovery after removing the standalone route.
 import { createApp, defineEventHandler, type H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  defineAppConfig,
-  resetAppConfigForTests,
-} from "../app-config/store.js";
 import {
   listFileUploadProviders,
   registerFileUploadProvider,
   unregisterFileUploadProvider,
 } from "../file-upload/index.js";
 import type { FileUploadProvider } from "../file-upload/types.js";
-import { deriveAppManifest } from "../manifest/index.js";
-import {
-  registerManifestActionDenials,
-  registerManifestActions,
-} from "../manifest/server.js";
 import { EMBED_SESSION_COOKIE } from "../shared/embed-auth.js";
 import {
   BUILDER_CONNECT_PARAM,
@@ -45,7 +37,6 @@ import {
   shouldRunCoreRouteBootDatabaseWork,
   ensureS3FileUploadProvider,
   mountApplicationStateRoutes,
-  mountAppManifestRoute,
   mountMcpConnectRoutes,
   matchesSavedHostedAgentProbe,
   stripRemoteAgentAuth,
@@ -56,36 +47,6 @@ import {
 import { signEmbedSessionToken } from "./embed-session.js";
 import type { H3AppShim } from "./framework-request-handler.js";
 import { createSecurityHeadersMiddleware } from "./security-headers.js";
-
-describe("GET /_agent-native/manifest.json", () => {
-  it("serves the fallback and uses the authored manifest once configured", async () => {
-    const nitroApp = {};
-    const app = createApp();
-    mountAppManifestRoute(nitroApp, app);
-    registerManifestActions(nitroApp, ["list-items", "delete-items"]);
-    registerManifestActionDenials(nitroApp, [" delete-items "]);
-    const fetchManifest = () =>
-      app.fetch(
-        new Request("https://example.test/_agent-native/manifest.json"),
-      );
-    const response = await fetchManifest();
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      routing: { canonicalIntents: ["list items"] },
-    });
-    const manifest = deriveAppManifest({
-      id: "items",
-      name: "Items",
-      homePath: "/items",
-    });
-    defineAppConfig({ manifest });
-    try {
-      expect(await (await fetchManifest()).json()).toEqual(manifest);
-    } finally {
-      resetAppConfigForTests();
-    }
-  });
-});
 
 describe("mountApplicationStateRoutes", () => {
   it("registers the compose matcher before generic application state", () => {

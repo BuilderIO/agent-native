@@ -93,16 +93,11 @@ describe("MCP input and framework eligibility", () => {
           const names = (await client.listTools()).tools
             .map((tool) => tool.name)
             .sort();
-          expect(names).toEqual([
-            ...(mode === "directory" || mode === "connector"
-              ? []
-              : ["get_app_manifest"]),
-            "list-items",
-            "query-items",
-            ...(mode === "compact" || mode === "connector"
-              ? ["tool-search"]
-              : []),
-          ]);
+          expect(names).toEqual(
+            mode === "compact" || mode === "connector"
+              ? ["list-items", "query-items", "tool-search"]
+              : ["list-items", "query-items"],
+          );
           for (const name of [
             "unsafe-query-items",
             "new-runtime",

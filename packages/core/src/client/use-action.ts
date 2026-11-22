@@ -1506,6 +1506,7 @@ export function tryCallActionKeepalive<
 
   const completion = actionFetch<R>(actionName, method, params, {
     signal: options.signal,
+    headers: options.headers,
     errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     keepalive: true,
