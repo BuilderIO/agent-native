@@ -17,6 +17,7 @@ import {
   stableJson,
 } from "../server/lib/brain.js";
 import {
+  BrainClassifierUnavailableError,
   BrainUnsafeSourceIdentityError,
   sanitizeCaptureForStorage,
 } from "../server/lib/capture-sanitization.js";
@@ -221,7 +222,13 @@ export default defineAction({
           settings,
         });
       } catch (error) {
-        if (!(error instanceof BrainUnsafeSourceIdentityError)) throw error;
+        const skipReason =
+          error instanceof BrainUnsafeSourceIdentityError
+            ? "unsafe-source-identity"
+            : error instanceof BrainClassifierUnavailableError
+              ? "screening-unavailable"
+              : null;
+        if (!skipReason) throw error;
         results.push({
           id: row.capture.id,
           sourceId: row.capture.sourceId,
@@ -233,7 +240,7 @@ export default defineAction({
           method: "not-sanitized",
           rawContentRetained: true,
           skipped: true,
-          skipReason: "unsafe-source-identity",
+          skipReason,
           dependentKnowledgeIds: derivedRefs.knowledgeIds,
           dependentProposalIds: derivedRefs.proposalIds,
           preview: "",

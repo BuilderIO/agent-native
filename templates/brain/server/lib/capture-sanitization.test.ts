@@ -1243,7 +1243,7 @@ describe("Zoom restricted-line withholding", () => {
     expect(result.content).not.toContain("example.test");
   });
 
-  it.each(["Sprint v1.2 review", "Standup 2026.11.20"])(
+  it.each(["Sprint v1.2 review", "Standup 2026.11.20", "Q3/Q4 planning"])(
     "keeps passage withholding for an ordinary source title (%s)",
     async (title) => {
       mocks.classifyWithJev.mockImplementation(

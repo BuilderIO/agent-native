@@ -1832,9 +1832,7 @@ async function discardUnreferencedQuarantineBlob(
         .limit(1),
     );
     if (event?.quarantineBlobHandle === handle) return;
-  } catch {
-    return;
-  }
+  } catch {}
   await deleteQuarantineHandle(handle);
 }
 
@@ -2126,7 +2124,11 @@ export async function validateEvidenceWithContent(
     }
     content.set(item.captureId, access.capture.content);
     const metadata = parseJson<Record<string, unknown>>(
-      access.capture.metadataJson,
+      withOmissionReceipt(
+        access.capture.metadataJson,
+        access.capture.content,
+        access.capture.kind,
+      ),
       {},
     );
     const sourceUrl =
