@@ -2250,7 +2250,6 @@ async function createEmbedSessionForResolvedApp(input: {
   target: { app: DispatchMcpAccessibleApp; path: string; url: string };
   chrome?: "full" | "minimal" | undefined;
   runtime?: "workspace-app-chat" | undefined;
-  workspaceSso?: boolean;
   bindBrowserTab?: boolean | undefined;
   signal?: AbortSignal;
 }): Promise<InternalEmbedSession> {
@@ -2271,18 +2270,14 @@ async function createEmbedSessionForResolvedApp(input: {
   }
 
   const targetMcpUrl = appMcpUrl(target.app);
-  const firstPartyMcp =
-    (input.workspaceSso === true || input.runtime === "workspace-app-chat") &&
-    isWorkspaceSsoAppUrl(
-      { id: target.app.id, url: targetMcpUrl },
-      {
-        nodeEnv: "production",
-        environmentLane: requestEnvironmentLane(),
-        ...(input.runtime
-          ? { registryRaw: getAppConfig().auth.identitySsoAppRegistryJson }
-          : {}),
-      },
-    );
+  const firstPartyMcp = isWorkspaceSsoAppUrl(
+    { id: target.app.id, url: targetMcpUrl },
+    {
+      nodeEnv: "production",
+      environmentLane: requestEnvironmentLane(),
+      registryRaw: getAppConfig().auth.identitySsoAppRegistryJson,
+    },
+  );
   if (input.runtime && !firstPartyMcp)
     throw new Error("App chat requires a first-party workspace target.");
   const targetCredentials = await createTargetMcpUserCredentials({
@@ -2476,7 +2471,6 @@ async function createWorkspaceSsoEmbedSessionResult(input: {
     target,
     chrome: input.chrome,
     runtime: input.runtime,
-    workspaceSso: true,
     bindBrowserTab: input.bindBrowserTab,
   });
 }
