@@ -7,6 +7,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyRecordingReaction } from "../server/lib/activity-notifications.js";
 import { assertCommentAccess } from "../server/lib/comment-access.js";
+import {
+  mirrorRecordingComments,
+  prepareRecordingCommentMirror,
+} from "../server/lib/recording-comment-mirror.js";
 
 const MAX_CAS_ATTEMPTS = 3;
 
@@ -38,6 +42,7 @@ export default defineAction({
           "write",
           ctx?.requestHeaders,
         );
+        await prepareRecordingCommentMirror();
       }
 
       const previousJson = existing.emojiReactionsJson;
@@ -66,19 +71,27 @@ export default defineAction({
         next[args.emoji] = nextBucket;
       }
 
-      const updated = await db
-        .update(schema.recordingComments)
-        .set({
-          emojiReactionsJson: JSON.stringify(next),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(
-          and(
-            eq(schema.recordingComments.id, args.commentId),
-            eq(schema.recordingComments.emojiReactionsJson, previousJson),
-          ),
-        )
-        .returning({ id: schema.recordingComments.id });
+      const updated = await db.transaction(async (tx) => {
+        const written = await tx
+          .update(schema.recordingComments)
+          .set({
+            emojiReactionsJson: JSON.stringify(next),
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              eq(schema.recordingComments.id, args.commentId),
+              eq(schema.recordingComments.emojiReactionsJson, previousJson),
+            ),
+          )
+          .returning({ id: schema.recordingComments.id });
+        if (written.length > 0) {
+          await mirrorRecordingComments(tx, existing.recordingId, [
+            args.commentId,
+          ]);
+        }
+        return written;
+      });
 
       if (updated.length > 0) {
         const notified = had

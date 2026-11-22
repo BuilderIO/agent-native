@@ -757,6 +757,7 @@ const editor = {
     insertBelow: "Insérer un bloc en dessous",
     insertAbove: "Insérer un bloc au-dessus",
     turnIntoCollection: "Convertir en collection",
+    turnIntoTable: "Convertir en tableau",
     askAgent: "Demander à l’agent",
     columns: "Colonnes",
     syncedBlock: "Bloc synchronisé",
@@ -847,6 +848,15 @@ const editor = {
     "Une collection peut accueillir un tableau de 500 lignes et 50 colonnes au maximum.",
   tableTextTooLongForCollection:
     "Dans une collection, le nom d’une ligne (la première colonne du tableau) peut compter jusqu’à 500 caractères, et les autres cellules jusqu’à 20 000. Raccourcissez les cellules trop longues et réessayez.",
+  turningIntoTable: "Conversion de la collection en tableau...",
+  turnedIntoTable: "Collection convertie en tableau",
+  failedToTurnIntoTable: "Impossible de convertir la collection en tableau",
+  collectionChangedWhileTurning:
+    "La collection a changé pendant sa conversion en tableau, elle a donc été laissée telle quelle. Réessayez.",
+  collectionTooBigForTable:
+    "Un tableau peut accueillir une vue de 500 lignes et 50 colonnes au maximum. Filtrez la vue ou masquez des propriétés, puis réessayez.",
+  collectionStillLoading:
+    "La collection est encore en cours de chargement. Réessayez dans un instant.",
   generateWithAi: "Générer avec l'IA",
   untitledDatabase: "Collection sans titre",
   media: {

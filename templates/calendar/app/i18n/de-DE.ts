@@ -157,6 +157,10 @@ export default {
     googleCalendarSettings: "Google Calendar-Einstellungen",
     hideCalendar: "Kalender ausblenden",
     myCalendars: "Meine Kalender",
+    calendarDescription: "Beschreibung",
+    calendarDescriptionPlaceholder: "Wofür ist dieser Kalender?",
+    calendarDescriptionHint:
+      "Agenten lesen dies, um den richtigen Kalender zu wählen.",
     feedsGroup: "Feeds",
     managePeerAvailability: "Gemeinsame Verfügbarkeit verwalten",
     nextYear: "Nächstes Jahr",

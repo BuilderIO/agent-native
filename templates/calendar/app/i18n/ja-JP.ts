@@ -151,6 +151,10 @@ export default {
     googleCalendarSettings: "Google Calendar 設定",
     hideCalendar: "カレンダーを非表示",
     myCalendars: "マイカレンダー",
+    calendarDescription: "説明",
+    calendarDescriptionPlaceholder: "このカレンダーの用途は？",
+    calendarDescriptionHint:
+      "エージェントはこれを読んで適切なカレンダーを選びます。",
     feedsGroup: "フィード",
     managePeerAvailability: "共有の空き時間を管理",
     nextYear: "翌年",

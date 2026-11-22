@@ -7,6 +7,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { assertCommentAccess } from "../server/lib/comment-access.js";
+import {
+  deleteMirroredRecordingComments,
+  prepareRecordingCommentMirror,
+} from "../server/lib/recording-comment-mirror.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -69,15 +73,26 @@ export default defineAction({
       frontier = nextIds;
     }
 
-    await db
-      .delete(schema.recordingComments)
-      .where(
-        and(
-          inArray(schema.recordingComments.id, Array.from(deletedIds)),
-          eq(schema.recordingComments.recordingId, existing.recordingId),
-          eq(schema.recordingComments.organizationId, existing.organizationId),
-        ),
+    await prepareRecordingCommentMirror();
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(schema.recordingComments)
+        .where(
+          and(
+            inArray(schema.recordingComments.id, Array.from(deletedIds)),
+            eq(schema.recordingComments.recordingId, existing.recordingId),
+            eq(
+              schema.recordingComments.organizationId,
+              existing.organizationId,
+            ),
+          ),
+        );
+      await deleteMirroredRecordingComments(
+        existing.recordingId,
+        Array.from(deletedIds),
+        userEmail ?? null,
       );
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

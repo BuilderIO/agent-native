@@ -28,7 +28,10 @@ import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import { getDb, schema } from "../db/index.js";
 import { scrubEventUrlFields } from "./analytics-url-scrub.js";
 import { OutsideAgentBigQueryRefusalError } from "./bigquery-agent-context.js";
-import type { BigQueryQueryTrace } from "./bigquery.js";
+import {
+  BigQueryJobNotClaimedError,
+  type BigQueryQueryTrace,
+} from "./bigquery.js";
 import {
   EXCEPTION_EVENT_NAME,
   ingestAnalyticsExceptionEvents,
@@ -155,6 +158,8 @@ export interface AnalyticsQueryOptions {
    * being cancelled. See RunQueryOptions.resumeAfter.
    */
   resumable?: { deadline?: AbortSignal };
+  claimJob?: () => Promise<boolean>;
+  onUncachedResult?: () => void;
   trace?: BigQueryQueryTrace;
 }
 
@@ -2004,6 +2009,10 @@ export async function queryFirstPartyAnalyticsWithBackend(
             timeoutMs: remainingTime(),
             signal,
             ...(resumeAfter ? { resumeAfter } : {}),
+            ...(options.claimJob ? { claimJob: options.claimJob } : {}),
+            ...(options.onUncachedResult
+              ? { onUncachedResult: options.onUncachedResult }
+              : {}),
             ...(options.trace ? { trace: options.trace } : {}),
           }),
           signal,
@@ -2017,7 +2026,8 @@ export async function queryFirstPartyAnalyticsWithBackend(
         const failure = normalizeFailure(error);
         if (
           !options.signal?.aborted &&
-          !(failure instanceof OutsideAgentBigQueryRefusalError)
+          !(failure instanceof OutsideAgentBigQueryRefusalError) &&
+          !(failure instanceof BigQueryJobNotClaimedError)
         ) {
           await recordBigQueryPressure(queryOutcomeFromError(failure));
         }
