@@ -38,7 +38,6 @@ const MAX_STAGED_ROWS_TO_INSPECT =
 const STAGE_APP_PREFIX = "journey-canvas-stage:v2:";
 const STAGE_BOARD_FILE_PREFIX = "journey-canvas-stage:";
 
-// Core rejects NUL bytes in parsed action arguments, but frameKey is `nodeKey` + NUL + `exampleIndex`. The schema carries NUL as \u001f0 (and \u001f as \u001f1) and run restores it before hashing.
 const NUL_ESCAPE = "\u001f";
 function escapeNul(value: string): string {
   return value.replace(
