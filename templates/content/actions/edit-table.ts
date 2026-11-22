@@ -174,14 +174,16 @@ const editTableResultSchema = z.object({
     }),
     readback: z.object({ verified: z.literal(true) }),
   }),
-  table: z.object({
-    table: z.number(),
-    rows: z.number(),
-    columns: z.number(),
-    headerRow: z.boolean(),
-    headerColumn: z.boolean(),
-    fitPageWidth: z.boolean(),
-  }),
+  table: z
+    .object({
+      table: z.number(),
+      rows: z.number(),
+      columns: z.number(),
+      headerRow: z.boolean(),
+      headerColumn: z.boolean(),
+      fitPageWidth: z.boolean(),
+    })
+    .nullable(),
 });
 
 async function readEditBase(
@@ -309,6 +311,7 @@ export default defineAction({
       idempotencyKey: args.idempotencyKey,
       edits: [edited.edit],
       ctx,
+      currentBaseOnly: true,
     });
     await writeAppState("refresh-signal", { ts: Date.now() });
     const isAgentCaller =
@@ -339,6 +342,9 @@ export default defineAction({
         );
       }
     }
-    return { ...result, table: edited.summary };
+    const saved =
+      result.receipt.outcome === "applied" ||
+      result.receipt.outcome === "unchanged";
+    return { ...result, table: saved ? edited.summary : null };
   },
 });

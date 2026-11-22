@@ -134,7 +134,7 @@ describe("edit-table", () => {
     expect(await body()).toBe(saved);
   });
 
-  it("keeps an edit made elsewhere on the page since the agent read it", async () => {
+  it("refuses a base the page has moved past, naming the current revision", async () => {
     await mutateDocumentBody({
       documentId: DOCUMENT_ID,
       baseRevision: documentRevisionToken(0, BODY),
@@ -142,17 +142,33 @@ describe("edit-table", () => {
       edits: [{ find: "Before the table.", replace: "Intro, edited." }],
       ctx,
     });
-    const result = await run({
+    const edited = await body();
+    await expect(
+      run({
+        id: DOCUMENT_ID,
+        baseRevision: documentRevisionToken(0, BODY),
+        idempotencyKey: "header-column",
+        table: 1,
+        operations: [{ op: "set-header-column", value: true }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "STALE_BASE_REVISION",
+      statusCode: 409,
+      details: { currentRevision: documentRevisionToken(1, edited) },
+    });
+    expect(await body()).toBe(edited);
+
+    const retried = await run({
       id: DOCUMENT_ID,
-      baseRevision: documentRevisionToken(0, BODY),
-      idempotencyKey: "header-column",
+      baseRevision: documentRevisionToken(1, edited),
+      idempotencyKey: "header-column-again",
       table: 1,
       operations: [{ op: "set-header-column", value: true }],
     });
-    expect(result.receipt.outcome).toBe("applied");
-    const saved = await body();
-    expect(saved).toContain("Intro, edited.");
-    expect(saved).toContain('<table header-row="true" header-column="true">');
+    expect(retried.receipt.outcome).toBe("applied");
+    expect(await body()).toContain(
+      '<table header-row="true" header-column="true">',
+    );
   });
 
   it("answers a missing table and a bad position with their codes, writing nothing", async () => {

@@ -2451,24 +2451,32 @@ export interface NfmTableSource {
 export function locateNfmTables(lines: readonly string[]): NfmTableSource[] {
   const source = [...lines];
   const tables: NfmTableSource[] = [];
-  let fence: string | undefined;
+  let fence: { marker: string; indent: number } | undefined;
   let next = 0;
   for (const [i, line] of source.entries()) {
     if (i < next) continue;
     const indent = leadingTabs(line);
     const dedent = line.slice(indent);
     if (fence) {
-      if (closesFence(dedent.match(FENCE_CLOSE), fence)) fence = undefined;
+      if (
+        indent >= fence.indent &&
+        closesFence(dedent.trim().match(FENCE_CLOSE), fence.marker)
+      ) {
+        fence = undefined;
+      }
       continue;
     }
     const open = matchFenceOpen(dedent);
     if (open) {
-      fence = open[1];
+      fence = { marker: dedent.replace(FENCE_OPEN, "$1"), indent };
       continue;
     }
     if (matchContainerOpen(dedent) === "<table") {
       const close = source.findIndex(
-        (candidate, at) => at > i && candidate.trim() === "</table>",
+        (candidate, at) =>
+          at > i &&
+          leadingTabs(candidate) >= indent &&
+          candidate.trim() === "</table>",
       );
       if (close === -1) continue;
       tables.push({ startLine: i, endLine: close + 1, indent });

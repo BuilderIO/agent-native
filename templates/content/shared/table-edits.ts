@@ -3,6 +3,7 @@ import {
   locateNfmTables,
   NFM_BASE_COLORS,
   nfmToDoc,
+  parseNfmWithLosses,
   type NfmTableSource,
   type PMDoc,
   type PMNode,
@@ -135,6 +136,9 @@ function entry<T>(items: readonly T[], index: number, operation: number): T {
   return item;
 }
 
+const TABLE_TAG = /<\/?(?:table|colgroup|col|thead|tbody|tr|td|th)\b/i;
+const CONTROL_CHARACTER = /[\u0000-\u0008\u000b-\u001f\u007f]/;
+
 function cellContent(text: string, operation: number): PMNode[] {
   if (/[\r\n]/.test(text)) {
     throw new TableEditError(
@@ -143,12 +147,22 @@ function cellContent(text: string, operation: number): PMNode[] {
       { operation },
     );
   }
-  const doc = nfmToDoc(`<table>\n<tr>\n<td>${text}</td>\n</tr>\n</table>`);
+  if (TABLE_TAG.test(text) || CONTROL_CHARACTER.test(text)) {
+    throw new TableEditError(
+      "TABLE_OPERATION_INVALID",
+      `Operation ${operation}: a cell's text can't hold table tags or control characters.`,
+      { operation },
+    );
+  }
+  const { doc, losses } = parseNfmWithLosses(
+    `<table>\n<tr>\n<td>${text}</td>\n</tr>\n</table>`,
+  );
   const table = itemAt(doc.content, 0);
   const row =
     table?.type === "table" ? itemAt(table.content ?? [], 0) : undefined;
   const cell = row && itemAt(row.content ?? [], 0);
   if (
+    losses.length > 0 ||
     doc.content.length !== 1 ||
     table?.content?.length !== 1 ||
     row?.content?.length !== 1 ||
@@ -516,12 +530,15 @@ function pageTables(doc: PMDoc): PMNode[] {
   return tables;
 }
 
-function sourceTable(lines: readonly string[], source: NfmTableSource) {
-  const text = lines
+function sourceText(lines: readonly string[], source: NfmTableSource) {
+  return lines
     .slice(source.startLine, source.endLine)
     .map((line) => line.slice(Math.min(source.indent, leadingTabs(line))))
     .join("\n");
-  const doc = nfmToDoc(text);
+}
+
+function sourceTable(lines: readonly string[], source: NfmTableSource) {
+  const doc = nfmToDoc(sourceText(lines, source));
   const first = itemAt(doc.content, 0);
   return doc.content.length === 1 && first?.type === "table" ? first : null;
 }
@@ -607,6 +624,12 @@ function uniqueEdit(
   }
 }
 
+function probeText(markdown: string): string {
+  let attempt = 0;
+  while (markdown.includes(`edittableprobe${attempt}`)) attempt++;
+  return `edittableprobe${attempt}`;
+}
+
 function replaceTable(nodes: PMNode[], index: number, table: PMNode): PMNode[] {
   let seen = 0;
   const visit = (list: PMNode[]): PMNode[] =>
@@ -677,51 +700,61 @@ export function editNfmTable(
   const source = itemAt(sources, index);
   const before = itemAt(tables, index);
   if (!source || !before) throw notLocated();
-  const after = applyTableOperations(withoutIndent(before), operations);
-  const replacement = docToNfm({ type: "doc", content: [after] })
-    .split("\n")
-    .map((line) => "\t".repeat(source.indent) + line);
-  const nextLines = [
-    ...lines.slice(0, source.startLine),
-    ...replacement,
-    ...lines.slice(source.endLine),
-  ];
+  if (parseNfmWithLosses(sourceText(lines, source)).losses.length > 0) {
+    throw new TableEditError(
+      "TABLE_NOT_LOCATED",
+      "This table's text holds lines or attributes a table can't keep, and rewriting it would drop them; change it with edit-document.",
+      { table: tableNumber },
+    );
+  }
+  const indented = (text: string) =>
+    text.split("\n").map((line) => "\t".repeat(source.indent) + line);
+  const swap = (replacement: readonly string[]) => {
+    const nextLines = [
+      ...lines.slice(0, source.startLine),
+      ...replacement,
+      ...lines.slice(source.endLine),
+    ];
+    const written = sourceTable(nextLines, {
+      startLine: source.startLine,
+      endLine: source.startLine + replacement.length,
+      indent: source.indent,
+    });
+    if (!written) return null;
+    const placed = {
+      ...written,
+      attrs: {
+        ...written.attrs,
+        ...(before.attrs?.indent !== undefined
+          ? { indent: before.attrs.indent }
+          : {}),
+      },
+    };
+    const expected: PMDoc = {
+      ...doc,
+      content: replaceTable(doc.content, index, placed),
+    };
+    return same(nfmToDoc(nextLines.join("\n")), expected)
+      ? { written, nextLines }
+      : null;
+  };
+  const probe = `<table>\n<tr>\n<td>${probeText(markdown)}</td>\n</tr>\n</table>`;
+  if (!swap(indented(probe))) throw notLocated();
 
-  const unverified = () =>
-    new TableEditError(
+  const after = applyTableOperations(withoutIndent(before), operations);
+  const replacement = indented(docToNfm({ type: "doc", content: [after] }));
+  const swapped = swap(replacement);
+  if (!swapped || !same(tableShape(swapped.written), tableShape(after))) {
+    throw new TableEditError(
       "TABLE_EDIT_UNVERIFIED",
       "The changed table didn't read back as intended, so nothing was saved; change it with edit-document.",
       { table: tableNumber },
     );
-  const written = sourceTable(nextLines, {
-    startLine: source.startLine,
-    endLine: source.startLine + replacement.length,
-    indent: source.indent,
-  });
-  if (!written) throw unverified();
-  const expectedTable = {
-    ...written,
-    attrs: {
-      ...written.attrs,
-      ...(before.attrs?.indent !== undefined
-        ? { indent: before.attrs.indent }
-        : {}),
-    },
-  };
-  const expected: PMDoc = {
-    ...doc,
-    content: replaceTable(doc.content, index, expectedTable),
-  };
-  if (
-    !same(tableShape(written), tableShape(after)) ||
-    !same(nfmToDoc(nextLines.join("\n")), expected)
-  ) {
-    throw unverified();
   }
 
   return {
     edit: uniqueEdit(lines, source, replacement),
-    summary: summarize(written, tableNumber),
-    changed: nextLines.join("\n") !== markdown,
+    summary: summarize(swapped.written, tableNumber),
+    changed: swapped.nextLines.join("\n") !== markdown,
   };
 }

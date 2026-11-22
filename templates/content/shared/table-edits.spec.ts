@@ -69,6 +69,16 @@ function grid(markdown: string, number = 1): string[][] {
   );
 }
 
+function oneCell(text: string): string {
+  return ["<table>", "<tr>", `<td>${text}</td>`, "</tr>", "</table>"].join(
+    "\n",
+  );
+}
+
+const ZEBRA: TableOperation[] = [
+  { op: "set-cell", row: 1, column: 1, text: "Zebra" },
+];
+
 function refusal(run: () => unknown): TableEditError {
   try {
     run();
@@ -229,6 +239,15 @@ describe("editNfmTable cells, headers and colours", () => {
     expect(error.code).toBe("TABLE_OPERATION_INVALID");
   });
 
+  it("refuses cell text with table tags or control characters", () => {
+    for (const text of ["x</td> tail", "a <tr> b", "one\u0000two"]) {
+      const error = refusal(() =>
+        editNfmTable(PAGE, 1, [{ op: "set-cell", row: 2, column: 1, text }]),
+      );
+      expect(error.code).toBe("TABLE_OPERATION_INVALID");
+    }
+  });
+
   it("turns headers and page width on and off", () => {
     const { markdown } = edit(PAGE, 1, [
       { op: "set-header-row", value: false },
@@ -358,5 +377,52 @@ describe("editNfmTable finding the table", () => {
     ]);
     expect(result.changed).toBe(false);
     expect(markdown).toBe(PAGE);
+  });
+
+  it("refuses a table whose text holds a line the table drops", () => {
+    const lossy = oneCell("Alpha").replace(
+      "<table>\n",
+      "<table>\nLoose paragraph\n",
+    );
+    expect(refusal(() => editNfmTable(lossy, 1, ZEBRA)).code).toBe(
+      "TABLE_NOT_LOCATED",
+    );
+  });
+
+  it("finds a table after a code fence whose closer is indented with spaces", () => {
+    const page = `\`\`\`\ncode\n  \`\`\`\n${oneCell("Alpha")}`;
+    const { markdown } = edit(page, 1, ZEBRA);
+    expect(markdown).toBe(`\`\`\`\ncode\n  \`\`\`\n${oneCell("Zebra")}`);
+  });
+
+  it("skips an unclosed table opener inside a callout", () => {
+    const page = [
+      "<callout>",
+      "\t<table>",
+      "</callout>",
+      oneCell("Alpha"),
+    ].join("\n");
+    const { markdown } = edit(page, 1, ZEBRA);
+    expect(markdown).toBe(
+      ["<callout>", "\t<table>", "</callout>", oneCell("Zebra")].join("\n"),
+    );
+  });
+
+  it("edits the table the page reads, not table-shaped text it drops", () => {
+    const head = [
+      "\t<details>",
+      "\t```text",
+      "\t  ```",
+      "```",
+      "<table>",
+      "<tr><td>Alpha</td></tr>",
+      "</table>",
+      "\t</details>",
+      "$$",
+      "```",
+      "$$",
+    ].join("\n");
+    const { markdown } = edit(`${head}\n${oneCell("Alpha")}`, 1, ZEBRA);
+    expect(markdown).toBe(`${head}\n${oneCell("Zebra")}`);
   });
 });
