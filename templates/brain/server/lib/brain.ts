@@ -2065,8 +2065,6 @@ export async function validateEvidenceWithContent(
     const sourceUrl = safeCitationUrl(
       item.sourceUrl ?? item.url ?? metadata.sourceUrl,
     );
-    // Saved evidence keeps a date only if it was saved with one; a date that
-    // an earlier redaction removed must not come back when the item is reused.
     const storedDateKept =
       !options.reusingStoredEvidence ||
       typeof (item as { capturedAt?: unknown }).capturedAt === "string";

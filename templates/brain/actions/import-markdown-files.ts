@@ -41,8 +41,6 @@ type ImportedMarkdownResult =
       errorCode?: string;
     };
 
-// Unknown per-file keys are stripped, as before provenance fields existed, so
-// callers that send extra fields (title, metadata) keep working.
 const markdownFileSchema = z.object({
   path: z.string().trim().min(1).max(2_000),
   content: z.string().max(MAX_MARKDOWN_FILE_CHARS),
@@ -225,9 +223,6 @@ export default defineAction({
           },
         };
         let stored = await createCaptureWithWarnings(captureInput);
-        // A concurrent first import of the same path can win the insert; the
-        // store then returns the winner's row without this request's
-        // provenance. Apply it with the normal update against that row.
         if (!suppliedProvenanceApplied(stored.capture, file.input)) {
           stored = await createCaptureWithWarnings(captureInput);
           if (!suppliedProvenanceApplied(stored.capture, file.input)) {
