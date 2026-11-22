@@ -7,7 +7,6 @@ import {
   navigateWithAgentChatViewTransition,
   readChatFirstMode,
   resolveChatFirstBrowserTarget,
-  resolveChatFirstAppTarget,
   subscribeChatFirstOpenBrowser,
   subscribeChatFirstOpenApp,
   useChatFirstSessionWatch,
@@ -33,6 +32,7 @@ import {
   readClientAppState,
   writeClientAppState,
 } from "@agent-native/core/client/application-state";
+import { getBrowserTabId } from "@agent-native/core/client/browser-tab-id";
 import {
   useFeatureFlagState,
   type FeatureFlagState,
@@ -110,6 +110,7 @@ import {
 } from "../../lib/chat-first-app-route";
 import {
   delegatedAppFromToolStart,
+  resolveDispatchChatFirstAppTarget,
   visibleChatFirstSurfaceTabId,
 } from "../../lib/chat-first-pane";
 import { getDispatchRunThreadContext } from "../../lib/dispatch-run-thread.js";
@@ -141,7 +142,11 @@ import {
   workspaceAppTargetPath,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
-import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
+import {
+  CHAT_FIRST_PANE_BINDING_MAX_AGE_MS,
+  CHAT_FIRST_PANE_CONTEXT_STATE_KEY,
+  CHAT_FIRST_PANE_STATE_KEY,
+} from "../../shared/chat-first-pane";
 import { AppIcon } from "../app-icon";
 import { CreateAppPopover } from "../create-app-popover";
 import {
@@ -168,8 +173,10 @@ import {
 } from "../ui/tooltip";
 import {
   usePrefetchChatFirstEmbedSession,
+  useWarmWorkspaceAppIds,
   WorkspaceAppChatRail,
   WorkspaceAppFrame,
+  type WorkspaceAppViewReader,
   WorkspaceAppKeepAlive,
 } from "../workspace-app-host";
 import {
@@ -293,6 +300,7 @@ const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 // With nothing pinned, the sidebar suggests this many apps; All apps has the rest.
 const CHAT_FIRST_RAIL_SUGGESTED_APPS = 3;
 const CHAT_FIRST_ROUTE_TIMEOUT_MS = 6_000;
+const CHAT_FIRST_PANE_READ_TIMEOUT_MS = 450;
 const NO_CHAT_FIRST_APPS: ChatFirstAppItem[] = [];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
@@ -1334,6 +1342,8 @@ export function renderChatFirstAppSurfaceTab({
   isMobileSurface,
   copy,
   placement = "main",
+  onViewReaderChange,
+  onChildRouteChange,
 }: {
   registration: ChatFirstAppRegistration | null;
   embedPath: string;
@@ -1341,6 +1351,8 @@ export function renderChatFirstAppSurfaceTab({
   isMobileSurface: boolean;
   copy: ChatFirstCopy;
   placement?: ChatFirstAppSurfacePlacement;
+  onViewReaderChange?: (read: WorkspaceAppViewReader) => () => void;
+  onChildRouteChange?: (path: string) => void;
 }): ReactNode {
   if (!registration) {
     return (
@@ -1376,6 +1388,9 @@ export function renderChatFirstAppSurfaceTab({
         url: registration.url,
       }}
       embedPath={embedPath}
+      claimBrowserTab
+      onViewReaderChange={onViewReaderChange}
+      onChildRouteChange={onChildRouteChange}
       chatSidebar={!isMobileSurface && placement === "main"}
       copy={copy}
     />
@@ -1705,6 +1720,123 @@ function DispatchLayout({
       ) ?? null,
     [chatFirstSurfaceTabs.tabs, visibleChatFirstSurfaceTabIdValue],
   );
+  const warmWorkspaceAppIds = useWarmWorkspaceAppIds(
+    chatFirstSurfaceScope,
+    visibleChatFirstSurfaceTab?.kind === "app"
+      ? (visibleChatFirstSurfaceTab.appId ?? null)
+      : null,
+    chatFirstSurfaceTabs.tabs.flatMap((tab) =>
+      tab.kind === "app" && tab.appId ? [tab.appId] : [],
+    ),
+  );
+  const chatFirstViewReader = useRef<{
+    tabId: string;
+    scope: string;
+    read: WorkspaceAppViewReader;
+  } | null>(null);
+  const visiblePaneTabId = visibleChatFirstSurfaceTabIdValue;
+  const visiblePaneAppId =
+    chatFirstMode &&
+    isChatRoute &&
+    chatFirstSurfacePanel.open &&
+    visibleChatFirstSurfaceTab?.kind === "app"
+      ? visibleChatFirstSurfaceTab.appId
+      : undefined;
+  const visiblePanePath = visiblePaneAppId
+    ? visibleChatFirstSurfaceTab?.path
+    : undefined;
+  const visiblePaneView = visiblePaneAppId
+    ? visibleChatFirstSurfaceTab?.view
+    : undefined;
+  const writeActivePaneContext = useCallback(
+    (
+      view: {
+        path: string;
+        origin?: string;
+        childBrowserTabId?: string;
+      } | null,
+    ) =>
+      writeClientAppState(
+        `${CHAT_FIRST_PANE_CONTEXT_STATE_KEY}:${getBrowserTabId()}`,
+        visiblePaneAppId
+          ? {
+              appId: visiblePaneAppId,
+              path: view?.path ?? visiblePanePath ?? "/",
+              ...(visiblePaneView ? { view: visiblePaneView } : {}),
+              ...(view?.origin && view.childBrowserTabId
+                ? {
+                    origin: view.origin,
+                    childBrowserTabId: view.childBrowserTabId,
+                    observedAt: Date.now(),
+                  }
+                : {}),
+            }
+          : null,
+        { keepalive: true },
+      ).catch(() => {}),
+    [visiblePaneAppId, visiblePanePath, visiblePaneView],
+  );
+  useEffect(() => {
+    void writeActivePaneContext(null);
+  }, [writeActivePaneContext]);
+  const refreshActivePaneContext = useCallback(() => {
+    const reader = chatFirstViewReader.current;
+    if (!reader) return;
+    void reader
+      .read(AbortSignal.timeout(CHAT_FIRST_PANE_READ_TIMEOUT_MS))
+      .then((view) => {
+        if (view && chatFirstViewReader.current === reader) {
+          return writeActivePaneContext(view);
+        }
+      })
+      .catch(() => {});
+  }, [writeActivePaneContext]);
+  useEffect(() => {
+    if (!visiblePaneAppId) return;
+    const clearPagePane = () => {
+      void writeClientAppState(
+        `${CHAT_FIRST_PANE_CONTEXT_STATE_KEY}:${getBrowserTabId()}`,
+        null,
+        { keepalive: true },
+      ).catch(() => {});
+    };
+    const refreshVisiblePane = () => {
+      if (document.visibilityState === "visible") refreshActivePaneContext();
+    };
+    const refreshTimer = window.setInterval(
+      refreshVisiblePane,
+      CHAT_FIRST_PANE_BINDING_MAX_AGE_MS / 2,
+    );
+    document.addEventListener("visibilitychange", refreshVisiblePane);
+    window.addEventListener("focus", refreshActivePaneContext);
+    window.addEventListener("pageshow", refreshActivePaneContext);
+    window.addEventListener("pagehide", clearPagePane);
+    return () => {
+      window.clearInterval(refreshTimer);
+      document.removeEventListener("visibilitychange", refreshVisiblePane);
+      window.removeEventListener("focus", refreshActivePaneContext);
+      window.removeEventListener("pageshow", refreshActivePaneContext);
+      window.removeEventListener("pagehide", clearPagePane);
+    };
+  }, [refreshActivePaneContext, visiblePaneAppId]);
+  const registerChatFirstViewReader = useCallback(
+    (read: WorkspaceAppViewReader) => {
+      if (!visiblePaneTabId) return () => {};
+      const reader = {
+        tabId: visiblePaneTabId,
+        scope: chatFirstSurfaceScope,
+        read,
+      };
+      chatFirstViewReader.current = reader;
+      refreshActivePaneContext();
+      return () => {
+        if (chatFirstViewReader.current === reader) {
+          chatFirstViewReader.current = null;
+        }
+      };
+    },
+    [chatFirstSurfaceScope, refreshActivePaneContext, visiblePaneTabId],
+  );
   const chatFirstAppTakesMain =
     chatFirstMode &&
     isChatRoute &&
@@ -1783,22 +1915,20 @@ function DispatchLayout({
       const app = chatFirstAppRegistrations.find(
         (candidate) => candidate.id === pane.appId,
       );
-      let tabId = chatFirstSurfaceTabId(
-        "app",
-        `${pane.appId}:${pane.path ?? pane.view ?? "/"}`,
+      const snapshot = chatFirstSurfaceTabsStore.getSnapshot();
+      const existing = snapshot.tabs.find(
+        (tab) => tab.kind === "app" && tab.appId === pane.appId,
       );
+      const tabId = existing?.id ?? chatFirstSurfaceTabId("app", pane.appId);
       const earlier = provisionalChatFirstTabRef.current;
       provisionalChatFirstTabRef.current = null;
       if (
         earlier &&
         earlier.scope === chatFirstSurfaceScope &&
         earlier.tabId !== tabId &&
-        chatFirstSurfaceTabsStore
-          .getSnapshot()
-          .tabs.some((tab) => tab.id === earlier.tabId)
+        snapshot.tabs.some((tab) => tab.id === earlier.tabId)
       ) {
-        if (!provisional && earlier.appId === pane.appId) tabId = earlier.tabId;
-        else chatFirstSurfaceTabsStore.close(earlier.tabId);
+        chatFirstSurfaceTabsStore.close(earlier.tabId);
       }
       if (provisional) {
         provisionalChatFirstTabRef.current = {
@@ -1892,7 +2022,7 @@ function DispatchLayout({
   );
   const resolveChatFirstOpenApp = useCallback(
     (detail: ChatFirstOpenAppDetail) => {
-      const resolution = resolveChatFirstAppTarget(
+      const resolution = resolveDispatchChatFirstAppTarget(
         detail,
         chatFirstAppRegistrations,
         {
@@ -2016,7 +2146,7 @@ function DispatchLayout({
         .getSnapshot()
         .tabs.some((tab) => tab.kind === "app" && tab.appId === appId);
       if (alreadyOpen) return;
-      const resolution = resolveChatFirstAppTarget(
+      const resolution = resolveDispatchChatFirstAppTarget(
         { app: appId },
         chatFirstAppRegistrations,
         typeof window === "undefined"
@@ -2084,7 +2214,7 @@ function DispatchLayout({
       setPendingChatFirstPaneRestore(null);
       return;
     }
-    const resolution = resolveChatFirstAppTarget(
+    const resolution = resolveDispatchChatFirstAppTarget(
       {
         app: pendingChatFirstPaneRestore.appId,
         path: pendingChatFirstPaneRestore.path,
@@ -2201,12 +2331,6 @@ function DispatchLayout({
   ]);
 
   const prefetchChatFirstEmbedSession = usePrefetchChatFirstEmbedSession();
-  const chatFirstPaneAppId =
-    visibleChatFirstSurfaceTab?.kind === "app"
-      ? visibleChatFirstSurfaceTab.appId
-      : activeChatFirstSurfaceTab?.kind === "app"
-        ? activeChatFirstSurfaceTab.appId
-        : undefined;
   const chatFirstRouteSendRef = useRef<{ seq: number; id: string | null }>({
     seq: 0,
     id: null,
@@ -2217,11 +2341,26 @@ function DispatchLayout({
     sentPane: string;
     pane: DispatchChatFirstPane;
   } | null>(null);
+  useEffect(() => {
+    if (!chatFirstMode || !isChatRoute) return;
+    const cancelPendingRoute = (event: Event) => {
+      const detail = (event as CustomEvent<{ tool?: unknown } | null>).detail;
+      if (detail?.tool !== "open_app" && detail?.tool !== "open-app") return;
+      const current = chatFirstRouteSendRef.current;
+      chatFirstRouteSendRef.current = { seq: current.seq + 1, id: null };
+      chatFirstRoutedPaneRef.current = null;
+    };
+    window.addEventListener("agent-native:tool-start", cancelPendingRoute);
+    return () =>
+      window.removeEventListener("agent-native:tool-start", cancelPendingRoute);
+  }, [chatFirstMode, isChatRoute]);
   const chatFirstRouteLatest = {
     onChatRoute: chatFirstMode && isChatRoute,
     scope: chatFirstSurfaceScope,
     tabsStore: chatFirstSurfaceTabsStore,
-    shownAppId: chatFirstPaneAppId ?? null,
+    shownAppId: visiblePaneAppId ?? null,
+    visiblePaneTabId,
+    openPath: visiblePanePath,
     registrations: chatFirstAppRegistrations,
     openPane: openChatFirstPane,
     prefetch: prefetchChatFirstEmbedSession,
@@ -2269,15 +2408,44 @@ function DispatchLayout({
       if (detail.queued) return;
       const sentPane = chatFirstPaneSignature(sent.tabsStore.getSnapshot());
       const started = performance.now();
-      void callAction(
-        "route-app-intent",
-        {
-          text: detail.text.slice(0, 4000),
-          ...(sent.shownAppId ? { openApp: sent.shownAppId } : {}),
-          ...(detail.previousTurn ? { previousTurn: detail.previousTurn } : {}),
-        },
-        { timeoutMs: CHAT_FIRST_ROUTE_TIMEOUT_MS },
-      )
+      const reader = chatFirstViewReader.current;
+      const route = async () => {
+        const liveView =
+          reader &&
+          reader.tabId === sent.visiblePaneTabId &&
+          reader.scope === sent.scope
+            ? await reader
+                .read(AbortSignal.timeout(CHAT_FIRST_PANE_READ_TIMEOUT_MS))
+                // coercion-ok: An unavailable live read leaves only the registered route as context.
+                .catch(() => null)
+            : null;
+        const latest = chatFirstRouteLatestRef.current;
+        const validView =
+          liveView &&
+          chatFirstViewReader.current === reader &&
+          latest.scope === sent.scope &&
+          latest.visiblePaneTabId === sent.visiblePaneTabId
+            ? liveView
+            : null;
+        const openPath = validView?.path ?? sent.openPath;
+        if (validView) void writeActivePaneContext(validView);
+        return callAction(
+          "route-app-intent",
+          {
+            text: detail.text.slice(0, 4000),
+            ...(sent.shownAppId ? { openApp: sent.shownAppId } : {}),
+            ...(openPath ? { openPath } : {}),
+            ...(validView?.selectedText
+              ? { selection: validView.selectedText }
+              : {}),
+            ...(detail.previousTurn
+              ? { previousTurn: detail.previousTurn }
+              : {}),
+          },
+          { timeoutMs: CHAT_FIRST_ROUTE_TIMEOUT_MS },
+        );
+      };
+      void route()
         .then(
           (result) => result as ChatFirstAppRouteAnswer,
           (error: unknown): ChatFirstAppRouteAnswer | "timeout" =>
@@ -2302,7 +2470,7 @@ function DispatchLayout({
               const objectPath = object?.objectId?.startsWith("/")
                 ? object.objectId
                 : undefined;
-              const resolution = resolveChatFirstAppTarget(
+              const resolution = resolveDispatchChatFirstAppTarget(
                 {
                   app,
                   ...(object?.url ? { url: object.url } : {}),
@@ -2323,13 +2491,16 @@ function DispatchLayout({
                 ? answer.app
                 : "unrouted",
             outcome: answer === "timeout" ? "timeout" : answer.status,
-            plan,
+            plan:
+              plan.kind === "skip"
+                ? plan
+                : { kind: plan.kind, target: { appId: plan.target.appId } },
             latencyMs: Math.round(performance.now() - started),
             ...(answer !== "timeout" && answer.latencyMs !== undefined
               ? { hostedLatencyMs: answer.latencyMs }
               : {}),
           } satisfies ChatFirstAppRouteRecord);
-          if (plan.kind !== "open") return;
+          if (plan.kind === "skip") return;
           const pane: DispatchChatFirstPane = plan.target;
           const registration = now.registrations.find(
             (candidate) => candidate.id === pane.appId,
@@ -2346,11 +2517,17 @@ function DispatchLayout({
               pane.path ?? registration.path ?? "/",
             );
           }
+          if (plan.kind !== "open") return;
           chatFirstRoutedPaneRef.current = { seq, chat, sentPane, pane };
           applyChatFirstRoutedPane();
         });
     });
-  }, [applyChatFirstRoutedPane, chatFirstMode, isChatRoute]);
+  }, [
+    applyChatFirstRoutedPane,
+    chatFirstMode,
+    isChatRoute,
+    writeActivePaneContext,
+  ]);
 
   useEffect(() => {
     const target = chatFirstSessionWatch.target;
@@ -2524,6 +2701,12 @@ function DispatchLayout({
           : null;
         return renderChatFirstAppSurfaceTab({
           registration,
+          ...(tab.id === visiblePaneTabId && visiblePaneAppId
+            ? {
+                onViewReaderChange: registerChatFirstViewReader,
+                onChildRouteChange: refreshActivePaneContext,
+              }
+            : {}),
           embedPath: tab.path ?? registration?.path ?? "/",
           placement: tab.placement ?? "main",
           loading:
@@ -2607,6 +2790,10 @@ function DispatchLayout({
       closeChatFirstSurfaceTab,
       isMobileSurface,
       renderChatFirstWatchChat,
+      registerChatFirstViewReader,
+      refreshActivePaneContext,
+      visiblePaneAppId,
+      visiblePaneTabId,
     ],
   );
 
@@ -2649,7 +2836,12 @@ function DispatchLayout({
   const chatFirstSurfaceContent =
     chatFirstSurfaceTabs.tabs.length > 0 ? (
       <ChatFirstSurfaceContent
-        tabs={chatFirstSurfaceTabs.tabs}
+        tabs={chatFirstSurfaceTabs.tabs.filter(
+          (tab) =>
+            tab.kind !== "app" ||
+            (tab.appId !== undefined &&
+              warmWorkspaceAppIds.includes(tab.appId)),
+        )}
         activeTabId={visibleChatFirstSurfaceTabIdValue}
         renderTab={renderChatFirstSurfaceTab}
       />
