@@ -48,8 +48,10 @@ function installBootstrap(
     },
   };
   const assign = vi.fn();
+  const reload = vi.fn();
   const location = {
     assign,
+    reload,
     href,
     hostname: new URL(href).hostname,
   };
@@ -89,21 +91,39 @@ function installBootstrap(
     dispatchEvent,
     location,
     onError,
+    reload,
     sessionValues,
     windowListeners,
     windowState,
   };
 }
 
+function moduleScriptFailure(): BootstrapResourceError {
+  return {
+    target: {
+      src: "https://example.test/assets/route.js",
+      tagName: "SCRIPT",
+      type: "module",
+    },
+    stopImmediatePropagation: vi.fn(),
+  };
+}
+
 describe("route chunk recovery bootstrap", () => {
   it("keeps the page offline and retries the original URL once back online", () => {
-    const { assign, onError, sessionValues, windowListeners, windowState } =
-      installBootstrap(
-        "https://example.test/apps?tab=activity#latest",
-        "Mozilla/5.0",
-        false,
-        false,
-      );
+    const {
+      assign,
+      onError,
+      reload,
+      sessionValues,
+      windowListeners,
+      windowState,
+    } = installBootstrap(
+      "https://example.test/apps?tab=activity#latest",
+      "Mozilla/5.0",
+      false,
+      false,
+    );
 
     onError({
       target: {
@@ -121,7 +141,35 @@ describe("route chunk recovery bootstrap", () => {
     expect(windowState[STALE_CHUNK_EXHAUSTED_KEY]).toBeUndefined();
 
     windowListeners.get("online")?.();
-    expect(assign).toHaveBeenCalledExactlyOnceWith("/apps?tab=activity#latest");
+    expect(reload).toHaveBeenCalledOnce();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("drops the pending retry when the user navigated elsewhere while offline", () => {
+    const { assign, location, onError, reload, windowListeners } =
+      installBootstrap(undefined, undefined, false, false);
+
+    onError(moduleScriptFailure());
+    location.href = "https://example.test/settings";
+    windowListeners.get("online")?.();
+
+    expect(reload).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("arms the online listener only once across repeated offline failures", () => {
+    const { onError, windowState } = installBootstrap(
+      undefined,
+      undefined,
+      false,
+      false,
+    );
+    const addEventListener = vi.spyOn(windowState, "addEventListener");
+
+    onError(moduleScriptFailure());
+    onError(moduleScriptFailure());
+
+    expect(addEventListener).toHaveBeenCalledOnce();
   });
 
   it("retries required module failures before client handlers can classify them", () => {
