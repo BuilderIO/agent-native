@@ -73,6 +73,7 @@ export function TaskList({
   const t = useT();
   const createTask = useCreateTask();
   const taskSave = useTaskSave();
+  const titleEditStartRef = useRef(new Map<string, TaskWithFields>());
   const deleteTask = useDeleteTask();
   const reorderTasks = useReorderTasks();
   const bulkDeleteTasks = useBulkDeleteTasks();
@@ -251,10 +252,17 @@ export function TaskList({
                       done={item.done}
                       highlighted={activeTaskId === item.id}
                       hideAfterComplete={!includeDone}
-                      onUpdateTitle={(title) =>
-                        taskSave.save(item.id, { title })
+                      onStartTitleEdit={() =>
+                        titleEditStartRef.current.set(item.id, item)
                       }
-                      onUpdateDone={(done) => taskSave.save(item.id, { done })}
+                      onUpdateTitle={(title) => {
+                        const startedFrom = titleEditStartRef.current.get(
+                          item.id,
+                        );
+                        titleEditStartRef.current.delete(item.id);
+                        return taskSave.save(item, { title }, startedFrom);
+                      }}
+                      onUpdateDone={(done) => taskSave.save(item, { done })}
                       onOpenDetails={() => {
                         focusAgentChat();
                         setActiveTaskId(item.id);

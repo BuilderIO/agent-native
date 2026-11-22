@@ -161,6 +161,37 @@ export function useCreateTask() {
   });
 }
 
+export type TaskPatch = {
+  title?: string | undefined;
+  done?: boolean | undefined;
+  fieldValues?:
+    | Array<{ fieldId: string; value: FieldValue | null }>
+    | undefined;
+};
+
+function withTaskPatch(
+  task: TaskWithFields,
+  { title, done, fieldValues }: TaskPatch,
+  updatedAt: string,
+): TaskWithFields {
+  return {
+    ...task,
+    ...(title !== undefined ? { title } : {}),
+    ...(done !== undefined ? { done } : {}),
+    ...(fieldValues && task.fields
+      ? {
+          fields: task.fields.map((field) => {
+            const next = fieldValues.find(
+              (value) => value.fieldId === field.id,
+            );
+            return next ? { ...field, value: next.value } : field;
+          }),
+        }
+      : {}),
+    updatedAt,
+  };
+}
+
 export function useUpdateTask() {
   const queryClient = useQueryClient();
   return useActionMutation<
@@ -173,28 +204,11 @@ export function useUpdateTask() {
       expectedRevision?: string;
     }
   >("update-task", {
-    onMutate: async ({ taskId, title, done, fieldValues }) => {
+    onMutate: async ({ taskId, ...patch }) => {
       const timestamp = new Date().toISOString();
       return beginListTasksOptimisticUpdate(queryClient, (tasks) =>
         tasks.map((task) =>
-          task.id === taskId
-            ? {
-                ...task,
-                ...(title !== undefined ? { title } : {}),
-                ...(done !== undefined ? { done } : {}),
-                ...(fieldValues && task.fields
-                  ? {
-                      fields: task.fields.map((field) => {
-                        const next = fieldValues.find(
-                          (value) => value.fieldId === field.id,
-                        );
-                        return next ? { ...field, value: next.value } : field;
-                      }),
-                    }
-                  : {}),
-                updatedAt: timestamp,
-              }
-            : task,
+          task.id === taskId ? withTaskPatch(task, patch, timestamp) : task,
         ),
       );
     },
@@ -211,15 +225,33 @@ export function useUpdateTask() {
   });
 }
 
+export function usePatchCachedTask() {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (taskId: string, patch: TaskPatch) => {
+      const timestamp = new Date().toISOString();
+      patchListTasksCache(queryClient, (tasks) =>
+        tasks.map((task) =>
+          task.id === taskId ? withTaskPatch(task, patch, timestamp) : task,
+        ),
+      );
+    },
+    [queryClient],
+  );
+}
+
 export function useReadCachedTask() {
   const queryClient = useQueryClient();
   return useCallback(
     (taskId: string): TaskWithFields | undefined => {
-      for (const [, data] of snapshotListTasksQueries(queryClient)) {
+      let newest: { task: TaskWithFields; at: number } | undefined;
+      for (const [key, data] of snapshotListTasksQueries(queryClient)) {
         const task = data?.tasks.find((candidate) => candidate.id === taskId);
-        if (task?.fields && task.revision) return task;
+        if (!task?.fields || !task.revision) continue;
+        const at = queryClient.getQueryState(key)?.dataUpdatedAt ?? 0;
+        if (!newest || at > newest.at) newest = { task, at };
       }
-      return undefined;
+      return newest?.task;
     },
     [queryClient],
   );

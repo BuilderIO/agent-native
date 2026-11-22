@@ -32,6 +32,7 @@ import {
   hasCompletedStoredItems,
   listStoredItems,
   lockStoredItem,
+  lockStoredItems,
   reorderStoredItems,
   requireUserEmail,
   updateStoredItems,
@@ -264,6 +265,10 @@ export async function deleteTasks(
   );
 
   await db.transaction(async (tx) => {
+    await lockStoredItems(
+      { ownerEmail: input.ownerEmail, ids, promotedToTask: true },
+      tx,
+    );
     await deleteCustomFieldValuesByTaskIds(
       { ownerEmail: input.ownerEmail, taskIds: ids },
       tx,

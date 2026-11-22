@@ -138,6 +138,11 @@ export default defineAction({
           ownerEmail,
           taskId: navigation.taskId,
         });
+        screen.selectedItem = Object.assign(
+          {},
+          screen.selectedItem,
+          toTaskSummary(selected),
+        );
         screen.selectedTaskFields = selected.fields.map(
           toTaskFieldValueSummary,
         );

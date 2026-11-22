@@ -6,25 +6,34 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TaskWithFields } from "./use-tasks";
 
-const { mutateAsync, trackEvent, cached } = vi.hoisted(() => ({
-  mutateAsync: vi.fn(),
-  trackEvent: vi.fn(),
-  cached: new Map<string, unknown>(),
-}));
+const { mutateAsync, patchCachedTask, reportWriteFailure, trackEvent, cached } =
+  vi.hoisted(() => ({
+    mutateAsync: vi.fn(),
+    patchCachedTask: vi.fn(),
+    reportWriteFailure: vi.fn(),
+    trackEvent: vi.fn(),
+    cached: new Map<string, unknown>(),
+  }));
 
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
+vi.mock("@agent-native/core/client/write-failure", () => ({
+  reportWriteFailure,
+}));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 vi.mock("./use-tasks", () => ({
   useUpdateTask: () => ({ mutateAsync, isPending: false }),
   useReadCachedTask: () => (taskId: string) => cached.get(taskId),
+  usePatchCachedTask: () => patchCachedTask,
 }));
 
 import {
   applyTaskChange,
+  mergeTaskChanges,
   taskChangeBetween,
   useTaskSave,
+  withoutTaskPaths,
 } from "./use-task-save";
 
 const conflict = (current: unknown, currentRevision: string) =>
@@ -68,6 +77,8 @@ function findText(text: string): HTMLElement | undefined {
   );
 }
 
+let shown: TaskWithFields;
+
 function setup() {
   let hook!: ReturnType<typeof useTaskSave>;
   function Host() {
@@ -79,7 +90,11 @@ function setup() {
   root = createRoot(container);
   act(() => root?.render(<Host />));
   return {
-    save: (change: Parameters<typeof hook.save>[1]) => hook.save("t1", change),
+    save: (
+      change: Parameters<typeof hook.save>[1],
+      on: TaskWithFields = shown,
+      startedFrom?: TaskWithFields,
+    ) => hook.save(on, change, startedFrom),
   };
 }
 
@@ -87,9 +102,12 @@ const flush = () => act(async () => {});
 
 beforeEach(() => {
   mutateAsync.mockReset();
+  patchCachedTask.mockClear();
+  reportWriteFailure.mockClear();
   trackEvent.mockClear();
   cached.clear();
-  cached.set("t1", task({}));
+  shown = task({});
+  cached.set("t1", shown);
 });
 
 afterEach(() => {
@@ -119,6 +137,35 @@ describe("taskChangeBetween", () => {
   });
 });
 
+describe("mergeTaskChanges and withoutTaskPaths", () => {
+  it("keeps the latest value per field, and drops the paths asked", () => {
+    const merged = mergeTaskChanges(
+      { title: "A", fieldValues: [{ fieldId: "a", value: 1 }] },
+      {
+        title: "AB",
+        done: true,
+        fieldValues: [
+          { fieldId: "a", value: 2 },
+          { fieldId: "b", value: null },
+        ],
+      },
+    );
+
+    expect(merged).toEqual({
+      title: "AB",
+      done: true,
+      fieldValues: [
+        { fieldId: "a", value: 2 },
+        { fieldId: "b", value: null },
+      ],
+    });
+    expect(withoutTaskPaths(merged, ["title", "fields.a"])).toEqual({
+      done: true,
+      fieldValues: [{ fieldId: "b", value: null }],
+    });
+  });
+});
+
 describe("useTaskSave", () => {
   it("saves a change against the revision it was read at", async () => {
     mutateAsync.mockResolvedValueOnce(task({ done: true, revision: "rev-2" }));
@@ -126,6 +173,7 @@ describe("useTaskSave", () => {
 
     await act(() => save({ done: true }));
 
+    expect(patchCachedTask).toHaveBeenCalledWith("t1", { done: true });
     expect(mutateAsync).toHaveBeenCalledWith({
       taskId: "t1",
       done: true,
@@ -187,7 +235,162 @@ describe("useTaskSave", () => {
     });
   });
 
-  it("sends a task's changes one at a time, each from the save before it", async () => {
+  it("shows edits at once, and sends those made while a save is out as one save from its revision", async () => {
+    let land!: (value: TaskWithFields) => void;
+    mutateAsync.mockReturnValueOnce(
+      new Promise<TaskWithFields>((resolve) => {
+        land = resolve;
+      }),
+    );
+    mutateAsync.mockResolvedValueOnce(
+      task({ title: "Write the briefs", done: true, revision: "rev-3" }),
+    );
+    const { save } = setup();
+
+    let saves: Promise<void>[] = [];
+    act(() => {
+      saves = [
+        save({ done: true }),
+        save({ title: "Write the brief" }),
+        save({ title: "Write the briefs" }),
+      ];
+    });
+    await flush();
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(patchCachedTask).toHaveBeenLastCalledWith("t1", {
+      title: "Write the briefs",
+    });
+
+    await act(async () => {
+      land(task({ done: true, revision: "rev-2" }));
+      await Promise.all(saves);
+    });
+
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+    expect(mutateAsync).toHaveBeenLastCalledWith({
+      taskId: "t1",
+      title: "Write the briefs",
+      expectedRevision: "rev-2",
+    });
+  });
+
+  it("drops queued edits to a field when the other version is chosen for it", async () => {
+    let fail!: (error: unknown) => void;
+    mutateAsync.mockReturnValueOnce(
+      new Promise<TaskWithFields>((_resolve, reject) => {
+        fail = reject;
+      }),
+    );
+    mutateAsync.mockResolvedValueOnce(
+      task({ done: true, estimate: 5, revision: "rev-3" }),
+    );
+    const { save } = setup();
+
+    let saves: Promise<void>[] = [];
+    act(() => {
+      saves = [
+        save({ fieldValues: [{ fieldId: "estimate", value: 3 }] }),
+        save({ fieldValues: [{ fieldId: "estimate", value: 4 }] }),
+        save({ done: true }),
+      ];
+    });
+    await act(async () => {
+      fail(
+        conflict(
+          { title: "Write brief", done: false, fields: { estimate: 5 } },
+          "rev-2",
+        ),
+      );
+    });
+    await flush();
+    expect(findText("saveConflict.title")).toBeTruthy();
+
+    await act(async () => {
+      findText("saveConflict.useTheirs")?.click();
+      await Promise.all(saves);
+    });
+
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+    expect(mutateAsync).toHaveBeenLastCalledWith({
+      taskId: "t1",
+      done: true,
+      expectedRevision: "rev-2",
+    });
+  });
+
+  it("checks a save against the version its edit started from", async () => {
+    mutateAsync.mockRejectedValueOnce(
+      conflict({ title: "Their title", done: false, fields: {} }, "rev-2"),
+    );
+    mutateAsync.mockResolvedValueOnce(
+      task({ title: "My title", revision: "rev-3" }),
+    );
+    const { save } = setup();
+    const refreshed = task({ title: "Their title", revision: "rev-2" });
+
+    let saving!: Promise<void>;
+    act(() => {
+      saving = save({ title: "My title" }, refreshed, shown);
+    });
+    await flush();
+
+    expect(mutateAsync).toHaveBeenCalledWith({
+      taskId: "t1",
+      title: "My title",
+      expectedRevision: "rev-1",
+    });
+    expect(findText("saveConflict.title")).toBeTruthy();
+
+    await act(async () => {
+      findText("saveConflict.keepMine")?.click();
+      await saving;
+    });
+    expect(mutateAsync).toHaveBeenLastCalledWith({
+      taskId: "t1",
+      title: "My title",
+      expectedRevision: "rev-2",
+    });
+  });
+
+  it("reports a failed restore of the other version", async () => {
+    const offline = new Error("offline");
+    mutateAsync.mockRejectedValueOnce(
+      conflict(
+        { title: "Write brief", done: false, fields: { estimate: 5 } },
+        "rev-2",
+      ),
+    );
+    mutateAsync.mockResolvedValueOnce(task({ estimate: 3, revision: "rev-3" }));
+    mutateAsync.mockRejectedValueOnce(offline);
+    const { save } = setup();
+
+    let saving!: Promise<void>;
+    act(() => {
+      saving = save({ fieldValues: [{ fieldId: "estimate", value: 3 }] });
+    });
+    await flush();
+    await act(async () => {
+      findText("saveConflict.keepMine")?.click();
+      await saving;
+    });
+    await flush();
+    cached.set("t1", task({ estimate: 3, revision: "rev-3" }));
+
+    await act(async () => {
+      findText("saveConflict.getOtherBack")?.click();
+    });
+    await flush();
+
+    expect(mutateAsync).toHaveBeenLastCalledWith({
+      taskId: "t1",
+      fieldValues: [{ fieldId: "estimate", value: 5 }],
+      expectedRevision: "rev-3",
+    });
+    expect(reportWriteFailure).toHaveBeenCalledWith(offline);
+  });
+
+  it("saves without a revision when the task wasn't read with one, then uses the one it got back", async () => {
+    const { fields: _fields, revision: _revision, ...unread } = shown;
     let land!: (value: TaskWithFields) => void;
     mutateAsync.mockReturnValueOnce(
       new Promise<TaskWithFields>((resolve) => {
@@ -199,18 +402,19 @@ describe("useTaskSave", () => {
     );
     const { save } = setup();
 
-    let first!: Promise<void>;
-    let second!: Promise<void>;
+    let saves: Promise<void>[] = [];
     act(() => {
-      first = save({ done: true });
-      second = save({ title: "Write the brief" });
+      saves = [
+        save({ done: true }, unread),
+        save({ title: "Write the brief" }, unread),
+      ];
     });
     await flush();
-    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(mutateAsync).toHaveBeenCalledWith({ taskId: "t1", done: true });
 
     await act(async () => {
       land(task({ done: true, revision: "rev-2" }));
-      await Promise.all([first, second]);
+      await Promise.all(saves);
     });
 
     expect(mutateAsync).toHaveBeenLastCalledWith({
@@ -218,15 +422,5 @@ describe("useTaskSave", () => {
       title: "Write the brief",
       expectedRevision: "rev-2",
     });
-  });
-
-  it("saves without a revision when the task wasn't read with one", async () => {
-    cached.clear();
-    mutateAsync.mockResolvedValueOnce(task({ done: true }));
-    const { save } = setup();
-
-    await act(() => save({ done: true }));
-
-    expect(mutateAsync).toHaveBeenCalledWith({ taskId: "t1", done: true });
   });
 });

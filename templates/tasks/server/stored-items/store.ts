@@ -105,6 +105,29 @@ export async function lockStoredItem(
   return rows.find((row) => row.id === input.id) ?? null;
 }
 
+export async function lockStoredItems(
+  input: {
+    ownerEmail: string;
+    ids: string[];
+    promotedToTask: boolean;
+  },
+  db: DbHandle,
+): Promise<void> {
+  if (input.ids.length === 0) return;
+  await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(
+      and(
+        inArray(tasks.id, input.ids),
+        eq(tasks.ownerEmail, input.ownerEmail),
+        eq(tasks.promotedToTask, input.promotedToTask),
+      ),
+    )
+    .orderBy(asc(tasks.id))
+    .for("update");
+}
+
 export async function hasCompletedStoredItems(
   input: {
     ownerEmail: string;

@@ -84,7 +84,7 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
   const { save } = taskSave;
   const saveUpdate = useCallback(
     (change: TaskChange) => {
-      void save(task.id, change).catch((caught: unknown) => {
+      void save(task, change).catch((caught: unknown) => {
         toast.error(
           caught instanceof Error
             ? caught.message
@@ -92,7 +92,7 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
         );
       });
     },
-    [task.id, save, t],
+    [task, save, t],
   );
 
   return (

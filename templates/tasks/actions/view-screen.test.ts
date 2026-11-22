@@ -131,6 +131,13 @@ describe("view-screen tasks context", () => {
     listTasks.mockResolvedValue([
       { id: "t1", title: "Open", done: false, ownerEmail: "dev@local.test" },
     ]);
+    getTaskWithFields.mockResolvedValue({
+      id: "t1",
+      title: "Open",
+      done: false,
+      fields: [],
+      revision: "rev_t1",
+    });
 
     const screen = await viewScreen.run(
       {},
@@ -153,6 +160,49 @@ describe("view-screen tasks context", () => {
     });
   });
 
+  it("returns the selected task as of the read its revision came from", async () => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
+      if (key === "navigation") {
+        return {
+          view: "tasks",
+          path: "/tasks",
+          includeDone: false,
+          taskId: "t1",
+        };
+      }
+      if (key === "tasksSelection") return null;
+      return undefined;
+    });
+    listTasks.mockResolvedValue([
+      { id: "t1", title: "Open", done: false, ownerEmail: "dev@local.test" },
+    ]);
+    getTaskWithFields.mockResolvedValue({
+      id: "t1",
+      title: "Renamed",
+      done: true,
+      fields: [],
+      revision: "rev_t1_renamed",
+    });
+
+    const screen = await viewScreen.run(
+      {},
+      {
+        userEmail: "dev@local.test",
+        caller: "cli",
+      },
+    );
+
+    expect(screen).toMatchObject({
+      selectedItem: {
+        id: "t1",
+        title: "Renamed",
+        done: true,
+        inListSnapshot: true,
+      },
+      selectedTaskRevision: "rev_t1_renamed",
+    });
+  });
+
   it("marks selectedItem outside the snapshot when it is filtered out", async () => {
     readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
@@ -172,6 +222,13 @@ describe("view-screen tasks context", () => {
       title: "Done task",
       done: true,
       ownerEmail: "dev@local.test",
+    });
+    getTaskWithFields.mockResolvedValue({
+      id: "t-done",
+      title: "Done task",
+      done: true,
+      fields: [],
+      revision: "rev_t1",
     });
 
     const screen = await viewScreen.run(
@@ -297,6 +354,13 @@ describe("view-screen tasks context", () => {
       ownerEmail: "dev@local.test",
     }));
     listTasks.mockResolvedValue(manyTasks);
+    getTaskWithFields.mockResolvedValue({
+      id: "t26",
+      title: "Task 26",
+      done: false,
+      fields: [],
+      revision: "rev_t1",
+    });
 
     const screen = await viewScreen.run(
       {},
