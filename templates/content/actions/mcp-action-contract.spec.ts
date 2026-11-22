@@ -451,7 +451,9 @@ describe("Content action-owned agent catalogs", () => {
     const contract = patchDatabaseItems.mcpScriptWrite;
 
     expect(contract?.rowBound(args)).toBe(3);
-    expect(contract?.receiptLocator(args)).toEqual(rowPatchReceiptLocator(args));
+    expect(contract?.receiptLocator(args)).toEqual(
+      rowPatchReceiptLocator(args),
+    );
     expect(contract?.receiptLocator(args)).toMatchObject({
       scope: "database_1",
       idempotencyKey: "rank_refresh_1",

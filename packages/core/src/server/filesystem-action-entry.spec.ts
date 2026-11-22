@@ -135,9 +135,9 @@ describe("filesystemActionEntry", () => {
       filesystemActionEntry(action),
       loadActionsFromStaticRegistry({ rank: { default: action } }).rank,
     ]) {
-      expect(entry?.mcpScript).toBe("write");
-      expect(entry?.mcpScriptWrite?.rowBound({ ids: ["a", "b"] })).toBe(2);
-      expect(entry?.mcpScriptWrite?.destructive).toBe(false);
+      expect(entry.mcpScript).toBe("write");
+      expect(entry.mcpScriptWrite?.rowBound({ ids: ["a", "b"] })).toBe(2);
+      expect(entry.mcpScriptWrite?.destructive).toBe(false);
     }
     const { mcpScriptWrite: _contract, ...withoutContract } = action;
     expect(
