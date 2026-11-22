@@ -114,6 +114,11 @@ const ASKS_FIRST = [
     { mode: "filter", targets: MESSAGE, comment: "Recruiter outreach" },
     null,
   ],
+  [
+    "apply-ai-filter",
+    { mode: "keep", targets: MESSAGE, comment: "From my manager" },
+    null,
+  ],
 ] as const;
 
 const RUNS_WITHOUT_ASKING = [
@@ -131,11 +136,7 @@ const RUNS_WITHOUT_ASKING = [
     { mode: "filter", targets: MESSAGE, comment: "  " },
     null,
   ],
-  [
-    "apply-ai-filter",
-    { mode: "keep", targets: MESSAGE, comment: "From my manager" },
-    null,
-  ],
+  ["apply-ai-filter", { mode: "keep", targets: MESSAGE }, null],
   ["apply-ai-filter", { mode: "settings" }, null],
 ] as const;
 

@@ -144,7 +144,7 @@ export default defineAction({
     isOutsideAgentCall(ctx) &&
     (args.mode === "settings"
       ? Object.keys(args.settings ?? {}).length > 0
-      : args.mode === "filter" && Boolean(args.comment?.trim())),
+      : Boolean(args.comment?.trim())),
   mcpTool: "search",
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
