@@ -83,6 +83,7 @@ import {
   listAccessibleAudienceIds,
 } from "./audiences.js";
 import {
+  publicCaptureTitle,
   sanitizeCaptureForStorage,
   type CaptureSanitizationResult,
 } from "./capture-sanitization.js";
@@ -503,25 +504,20 @@ export function serializeSource(row: typeof schema.brainSources.$inferSelect) {
 export function serializeCapture(
   row: typeof schema.brainRawCaptures.$inferSelect,
 ) {
+  const metadata = parseCaptureMetadata(
+    withOmissionReceipt(row.metadataJson, row.content, row.kind),
+  );
+  const partial =
+    metadata !== null && readWithheldPassages(metadata) !== undefined;
   return {
     id: row.id,
     sourceId: row.sourceId,
-    externalId: publicCaptureExternalId(
-      row.externalId,
-      parseCaptureMetadata(
-        withOmissionReceipt(row.metadataJson, row.content, row.kind),
-      ),
-      row.kind,
-    ),
-    title: row.title,
+    externalId: publicCaptureExternalId(row.externalId, metadata, row.kind),
+    title: publicCaptureTitle(row.title, partial),
     kind: row.kind as BrainCaptureKind,
     content: row.content,
     contentHash: row.contentHash,
-    metadata: publicCaptureMetadata(
-      parseCaptureMetadata(
-        withOmissionReceipt(row.metadataJson, row.content, row.kind),
-      ),
-    ),
+    metadata: publicCaptureMetadata(metadata),
     capturedAt: row.capturedAt,
     importedBy: row.importedBy,
     status: row.status,
@@ -1953,22 +1949,20 @@ export async function recordBlockedCapture(input: {
             schema.brainSensitivityEvents.locatorHmac,
             schema.brainSensitivityEvents.policyVersion,
           ],
-        });
+        })
+        .returning({ id: schema.brainSensitivityEvents.id });
     const overwrite = (where: ReturnType<typeof and>) =>
       scoped
         .update(schema.brainSensitivityEvents)
         .set({ ...eventValues, reviewedBy: null, reviewedAt: null })
-        .where(where);
+        .where(where)
+        .returning({ id: schema.brainSensitivityEvents.id });
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      await insertEvent();
+      const inserted = await insertEvent();
+      if (inserted.length) return { id: eventId, displacedHandle: null };
       const current = await readEventHandle(scoped);
       if (!current) continue;
-      if (
-        quarantineBlobHandle !== null &&
-        current.quarantineBlobHandle === quarantineBlobHandle
-      )
-        return { id: current.id, displacedHandle: null };
-      await overwrite(
+      const applied = await overwrite(
         and(
           eventLocator,
           current.quarantineBlobHandle === null
@@ -1979,8 +1973,7 @@ export async function recordBlockedCapture(input: {
               ),
         ),
       );
-      const after = await readEventHandle(scoped);
-      if (after?.quarantineBlobHandle === quarantineBlobHandle)
+      if (applied.length)
         return {
           id: current.id,
           displacedHandle: current.quarantineBlobHandle,

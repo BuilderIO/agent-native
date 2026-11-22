@@ -24,10 +24,7 @@ import {
   serializeCapture,
   stableJson,
 } from "./brain.js";
-import {
-  BrainClassifierUnavailableError,
-  BrainUnsafeSourceIdentityError,
-} from "./capture-sanitization.js";
+import { BrainClassifierUnavailableError } from "./capture-sanitization.js";
 import {
   invalidateGoogleCaptureAudiences,
   invalidateGoogleSourceAudiences,
@@ -104,10 +101,7 @@ async function createConnectorCapture(
   try {
     return { capture: await createCaptureRetryingOnce(values), blocked: false };
   } catch (error) {
-    if (
-      error instanceof BrainCaptureBlockedError ||
-      error instanceof BrainUnsafeSourceIdentityError
-    ) {
+    if (error instanceof BrainCaptureBlockedError) {
       return { capture: null, blocked: true };
     }
     throw error;
@@ -1998,6 +1992,7 @@ async function githubRefsFromLinkedSources(
       .select({
         id: schema.brainRawCaptures.id,
         title: schema.brainRawCaptures.title,
+        kind: schema.brainRawCaptures.kind,
         content: schema.brainRawCaptures.content,
         metadataJson: schema.brainRawCaptures.metadataJson,
       })
@@ -2031,7 +2026,7 @@ async function githubRefsFromLinkedSources(
           withOmissionReceipt(
             capture.metadataJson,
             capture.content,
-            "transcript",
+            capture.kind,
           ),
         ),
       );

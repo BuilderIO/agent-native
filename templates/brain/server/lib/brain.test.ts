@@ -600,7 +600,11 @@ const mocks = vi.hoisted(() => {
           : undefined;
       if (!existingSensitivityEvent) tableRows(tableRef).push({ ...row });
       return {
-        onConflictDoNothing: vi.fn(async () => ({ rowsAffected: 0 })),
+        onConflictDoNothing: vi.fn(() => ({
+          returning: vi.fn(async () =>
+            existingSensitivityEvent ? [] : [{ id: row.id }],
+          ),
+        })),
         onConflictDoUpdate: vi.fn(async ({ set }: { set: Row }) => {
           const existing =
             existingSensitivityEvent ??

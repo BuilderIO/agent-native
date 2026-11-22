@@ -25,6 +25,7 @@ const source = {
 };
 
 const mocks = vi.hoisted(() => ({
+  BrainCaptureConcurrentError: class extends Error {},
   BrainUnsafeSourceIdentityError: class extends Error {},
   contentHash: vi.fn(async () => "changed-hash"),
   enqueueCaptureInvalidation: vi.fn(async () => undefined),
@@ -74,6 +75,7 @@ vi.mock("../server/db/index.js", () => ({
       kind: "capture.kind",
       sensitivityDisposition: "capture.sensitivityDisposition",
       sourceId: "capture.sourceId",
+      updatedAt: "capture.updatedAt",
     },
     brainSources: {},
   },
@@ -84,6 +86,7 @@ vi.mock("../server/lib/audiences.js", () => ({
 }));
 
 vi.mock("../server/lib/brain.js", () => ({
+  BrainCaptureConcurrentError: mocks.BrainCaptureConcurrentError,
   contentHash: mocks.contentHash,
   getAccessibleCapture: mocks.getAccessibleCapture,
   invalidateDerivedForCapture: mocks.invalidateDerivedForCapture,
@@ -112,7 +115,13 @@ import action from "./resanitize-captures.js";
 
 function createDb() {
   const update = vi.fn(() => ({
-    set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+    set: vi.fn(() => ({
+      where: vi.fn(() =>
+        Object.assign(Promise.resolve(undefined), {
+          returning: vi.fn(async () => [{ id: capture.id }]),
+        }),
+      ),
+    })),
   }));
   return {
     select: vi.fn((selection: Record<string, unknown>) => ({

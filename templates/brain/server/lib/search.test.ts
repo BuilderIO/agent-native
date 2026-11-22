@@ -275,6 +275,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 import { bindFixtureProvenance } from "../../test-utils/knowledge-provenance.js";
+import { publicCaptureTitle } from "./capture-sanitization.js";
 import {
   parseCaptureMetadata,
   publicCaptureExternalId,
@@ -1062,6 +1063,16 @@ describe("Brain semantic capture hits", () => {
 });
 
 describe("receipt-free transcripts with an omission marker", () => {
+  it("masks a locator-shaped capture title only for a partial capture", () => {
+    expect(publicCaptureTitle("www.example.test/full", true)).toBe(
+      "Transcript excerpt",
+    );
+    expect(publicCaptureTitle("www.example.test/full", false)).toBe(
+      "www.example.test/full",
+    );
+    expect(publicCaptureTitle("Weekly sync", true)).toBe("Weekly sync");
+  });
+
   const metadataJson = JSON.stringify({
     sourceUrl: "https://example.test/full",
   });

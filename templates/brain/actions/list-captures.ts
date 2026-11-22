@@ -151,7 +151,7 @@ export default defineAction({
         status: schema.brainRawCaptures.status,
         capturedAt: schema.brainRawCaptures.capturedAt,
         metadataJson: schema.brainRawCaptures.metadataJson,
-        omissionMarker: sql<boolean>`${schema.brainRawCaptures.content} LIKE ${"%[…]%"}`,
+        omissionMarker: sql<boolean>`(${schema.brainRawCaptures.content} = ${"[…]"} OR ${schema.brainRawCaptures.content} LIKE ${"[…]\n%"} OR ${schema.brainRawCaptures.content} LIKE ${"%\n[…]\n%"} OR ${schema.brainRawCaptures.content} LIKE ${"%\n[…]\r%"} OR ${schema.brainRawCaptures.content} LIKE ${"%\n[…]"})`,
         createdAt: schema.brainRawCaptures.createdAt,
         updatedAt: schema.brainRawCaptures.updatedAt,
         ...(args.includePreview

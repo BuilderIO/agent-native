@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { ensureCaptureAudience } from "../server/lib/audiences.js";
 import {
+  BrainCaptureConcurrentError,
   contentHash,
   getAccessibleCapture,
   invalidateDerivedForCapture,
@@ -31,6 +32,29 @@ import { idSchema, stringArrayCliSchema } from "./_schemas.js";
 
 function reviewPreview(value: string) {
   return redactSensitiveText(value).replace(/\s+/g, " ").trim().slice(0, 320);
+}
+
+function changedSinceRead(
+  capture: { id: string; sourceId: string; capturedAt: string },
+  derivedRefs: { knowledgeIds: string[]; proposalIds: string[] },
+  beforeLength: number,
+) {
+  return {
+    id: capture.id,
+    sourceId: capture.sourceId,
+    externalId: null,
+    title: "Capture changed during resanitization",
+    capturedAt: capture.capturedAt,
+    beforeLength,
+    afterLength: beforeLength,
+    method: "not-sanitized",
+    rawContentRetained: true,
+    skipped: true,
+    skipReason: "capture-changed",
+    dependentKnowledgeIds: derivedRefs.knowledgeIds,
+    dependentProposalIds: derivedRefs.proposalIds,
+    preview: "",
+  };
 }
 
 function canEditSource(
@@ -258,28 +282,40 @@ export default defineAction({
         sanitized.decision &&
         sanitized.decision.disposition !== "allowed"
       ) {
-        await recordBlockedCapture({
-          id: row.capture.id,
-          existing: row.capture,
-          source: row.source,
-          values: {
+        try {
+          await recordBlockedCapture({
             id: row.capture.id,
-            sourceId: row.capture.sourceId,
-            externalId: row.capture.externalId,
-            title: row.capture.title,
-            kind: row.capture.kind as BrainCaptureKind,
-            content: row.capture.content,
-            metadata: parseJson<Record<string, unknown>>(
-              row.capture.metadataJson,
-              {},
-            ),
-            capturedAt: row.capture.capturedAt,
-            status: row.capture.status,
-          },
-          decision: sanitized.decision,
-          classifierFailureReason: sanitized.classifierFailureReason,
-          retentionHours: settings.quarantineRetentionHours ?? 72,
-        });
+            existing: row.capture,
+            source: row.source,
+            values: {
+              id: row.capture.id,
+              sourceId: row.capture.sourceId,
+              externalId: row.capture.externalId,
+              title: row.capture.title,
+              kind: row.capture.kind as BrainCaptureKind,
+              content: row.capture.content,
+              metadata: parseJson<Record<string, unknown>>(
+                row.capture.metadataJson,
+                {},
+              ),
+              capturedAt: row.capture.capturedAt,
+              status: row.capture.status,
+            },
+            decision: sanitized.decision,
+            ...(sanitized.classifierFailureReason
+              ? {
+                  classifierFailureReason: sanitized.classifierFailureReason,
+                }
+              : {}),
+            retentionHours: settings.quarantineRetentionHours ?? 72,
+          });
+        } catch (error) {
+          if (!(error instanceof BrainCaptureConcurrentError)) throw error;
+          results.push(
+            changedSinceRead(row.capture, derivedRefs, beforeLength),
+          );
+          continue;
+        }
         results.push({
           id: row.capture.id,
           sourceId: row.capture.sourceId,
@@ -312,7 +348,7 @@ export default defineAction({
             })
           ).aclHash;
         }
-        await db
+        const updated = await db
           .update(schema.brainRawCaptures)
           .set({
             title: sanitized.title,
@@ -338,7 +374,19 @@ export default defineAction({
                 : "ignored",
             updatedAt: nowIso(),
           })
-          .where(eq(schema.brainRawCaptures.id, row.capture.id));
+          .where(
+            and(
+              eq(schema.brainRawCaptures.id, row.capture.id),
+              eq(schema.brainRawCaptures.updatedAt, row.capture.updatedAt),
+            ),
+          )
+          .returning({ id: schema.brainRawCaptures.id });
+        if (!updated.length) {
+          results.push(
+            changedSinceRead(row.capture, derivedRefs, beforeLength),
+          );
+          continue;
+        }
         if (
           hasDerivedRefs &&
           (sanitized.decision?.disposition !== "allowed" ||

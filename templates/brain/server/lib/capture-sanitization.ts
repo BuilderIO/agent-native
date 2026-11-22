@@ -667,7 +667,7 @@ const SOURCE_LOCATOR =
   /[\\/\r\n]|%[\da-f]{2}|\b(?:https?|ftp|file|data|mailto):|\b(?:[a-z\d-]+\.)+[a-z]{2,}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b/i;
 
 const BARE_LINK =
-  /(?:\bwww\.|\b(?:[a-z\d-]+\.)+[a-z]{2,}(?::\d+)?[/?#])[^\s<>"')\]]*/gi;
+  /(?:\bwww\.|\b(?:[a-z\d-]+\.)+[a-z]{2,}(?::\d+)?[/?#]|\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:[/?#]|\b)|\blocalhost(?::\d+)?(?:[/?#]|\b))[^\s<>"')\]]*/gi;
 const LINK_REMOVED = "[link removed]";
 
 export class BrainUnsafeSourceIdentityError extends Error {
@@ -677,6 +677,10 @@ export class BrainUnsafeSourceIdentityError extends Error {
     );
     this.name = "BrainUnsafeSourceIdentityError";
   }
+}
+
+export function publicCaptureTitle(title: string, partial: boolean): string {
+  return partial && SOURCE_LOCATOR.test(title) ? "Transcript excerpt" : title;
 }
 
 export function publicSourceTitle(
@@ -871,8 +875,14 @@ export async function sanitizeCaptureForStorage(
     safeSourceConfig.safeParse(input.sourceConfig ?? {}).success
       ? await withholdRestrictedTranscriptLines(input)
       : undefined;
+  const partialWithoutScreening =
+    !screened && input.kind === "transcript" && (prior !== undefined || hadGap);
   const result = await sanitizeWholeCapture(
-    screened ? { ...input, content: screened.content } : input,
+    screened
+      ? { ...input, content: screened.content }
+      : partialWithoutScreening
+        ? { ...input, content: input.content.replace(BARE_LINK, LINK_REMOVED) }
+        : input,
     screened?.jev,
   );
   const withheldNow = screened?.withheldPassages ?? 0;

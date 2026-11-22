@@ -64,7 +64,10 @@ export default defineAction({
         },
         source: {
           id: access.source.id,
-          title: access.source.title,
+          title: publicSourceTitle(
+            access.source.title,
+            capture.withheldPassages,
+          ),
           provider: access.source.provider,
         },
         accessRole: access.role,

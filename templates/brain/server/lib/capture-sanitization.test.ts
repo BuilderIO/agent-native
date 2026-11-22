@@ -1205,6 +1205,44 @@ describe("Zoom restricted-line withholding", () => {
     },
   );
 
+  it.each(["192.168.1.20:8080/transcript", "localhost:3000/full", "10.0.0.5"])(
+    "removes an IP or local-host locator from a partial transcript (%s)",
+    async (link) => {
+      mocks.classifyWithJev.mockImplementation(
+        judge(mentions("MEDICAL_LEAVE")),
+      );
+      const lines = withLine(5, `Recording is at ${link} for everyone`);
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details", lines)), {
+          source: { ...baseInput.source, provider: "manual" as const },
+        }),
+      );
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.content).not.toContain(link.split("/")[0]);
+    },
+  );
+
+  it("removes scheme-less links from an already-partial transcript even when its source configuration is unsafe", async () => {
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(
+        transcript(
+          withLine(
+            5,
+            "Recording at www.example.test/full-transcript for all",
+            withLine(6, "[…]"),
+          ),
+        ),
+        {
+          source: { ...baseInput.source, provider: "manual" as const },
+          sourceConfig: { unreadableSourceConfig: true },
+        },
+      ),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).toContain("[…]");
+    expect(result.content).not.toContain("example.test");
+  });
+
   it.each(["Sprint v1.2 review", "Standup 2026.11.20"])(
     "keeps passage withholding for an ordinary source title (%s)",
     async (title) => {
