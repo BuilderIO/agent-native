@@ -967,10 +967,12 @@ export async function runBigQueryAgentQuery(
     undefined;
   record.location = jobLocation ?? null;
   usage.location = jobLocation;
+  const acceptedButUnread =
+    outcome.status === "uncertain" && outcome.reason === "poll_unreadable";
   usage.submissionState =
     outcome.status === "rejected" || outcome.status === "not_submitted"
       ? "rejected"
-      : outcome.status === "uncertain"
+      : outcome.status === "uncertain" && !acceptedButUnread
         ? "unknown"
         : "accepted";
   await bounded(
@@ -1002,7 +1004,11 @@ export async function runBigQueryAgentQuery(
     record.cancelRequested = outcome.cancelRequested;
     record.cancelConfirmed = outcome.cancelConfirmed;
     await bounded(
-      call.gate.submitted(admission, "unknown", jobLocation),
+      call.gate.submitted(
+        admission,
+        acceptedButUnread ? "accepted" : "unknown",
+        jobLocation,
+      ),
       deadline.wrapUp,
     ).catch(() => undefined);
     return finish({

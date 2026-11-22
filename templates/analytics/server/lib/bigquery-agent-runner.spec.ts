@@ -1731,6 +1731,10 @@ describe("runBigQueryAgentQuery: provider errors", () => {
     const [admission] = await admissions();
     expect(admission).toMatchObject({ state: "pending" });
     expect(Number(must(admission).reserved)).toBeGreaterThan(0);
+    const { rows } = await must(database.client).query(
+      "SELECT submission_state FROM analytics_bigquery_agent_jobs",
+    );
+    expect(rows).toEqual([{ submission_state: "accepted" }]);
   });
 
   it("keeps polling past one unreadable poll while jobs.get says the job is still running", async () => {
