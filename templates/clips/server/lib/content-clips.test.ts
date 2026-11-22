@@ -72,6 +72,11 @@ vi.mock("./context-footage.js", async (importOriginal) => {
     },
   };
 });
+vi.mock("./recording-comment-mirror.js", () => ({
+  prepareRecordingCommentMirror: async () => {},
+  mirrorRecordingComments: async () => {},
+  deleteMirroredRecordingComments: async () => {},
+}));
 vi.mock("./activity-notifications.js", () => ({
   notifyRecordingComment: async (input: {
     recordingId: string;

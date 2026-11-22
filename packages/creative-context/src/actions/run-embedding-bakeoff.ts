@@ -21,6 +21,7 @@ export default defineAction({
     requiresAuth: true,
     isConsequential: true,
   },
+  mcpTool: false,
   run: async () => {
     const families = await availableEmbeddingFamilies();
     if (!families.length) {

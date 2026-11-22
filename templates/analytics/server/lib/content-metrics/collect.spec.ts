@@ -75,6 +75,7 @@ import {
 import {
   CONTENT_METRICS_MIGRATION_SQL,
   CONTENT_COVERAGE_CONFIG_MIGRATION_SQL,
+  CONTENT_SEARCH_QUERIES_MIGRATION_SQL,
 } from "./migration.js";
 import {
   agentNativeSignupsSource,
@@ -102,6 +103,7 @@ function onlySteps(
       | "builderBlog"
       | "ga4"
       | "searchConsole"
+      | "searchConsoleQueries"
       | "signups"
       | "agentNativeSignups",
       boolean
@@ -110,13 +112,22 @@ function onlySteps(
   sites: Array<{ siteUrl: string; pathPrefix?: string }> = [],
   signups: Partial<SignupsConfig> = {},
   agentNativeSignups: Partial<AgentNativeSignupsConfig> = {},
+  searchConsole: { historyMonths?: number; queriesPerPage?: number } = {},
 ) {
   return writeContentCollection(ORG_A, {
     enabled: true,
     config: {
       builderBlog: { enabled: steps.builderBlog ?? false },
       ga4: { enabled: steps.ga4 ?? false, propertyId: "123456789" },
-      searchConsole: { enabled: steps.searchConsole ?? false, sites },
+      searchConsole: {
+        enabled: steps.searchConsole ?? false,
+        sites,
+        historyMonths: searchConsole.historyMonths ?? 1,
+      },
+      searchConsoleQueries: {
+        enabled: steps.searchConsoleQueries ?? false,
+        perPage: searchConsole.queriesPerPage ?? 25,
+      },
       signups: {
         ...signupsConfigSchema.parse({ enabled: false }),
         ...signups,
@@ -184,6 +195,9 @@ describe("content collection", () => {
       await client.exec(statement);
     }
     await client.exec(CONTENT_COVERAGE_CONFIG_MIGRATION_SQL);
+    for (const statement of CONTENT_SEARCH_QUERIES_MIGRATION_SQL) {
+      await client.exec(statement);
+    }
   });
 
   it("writes the article list with authors under the stored owner and marks the run succeeded", async () => {
@@ -473,6 +487,7 @@ describe("content collection", () => {
         "builder_blog",
         "ga4",
         "search_console",
+        "search_console_queries",
         "signups",
         "agent_native_signups",
       ].map((step) =>
@@ -1166,6 +1181,691 @@ describe("content collection", () => {
     );
     expect(await snapshots("search_console_clicks")).toEqual([]);
   });
+  describe("Search Console history and queries", () => {
+    type PageRow = {
+      date: string;
+      page: string;
+      clicks: number;
+      impressions: number;
+      position?: number;
+      siteUrl?: string;
+    };
+    type QueryRow = PageRow & { query: string };
+
+    function searchConsoleRows(pages: PageRow[], queries: QueryRow[] = []) {
+      mocks.querySearchAnalytics.mockImplementation(
+        async ({
+          siteUrl,
+          startDate,
+          endDate,
+          dimensions,
+        }: {
+          siteUrl: string;
+          startDate: string;
+          endDate: string;
+          dimensions: string[];
+        }) => {
+          const within = (row: PageRow) =>
+            row.date >= startDate &&
+            row.date <= endDate &&
+            (row.siteUrl ?? siteUrl) === siteUrl;
+          const values = (row: PageRow) => ({
+            clicks: row.clicks,
+            impressions: row.impressions,
+            ...(row.position === undefined ? {} : { position: row.position }),
+          });
+          return dimensions[1] === "query"
+            ? queries
+                .filter(within)
+                .map((row) => ({ keys: [row.page, row.query], ...values(row) }))
+            : pages
+                .filter(within)
+                .map((row) => ({ keys: [row.date, row.page], ...values(row) }));
+        },
+      );
+    }
+
+    function readCalls(kind: "page" | "query") {
+      return mocks.querySearchAnalytics.mock.calls
+        .map(
+          ([args]) =>
+            args as {
+              startDate: string;
+              endDate: string;
+              dimensions: string[];
+            },
+        )
+        .filter(
+          (args) => (args.dimensions[1] === "query") === (kind === "query"),
+        );
+    }
+
+    function queryDays() {
+      return readCalls("query")
+        .map((args) => args.startDate)
+        .sort();
+    }
+
+    async function queryRows() {
+      return rows(
+        `SELECT i.external_id, q.week_start, q.query, q.clicks, q.impressions, q.position_weighted
+           FROM analytics_content_search_queries q
+           JOIN analytics_content_items i ON i.id = q.item_id
+          ORDER BY q.week_start, q.impressions DESC, q.query`,
+      );
+    }
+
+    async function runWindows(step: string) {
+      const result = await client.query(
+        `SELECT window_start, window_end, row_count, detail
+           FROM analytics_content_collection_runs
+          WHERE step = $1
+          ORDER BY window_end`,
+        [step],
+      );
+      return result.rows as Array<Record<string, unknown>>;
+    }
+
+    const POST = "https://www.builder.io/blog/post-a1";
+    const BLOG = [{ siteUrl: "sc-domain:builder.io", pathPrefix: "/blog/" }];
+
+    it("stores average position as position times impressions per page and day", async () => {
+      await onlySteps({ builderBlog: true, searchConsole: true }, BLOG);
+      feed(article("a1"));
+      searchConsoleRows([
+        {
+          date: "2026-10-10",
+          page: POST,
+          clicks: 3,
+          impressions: 40,
+          position: 2.5,
+        },
+        { date: "2026-10-11", page: POST, clicks: 1, impressions: 10 },
+      ]);
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      expect(await snapshots("search_console_position_weighted")).toEqual([
+        {
+          external_id: "a1",
+          metric_date: "2026-10-10",
+          value: 100,
+          source: "search_console",
+        },
+      ]);
+    });
+
+    it("reads older history a piece per run until it reaches the history start", async () => {
+      await onlySteps(
+        { searchConsole: true },
+        [{ siteUrl: "sc-domain:example.test" }],
+        {},
+        {},
+        { historyMonths: 4 },
+      );
+      searchConsoleRows([
+        {
+          date: "2026-06-20",
+          page: "https://example.test/old",
+          clicks: 1,
+          impressions: 5,
+        },
+      ]);
+
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      expect(readCalls("page")).toEqual([
+        expect.objectContaining({
+          startDate: "2026-07-12",
+          endDate: "2026-07-16",
+        }),
+        expect.objectContaining({
+          startDate: "2026-07-17",
+          endDate: "2026-10-14",
+        }),
+      ]);
+
+      mocks.querySearchAnalytics.mockClear();
+      await collectContentForAllTenants({
+        now: new Date("2026-10-16T07:00:00Z"),
+      });
+      expect(readCalls("page")).toEqual([
+        expect.objectContaining({
+          startDate: "2026-06-16",
+          endDate: "2026-07-11",
+        }),
+        expect.objectContaining({
+          startDate: "2026-10-11",
+          endDate: "2026-10-15",
+        }),
+      ]);
+      expect(await snapshots("search_console_clicks")).toEqual([
+        {
+          external_id: "example.test/old",
+          metric_date: "2026-06-20",
+          value: 1,
+          source: "search_console",
+        },
+      ]);
+
+      mocks.querySearchAnalytics.mockClear();
+      await collectContentForAllTenants({
+        now: new Date("2026-10-17T07:00:00Z"),
+      });
+      expect(readCalls("page")).toEqual([
+        expect.objectContaining({
+          startDate: "2026-10-12",
+          endDate: "2026-10-16",
+        }),
+      ]);
+      expect(
+        (await runWindows("search_console")).map((run) => [
+          run.window_start,
+          run.window_end,
+        ]),
+      ).toEqual([
+        ["2026-07-12", "2026-10-14"],
+        ["2026-06-16", "2026-10-15"],
+        ["2026-10-12", "2026-10-16"],
+      ]);
+    });
+
+    it("fills 16 months 90 older days a run, 30 days a request", async () => {
+      await onlySteps(
+        { searchConsole: true },
+        [{ siteUrl: "sc-domain:example.test" }],
+        {},
+        {},
+        { historyMonths: 16 },
+      );
+      searchConsoleRows([]);
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      mocks.querySearchAnalytics.mockClear();
+      await collectContentForAllTenants({
+        now: new Date("2026-10-16T07:00:00Z"),
+      });
+      expect(readCalls("page")).toEqual([
+        expect.objectContaining({
+          startDate: "2026-04-13",
+          endDate: "2026-05-12",
+        }),
+        expect.objectContaining({
+          startDate: "2026-05-13",
+          endDate: "2026-06-11",
+        }),
+        expect.objectContaining({
+          startDate: "2026-06-12",
+          endDate: "2026-07-11",
+        }),
+        expect.objectContaining({
+          startDate: "2026-10-11",
+          endDate: "2026-10-15",
+        }),
+      ]);
+    });
+
+    it("counts a day as collected only once Search Console has returned it", async () => {
+      await onlySteps(
+        { searchConsole: true },
+        [{ siteUrl: "sc-domain:example.test" }],
+        {},
+        {},
+        { historyMonths: 4 },
+      );
+      searchConsoleRows([
+        {
+          date: "2026-10-09",
+          page: "https://example.test/post",
+          clicks: 1,
+          impressions: 5,
+        },
+      ]);
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      mocks.querySearchAnalytics.mockClear();
+      await collectContentForAllTenants({
+        now: new Date("2026-10-16T07:00:00Z"),
+      });
+      expect(readCalls("page").slice(-1)).toEqual([
+        expect.objectContaining({
+          startDate: "2026-10-10",
+          endDate: "2026-10-15",
+        }),
+      ]);
+      expect(
+        (await runWindows("search_console")).map((run) => run.window_end),
+      ).toEqual(["2026-10-09", "2026-10-15"]);
+    });
+
+    it("starts history over when the properties change and change back", async () => {
+      const runWith = async (siteUrl: string, day: string) => {
+        await onlySteps(
+          { searchConsole: true },
+          [{ siteUrl }],
+          {},
+          {},
+          { historyMonths: 16 },
+        );
+        mocks.querySearchAnalytics.mockClear();
+        await collectContentForAllTenants({
+          now: new Date(`${day}T07:00:00Z`),
+        });
+      };
+      searchConsoleRows([]);
+      await runWith("sc-domain:example.test", "2026-10-15");
+      await runWith("sc-domain:other.test", "2026-10-16");
+      await runWith("sc-domain:example.test", "2026-10-17");
+      expect(readCalls("page")).toEqual([
+        expect.objectContaining({
+          startDate: "2026-07-14",
+          endDate: "2026-07-18",
+        }),
+        expect.objectContaining({
+          startDate: "2026-07-19",
+          endDate: "2026-10-16",
+        }),
+      ]);
+    });
+
+    it("starts history over when the properties change", async () => {
+      await onlySteps(
+        { searchConsole: true },
+        [{ siteUrl: "sc-domain:example.test" }],
+        {},
+        {},
+        { historyMonths: 16 },
+      );
+      searchConsoleRows([]);
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      await onlySteps(
+        { searchConsole: true },
+        [{ siteUrl: "sc-domain:other.test" }],
+        {},
+        {},
+        { historyMonths: 16 },
+      );
+      mocks.querySearchAnalytics.mockClear();
+      await collectContentForAllTenants({
+        now: new Date("2026-10-16T07:00:00Z"),
+      });
+      expect(readCalls("page")).toEqual([
+        expect.objectContaining({
+          startDate: "2026-07-13",
+          endDate: "2026-07-17",
+        }),
+        expect.objectContaining({
+          startDate: "2026-07-18",
+          endDate: "2026-10-15",
+        }),
+      ]);
+    });
+
+    it("keeps each page's top queries per finished week, by impressions then clicks", async () => {
+      await onlySteps(
+        { builderBlog: true, searchConsole: true, searchConsoleQueries: true },
+        BLOG,
+        {},
+        {},
+        { queriesPerPage: 3 },
+      );
+      feed(article("a1"));
+      const unlisted = "https://www.builder.io/blog/unlisted";
+      const query = (
+        date: string,
+        page: string,
+        text: string,
+        clicks: number,
+        impressions: number,
+        position: number,
+      ) => ({ date, page, query: text, clicks, impressions, position });
+      searchConsoleRows(
+        [{ date: "2026-10-12", page: POST, clicks: 5, impressions: 20 }],
+        [
+          query("2026-10-05", POST, "headless cms", 2, 10, 3),
+          query("2026-10-11", POST, "headless cms", 1, 30, 7),
+          query("2026-10-06", POST, "seen not clicked", 0, 500, 12),
+          query("2026-10-06", POST, "tie a", 1, 5, 9),
+          query("2026-10-06", POST, "tie b", 2, 5, 9),
+          query("2026-10-12", POST, "unfinished week", 9, 90, 1),
+          query("2026-09-29", unlisted, "older", 1, 2, 1),
+        ],
+      );
+
+      const summaries = await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+
+      expect(ran(summaries).map((summary) => summary.status)).toEqual([
+        "succeeded",
+        "succeeded",
+        "succeeded",
+      ]);
+      expect(await queryRows()).toEqual([
+        {
+          external_id: "builder.io/blog/unlisted",
+          week_start: "2026-09-28",
+          query: "older",
+          clicks: 1,
+          impressions: 2,
+          position_weighted: 2,
+        },
+        {
+          external_id: "a1",
+          week_start: "2026-10-05",
+          query: "seen not clicked",
+          clicks: 0,
+          impressions: 500,
+          position_weighted: 6000,
+        },
+        {
+          external_id: "a1",
+          week_start: "2026-10-05",
+          query: "headless cms",
+          clicks: 3,
+          impressions: 40,
+          position_weighted: 240,
+        },
+        {
+          external_id: "a1",
+          week_start: "2026-10-05",
+          query: "tie b",
+          clicks: 2,
+          impressions: 5,
+          position_weighted: 45,
+        },
+      ]);
+      const days = queryDays();
+      expect(days).toHaveLength(28);
+      expect(new Set(days).size).toBe(28);
+      expect([days[0], days[days.length - 1]]).toEqual([
+        "2026-09-14",
+        "2026-10-11",
+      ]);
+      expect(
+        readCalls("query").every((args) => args.startDate === args.endDate),
+      ).toBe(true);
+      expect(await runWindows("search_console_queries")).toEqual([
+        {
+          window_start: "2026-09-14",
+          window_end: "2026-10-11",
+          row_count: 4,
+          detail: null,
+        },
+      ]);
+
+      mocks.querySearchAnalytics.mockClear();
+      await collectContentForAllTenants({
+        now: new Date("2026-10-16T07:00:00Z"),
+      });
+      const again = queryDays();
+      expect([again[0], again[again.length - 1], again.length]).toEqual([
+        "2026-09-28",
+        "2026-10-11",
+        14,
+      ]);
+      expect(await queryRows()).toHaveLength(4);
+    });
+
+    it("reads the last two weeks again and fills older weeks a few per run", async () => {
+      await onlySteps(
+        { builderBlog: true, searchConsole: true, searchConsoleQueries: true },
+        BLOG,
+        {},
+        {},
+        { historyMonths: 16 },
+      );
+      feed(article("a1"));
+      const pages = [
+        { date: "2026-10-12", page: POST, clicks: 5, impressions: 20 },
+      ];
+      const kept = {
+        date: "2026-09-30",
+        page: POST,
+        query: "kept",
+        clicks: 1,
+        impressions: 3,
+        position: 2,
+      };
+      const lateData = {
+        date: "2026-10-06",
+        page: POST,
+        query: "late data",
+        clicks: 1,
+        impressions: 10,
+        position: 4,
+      };
+      searchConsoleRows(pages, [kept, lateData]);
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      const first = queryDays();
+      expect([first[0], first[first.length - 1], first.length]).toEqual([
+        "2026-08-17",
+        "2026-10-11",
+        56,
+      ]);
+
+      mocks.querySearchAnalytics.mockClear();
+      searchConsoleRows(
+        [
+          ...pages,
+          { date: "2026-10-19", page: POST, clicks: 1, impressions: 2 },
+        ],
+        [kept, { ...lateData, clicks: 4, impressions: 12 }],
+      );
+      await collectContentForAllTenants({
+        now: new Date("2026-10-22T07:00:00Z"),
+      });
+      const days = queryDays();
+      expect(days).toHaveLength(56);
+      expect([days[0], days[days.length - 1]]).toEqual([
+        "2026-07-06",
+        "2026-10-18",
+      ]);
+      expect(
+        days.filter((day) => day >= "2026-08-17" && day < "2026-10-05"),
+      ).toEqual([]);
+      expect(await queryRows()).toEqual([
+        {
+          external_id: "a1",
+          week_start: "2026-09-28",
+          query: "kept",
+          clicks: 1,
+          impressions: 3,
+          position_weighted: 6,
+        },
+        {
+          external_id: "a1",
+          week_start: "2026-10-05",
+          query: "late data",
+          clicks: 4,
+          impressions: 12,
+          position_weighted: 48,
+        },
+      ]);
+      expect(
+        (await runWindows("search_console_queries")).map((run) => [
+          run.window_start,
+          run.window_end,
+        ]),
+      ).toEqual([
+        ["2026-08-17", "2026-10-11"],
+        ["2026-07-06", "2026-10-18"],
+      ]);
+    });
+
+    it("lets the first property with rows own a page's day when properties overlap", async () => {
+      await onlySteps(
+        { builderBlog: true, searchConsole: true, searchConsoleQueries: true },
+        [
+          { siteUrl: "sc-domain:builder.io" },
+          { siteUrl: "https://www.builder.io/" },
+        ],
+      );
+      feed(article("a1"));
+      const row = (
+        siteUrl: string,
+        date: string,
+        clicks: number,
+        impressions: number,
+        position: number,
+      ) => ({
+        siteUrl,
+        date,
+        page: POST,
+        query: "builder",
+        clicks,
+        impressions,
+        position,
+      });
+      searchConsoleRows(
+        [{ date: "2026-10-12", page: POST, clicks: 5, impressions: 20 }],
+        [
+          row("sc-domain:builder.io", "2026-10-06", 2, 10, 1),
+          row("https://www.builder.io/", "2026-10-06", 7, 70, 1),
+          row("https://www.builder.io/", "2026-10-07", 1, 5, 3),
+        ],
+      );
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      expect(await queryRows()).toEqual([
+        {
+          external_id: "a1",
+          week_start: "2026-10-05",
+          query: "builder",
+          clicks: 3,
+          impressions: 15,
+          position_weighted: 25,
+        },
+      ]);
+    });
+
+    it("counts a page once when one property is listed twice with different paths", async () => {
+      await onlySteps(
+        { builderBlog: true, searchConsole: true, searchConsoleQueries: true },
+        [
+          { siteUrl: "sc-domain:builder.io", pathPrefix: "/blog/" },
+          { siteUrl: "sc-domain:builder.io", pathPrefix: "/blog/post" },
+        ],
+      );
+      feed(article("a1"));
+      searchConsoleRows(
+        [{ date: "2026-10-12", page: POST, clicks: 5, impressions: 20 }],
+        [
+          {
+            date: "2026-10-06",
+            page: POST,
+            query: "builder",
+            clicks: 2,
+            impressions: 100,
+            position: 4,
+          },
+        ],
+      );
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      expect(await queryRows()).toEqual([
+        {
+          external_id: "a1",
+          week_start: "2026-10-05",
+          query: "builder",
+          clicks: 2,
+          impressions: 100,
+          position_weighted: 400,
+        },
+      ]);
+      expect(await snapshots("search_console_clicks")).toEqual([
+        {
+          external_id: "a1",
+          metric_date: "2026-10-12",
+          value: 5,
+          source: "search_console",
+        },
+      ]);
+    });
+
+    it("says which days hit Search Console's daily row limit", async () => {
+      await onlySteps(
+        { builderBlog: true, searchConsole: true, searchConsoleQueries: true },
+        BLOG,
+      );
+      feed(article("a1"));
+      searchConsoleRows(
+        [{ date: "2026-10-12", page: POST, clicks: 5, impressions: 20 }],
+        Array.from({ length: 50_000 }, (_, index) => ({
+          date: "2026-10-06",
+          page: POST,
+          query: `query ${index}`,
+          clicks: 1,
+          impressions: 1,
+        })),
+      );
+      const summaries = await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      expect(
+        summaries.find((summary) => summary.step === "search_console_queries")
+          ?.status,
+      ).toBe("succeeded");
+      expect(await runWindows("search_console_queries")).toEqual([
+        expect.objectContaining({
+          row_count: 25,
+          detail:
+            "Search Console stopped at its 50,000-row daily limit on 1 day (2026-10-06 (sc-domain:builder.io)), so less-clicked queries are missing there.",
+        }),
+      ]);
+    });
+
+    it("waits for Search Console's daily page numbers under the current properties before reading queries", async () => {
+      await onlySteps(
+        { searchConsole: true, searchConsoleQueries: true },
+        BLOG,
+      );
+      searchConsoleRows([
+        { date: "2026-10-12", page: POST, clicks: 5, impressions: 20 },
+      ]);
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      await onlySteps({ searchConsole: true, searchConsoleQueries: true }, [
+        { siteUrl: "https://www.builder.io/" },
+      ]);
+      mocks.querySearchAnalytics.mockReset();
+      mocks.querySearchAnalytics.mockRejectedValue(
+        new Error("Search Console API error 500"),
+      );
+      const summaries = await collectContentForAllTenants({
+        now: new Date("2026-10-16T07:00:00Z"),
+      });
+      expect(
+        ran(summaries).map((summary) => [summary.step, summary.status]),
+      ).toEqual([
+        ["search_console", "failed"],
+        ["search_console_queries", "not_configured"],
+      ]);
+      expect(readCalls("query")).toEqual([]);
+      expect(
+        await rows(
+          "SELECT error_code, error_message FROM analytics_content_collection_runs WHERE step = 'search_console_queries' AND status = 'not_configured'",
+        ),
+      ).toEqual([
+        {
+          error_code: "waiting_for_search_console_pages",
+          error_message:
+            "Waiting for Search Console's daily page numbers, which say which weeks are final.",
+        },
+      ]);
+    });
+  });
+
   describe("signups", () => {
     const WAREHOUSE: Partial<SignupsConfig> = {
       signupEventsTable: "example-project.analytics.events",

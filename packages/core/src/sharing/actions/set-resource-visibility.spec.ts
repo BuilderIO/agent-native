@@ -1972,3 +1972,7 @@ describe("set-resource-visibility public followers", () => {
     expect(await list(ownerEmail)).not.toHaveProperty("publicFollowers");
   });
 });
+
+it("serves set-resource-visibility to outside agents unlisted, through tool search", () => {
+  expect(setResourceVisibility.mcpTool).toBe("search");
+});

@@ -46,6 +46,7 @@ import patchDatabaseItems from "./patch-database-items.js";
 import permanentlyDeleteDocument from "./permanently-delete-document.js";
 import pullDocument from "./pull-document.js";
 import readComposerSource from "./read-composer-source.js";
+import readDocumentFile from "./read-document-file.js";
 import refreshList from "./refresh-list.js";
 import restoreContentDatabase from "./restore-content-database.js";
 import restoreDocument from "./restore-document.js";
@@ -105,6 +106,7 @@ describe("Content action-owned agent catalogs", () => {
     "create-github-pull-request-collection": createGitHubPullRequestCollection,
     "add-github-pull-requests": addGitHubPullRequests,
     "read-composer-source": readComposerSource,
+    "read-document-file": readDocumentFile,
   };
 
   const deferredDatabaseActions = {

@@ -3169,6 +3169,9 @@ importers:
 
   packages/dispatch:
     dependencies:
+      '@agent-native/agentkit':
+        specifier: workspace:*
+        version: link:../agentkit
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../toolkit
@@ -5972,6 +5975,9 @@ importers:
       isbot:
         specifier: ^5
         version: 5.1.44
+      jspdf:
+        specifier: 4.2.1
+        version: 4.2.1
       jszip:
         specifier: ^3.10.1
         version: 3.10.1

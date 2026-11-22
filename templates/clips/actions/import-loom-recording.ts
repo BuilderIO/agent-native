@@ -17,6 +17,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
+import { recordingMadeBy } from "../server/lib/recording-made-by.js";
 import {
   beginMediaProduction,
   finishMediaProduction,
@@ -429,6 +430,7 @@ export default defineAction({
         await db.insert(schema.recordings).values({
           id,
           ...recordingValues,
+          ...recordingMadeBy(actionContext),
           videoUrl: null,
           status: "uploading",
           failureReason: storageSetupReason,
@@ -530,6 +532,7 @@ export default defineAction({
           await db.insert(schema.recordings).values({
             id,
             ...recordingValues,
+            ...recordingMadeBy(actionContext),
             videoUrl: null,
             status: "processing",
             failureReason: null,
@@ -618,6 +621,7 @@ export default defineAction({
         await db.insert(schema.recordings).values({
           id,
           ...initialValues,
+          ...recordingMadeBy(actionContext),
           videoUrl: null,
           status: "processing",
           failureReason: null,

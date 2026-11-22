@@ -137,3 +137,9 @@ describe("list-workspace-connection-scopes", () => {
     });
   });
 });
+
+it("keeps list-workspace-connection-scopes in the app, off MCP", async () => {
+  const { default: action } =
+    await import("./list-workspace-connection-scopes.js");
+  expect(action.mcpTool).toBe(false);
+});

@@ -17,6 +17,7 @@ export default defineAction({
     color: z.string().optional(),
     placement: z.enum(["end", "throughout"]).optional(),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
 

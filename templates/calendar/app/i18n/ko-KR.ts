@@ -148,6 +148,10 @@ export default {
     googleCalendarSettings: "Google Calendar 설정",
     hideCalendar: "캘린더 숨기기",
     myCalendars: "내 캘린더",
+    calendarDescription: "설명",
+    calendarDescriptionPlaceholder: "이 캘린더는 어떤 용도인가요?",
+    calendarDescriptionHint:
+      "에이전트가 이 내용을 읽고 알맞은 캘린더를 고릅니다.",
     feedsGroup: "피드",
     managePeerAvailability: "공유 예약 가능 시간 관리",
     nextYear: "다음 해",

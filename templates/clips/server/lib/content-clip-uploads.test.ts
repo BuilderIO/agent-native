@@ -287,6 +287,7 @@ const { contentClipStorageFor, pairedContentOrigin } =
   await import("./content-clip-uploads.js");
 const { contentPageUrls, refuseContentUploadChunk } =
   await import("./content-uploads.js");
+const { recordingMadeBy } = await import("./recording-made-by.js");
 const { default: uploadStartRoute } =
   await import("../routes/api/content-clips/uploads.post.js");
 const { default: uploadStatusRoute } =
@@ -633,6 +634,10 @@ describe("an editor's upload from a Content page", () => {
       }),
     ]);
     expect(createdOrgId()).toMatch(/^org-/);
+    expect(recordingMadeBy(firstCreated().caller)).toEqual({
+      madeBy: "person",
+      madeByAgent: null,
+    });
     expect(await rows("recording_shares")).toEqual([]);
     expect(await rows("recording_content_bindings")).toEqual([
       expect.objectContaining({

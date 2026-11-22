@@ -1311,6 +1311,26 @@ describe("callActionWithRetry", () => {
 });
 
 describe("tryCallActionKeepalive", () => {
+  it("forwards caller headers on a keepalive action", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const attempt = tryCallActionKeepalive(
+      "update-file",
+      { id: "file-1" },
+      {
+        headers: { "X-Agent-Native-Interactive": "1" },
+      },
+    );
+    if (!attempt.accepted) throw new Error("Expected keepalive to be accepted");
+    await attempt.completion;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/update-file",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "X-Agent-Native-Interactive": "1" }),
+      }),
+    );
+  });
+
   it("preserves an omitted body for a public keepalive call without inputs", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);

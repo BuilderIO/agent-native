@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
@@ -9,11 +10,18 @@ import { runAnalyticsAlertsOnce } from "../server/jobs/analytics-alerts";
 
 export default defineAction({
   description:
-    "Run one alert sweep for the current user's first-party analytics alert rules.",
+    "Run one alert sweep now for the current user's first-party analytics alert rules. A rule that fires outside its cooldown sends its notification.",
   schema: z.object({
     limit: z.number().int().min(1).max(500).optional(),
   }),
   http: { method: "POST" },
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   run: async ({ limit }) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");

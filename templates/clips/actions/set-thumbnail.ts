@@ -67,6 +67,7 @@ export default defineAction({
       ),
     filename: z.string().optional(),
   }),
+  mcpTool: "search",
   run: async (args) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),

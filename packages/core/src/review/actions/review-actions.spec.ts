@@ -458,6 +458,39 @@ it("lets a resource choose who may resolve its threads", async () => {
   ).resolves.toMatchObject({ resolved: true });
 });
 
+it("refuses to resolve a thread on a resource whose comments the app writes", async () => {
+  const message = "Deck comments are written with the deck's own actions.";
+  registerReviewableResource({
+    type: "deck",
+    resolveAccess: () => ({
+      role: "owner",
+      ownerEmail: OWNER_EMAIL,
+      orgId: null,
+      visibility: "private",
+    }),
+    comments: { resolveRole: "viewer" },
+    commentsWrittenByApp: message,
+  });
+  const onDeck = await insertReviewComment({
+    resourceType: "deck",
+    resourceId: "deck-1",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+
+  await expect(
+    resolveReviewThreadAction.run(
+      { resourceType: "deck", resourceId: "deck-1", threadId: onDeck.threadId },
+      { userEmail: OWNER_EMAIL, caller: "frontend" },
+    ),
+  ).rejects.toThrow(message);
+  const { rows } = await pglite.query(
+    "SELECT status FROM agent_review_comments WHERE id = $1",
+    [onDeck.id],
+  );
+  expect(rows).toEqual([{ status: "open" }]);
+});
+
 describe("review actions", () => {
   it("claims a notification recipient once across concurrent retries", async () => {
     const [first, second] = await Promise.all([
