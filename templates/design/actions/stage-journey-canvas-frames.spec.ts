@@ -297,6 +297,24 @@ describe("stage-journey-canvas-frames", () => {
     expect(mocks.blobWriteInDesignMutation).toBe(false);
   });
 
+  it("carries a NUL frame key through core's NUL-free parsed arguments and stages the same frame", async () => {
+    const schema = (
+      action as unknown as { schema: { parse: (v: unknown) => unknown } }
+    ).schema;
+    const parsed = schema.parse(input());
+    expect(JSON.stringify(parsed)).not.toContain("\\u0000");
+    const viaSchema = (await run(parsed)) as {
+      stagedFrames: Array<{ frameKey: string; stagedFrameId: string }>;
+    };
+    expect(viaSchema.stagedFrames[0]?.frameKey).toBe("node-1\u00000");
+    const direct = (await run(input())) as {
+      stagedFrames: Array<{ stagedFrameId: string }>;
+    };
+    expect(viaSchema.stagedFrames[0]?.stagedFrameId).toBe(
+      direct.stagedFrames[0]?.stagedFrameId,
+    );
+  });
+
   it("stages an unknown current route and source fingerprint as explicit nulls", async () => {
     const result = (await run(input(png(4, 3), null, null))) as {
       stagedFrames: Array<{
