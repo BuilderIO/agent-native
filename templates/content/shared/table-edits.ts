@@ -94,6 +94,7 @@ export interface NfmTableEdit {
   edit: { find: string; replace: string };
   summary: TableSummary;
   changed: boolean;
+  markdown: string;
 }
 
 interface Cell {
@@ -138,6 +139,11 @@ function entry<T>(items: readonly T[], index: number, operation: number): T {
 
 const TABLE_TAG = /<\/?(?:table|colgroup|col|thead|tbody|tr|td|th)\b/i;
 const CONTROL_CHARACTER = /[\u0000-\u0008\u000b-\u001f\u007f]/;
+const CODE_SPAN = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g;
+
+function outsideCode(text: string): string {
+  return text.includes("\\") ? text : text.replace(CODE_SPAN, "");
+}
 
 function cellContent(text: string, operation: number): PMNode[] {
   if (/[\r\n]/.test(text)) {
@@ -147,7 +153,7 @@ function cellContent(text: string, operation: number): PMNode[] {
       { operation },
     );
   }
-  if (TABLE_TAG.test(text) || CONTROL_CHARACTER.test(text)) {
+  if (TABLE_TAG.test(outsideCode(text)) || CONTROL_CHARACTER.test(text)) {
     throw new TableEditError(
       "TABLE_OPERATION_INVALID",
       `Operation ${operation}: a cell's text can't hold table tags or control characters.`,
@@ -624,9 +630,15 @@ function uniqueEdit(
   }
 }
 
-function probeText(markdown: string): string {
+function probeText(markdown: string, doc: PMDoc): string {
+  const parsed = JSON.stringify(doc);
   let attempt = 0;
-  while (markdown.includes(`edittableprobe${attempt}`)) attempt++;
+  while (
+    markdown.includes(`edittableprobe${attempt}`) ||
+    parsed.includes(`edittableprobe${attempt}`)
+  ) {
+    attempt++;
+  }
   return `edittableprobe${attempt}`;
 }
 
@@ -738,7 +750,7 @@ export function editNfmTable(
       ? { written, nextLines }
       : null;
   };
-  const probe = `<table>\n<tr>\n<td>${probeText(markdown)}</td>\n</tr>\n</table>`;
+  const probe = `<table>\n<tr>\n<td>${probeText(markdown, doc)}</td>\n</tr>\n</table>`;
   if (!swap(indented(probe))) throw notLocated();
 
   const after = applyTableOperations(withoutIndent(before), operations);
@@ -752,9 +764,11 @@ export function editNfmTable(
     );
   }
 
+  const nextMarkdown = swapped.nextLines.join("\n");
   return {
     edit: uniqueEdit(lines, source, replacement),
     summary: summarize(swapped.written, tableNumber),
-    changed: swapped.nextLines.join("\n") !== markdown,
+    changed: nextMarkdown !== markdown,
+    markdown: nextMarkdown,
   };
 }

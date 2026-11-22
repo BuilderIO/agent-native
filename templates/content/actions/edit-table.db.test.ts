@@ -161,7 +161,7 @@ describe("edit-table", () => {
     const retried = await run({
       id: DOCUMENT_ID,
       baseRevision: documentRevisionToken(1, edited),
-      idempotencyKey: "header-column-again",
+      idempotencyKey: "header-column",
       table: 1,
       operations: [{ op: "set-header-column", value: true }],
     });
@@ -169,6 +169,43 @@ describe("edit-table", () => {
     expect(await body()).toContain(
       '<table header-row="true" header-column="true">',
     );
+  });
+
+  it("answers a change the table already has as unchanged, with its summary", async () => {
+    const result = await run({
+      id: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, BODY),
+      idempotencyKey: "header-row",
+      table: 1,
+      operations: [{ op: "set-header-row", value: true }],
+    });
+    expect(result.receipt.outcome).toBe("unchanged");
+    expect(result.table).toMatchObject({ table: 1, rows: 2, headerRow: true });
+    expect(await body()).toBe(BODY);
+  });
+
+  it("refuses a change the table already had on a base the page has moved past", async () => {
+    await mutateDocumentBody({
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, BODY),
+      idempotencyKey: "intro",
+      edits: [{ find: "Before the table.", replace: "Intro, edited." }],
+      ctx,
+    });
+    const edited = await body();
+    await expect(
+      run({
+        id: DOCUMENT_ID,
+        baseRevision: documentRevisionToken(0, BODY),
+        idempotencyKey: "header-row",
+        table: 1,
+        operations: [{ op: "set-header-row", value: true }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "STALE_BASE_REVISION",
+      statusCode: 409,
+      details: { currentRevision: documentRevisionToken(1, edited) },
+    });
   });
 
   it("answers a missing table and a bad position with their codes, writing nothing", async () => {

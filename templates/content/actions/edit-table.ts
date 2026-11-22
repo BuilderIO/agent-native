@@ -194,7 +194,7 @@ async function readEditBase(
     bodyRevision: number;
   },
   baseRevision: string,
-): Promise<string> {
+): Promise<{ body: string; current: boolean }> {
   const base = parseDocumentRevisionToken(baseRevision);
   if (base === null) {
     throw new ActionContractError(
@@ -207,7 +207,7 @@ async function readEditBase(
     document.bodyRevision === base.revision &&
     documentContentHash(current) === base.contentHash
   ) {
-    return current;
+    return { body: current, current: true };
   }
   const db = getDb();
   const lookup = {
@@ -223,7 +223,20 @@ async function readEditBase(
       ...lookup,
       current: { revision: document.bodyRevision, content: current },
     }));
-  if (found !== null) return found;
+  if (found !== null) return { body: found, current: false };
+  return staleBase(
+    document,
+    baseRevision,
+    "The exact edit base is unavailable.",
+  );
+}
+
+function staleBase(
+  document: { content: string | null; bodyRevision: number },
+  baseRevision: string,
+  message: string,
+): never {
+  const current = document.content ?? "";
   recordContentSaveOutcome("edit_document", {
     outcome: "refusal",
     origin: "agent",
@@ -231,7 +244,7 @@ async function readEditBase(
     history_effect: "none",
     reason_code: "STALE_BASE_REVISION",
   });
-  throw new ActionContractError("The exact edit base is unavailable.", {
+  throw new ActionContractError(message, {
     errorCode: "STALE_BASE_REVISION",
     statusCode: 409,
     details: {
@@ -295,7 +308,7 @@ export default defineAction({
     const base = await readEditBase(existing, args.baseRevision);
     let edited: ReturnType<typeof editNfmTable>;
     try {
-      edited = editNfmTable(base, args.table, args.operations);
+      edited = editNfmTable(base.body, args.table, args.operations);
     } catch (error) {
       if (!(error instanceof TableEditError)) throw error;
       throw new ActionContractError(error.message, {
@@ -303,6 +316,14 @@ export default defineAction({
         statusCode: error.code === "TABLE_NOT_FOUND" ? 404 : 422,
         details: error.details,
       });
+    }
+
+    if (!edited.changed && !base.current) {
+      staleBase(
+        existing,
+        args.baseRevision,
+        "The page changed after this revision; read it again before editing.",
+      );
     }
 
     const result = await mutateDocumentBody({
@@ -344,7 +365,8 @@ export default defineAction({
     }
     const saved =
       result.receipt.outcome === "applied" ||
-      result.receipt.outcome === "unchanged";
+      (result.receipt.outcome === "unchanged" &&
+        result.receipt.hashes.after === documentContentHash(edited.markdown));
     return { ...result, table: saved ? edited.summary : null };
   },
 });

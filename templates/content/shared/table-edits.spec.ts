@@ -36,6 +36,7 @@ function edit(
   const result = editNfmTable(markdown, table, operations);
   const applied = resolveDocumentTextEdits(markdown, [result.edit]);
   if (!applied.ok) throw new Error(JSON.stringify(applied.error));
+  expect(result.markdown).toBe(applied.content);
   return { markdown: applied.content, result };
 }
 
@@ -248,6 +249,13 @@ describe("editNfmTable cells, headers and colours", () => {
     }
   });
 
+  it("keeps table tags inside inline code in a cell", () => {
+    const { markdown } = edit(oneCell("Alpha"), 1, [
+      { op: "set-cell", row: 1, column: 1, text: "`</td>`" },
+    ]);
+    expect(markdown).toBe(oneCell("`</td>`"));
+  });
+
   it("turns headers and page width on and off", () => {
     const { markdown } = edit(PAGE, 1, [
       { op: "set-header-row", value: false },
@@ -424,5 +432,53 @@ describe("editNfmTable finding the table", () => {
     ].join("\n");
     const { markdown } = edit(`${head}\n${oneCell("Alpha")}`, 1, ZEBRA);
     expect(markdown).toBe(`${head}\n${oneCell("Zebra")}`);
+  });
+
+  it("edits a table in a callout whose closing tag sits less indented", () => {
+    const page = [
+      "<callout>",
+      "\t<table>",
+      "\t<tr>",
+      "\t<td>Alpha</td>",
+      "\t</tr>",
+      "</table>",
+      "</callout>",
+    ].join("\n");
+    const { markdown } = edit(page, 1, ZEBRA);
+    expect(markdown).toBe(
+      [
+        "<callout>",
+        ...oneCell("Zebra")
+          .split("\n")
+          .map((line) => `\t${line}`),
+        "</callout>",
+      ].join("\n"),
+    );
+  });
+
+  it("refuses a span whose text already reads like the probe table", () => {
+    const shaped = [
+      "<tr>",
+      "<td>edittable<span></span>probe0</td>",
+      "</tr>",
+      "</table>",
+    ];
+    const page = [
+      "\t<details>",
+      "\t```text",
+      "\t  ```",
+      "shallow",
+      "<table>",
+      ...shaped,
+      "```",
+      "\t</details>",
+      '<table header-row="false">',
+      ...shaped,
+    ].join("\n");
+    expect(
+      refusal(() =>
+        editNfmTable(page, 1, [{ op: "set-header-row", value: false }]),
+      ).code,
+    ).toBe("TABLE_NOT_LOCATED");
   });
 });
