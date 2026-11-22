@@ -696,6 +696,68 @@ describe("list-events inventory contract", () => {
     );
   });
 
+  it("says what each account and feed is for", async () => {
+    getOwnedAccountEmailsMock.mockResolvedValue([
+      "work@example.com",
+      "me@example.com",
+    ]);
+    listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
+    getUserSettingMock.mockImplementation(
+      async (_owner: string, key: string) => {
+        if (key === "calendar-account-descriptions") {
+          return {
+            "Work@Example.com": "Work meetings and team 1:1s go here",
+          };
+        }
+        if (key === "external-calendars") {
+          return [
+            {
+              id: "talks",
+              name: "Talks",
+              url: "https://calendar.example.test/talks.ics",
+              color: "blue",
+              description: "Conference talks I might attend",
+            },
+            {
+              id: "holidays",
+              name: "Holidays",
+              url: "https://calendar.example.test/holidays.ics",
+              color: "green",
+            },
+          ];
+        }
+        return null;
+      },
+    );
+    fetchICalEventsMock.mockResolvedValue([]);
+
+    const result = await listEventsAction.run(
+      {
+        from: "2026-06-17",
+        to: "2026-06-18",
+        sources: ["google", "ics"],
+      },
+      { caller: "mcp" },
+    );
+
+    expect(result).toHaveProperty("accounts", [
+      expect.objectContaining({
+        accountEmail: "work@example.com",
+        description: "Work meetings and team 1:1s go here",
+      }),
+      expect.not.objectContaining({ description: expect.anything() }),
+    ]);
+    expect(result).toHaveProperty("sourceCoverage", [
+      {
+        source: "ics",
+        id: "talks",
+        description: "Conference talks I might attend",
+        status: "ok",
+      },
+      { source: "ics", id: "holidays", status: "ok" },
+    ]);
+  });
+
   it("reports a failed ICS source instead of treating it as empty success", async () => {
     getUserSettingMock.mockResolvedValue([
       {
