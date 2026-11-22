@@ -12,6 +12,7 @@ export default defineAction({
     provider: z.enum(["google", "icloud", "microsoft"]).optional(),
   }),
   http: { method: "GET" },
+  mcpTool: false,
   run: async (args) => {
     const db = getDb();
     const where = [

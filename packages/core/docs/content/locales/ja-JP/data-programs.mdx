@@ -173,6 +173,8 @@ await appAction("save-data-program", {
 
 切り詰めは常に明示的です（結果内の `truncated: true`）——サイレントな欠落は決してありません。
 
+本番環境とバックグラウンド実行では、サンドボックスは実行の出力を `emit()` の行とログの合計で約 4.5 MiB まで保持します。それを超えて出力された結果は切り詰められないため、`result_too_large` で失敗します。出力する行を減らすか、ログを減らしてください。
+
 ## Params と dashboard パネルのバインディング {#params-and-panel-binding}
 
 プログラムは任意の `paramsSchema`（受け付ける params を記述する JSON Schema）と `defaultParams` を宣言できます。dashboard は、パネルのクエリフィールドにクエリ文字列の代わりに小さな JSON ディスクリプタを配置することで `"program"` パネルソースを採用します。

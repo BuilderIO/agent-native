@@ -1529,7 +1529,6 @@ function mountActionRoutesInternal(
               callArgs: unknown,
               result: unknown,
             ) => {
-              if (runContext?.caller === "mcp-widget") return;
               const markerLanded = await notifyActionChangeForResponse({
                 actionName: name,
                 ...actionChangeResource(entry, callArgs, result),

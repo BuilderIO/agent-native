@@ -182,7 +182,12 @@ export function currentActionNavigationIntent(): string | undefined {
     frame;
     frame = frame.parent
   ) {
-    if (frame.navigationIntent === "open") return "open";
+    if (frame.navigationIntent === "keep") return "keep";
+    if (
+      frame.navigationIntent === "open" ||
+      frame.navigationIntent === "reveal"
+    )
+      found = frame.navigationIntent;
     found ??= frame.navigationIntent;
   }
   return found;
@@ -317,4 +322,15 @@ export function withoutWriteObservation<T>(fn: () => T): T {
   const frame = actionExecutionStorage?.getStore()?.frame;
   if (!frame || !unobservedFrame) return fn();
   return unobservedFrame.run(frame, fn);
+}
+
+export function observeNavigationCommand(key: string): void {
+  if (key !== "navigate" && !/^navigate:[A-Za-z0-9_-]{1,96}$/.test(key)) return;
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.outcome) (frame.outcome.navigationKeys ??= new Set()).add(key);
+  }
 }

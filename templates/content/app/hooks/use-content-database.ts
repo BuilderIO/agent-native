@@ -18,6 +18,7 @@ import type {
   ContentDatabaseSourceAttachmentAck,
   ContentDatabaseSourceAttachmentResult,
   ContentDatabaseItemsPageResponse,
+  ContentDatabaseNavigationItem,
   ContentDatabaseNavigationPageResponse,
   ContentDatabaseTableQuery,
   ContentDatabaseItem,
@@ -260,12 +261,11 @@ export function contentDatabaseItemsContainingDocumentFilter(
         | ContentDatabaseItemsPageResponse
         | ContentDatabaseNavigationPageResponse
         | undefined;
-      return (
-        data?.items.some((item) =>
-          "document" in item
-            ? item.document.id === documentId
-            : item.documentId === documentId,
-        ) === true
+      if (!data || isContentDatabaseUnavailable(data)) return false;
+      return data.items.some((item) =>
+        "document" in item
+          ? item.document.id === documentId
+          : item.documentId === documentId,
       );
     },
   };
@@ -377,12 +377,34 @@ function withoutTrashedNavigationRows(
   page: ContentDatabaseNavigationPageResponse,
   trashed: ReadonlySet<string>,
 ) {
-  return page.items.some((item) => trashed.has(item.documentId))
-    ? {
-        ...page,
-        items: page.items.filter((item) => !trashed.has(item.documentId)),
-      }
-    : page;
+  const listsTrashed = (items: ContentDatabaseNavigationItem[]) =>
+    items.some((item) => trashed.has(item.documentId));
+  if (
+    !listsTrashed(page.items) &&
+    !page.groups?.some((group) => listsTrashed(group.page.items))
+  ) {
+    return page;
+  }
+  const untrashed = (items: ContentDatabaseNavigationItem[]) =>
+    items.filter((item) => !trashed.has(item.documentId));
+  return {
+    ...page,
+    items: untrashed(page.items),
+    ...(page.groups
+      ? {
+          groups: page.groups.map((group) => {
+            const items = untrashed(group.page.items);
+            return items.length === group.page.items.length
+              ? group
+              : {
+                  ...group,
+                  count: group.count - (group.page.items.length - items.length),
+                  page: { ...group.page, items },
+                };
+          }),
+        }
+      : {}),
+  };
 }
 
 export function writeContentDatabaseResponseToCache(

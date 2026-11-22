@@ -31,6 +31,17 @@ Use Brain actions rather than raw SQL.
    memory.
 6. `write-knowledge` publishes directly at its publish tier; there is no manual
    approval step and it never creates a proposal.
+7. To change an existing entry, call `write-knowledge` with its `knowledgeId`
+   and `expectedRevision` set to the `revision` from your latest
+   `get-knowledge`, `list-knowledge` or `search-knowledge` read. An update
+   replaces the whole record, so build it from that read. If the record changed
+   since, nothing is saved and the call fails with `save_conflict`: redo your
+   edit on `details.current` and resend with `details.currentRevision`. A
+   resent update that already landed returns the record as saved.
+8. To replace an entry with a new one, pass its id as `supersedesId` and its
+   `revision` from your latest read as `supersedesRevision`; the old entry is
+   archived when the write saves. If it changed since, nothing is saved and the
+   `save_conflict` carries the superseded record in `details.current`.
 
 ## Privacy, Quarantine, And Safe Captures
 
@@ -183,9 +194,9 @@ AGENTS.md carries a one-line action index; these are the fuller purposes.
 | `get-capture` / `list-captures` | Read one or list raw captures (redacted by default; `includeRawContent` for exact quotes). |
 | `import-capture` / `import-transcript` / `import-markdown-files` | Ingest generic material or a bounded Markdown or plain-text batch, auto-create a private `manual` source when needed, and queue distillation by default. |
 | `enqueue-distillation` / `mark-capture-distilled` | Queue a capture for distillation; close out the queue row when done. |
-| `write-knowledge` | Write/update durable knowledge; publishes directly — see Publish Tiers above. |
+| `write-knowledge` | Write/update durable knowledge; publishes directly — see Publish Tiers above. Updates need `expectedRevision`. |
 | `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Legacy proposal records; new writes never create proposals. |
-| `set-knowledge-canonical` | Mirror/unmirror published knowledge into `context/company-brain/...` workspace resources. |
+| `set-knowledge-canonical` | Mirror/unmirror published knowledge into `context/company-brain/...` workspace resources. Send the reviewed record's `revision` as `expectedRevision`. |
 | `create-source` / `update-source` / `delete-source` / `list-sources` / `get-source` | Source lifecycle, including personal Google Calendar, Gmail and Drive sources. |
 | `set-resource-visibility` / `share-resource` | Set source visibility or grant explicit source access. |
 | `sync-source` / `sync-due-sources` | Run one connector now, or sweep all due sources. |
@@ -208,7 +219,8 @@ ownership is uncertain. Do not turn a mention into an assignment. Distinguish
 facts from inference and disclose incomplete transcripts.
 
 `list-intelligence` reads the current accessible records and their evidence.
-Use the existing record id and current `expectedRevision` when changing its status; do not create a second
+Use the existing record id and its current `revision` as `expectedRevision` when changing its status; a knowledge record has one revision, so
+the one from `get-knowledge` works too. `verify-knowledge` changes the revision and returns the new one. On `save_conflict`, redo the change on `details.current`. Do not create a second
 record to complete or dismiss work. `read-priorities` supports daily/weekly
 views: distinguish explicitly owned work from ambiguous items, disclose the
 selected owner and period, and keep overdue open work visible. It is a cited

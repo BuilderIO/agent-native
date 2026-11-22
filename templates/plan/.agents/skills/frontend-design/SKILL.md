@@ -15,6 +15,11 @@ decoration. Keep implementation accessible and responsive.
 
 ## Choose a direction
 
+For a new app or a changed workflow, write or update `DESIGN.md` before
+implementation. It is the single required design contract. Use the
+`app-quality-bar` pattern index and decision log. For a small existing-surface
+fix, read and apply the current contract.
+
 Before a substantial new surface or redesign, decide who is using it, what
 they came to do, and what they should see or do next. Pick a visual direction
 that fits the product's brand and domain. For routine changes, inspect and

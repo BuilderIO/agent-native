@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "給自己的備註",
     },
     inbox: {
-      atLeastCount: "至少 {{count}}",
+      conversationsCount: "對話：{{count}}",
+      conversationsAtLeastCount: "對話：至少 {{count}}",
+      unreadCount: "未讀對話：{{count}}",
+      draftsToReviewCount: "待審閱草稿：{{count}}",
       syncing: "收件箱同步中…",
     },
     sort: {
@@ -138,8 +141,6 @@ const messages = {
       compose: "撰寫",
       composeShortcut: "撰寫 (C)",
       accounts: "帳號",
-      pinSidebar: "固定側邊欄",
-      unpinSidebar: "取消固定側邊欄",
       closeSidebar: "關閉側邊欄",
       settings: "設定",
       aiSettings: "管理標籤與規則",
@@ -157,7 +158,7 @@ const messages = {
       filtersLimitReached: "最多可儲存 20 個篩選條件。",
     },
     tabSettings: {
-      splitInbox: "分割收件匣",
+      splitInbox: "將收件匣分割為分頁",
       views: "檢視",
       categories: "分類",
       rename: "重新命名",
@@ -165,7 +166,7 @@ const messages = {
       savedFilters: "已儲存的篩選條件",
       combinedInbox: "合併收件匣",
       allTab: "全部分頁",
-      help: "合併收件匣會一起顯示所有帳戶；關閉後，郵件會依標籤分到不同分頁。",
+      help: "將你選擇的檢視、標籤和已儲存的篩選器顯示為獨立的收件匣分頁。關閉後，所有收件匣郵件會顯示在同一個分頁中。",
       aiSetup: "設定 AI 標籤和規則",
     },
     accounts: {
@@ -200,6 +201,10 @@ const messages = {
       contentPagesRetry: "重試",
       contentPagesEmpty: "找不到頁面",
       contentFileMarkdown: "Markdown 檔案",
+      contentFilePdf: "PDF 檔案",
+      contentPageFormat: "頁面附加格式",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV 檔案",
       bold: "加粗",
       cancel: "取消",
@@ -457,6 +462,12 @@ const messages = {
       scheduledCancelFailed: "取消定時郵件失敗",
       failedToAttachFile: "附加檔案失敗",
       failedToAttachContentPage: "附加 Content 頁面失敗",
+      contentPagePdfTextUnsupported:
+        "此頁面包含 PDF 暫時無法顯示的文字，例如中文、日文、韓文、阿拉伯文、希伯來文或印地文。請改以 Markdown 格式附加。",
+      contentPagePdfTooLong:
+        "此頁面太長或太寬，無法以 PDF 格式附加。請改以 Markdown 格式附加。",
+      contentPagePdfUnavailable:
+        "Content 無法為此頁面產生 PDF。請改以 Markdown 格式附加。",
       waitForAttachments: "請等待附件新增完成後再傳送。",
       failedToUploadImage: "上傳圖片失敗",
       storageBuilderRefused:

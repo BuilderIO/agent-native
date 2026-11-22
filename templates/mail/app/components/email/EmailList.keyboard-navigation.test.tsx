@@ -10,7 +10,7 @@ import {
   within,
   waitFor,
 } from "@testing-library/react";
-import { isValidElement, useState } from "react";
+import { isValidElement, useCallback, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -743,6 +743,27 @@ describe("EmailList keyboard navigation interactions", () => {
     );
   });
 
+  it("reports an unchanged order once while the page re-renders the list with fresh rows", () => {
+    const reports: string[][] = [];
+    function Page() {
+      const [, setOrder] = useState<string[] | null>(null);
+      const report = useCallback((threadIds: string[]) => {
+        reports.push(threadIds);
+        if (reports.length <= 5) setOrder(threadIds);
+      }, []);
+      return (
+        <Harness
+          emails={messages.map((email) => ({ ...email }))}
+          onThreadOrderChange={report}
+        />
+      );
+    }
+
+    render(<Page />);
+
+    expect(reports).toHaveLength(1);
+  });
+
   it("ranks a newly scored message that enters the priority window", async () => {
     mocks.view = "inbox";
     mocks.virtualWindowSize = 3;
@@ -1420,6 +1441,18 @@ describe("EmailList keyboard navigation interactions", () => {
       null,
       null,
     ]);
+  });
+
+  it("brings keyboard focus along to the current row only when a row holds it", () => {
+    render(<Harness />);
+    press("j");
+    expect(document.activeElement).toBe(document.body);
+
+    rows()[1]?.focus();
+    press("j");
+    expect(document.activeElement).toBe(rows()[2]);
+    press("k");
+    expect(document.activeElement).toBe(rows()[1]);
   });
 
   it("extends selected rows with Shift+j and Shift+ArrowDown; plain j clears selection", () => {

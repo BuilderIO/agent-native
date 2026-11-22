@@ -35,6 +35,7 @@ export default defineAction({
     recordingId: z.string().trim().min(1).max(256),
   }),
   readOnly: true,
+  mcpTool: "search",
   run: async ({ recordingId }) => {
     const access = await assertAccess("recording", recordingId, "viewer");
     const recording = access.resource as {

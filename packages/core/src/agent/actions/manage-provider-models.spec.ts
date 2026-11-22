@@ -164,3 +164,7 @@ describe("get-provider-models", () => {
     );
   });
 });
+
+it("keeps manage-provider-models in the app, off MCP", () => {
+  expect(manageAction.mcpTool).toBe(false);
+});

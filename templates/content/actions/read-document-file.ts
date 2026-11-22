@@ -18,9 +18,11 @@ import searchDocuments from "./search-documents.js";
 const PAGE_SIZE = 30;
 export const DOCUMENT_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const MAX_RESULT_CHARS = 6_000_000;
+const PDF_TEXT_UNSUPPORTED =
+  "This page has text a PDF can't show yet, such as Chinese, Japanese, Korean, Arabic, Hebrew or Hindi. Attach it as Markdown instead.";
 
 const kindSchema = z.enum(["page", "collection"]);
-const formatSchema = z.enum(["markdown", "csv"]);
+const formatSchema = z.enum(["markdown", "csv", "pdf"]);
 type DocumentFileKind = z.infer<typeof kindSchema>;
 type DocumentFileFormat = z.infer<typeof formatSchema>;
 
@@ -29,12 +31,19 @@ const FORMAT_BY_KIND: Record<DocumentFileKind, DocumentFileFormat> = {
   collection: "csv",
 };
 
+const FORMATS_BY_KIND: Record<DocumentFileKind, readonly DocumentFileFormat[]> =
+  {
+    page: ["markdown", "pdf"],
+    collection: ["csv"],
+  };
+
 const FILE_TYPE: Record<
   DocumentFileFormat,
   { extension: string; mimeType: string }
 > = {
   markdown: { extension: "md", mimeType: "text/markdown;charset=utf-8" },
   csv: { extension: "csv", mimeType: "text/csv;charset=utf-8" },
+  pdf: { extension: "pdf", mimeType: "application/pdf" },
 };
 
 const documentFileOutputSchema = z.union([
@@ -57,7 +66,7 @@ const documentFileOutputSchema = z.union([
     format: formatSchema,
     filename: z.string(),
     mimeType: z.string(),
-    encoding: z.literal("utf8"),
+    encoding: z.enum(["utf8", "base64"]),
     content: z.string(),
     size: z.number().int().nonnegative(),
     updatedAt: z.string(),
@@ -160,7 +169,7 @@ async function collectionCsv(documentId: string, databaseId: string) {
 
 export default defineAction({
   description:
-    "List Content pages and collections another app can attach as a file, or read one as that file: a page as Markdown, a collection as CSV. Lists the most recently updated or search results, limited to what the caller can open. Changes nothing.",
+    "List Content pages and collections another app can attach as a file, or read one as that file: a page as Markdown or PDF, a collection as CSV. A PDF comes back base64-encoded. Lists the most recently updated or search results, limited to what the caller can open. Changes nothing.",
   schema: z.object({
     operation: z
       .enum(["list", "read"])
@@ -188,7 +197,7 @@ export default defineAction({
     format: formatSchema
       .optional()
       .describe(
-        "File format for a read: markdown for a page, csv for a collection. Defaults to the one that fits.",
+        "File format for a read: markdown or pdf for a page, csv for a collection. Defaults to markdown for a page and csv for a collection.",
       ),
   }),
   outputSchema: documentFileOutputSchema,
@@ -282,24 +291,69 @@ export default defineAction({
     const collection = await activeCollection(doc.id);
     const kind: DocumentFileKind = collection ? "collection" : "page";
     const format = args.format ?? FORMAT_BY_KIND[kind];
-    if (format !== FORMAT_BY_KIND[kind]) {
+    if (!FORMATS_BY_KIND[kind].includes(format)) {
       fail(
         kind === "collection"
-          ? "A collection attaches as a CSV file. Choose CSV, or attach one of its pages as Markdown."
-          : "A page attaches as a Markdown file. CSV is for collections.",
+          ? "A collection attaches as a CSV file. Choose CSV, or attach one of its pages as Markdown or PDF."
+          : "A page attaches as a Markdown or PDF file. CSV is for collections.",
         { errorCode: "document_file_format_unsupported" },
       );
     }
     const title = pageTitle(doc.title);
     let content: string;
+    let size: number;
     if (collection) {
       content = await collectionCsv(doc.id, collection.id);
+      size = Buffer.byteLength(content, "utf8");
     } else {
       const { markdownWithTitle } =
         await import("../shared/document-export.js");
       content = markdownWithTitle(title, doc.content);
+      size = Buffer.byteLength(content, "utf8");
+      if (format === "pdf" && size <= DOCUMENT_FILE_MAX_BYTES) {
+        const {
+          PDF_MAX_PAGES,
+          PdfTooLongError,
+          PdfUnsupportedTextError,
+          renderDocumentPdf,
+        } = await import("../server/lib/document-pdf.js");
+        let pdf: Buffer;
+        try {
+          pdf = renderDocumentPdf({ title, content: doc.content });
+        } catch (error) {
+          if (error instanceof PdfTooLongError) {
+            const detail = {
+              pages: `over ${PDF_MAX_PAGES} pages`,
+              table: "a table with too many columns to fit",
+              text: "more text than a PDF attachment can draw, usually from a long table of narrow cells",
+            }[error.reason];
+            fail(
+              `This page can't be attached as a PDF because it has ${detail}. Attach it as Markdown instead.`,
+              { statusCode: 413, errorCode: "document_file_pdf_too_long" },
+            );
+          }
+          if (error instanceof PdfUnsupportedTextError) {
+            fail(PDF_TEXT_UNSUPPORTED, {
+              statusCode: 422,
+              errorCode: "document_file_pdf_text_unsupported",
+            });
+          }
+          console.error("[read-document-file] PDF render failed", error);
+          fail(
+            "Content couldn't make a PDF of this page. Attach it as Markdown instead.",
+            { statusCode: 500, errorCode: "document_file_pdf_failed" },
+          );
+        }
+        if (pdf.byteLength > DOCUMENT_FILE_MAX_BYTES) {
+          fail(
+            "This page's PDF is over 2 MB, too large to attach from another app. Attach it as Markdown instead.",
+            { statusCode: 413, errorCode: "document_file_pdf_too_long" },
+          );
+        }
+        content = pdf.toString("base64");
+        size = pdf.byteLength;
+      }
     }
-    const size = Buffer.byteLength(content, "utf8");
     if (size > DOCUMENT_FILE_MAX_BYTES) {
       fail(
         `This ${kind} is too large to attach from another app (over 2 MB). Export it from Content and attach the file instead.`,
@@ -313,7 +367,7 @@ export default defineAction({
       format,
       filename: documentFileName(title, format),
       mimeType: FILE_TYPE[format].mimeType,
-      encoding: "utf8" as const,
+      encoding: format === "pdf" ? ("base64" as const) : ("utf8" as const),
       content,
       size,
       updatedAt: doc.updatedAt,

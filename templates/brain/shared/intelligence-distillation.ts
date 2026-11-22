@@ -1,3 +1,5 @@
+export const KNOWLEDGE_UPDATE_INSTRUCTIONS = `To change an existing knowledge entry instead of adding a duplicate, call write-knowledge with its knowledgeId and, as expectedRevision, the revision from your get-knowledge, list-knowledge or search-knowledge read. To replace an entry with a new one, pass its id as supersedesId and its revision from the same read as supersedesRevision. If it fails with save_conflict, redo your edit on details.current and resend with details.currentRevision. `;
+
 export function intelligenceDistillationInstructions(captureId: string) {
   return (
     `For meeting transcripts and other allowed source text, extract supported decisions, action items and customer feature requests with write-intelligence. ` +
