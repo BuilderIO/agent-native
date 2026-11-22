@@ -1,3 +1,26 @@
+function getUrlOrigin(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+}
+
+export function isTrustedBuilderConnectUrl(
+  url: URL,
+  sourceUrl?: string,
+): boolean {
+  if (!url.pathname.endsWith("/_agent-native/builder/connect")) return false;
+  if (isLoopbackHostname(url.hostname)) return true;
+  return getUrlOrigin(sourceUrl) === url.origin;
+}
+
 /**
  * Keep the OAuth callback in the cookie session that bootstrapped the flow.
  *

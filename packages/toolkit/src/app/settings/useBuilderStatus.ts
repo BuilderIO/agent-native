@@ -455,6 +455,11 @@ function isAgentNativeDesktop() {
   return /AgentNativeDesktop/i.test(navigator.userAgent || "");
 }
 
+function isDesktopHostRenderer() {
+  if (typeof window === "undefined") return false;
+  return Boolean((window as Window & { electronAPI?: unknown }).electronAPI);
+}
+
 function hasSignedConnectToken(url: string | null | undefined): boolean {
   if (!url || typeof window === "undefined") return false;
   try {
@@ -1554,7 +1559,7 @@ export function useBuilderConnectFlow(
         cachedFreshUrl ?? signedPropUrl ?? fallbackUrl,
       );
 
-      if (isAgentNativeDesktop()) {
+      if (isAgentNativeDesktop() && (transport || isDesktopHostRenderer())) {
         const openDesktopConnectUrl = transport?.openConnectUrl;
         if (!openDesktopConnectUrl) {
           connectStartedAtRef.current = null;
@@ -1632,6 +1637,59 @@ export function useBuilderConnectFlow(
             );
           }
         })();
+      } else if (isAgentNativeDesktop()) {
+        const openDesktopWebviewUrl = (url: string) => {
+          const opened = openBuilderConnectPopup({
+            url,
+            source: clickTrackingSource,
+            flow: clickTrackingFlow,
+          });
+          if (opened) activePopupRef.current = opened;
+        };
+
+        if (cachedFreshUrl || signedPropUrl) {
+          openDesktopWebviewUrl(directUrl);
+        } else {
+          void (async () => {
+            const status = await fetchStatus(undefined, connectAttemptId);
+            const isCurrentAttempt = () =>
+              mountedRef.current &&
+              connectAttemptIdRef.current === connectAttemptId &&
+              cancelledConnectAttemptIdRef.current !== connectAttemptId;
+            if (!isCurrentAttempt()) return;
+            if (!status) {
+              markStatusUnavailable();
+              connectStartedAtRef.current = null;
+              setConnecting(false);
+              restoreExistingAccount();
+              return;
+            }
+            markStatusAvailable();
+            setHasFetchedStatus(true);
+            setStatusResolved(true);
+            setConfigured(!!status.configured);
+            setCodeChangeConfigured(isCodeChangeConfigured(status));
+            setEnvManaged(!!status.envManaged);
+            setCredentialSource(status.credentialSource ?? null);
+            setConnections(builderConnectionsFromStatus(status));
+            setCanDisconnect(!!status.canDisconnect);
+            setAgentNativeProvisioningEnabled(
+              !!status.agentNativeProvisioningEnabled,
+            );
+            setAgentNativeProvisioningToken(
+              status.agentNativeProvisioningToken ?? null,
+            );
+            setAccountExists(status.connectError?.code === "account_exists");
+            setBuilderEnabled(!!status.builderEnabled);
+            setOrgName(status.orgName ?? null);
+            const nextConnectUrl = status.connectUrl || null;
+            setStatusConnectUrl(nextConnectUrl);
+            statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
+            openDesktopWebviewUrl(
+              withConnectAttempt(nextConnectUrl || fallbackUrl),
+            );
+          })();
+        }
       } else {
         const embeddedWindow = isEmbeddedWindow();
         const opened = openBuilderConnectPopup({
