@@ -471,6 +471,7 @@ import {
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
+  carriesAssistantText,
   endsAfterToolResultWithoutAssistantFinal,
   endsDuringActionPreparation,
 } from "./run-manager.js";
@@ -1487,6 +1488,20 @@ export interface ActionEntry {
     args: unknown,
     ctx?: import("../action.js").ActionRunContext,
   ): string;
+  /** See `ActionDefinition.mcpNeedsApproval`. */
+  mcpNeedsApproval?(
+    this: void,
+    args: unknown,
+    ctx?: import("../action.js").ActionRunContext,
+  ): boolean | Promise<boolean>;
+  /** See `ActionDefinition.approvalNotice`. */
+  approvalNotice?(
+    this: void,
+    args: unknown,
+    ctx: import("../action.js").ActionApprovalNoticeContext,
+  ): string | undefined | Promise<string | undefined>;
+  /** See `ActionDefinition.approvalProof`. */
+  approvalProof?: "review-page";
   allowPersistentApproval?: boolean;
   /**
    * Identifies what this entry does under its name. Approvals, including
@@ -4847,8 +4862,7 @@ export function turnHasVisibleText(events: readonly AgentChatEvent[]): boolean {
   let visible = false;
   for (const event of events) {
     if (event.type === "clear") visible = false;
-    else if (event.type === "text" && event.text.trim().length > 0)
-      visible = true;
+    else if (carriesAssistantText(event)) visible = true;
   }
   return visible;
 }
@@ -12971,7 +12985,7 @@ export function endsAtContinuationBoundary(run: ActiveRun): boolean {
 function chunkMadeForwardProgress(run: ActiveRun): boolean {
   return run.events.some(
     ({ event }) =>
-      (event.type === "text" && event.text.trim().length > 0) ||
+      carriesAssistantText(event) ||
       event.type === "tool_start" ||
       event.type === "tool_done",
   );

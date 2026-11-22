@@ -36,7 +36,11 @@ import {
   type TrafficEnvironment,
 } from "../../shared/traffic-environment";
 import { dryRunQuerySchema, type DryRunQueryResult } from "./bigquery";
-import { outsideAgentIdentity } from "./bigquery-agent-budget";
+import { firstPartyQueriesRunOnBigQuery } from "./bigquery-agent-approval";
+import {
+  outsideAgentIdentity,
+  type OutsideAgentIdentity,
+} from "./bigquery-agent-budget";
 import {
   createOutsideAgentBigQueryCall,
   reportOutsideAgentBigQueryCall,
@@ -87,6 +91,7 @@ export type PanelUnverifiedNote =
   | "too_expensive"
   | "not_executed:over_budget"
   | "outside_agent_budget"
+  | "outside_agent_approval_required"
   | "outside_agent_estimate_unavailable";
 
 export interface PanelVerification {
@@ -189,6 +194,8 @@ const NOTE_REASONS: Record<PanelUnverifiedNote, string> = {
     "more panels were affected than the per-save verification cap runs",
   outside_agent_budget:
     "the outside agent's daily BigQuery budget did not allow its query, so it was not run",
+  outside_agent_approval_required:
+    "its query would take the outside agent past today's no-ask BigQuery allowance, so it was not run",
   outside_agent_estimate_unavailable:
     "BigQuery's dry run gave no usable cost estimate, so the outside agent's query was not run",
 };
@@ -788,7 +795,9 @@ async function verifyOne(
       note:
         budgetRefusal.code === "estimate_unavailable"
           ? "outside_agent_estimate_unavailable"
-          : "outside_agent_budget",
+          : budgetRefusal.code === "approval_required"
+            ? "outside_agent_approval_required"
+            : "outside_agent_budget",
       error: budgetRefusal.message,
     });
   }
@@ -1349,7 +1358,9 @@ export function describePanelOutcome(panel: PanelVerification): string {
         ? ""
         : ` (~${formatBytes(panel.estimatedBytes)}, ${formatUsd(usdForBytes(panel.estimatedBytes))} per refresh)`
     }`;
-    return panel.error ? `${why} (${clipHead(panel.error, 200)})` : why;
+    return panel.error && panel.note !== "outside_agent_approval_required"
+      ? `${why} (${clipHead(panel.error, 200)})`
+      : why;
   }
   if (panel.status === "empty") {
     return panel.rowCount
@@ -1376,6 +1387,30 @@ export interface PanelWriteGateOptions {
   /** See VerifyOptions: render verification still runs on these panels. */
   serverAuthoredPanelIds?: ReadonlySet<string>;
   budget?: OutsideAgentBigQueryCall | null;
+}
+
+const ASKING_READS =
+  "a get-onboarding-journey or get-first-party-analytics-health call over MCP asks the person once, on Analytics' review page, when it needs more.";
+
+async function allowanceRaisers(
+  identity: OutsideAgentIdentity | undefined,
+): Promise<string> {
+  const sinkRead = identity ? firstPartyQueriesRunOnBigQuery(identity) : null;
+  // coercion-ok: an unread sink is null, so the reads are named only as asking on BigQuery.
+  const readsAsk = await sinkRead?.catch(() => null);
+  const raisers = [
+    readsAsk === true
+      ? `A dashboard edit can't ask for more, but ${ASKING_READS}`
+      : readsAsk === false
+        ? null
+        : `A dashboard edit can't ask for more; if Analytics' first-party queries run on BigQuery, ${ASKING_READS}`,
+    identity?.orgId
+      ? "An Analytics organization admin can raise the daily allowance."
+      : null,
+  ].filter((raiser) => raiser !== null);
+  return raisers.length > 0
+    ? raisers.join(" ")
+    : "Nothing can raise today's no-ask allowance, which resets at 00:00 UTC.";
 }
 
 /**
@@ -1464,8 +1499,14 @@ export async function verifyPanelWrite(
   const notRun = attention.filter(
     (panel) => panel.note === "not_executed:over_budget",
   );
+  const needAllowance = attention.filter(
+    (panel) => panel.note === "outside_agent_approval_required",
+  );
   const problems = attention.filter(
-    (panel) => !notRun.includes(panel) && !panel.visualOnly,
+    (panel) =>
+      !notRun.includes(panel) &&
+      !needAllowance.includes(panel) &&
+      !panel.visualOnly,
   );
   // inspect-dashboard-panel refuses a section or extension panel.
   const configProblems = attention.filter((panel) => panel.visualOnly);
@@ -1515,6 +1556,14 @@ export async function verifyPanelWrite(
             ...(notRun.length > 0
               ? [
                   `Not run: ${idList(notRun)} were beyond the per-save cap of ${DEFAULT_MAX_EXECUTED} executed panels, so only the verified panels are confirmed. Call inspect-dashboard-panel before claiming the others render.`,
+                ]
+              : []),
+            ...(needAllowance.length > 0
+              ? [
+                  `Saved, but not run: ${idList(needAllowance)}, whose BigQuery queries would take you past today's no-ask allowance; inspect-dashboard-panel would stop at the same point. ${await allowanceRaisers(
+                    (budget?.gate ?? currentOutsideAgentBigQueryGate())
+                      ?.identity,
+                  )} Until then, do not claim those panels render.`,
                 ]
               : []),
           ].join(" "),

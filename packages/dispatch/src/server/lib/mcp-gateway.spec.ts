@@ -3627,7 +3627,15 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       "owner@example.test",
       undefined,
       undefined,
-      expect.not.objectContaining({ extraClaims: expect.anything() }),
+      expect.objectContaining({
+        audience: "https://custom.example.com/mcp",
+        preferGlobalSecret: true,
+        extraClaims: {
+          jti: expect.any(String),
+          scope: "mcp-connect",
+          agent_native_first_party_mcp: true,
+        },
+      }),
     );
     expect(result.app).toBe("custom-agent");
   });
@@ -4412,6 +4420,20 @@ it("resolves both document and chat trust from the application config layer ahea
     createWorkspaceSsoEmbedSession({ app: "workspace", path: "/" }),
   );
   expect(document.startUrl).toContain("https://workspace.example.com/");
+  expect(mocks.signA2AToken).toHaveBeenCalledWith(
+    "owner@example.test",
+    undefined,
+    undefined,
+    expect.objectContaining({
+      audience: "https://workspace.example.com/mcp",
+      preferGlobalSecret: true,
+      extraClaims: {
+        jti: expect.any(String),
+        scope: "mcp-connect",
+        agent_native_first_party_mcp: true,
+      },
+    }),
+  );
   mocks.managerCallTool.mockResolvedValueOnce({
     structuredContent: {
       runtime: "workspace-app-chat",
@@ -4428,4 +4450,250 @@ it("resolves both document and chat trust from the application config layer ahea
     appBaseUrl: "https://workspace.example.com",
   });
   expect(chat).not.toHaveProperty("startUrl");
+});
+
+it("grants first-party MCP claims for granted document embeds to canonical workspace apps", async () => {
+  vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+  mocks.getOrgDomain.mockResolvedValue("example.test");
+  mocks.discoverAgents.mockResolvedValue([
+    { ...analyticsAgent, url: "https://analytics.agent-native.com" },
+  ]);
+  mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
+  mocks.managerCallTool.mockResolvedValueOnce({
+    structuredContent: {
+      startUrl:
+        "https://analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
+    },
+  });
+
+  const result = await runWithRequestContext(
+    {
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+      requestOrigin: "https://dispatch.agent-native.com",
+    },
+    () =>
+      createGrantedDispatchMcpEmbedSession({
+        app: "analytics",
+        path: "/dashboards",
+      }),
+  );
+
+  expect(result.startUrl).toBe(
+    "https://analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
+  );
+  expect(mocks.signA2AToken).toHaveBeenCalledWith(
+    "owner@example.test",
+    "example.test",
+    undefined,
+    expect.objectContaining({
+      audience: "https://analytics.agent-native.com/mcp",
+      preferGlobalSecret: true,
+      extraClaims: {
+        jti: expect.any(String),
+        scope: "mcp-connect",
+        agent_native_first_party_mcp: true,
+      },
+    }),
+  );
+
+  mocks.getOrgDomain.mockResolvedValue(null);
+  mocks.managerConstructor.mockClear();
+  await expect(
+    runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "https://dispatch.agent-native.com",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/",
+        }),
+    ),
+  ).rejects.toThrow("Workspace organization domain is unavailable.");
+  expect(mocks.managerConstructor).not.toHaveBeenCalled();
+});
+
+it("grants first-party MCP claims for granted document embeds to SSO-registered mounted targets", async () => {
+  vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+  vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://labs.agent-native.com");
+  vi.stubEnv("APP_BASE_PATH", "/dispatch");
+  vi.stubEnv("VITE_APP_BASE_PATH", "");
+  mocks.getOrgDomain.mockResolvedValue("example.test");
+  defineAppConfig({
+    auth: {
+      identitySsoAppRegistryJson: JSON.stringify([
+        {
+          appId: "analytics-2",
+          clientId: "labs-analytics-2",
+          origin: "https://labs.agent-native.com",
+          callbackPath: "/_agent-native/identity/callback",
+          capabilities: ["identity-sso"],
+        },
+      ]),
+    },
+  } as Parameters<typeof defineAppConfig>[0]);
+  const mountedAnalytics = {
+    id: "analytics-2",
+    name: "Analytics",
+    description: "Analytics workspace app",
+    path: "/analytics-2",
+    url: "https://labs.agent-native.com/analytics-2",
+    isDispatch: false,
+  };
+  mocks.listWorkspaceApps.mockResolvedValue([mountedAnalytics]);
+  mocks.discoverAgents.mockResolvedValue([
+    {
+      id: mountedAnalytics.id,
+      name: mountedAnalytics.name,
+      description: mountedAnalytics.description,
+      url: mountedAnalytics.url,
+      color: "#14B8A6",
+    },
+  ]);
+  mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
+  mocks.managerCallTool.mockResolvedValueOnce({
+    structuredContent: {
+      startUrl:
+        "https://labs.agent-native.com/analytics-2/_agent-native/embed/start?ticket=remote",
+    },
+  });
+
+  const result = await runWithRequestContext(
+    {
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+      requestOrigin: "https://labs.agent-native.com",
+    },
+    () =>
+      createGrantedDispatchMcpEmbedSession({
+        app: "analytics-2",
+        path: "/",
+      }),
+  );
+
+  expect(result.startUrl).toBe(
+    "https://labs.agent-native.com/analytics-2/_agent-native/embed/start?ticket=remote",
+  );
+  expect(mocks.managerConstructor).toHaveBeenCalledWith(
+    expect.objectContaining({
+      servers: {
+        target: expect.objectContaining({
+          url: "https://labs.agent-native.com/analytics-2/mcp",
+          headers: {
+            Authorization: "Bearer signed-token",
+            "x-agent-native-mcp-inline-apps": "1",
+          },
+        }),
+      },
+    }),
+  );
+  expect(mocks.signA2AToken).toHaveBeenCalledWith(
+    "owner@example.test",
+    "example.test",
+    undefined,
+    expect.objectContaining({
+      audience: "https://labs.agent-native.com/analytics-2/mcp",
+      preferGlobalSecret: true,
+      extraClaims: {
+        jti: expect.any(String),
+        scope: "mcp-connect",
+        agent_native_first_party_mcp: true,
+      },
+    }),
+  );
+});
+
+it("withholds first-party MCP claims for granted document embeds to unregistered targets even on the same origin", async () => {
+  vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+  vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://labs.agent-native.com");
+  vi.stubEnv("APP_BASE_PATH", "/dispatch");
+  vi.stubEnv("VITE_APP_BASE_PATH", "");
+  vi.stubEnv("IDENTITY_SSO_APP_REGISTRY_JSON", "[]");
+  mocks.getOrgDomain.mockResolvedValue("example.test");
+  const unregisteredMounted = {
+    id: "analytics-2",
+    name: "Analytics",
+    description: "Analytics workspace app",
+    path: "/analytics-2",
+    url: "https://labs.agent-native.com/analytics-2",
+    isDispatch: false,
+  };
+  mocks.listWorkspaceApps.mockResolvedValue([unregisteredMounted]);
+  mocks.discoverAgents.mockResolvedValue([
+    {
+      id: unregisteredMounted.id,
+      name: unregisteredMounted.name,
+      description: unregisteredMounted.description,
+      url: unregisteredMounted.url,
+      color: "#14B8A6",
+    },
+  ]);
+  mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
+  mocks.managerCallTool.mockResolvedValueOnce({
+    structuredContent: {
+      startUrl:
+        "https://labs.agent-native.com/analytics-2/_agent-native/embed/start?ticket=remote",
+    },
+  });
+
+  await runWithRequestContext(
+    {
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+      requestOrigin: "https://labs.agent-native.com",
+    },
+    () =>
+      createGrantedDispatchMcpEmbedSession({
+        app: "analytics-2",
+        path: "/",
+      }),
+  );
+
+  expect(mocks.signA2AToken).toHaveBeenCalledWith(
+    "owner@example.test",
+    undefined,
+    undefined,
+    expect.not.objectContaining({ extraClaims: expect.anything() }),
+  );
+
+  mocks.signA2AToken.mockClear();
+  mocks.listWorkspaceApps.mockResolvedValue([]);
+  mocks.discoverAgents.mockResolvedValue([
+    {
+      id: "third-party-agent",
+      name: "Third Party Agent",
+      description: "External unregistered app",
+      url: "https://third-party.example.com",
+      color: "#000000",
+    },
+  ]);
+  mocks.managerCallTool.mockResolvedValueOnce({
+    structuredContent: {
+      startUrl:
+        "https://third-party.example.com/_agent-native/embed/start?ticket=remote",
+    },
+  });
+
+  await runWithRequestContext(
+    {
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+      requestOrigin: "https://labs.agent-native.com",
+    },
+    () =>
+      createGrantedDispatchMcpEmbedSession({
+        app: "third-party-agent",
+        path: "/",
+      }),
+  );
+
+  expect(mocks.signA2AToken).toHaveBeenCalledWith(
+    "owner@example.test",
+    undefined,
+    undefined,
+    expect.not.objectContaining({ extraClaims: expect.anything() }),
+  );
 });

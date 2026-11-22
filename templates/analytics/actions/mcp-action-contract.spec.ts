@@ -26,7 +26,9 @@ type ActionDefinition = {
   agentTool?: boolean;
   mcpTool?: boolean;
   readOnly?: boolean;
-  needsApproval?: unknown;
+  needsApproval?:
+    | boolean
+    | ((args: Record<string, unknown>, ctx?: { caller: string }) => unknown);
   publicAgent?: { expose?: boolean };
   tool: {
     description: string;
@@ -101,8 +103,27 @@ const GUARDED_MCP_WRITES = [
   "update-dashboard",
 ];
 
+const APPROVED_MCP_WRITES = [
+  "export-dashboard-panel-to-google-sheet",
+  "run-analytics-alerts",
+  "run-monitor-check",
+  "save-dashboard-report-subscription",
+  "send-dashboard-report-now",
+];
+
+const APPROVED_FOR_EVERY_CALLER = [
+  "export-dashboard-panel-to-google-sheet",
+  "send-dashboard-report-now",
+];
+
+const KEYED_SENDS = [
+  "save-dashboard-report-subscription",
+  "send-dashboard-report-now",
+];
+
 const DIRECT_MCP_WRITES = [
   ...GUARDED_MCP_WRITES,
+  ...APPROVED_MCP_WRITES,
   "run-gong-native-insight",
   "update-analytics-public-key",
 ];
@@ -140,6 +161,7 @@ const DEFAULT_CONNECTOR_EXCLUDED = [
 const HARD_DELETE = /^(?:delete-|remove)/;
 const OFF_LIMITS_WRITE =
   /alert|monitor|status-page|data-dictionary|credential|ingestion-key|connected-database|feature-flag/;
+const RUNS_EXISTING_ALERTS = ["run-analytics-alerts", "run-monitor-check"];
 
 // The MCP SDK is a dependency of core, not of this template.
 const requireFromCore = createRequire(
@@ -248,7 +270,9 @@ describe("Analytics direct MCP tools", () => {
       .filter(
         ([name, action]) =>
           HARD_DELETE.test(name) ||
-          (action.readOnly !== true && OFF_LIMITS_WRITE.test(name)),
+          (action.readOnly !== true &&
+            OFF_LIMITS_WRITE.test(name) &&
+            !RUNS_EXISTING_ALERTS.includes(name)),
       )
       .map(([name]) => name);
     expect(offLimits).toEqual([]);
@@ -266,6 +290,48 @@ describe("Analytics direct MCP tools", () => {
       }
       expect(actions[name].readOnly, name).not.toBe(true);
     }
+  });
+
+  it("asks the user to approve every side effect an outside agent starts", async () => {
+    const asks = async (caller: string) =>
+      Object.fromEntries(
+        await Promise.all(
+          APPROVED_MCP_WRITES.map(async (name) => {
+            const { needsApproval } = actions[name];
+            const asked =
+              typeof needsApproval === "function"
+                ? await needsApproval({}, { caller })
+                : needsApproval;
+            return [name, asked];
+          }),
+        ),
+      );
+    const everyCall = Object.fromEntries(
+      APPROVED_MCP_WRITES.map((name) => [name, true]),
+    );
+    expect(await asks("mcp")).toEqual(everyCall);
+    expect(await asks("a2a")).toEqual(everyCall);
+    expect(await asks("tool")).toEqual(
+      Object.fromEntries(
+        APPROVED_MCP_WRITES.map((name) => [
+          name,
+          APPROVED_FOR_EVERY_CALLER.includes(name),
+        ]),
+      ),
+    );
+    expect(
+      APPROVED_MCP_WRITES.filter((name) => actions[name].readOnly === true),
+    ).toEqual([]);
+  });
+
+  it("lets a report send or subscription save be retried with an idempotency key", () => {
+    const keyless = KEYED_SENDS.filter(
+      (name) =>
+        !Object.keys(actions[name].tool.parameters?.properties ?? {}).includes(
+          "idempotencyKey",
+        ),
+    );
+    expect(keyless).toEqual([]);
   });
 
   it("classifies every direct read as read-only so mcp:read tokens can call it", () => {

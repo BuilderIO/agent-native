@@ -66,7 +66,7 @@ function makeEvent(over: Partial<AuditEvent> = {}): AuditEvent {
 }
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetStoreLedgerSnapshotForTests();
   __resetAuditInitForTests();
   await ensureAuditTables();

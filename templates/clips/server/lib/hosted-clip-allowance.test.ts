@@ -5,7 +5,16 @@ const { PGlite } = createRequire(
 )("@electric-sql/pglite");
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import type { HostedClipAllowancePolicy } from "./hosted-clip-allowance.js";
 
@@ -74,8 +83,7 @@ function reserve(input: {
   });
 }
 
-beforeEach(async () => {
-  setHostedConfig();
+beforeAll(async () => {
   client = await PGlite.create("memory://");
   state.db = drizzle(client);
   await client.exec(`
@@ -117,9 +125,27 @@ beforeEach(async () => {
   `);
 });
 
-afterEach(async () => {
+beforeEach(async () => {
+  setHostedConfig();
+  state.db = drizzle(client);
+  const { rows } = await client.query(
+    "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+  );
+  await client.exec(
+    `TRUNCATE ${rows.map((row: { tablename: string }) => `"${row.tablename}"`).join(", ")} CASCADE`,
+  );
+  await client.exec(
+    "DROP TRIGGER IF EXISTS fail_allowance_commit ON clips_hosted_clip_allowances",
+  );
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
   mockTrack.mockReset();
   state.db = null;
+});
+
+afterAll(async () => {
   await client.close();
 });
 

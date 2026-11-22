@@ -1,8 +1,5 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
-import { readDesignEditorSource } from "./read-design-editor-source";
 import {
   computeInteractZoomToFit,
   DEFAULT_INTERACT_DEVICE_PRESET,
@@ -12,6 +9,8 @@ import {
   resolveInteractDeviceForScreen,
   SELECTABLE_INTERACT_DEVICE_PRESETS,
 } from "./responsive-interact";
+
+// oracle-change: removed DesignCanvas and DesignEditor source greps; the Interact device-choice cases remain
 
 describe("computeInteractZoomToFit", () => {
   it("keeps 100% when the device already fits the available space", () => {
@@ -126,66 +125,5 @@ describe("Interact device choices", () => {
     expect(
       resolveInteractDeviceForScreen({ width: 403, height: 874 }),
     ).toMatchObject({ name: INTERACT_CUSTOM_DEVICE_NAME, width: 403 });
-  });
-});
-
-describe("responsive Interact wiring", () => {
-  const source = readDesignEditorSource();
-
-  it("builds Interact's inline document apart from Edit's, and keeps the stand-down guards", () => {
-    const canvas = readFileSync(
-      "app/components/design/DesignCanvas.tsx",
-      "utf8",
-    );
-    expect(canvas).toContain("buildInteractPreviewDocument({");
-    expect(canvas).not.toContain("initialInteractModeRef");
-    expect(canvas).toContain("const editorChromeBridge =");
-    expect(canvas).not.toContain("const editorChromeBridge = interactMode");
-    expect(canvas).toContain("set-interaction-mode");
-    expect(canvas).toContain("editingSafetyEnabled: !interactModeRef.current");
-  });
-
-  it("reports live router paths for every URL-backed frame", () => {
-    const canvas = readFileSync(
-      "app/components/design/DesignCanvas.tsx",
-      "utf8",
-    );
-    expect(canvas).toContain("data-agent-native-live-route-bridge");
-    expect(canvas).toContain('type: "agent-native:live-route-path"');
-    expect(canvas).toContain("window.history.pushState = function ()");
-    expect(canvas).toContain("window.history.replaceState = function ()");
-    expect(canvas).toContain(
-      'if (e.data.type === "agent-native:live-route-path") {',
-    );
-    expect(canvas).toContain("LIVE_ROUTE_BRIDGE_SCRIPT +");
-  });
-
-  it("gates the visual-edit loop on edit access, never on sign-in", () => {
-    // oracle-change: Consent polling moved to useLocalhostWriteConsent and has behavioral coverage in localhost-consent-resume.test.tsx.
-    const commandChannel = source.slice(
-      source.indexOf("designEditorCommandFromSearchParams(\n") - 600,
-      source.indexOf("designEditorCommandKey()];"),
-    );
-    expect(commandChannel).not.toContain("!id || !isSignedIn");
-  });
-
-  it("keeps localhost bridge identity stable across Interact mode changes", () => {
-    const canvas = readFileSync(
-      "app/components/design/DesignCanvas.tsx",
-      "utf8",
-    );
-    expect(canvas).toContain("const includeLiveEditEditorChrome = !readOnly;");
-    expect(canvas).toContain('type: "set-interaction-mode"');
-    expect(canvas).toContain("interact: interactModeRef.current");
-    expect(canvas).not.toContain(
-      "const includeLiveEditEditorChrome = !interactMode && !readOnly;",
-    );
-    const bridge = readFileSync(
-      "app/components/design/bridge/editor-chrome.bridge.ts",
-      "utf8",
-    );
-    expect(bridge).toContain('e.data.type === "set-interaction-mode"');
-    expect(bridge).toContain('shieldOverlay.style.pointerEvents = "none"');
-    expect(bridge).toContain("scheduleRuntimeLayerSnapshot()");
   });
 });

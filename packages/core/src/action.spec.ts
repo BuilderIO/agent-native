@@ -47,6 +47,7 @@ import {
   actionsToEngineTools,
   createPlanModeActionRegistry,
 } from "./agent/production-agent.js";
+import { createReversibleWriteApprovalPolicy } from "./approval/reversible-write-policy.js";
 import * as actionAuditRecord from "./audit/record.js";
 import { boundedJsonValueBranches } from "./json-schema/json-value.js";
 import {
@@ -4444,6 +4445,40 @@ describe("resolveToolMaxResultChars", () => {
     expect(resolveToolMaxResultChars({}, { hardMaxResultChars: 80_000 })).toBe(
       DEFAULT_TOOL_RESULT_CHARS,
     );
+  });
+});
+
+describe("defineAction approvalProof", () => {
+  it("refuses review-page proof on an inline-form approval, which nothing could approve", () => {
+    expect(() =>
+      defineAction({
+        description: "Archive",
+        needsApproval: createReversibleWriteApprovalPolicy(),
+        approvalProof: "review-page",
+        run: () => null,
+      }),
+    ).toThrow(
+      'defineAction: approvalProof: "review-page" can\'t be combined with a reversible-write inline approval, which never links to the review page, so no call could be approved.',
+    );
+  });
+
+  it("keeps an inline-form approval without review-page proof, and review-page proof on another predicate", () => {
+    const inline = createReversibleWriteApprovalPolicy();
+    expect(
+      defineAction({
+        description: "Archive",
+        needsApproval: inline,
+        run: () => null,
+      }).needsApproval,
+    ).toBe(inline);
+    expect(
+      defineAction({
+        description: "Read",
+        needsApproval: () => true,
+        approvalProof: "review-page",
+        run: () => null,
+      }).approvalProof,
+    ).toBe("review-page");
   });
 });
 
