@@ -143,6 +143,7 @@ import {
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
 import {
+  CHAT_FIRST_PANE_BINDING_MAX_AGE_MS,
   CHAT_FIRST_PANE_CONTEXT_STATE_KEY,
   CHAT_FIRST_PANE_STATE_KEY,
 } from "../../shared/chat-first-pane";
@@ -1799,10 +1800,20 @@ function DispatchLayout({
         { keepalive: true },
       ).catch(() => {});
     };
+    const refreshVisiblePane = () => {
+      if (document.visibilityState === "visible") refreshActivePaneContext();
+    };
+    const refreshTimer = window.setInterval(
+      refreshVisiblePane,
+      CHAT_FIRST_PANE_BINDING_MAX_AGE_MS / 2,
+    );
+    document.addEventListener("visibilitychange", refreshVisiblePane);
     window.addEventListener("focus", refreshActivePaneContext);
     window.addEventListener("pageshow", refreshActivePaneContext);
     window.addEventListener("pagehide", clearPagePane);
     return () => {
+      window.clearInterval(refreshTimer);
+      document.removeEventListener("visibilitychange", refreshVisiblePane);
       window.removeEventListener("focus", refreshActivePaneContext);
       window.removeEventListener("pageshow", refreshActivePaneContext);
       window.removeEventListener("pagehide", clearPagePane);

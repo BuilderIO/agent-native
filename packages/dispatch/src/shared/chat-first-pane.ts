@@ -1,6 +1,7 @@
 export const CHAT_FIRST_PANE_STATE_KEY = "chat-first-pane";
 
 export const CHAT_FIRST_PANE_CONTEXT_STATE_KEY = "dispatch-pane-context";
+export const CHAT_FIRST_PANE_BINDING_MAX_AGE_MS = 30 * 60_000;
 
 export function isDispatchChildBrowserTabId(value: unknown): value is string {
   return (

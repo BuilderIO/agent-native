@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import {
   readAppState,
   appStateKeyForBrowserTab,
@@ -5,6 +6,7 @@ import {
 } from "@agent-native/core/application-state";
 
 import {
+  CHAT_FIRST_PANE_BINDING_MAX_AGE_MS,
   CHAT_FIRST_PANE_CONTEXT_STATE_KEY,
   isDispatchChildBrowserTabId,
 } from "../../shared/chat-first-pane.js";
@@ -30,17 +32,23 @@ export async function resolveDispatchChildBrowserTab(target: {
   if (
     pane?.appId !== target.id ||
     typeof pane.origin !== "string" ||
-    typeof pane.observedAt !== "number" ||
-    Date.now() - pane.observedAt > 30 * 60_000 ||
     !isDispatchChildBrowserTabId(pane.childBrowserTabId)
   ) {
     return undefined;
   }
-  try {
-    const origin = new URL(target.homeUrl ?? target.url).origin;
-    return pane.origin === origin ? pane.childBrowserTabId : undefined;
-  } catch {
-    // coercion-ok: An invalid installation origin cannot authorize a child binding.
+  const runtimeUrl = target.homeUrl ?? target.url;
+  if (!URL.canParse(runtimeUrl) || pane.origin !== new URL(runtimeUrl).origin) {
     return undefined;
   }
+  if (
+    typeof pane.observedAt !== "number" ||
+    !Number.isFinite(pane.observedAt) ||
+    Date.now() - pane.observedAt > CHAT_FIRST_PANE_BINDING_MAX_AGE_MS
+  ) {
+    fail("The visible app tab could not be reached. Reopen it and retry.", {
+      errorCode: "dispatch_pane_tab_unavailable",
+      statusCode: 409,
+    });
+  }
+  return pane.childBrowserTabId;
 }

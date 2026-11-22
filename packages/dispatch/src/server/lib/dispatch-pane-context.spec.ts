@@ -43,7 +43,9 @@ it("looks up the current Dispatch tab and forwards only a fresh matching install
   });
   expect(await resolveDispatchChildBrowserTab(mail)).toBeUndefined();
   mocks.read.mockResolvedValue({ ...row, observedAt: 0 });
-  expect(await resolveDispatchChildBrowserTab(mail)).toBeUndefined();
+  await expect(resolveDispatchChildBrowserTab(mail)).rejects.toMatchObject({
+    errorCode: "dispatch_pane_tab_unavailable",
+  });
 
   mocks.read.mockClear();
   mocks.tab.mockResolvedValue({ tabId: null, unavailable: false });
