@@ -2200,7 +2200,12 @@ export function applyRedactions(values: {
       })),
     ).map((item) => {
       const next = { ...item };
-      if (next.capturedAt && redact(next.capturedAt) !== next.capturedAt) {
+      if (
+        next.capturedAt &&
+        meetingTimeRenderings(next.capturedAt).some(
+          (text) => redact(text) !== text,
+        )
+      ) {
         delete next.capturedAt;
         delete next.capturedAtSource;
       }
@@ -2214,6 +2219,29 @@ export function applyRedactions(values: {
     }),
     redacted: changed,
   };
+}
+
+function meetingTimeRenderings(capturedAt: string): string[] {
+  const moment = new Date(capturedAt);
+  if (Number.isNaN(moment.getTime())) return [capturedAt];
+  const renderings = [capturedAt, moment.toISOString()];
+  const styles: Intl.DateTimeFormatOptions[] = [
+    { dateStyle: "full" },
+    { dateStyle: "long" },
+    { dateStyle: "medium" },
+    { dateStyle: "short" },
+    { dateStyle: "medium", timeStyle: "short" },
+    { timeStyle: "short" },
+  ];
+  for (const timeZone of [undefined, "UTC"])
+    for (const style of styles)
+      renderings.push(
+        moment.toLocaleString("en-US", {
+          ...style,
+          ...(timeZone ? { timeZone } : {}),
+        }),
+      );
+  return renderings;
 }
 
 function escapeRegExp(value: string): string {

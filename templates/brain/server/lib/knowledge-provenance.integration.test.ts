@@ -254,6 +254,31 @@ describe("redaction covers every displayed field", () => {
     expect(fetched.knowledge?.evidence[0]).not.toHaveProperty("capturedAt");
   });
 
+  it("does not keep a meeting time when the redaction names its displayed form", async () => {
+    await database
+      .update(schema.brainRawCaptures)
+      .set({
+        externalId: "markdown:meeting.md",
+        metadataJson: JSON.stringify({ capturedAtSource: "manual-markdown" }),
+      })
+      .where(eq(schema.brainRawCaptures.id, "capture"));
+    const saved = await asQa(() =>
+      writeKnowledgeRecord({
+        title: "Atlas launch",
+        body: "The launch is planned.",
+        evidence: [{ captureId: "capture", quote: "Morgan will ship Atlas" }],
+        redactions: ["November 18"],
+        publishTier: "company",
+      }),
+    );
+    const row = await storedRow(saved.knowledge.id);
+    expect(row.evidenceJson).not.toContain("2026-11-18");
+    const fetched = await asQa(() =>
+      getKnowledgeAction.run({ id: saved.knowledge.id }),
+    );
+    expect(fetched.knowledge?.evidence[0]).not.toHaveProperty("capturedAt");
+  });
+
   it("does not bring a redacted meeting time back when a later edit reuses the saved evidence", async () => {
     await database
       .update(schema.brainRawCaptures)
