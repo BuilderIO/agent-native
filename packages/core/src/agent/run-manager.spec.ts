@@ -9337,6 +9337,7 @@ describe("run manager soft timeout", () => {
   it("completes private text and UI tool responses without an unwanted continuation", async () => {
     for (const kind of ["text", "ui"] as const) {
       const runId = `run-private-completion-${kind}`;
+      let completionBoundary: boolean | undefined;
       const run = startRun(
         runId,
         `thread-${runId}`,
@@ -9359,10 +9360,15 @@ describe("run manager soft timeout", () => {
           if (kind === "text")
             await send({ type: "text", text: "private final answer" });
         },
-        undefined,
+        (completionRun) => {
+          completionBoundary =
+            endsAfterToolResultWithoutAssistantFinal(completionRun);
+        },
         { softTimeoutMs: 0 },
       );
       await run.finalized;
+      expect(endsAfterToolResultWithoutAssistantFinal(run)).toBe(false);
+      expect(completionBoundary).toBe(false);
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
       expect(setRunTerminalReason).toHaveBeenCalledWith(runId, "done");
       expect(JSON.stringify(run.events)).not.toContain("private final answer");
@@ -9370,6 +9376,40 @@ describe("run manager soft timeout", () => {
         run.events.some(({ event }) => event.type === "auto_continue"),
       ).toBe(false);
     }
+  });
+
+  it("does not auto-continue a private turn whose reply text was blanked in retained events", async () => {
+    const runId = "run-private-written-final";
+    const run = startRun(
+      runId,
+      `thread-${runId}`,
+      async (send) => {
+        await send({
+          type: "tool_done",
+          id: "call-1",
+          tool: "manage-gmail-draft",
+          input: {},
+          result: "private draft saved",
+          completedSideEffect: true,
+          omitFromPersistedHistory: true,
+        });
+        await send({
+          type: "text",
+          text: "Your draft is saved.",
+          omitFromPersistedHistory: true,
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await run.finalized;
+    expect(run.status).toBe("completed");
+    expect(endsAfterToolResultWithoutAssistantFinal(run)).toBe(false);
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      runId,
+      "truncated",
+      expect.anything(),
+    );
   });
 
   it("auto-continues a private turn that ends after a completed side-effect tool with empty text", async () => {
