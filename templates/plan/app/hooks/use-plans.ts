@@ -622,6 +622,7 @@ export function useDeletePlanComment() {
 export function useReactToPlanComment() {
   return useActionMutation<ReactToPlanCommentResult, ReactToPlanCommentInput>(
     "react-to-plan-comment",
+    { skipActionQueryInvalidation: true },
   );
 }
 

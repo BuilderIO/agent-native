@@ -4896,12 +4896,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         setReactions(() => result.reactions);
       }
     } catch (error) {
-      if (reactedBefore !== active) {
-        setReactions((current) =>
-          togglePlanCommentReaction(current, reaction, !active),
-        );
+      if (queues.get(commentId) === turn) {
+        if (reactedBefore !== active) {
+          setReactions((current) =>
+            togglePlanCommentReaction(current, reaction, !active),
+          );
+        }
+        void queryClient.invalidateQueries({ queryKey });
       }
-      void queryClient.invalidateQueries({ queryKey });
       toast.error(
         actionErrorMessage(error) ?? t("plansPage.comments.reactionFailed"),
       );
@@ -9193,7 +9195,7 @@ function InlineCommentPopover({
   const [chosenTarget, setChosenTarget] = useState(
     initialDraft.resolutionTarget,
   );
-  const [resolverTouched, setResolverTouched] = useState(false);
+  const [resolverTouched, setResolverTouched] = useState(reopened);
   const [submitError, setSubmitError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [placed, setPlaced] = useState({ anchor, moves: 0 });

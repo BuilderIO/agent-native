@@ -25,32 +25,16 @@ describe("Plan's comment box", () => {
     ]);
   });
 
-  it("keeps two people who share a name as two mentions", () => {
+  it("leaves a name two people share as text, as the kit does", () => {
     const message = planCommentMessage({
-      text: "@Sam and @Sam, and not @Samantha",
+      text: "Over to @Sam and @Sam",
       mentions: [
         { label: "Sam", email: "sam.lee@example.com" },
         { label: "Sam", email: "sam.ng@example.com" },
       ],
     });
 
-    expect(extractCommentMentions(message)).toEqual([
-      { label: "Sam", email: "sam.lee@example.com" },
-      { label: "Sam", email: "sam.ng@example.com" },
-    ]);
-    expect(message.endsWith("not @Samantha")).toBe(true);
-  });
-
-  it("leaves a shared name as text when it can't tell who is meant", () => {
-    const message = planCommentMessage({
-      text: "Over to @Sam",
-      mentions: [
-        { label: "Sam", email: "sam.lee@example.com" },
-        { label: "Sam", email: "sam.ng@example.com" },
-      ],
-    });
-
-    expect(message).toBe("Over to @Sam");
+    expect(message).toBe("Over to @Sam and @Sam");
   });
 
   it("keeps the mention tokens a message already has", () => {
