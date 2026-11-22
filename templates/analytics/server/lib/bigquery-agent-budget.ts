@@ -718,14 +718,14 @@ export async function settleBigQueryAgentJob(
   now: Date = new Date(),
   options: {
     leaseExpiredAt?: Date;
-    finalizeAbandonedExecution?: boolean;
+    finalizeExecution?: boolean;
   } = {},
 ): Promise<boolean> {
   return guardBudget(async () => {
     const at = now.toISOString();
     const leaseGuard = options.leaseExpiredAt?.toISOString() ?? null;
     const db = getDbExec();
-    if (!options.finalizeAbandonedExecution) {
+    if (!options.finalizeExecution) {
       return settleWith(db, projectId, jobId, settlement, at, leaseGuard);
     }
     if (!db.transaction) {
@@ -742,13 +742,16 @@ export async function settleBigQueryAgentJob(
       );
       if (settled) {
         await tx.execute({
+          // A record left at submitting is finalized as abandoned; an uncertain one keeps
+          // what the call reported and gains the bytes its job settled for.
           sql: `UPDATE analytics_bigquery_agent_executions AS e
-            SET status = 'abandoned', code = j.resolution, billed_bytes = j.billed_bytes,
-              provider_cache_hit = j.provider_cache_hit
+            SET status = CASE WHEN e.status = 'submitting' THEN 'abandoned' ELSE e.status END,
+              code = CASE WHEN e.status = 'submitting' THEN j.resolution ELSE e.code END,
+              billed_bytes = j.billed_bytes, provider_cache_hit = j.provider_cache_hit
             FROM analytics_bigquery_agent_jobs AS j
             WHERE j.project_id = $1 AND j.job_id = $2
               AND e.project_id = j.project_id AND e.job_id = j.job_id
-              AND e.status = 'submitting'`,
+              AND e.status IN ('submitting', 'uncertain')`,
           args: [projectId, jobId],
         });
       }
@@ -878,7 +881,7 @@ export async function reconcileStaleBigQueryAgentJobs(
           now,
           {
             leaseExpiredAt: now,
-            finalizeAbandonedExecution: true,
+            finalizeExecution: true,
           },
         )
       )

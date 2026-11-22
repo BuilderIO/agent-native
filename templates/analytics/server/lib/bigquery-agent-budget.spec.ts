@@ -662,7 +662,7 @@ describe("reconciliation of an abandoned call's execution record", () => {
     });
   });
 
-  it("leaves a record the call itself finished alone", async () => {
+  it("keeps an uncertain record's outcome and adds the bytes its job settled for", async () => {
     await admit(alice, JOB, NOON);
     await execution("exec-1", "job_1", "uncertain");
     await reconcileStaleBigQueryAgentJobs(
@@ -672,6 +672,21 @@ describe("reconciliation of an abandoned call's execution record", () => {
     );
     expect(await executionOf("exec-1")).toEqual({
       status: "uncertain",
+      code: null,
+      billed: String(3 * 1024 ** 3),
+    });
+  });
+
+  it("leaves a record the call itself finished with a result alone", async () => {
+    await admit(alice, JOB, NOON);
+    await execution("exec-1", "job_1", "failed");
+    await reconcileStaleBigQueryAgentJobs(
+      alice,
+      found(3 * 1024 ** 3),
+      new Date(NOON.getTime() + 120_000),
+    );
+    expect(await executionOf("exec-1")).toEqual({
+      status: "failed",
       code: null,
       billed: null,
     });
