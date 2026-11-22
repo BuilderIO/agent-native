@@ -237,7 +237,6 @@ export function useBuilderSourceReviewBatches(args: {
 
     void (async () => {
       try {
-        let listing: Promise<PreviewBuilderSourceReviewResponse> | null = null;
         if (!work.firstBatchLoaded) {
           const firstPages =
             scope === "all"
@@ -248,8 +247,9 @@ export function useBuilderSourceReviewBatches(args: {
               : [];
           let response: PreviewBuilderSourceReviewResponse;
           if (firstPages.length > 0) {
-            listing = listPages();
-            void listing.catch(() => undefined);
+            // The page listing loads every row of the source and holds up a
+            // request sent alongside it on the server, so it's asked for only
+            // once the first rows are in.
             response = await load({
               scope: "selected",
               documentIds: firstPages,
@@ -284,7 +284,7 @@ export function useBuilderSourceReviewBatches(args: {
           setSnapshot(snapshotOf(work, null));
         }
         if (!work.pagesListed) {
-          const response = await (listing ?? listPages());
+          const response = await listPages();
           if (isAborted()) return;
           const reviewed = new Set(work.firstPages);
           work.pagesListed = true;

@@ -120,17 +120,16 @@ afterEach(() => {
 });
 
 describe("useBuilderSourceReviewBatches", () => {
-  it("loads a whole source's changed pages while it finds the rest", async () => {
+  it("loads a whole source's changed pages before it finds the rest", async () => {
     const listing = deferred<PreviewBuilderSourceReviewResponse>();
+    const firstBatch = deferred<PreviewBuilderSourceReviewResponse>();
     callAction.mockImplementation(async (_name: string, params: Request) => {
       if (params.batchSize === 0) return listing.promise;
       const ids = params.documentIds ?? [];
       if (params.bodyComparison === "blocks") {
         return response([row("c3-blocks", "doc-3")]);
       }
-      if (ids.includes("doc-1")) {
-        return response([row("c1", "doc-1"), row("c2", "doc-2")]);
-      }
+      if (ids.includes("doc-1")) return firstBatch.promise;
       return response([row("c3", "doc-3")], {
         blocksCheckDocumentIds: ["doc-3"],
       });
@@ -149,13 +148,21 @@ describe("useBuilderSourceReviewBatches", () => {
     );
     await settle();
 
+    // The listing waits for the first rows, so it can't hold them up.
     expect(requests()).toEqual([
-      expect.objectContaining({ scope: "all", batchSize: 0 }),
       expect.objectContaining({
         scope: "selected",
         documentIds: ["doc-2", "doc-1"],
         bodyComparison: "text",
       }),
+    ]);
+    expect(latest.loadingFirstBatch).toBe(true);
+
+    firstBatch.resolve(response([row("c1", "doc-1"), row("c2", "doc-2")]));
+    await settle();
+
+    expect(requests().slice(1)).toEqual([
+      expect.objectContaining({ scope: "all", batchSize: 0 }),
     ]);
     expect(latest.loadingFirstBatch).toBe(false);
     expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
