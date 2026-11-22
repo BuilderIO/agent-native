@@ -501,7 +501,6 @@
     "create-attachment-upload",
     "create-scheduled-job",
     "create-scheduled-send",
-    "export-emails",
     "manage-automations",
     "manage-email-rules",
     "manage-gmail-filters",

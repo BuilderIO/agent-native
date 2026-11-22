@@ -13,7 +13,7 @@ export default defineAction({
       ),
   }),
   http: false,
-  mcpTool: "search",
+  mcpTool: false,
   run: async (args) => {
     const view = args.view ?? "inbox";
 

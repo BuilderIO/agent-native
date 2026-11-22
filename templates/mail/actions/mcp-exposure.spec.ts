@@ -19,11 +19,9 @@ vi.mock("../server/lib/queued-drafts.js", async (importOriginal) => ({
 }));
 
 const SERVED = [
-  "apply-ai-filter",
   "archive-email",
   "bulk-archive",
   "create-scheduled-job",
-  "export-emails",
   "find-contact",
   "get-hubspot-contact",
   "get-tracking",
@@ -62,6 +60,7 @@ const ALWAYS_APPROVED = [
 
 const IN_APP_ONLY = [
   "bootstrap-watches",
+  "export-emails",
   "get-mail-settings",
   "import-gmail-signature",
   "open-queued-draft",
@@ -76,11 +75,16 @@ const MINE = { ownerEmail: ME, requesterEmail: ME };
 const FOR_TEAMMATE = { ownerEmail: TEAMMATE, requesterEmail: ME };
 const FROM_TEAMMATE = { ownerEmail: ME, requesterEmail: TEAMMATE };
 
-const REACHES_SOMEONE_ELSE = [
+const MESSAGE = [{ id: "msg-1" }];
+
+const ASKS_FIRST = [
   ["queue-email-draft", { ...DRAFT, ownerEmail: TEAMMATE }, null],
   ["update-queued-draft", { id: "qd_1", ownerEmail: TEAMMATE }, MINE],
   ["update-queued-draft", { id: "qd_1", body: "New body" }, FOR_TEAMMATE],
   ["update-queued-draft", { id: "qd_1", to: "x@example.org" }, FROM_TEAMMATE],
+  ["update-queued-draft", { id: "qd_1", status: "dismissed" }, FOR_TEAMMATE],
+  ["update-queued-draft", { id: "qd_1", ownerEmail: ME }, FOR_TEAMMATE],
+  ["update-queued-draft", { id: "qd_1", accountEmail: ME }, FROM_TEAMMATE],
   [
     "manage-gmail-filters",
     { operation: "create", from: "news@example.org", forward: "x@example.org" },
@@ -95,17 +99,44 @@ const REACHES_SOMEONE_ELSE = [
   ],
   ["manage-email-rules", { action: "disable", id: "rule-1" }, null],
   ["manage-email-rules", { action: "delete", id: "rule-1" }, null],
+  [
+    "apply-ai-filter",
+    { mode: "settings", settings: { autoFilter: true } },
+    null,
+  ],
+  [
+    "apply-ai-filter",
+    { mode: "settings", settings: { autoFilterThreshold: 0.5 } },
+    null,
+  ],
+  [
+    "apply-ai-filter",
+    { mode: "filter", targets: MESSAGE, comment: "Recruiter outreach" },
+    null,
+  ],
 ] as const;
 
-const STAYS_WITH_THE_USER = [
+const RUNS_WITHOUT_ASKING = [
   ["queue-email-draft", { ...DRAFT, ownerEmail: " Me@Example.com " }, null],
   ["update-queued-draft", { id: "qd_1", body: "New body" }, MINE],
   ["update-queued-draft", { id: "qd_1", ownerEmail: ME, to: "x@y.org" }, MINE],
-  ["update-queued-draft", { id: "qd_1", status: "dismissed" }, FOR_TEAMMATE],
   ["update-queued-draft", { id: "qd_1", body: "New body" }, null],
+  ["update-queued-draft", { id: "qd_1", status: "dismissed" }, MINE],
   ["manage-gmail-filters", { operation: "list" }, null],
   ["manage-gmail-filters", { operation: "get", id: "filter-1" }, null],
   ["manage-email-rules", { action: "list" }, null],
+  ["apply-ai-filter", { mode: "filter", targets: MESSAGE }, null],
+  [
+    "apply-ai-filter",
+    { mode: "filter", targets: MESSAGE, comment: "  " },
+    null,
+  ],
+  [
+    "apply-ai-filter",
+    { mode: "keep", targets: MESSAGE, comment: "From my manager" },
+    null,
+  ],
+  ["apply-ai-filter", { mode: "settings" }, null],
 ] as const;
 
 type Exposure = {
@@ -168,7 +199,7 @@ describe("Mail actions over MCP", () => {
     },
   );
 
-  it.each(REACHES_SOMEONE_ELSE)(
+  it.each(ASKS_FIRST)(
     "asks an outside agent before %s with %o",
     async (name, args, draft) => {
       stored.draft = draft;
@@ -182,7 +213,7 @@ describe("Mail actions over MCP", () => {
     },
   );
 
-  it.each(STAYS_WITH_THE_USER)(
+  it.each(RUNS_WITHOUT_ASKING)(
     "lets an outside agent call %s without asking for %o",
     async (name, args, draft) => {
       stored.draft = draft;

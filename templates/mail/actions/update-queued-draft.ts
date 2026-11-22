@@ -44,14 +44,6 @@ export default defineAction({
     ) {
       return true;
     }
-    const { to, cc, bcc, subject, body, context } = args;
-    if (
-      [to, cc, bcc, subject, body, context].every(
-        (field) => field === undefined,
-      )
-    ) {
-      return false;
-    }
     const draft = await getQueuedDraft(args.id);
     return (
       draft !== null && (draft.ownerEmail !== me || draft.requesterEmail !== me)
