@@ -515,6 +515,8 @@ export async function getReviewDiscussionStateForComments(
   return { reactions, threadPreferences };
 }
 
+const REACTORS_PER_STATEMENT = 1_000;
+
 /**
  * Who reacted to each comment, by reaction, in the order they reacted. Every
  * comment asked about has an entry, empty when no one reacted.
@@ -528,19 +530,22 @@ export async function listReviewCommentReactors(
   );
   if (!ids.length) return {};
   await ensureReviewTables();
-  // raw-sql-ok: the IN list is placeholders only; every value is bound.
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT comment_id,reaction,actor_email FROM agent_review_comment_reactions WHERE comment_id IN (${ids.map(() => "?").join(",")}) ORDER BY comment_id,created_at,actor_email`,
-    args: ids,
-  });
-  for (const row of rows) {
-    const byReaction = reactors.get(String(row.comment_id));
-    if (!byReaction) continue;
-    const reaction = String(row.reaction);
-    byReaction.set(reaction, [
-      ...(byReaction.get(reaction) ?? []),
-      String(row.actor_email),
-    ]);
+  for (let start = 0; start < ids.length; start += REACTORS_PER_STATEMENT) {
+    const batch = ids.slice(start, start + REACTORS_PER_STATEMENT);
+    // raw-sql-ok: the IN list is placeholders only; every value is bound.
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT comment_id,reaction,actor_email FROM agent_review_comment_reactions WHERE comment_id IN (${batch.map(() => "?").join(",")}) ORDER BY comment_id,created_at,actor_email`,
+      args: batch,
+    });
+    for (const row of rows) {
+      const byReaction = reactors.get(String(row.comment_id));
+      if (!byReaction) continue;
+      const reaction = String(row.reaction);
+      byReaction.set(reaction, [
+        ...(byReaction.get(reaction) ?? []),
+        String(row.actor_email),
+      ]);
+    }
   }
   return Object.fromEntries(
     [...reactors].map(([id, byReaction]) => [

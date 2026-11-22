@@ -1712,6 +1712,46 @@ describe("video comments through a doc", () => {
       expect(state.notified).toEqual([]);
     });
 
+    it("refuses a key sent before comments moved to the kit once its comment is deleted", async () => {
+      await state.db.insert(schema.recordingComments).values({
+        id: "deleted-before",
+        recordingId: "rec-upload",
+        organizationId: "clips-org",
+        threadId: "deleted-before",
+        authorEmail: READER,
+        content: "Once",
+        videoTimestampMs: 2_500,
+        idempotencyKey: KEY,
+        createdAt: "2026-11-20T00:00:00.000Z",
+        updatedAt: "2026-11-20T00:00:00.000Z",
+      });
+      await seedComment("deleted-before", {
+        authorEmail: READER,
+        content: "Once",
+        videoTimestampMs: 2_500,
+      });
+      const write = await token({ scope: SCOPES.comment });
+
+      const deleted = await writeComment("rec-upload", write, {
+        operation: "delete",
+        commentId: "deleted-before",
+      });
+      expect(deleted.status).toBe(200);
+      const again = await writeComment("rec-upload", write, add, keyed());
+      expect(again.status).toBe(409);
+      expect(again.body).toMatchObject({
+        code: CONTENT_CLIP_COMMENT_KEY_USED,
+      });
+      expect(await idsStored()).toEqual([
+        { id: "deleted-before", author_email: READER },
+      ]);
+      expect(state.notified).toEqual([]);
+      const { rows: old } = await client.query(
+        "SELECT content, idempotency_key FROM recording_comments WHERE id = 'deleted-before'",
+      );
+      expect(old).toEqual([{ content: "", idempotency_key: KEY }]);
+    });
+
     it("saves a reply once", async () => {
       await seedComment("owner-comment");
       const write = await token({ scope: SCOPES.comment });

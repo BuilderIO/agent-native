@@ -117,10 +117,17 @@ export async function guardRecordingCommentWrite(
         start,
         start + OLD_COPIES_DELETED_PER_STATEMENT,
       );
-      // guard:allow-unscoped — the kit checked the deleter's access before its write hook runs; this removes those comments' copies from before the switch.
+      // guard:allow-unscoped — the kit checked the deleter's access before its write hook runs; this empties those comments' copies from before the switch, keeping a key so its resend is still refused.
+      await tx.execute(sql`UPDATE recording_comments
+          SET content = '', mentions_json = NULL, emoji_reactions_json = '{}'
+          WHERE recording_id = ${sql.value(event.resourceId)}
+            AND id IN ${sql.in(ids)}
+            AND idempotency_key IS NOT NULL`);
+      // guard:allow-unscoped — the kit checked the deleter's access before its write hook runs; this removes those comments' copies from before the switch that hold no key.
       await tx.execute(sql`DELETE FROM recording_comments
           WHERE recording_id = ${sql.value(event.resourceId)}
-            AND id IN ${sql.in(ids)}`);
+            AND id IN ${sql.in(ids)}
+            AND idempotency_key IS NULL`);
     }
     return;
   }

@@ -451,7 +451,7 @@ describe("Clips comments in the review kit", () => {
     }
   });
 
-  it("deletes a comment's copy from before the switch along with it", async () => {
+  it("deletes a comment's copy from before the switch along with it, emptying one that holds a key", async () => {
     await createRecording("rec-old-copies");
     const { getDb, schema } = dbModule;
     await getDb()
@@ -461,6 +461,14 @@ describe("Clips comments in the review kit", () => {
           { id: "old-root", threadId: "old-root", parentId: null },
           { id: "old-reply", threadId: "old-root", parentId: "old-root" },
           { id: "old-kept", threadId: "old-kept", parentId: null },
+          {
+            id: "old-keyed",
+            threadId: "old-keyed",
+            parentId: null,
+            idempotencyKey: "content-key",
+            mentionsJson: JSON.stringify([{ email: MEMBER, name: "Member" }]),
+            emojiReactionsJson: JSON.stringify({ "🎉": [MEMBER] }),
+          },
         ].map((row) => ({
           ...row,
           recordingId: "rec-old-copies",
@@ -482,7 +490,7 @@ describe("Clips comments in the review kit", () => {
       (await clipsRows("rec-old-copies")).map((row) => row.id).sort();
 
     await as(OWNER, () => deleteComment.run({ id: "old-reply" }));
-    expect(await oldIds()).toEqual(["old-kept", "old-root"]);
+    expect(await oldIds()).toEqual(["old-kept", "old-keyed", "old-root"]);
     await as(OWNER, () =>
       (deleteReviewComment as Runnable).run(
         {
@@ -493,8 +501,44 @@ describe("Clips comments in the review kit", () => {
         { userEmail: OWNER, orgId: ORG, caller: "frontend" },
       ),
     );
-    expect(await oldIds()).toEqual(["old-kept"]);
+    expect(await oldIds()).toEqual(["old-kept", "old-keyed"]);
     expect(await stored("old-root")).toMatchObject({ status: "deleted" });
+    await as(OWNER, () => deleteComment.run({ id: "old-keyed" }));
+    const left = await clipsRowsInFull("rec-old-copies");
+    expect(
+      left
+        .map(
+          ({
+            id,
+            content,
+            idempotencyKey,
+            mentionsJson,
+            emojiReactionsJson,
+          }) => ({
+            id,
+            content,
+            idempotencyKey,
+            mentionsJson,
+            emojiReactionsJson,
+          }),
+        )
+        .sort((a, b) => (a.id < b.id ? -1 : 1)),
+    ).toEqual([
+      {
+        id: "old-kept",
+        content: "Written as old-kept",
+        idempotencyKey: null,
+        mentionsJson: null,
+        emojiReactionsJson: "{}",
+      },
+      {
+        id: "old-keyed",
+        content: "",
+        idempotencyKey: "content-key",
+        mentionsJson: null,
+        emojiReactionsJson: "{}",
+      },
+    ]);
   });
 
   it("adds the comments the kit lacks once, links replies saved without a parent, and changes nothing else", async () => {

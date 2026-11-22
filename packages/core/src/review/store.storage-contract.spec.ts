@@ -319,6 +319,14 @@ describe.sequential("the review kit's storage contract", () => {
       none: {},
     });
     expect(await listReviewCommentReactors([])).toEqual({});
+    const unreacted = Array.from({ length: 1_000 }, (_, n) => `none-${n}`);
+    const asked = await listReviewCommentReactors([...unreacted, first.id]);
+    expect(Object.keys(asked)).toHaveLength(1_001);
+    expect(asked[first.id]).toEqual({
+      "+1": [OWNER, VIEWER],
+      party: [OWNER],
+      constructor: [VIEWER],
+    });
   });
 
   it("drops the reactions of every comment a delete takes", async () => {
