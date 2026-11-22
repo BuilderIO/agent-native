@@ -18,6 +18,7 @@ export function useFeatureFlag(key: string): boolean {
     { enabled: status === "authenticated" },
   );
   if (RETIRED_ENABLED_FLAG_KEYS.has(key)) return true;
+  if (query.isError) return false;
   return featureFlagValue(evaluatedFeatureFlagValues(query.data), key);
 }
 
@@ -69,8 +70,7 @@ export function useFeatureFlagState(
   if (status !== "authenticated") {
     return { status: "unavailable", enabled: false };
   }
-  if (options?.freshOnMount && query.isError)
-    return { status: "unavailable", enabled: false };
+  if (query.isError) return { status: "unavailable", enabled: false };
   if (options?.freshOnMount && !query.isFetchedAfterMount)
     return { status: "loading", enabled: false };
   if (query.data !== undefined) {
@@ -79,7 +79,6 @@ export function useFeatureFlagState(
       enabled: featureFlagValue(evaluatedFeatureFlagValues(query.data), key),
     };
   }
-  if (query.isError) return { status: "unavailable", enabled: false };
   return { status: "loading", enabled: false };
 }
 
@@ -90,5 +89,5 @@ export function useFeatureFlags(): Record<string, boolean> {
     undefined,
     { enabled: status === "authenticated" },
   );
-  return evaluatedFeatureFlagValues(query.data);
+  return query.isError ? {} : evaluatedFeatureFlagValues(query.data);
 }
