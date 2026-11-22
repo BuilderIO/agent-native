@@ -10,6 +10,10 @@ vi.mock("./auth.js", async (original) => ({
   getSession: vi.fn(async () => null),
 }));
 
+import {
+  getWorkspaceConnectionOAuth,
+  listWorkspaceConnectionProviders,
+} from "../connections/catalog.js";
 import { createCoreRoutesPlugin } from "./core-routes-plugin.js";
 import { WORKSPACE_PROVIDER_OAUTH_PROVIDERS } from "./workspace-provider-oauth.js";
 
@@ -41,7 +45,13 @@ describe("workspace provider OAuth routes", () => {
       return next();
     });
 
-    for (const provider of WORKSPACE_PROVIDER_OAUTH_PROVIDERS) {
+    const providers = new Set([
+      ...WORKSPACE_PROVIDER_OAUTH_PROVIDERS,
+      ...listWorkspaceConnectionProviders()
+        .filter((provider) => getWorkspaceConnectionOAuth(provider))
+        .map((provider) => provider.id),
+    ]);
+    for (const provider of providers) {
       for (const phase of ["start", "callback"] as const) {
         const response = await app.fetch(
           new Request(
