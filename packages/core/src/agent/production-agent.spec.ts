@@ -10447,6 +10447,10 @@ describe("createProductionAgentHandler", () => {
     }));
     let inFlight = 0;
     let maxInFlight = 0;
+    let releaseBatch: (() => void) | undefined;
+    const batchBarrier = new Promise<void>((resolve) => {
+      releaseBatch = resolve;
+    });
     const listSpy = vi
       .spyOn(resourceStore, "resourceListAccessible")
       .mockResolvedValue(resources);
@@ -10455,9 +10459,15 @@ describe("createProductionAgentHandler", () => {
       .mockImplementation(async (id: string) => {
         inFlight += 1;
         maxInFlight = Math.max(maxInFlight, inFlight);
-        await new Promise((r) => setTimeout(r, 10));
+        if (inFlight === 4) {
+          releaseBatch?.();
+        }
+        await batchBarrier;
         inFlight -= 1;
-        const meta = resources.find((entry) => entry.id === id)!;
+        const meta = resources.find((entry) => entry.id === id);
+        if (!meta) {
+          throw new Error(`Unexpected resource id: ${id}`);
+        }
         return {
           ...meta,
           content: `---\nname: ${id}\ndescription: Desc ${id}\n---\nBody`,

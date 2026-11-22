@@ -16897,7 +16897,8 @@ export function createProductionAgentHandler(
                 await Promise.all(
                   Array.from({ length: concurrency }, async () => {
                     while (nextIndex < detailResources.length) {
-                      const item = detailResources[nextIndex++]!;
+                      const item = detailResources.at(nextIndex++);
+                      if (!item) break;
                       const full = await resourceGet(item.id, resourceOpts);
                       fullById.set(item.id, full);
                     }
