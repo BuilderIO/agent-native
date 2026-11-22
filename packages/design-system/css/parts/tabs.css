@@ -55,11 +55,11 @@
   }
 
   :is(.tabs-list, .tab-nav-list)[data-justify="center"] {
-    justify-content: center;
+    justify-content: safe center;
   }
 
   :is(.tabs-list, .tab-nav-list)[data-justify="end"] {
-    justify-content: flex-end;
+    justify-content: safe flex-end;
   }
 
   :is(.tabs-list, .tab-nav-list)[data-wrap="wrap"] {
@@ -75,6 +75,10 @@
     align-items: stretch;
     overflow: visible;
     box-shadow: inset -1px 0 0 0 var(--line-subtle);
+  }
+
+  .tabs-list[data-orientation="vertical"]:dir(rtl) {
+    box-shadow: inset 1px 0 0 0 var(--line-subtle);
   }
 
   :is(.tabs-tab, .tab-nav-link) {
@@ -168,9 +172,10 @@
   }
 
   .tabs-indicator {
+    bottom: var(--active-tab-bottom);
     left: var(--active-tab-left);
     width: var(--active-tab-width);
-    transition-property: left, width, top, height;
+    transition-property: left, bottom, width, top, height;
     transition-duration: var(--duration-2);
     transition-timing-function: var(--ease-standard);
   }
@@ -178,8 +183,8 @@
   .tabs-list[data-orientation="vertical"] .tabs-indicator {
     top: var(--active-tab-top);
     bottom: auto;
-    left: auto;
-    right: 0;
+    inset-inline-start: auto;
+    inset-inline-end: 0;
     width: 2px;
     height: var(--active-tab-height);
   }
@@ -187,6 +192,19 @@
   .tabs-list[data-high-contrast] .tabs-indicator,
   .tab-nav-list[data-high-contrast] .tab-nav-link[aria-current="page"]::after {
     background-color: var(--accent-12);
+  }
+
+  @media (forced-colors: active) {
+    .tabs-indicator,
+    .tab-nav-link[aria-current="page"]::after {
+      box-sizing: border-box;
+      border-block-end: 2px solid Highlight;
+    }
+
+    .tabs-list[data-orientation="vertical"] .tabs-indicator {
+      border-block-end: 0;
+      border-inline-end: 2px solid Highlight;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -203,5 +221,96 @@
   .tabs-panel:focus-visible {
     outline: var(--focus-ring-width) solid var(--line-focus);
     outline-offset: var(--focus-ring-offset);
+  }
+}
+
+@layer components {
+  .tabs[data-variant="framed"][data-orientation="horizontal"] {
+    --_frame: var(
+      --tabs-frame-surface,
+      var(--_tabs-default-frame, var(--surface-raised))
+    );
+    --_tab-radius: calc(var(--radius-2) * var(--corner-scale, 1));
+    --_shoulder: calc(var(--radius-1) * var(--corner-scale, 1));
+    gap: 0;
+    min-inline-size: 0;
+
+    > .tabs-list {
+      --_tabs-tab-height: var(--control-height-3);
+      --_tabs-tab-tint-height: var(--control-height-2);
+      --_rail-inset: calc(
+        (var(--control-height-4) - var(--_tabs-tab-height)) / 2
+      );
+      flex: none;
+      flex-wrap: nowrap;
+      padding-block: var(--_rail-inset);
+      padding-inline: var(--space-1);
+      background: var(--tabs-frame-rail, var(--gray-4));
+      box-shadow: inset 0 calc(-1 * var(--_rail-inset)) var(--_frame);
+      border-start-start-radius: var(--_tab-radius);
+      border-start-end-radius: var(--_tab-radius);
+      corner-shape: var(--corner-shape, round);
+    }
+
+    > .tabs-list > .tabs-tab {
+      min-inline-size: var(--_tabs-tab-height);
+    }
+
+    > .tabs-list > .tabs-tab::before {
+      border-radius: var(--_tab-radius);
+    }
+
+    > .tabs-panel,
+    > .tabs-list > .tabs-tab[data-active] {
+      background-color: var(--_frame);
+    }
+
+    > .tabs-panel[inert],
+    > .tabs-list > .tabs-indicator {
+      display: none;
+    }
+
+    > .tabs-list > .tabs-tab[data-active] {
+      z-index: 1;
+      border-radius: var(--_tab-radius) var(--_tab-radius) 0 0;
+      corner-shape: var(--corner-shape, round);
+    }
+
+    /* The two outside corners end flush with the panel. */
+    > .tabs-list > .tabs-tab[data-active]::after {
+      content: "";
+      position: absolute;
+      pointer-events: none;
+      inset-inline: calc(-1 * var(--_shoulder));
+      bottom: 0;
+      height: var(--_shoulder);
+      background:
+        radial-gradient(
+            circle var(--_shoulder) at top left,
+            transparent calc(100% - 0.5px),
+            var(--_frame) calc(100% + 0.5px)
+          )
+          left bottom / var(--_shoulder) 100% no-repeat,
+        radial-gradient(
+            circle var(--_shoulder) at top right,
+            transparent calc(100% - 0.5px),
+            var(--_frame) calc(100% + 0.5px)
+          )
+          right bottom / var(--_shoulder) 100% no-repeat;
+    }
+
+    > .tabs-list > .tabs-tab[data-active]::before {
+      background-color: transparent;
+    }
+
+    @media (forced-colors: active) {
+      > .tabs-list > .tabs-tab[data-active]::after {
+        inset: 0;
+        height: auto;
+        background: none;
+        border-radius: inherit;
+        border-block-start: 2px solid Highlight;
+      }
+    }
   }
 }

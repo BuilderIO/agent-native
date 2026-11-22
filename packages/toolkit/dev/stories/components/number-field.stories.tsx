@@ -5,7 +5,10 @@ import {
 } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { IconAngle } from "@tabler/icons-react";
+import { useState } from "react";
+import { expect } from "storybook/test";
 
+import { Button } from "../../../src/ui/base-ui/button.js";
 import { Field, FieldLabel } from "../../../src/ui/base-ui/field.js";
 import { InputSlot } from "../../../src/ui/base-ui/input.js";
 import {
@@ -16,6 +19,7 @@ import {
 } from "../../../src/ui/base-ui/number-field.js";
 import { VisuallyHidden } from "../../../src/ui/base-ui/visually-hidden.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./number-field.docs.md?raw";
 
 const controls = propControls(numberFieldProps);
 
@@ -24,7 +28,7 @@ const VARIANTS = numberFieldProps.variant.values;
 const meta = {
   title: "Components/Number Field",
   component: NumberField,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: {
     ...controls.args,
     "aria-label": "Quantity",
@@ -153,9 +157,7 @@ export const States: Story = {
 };
 
 /**
- * An inspector's fields: each label is a scrub area, so dragging X, Y, W
- * or H sideways changes the value a step per two pixels, with Shift for
- * ten. Arrow keys step the focused field the same way.
+ * Drag the width horizontally or the height vertically. Arrow keys step the focused field.
  */
 export const WithScrubArea: Story = {
   render: () => (
@@ -174,7 +176,11 @@ export const WithScrubArea: Story = {
           defaultValue={value}
           {...(min === undefined ? {} : { min })}
         >
-          <NumberFieldScrubArea>{label}</NumberFieldScrubArea>
+          <NumberFieldScrubArea
+            direction={label === "H" ? "vertical" : "horizontal"}
+          >
+            {label}
+          </NumberFieldScrubArea>
         </NumberField>
       ))}
       <NumberField
@@ -236,4 +242,35 @@ export const Formats: Story = {
       </Field>
     </div>
   ),
+};
+
+function LockableWidth() {
+  const [locked, setLocked] = useState(true);
+  return (
+    <fieldset disabled={locked}>
+      <legend>
+        <Button onClick={() => setLocked(!locked)}>
+          {locked ? "Unlock size" : "Lock size"}
+        </Button>
+      </legend>
+      <NumberField defaultValue={40}>
+        <NumberFieldScrubArea>Width</NumberFieldScrubArea>
+      </NumberField>
+    </fieldset>
+  );
+}
+export const DisabledFieldset: Story = {
+  render: () => <LockableWidth />,
+  play: async ({ canvas, userEvent }) => {
+    const input = canvas.getByRole("textbox", { name: "Width" });
+    await expect(input).toBeDisabled();
+    const label = canvas.getByText("Width", { exact: true });
+    await userEvent.pointer({ target: label, keys: "[MouseLeft>]" });
+    await expect(label.parentElement).not.toHaveAttribute("data-scrubbing");
+    await userEvent.pointer({ keys: "[/MouseLeft]" });
+    await userEvent.click(canvas.getByRole("button", { name: "Unlock size" }));
+    await expect(input).toBeEnabled();
+    await userEvent.click(canvas.getByRole("button", { name: "Lock size" }));
+    await expect(input).toBeDisabled();
+  },
 };

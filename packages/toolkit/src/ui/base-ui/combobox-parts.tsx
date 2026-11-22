@@ -5,14 +5,52 @@ import {
 import { Combobox as BaseCombobox } from "@base-ui/react/combobox";
 import * as React from "react";
 
-import { cn } from "../../utils.js";
+import { inheritedName, type AccessibleName } from "./accessible-name.js";
+import { IconButton } from "./button.js";
+import { scopePortal } from "./overlay-scope.js";
 import { partClassName } from "./part-class.js";
 import { splitPositionerProps } from "./positioning.js";
 import { splitProps } from "./props.js";
 
+export const listboxIconButton = (
+  <IconButton size="sm" variant="ghost" color="gray" />
+);
+
+export function listboxActionName(
+  children: React.ReactNode,
+  props: AccessibleName & { title?: string | undefined },
+  fallback: string,
+  render:
+    | BaseCombobox.Trigger.Props["render"]
+    | BaseCombobox.Clear.Props["render"],
+) {
+  if (
+    props["aria-label"] !== undefined ||
+    props["aria-labelledby"] !== undefined ||
+    props.title !== undefined
+  )
+    return undefined;
+  if (render === listboxIconButton && children == null)
+    return { "aria-label": fallback };
+  const label = React.isValidElement<{ children?: React.ReactNode }>(render)
+    ? (render.props.children ?? children)
+    : children;
+  // A standalone trigger has role="combobox", which needs an author-provided name.
+  // A fallback title lets a composed button supply its own text, title or ARIA name.
+  return {
+    title: typeof label === "string" && label.trim() ? label : fallback,
+  };
+}
+
+const ComboboxPortal = scopePortal(BaseCombobox.Portal);
+
 type PopupDefs = typeof comboboxPopupProps;
 
 interface ListboxRoot {
+  name: AccessibleName;
+  actionsRef: React.RefObject<BaseCombobox.Root.Actions | null>;
+  closeRequests: React.RefObject<number>;
+  positionerRef: React.RefObject<HTMLDivElement | null>;
   size: string | undefined;
   setSize: (size: string | undefined) => void;
   inline: boolean;
@@ -32,16 +70,35 @@ function useListboxRoot(): ListboxRoot {
 
 /** The root's context: its root element renders nothing to hang a size on. */
 export function ListboxRootProvider({
+  "aria-label": label,
+  "aria-labelledby": labelledBy,
+  actionsRef,
+  closeRequests,
+  positionerRef,
   inline,
   children,
 }: {
+  actionsRef: ListboxRoot["actionsRef"];
+  closeRequests: ListboxRoot["closeRequests"];
+  positionerRef: ListboxRoot["positionerRef"];
   inline: boolean | undefined;
   children: React.ReactNode;
-}) {
+} & AccessibleName) {
   const [size, setSize] = React.useState<string | undefined>(undefined);
   const value = React.useMemo(
-    () => ({ size, setSize, inline: inline === true }),
-    [size, inline],
+    () => ({
+      size,
+      setSize,
+      name: {
+        ...(label === undefined ? {} : { "aria-label": label }),
+        ...(labelledBy === undefined ? {} : { "aria-labelledby": labelledBy }),
+      },
+      inline: inline === true,
+      actionsRef,
+      closeRequests,
+      positionerRef,
+    }),
+    [size, inline, actionsRef, closeRequests, positionerRef, label, labelledBy],
   );
   return (
     <ListboxRootContext.Provider value={value}>
@@ -50,12 +107,63 @@ export function ListboxRootProvider({
   );
 }
 
+export function useListboxOpenChange<
+  Details extends {
+    event: Event;
+    isCanceled: boolean;
+    preventUnmountOnClose(): void;
+  },
+>(
+  listener: ((open: boolean, details: Details) => void) | undefined,
+  actionsRef: ListboxRoot["actionsRef"],
+) {
+  const closeRequests = React.useRef(0);
+  const positionerRef = React.useRef<HTMLDivElement>(null);
+  const onOpenChange = React.useCallback(
+    (open: boolean, details: Details) => {
+      if (!open) closeRequests.current++;
+      const { event } = details;
+      const positioner = positionerRef.current;
+      const win = positioner?.ownerDocument.defaultView;
+      if (
+        open ||
+        event.type !== "keydown" ||
+        !("key" in event) ||
+        (event.key !== "Enter" && event.key !== "Escape") ||
+        !win ||
+        !(event.target instanceof win.HTMLInputElement) ||
+        !positioner.contains(event.target)
+      ) {
+        listener?.(open, details);
+        return;
+      }
+      let held = false;
+      const hold = details.preventUnmountOnClose;
+      details.preventUnmountOnClose = () => {
+        held = true;
+        hold();
+      };
+      listener?.(false, details);
+      if (held || details.isCanceled) return;
+      // An unconsumed Enter can activate the trigger when focus returns.
+      event.preventDefault();
+      actionsRef.current?.unmount();
+    },
+    [actionsRef, listener],
+  );
+  return { closeRequests, positionerRef, onOpenChange };
+}
+
 /** The input reports its size so the popup's rows can match it. */
-export function useReportInputSize(size: string | undefined) {
-  const { setSize } = useListboxRoot();
+export function useListboxInput(
+  size: string | undefined,
+  props: AccessibleName,
+) {
+  const { setSize, name } = useListboxRoot();
   React.useLayoutEffect(() => {
     setSize(size);
   }, [setSize, size]);
+  return inheritedName(name, props);
 }
 
 type PositionerProps = Pick<
@@ -74,13 +182,9 @@ type PositionerProps = Pick<
   | "positionMethod"
 >;
 
-export type ListboxPopupProps = Omit<
-  BaseCombobox.Popup.Props,
-  "className" | "color"
-> &
+export type ListboxPopupProps = Omit<BaseCombobox.Popup.Props, "color"> &
   PositionerProps &
   PropsOf<PopupDefs> & {
-    className?: string;
     /** Portal target. */
     container?: BaseCombobox.Portal.Props["container"];
   };
@@ -98,10 +202,69 @@ export function createListboxPopup(
         props,
       );
       const [positioner, popup] = splitPositionerProps(rest);
-      const { size } = useListboxRoot();
+      const { size, actionsRef, closeRequests, positionerRef } =
+        useListboxRoot();
+      const watchWindow = React.useCallback(
+        (node: HTMLDivElement | null) => {
+          if (!node) return;
+          const doc = node.ownerDocument;
+          const win = doc.defaultView;
+          if (!win) return;
+          positionerRef.current = node;
+          let frame: number | undefined;
+          const onTab = (event: KeyboardEvent) => {
+            if (event.key !== "Tab" || event.defaultPrevented) return;
+            const input = event.composedPath()[0];
+            if (
+              !(input instanceof win.HTMLInputElement) ||
+              node.contains(input)
+            )
+              return;
+            const listId = input.getAttribute("aria-controls");
+            if (!listId || !node.querySelector("#" + win.CSS.escape(listId)))
+              return;
+            const requests = closeRequests.current;
+            if (frame !== undefined) win.cancelAnimationFrame(frame);
+            frame = win.requestAnimationFrame(() => {
+              frame = undefined;
+              const next = doc.activeElement;
+              // Base UI can suppress focus-out immediately after a click. Respect a host
+              // that already received the dismissal and chose to keep its popup open.
+              if (
+                requests === closeRequests.current &&
+                node.hasAttribute("data-open") &&
+                next &&
+                !input.closest(".input")?.contains(next) &&
+                !node.contains(next) &&
+                next.closest('[aria-hidden="true"]')
+              )
+                actionsRef.current?.close();
+            });
+          };
+          const leaveDocument = () => {
+            // Tab into browser chrome has no relatedTarget for Base UI's focus-out handler.
+            if (
+              doc.activeElement === doc.body &&
+              node.hasAttribute("data-open")
+            ) {
+              actionsRef.current?.close();
+            }
+          };
+          win.addEventListener("blur", leaveDocument);
+          doc.addEventListener("keydown", onTab);
+          return () => {
+            if (positionerRef.current === node) positionerRef.current = null;
+            win.removeEventListener("blur", leaveDocument);
+            doc.removeEventListener("keydown", onTab);
+            if (frame !== undefined) win.cancelAnimationFrame(frame);
+          };
+        },
+        [actionsRef, closeRequests, positionerRef],
+      );
       return (
-        <BaseCombobox.Portal container={container}>
+        <ComboboxPortal container={container}>
           <BaseCombobox.Positioner
+            ref={watchWindow}
             className={`${part}-positioner`}
             align="start"
             sideOffset={4}
@@ -112,10 +275,10 @@ export function createListboxPopup(
               {...popup}
               {...attributes}
               data-size={size}
-              className={cn(`${part}-popup`, className)}
+              className={partClassName(`${part}-popup`, className)}
             />
           </BaseCombobox.Positioner>
-        </BaseCombobox.Portal>
+        </ComboboxPortal>
       );
     },
   );
@@ -132,20 +295,22 @@ export function createListboxList(
   defs: PopupDefs,
   displayName: string,
 ) {
-  const List = React.forwardRef<HTMLDivElement, BaseCombobox.List.Props>(
-    ({ className, ...props }, ref) => {
-      const { inline, size } = useListboxRoot();
-      const [attributes] = splitProps(defs, {});
-      return (
-        <BaseCombobox.List
-          ref={ref}
-          {...props}
-          {...(inline ? { ...attributes, "data-size": size } : {})}
-          className={partClassName(`${part}-list`, className)}
-        />
-      );
-    },
-  );
+  const List = React.forwardRef<
+    HTMLDivElement,
+    Omit<BaseCombobox.List.Props, "color"> & PropsOf<PopupDefs>
+  >((listProps, ref) => {
+    const { inline, size, name } = useListboxRoot();
+    const [attributes, { className, ...props }] = splitProps(defs, listProps);
+    return (
+      <BaseCombobox.List
+        ref={ref}
+        {...props}
+        {...inheritedName(name, props)}
+        {...(inline ? { ...attributes, "data-size": size } : {})}
+        className={partClassName(`${part}-list`, className)}
+      />
+    );
+  });
   List.displayName = displayName;
   return List;
 }

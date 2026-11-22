@@ -5,9 +5,11 @@ import {
 import * as React from "react";
 
 import { cn } from "../../utils.js";
+import { isComposingKey } from "../is-composing-key.js";
 import { Button } from "./button.js";
 import { useControlledValue } from "./controlled-value.js";
 import { NumberField } from "./number-field.js";
+import { observeFieldsetDisabled } from "./observe-fieldset-disabled.js";
 import { Popover, PopoverPopup, PopoverTrigger } from "./popover.js";
 import { splitProps } from "./props.js";
 import {
@@ -17,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./select.js";
+import { activeElementInRoot } from "./surface-target.js";
 
 /** A grid's tracks: `rows` is `"auto"` when rows are added as content needs them. */
 export interface GridSize {
@@ -64,6 +67,7 @@ const DEFAULT_LABELS: GridSizePickerLabels = {
 
 const MATRIX_COLUMNS = 12;
 const MATRIX_ROWS = 8;
+const TRACK_FORMAT: Intl.NumberFormatOptions = { maximumFractionDigits: 0 };
 const DEFAULT_VALUE: GridSize = { columns: 2, rows: "auto" };
 
 interface Corner {
@@ -117,22 +121,51 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
       defaultValue,
       onValueChange,
     );
-    const [open, setOpen] = React.useState(false);
+    const [openTrigger, setOpenTrigger] = React.useState<Element | null>(null);
+    React.useLayoutEffect(() => {
+      if (!openTrigger) return;
+      if (rest.disabled || openTrigger.matches(":disabled")) {
+        setOpenTrigger(null);
+        return;
+      }
+      const win = openTrigger.ownerDocument.defaultView;
+      if (!win || !openTrigger.closest("fieldset")) return;
+      const observer = new win.MutationObserver(() => {
+        if (openTrigger.matches(":disabled")) setOpenTrigger(null);
+      });
+      observeFieldsetDisabled(openTrigger, observer);
+      return () => observer.disconnect();
+    }, [openTrigger, rest.disabled]);
+    // A portal can still receive an event before the fieldset observer runs.
+    const canEdit = () =>
+      openTrigger !== null &&
+      !openTrigger.matches(":disabled") &&
+      !rest.disabled;
+    const commit = (next: GridSize) => {
+      if (canEdit()) setValue(next);
+    };
     const [preview, setPreview] = React.useState<Corner | null>(null);
     const [cursor, setCursor] = React.useState<Corner>(() => cornerOf(value));
-    const [fixedRows, setFixedRows] = React.useState(
-      value.rows === "auto" ? 1 : value.rows,
-    );
+    const fixedRows = React.useRef(value.rows === "auto" ? 1 : value.rows);
+    React.useEffect(() => {
+      if (value.rows !== "auto") fixedRows.current = value.rows;
+    }, [value.rows]);
     const cells = React.useRef(new Map<string, HTMLDivElement>());
+
+    const { columns, rows } = value;
+    React.useLayoutEffect(() => {
+      const corner = cornerOf({ columns, rows });
+      const cell = cells.current.get(`${corner.row}-${corner.column}`);
+      if (!cell) return;
+      const grid = cell.closest('[role="grid"]');
+      if (grid?.contains(activeElementInRoot(cell)))
+        cell.focus({ preventScroll: true });
+      setCursor(corner);
+      setPreview(null);
+    }, [columns, rows]);
 
     const format = (columns: number, rows: number | "auto") =>
       `${columns} × ${rows === "auto" ? labels.auto : rows}`;
-
-    const commit = (next: GridSize) => {
-      if (next.rows !== "auto") setFixedRows(next.rows);
-      setCursor(cornerOf(next));
-      setValue(next);
-    };
 
     const moveTo = (corner: Corner) => {
       setCursor(corner);
@@ -141,12 +174,36 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
     };
 
     const onCellKeyDown = (event: React.KeyboardEvent, corner: Corner) => {
+      if (
+        event.defaultPrevented ||
+        isComposingKey(event) ||
+        event.altKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        (event.ctrlKey && event.key !== "Home" && event.key !== "End")
+      )
+        return;
       const move = MOVES.get(event.key);
       if (move !== undefined) {
         event.preventDefault();
         moveTo({
-          column: clamp(corner.column + move.column, MATRIX_COLUMNS),
+          column: clamp(
+            corner.column +
+              (event.currentTarget.matches(":dir(rtl)")
+                ? -move.column
+                : move.column),
+            MATRIX_COLUMNS,
+          ),
           row: clamp(corner.row + move.row, MATRIX_ROWS),
+        });
+        return;
+      }
+      if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        const first = event.key === "Home";
+        moveTo({
+          column: first ? 1 : MATRIX_COLUMNS,
+          row: event.ctrlKey ? (first ? 1 : MATRIX_ROWS) : corner.row,
         });
         return;
       }
@@ -174,9 +231,9 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
 
     return (
       <Popover
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
+        open={openTrigger !== null && !rest.disabled}
+        onOpenChange={(next, details) => {
+          setOpenTrigger(next ? (details.trigger ?? null) : null);
           if (next) setCursor(cornerOf(value));
           setPreview(null);
         }}
@@ -201,7 +258,12 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
             {format(value.columns, value.rows)}
           </span>
         </PopoverTrigger>
-        <PopoverPopup align="start" aria-label={labels.popup}>
+        <PopoverPopup
+          className="grid-size-picker-popup"
+          align="start"
+          dir={rest.dir}
+          aria-label={labels.popup}
+        >
           <div className="grid-size-picker-panel">
             <div
               className="grid-size-picker-fields"
@@ -210,6 +272,9 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
               <NumberField
                 aria-label={labels.columns}
                 min={1}
+                step={1}
+                smallStep={1}
+                format={TRACK_FORMAT}
                 value={value.columns}
                 onValueChange={(columns) => {
                   if (columns !== null) commit({ ...value, columns });
@@ -222,6 +287,9 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
                 <NumberField
                   aria-label={labels.rows}
                   min={1}
+                  step={1}
+                  smallStep={1}
+                  format={TRACK_FORMAT}
                   value={value.rows}
                   onValueChange={(rows) => {
                     if (rows !== null) commit({ ...value, rows });
@@ -229,6 +297,7 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
                 />
               )}
               <Select
+                aria-label={labels.rowSizing}
                 items={[
                   { value: "auto", label: labels.auto },
                   { value: "fixed", label: labels.fixed },
@@ -237,11 +306,11 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
                 onValueChange={(mode) => {
                   commit({
                     ...value,
-                    rows: mode === "auto" ? "auto" : fixedRows,
+                    rows: mode === "auto" ? "auto" : fixedRows.current,
                   });
                 }}
               >
-                <SelectTrigger aria-label={labels.rowSizing}>
+                <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectPopup>
@@ -253,8 +322,17 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
             <div
               role="grid"
               aria-label={labels.matrix}
+              aria-multiselectable="true"
               className="grid-size-picker-matrix"
-              onPointerLeave={() => setPreview(null)}
+              onPointerLeave={(event) =>
+                setPreview(
+                  event.currentTarget.contains(
+                    activeElementInRoot(event.currentTarget),
+                  )
+                    ? cursor
+                    : null,
+                )
+              }
               onBlur={(event) => {
                 const next = event.relatedTarget;
                 if (
@@ -293,10 +371,7 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
                             tabIndex={isCursor ? 0 : -1}
                             data-highlighted={highlighted ? "" : undefined}
                             className="grid-size-picker-cell"
-                            onPointerEnter={() => {
-                              setCursor(corner);
-                              setPreview(corner);
-                            }}
+                            onPointerEnter={() => setPreview(corner)}
                             onFocus={() => {
                               setCursor(corner);
                               setPreview(corner);
@@ -316,16 +391,19 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
             <div role="status" className="grid-size-picker-readout">
               {readout}
             </div>
-            <Button
-              variant="soft"
-              color="gray"
-              onClick={() => {
-                setOpen(false);
-                onOpenSettings?.();
-              }}
-            >
-              {labels.openSettings}
-            </Button>
+            {onOpenSettings && (
+              <Button
+                variant="soft"
+                color="gray"
+                onClick={() => {
+                  if (!canEdit()) return;
+                  setOpenTrigger(null);
+                  onOpenSettings();
+                }}
+              >
+                {labels.openSettings}
+              </Button>
+            )}
           </div>
         </PopoverPopup>
       </Popover>

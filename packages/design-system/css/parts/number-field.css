@@ -33,12 +33,16 @@
 
   /* ---- scrub area ---- */
 
-  .number-field-scrub-area,
-  .number-field-scrub-area label {
+  .number-field-scrub-area {
     cursor: ew-resize;
   }
 
+  .number-field-scrub-area:where([data-orientation="vertical"]) {
+    cursor: ns-resize;
+  }
+
   .number-field-scrub-area label {
+    cursor: inherit;
     display: flex;
     align-items: center;
     gap: var(--control-gap);
@@ -66,16 +70,17 @@
     color: var(--accent-12);
   }
 
+  .number-field:has(> input:disabled) .number-field-scrub-area {
+    cursor: not-allowed;
+  }
+
   .number-field-scrub-area[data-readonly] {
     cursor: default;
   }
 
-  .number-field-scrub-area:is([data-disabled], [data-readonly]) label {
-    cursor: inherit;
-  }
-
   .number-field-scrub-area-cursor {
     display: flex;
+    z-index: var(--layer-cursor);
     color: var(--fg-default);
     filter: drop-shadow(0 0 1px var(--shadow-tint-a7));
   }

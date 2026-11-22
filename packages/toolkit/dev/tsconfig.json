@@ -1,5 +1,5 @@
 {
-  "extends": "../tsconfig.json",
+  "extends": "../tsconfig.build.json",
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "../..",
@@ -9,6 +9,8 @@
     "allowImportingTsExtensions": true
   },
   "include": [
+    "../src/ui/base-ui/*.tsx",
+    "../src/app/shared/AgentNativeIcon.tsx",
     "./stories/**/*.tsx",
     "./migration-status/*.ts",
     "./migration-status/*.tsx",
@@ -17,5 +19,5 @@
     "../.storybook/*.tsx",
     "../vitest.storybook.config.ts"
   ],
-  "exclude": []
+  "exclude": ["../src/**/*.spec.tsx"]
 }

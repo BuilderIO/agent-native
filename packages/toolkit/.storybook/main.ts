@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import type { StorybookConfig } from "@storybook/react-vite";
 import tailwindcss from "@tailwindcss/vite";
+import remarkGfm from "remark-gfm";
 import type { Manifests } from "storybook/internal/types";
 import { mergeConfig } from "vite";
 
@@ -16,7 +17,12 @@ const config: StorybookConfig & {
 } = {
   stories: ["../dev/stories/**/*.mdx", "../dev/stories/**/*.stories.tsx"],
   addons: [
-    "@storybook/addon-docs",
+    {
+      name: "@storybook/addon-docs",
+      options: {
+        mdxPluginOptions: { mdxCompileOptions: { remarkPlugins: [remarkGfm] } },
+      },
+    },
     "@storybook/addon-a11y",
     "@storybook/addon-mcp",
     "@storybook/addon-vitest",
@@ -32,6 +38,7 @@ const config: StorybookConfig & {
         path.resolve(here, "../src/app/shared"),
       ],
       "@agent-native/toolkit",
+      path.resolve(here, ".."),
     ),
   typescript: {
     reactDocgen: "react-docgen-typescript",

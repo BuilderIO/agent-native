@@ -7,20 +7,37 @@ import { Autocomplete as BaseAutocomplete } from "@base-ui/react/autocomplete";
 import { IconChevronDown, IconX } from "@tabler/icons-react";
 import * as React from "react";
 
-import { cn } from "../../utils.js";
-import { IconButton } from "./button.js";
+import type { AccessibleName } from "./accessible-name.js";
 import {
   createListboxList,
+  listboxIconButton,
+  listboxActionName,
   createListboxPopup,
   ListboxRootProvider,
   type ListboxPopupProps,
-  useReportInputSize,
+  useListboxInput,
+  useListboxOpenChange,
 } from "./combobox-parts.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
-export type AutocompleteProps<ItemValue> =
-  BaseAutocomplete.Root.Props<ItemValue>;
+type SuggestionItems<Item> =
+  | BaseAutocomplete.Root.Props<Item>["items"]
+  | readonly { readonly items: readonly Item[] }[];
+
+export type AutocompleteProps<Item> = Omit<
+  BaseAutocomplete.Root.Props<Item>,
+  "items" | "filteredItems"
+> &
+  AccessibleName & {
+    items?: SuggestionItems<Item>;
+    filteredItems?: SuggestionItems<Item>;
+  };
+
+// Base UI accepts flat and grouped data at runtime, but declares separate JSX overloads.
+const AutocompleteRoot: <Item>(
+  props: Omit<AutocompleteProps<Item>, keyof AccessibleName>,
+) => React.JSX.Element = BaseAutocomplete.Root;
 
 /**
  * A text input that suggests matches as you type and keeps whatever text is
@@ -31,14 +48,29 @@ export type AutocompleteProps<ItemValue> =
  * @import import { Autocomplete, AutocompleteInput, AutocompletePopup, AutocompleteList, AutocompleteItem, AutocompleteEmpty } from "@agent-native/toolkit/ui/base-ui/autocomplete";
  */
 function Autocomplete<ItemValue>({
-  items,
+  "aria-label": label,
+  "aria-labelledby": labelledBy,
   ...props
 }: AutocompleteProps<ItemValue>) {
+  const localActions = React.useRef<BaseAutocomplete.Root.Actions>(null);
+  const actionsRef = props.actionsRef ?? localActions;
+  const { closeRequests, positionerRef, onOpenChange } = useListboxOpenChange(
+    props.onOpenChange,
+    actionsRef,
+  );
   return (
-    <ListboxRootProvider inline={props.inline}>
-      <BaseAutocomplete.Root<ItemValue>
+    <ListboxRootProvider
+      aria-label={label}
+      aria-labelledby={labelledBy}
+      inline={props.inline}
+      actionsRef={actionsRef}
+      closeRequests={closeRequests}
+      positionerRef={positionerRef}
+    >
+      <AutocompleteRoot<ItemValue>
         {...props}
-        items={items as readonly ItemValue[] | undefined}
+        actionsRef={actionsRef}
+        onOpenChange={onOpenChange}
       />
     </ListboxRootProvider>
   );
@@ -51,8 +83,8 @@ export interface AutocompleteInputProps
       "size" | "color" | "className" | "style"
     >,
     AutocompleteOwnProps {
-  className?: string;
-  style?: React.CSSProperties;
+  className?: BaseAutocomplete.InputGroup.Props["className"];
+  style?: BaseAutocomplete.InputGroup.Props["style"];
   /** `InputSlot`s: an icon, a shortcut, a trigger or a clear button. */
   children?: React.ReactNode;
 }
@@ -72,14 +104,19 @@ const AutocompleteInput = React.forwardRef<
     autocompleteProps,
     props,
   );
-  useReportInputSize(attributes["data-size"]);
+  const name = useListboxInput(attributes["data-size"], rest);
   return (
     <BaseAutocomplete.InputGroup
       {...attributes}
-      className={cn("input", className)}
+      className={partClassName("input", className)}
       style={style}
     >
-      <BaseAutocomplete.Input ref={ref} className="input-control" {...rest} />
+      <BaseAutocomplete.Input
+        ref={ref}
+        className="input-control"
+        {...rest}
+        {...name}
+      />
       {children}
     </BaseAutocomplete.InputGroup>
   );
@@ -94,14 +131,14 @@ AutocompleteInput.displayName = "AutocompleteInput";
 const AutocompleteTrigger = React.forwardRef<
   HTMLButtonElement,
   BaseAutocomplete.Trigger.Props
->(({ className, children, ...props }, ref) => {
+>(({ className, children, render = listboxIconButton, ...props }, ref) => {
   return (
     <BaseAutocomplete.Trigger
       ref={ref}
-      aria-label="Show suggestions"
+      render={render}
       {...props}
+      {...listboxActionName(children, props, "Show suggestions", render)}
       className={partClassName("autocomplete-trigger", className)}
-      render={<IconButton size="sm" variant="ghost" color="gray" />}
     >
       {children ?? <IconChevronDown aria-hidden />}
     </BaseAutocomplete.Trigger>
@@ -117,14 +154,14 @@ AutocompleteTrigger.displayName = "AutocompleteTrigger";
 const AutocompleteClear = React.forwardRef<
   HTMLButtonElement,
   BaseAutocomplete.Clear.Props
->(({ className, children, ...props }, ref) => {
+>(({ className, children, render = listboxIconButton, ...props }, ref) => {
   return (
     <BaseAutocomplete.Clear
       ref={ref}
-      aria-label="Clear"
+      render={render}
       {...props}
+      {...listboxActionName(children, props, "Clear", render)}
       className={partClassName("autocomplete-clear", className)}
-      render={<IconButton size="sm" variant="ghost" color="gray" />}
     >
       {children ?? <IconX aria-hidden />}
     </BaseAutocomplete.Clear>

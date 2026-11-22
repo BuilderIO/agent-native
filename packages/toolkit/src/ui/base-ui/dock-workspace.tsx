@@ -1,0 +1,853 @@
+import { IconDots } from "@tabler/icons-react";
+import * as React from "react";
+import { createPortal } from "react-dom";
+
+import { IconButton } from "./button.js";
+import {
+  canPlaceDockTab,
+  dockLeaves,
+  dockLeafPanel,
+  type DockLeaf,
+  isDockLayout,
+  moveDockTab,
+  updateDockNode,
+  type DockGroup,
+  type DockLayout,
+  type DockPosition,
+} from "./dock-layout.js";
+import {
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuTrigger,
+  MenuSubmenuRoot,
+  MenuSubmenuTrigger,
+  MenuSubmenuPopup,
+} from "./menu.js";
+import { SplitPane, type SplitPaneProps } from "./split-pane.js";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "./tabs.js";
+export {
+  restoreDockSurface,
+  isDockLayout,
+  moveDockTab,
+  type DockLayout,
+  type DockPosition,
+} from "./dock-layout.js";
+
+export interface DockPanel {
+  id: string;
+  label: string;
+  content: React.ReactNode;
+}
+export interface DockWorkspaceProps extends Pick<
+  SplitPaneProps,
+  "step" | "snapToStep"
+> {
+  panels: readonly DockPanel[];
+  layout: DockLayout;
+  onLayoutChange: (layout: DockLayout) => void;
+  label: string;
+  onReset?: () => void;
+  className?: string;
+  style?: React.CSSProperties;
+  labels?: Partial<typeof defaultLabels>;
+}
+interface Target {
+  tab: string;
+  position: DockPosition;
+  size: number;
+}
+const edges = {
+  start: "Split at start",
+  end: "Split at end",
+  above: "Split above",
+  below: "Split below",
+};
+type Edge = keyof typeof edges;
+const defaultLabels = {
+  arrange: (panel: string) => `Arrange ${panel}`,
+  resize: (panels: string) => `Resize ${panels}`,
+  earlier: "Move tab earlier",
+  later: "Move tab later",
+  split: "Split this group",
+  join: "Join tab group",
+  reset: "Reset layout",
+  ...edges,
+};
+
+// A perpendicular split shares the same span. Parallel splits each need their own track.
+function dockTracks(node: DockLayout, axis: "inline" | "block"): number {
+  if (node.type !== "split") return 1;
+  const first = dockTracks(node.first, axis);
+  const second = dockTracks(node.second, axis);
+  return node.axis === axis ? first + second : Math.max(first, second);
+}
+
+function dockMinimum(node: DockLayout, axis: "inline" | "block") {
+  const tracks = dockTracks(node, axis);
+  return (separatorSize: number) => tracks * 80 + (tracks - 1) * separatorSize;
+}
+
+function revealDockTab(list: HTMLElement, tab: HTMLElement) {
+  if (list.scrollWidth <= list.clientWidth) return;
+  // The positioned rail is the tab's offset parent. Keep offsets and scrolling
+  // in layout pixels even when an embedding surface scales the workspace.
+  const left = tab.offsetLeft - list.scrollLeft;
+  const right = left + tab.offsetWidth - list.clientWidth;
+  if (left < 0 && right <= 0)
+    list.scrollLeft += tab.offsetWidth > list.clientWidth ? right : left;
+  else if (right > 0 && left >= 0)
+    list.scrollLeft += tab.offsetWidth > list.clientWidth ? left : right;
+}
+
+function DockTabList({
+  tabs,
+  label,
+  children,
+}: {
+  tabs: readonly string[];
+  label: string;
+  children: React.ReactNode;
+}) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  React.useLayoutEffect(() => {
+    const list = ref.current;
+    const Observer = list?.ownerDocument.defaultView?.ResizeObserver;
+    if (!list || !Observer) return;
+    function measure(rail: HTMLElement) {
+      rail.toggleAttribute(
+        "data-overflowing",
+        rail.scrollWidth > rail.clientWidth,
+      );
+      const active =
+        rail.querySelector<HTMLElement>('[role="tab"]:focus') ??
+        rail.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      if (active) revealDockTab(rail, active);
+    }
+    measure(list);
+    const observer = new Observer(() => measure(list));
+    observer.observe(list);
+    for (const tab of list.children) observer.observe(tab);
+    return () => observer.disconnect();
+  }, [tabs]);
+  return (
+    <TabsList ref={ref} aria-label={label}>
+      {children}
+    </TabsList>
+  );
+}
+
+function ownedElement(root: HTMLElement | null, selector: string) {
+  if (!root) return;
+  for (const match of root.querySelectorAll<HTMLElement>(selector)) {
+    if (match.closest(".dock-workspace") === root) return match;
+  }
+}
+function splitSize(group: HTMLElement, position: DockPosition) {
+  const length =
+    position === "above" || position === "below"
+      ? group.offsetHeight
+      : group.offsetWidth;
+  return length / 2;
+}
+
+interface DropTarget {
+  tab: string;
+  position: DockPosition;
+  element: HTMLElement;
+}
+function scrollDockRail(
+  root: HTMLElement,
+  hit: Element | null,
+  x: number,
+  elapsedMs: number,
+) {
+  const rail = hit?.closest<HTMLElement>('[role="tablist"]');
+  if (
+    !rail?.parentElement?.classList.contains("dock-workspace-group") ||
+    rail.closest(".dock-workspace") !== root ||
+    rail.scrollWidth <= rail.clientWidth
+  )
+    return false;
+  const rect = rail.getBoundingClientRect();
+  if (!rect.width) return false;
+  const localX = ((x - rect.left) * rail.offsetWidth) / rect.width;
+  const edge = Math.min(24, rail.clientWidth / 4);
+  if (!edge) return false;
+  const distance =
+    localX < edge
+      ? localX - edge
+      : Math.max(0, localX - (rail.clientWidth - edge));
+  if (!distance) return false;
+  const before = rail.scrollLeft;
+  rail.scrollLeft +=
+    Math.sign(distance) *
+    Math.max(1, (Math.abs(distance) / edge) * 0.6 * elapsedMs);
+  return before !== rail.scrollLeft;
+}
+
+function dropTarget(
+  root: HTMLElement,
+  el: Element | null,
+  x: number,
+  y: number,
+): DropTarget | null {
+  const group = el?.closest<HTMLElement>("[data-dock-group]");
+  if (!group || group.closest(".dock-workspace") !== root) return null;
+  let header = el?.closest<HTMLElement>("[data-dock-tab]");
+  const rtl = getComputedStyle(group).direction === "rtl";
+  const rail = el?.closest<HTMLElement>('[role="tablist"]');
+  if (
+    !header &&
+    rail?.parentElement === group &&
+    rail.scrollWidth > rail.clientWidth
+  ) {
+    // The rail padding is reachable at the end of an edge scroll.
+    const first = rail.querySelector<HTMLElement>(
+      "[data-dock-tab]:first-of-type",
+    );
+    const last = rail.querySelector<HTMLElement>(
+      "[data-dock-tab]:last-of-type",
+    );
+    const start = first?.getBoundingClientRect(),
+      end = last?.getBoundingClientRect();
+    if (start && (rtl ? x >= start.right : x <= start.left)) header = first;
+    else if (end && (rtl ? x <= end.left : x >= end.right)) header = last;
+  }
+  if (header?.dataset.dockTab !== undefined) {
+    const rect = header.getBoundingClientRect();
+    return {
+      tab: header.dataset.dockTab,
+      position: x < rect.left + rect.width / 2 !== rtl ? "before" : "after",
+      element: header,
+    };
+  }
+  const rect = group.getBoundingClientRect(),
+    nx = (x - rect.left) / rect.width,
+    ny = (y - rect.top) / rect.height;
+  const nearest = Math.min(nx, 1 - nx, ny, 1 - ny);
+  let position: DockPosition = "center";
+  if (!el?.closest('[role="tablist"]') && nearest < 0.25) {
+    if (nearest === ny) position = "above";
+    else if (nearest === 1 - ny) position = "below";
+    else position = (nearest === nx) !== rtl ? "start" : "end";
+  }
+  if (group.hasAttribute("data-dock-slot") && position === "center")
+    return null;
+  const tab = group.dataset.activeTab;
+  if (tab === undefined) return null;
+  return {
+    tab,
+    position,
+    element: group,
+  };
+}
+
+// Keep the React subtree and its DOM host stable when a split is rebuilt.
+function PanelContent({
+  panel,
+  layout,
+  root,
+}: {
+  panel: DockPanel;
+  layout: DockLayout;
+  root: React.RefObject<HTMLDivElement | null>;
+}) {
+  const elementRef = React.useRef<HTMLDivElement | null>(null);
+  const scrollPositions = React.useRef(new Map<Element, ScrollToOptions>());
+  const slotPosition = React.useRef<ScrollToOptions | null>(null);
+  const restoreScroll = React.useRef(false);
+  const [host, setHost] = React.useState<HTMLDivElement | null>(null);
+  React.useLayoutEffect(() => () => elementRef.current?.remove(), []);
+  React.useLayoutEffect(() => {
+    const slot = ownedElement(
+      root.current,
+      `[data-dock-slot="${CSS.escape(panel.id)}"]`,
+    );
+    if (!slot || (!host && slot.hidden)) return;
+    const element = (elementRef.current ??=
+      slot.ownerDocument.createElement("div"));
+    if (element.parentElement !== slot) {
+      slot.appendChild(element);
+      restoreScroll.current = true;
+    }
+    const positions = scrollPositions.current;
+    if (restoreScroll.current && !slot.hidden) {
+      // Reattaching an existing DOM subtree resets native scroll boxes.
+      for (const [target, offset] of positions) {
+        if (element.contains(target)) target.scrollTo(offset);
+        else positions.delete(target);
+      }
+      if (slotPosition.current) slot.scrollTo(slotPosition.current);
+      restoreScroll.current = false;
+    }
+    const ElementCtor = slot.ownerDocument.defaultView?.Element;
+    const remember = (event: Event) => {
+      const target = event.target;
+      if (!ElementCtor || !(target instanceof ElementCtor) || slot.hidden)
+        return;
+      const offset = {
+        left: target.scrollLeft,
+        top: target.scrollTop,
+        behavior: "instant" as const,
+      };
+      if (target === slot) slotPosition.current = offset;
+      else if (offset.left || offset.top) {
+        if (!positions.has(target)) {
+          for (const previous of positions.keys()) {
+            if (!element.contains(previous)) positions.delete(previous);
+          }
+        }
+        positions.set(target, offset);
+      } else positions.delete(target);
+    };
+    slot.addEventListener("scroll", remember, true);
+    if (!host) setHost(element);
+    return () => slot.removeEventListener("scroll", remember, true);
+  }, [layout, root, host, panel.id]);
+  return host ? createPortal(panel.content, host) : null;
+}
+
+interface DockFocusProps {
+  root: React.RefObject<HTMLDivElement | null>;
+  layout: DockLayout;
+  children: React.ReactNode;
+}
+type DockFocusSnapshot = {
+  element: HTMLElement;
+  panel: string;
+  group: string;
+} | null;
+
+// A rebuilt split detaches its slots during the mutation phase. Capture focus
+// before that happens, then restore it after the panel portals are reattached.
+class DockFocus extends React.Component<
+  DockFocusProps,
+  unknown,
+  DockFocusSnapshot
+> {
+  override getSnapshotBeforeUpdate(
+    previous: DockFocusProps,
+  ): DockFocusSnapshot {
+    const root = this.props.root.current;
+    if (previous.layout === this.props.layout || !root) return null;
+    const element = (root.getRootNode() as Document | ShadowRoot).activeElement;
+    const HTMLElementCtor = root.ownerDocument.defaultView?.HTMLElement;
+    if (
+      !HTMLElementCtor ||
+      !(element instanceof HTMLElementCtor) ||
+      !root.contains(element)
+    )
+      return null;
+    let owner = element.closest<HTMLElement>(
+      "[data-dock-slot], [data-dock-tab]",
+    );
+    while (owner && owner.closest(".dock-workspace") !== root) {
+      owner =
+        owner
+          .closest(".dock-workspace")
+          ?.parentElement?.closest<HTMLElement>(
+            "[data-dock-slot], [data-dock-tab]",
+          ) ?? null;
+    }
+    const panel = owner?.dataset.dockSlot ?? owner?.dataset.dockTab;
+    const group =
+      owner?.closest<HTMLElement>("[data-dock-group]")?.dataset.dockGroup;
+    return panel === undefined || group === undefined
+      ? null
+      : { element, panel, group };
+  }
+
+  override componentDidUpdate(
+    _previous: DockFocusProps,
+    _state: unknown,
+    snapshot: DockFocusSnapshot,
+  ) {
+    const root = this.props.root.current;
+    if (
+      !snapshot ||
+      !root ||
+      root.ownerDocument.activeElement !== root.ownerDocument.body
+    )
+      return;
+    if (
+      root.contains(snapshot.element) &&
+      !snapshot.element.closest("[hidden], [inert]")
+    ) {
+      snapshot.element.focus({ preventScroll: true });
+      return;
+    }
+    const tab = ownedElement(
+      root,
+      `[data-dock-tab="${CSS.escape(snapshot.panel)}"]`,
+    );
+    const group =
+      tab?.closest<HTMLElement>("[data-dock-group]") ??
+      ownedElement(root, `[data-dock-group="${CSS.escape(snapshot.group)}"]`);
+    const activeId = group?.dataset.activeTab;
+    const activeTab =
+      activeId === undefined
+        ? undefined
+        : ownedElement(root, `[data-dock-tab="${CSS.escape(activeId)}"]`);
+    (activeTab ?? root).focus({ preventScroll: true });
+  }
+
+  override render() {
+    return this.props.children;
+  }
+}
+
+/** Controlled, serializable tab groups and resizable splits. */
+export function DockWorkspace({
+  panels,
+  layout,
+  onLayoutChange,
+  label,
+  onReset,
+  className,
+  style,
+  labels,
+  step = 8,
+  snapToStep = false,
+}: DockWorkspaceProps) {
+  const text = { ...defaultLabels, ...labels };
+  const root = React.useRef<HTMLDivElement>(null);
+  const drag = React.useRef<{
+    id: number;
+    tab: string;
+    x: number;
+    y: number;
+    moved: boolean;
+    canPan: boolean;
+  } | null>(null);
+  const pendingFrame = React.useRef<number | null>(null);
+  const focus = React.useRef<{
+    tab: string;
+    group: DockGroup;
+    fromMenu: boolean;
+  } | null>(null);
+  const menuMovedTab = React.useRef(false);
+  const suppressClick = React.useRef(false);
+  const preview = React.useRef<DropTarget | null>(null);
+  function showPreview(next: DropTarget | null) {
+    const previous = preview.current;
+    if (
+      previous?.element === next?.element &&
+      previous?.position === next?.position
+    )
+      return;
+    if (previous) {
+      delete previous.element.dataset.dockDrop;
+      delete previous.element.dataset.dockInsert;
+    }
+    if (next) {
+      const insertion = next.position === "before" || next.position === "after";
+      next.element.dataset[insertion ? "dockInsert" : "dockDrop"] =
+        next.position;
+    }
+    preview.current = next;
+  }
+  const byId = React.useMemo(
+    () => new Map(panels.map((p) => [p.id, p])),
+    [panels],
+  );
+  const groups = React.useMemo(() => {
+    if (
+      !isDockLayout(
+        layout,
+        panels.map((p) => p.id),
+      )
+    )
+      throw new Error(
+        "Dock layout must contain every registered panel exactly once.",
+      );
+    return dockLeaves(layout);
+  }, [layout, panels]);
+  const panelLeaves = React.useMemo(() => {
+    const map = new Map<string, DockLeaf>();
+    for (const leaf of groups) {
+      if (leaf.type === "surface") map.set(leaf.panel, leaf);
+      else for (const tab of leaf.tabs) map.set(tab, leaf);
+    }
+    return map;
+  }, [groups]);
+  function pointerTarget(
+    root: HTMLElement,
+    element: Element | null,
+    tab: string,
+    x: number,
+    y: number,
+  ) {
+    const hit = dropTarget(root, element, x, y);
+    if (!hit) return null;
+    const source = panelLeaves.get(tab),
+      destination = panelLeaves.get(hit.tab);
+    return source &&
+      destination &&
+      canPlaceDockTab(source, tab, destination, hit.tab, hit.position)
+      ? hit
+      : null;
+  }
+  const name = (id: string) => byId.get(id)?.label ?? id;
+  function cancel() {
+    if (drag.current?.moved) suppressClick.current = true;
+    if (pendingFrame.current !== null)
+      root.current?.ownerDocument.defaultView?.cancelAnimationFrame(
+        pendingFrame.current,
+      );
+    pendingFrame.current = null;
+    drag.current = null;
+    showPreview(null);
+  }
+  function cancelPointer(event: React.PointerEvent) {
+    if (event.pointerId === drag.current?.id) cancel();
+  }
+  React.useEffect(() => {
+    const win = root.current?.ownerDocument.defaultView;
+    function escape(e: KeyboardEvent) {
+      if (e.key === "Escape" && drag.current) {
+        e.preventDefault();
+        cancel();
+      }
+    }
+    win?.addEventListener("keydown", escape);
+    win?.addEventListener("blur", cancel);
+    return () => {
+      win?.removeEventListener("keydown", escape);
+      win?.removeEventListener("blur", cancel);
+      if (pendingFrame.current !== null)
+        win?.cancelAnimationFrame(pendingFrame.current);
+    };
+  }, []);
+  React.useLayoutEffect(() => {
+    const pending = focus.current;
+    focus.current = null;
+    if (!pending) return;
+    const group = panelLeaves.get(pending.tab);
+    if (
+      group?.type === "group" &&
+      group.id === pending.group.id &&
+      group.active === pending.tab &&
+      group.tabs.indexOf(pending.tab) ===
+        pending.group.tabs.indexOf(pending.tab)
+    ) {
+      if (pending.fromMenu) menuMovedTab.current = true;
+      const tab = ownedElement(
+        root.current,
+        `[data-dock-tab="${CSS.escape(pending.tab)}"]`,
+      );
+      if (tab) {
+        tab.focus({ preventScroll: true });
+        const list = tab.closest<HTMLElement>('[role="tablist"]');
+        if (list) revealDockTab(list, tab);
+      }
+    }
+  }, [panelLeaves]);
+  function move(tab: string, target: Target, fromMenu = false) {
+    const increment = snapToStep && step > 0 ? step : 1;
+    const next = moveDockTab(
+      layout,
+      tab,
+      target.tab,
+      target.position,
+      Math.round(target.size / increment) * increment,
+    );
+    if (next !== layout) {
+      const group = dockLeaves(next).find(
+        (leaf): leaf is DockGroup =>
+          leaf.type === "group" && leaf.tabs.includes(tab),
+      );
+      if (group) focus.current = { tab, group, fromMenu };
+      onLayoutChange(next);
+    }
+  }
+  function command(
+    group: DockGroup,
+    dest: DockLeaf,
+    tab: string,
+    position: DockPosition,
+  ) {
+    const element =
+      root.current &&
+      ownedElement(root.current, `[data-dock-group="${CSS.escape(dest.id)}"]`);
+    move(
+      group.active,
+      {
+        tab,
+        position,
+        size: element ? splitSize(element, position) : 280,
+      },
+      true,
+    );
+  }
+  function renderNode(node: DockLayout): React.ReactNode {
+    if (node.type === "split") {
+      const start = node.side === "start";
+      return (
+        <SplitPane
+          className="dock-workspace-split"
+          key={node.id}
+          axis={node.axis}
+          side={node.side}
+          size={node.size}
+          step={step}
+          snapToStep={snapToStep}
+          label={text.resize(
+            dockLeaves(start ? node.first : node.second)
+              .map((g) => name(dockLeafPanel(g)))
+              .join(", "),
+          )}
+          minSize={dockMinimum(start ? node.first : node.second, node.axis)}
+          minContentSize={dockMinimum(
+            start ? node.second : node.first,
+            node.axis,
+          )}
+          onSizeChange={(size, { phase }) => {
+            if (phase === "commit")
+              onLayoutChange(
+                updateDockNode(layout, node.id, (n) =>
+                  n.type === "split" ? { ...n, size } : n,
+                ),
+              );
+          }}
+          pane={renderNode(start ? node.first : node.second)}
+        >
+          {renderNode(start ? node.second : node.first)}
+        </SplitPane>
+      );
+    }
+    if (node.type === "surface")
+      return (
+        <div
+          key={node.id}
+          className="dock-workspace-surface"
+          data-dock-group={node.id}
+          data-active-tab={node.panel}
+          data-dock-slot={node.panel}
+        />
+      );
+    const index = node.tabs.indexOf(node.active);
+    return (
+      <Tabs
+        key={node.id}
+        className="dock-workspace-group"
+        variant="framed"
+        data-dock-group={node.id}
+        data-active-tab={node.active}
+        value={node.active}
+        onValueChange={(value) => {
+          if (typeof value === "string" && value !== node.active)
+            onLayoutChange(
+              updateDockNode(layout, node.id, () => ({
+                ...node,
+                active: value,
+              })),
+            );
+        }}
+      >
+        <DockTabList tabs={node.tabs} label={node.tabs.map(name).join(", ")}>
+          {node.tabs.map((tab) => (
+            <TabsTab
+              key={tab}
+              value={tab}
+              title={name(tab)}
+              data-dock-tab={tab}
+              onPointerDown={(e) => {
+                if (drag.current || e.button !== 0 || !e.isPrimary) return;
+                suppressClick.current = false;
+                drag.current = {
+                  tab,
+                  id: e.pointerId,
+                  x: e.clientX,
+                  y: e.clientY,
+                  moved: false,
+                  canPan:
+                    e.pointerType === "touch" &&
+                    e.currentTarget.parentElement?.hasAttribute(
+                      "data-overflowing",
+                    ) === true,
+                };
+                e.currentTarget.setPointerCapture(e.pointerId);
+              }}
+              onLostPointerCapture={cancelPointer}
+            >
+              <span>{name(tab)}</span>
+            </TabsTab>
+          ))}
+        </DockTabList>
+        {(panels.length > 1 || onReset) && (
+          <div className="dock-workspace-actions">
+            <Menu
+              onOpenChange={(open) => {
+                if (open) menuMovedTab.current = false;
+              }}
+            >
+              <MenuTrigger
+                render={
+                  <IconButton
+                    variant="ghost"
+                    color="gray"
+                    aria-label={text.arrange(name(node.active))}
+                  />
+                }
+              >
+                <IconDots />
+              </MenuTrigger>
+              <MenuPopup finalFocus={() => !menuMovedTab.current}>
+                {index > 0 && (
+                  <MenuItem
+                    onClick={() =>
+                      command(node, node, node.tabs[index - 1], "before")
+                    }
+                  >
+                    {text.earlier}
+                  </MenuItem>
+                )}
+                {index < node.tabs.length - 1 && (
+                  <MenuItem
+                    onClick={() =>
+                      command(node, node, node.tabs[index + 1], "after")
+                    }
+                  >
+                    {text.later}
+                  </MenuItem>
+                )}
+                {groups
+                  .filter((g) => g !== node || node.tabs.length > 1)
+                  .map((dest) => (
+                    <MenuSubmenuRoot key={dest.id}>
+                      <MenuSubmenuTrigger>
+                        {dest === node ? text.split : name(dockLeafPanel(dest))}
+                      </MenuSubmenuTrigger>
+                      <MenuSubmenuPopup>
+                        {dest !== node && dest.type === "group" && (
+                          <MenuItem
+                            onClick={() =>
+                              command(node, dest, dest.active, "center")
+                            }
+                          >
+                            {text.join}
+                          </MenuItem>
+                        )}
+                        {(Object.keys(edges) as Edge[]).map((pos) => (
+                          <MenuItem
+                            key={pos}
+                            onClick={() =>
+                              command(node, dest, dockLeafPanel(dest), pos)
+                            }
+                          >
+                            {text[pos]}
+                          </MenuItem>
+                        ))}
+                      </MenuSubmenuPopup>
+                    </MenuSubmenuRoot>
+                  ))}
+                {onReset && <MenuItem onClick={onReset}>{text.reset}</MenuItem>}
+              </MenuPopup>
+            </Menu>
+          </div>
+        )}
+        {node.tabs.map((tab) => (
+          <TabsPanel key={tab} value={tab} keepMounted data-dock-slot={tab} />
+        ))}
+      </Tabs>
+    );
+  }
+  return (
+    <DockFocus root={root} layout={layout}>
+      <div
+        className={["dock-workspace", className].filter(Boolean).join(" ")}
+        style={style}
+        ref={root}
+        role="region"
+        tabIndex={-1}
+        aria-label={label}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          if (!d || d.id !== e.pointerId) return;
+          if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 5)
+            return;
+          if (
+            !d.moved &&
+            d.canPan &&
+            Math.abs(e.clientX - d.x) > Math.abs(e.clientY - d.y)
+          ) {
+            d.moved = true;
+            cancel();
+            return;
+          }
+          d.moved = true;
+          const el = e.currentTarget,
+            win = el.ownerDocument.defaultView;
+          d.x = e.clientX;
+          d.y = e.clientY;
+          if (!win || pendingFrame.current !== null) return;
+          const scope = el.getRootNode() as Document | ShadowRoot;
+          let lastFrame = win.performance.now();
+          const paint = (time: number) => {
+            pendingFrame.current = null;
+            if (drag.current !== d) return;
+            const hit = scope.elementFromPoint(d.x, d.y);
+            showPreview(pointerTarget(el, hit, d.tab, d.x, d.y));
+            if (
+              scrollDockRail(
+                el,
+                hit,
+                d.x,
+                Math.min(32, Math.max(0, time - lastFrame)),
+              )
+            ) {
+              lastFrame = time;
+              pendingFrame.current = win.requestAnimationFrame(paint);
+            }
+          };
+          pendingFrame.current = win.requestAnimationFrame(paint);
+        }}
+        onPointerCancel={cancelPointer}
+        onPointerUp={(e) => {
+          const d = drag.current;
+          if (!d || d.id !== e.pointerId) return;
+          if (d.moved) {
+            suppressClick.current = true;
+            const t = pointerTarget(
+              e.currentTarget,
+              (
+                e.currentTarget.getRootNode() as Document | ShadowRoot
+              ).elementFromPoint(e.clientX, e.clientY),
+              d.tab,
+              e.clientX,
+              e.clientY,
+            );
+            if (t)
+              move(d.tab, {
+                tab: t.tab,
+                position: t.position,
+                size: splitSize(t.element, t.position),
+              });
+          }
+          cancel();
+        }}
+        onClickCapture={(e) => {
+          if (suppressClick.current && e.detail > 0) {
+            suppressClick.current = false;
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
+        onPointerDownCapture={() => {
+          suppressClick.current = false;
+        }}
+      >
+        {renderNode(layout)}
+      </div>
+      {panels.map((panel) => (
+        <PanelContent
+          key={panel.id}
+          panel={panel}
+          root={root}
+          layout={layout}
+        />
+      ))}
+    </DockFocus>
+  );
+}

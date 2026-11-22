@@ -4,7 +4,7 @@ import path from "node:path";
 import type { Manifests } from "storybook/internal/types";
 
 const IMPORT_TAG = /@import\s+import\s*\{([^}]*)\}\s*from\s*"([^"]+)";/g;
-const IMPORT_STATEMENT = /^import\s*\{([^}]*)\}\s*from\s*'([^']+)';$/gm;
+const IMPORT_STATEMENT = /^import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["'];$/gm;
 
 /**
  * Every name the `@import` tags in `dirs` import, mapped to the module the tag
@@ -96,6 +96,7 @@ export function withImportTags(
   manifests: Manifests,
   componentDirs: string[],
   packageName: string,
+  projectRoot: string,
 ): Manifests {
   const components = manifests.components;
   if (!components) return manifests;
@@ -103,32 +104,70 @@ export function withImportTags(
   const isComponentSource = (source: string) =>
     source === packageName ||
     (source.startsWith(".") && source.includes("/src/"));
-  const rewrite = (code: string | undefined) =>
-    code === undefined
-      ? undefined
-      : applyImportTags(code, modules, isComponentSource);
+  function storyModules(storyPath: string) {
+    const resolved = new Map(modules);
+    const file = path.resolve(projectRoot, storyPath);
+    const parts = path.resolve(projectRoot, "src/ui/base-ui");
+    for (const [, names, source] of fs
+      .readFileSync(file, "utf8")
+      .matchAll(IMPORT_STATEMENT)) {
+      if (!source.startsWith(".")) continue;
+      const target = path.resolve(path.dirname(file), source);
+      const isPart = path.dirname(target) === parts;
+      if (!isPart && !source.startsWith("./")) continue;
+      const module = isPart
+        ? packageName +
+          "/ui/base-ui/" +
+          path.basename(target, path.extname(target))
+        : source;
+      for (const name of names.split(",")) {
+        const original = name.trim().split(/\s+as\s+/)[0];
+        if (original) resolved.set(original, module);
+      }
+    }
+    return resolved;
+  }
+  // Autodocs reads its description at runtime. The static agent manifest only sees docgen.
+  function guideFor(storyPath: string) {
+    if (!storyPath.endsWith(".stories.tsx")) return undefined;
+    const guide = path.resolve(
+      projectRoot,
+      storyPath.replace(/\.stories\.tsx$/, ".docs.md"),
+    );
+    return fs.existsSync(guide)
+      ? fs.readFileSync(guide, "utf8").trim()
+      : undefined;
+  }
   return {
     ...manifests,
     components: {
       ...components,
       components: Object.fromEntries(
-        Object.entries(components.components).map(([id, entry]) => [
-          id,
-          {
-            ...entry,
-            import: rewrite(entry.import),
-            ...(entry.subcomponents
-              ? {
-                  subcomponents: Object.fromEntries(
-                    Object.entries(entry.subcomponents).map(([name, sub]) => [
-                      name,
-                      { ...sub, import: rewrite(sub.import) },
-                    ]),
-                  ),
-                }
-              : {}),
-          },
-        ]),
+        Object.entries(components.components).map(([id, entry]) => {
+          const sources = storyModules(entry.path);
+          const rewrite = (code: string | undefined) =>
+            code === undefined
+              ? undefined
+              : applyImportTags(code, sources, isComponentSource);
+          return [
+            id,
+            {
+              ...entry,
+              description: guideFor(entry.path) ?? entry.description,
+              import: rewrite(entry.import),
+              ...(entry.subcomponents
+                ? {
+                    subcomponents: Object.fromEntries(
+                      Object.entries(entry.subcomponents).map(([name, sub]) => [
+                        name,
+                        { ...sub, import: rewrite(sub.import) },
+                      ]),
+                    ),
+                  }
+                : {}),
+            },
+          ];
+        }),
       ),
     },
   };

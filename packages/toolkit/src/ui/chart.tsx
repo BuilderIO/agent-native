@@ -103,22 +103,27 @@ ${colorConfig
 
 const ChartTooltip = RechartsPrimitive.Tooltip;
 
-const ChartTooltipContent = React.forwardRef<
-  HTMLDivElement,
-  RechartsPrimitive.TooltipProps<string | number, string> &
-    React.ComponentProps<"div"> & {
-      active?: boolean;
-      payload?: ReadonlyArray<
-        RechartsPrimitive.TooltipPayloadEntry<string | number, string>
-      >;
-      label?: React.ReactNode;
-      hideLabel?: boolean;
-      hideIndicator?: boolean;
-      indicator?: "line" | "dot" | "dashed";
-      nameKey?: string;
-      labelKey?: string;
-    }
->(
+type ChartTooltipContentProps = RechartsPrimitive.TooltipProps<
+  string | number,
+  string
+> &
+  React.ComponentProps<"div"> & {
+    active?: boolean;
+    payload?: ReadonlyArray<
+      RechartsPrimitive.TooltipPayloadEntry<string | number, string>
+    >;
+    label?: React.ReactNode;
+    hideLabel?: boolean;
+    hideIndicator?: boolean;
+    indicator?: "line" | "dot" | "dashed";
+    nameKey?: string;
+    labelKey?: string;
+  };
+
+const ChartTooltipContent: React.ForwardRefExoticComponent<
+  React.PropsWithoutRef<ChartTooltipContentProps> &
+    React.RefAttributes<HTMLDivElement>
+> = React.forwardRef<HTMLDivElement, ChartTooltipContentProps>(
   (
     {
       active,
@@ -265,7 +270,7 @@ const ChartTooltipContent = React.forwardRef<
 );
 ChartTooltipContent.displayName = "ChartTooltip";
 
-const ChartLegend = RechartsPrimitive.Legend;
+const ChartLegend: typeof RechartsPrimitive.Legend = RechartsPrimitive.Legend;
 
 const ChartLegendContent = React.forwardRef<
   HTMLDivElement,

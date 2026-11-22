@@ -633,9 +633,9 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsc && node scripts/finalize-build.mjs",
+    "build": "tsc -p tsconfig.build.json && node scripts/finalize-build.mjs",
     "prepublishOnly": "npm run build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.build.json --noEmit",
     "typecheck:spec": "tsc -p tsconfig.spec.json",
     "storybook": "storybook dev --port 6006 --no-open",
     "storybook:build": "storybook build --output-dir ../../.tmp/storybook-static",

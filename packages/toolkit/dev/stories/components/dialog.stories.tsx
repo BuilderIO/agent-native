@@ -4,18 +4,25 @@ import {
 } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import * as React from "react";
+import { expect, waitFor, within } from "storybook/test";
 
 import { Button } from "../../../src/ui/base-ui/button.js";
 import {
   Dialog,
   DialogPopup,
+  DialogBody,
+  DialogMedia,
+  DialogTrigger,
+  DialogClose,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
   type DialogMotion,
 } from "../../../src/ui/base-ui/dialog.js";
+import { Input } from "../../../src/ui/base-ui/input.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./dialog.docs.md?raw";
 
 type DialogProps = DialogPopupOwnProps;
 
@@ -61,27 +68,22 @@ function DialogSection({
 }
 
 function NestedDialogs() {
-  const [outer, setOuter] = React.useState(false);
-  const [inner, setInner] = React.useState(false);
+  const field = React.useRef<HTMLInputElement>(null);
   return (
     <div className="flex items-center gap-3 p-4">
-      <Button variant="surface" color="gray" onClick={() => setOuter(true)}>
-        Open outer dialog
-      </Button>
-      <Dialog open={outer} onOpenChange={setOuter}>
+      <Dialog>
+        <DialogTrigger render={<Button variant="surface" color="gray" />}>
+          Open outer dialog
+        </DialogTrigger>
         <DialogPopup>
           <DialogTitle>Outer</DialogTitle>
           <DialogDescription>Opens a second dialog on top.</DialogDescription>
-          <Button onClick={() => setInner(true)}>Open inner dialog</Button>
-          <Dialog open={inner} onOpenChange={setInner}>
-            <DialogPopup>
+          <Dialog>
+            <DialogTrigger render={<Button />}>Open inner dialog</DialogTrigger>
+            <DialogPopup initialFocus={field}>
               <DialogTitle>Inner</DialogTitle>
               <DialogDescription>The field takes focus.</DialogDescription>
-              <input
-                aria-label="Inner field"
-                autoFocus
-                className="h-control-md rounded-control border border-line bg-fill-field px-2"
-              />
+              <Input ref={field} aria-label="Inner field" />
             </DialogPopup>
           </Dialog>
         </DialogPopup>
@@ -92,7 +94,11 @@ function NestedDialogs() {
 
 const meta = {
   title: "Components/Dialog",
-  parameters: { layout: "fullscreen" },
+  component: DialogPopup,
+  parameters: {
+    docs: { description: { component: guide } },
+    layout: "fullscreen",
+  },
   args: controls.args,
   argTypes: controls.argTypes,
 } satisfies Meta<DialogProps>;
@@ -123,4 +129,172 @@ export const Motion: Story = {
 /** A dialog opened from another stacks above it and takes focus. */
 export const Nested: Story = {
   render: () => <NestedDialogs />,
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const page = within(canvasElement.ownerDocument.body);
+    const launch = canvas.getByRole("button", { name: "Open outer dialog" });
+    await userEvent.click(launch);
+    const outer = await page.findByRole("dialog", { name: "Outer" });
+    const openInner = within(outer).getByRole("button", {
+      name: "Open inner dialog",
+    });
+    await waitFor(() => expect(openInner).toHaveFocus());
+    await userEvent.keyboard("{Enter}");
+    const inner = await page.findByRole("dialog", { name: "Inner" });
+    const field = within(inner).getByRole("textbox", { name: "Inner field" });
+    await waitFor(() => expect(field).toHaveFocus());
+    await userEvent.tab();
+    await expect(
+      within(inner).getByRole("button", { name: "Close" }),
+    ).toHaveFocus();
+    await userEvent.tab();
+    await waitFor(() => expect(field).toHaveFocus());
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(openInner).toHaveFocus());
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(launch).toHaveFocus());
+  },
+};
+
+/** A media-led tutorial built entirely from Dialog parts. */
+export const Tutorial: Story = {
+  render: (args) => {
+    const portal = React.useRef<HTMLDivElement>(null);
+    return (
+      <div ref={portal}>
+        <Dialog>
+          <DialogTrigger render={<Button />}>View tutorial</DialogTrigger>
+          <DialogPopup
+            {...args}
+            container={portal}
+            closeLabel="Close tutorial"
+            closeVariant="solid"
+          >
+            <DialogMedia>
+              <img
+                src={
+                  new URL(
+                    "../../../../../templates/assets/public/library-presets/prismatic-paper-cut/kirigami.webp",
+                    import.meta.url,
+                  ).href
+                }
+                alt="Stepped shapes folded from a single sheet of paper"
+                width={800}
+                height={400}
+              />
+            </DialogMedia>
+            <DialogBody>
+              <DialogTitle>Build a paper study</DialogTitle>
+              <DialogDescription>
+                Fold a sheet into alternating peaks and valleys. Light the folds
+                from one side to bring out their depth.
+              </DialogDescription>
+              <DialogFooter>
+                <DialogClose render={<Button />}>Got it</DialogClose>
+              </DialogFooter>
+            </DialogBody>
+          </DialogPopup>
+        </Dialog>
+      </div>
+    );
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      canvas.getByRole("button", { name: "View tutorial" }),
+    );
+  },
+};
+
+export const ShortTutorial: Story = {
+  render: Tutorial.render,
+  decorators: [
+    (Story) => (
+      <div className="[&_.dialog-popup]:[max-block-size:16rem]">
+        <Story />
+      </div>
+    ),
+  ],
+  play: async ({ canvas, userEvent }) => {
+    const trigger = canvas.getByRole("button", { name: "View tutorial" });
+    await userEvent.click(trigger);
+    const dialog = await canvas.findByRole("dialog");
+    const image = within(dialog).getByRole("img");
+    const heading = within(dialog).getByRole("heading");
+    await expect(dialog.scrollHeight).toBeGreaterThan(dialog.clientHeight);
+    await expect(heading.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      image.getBoundingClientRect().bottom - 1,
+    );
+    const done = within(dialog).getByRole("button", { name: "Got it" });
+    done.focus();
+    await expect(done).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(trigger).toHaveFocus());
+  },
+};
+
+/** A long project name stays readable beside the close control in a narrow popup. */
+export const LongTitle: Story = {
+  render: (args) => (
+    <Dialog>
+      <DialogTrigger render={<Button variant="surface" />}>
+        View project
+      </DialogTrigger>
+      <DialogPopup {...args} style={{ maxInlineSize: "20rem" }}>
+        <DialogHeader>
+          <DialogTitle>ComponentLibraryAnnouncementPreview</DialogTitle>
+          <DialogDescription>Project details</DialogDescription>
+        </DialogHeader>
+      </DialogPopup>
+    </Dialog>
+  ),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "View project" }));
+    const dialog = await within(canvasElement.ownerDocument.body).findByRole(
+      "dialog",
+      { name: "ComponentLibraryAnnouncementPreview" },
+    );
+    const heading = within(dialog).getByRole("heading");
+    const close = within(dialog)
+      .getByRole("button", { name: "Close" })
+      .getBoundingClientRect();
+    const range = heading.ownerDocument.createRange();
+    range.selectNodeContents(heading);
+    await expect(dialog.scrollWidth).toBeLessThanOrEqual(dialog.clientWidth);
+    for (const line of range.getClientRects()) {
+      const intersects =
+        line.left < close.right &&
+        line.right > close.left &&
+        line.top < close.bottom &&
+        line.bottom > close.top;
+      await expect(intersects).toBe(false);
+    }
+  },
+};
+
+export const KeepMounted: Story = {
+  render: (args) => (
+    <Dialog>
+      <DialogTrigger render={<Button />}>Edit name</DialogTrigger>
+      <DialogPopup {...args} keepMounted aria-describedby={undefined}>
+        <DialogTitle>Edit name</DialogTitle>
+        <Input aria-label="Project name" />
+      </DialogPopup>
+    </Dialog>
+  ),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const body = within(canvasElement.ownerDocument.body);
+    const trigger = canvas.getByRole("button", { name: "Edit name" });
+    await userEvent.click(trigger);
+    const dialog = await body.findByRole("dialog", { name: "Edit name" });
+    const field = within(dialog).getByRole("textbox", { name: "Project name" });
+    await userEvent.type(field, "Paper studies");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(dialog).not.toBeVisible());
+    await expect(dialog).toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    await userEvent.keyboard("{Enter}");
+    await expect(await body.findByRole("dialog", { name: "Edit name" })).toBe(
+      dialog,
+    );
+    await expect(field).toHaveValue("Paper studies");
+  },
 };

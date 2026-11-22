@@ -3,7 +3,7 @@
   // `paths` mirrors the dist exports of packages/toolkit (its self-imports),
   // packages/core and packages/agentkit. An export missing here type-checks
   // against the last built dist instead.
-  "extends": "./tsconfig.json",
+  "extends": "./tsconfig.build.json",
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "../..",

@@ -9,6 +9,7 @@ import * as React from "react";
  * fills in its own definition's defaults.
  */
 export function createGroupProps<D extends PropDefs>(defs: D) {
+  const names = Object.keys(defs);
   const Context = React.createContext<PropsOf<D>>({});
 
   function GroupProps({
@@ -19,26 +20,29 @@ export function createGroupProps<D extends PropDefs>(defs: D) {
     children?: React.ReactNode;
   }) {
     const values: Record<string, unknown> = value;
-    const given: Record<string, unknown> = {};
-    for (const name of Object.keys(defs)) {
-      if (values[name] !== undefined) given[name] = values[name];
-    }
-    return (
-      <Context.Provider value={given as PropsOf<D>}>
-        {children}
-      </Context.Provider>
-    );
+    const inherited = names.map((name) => values[name]);
+    const given = React.useMemo(() => {
+      const result: Record<string, unknown> = {};
+      names.forEach((name, index) => {
+        if (inherited[index] !== undefined) result[name] = inherited[index];
+      });
+      return result as PropsOf<D>;
+      // oxlint-disable-next-line react-hooks/exhaustive-deps -- The static prop definition fixes the dependency order and length.
+    }, inherited);
+    return <Context.Provider value={given}>{children}</Context.Provider>;
   }
 
   function useGroupProps<P extends object>(props: P): P {
     const group: Record<string, unknown> = React.useContext(Context);
-    const merged: Record<string, unknown> = Object.fromEntries(
-      Object.entries(props),
-    );
-    for (const [name, value] of Object.entries(group)) {
-      if (merged[name] === undefined) merged[name] = value;
+    const own = props as Record<string, unknown>;
+    let merged: Record<string, unknown> | undefined;
+    for (const name in group) {
+      if (own[name] === undefined) {
+        merged ??= { ...own };
+        merged[name] = group[name];
+      }
     }
-    return merged as P;
+    return merged ? (merged as P) : props;
   }
 
   return { GroupProps, useGroupProps };

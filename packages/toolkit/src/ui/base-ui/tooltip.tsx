@@ -1,7 +1,10 @@
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
 import * as React from "react";
 
-import { cn } from "../../utils.js";
+import { scopePortal } from "./overlay-scope.js";
+import { partClassName } from "./part-class.js";
+
+const TooltipPortal = scopePortal(BaseTooltip.Portal);
 
 export function normalizeTooltipText(text: string): string {
   const decoded = text.replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex) =>
@@ -128,7 +131,7 @@ const TooltipPopup = React.forwardRef<HTMLDivElement, TooltipPopupProps>(
     },
     ref,
   ) => (
-    <BaseTooltip.Portal container={container} keepMounted={keepMounted}>
+    <TooltipPortal container={container} keepMounted={keepMounted}>
       <BaseTooltip.Positioner
         className="tooltip-positioner"
         side={side}
@@ -147,7 +150,7 @@ const TooltipPopup = React.forwardRef<HTMLDivElement, TooltipPopupProps>(
         <BaseTooltip.Popup
           ref={ref}
           data-agent-native-tooltip="true"
-          className={cn("tooltip-popup", className)}
+          className={partClassName("tooltip-popup", className)}
           {...props}
         >
           {typeof children === "string"
@@ -155,7 +158,7 @@ const TooltipPopup = React.forwardRef<HTMLDivElement, TooltipPopupProps>(
             : children}
         </BaseTooltip.Popup>
       </BaseTooltip.Positioner>
-    </BaseTooltip.Portal>
+    </TooltipPortal>
   ),
 );
 TooltipPopup.displayName = "TooltipPopup";

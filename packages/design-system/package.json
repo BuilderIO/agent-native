@@ -32,6 +32,7 @@
     "./tokens.css": "./css/tokens.css",
     "./main.css": "./css/main.css",
     "./styles.css": "./css/styles.css",
+    "./components/*.css": "./css/components/*.css",
     "./themes/*.css": "./css/themes/*.css",
     "./appearances.css": "./css/appearances.css",
     "./package.json": "./package.json"
