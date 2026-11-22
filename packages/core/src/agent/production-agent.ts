@@ -14573,6 +14573,7 @@ export function createProductionAgentHandler(
   type PrepCleanupState = {
     runId?: string;
     runStarted: boolean;
+    dispatchMayOwnRun?: boolean;
     runRowState?: { foregroundInserted: boolean; durableInserted: boolean };
     setupResumeClaim?: { release: () => Promise<unknown> } | null | undefined;
   };
@@ -17873,6 +17874,7 @@ export function createProductionAgentHandler(
       const backgroundDispatchPath = resolveAgentChatProcessRunDispatchPath();
       const expectsNetlifyBackgroundFunction =
         dispatchPathTargetsNetlifyBackgroundFunction(backgroundDispatchPath);
+      prepCleanup.dispatchMayOwnRun = true;
       try {
         await fireInternalDispatch({
           event,
@@ -17966,6 +17968,7 @@ export function createProductionAgentHandler(
         };
       }
 
+      prepCleanup.dispatchMayOwnRun = false;
       if (backgroundOutcome.reason === "worker-never-claimed") {
         let priorDiag = "none";
         try {
@@ -19196,6 +19199,7 @@ export function createProductionAgentHandler(
     } catch (error) {
       if (
         !prepCleanup.runStarted &&
+        !prepCleanup.dispatchMayOwnRun &&
         prepCleanup.runId &&
         (prepCleanup.runRowState?.foregroundInserted ||
           prepCleanup.runRowState?.durableInserted)

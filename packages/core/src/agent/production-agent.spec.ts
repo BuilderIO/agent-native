@@ -9949,6 +9949,69 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it("does not terminalize a worker-owned run when subscription setup throws", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: true,
+      activeRunId: null,
+    });
+    mockFireInternalDispatch.mockClear();
+    const readClaim = vi
+      .spyOn(runStore, "readBackgroundRunClaim")
+      .mockResolvedValue({
+        dispatchMode: "background-claimed",
+        status: "running",
+        diagStage: "claimed",
+        workerStage: "streaming",
+        lastLivenessAt: Date.now(),
+      });
+    const subscribe = vi
+      .spyOn(runManager, "subscribeToRun")
+      .mockImplementation(() => {
+        throw new Error("subscription setup failed");
+      });
+    const updateStatus = vi
+      .spyOn(runStore, "updateRunStatusIfRunning")
+      .mockResolvedValue(true);
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Hello",
+          threadId: "thread-bg-subscribe-error",
+        }),
+      }),
+    );
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: "alice@example.com", run: {} }, () =>
+          handler(event),
+        ),
+      ).rejects.toThrow("subscription setup failed");
+      expect(mockFireInternalDispatch).toHaveBeenCalledOnce();
+      expect(readClaim).toHaveBeenCalled();
+      expect(updateStatus).not.toHaveBeenCalled();
+    } finally {
+      readClaim.mockRestore();
+      subscribe.mockRestore();
+      updateStatus.mockRestore();
+      if (previousDurableFlag === undefined)
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      else process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
   it("runs deferred setup on inline fallback and marks the claimed run errored when systemPrompt fails", async () => {
     const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
     const previousA2ASecret = process.env.A2A_SECRET;
