@@ -9458,14 +9458,11 @@ function PageEditorSessionBody({
       (thread) => !thread.resolved && !isPageCommentThread(thread),
     ) ??
       false);
-  // A suggestion whose text is gone lives in the comments panel only, so it
-  // must not hold open an otherwise empty margin.
+  // A suggestion the page can't draw still shows in the margin, under
+  // "Highlight unavailable", so it holds the margin open like any other.
   const hasOpenSuggestions =
     presentedSuggestions.some(
-      (suggestion) =>
-        suggestion.status === "pending" &&
-        (!anchoredSuggestionIds ||
-          anchoredSuggestionIds.includes(suggestion.id)),
+      (suggestion) => suggestion.status === "pending",
     ) ||
     draftSuggestions.length > 0 ||
     fieldSuggestions.hasOpen;
@@ -9683,7 +9680,6 @@ function PageEditorSessionBody({
     threads,
     suggestions: reviewSuggestions,
     draftSuggestions: reviewDraftSuggestions,
-    anchoredSuggestionIds: reviewAnchoredSuggestionIds,
     selectedThreadId,
     selectedSuggestionId,
     focusSuggestionId,

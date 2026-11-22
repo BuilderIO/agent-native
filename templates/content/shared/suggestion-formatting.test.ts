@@ -168,6 +168,24 @@ describe("formatting source ranges", () => {
     ).toMatchObject({ from, to: from + text.length });
   });
 
+  it("slices a whole divider and a whole code block as written", () => {
+    const source = "Before\n---\n```js\ncode line\n```\nAfter";
+    const from = source.indexOf("---");
+    const to = source.indexOf("After");
+    expect(suggestionFormattingSourceSlice(source, from, to)).toEqual([
+      { type: "block", text: "---" },
+      { type: "break", text: "↵" },
+      { type: "block", text: "```js" },
+      { type: "break", text: "↵" },
+      { type: "text", text: "code line", marks: [] },
+      { type: "break", text: "↵" },
+      { type: "block", text: "```" },
+      { type: "break", text: "↵" },
+    ]);
+    // Part of a divider or a fence isn't a whole line of syntax.
+    expect(suggestionFormattingSourceSlice(source, from, from + 2)).toBeNull();
+  });
+
   it("slices and maps a span that ends in empty paragraphs", () => {
     const source = "Alpha. More.\n<empty-block/>\n<empty-block/>\nBravo.";
     const from = "Alpha.".length;

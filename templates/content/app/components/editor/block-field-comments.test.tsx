@@ -287,6 +287,7 @@ describe("comment tabs", () => {
       ],
       suggestions: [
         suggestion("single"),
+        // The page can't draw this one.
         suggestion("unplaced"),
         suggestion("accepted", { status: "accepted" }),
         suggestion("member-1", { proposalId: "proposal" }),
@@ -306,16 +307,10 @@ describe("comment tabs", () => {
         { operations: [{ targetId: "body" }] },
         { operations: [notesOperation()] },
       ],
-      anchoredSuggestionIds: [
-        "single",
-        "accepted",
-        "member-1",
-        "member-2",
-        "embedded",
-      ],
     });
-    // Two threads, one suggestion, one proposal, one draft.
-    expect(counts.get(null)).toBe(5);
+    // Two threads, two suggestions, one proposal, one draft. A suggestion the
+    // page can't draw still shows in the margin, so it counts.
+    expect(counts.get(null)).toBe(6);
     // A thread, a suggestion, and a draft.
     expect(counts.get("notes")).toBe(3);
     expect(counts.has("status")).toBe(false);
@@ -355,7 +350,6 @@ describe("useBlockFieldComments", () => {
       threads,
       suggestions,
       draftSuggestions: [],
-      anchoredSuggestionIds: null,
       selectedThreadId,
       selectedSuggestionId: null,
       focusSuggestionId,

@@ -1522,9 +1522,11 @@ export function CommentsSidebar({
       ),
     [threadSuggestions],
   );
-  // A suggestion whose text is gone has nothing to point at in the margin; it
-  // stays reviewable in the comments panel. Under a Property, only its own
-  // threads show: a suggested edit to the Page's text isn't about it.
+  // A suggestion the page can't draw, because its text is gone or it changes
+  // a block with no text to mark, such as a divider, still waits on a
+  // decision, so like a comment whose text is gone it stays in the margin,
+  // under "Highlight unavailable". Under a Property, only its own threads
+  // show: a suggested edit to the Page's text isn't about it.
   const inlineSuggestions = useMemo(
     () =>
       underSubject
@@ -1533,17 +1535,13 @@ export function CommentsSidebar({
             (suggestion) =>
               suggestion.status === "pending" &&
               !embeddedSuggestionIds.has(suggestion.id) &&
-              (alignToAnchors || suggestion.id === activeSuggestionId) &&
-              (suggestion.id === activeSuggestionId ||
-                !anchoredSuggestionIds ||
-                anchoredSuggestionIds.includes(suggestion.id)),
+              (alignToAnchors || suggestion.id === activeSuggestionId),
           ),
     [
       suggestions,
       underSubject,
       alignToAnchors,
       activeSuggestionId,
-      anchoredSuggestionIds,
       embeddedSuggestionIds,
     ],
   );

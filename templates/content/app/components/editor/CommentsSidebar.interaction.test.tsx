@@ -204,6 +204,7 @@ function SidebarOwner({
     decidingSuggestion?: (suggestionId: string) => boolean;
     activeSuggestionId?: string;
     unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
+    anchoredSuggestionIds?: string[] | null;
     alignToAnchors?: boolean;
     scrollContainer?: HTMLDivElement;
     onDecideSuggestionProposal?: (
@@ -240,6 +241,7 @@ function SidebarOwner({
       onRetrySuggestionRead={options.onRetrySuggestionRead}
       activeSuggestionId={options.activeSuggestionId}
       unplaceableSuggestionRevisions={options.unplaceableSuggestionRevisions}
+      anchoredSuggestionIds={options.anchoredSuggestionIds}
       selectedThreadId={selected}
       currentUserEmail="reviewer@example.test"
       currentUserName="Rae Viewer"
@@ -312,6 +314,7 @@ describe("comment review interactions", () => {
       decidingSuggestion?: (suggestionId: string) => boolean;
       activeSuggestionId?: string;
       unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
+      anchoredSuggestionIds?: string[] | null;
       alignToAnchors?: boolean;
       scrollContainer?: HTMLDivElement;
       onDecideSuggestionProposal?: (
@@ -774,6 +777,22 @@ describe("comment review interactions", () => {
       expect(container.querySelector("[data-suggestion-reason]")).toBeNull();
     },
   );
+  it("keeps a pending suggestion the page can't draw in the margin, labeled", () => {
+    // Deleting a divider saves a suggestion with no text on the page to mark.
+    // It still waits on a decision, so the margin keeps its card, like a
+    // comment whose text is gone.
+    render(null, [], "inline", {
+      suggestions: [
+        { ...proposalSuggestion("drawn"), proposalId: "drawn" },
+        { ...proposalSuggestion("divider"), proposalId: "divider" },
+      ],
+      anchoredSuggestionIds: ["drawn"],
+    });
+    const card = (id: string) =>
+      container.querySelector(`[data-suggestion-id='${id}']`);
+    expect(card("drawn")?.textContent).not.toContain("comments.unanchored");
+    expect(card("divider")?.textContent).toContain("comments.unanchored");
+  });
   it("drops the conflict alert once an unplaceable suggestion is amended", () => {
     const conflictAlert = () =>
       [
