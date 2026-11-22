@@ -293,7 +293,7 @@ export default defineAction({
               kind: effectiveKind,
             })
           ) {
-            if (effectiveKind && stored.capture?.kind !== effectiveKind)
+            if (effectiveKind && stored.capture.kind !== effectiveKind)
               throw new BrainCaptureConcurrentError();
             fail(
               "The capture changed during import and the supplied provenance was not applied. Retry the import.",
