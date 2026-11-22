@@ -1910,7 +1910,12 @@ async function discardUnreferencedQuarantineBlob(
         .limit(1),
     );
     if (event?.quarantineBlobHandle === handle) return;
-  } catch {}
+  } catch (error) {
+    console.warn(
+      "[brain] Checking whether the quarantine blob is referenced failed; deleting it:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+  }
   await deleteQuarantineHandle(handle);
 }
 
