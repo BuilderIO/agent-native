@@ -4285,10 +4285,10 @@ export function VisualEditor({
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
   const isSuggesting = useCallback(() => suggestingRef.current, []);
   const onSuggestionRefused = useCallback(() => {
-    toast(t("editor.blockMenu.lockedSuggesting"), {
+    toast(tRef.current("editor.blockMenu.lockedSuggesting"), {
       id: "suggesting-refused-block",
     });
-  }, [t]);
+  }, []);
   const analyticsLinks = useActionQuery(
     "get-analytics-links",
     {},

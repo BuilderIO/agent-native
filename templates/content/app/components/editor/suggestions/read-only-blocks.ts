@@ -178,6 +178,16 @@ export function isSuggestingEdits(state: EditorState): boolean {
 
 export const SUGGESTING_REFUSAL_PROBE = "suggestingRefusalProbe";
 
+const INPUT_EVENTS = [
+  "keydown",
+  "beforeinput",
+  "input",
+  "compositionend",
+  "paste",
+  "drop",
+  "cut",
+];
+
 const INPUT_WINDOW_MS = 250;
 
 export function suggestingReadOnlyBlocksPlugin(
@@ -187,13 +197,27 @@ export function suggestingReadOnlyBlocksPlugin(
   let cached: { doc: ProseMirrorNode; decorations: DecorationSet } | null =
     null;
   let input: { view: EditorView; at: number } | null = null;
-  const noteInput = (view: EditorView) => {
-    input = { view, at: performance.now() };
-    return false;
-  };
   return new Plugin({
     key: readOnlyBlocksKey,
     isSuggesting,
+    view(editorView) {
+      const page = editorView.dom.ownerDocument;
+      const noteInput = (event: Event) => {
+        if (
+          event.target instanceof Node &&
+          editorView.dom.contains(event.target)
+        )
+          input = { view: editorView, at: performance.now() };
+      };
+      for (const type of INPUT_EVENTS)
+        page.addEventListener(type, noteInput, true);
+      return {
+        destroy() {
+          for (const type of INPUT_EVENTS)
+            page.removeEventListener(type, noteInput, true);
+        },
+      };
+    },
     filterTransaction: (transaction, state) => {
       if (
         !isSuggesting() ||
@@ -210,13 +234,6 @@ export function suggestingReadOnlyBlocksPlugin(
       return false;
     },
     props: {
-      handleDOMEvents: {
-        keydown: noteInput,
-        beforeinput: noteInput,
-        paste: noteInput,
-        drop: noteInput,
-        cut: noteInput,
-      },
       decorations(state) {
         if (!isSuggesting()) return null;
         if (cached?.doc !== state.doc) {
