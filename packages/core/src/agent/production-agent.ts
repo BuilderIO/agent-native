@@ -16580,2653 +16580,2602 @@ export function createProductionAgentHandler(
     let backgroundDispatchAttempted = false;
     let runStarted = false;
     try {
-      if (deferExecutionContext) {
-        backgroundDispatchAttempted = true;
-        const slotResult = await claimForegroundRunSlot();
-        if (slotResult.earlyResponse !== null) {
-          return slotResult.earlyResponse;
-        }
-        const preparedResult = await runOnRunPreparedHook();
-        if (preparedResult.earlyResponse !== null) {
-          return preparedResult.earlyResponse;
-        }
-        const dispatchResult = await dispatchDurableBackgroundRun();
-        if (dispatchResult.earlyResponse !== null) {
-          return dispatchResult.earlyResponse;
-        }
-        contextPrefetchDeadlineAt = Date.now() + 1_300;
+    if (deferExecutionContext) {
+      backgroundDispatchAttempted = true;
+      const slotResult = await claimForegroundRunSlot();
+      if (slotResult.earlyResponse !== null) {
+        return slotResult.earlyResponse;
       }
-
-      attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
-      const resolvedHistoryImages =
-        await hydrateStructuredHistoryImageReferences(
-          requestStructuredHistory,
-          { vision: modelSupportsVision, budget: attachmentHydrationBudget },
-        );
-      const modelPreparedContext = await preparedRequest?.prepareAfterModel?.({
-        model: effectiveModel,
-        vision: modelSupportsVision,
-        hydrationBudget: attachmentHydrationBudget,
-        historyImageUrls: attemptedStructuredHistoryImageUrls(
-          requestStructuredHistory,
-          resolvedHistoryImages,
-          modelSupportsVision,
-        ),
-      });
-      if (modelPreparedContext) {
-        if (Array.isArray(modelPreparedContext.contextAttachments)) {
-          requestContextAttachments = [
-            ...requestContextAttachments,
-            ...(await downscaleOversizedInlineImages(
-              modelPreparedContext.contextAttachments,
-            )),
-          ];
-        }
-        if (typeof modelPreparedContext.contextNote === "string") {
-          requestContextNote = [
-            requestContextNote,
-            modelPreparedContext.contextNote,
-          ]
-            .filter(Boolean)
-            .join("\n");
-        }
+      const preparedResult = await runOnRunPreparedHook();
+      if (preparedResult.earlyResponse !== null) {
+        return preparedResult.earlyResponse;
       }
+      const dispatchResult = await dispatchDurableBackgroundRun();
+      if (dispatchResult.earlyResponse !== null) {
+        return dispatchResult.earlyResponse;
+      }
+      contextPrefetchDeadlineAt = Date.now() + 1_300;
+    }
 
-      setupMark("prepDone");
-      workerStep("env_config");
-      const integrationMessage = [...integrationIntents, requestMessage].join(
-        "\n\n",
-      );
-      const enrichedMessageThunk = () =>
-        enrichMessage(integrationMessage, requestReferences);
-      const loopSettingsThunk = () =>
-        readAgentLoopSettings({
-          userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
-          orgId: getRequestOrgId() ?? null,
-        }).catch(() => readAgentLoopSettings({}));
+    attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
+    const resolvedHistoryImages = await hydrateStructuredHistoryImageReferences(
+      requestStructuredHistory,
+      { vision: modelSupportsVision, budget: attachmentHydrationBudget },
+    );
+    const modelPreparedContext = await preparedRequest?.prepareAfterModel?.({
+      model: effectiveModel,
+      vision: modelSupportsVision,
+      hydrationBudget: attachmentHydrationBudget,
+      historyImageUrls: attemptedStructuredHistoryImageUrls(
+        requestStructuredHistory,
+        resolvedHistoryImages,
+        modelSupportsVision,
+      ),
+    });
+    if (modelPreparedContext) {
+      if (Array.isArray(modelPreparedContext.contextAttachments)) {
+        requestContextAttachments = [
+          ...requestContextAttachments,
+          ...(await downscaleOversizedInlineImages(
+            modelPreparedContext.contextAttachments,
+          )),
+        ];
+      }
+      if (typeof modelPreparedContext.contextNote === "string") {
+        requestContextNote = [
+          requestContextNote,
+          modelPreparedContext.contextNote,
+        ]
+          .filter(Boolean)
+          .join("\n");
+      }
+    }
 
-      let systemPromptError: Error | null = null;
-      const systemPromptThunk = (): Promise<string> =>
-        (async (): Promise<string> => {
-          const sysPromptStart = Date.now();
-          try {
-            const built =
-              typeof options.systemPrompt === "function"
-                ? await options.systemPrompt(event)
-                : options.systemPrompt;
-            const treatmentInstructions =
-              treatmentInstructionsForQuestionIntake(
-                questionIntakeConfig,
-                questionIntakeAssignment,
-              );
-            return treatmentInstructions
-              ? [built, treatmentInstructions].filter(Boolean).join("\n\n")
-              : built;
-          } catch (error) {
-            systemPromptError =
-              error instanceof Error
-                ? error
-                : new Error(
-                    typeof error === "string" && error.trim()
-                      ? error
-                      : "system prompt preparation failed",
-                  );
-            return "";
-          } finally {
-            setupMarks.sysPromptMs = Date.now() - sysPromptStart;
-          }
-        })();
+    setupMark("prepDone");
+    workerStep("env_config");
+    const integrationMessage = [...integrationIntents, requestMessage].join(
+      "\n\n",
+    );
+    const enrichedMessageThunk = () =>
+      enrichMessage(integrationMessage, requestReferences);
+    const loopSettingsThunk = () =>
+      readAgentLoopSettings({
+        userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
+        orgId: getRequestOrgId() ?? null,
+      }).catch(() => readAgentLoopSettings({}));
 
-      const timeContextThunk = (): Promise<string> =>
-        (async (): Promise<string> => {
-          try {
-            const tzRaw = getHeader(event, "x-user-timezone");
-            const timezone =
-              typeof tzRaw === "string" &&
-              tzRaw.trim().length > 0 &&
-              tzRaw.trim().length < 64
-                ? tzRaw.trim()
-                : undefined;
-            return buildCurrentTimeUserContext({ timezone });
-          } catch {
-            return buildCurrentTimeUserContext();
-          }
-        })();
-
-      // `empty` (no navigation yet) stays silent; a timeout or a throw adds a
-      // note, because the model would otherwise read it as an app with no page.
-      const screenStatuses: Record<
-        "screen" | "url" | "selection",
-        ContextStatus
-      > = { screen: "empty", url: "empty", selection: "empty" };
-      // Once a cap fires the model has the fallback note, so a read that
-      // resolves late must not change what the trace says it saw.
-      const noteScreenStatus = (
-        source: keyof typeof screenStatuses,
-        status: ContextStatus,
-      ) => {
-        if (screenStatuses[source] !== "timed_out") {
-          screenStatuses[source] = status;
-        }
-      };
-      const screenUnavailableNote = screenContextUnavailableNote(
-        Boolean(surfacedRequestActions["view-screen"]),
-      );
-      const screenContextThunk = (): Promise<string> =>
-        (async (): Promise<string> => {
-          const screenStart = Date.now();
-          try {
-            const viewScreenAction = surfacedRequestActions["view-screen"];
-            if (viewScreenAction) {
-              const result = await viewScreenAction.run(
-                {},
-                {
-                  userEmail: getRequestUserEmail(),
-                  orgId: getRequestOrgId() ?? null,
-                  caller: "tool",
-                },
-              );
-              if (result && result !== "(no output)") {
-                const screenText =
-                  typeof result === "string"
-                    ? result
-                    : JSON.stringify(result, null, 2);
-                noteScreenStatus("screen", "ok");
-                return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
-              }
-            } else {
-              const navigation = await readAppStateForBrowserTab(
-                "navigation",
-                requestBrowserTabId,
-              );
-              if (navigation) {
-                noteScreenStatus("screen", "ok");
-                return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
-              }
-            }
-          } catch (error) {
-            if (!hasAppStateIdentity()) return "";
-            noteScreenStatus("screen", "failed");
-            console.warn(
-              "[agent-chat] current-screen context unavailable:",
-              error instanceof Error ? error.message : String(error),
-            );
-            return screenUnavailableNote;
-          } finally {
-            setupMarks.screenMs = Date.now() - screenStart;
-          }
-          return "";
-        })();
-
-      const urlContextThunk = (): Promise<string> =>
-        (async (): Promise<string> => {
-          try {
-            const url = (await readAppStateForBrowserTab(
-              "__url__",
-              requestBrowserTabId,
-            )) as {
-              pathname?: string;
-              search?: string;
-              hash?: string;
-              searchParams?: Record<string, string>;
-            } | null;
-            if (url && (url.pathname || url.search || url.hash)) {
-              const lines: string[] = [];
-              if (url.pathname) lines.push(`pathname: ${url.pathname}`);
-              const extensionId = url.pathname
-                ? extensionIdFromPathname(url.pathname)
-                : null;
-              if (extensionId) lines.push(`extensionId: ${extensionId}`);
-              if (url.search) lines.push(`search: ${url.search}`);
-              // A tab on an older bundle still stores the hash unscrubbed.
-              if (url.hash) lines.push(`hash: ${scrubLocationHash(url.hash)}`);
-              if (
-                url.searchParams &&
-                Object.keys(url.searchParams).length > 0
-              ) {
-                lines.push("searchParams:");
-                for (const [k, v] of Object.entries(url.searchParams)) {
-                  lines.push(`  ${k}: ${v}`);
-                }
-              }
-              // The Settings shell names the page it resolved, which a legacy
-              // or mounted pathname doesn't say directly.
-              if (url.pathname?.includes("/settings")) {
-                const settingsPage = describeSettingsViewForAgent(
-                  await readAppStateForBrowserTab(
-                    SETTINGS_VIEW_STATE_KEY,
-                    requestBrowserTabId,
-                  ),
+    let systemPromptError: Error | null = null;
+    const systemPromptThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        const sysPromptStart = Date.now();
+        try {
+          const built =
+            typeof options.systemPrompt === "function"
+              ? await options.systemPrompt(event)
+              : options.systemPrompt;
+          const treatmentInstructions = treatmentInstructionsForQuestionIntake(
+            questionIntakeConfig,
+            questionIntakeAssignment,
+          );
+          return treatmentInstructions
+            ? [built, treatmentInstructions].filter(Boolean).join("\n\n")
+            : built;
+        } catch (error) {
+          systemPromptError =
+            error instanceof Error
+              ? error
+              : new Error(
+                  typeof error === "string" && error.trim()
+                    ? error
+                    : "system prompt preparation failed",
                 );
-                if (settingsPage) lines.push(settingsPage);
-              }
-              noteScreenStatus("url", "ok");
-              return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
+          return "";
+        } finally {
+          setupMarks.sysPromptMs = Date.now() - sysPromptStart;
+        }
+      })();
+
+    const timeContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        try {
+          const tzRaw = getHeader(event, "x-user-timezone");
+          const timezone =
+            typeof tzRaw === "string" &&
+            tzRaw.trim().length > 0 &&
+            tzRaw.trim().length < 64
+              ? tzRaw.trim()
+              : undefined;
+          return buildCurrentTimeUserContext({ timezone });
+        } catch {
+          return buildCurrentTimeUserContext();
+        }
+      })();
+
+    // `empty` (no navigation yet) stays silent; a timeout or a throw adds a
+    // note, because the model would otherwise read it as an app with no page.
+    const screenStatuses: Record<
+      "screen" | "url" | "selection",
+      ContextStatus
+    > = { screen: "empty", url: "empty", selection: "empty" };
+    // Once a cap fires the model has the fallback note, so a read that
+    // resolves late must not change what the trace says it saw.
+    const noteScreenStatus = (
+      source: keyof typeof screenStatuses,
+      status: ContextStatus,
+    ) => {
+      if (screenStatuses[source] !== "timed_out") {
+        screenStatuses[source] = status;
+      }
+    };
+    const screenUnavailableNote = screenContextUnavailableNote(
+      Boolean(surfacedRequestActions["view-screen"]),
+    );
+    const screenContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        const screenStart = Date.now();
+        try {
+          const viewScreenAction = surfacedRequestActions["view-screen"];
+          if (viewScreenAction) {
+            const result = await viewScreenAction.run(
+              {},
+              {
+                userEmail: getRequestUserEmail(),
+                orgId: getRequestOrgId() ?? null,
+                caller: "tool",
+              },
+            );
+            if (result && result !== "(no output)") {
+              const screenText =
+                typeof result === "string"
+                  ? result
+                  : JSON.stringify(result, null, 2);
+              noteScreenStatus("screen", "ok");
+              return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
             }
-          } catch (error) {
-            if (!hasAppStateIdentity()) return "";
-            noteScreenStatus("url", "failed");
-            console.warn(
-              "[agent-chat] current-url context unavailable:",
-              error instanceof Error ? error.message : String(error),
+          } else {
+            const navigation = await readAppStateForBrowserTab(
+              "navigation",
+              requestBrowserTabId,
             );
-            return screenUnavailableNote;
+            if (navigation) {
+              noteScreenStatus("screen", "ok");
+              return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
+            }
           }
-          return "";
-        })();
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          noteScreenStatus("screen", "failed");
+          console.warn(
+            "[agent-chat] current-screen context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return screenUnavailableNote;
+        } finally {
+          setupMarks.screenMs = Date.now() - screenStart;
+        }
+        return "";
+      })();
 
-      const SELECTION_TTL_MS = 5 * 60 * 1000;
-      const selectionContextThunk = (): Promise<string> =>
-        (async (): Promise<string> => {
-          if (requestSkipPendingSelectionContext === true) return "";
-          try {
-            const sel = (await readAppState("pending-selection-context")) as {
-              text?: string;
-              capturedAt?: number;
-            } | null;
-            if (!sel?.text) return "";
-            const capturedAt =
-              typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
-            if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
-            noteScreenStatus("selection", "ok");
-            return (
-              `\n\nThe user has selected the following text and pressed Cmd I to focus the agent. ` +
-              `Treat this as the immediate context to act on:\n` +
-              `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
-            );
-          } catch (error) {
-            if (!hasAppStateIdentity()) return "";
-            noteScreenStatus("selection", "failed");
-            console.warn(
-              "[agent-chat] selection context unavailable:",
-              error instanceof Error ? error.message : String(error),
-            );
-            return SELECTION_CONTEXT_UNAVAILABLE_NOTE;
-          }
-          return "";
-        })();
-
-      const filesContextThunk = (): Promise<string> =>
-        (async (): Promise<string> => {
-          let filesContext = "";
-          if (options.skipFilesContext || requestedHostedHarness) {
-            return filesContext;
-          }
-          if (requestHistory.length === 0) {
-            try {
-              const {
-                resourceListAccessible,
-                SHARED_OWNER,
-                isWorkspaceResourceOwner,
-                resourceGet,
-              } = await import("../resources/store.js");
-              const {
-                getResourceKind,
-                parseCustomAgentProfile,
-                parseRemoteAgentManifest,
-                parseSkillMetadata,
-              } = await import("../resources/metadata.js");
-              const ownerEmail = getRequestUserEmail();
-              const orgId = getRequestOrgId();
-              if (!ownerEmail) throw new Error("no authenticated user");
-              const allResources = await resourceListAccessible(
-                ownerEmail,
-                undefined,
-                { userEmail: ownerEmail, orgId },
+    const urlContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        try {
+          const url = (await readAppStateForBrowserTab(
+            "__url__",
+            requestBrowserTabId,
+          )) as {
+            pathname?: string;
+            search?: string;
+            hash?: string;
+            searchParams?: Record<string, string>;
+          } | null;
+          if (url && (url.pathname || url.search || url.hash)) {
+            const lines: string[] = [];
+            if (url.pathname) lines.push(`pathname: ${url.pathname}`);
+            const extensionId = url.pathname
+              ? extensionIdFromPathname(url.pathname)
+              : null;
+            if (extensionId) lines.push(`extensionId: ${extensionId}`);
+            if (url.search) lines.push(`search: ${url.search}`);
+            // A tab on an older bundle still stores the hash unscrubbed.
+            if (url.hash) lines.push(`hash: ${scrubLocationHash(url.hash)}`);
+            if (url.searchParams && Object.keys(url.searchParams).length > 0) {
+              lines.push("searchParams:");
+              for (const [k, v] of Object.entries(url.searchParams)) {
+                lines.push(`  ${k}: ${v}`);
+              }
+            }
+            // The Settings shell names the page it resolved, which a legacy
+            // or mounted pathname doesn't say directly.
+            if (url.pathname?.includes("/settings")) {
+              const settingsPage = describeSettingsViewForAgent(
+                await readAppStateForBrowserTab(
+                  SETTINGS_VIEW_STATE_KEY,
+                  requestBrowserTabId,
+                ),
               );
-
-              if (allResources.length > 0) {
-                const fileLines: string[] = [];
-                const skillLines: string[] = [];
-                const agentLines: string[] = [];
-                const jobLines: string[] = [];
-                const detailResources = allResources.filter((r) => {
-                  const kind = getResourceKind(r.path);
-                  return (
-                    kind === "skill" ||
-                    kind === "agent" ||
-                    kind === "remote-agent"
-                  );
-                });
-                const fullById = new Map<
-                  string,
-                  Awaited<ReturnType<typeof resourceGet>>
-                >();
-                if (detailResources.length > 0) {
-                  const resourceOpts = {
-                    userEmail: ownerEmail,
-                    ...(orgId !== undefined ? { orgId } : {}),
-                  };
-                  const concurrency = Math.min(4, detailResources.length);
-                  let nextIndex = 0;
-                  await Promise.all(
-                    Array.from({ length: concurrency }, async () => {
-                      while (nextIndex < detailResources.length) {
-                        const item = detailResources[nextIndex++]!;
-                        const full = await resourceGet(item.id, resourceOpts);
-                        fullById.set(item.id, full);
-                      }
-                    }),
-                  );
-                }
-                for (const r of allResources) {
-                  const scope = isWorkspaceResourceOwner(r.owner)
-                    ? "workspace"
-                    : r.owner === SHARED_OWNER
-                      ? "shared"
-                      : "personal";
-                  const kind = getResourceKind(r.path);
-                  if (kind === "file") {
-                    fileLines.push(`  ${r.path} (${scope})`);
-                    continue;
-                  }
-
-                  if (kind === "job") {
-                    jobLines.push(`  ${r.path} (${scope})`);
-                    continue;
-                  }
-
-                  if (
-                    kind === "skill" ||
-                    kind === "agent" ||
-                    kind === "remote-agent"
-                  ) {
-                    const full = fullById.get(r.id);
-                    if (!full) continue;
-                    if (kind === "skill") {
-                      const skill = parseSkillMetadata(full.content, r.path);
-                      skillLines.push(
-                        `  ${skill?.name || r.path} — ${compactInventoryDescription(skill?.description || r.path)} (${scope}, ${r.path})`,
-                      );
-                    } else if (kind === "agent") {
-                      const agent = parseCustomAgentProfile(
-                        full.content,
-                        r.path,
-                      );
-                      agentLines.push(
-                        `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Custom workspace agent")} (${scope}, ${r.path}${agent?.model ? `, model: ${agent.model}` : ""})`,
-                      );
-                    } else {
-                      const agent = parseRemoteAgentManifest(
-                        full.content,
-                        r.path,
-                      );
-                      agentLines.push(
-                        `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Connected A2A agent")} (${scope}, remote via ${r.path})`,
-                      );
-                    }
-                  }
-                }
-                const blocks: string[] = [];
-                if (fileLines.length > 0) {
-                  const lines = limitInventoryLines(fileLines, "files");
-                  blocks.push(
-                    `<available-files>\nFiles in the workspace:\n${lines.join("\n")}\n\nTo read a resource file's contents, use the resources tool with action "read" and the file path.\n</available-files>`,
-                  );
-                }
-                if (skillLines.length > 0) {
-                  const lines = limitInventoryLines(skillLines, "skills");
-                  blocks.push(
-                    `<available-skills>\nSkills in the workspace:\n${lines.join("\n")}\n\nBefore using a matching workspace skill, read its path with the resources tool using action "read"; slash-selected skills are inlined automatically when available.\n</available-skills>`,
-                  );
-                }
-                if (agentLines.length > 0) {
-                  const lines = limitInventoryLines(agentLines, "agents");
-                  blocks.push(
-                    `<available-agents>\nCustom and connected agents in the workspace:\n${lines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via agent-teams (action: "spawn") with the agent parameter.\n</available-agents>`,
-                  );
-                }
-                if (jobLines.length > 0) {
-                  const lines = limitInventoryLines(jobLines, "jobs");
-                  blocks.push(
-                    `<available-jobs>\nScheduled tasks in the workspace:\n${lines.join("\n")}\n</available-jobs>`,
-                  );
-                }
-                filesContext =
-                  blocks.length > 0 ? `\n\n${blocks.join("\n\n")}` : "";
-              }
-            } catch {
-              // Resources not available — skip silently
+              if (settingsPage) lines.push(settingsPage);
             }
+            noteScreenStatus("url", "ok");
+            return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
           }
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          noteScreenStatus("url", "failed");
+          console.warn(
+            "[agent-chat] current-url context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return screenUnavailableNote;
+        }
+        return "";
+      })();
+
+    const SELECTION_TTL_MS = 5 * 60 * 1000;
+    const selectionContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        if (requestSkipPendingSelectionContext === true) return "";
+        try {
+          const sel = (await readAppState("pending-selection-context")) as {
+            text?: string;
+            capturedAt?: number;
+          } | null;
+          if (!sel?.text) return "";
+          const capturedAt =
+            typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
+          if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
+          noteScreenStatus("selection", "ok");
+          return (
+            `\n\nThe user has selected the following text and pressed Cmd I to focus the agent. ` +
+            `Treat this as the immediate context to act on:\n` +
+            `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
+          );
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          noteScreenStatus("selection", "failed");
+          console.warn(
+            "[agent-chat] selection context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return SELECTION_CONTEXT_UNAVAILABLE_NOTE;
+        }
+        return "";
+      })();
+
+    const filesContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        let filesContext = "";
+        if (options.skipFilesContext || requestedHostedHarness) {
           return filesContext;
-        })();
-
-      const presendCap = <T>(
-        label: string,
-        thunk: () => Promise<T>,
-        fallback: T,
-        ms: number,
-        onTimeout?: () => void,
-      ): Promise<T> => {
-        return resolvePresendWithCap({
-          enabled: isBackgroundWorker,
-          thunk,
-          fallback,
-          timeoutMs: ms,
-          onTimeout: () => {
-            onTimeout?.();
-            workerStep(`presend_timeout:${label}`);
-          },
-        });
-      };
-      const fallbackLoopSettings: AgentLoopSettings = {
-        maxIterations: getDefaultMaxIterations(),
-        defaultMaxIterations: getDefaultMaxIterations(),
-        minMaxIterations: MIN_AGENT_MAX_ITERATIONS,
-        maxMaxIterations: MAX_AGENT_MAX_ITERATIONS,
-        maxRunInputTokens: getDefaultMaxRunInputTokens(),
-        defaultMaxRunInputTokens: getDefaultMaxRunInputTokens(),
-        scope: "default",
-        source: "default",
-      };
-      const systemPromptTimeoutError = new Error(
-        "system prompt preparation timed out before the agent could start",
-      );
-      let [
-        systemPrompt,
-        timeBlock,
-        screenBlock,
-        urlBlock,
-        selectionBlock,
-        filesContext,
-        loopSettings,
-        enrichedMessage,
-        jevContextCredentials,
-        priorConnection,
-      ] = await Promise.all([
-        presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
-          // An empty configured prompt is valid, but an empty timeout fallback
-          // is not: required app instructions must either finish or fail before
-          // the model is called. Set the error synchronously with the cap so a
-          // late rejection/success cannot race the check below.
-          systemPromptError ??= systemPromptTimeoutError;
-        }),
-        presendCap("time", timeContextThunk, "", 9000),
-        presendCap(
-          "screen",
-          screenContextThunk,
-          screenUnavailableNote,
-          9000,
-          () => {
-            screenStatuses.screen = "timed_out";
-          },
-        ),
-        presendCap("url", urlContextThunk, screenUnavailableNote, 9000, () => {
-          screenStatuses.url = "timed_out";
-        }),
-        presendCap(
-          "selection",
-          selectionContextThunk,
-          SELECTION_CONTEXT_UNAVAILABLE_NOTE,
-          9000,
-          () => {
-            screenStatuses.selection = "timed_out";
-          },
-        ),
-        presendCap("files", filesContextThunk, "", 12000),
-        presendCap(
-          "loopSettings",
-          loopSettingsThunk,
-          fallbackLoopSettings,
-          9000,
-        ),
-        presendCap(
-          "enrichedMessage",
-          enrichedMessageThunk,
-          integrationMessage,
-          9000,
-        ),
-        presendCap(
-          "jevContextCredentials",
-          () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
-          { apiKey: undefined, personalApiKey: undefined, builderAuth: null },
-          9000,
-        ),
-        presendCap(
-          "priorConnection",
-          // The foreground of a dispatched run never prompts the model; the
-          // worker re-reads, so reading here would pay for it twice.
-          (): Promise<PriorConnectionNote> =>
-            threadId && (!dispatchToBackground || backgroundDispatchAttempted)
-              ? resolvePriorConnectionNote({
-                  threadId,
-                  orgId: getRequestOrgId() ?? null,
-                  appId: options.appId,
-                  excludeRunId: backgroundRunMarker?.runId,
-                })
-              : Promise.resolve({ status: "none" }),
-          { status: "unreadable", error: "timed out" },
-          9000,
-        ),
-      ]);
-      setupMark("ctxAll");
-      workerStep("context_all");
-
-      if (systemPromptError) {
-        const err = systemPromptError as Error;
-        if (runRowState.foregroundInserted || runRowState.durableInserted) {
+        }
+        if (requestHistory.length === 0) {
           try {
-            const terminalized = await updateRunStatusIfRunning(
-              runId,
-              "errored",
+            const {
+              resourceListAccessible,
+              SHARED_OWNER,
+              isWorkspaceResourceOwner,
+              resourceGet,
+            } = await import("../resources/store.js");
+            const {
+              getResourceKind,
+              parseCustomAgentProfile,
+              parseRemoteAgentManifest,
+              parseSkillMetadata,
+            } = await import("../resources/metadata.js");
+            const ownerEmail = getRequestUserEmail();
+            const orgId = getRequestOrgId();
+            if (!ownerEmail) throw new Error("no authenticated user");
+            const allResources = await resourceListAccessible(
+              ownerEmail,
+              undefined,
+              { userEmail: ownerEmail, orgId },
             );
-            if (terminalized) {
-              await setRunTerminalReason(runId, "system_prompt_failed");
-              await setRunError(runId, "system_prompt_failed", err.message);
+
+            if (allResources.length > 0) {
+              const fileLines: string[] = [];
+              const skillLines: string[] = [];
+              const agentLines: string[] = [];
+              const jobLines: string[] = [];
+              const detailResources = allResources.filter((r) => {
+                const kind = getResourceKind(r.path);
+                return (
+                  kind === "skill" ||
+                  kind === "agent" ||
+                  kind === "remote-agent"
+                );
+              });
+              const fullById = new Map<
+                string,
+                Awaited<ReturnType<typeof resourceGet>>
+              >();
+              if (detailResources.length > 0) {
+                const resourceOpts = {
+                  userEmail: ownerEmail,
+                  ...(orgId !== undefined ? { orgId } : {}),
+                };
+                const concurrency = Math.min(4, detailResources.length);
+                let nextIndex = 0;
+                await Promise.all(
+                  Array.from({ length: concurrency }, async () => {
+                    while (nextIndex < detailResources.length) {
+                      const item = detailResources[nextIndex++]!;
+                      const full = await resourceGet(item.id, resourceOpts);
+                      fullById.set(item.id, full);
+                    }
+                  }),
+                );
+              }
+              for (const r of allResources) {
+                const scope = isWorkspaceResourceOwner(r.owner)
+                  ? "workspace"
+                  : r.owner === SHARED_OWNER
+                    ? "shared"
+                    : "personal";
+                const kind = getResourceKind(r.path);
+                if (kind === "file") {
+                  fileLines.push(`  ${r.path} (${scope})`);
+                  continue;
+                }
+
+                if (kind === "job") {
+                  jobLines.push(`  ${r.path} (${scope})`);
+                  continue;
+                }
+
+                if (
+                  kind === "skill" ||
+                  kind === "agent" ||
+                  kind === "remote-agent"
+                ) {
+                  const full = fullById.get(r.id);
+                  if (!full) continue;
+                  if (kind === "skill") {
+                    const skill = parseSkillMetadata(full.content, r.path);
+                    skillLines.push(
+                      `  ${skill?.name || r.path} — ${compactInventoryDescription(skill?.description || r.path)} (${scope}, ${r.path})`,
+                    );
+                  } else if (kind === "agent") {
+                    const agent = parseCustomAgentProfile(full.content, r.path);
+                    agentLines.push(
+                      `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Custom workspace agent")} (${scope}, ${r.path}${agent?.model ? `, model: ${agent.model}` : ""})`,
+                    );
+                  } else {
+                    const agent = parseRemoteAgentManifest(
+                      full.content,
+                      r.path,
+                    );
+                    agentLines.push(
+                      `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Connected A2A agent")} (${scope}, remote via ${r.path})`,
+                    );
+                  }
+                }
+              }
+              const blocks: string[] = [];
+              if (fileLines.length > 0) {
+                const lines = limitInventoryLines(fileLines, "files");
+                blocks.push(
+                  `<available-files>\nFiles in the workspace:\n${lines.join("\n")}\n\nTo read a resource file's contents, use the resources tool with action "read" and the file path.\n</available-files>`,
+                );
+              }
+              if (skillLines.length > 0) {
+                const lines = limitInventoryLines(skillLines, "skills");
+                blocks.push(
+                  `<available-skills>\nSkills in the workspace:\n${lines.join("\n")}\n\nBefore using a matching workspace skill, read its path with the resources tool using action "read"; slash-selected skills are inlined automatically when available.\n</available-skills>`,
+                );
+              }
+              if (agentLines.length > 0) {
+                const lines = limitInventoryLines(agentLines, "agents");
+                blocks.push(
+                  `<available-agents>\nCustom and connected agents in the workspace:\n${lines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via agent-teams (action: "spawn") with the agent parameter.\n</available-agents>`,
+                );
+              }
+              if (jobLines.length > 0) {
+                const lines = limitInventoryLines(jobLines, "jobs");
+                blocks.push(
+                  `<available-jobs>\nScheduled tasks in the workspace:\n${lines.join("\n")}\n</available-jobs>`,
+                );
+              }
+              filesContext =
+                blocks.length > 0 ? `\n\n${blocks.join("\n\n")}` : "";
             }
-          } catch (cleanupErr) {
-            console.warn(
-              "[agent-chat] failed to mark run errored after system prompt failure:",
-              cleanupErr,
-            );
+          } catch {
+            // Resources not available — skip silently
           }
         }
-        await setupResumeClaim?.release();
-        if (isBackgroundWorker) throw err;
-        setResponseHeader(event, "Content-Type", "text/event-stream");
-        setResponseHeader(event, "Cache-Control", "no-cache");
-        const encoder = new TextEncoder();
-        return new ReadableStream({
-          start(controller) {
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ type: "error", error: `Failed to load system prompt: ${err.message}` })}\n\n`,
-              ),
-            );
-            controller.close();
-          },
-        });
-      }
-      // Screen and URL share one note; the same failure needn't be told twice.
-      if (urlBlock === screenBlock) urlBlock = "";
-      const screenContext = timeBlock + screenBlock + urlBlock + selectionBlock;
-      // Referenced agents don't share this run's tools, so a note telling the
-      // model to call view-screen would send them looking for a tool they lack.
-      const withoutUnavailableNote = (block: string) =>
-        block === screenUnavailableNote ||
-        block === SELECTION_CONTEXT_UNAVAILABLE_NOTE
-          ? ""
-          : block;
-      const referencedAgentContext =
-        timeBlock +
-        withoutUnavailableNote(screenBlock) +
-        withoutUnavailableNote(urlBlock) +
-        withoutUnavailableNote(selectionBlock);
-      const workspaceAppRequest = buildWorkspaceAppRequestContext({
-        request: requestMessage,
-        history: requestHistory,
-        structuredHistory: requestStructuredHistory,
-        selectedObjectContext: withoutUnavailableNote(selectionBlock),
-      });
-      const screenStatus = worstContextStatus(...Object.values(screenStatuses));
-      const surfacedActionRegistry =
-        requestMode === "plan"
-          ? createPlanModeActionRegistry(surfacedRequestActions)
-          : surfacedRequestActions;
-      const requestActions = await filterActionsForAgentDiscovery(
-        surfacedActionRegistry,
-        {
-          caller: "tool",
-          userEmail: ownerEmail ?? undefined,
-          orgId: getRequestOrgId() ?? null,
-          appId: options.appId,
+        return filesContext;
+      })();
+
+    const presendCap = <T>(
+      label: string,
+      thunk: () => Promise<T>,
+      fallback: T,
+      ms: number,
+      onTimeout?: () => void,
+    ): Promise<T> => {
+      return resolvePresendWithCap({
+        enabled: isBackgroundWorker,
+        thunk,
+        fallback,
+        timeoutMs: ms,
+        onTimeout: () => {
+          onTimeout?.();
+          workerStep(`presend_timeout:${label}`);
         },
-      );
-      const availableRequestTools = getEngineTools(requestActions);
-      const initialRequestTools = shouldFilterInitialRequestTools
-        ? filterInitialEngineTools(
-            availableRequestTools,
-            options.initialToolNames,
-          )
-        : availableRequestTools;
-      const curatedRequestTools =
-        requestMode === "plan"
-          ? preloadPlanModeEngineTools({
-              request: requestMessage,
-              registry: requestActions,
-              initialTools: initialRequestTools,
-              availableTools: availableRequestTools,
+      });
+    };
+    const fallbackLoopSettings: AgentLoopSettings = {
+      maxIterations: getDefaultMaxIterations(),
+      defaultMaxIterations: getDefaultMaxIterations(),
+      minMaxIterations: MIN_AGENT_MAX_ITERATIONS,
+      maxMaxIterations: MAX_AGENT_MAX_ITERATIONS,
+      maxRunInputTokens: getDefaultMaxRunInputTokens(),
+      defaultMaxRunInputTokens: getDefaultMaxRunInputTokens(),
+      scope: "default",
+      source: "default",
+    };
+    const systemPromptTimeoutError = new Error(
+      "system prompt preparation timed out before the agent could start",
+    );
+    let [
+      systemPrompt,
+      timeBlock,
+      screenBlock,
+      urlBlock,
+      selectionBlock,
+      filesContext,
+      loopSettings,
+      enrichedMessage,
+      jevContextCredentials,
+      priorConnection,
+    ] = await Promise.all([
+      presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
+        // An empty configured prompt is valid, but an empty timeout fallback
+        // is not: required app instructions must either finish or fail before
+        // the model is called. Set the error synchronously with the cap so a
+        // late rejection/success cannot race the check below.
+        systemPromptError ??= systemPromptTimeoutError;
+      }),
+      presendCap("time", timeContextThunk, "", 9000),
+      presendCap(
+        "screen",
+        screenContextThunk,
+        screenUnavailableNote,
+        9000,
+        () => {
+          screenStatuses.screen = "timed_out";
+        },
+      ),
+      presendCap("url", urlContextThunk, screenUnavailableNote, 9000, () => {
+        screenStatuses.url = "timed_out";
+      }),
+      presendCap(
+        "selection",
+        selectionContextThunk,
+        SELECTION_CONTEXT_UNAVAILABLE_NOTE,
+        9000,
+        () => {
+          screenStatuses.selection = "timed_out";
+        },
+      ),
+      presendCap("files", filesContextThunk, "", 12000),
+      presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
+      presendCap(
+        "enrichedMessage",
+        enrichedMessageThunk,
+        integrationMessage,
+        9000,
+      ),
+      presendCap(
+        "jevContextCredentials",
+        () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
+        { apiKey: undefined, personalApiKey: undefined, builderAuth: null },
+        9000,
+      ),
+      presendCap(
+        "priorConnection",
+        // The foreground of a dispatched run never prompts the model; the
+        // worker re-reads, so reading here would pay for it twice.
+        (): Promise<PriorConnectionNote> =>
+          threadId && (!dispatchToBackground || backgroundDispatchAttempted)
+            ? resolvePriorConnectionNote({
+                threadId,
+                orgId: getRequestOrgId() ?? null,
+                appId: options.appId,
+                excludeRunId: backgroundRunMarker?.runId,
+              })
+            : Promise.resolve({ status: "none" }),
+        { status: "unreadable", error: "timed out" },
+        9000,
+      ),
+    ]);
+    setupMark("ctxAll");
+    workerStep("context_all");
+
+    if (systemPromptError) {
+      const err = systemPromptError as Error;
+      if (runRowState.foregroundInserted || runRowState.durableInserted) {
+        try {
+          const terminalized = await updateRunStatusIfRunning(runId, "errored");
+          if (terminalized) {
+            await setRunTerminalReason(runId, "system_prompt_failed");
+            await setRunError(runId, "system_prompt_failed", err.message);
+          }
+        } catch (cleanupErr) {
+          console.warn(
+            "[agent-chat] failed to mark run errored after system prompt failure:",
+            cleanupErr,
+          );
+        }
+      }
+      await setupResumeClaim?.release();
+      if (isBackgroundWorker) throw err;
+      setResponseHeader(event, "Content-Type", "text/event-stream");
+      setResponseHeader(event, "Cache-Control", "no-cache");
+      const encoder = new TextEncoder();
+      return new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "error", error: `Failed to load system prompt: ${err.message}` })}\n\n`,
+            ),
+          );
+          controller.close();
+        },
+      });
+    }
+    // Screen and URL share one note; the same failure needn't be told twice.
+    if (urlBlock === screenBlock) urlBlock = "";
+    const screenContext = timeBlock + screenBlock + urlBlock + selectionBlock;
+    // Referenced agents don't share this run's tools, so a note telling the
+    // model to call view-screen would send them looking for a tool they lack.
+    const withoutUnavailableNote = (block: string) =>
+      block === screenUnavailableNote ||
+      block === SELECTION_CONTEXT_UNAVAILABLE_NOTE
+        ? ""
+        : block;
+    const referencedAgentContext =
+      timeBlock +
+      withoutUnavailableNote(screenBlock) +
+      withoutUnavailableNote(urlBlock) +
+      withoutUnavailableNote(selectionBlock);
+    const workspaceAppRequest = buildWorkspaceAppRequestContext({
+      request: requestMessage,
+      history: requestHistory,
+      structuredHistory: requestStructuredHistory,
+      selectedObjectContext: withoutUnavailableNote(selectionBlock),
+    });
+    const screenStatus = worstContextStatus(...Object.values(screenStatuses));
+    const surfacedActionRegistry =
+      requestMode === "plan"
+        ? createPlanModeActionRegistry(surfacedRequestActions)
+        : surfacedRequestActions;
+    const requestActions = await filterActionsForAgentDiscovery(
+      surfacedActionRegistry,
+      {
+        caller: "tool",
+        userEmail: ownerEmail ?? undefined,
+        orgId: getRequestOrgId() ?? null,
+        appId: options.appId,
+      },
+    );
+    const availableRequestTools = getEngineTools(requestActions);
+    const initialRequestTools = shouldFilterInitialRequestTools
+      ? filterInitialEngineTools(
+          availableRequestTools,
+          options.initialToolNames,
+        )
+      : availableRequestTools;
+    const curatedRequestTools =
+      requestMode === "plan"
+        ? preloadPlanModeEngineTools({
+            request: requestMessage,
+            registry: requestActions,
+            initialTools: initialRequestTools,
+            availableTools: availableRequestTools,
+          })
+        : initialRequestTools;
+    const jevContextMaxChars = options.jevContextCompact
+      ? Math.max(
+          0,
+          COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS - systemPrompt.length - 2,
+        )
+      : undefined;
+    const effectiveDispatchToBackground = backgroundDispatchAttempted
+      ? false
+      : dispatchToBackground;
+    const [requestTools, jevPreload] = await Promise.all([
+      preloadJevTools({
+        request: jevRequestContext,
+        skip: Boolean(internalContinuation || effectiveDispatchToBackground),
+        deadlineAt: contextPrefetchDeadlineAt,
+        apiKey: jevContextCredentials.apiKey,
+        personalApiKey: jevContextCredentials.personalApiKey,
+        directApiKey: jevContextCredentials.directApiKey,
+        builderAuth: jevContextCredentials.builderAuth,
+        registry: requestActions,
+        initialTools: curatedRequestTools,
+        availableTools: availableRequestTools,
+        readOnlyOnly: requestMode === "plan",
+      }),
+      preloadJevContextWithStatus({
+        request: jevRequestContext,
+        appRequest: workspaceAppRequest,
+        appId: options.appId,
+        selfAppId: options.appId,
+        workspaceAppsEnabled: Boolean(requestActions["call-agent"]),
+        owner: ownerEmail ?? undefined,
+        orgId: getRequestOrgId() ?? null,
+        apiKey: jevContextCredentials.apiKey,
+        personalApiKey: jevContextCredentials.personalApiKey,
+        directApiKey: jevContextCredentials.directApiKey,
+        builderAuth: jevContextCredentials.builderAuth,
+        compact: options.jevContextCompact,
+        maxChars: jevContextMaxChars,
+        contextPrefetchDeadlineAt,
+        dispatchToBackground: effectiveDispatchToBackground,
+        internalContinuation: Boolean(internalContinuation),
+        candidates: jevPromptCandidates,
+        fallbackCandidateIds: jevFallbackCandidateIds,
+      }),
+    ]);
+    const jevContext = jevPreload.context;
+    if (jevContext) systemPrompt = `${systemPrompt}\n\n${jevContext}`;
+    if (jevPreload.relevantAppsContext) {
+      systemPrompt = `${systemPrompt}\n\n${jevPreload.relevantAppsContext}`;
+    }
+    if (runContext && jevPreload.appSelection) {
+      runContext.appDiscoverySelection = jevPreload.appSelection;
+    }
+    const prefetchStatus = worstContextStatus(
+      jevPreload.status,
+      preparedReferenceStatus,
+    );
+    if (runContext) {
+      runContext.contextStatus = {
+        prefetch: prefetchStatus,
+        screen: screenStatus,
+      };
+    }
+    // Per-turn, so the stable system prompt prefix keeps caching.
+    const prefetchNote =
+      prefetchStatus && isContextDegraded(prefetchStatus)
+        ? preloadedContextUnavailableNote(prefetchStatus, {
+            // The other source delivered, so only part of the context is missing.
+            partial:
+              jevPreload.status === "ok" || preparedReferenceStatus === "ok",
+          })
+        : "";
+    const contextXraySystemSections = [
+      ...readContextXraySystemSections(event),
+      ...(jevContext
+        ? await buildSystemManifestSections([
+            {
+              label: "Jev-prefetched context",
+              provenance: "runtime-context",
+              governance: "inherited",
+              content: jevContext,
+              sourceRef: { scope: "jev" },
+            },
+          ])
+        : []),
+      ...(jevPreload.relevantAppsContext
+        ? await buildSystemManifestSections([
+            {
+              label: "Relevant workspace apps",
+              provenance: "runtime-context",
+              governance: "inherited",
+              content: jevPreload.relevantAppsContext,
+              sourceRef: { scope: "workspace-apps" },
+            },
+          ])
+        : []),
+      ...(requestTools.length > 0
+        ? await buildSystemManifestSections([
+            {
+              label: "Action and MCP tool schemas",
+              provenance: "tools",
+              governance: "required",
+              content: requestTools
+                .map((tool) =>
+                  JSON.stringify({
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.inputSchema,
+                  }),
+                )
+                .join("\n"),
+              sourceRef: { scope: "tools" },
+            },
+          ])
+        : []),
+    ];
+    setupMark("actions");
+    workerStep("action_tool_setup");
+    const requestSystemPrompt =
+      requestMode === "plan"
+        ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
+        : systemPrompt;
+
+    const agentRefs = requestReferences.filter((r) => r.type === "agent");
+    const customAgentRefs = requestReferences.filter(
+      (r) => r.type === "custom-agent",
+    );
+    const planModeAgentNote =
+      requestMode === "plan" && agentRefs.length > 0
+        ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
+        : "";
+
+    const userContent = buildUserContentWithAttachments({
+      text:
+        enrichedMessage +
+        screenContext +
+        prefetchNote +
+        priorConnectionContextNote(priorConnection) +
+        filesContext +
+        planModeAgentNote +
+        (requestContextAttachments.length > 0
+          ? "\n\n<prior-chat-image-context>Images attached in earlier turns of this chat are included after the current text, in chronological order. Use them as prior references when relevant.</prior-chat-image-context>"
+          : "") +
+        (requestContextNote ? `\n\n${requestContextNote}` : ""),
+      attachments: [...requestContextAttachments, ...requestAttachments],
+      vision: modelSupportsVision,
+      textAttachmentStorage,
+    });
+
+    const historyMessages =
+      structuredHistoryToEngineMessages(
+        requestStructuredHistory,
+        resolvedHistoryImages,
+      ) ??
+      requestHistory
+        .filter((m) => m.content.trim())
+        .map(
+          (m): EngineMessage => ({
+            role: m.role as "user" | "assistant",
+            content: [{ type: "text" as const, text: m.content }],
+          }),
+        );
+
+    const messages: EngineMessage[] = [
+      ...historyMessages,
+      { role: "user" as const, content: userContent },
+    ];
+    // The durable approval row is the authorization boundary. Do not require
+    // the client to reproduce the original structured history exactly: the UI
+    // may truncate tool arguments and intentionally assigns fresh replay ids.
+    // The loop still consumes only a matching server-created grant for the
+    // current owner/org/thread/turn/tool/input tuple.
+    const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
+      isFirstRequest: requestHistory.length === 0,
+      systemPrompt: requestSystemPrompt,
+      messages,
+      tools: requestTools,
+      availableToolCount: availableRequestTools.length,
+    });
+
+    async function claimForegroundRunSlot(): Promise<
+      { earlyResponse: unknown } | { earlyResponse: null }
+    > {
+      if (!threadId || isBackgroundWorker) {
+        return { earlyResponse: null };
+      }
+      if (
+        typeof requestTurnId === "string" &&
+        requestTurnId &&
+        (await isTurnAborted(threadId, requestTurnId))
+      ) {
+        return { earlyResponse: { ok: true, stopped: true } };
+      }
+      const setupResumeOfRunId = setupResumeRefusedRunId(body);
+      setupResumeClaim =
+        setupResumeOfRunId && ownerEmail
+          ? await claimSetupResume({
+              ownerEmail,
+              threadId,
+              refusedRunId: setupResumeOfRunId,
+              turnId: effectiveTurnId,
             })
-          : initialRequestTools;
-      const jevContextMaxChars = options.jevContextCompact
-        ? Math.max(
-            0,
-            COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS - systemPrompt.length - 2,
-          )
-        : undefined;
-      const effectiveDispatchToBackground = backgroundDispatchAttempted
-        ? false
-        : dispatchToBackground;
-      const [requestTools, jevPreload] = await Promise.all([
-        preloadJevTools({
-          request: jevRequestContext,
-          skip: Boolean(internalContinuation || effectiveDispatchToBackground),
-          deadlineAt: contextPrefetchDeadlineAt,
-          apiKey: jevContextCredentials.apiKey,
-          personalApiKey: jevContextCredentials.personalApiKey,
-          directApiKey: jevContextCredentials.directApiKey,
-          builderAuth: jevContextCredentials.builderAuth,
-          registry: requestActions,
-          initialTools: curatedRequestTools,
-          availableTools: availableRequestTools,
-          readOnlyOnly: requestMode === "plan",
-        }),
-        preloadJevContextWithStatus({
-          request: jevRequestContext,
-          appRequest: workspaceAppRequest,
-          appId: options.appId,
-          selfAppId: options.appId,
-          workspaceAppsEnabled: Boolean(requestActions["call-agent"]),
-          owner: ownerEmail ?? undefined,
-          orgId: getRequestOrgId() ?? null,
-          apiKey: jevContextCredentials.apiKey,
-          personalApiKey: jevContextCredentials.personalApiKey,
-          directApiKey: jevContextCredentials.directApiKey,
-          builderAuth: jevContextCredentials.builderAuth,
-          compact: options.jevContextCompact,
-          maxChars: jevContextMaxChars,
-          contextPrefetchDeadlineAt,
-          dispatchToBackground: effectiveDispatchToBackground,
-          internalContinuation: Boolean(internalContinuation),
-          candidates: jevPromptCandidates,
-          fallbackCandidateIds: jevFallbackCandidateIds,
-        }),
-      ]);
-      const jevContext = jevPreload.context;
-      if (jevContext) systemPrompt = `${systemPrompt}\n\n${jevContext}`;
-      if (jevPreload.relevantAppsContext) {
-        systemPrompt = `${systemPrompt}\n\n${jevPreload.relevantAppsContext}`;
-      }
-      if (runContext && jevPreload.appSelection) {
-        runContext.appDiscoverySelection = jevPreload.appSelection;
-      }
-      const prefetchStatus = worstContextStatus(
-        jevPreload.status,
-        preparedReferenceStatus,
-      );
-      if (runContext) {
-        runContext.contextStatus = {
-          prefetch: prefetchStatus,
-          screen: screenStatus,
+          : undefined;
+      if (setupResumeOfRunId && ownerEmail && !setupResumeClaim) {
+        return {
+          earlyResponse: { ok: true, stopped: true, resumeAlreadySent: true },
         };
       }
-      // Per-turn, so the stable system prompt prefix keeps caching.
-      const prefetchNote =
-        prefetchStatus && isContextDegraded(prefetchStatus)
-          ? preloadedContextUnavailableNote(prefetchStatus, {
-              // The other source delivered, so only part of the context is missing.
-              partial:
-                jevPreload.status === "ok" || preparedReferenceStatus === "ok",
-            })
-          : "";
-      const contextXraySystemSections = [
-        ...readContextXraySystemSections(event),
-        ...(jevContext
-          ? await buildSystemManifestSections([
-              {
-                label: "Jev-prefetched context",
-                provenance: "runtime-context",
-                governance: "inherited",
-                content: jevContext,
-                sourceRef: { scope: "jev" },
-              },
-            ])
-          : []),
-        ...(jevPreload.relevantAppsContext
-          ? await buildSystemManifestSections([
-              {
-                label: "Relevant workspace apps",
-                provenance: "runtime-context",
-                governance: "inherited",
-                content: jevPreload.relevantAppsContext,
-                sourceRef: { scope: "workspace-apps" },
-              },
-            ])
-          : []),
-        ...(requestTools.length > 0
-          ? await buildSystemManifestSections([
-              {
-                label: "Action and MCP tool schemas",
-                provenance: "tools",
-                governance: "required",
-                content: requestTools
-                  .map((tool) =>
-                    JSON.stringify({
-                      name: tool.name,
-                      description: tool.description,
-                      parameters: tool.inputSchema,
-                    }),
-                  )
-                  .join("\n"),
-                sourceRef: { scope: "tools" },
-              },
-            ])
-          : []),
-      ];
-      setupMark("actions");
-      workerStep("action_tool_setup");
-      const requestSystemPrompt =
-        requestMode === "plan"
-          ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
-          : systemPrompt;
-
-      const agentRefs = requestReferences.filter((r) => r.type === "agent");
-      const customAgentRefs = requestReferences.filter(
-        (r) => r.type === "custom-agent",
-      );
-      const planModeAgentNote =
-        requestMode === "plan" && agentRefs.length > 0
-          ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
-          : "";
-
-      const userContent = buildUserContentWithAttachments({
-        text:
-          enrichedMessage +
-          screenContext +
-          prefetchNote +
-          priorConnectionContextNote(priorConnection) +
-          filesContext +
-          planModeAgentNote +
-          (requestContextAttachments.length > 0
-            ? "\n\n<prior-chat-image-context>Images attached in earlier turns of this chat are included after the current text, in chronological order. Use them as prior references when relevant.</prior-chat-image-context>"
-            : "") +
-          (requestContextNote ? `\n\n${requestContextNote}` : ""),
-        attachments: [...requestContextAttachments, ...requestAttachments],
-        vision: modelSupportsVision,
-        textAttachmentStorage,
-      });
-
-      const historyMessages =
-        structuredHistoryToEngineMessages(
-          requestStructuredHistory,
-          resolvedHistoryImages,
-        ) ??
-        requestHistory
-          .filter((m) => m.content.trim())
-          .map(
-            (m): EngineMessage => ({
-              role: m.role as "user" | "assistant",
-              content: [{ type: "text" as const, text: m.content }],
-            }),
-          );
-
-      const messages: EngineMessage[] = [
-        ...historyMessages,
-        { role: "user" as const, content: userContent },
-      ];
-      // The durable approval row is the authorization boundary. Do not require
-      // the client to reproduce the original structured history exactly: the UI
-      // may truncate tool arguments and intentionally assigns fresh replay ids.
-      // The loop still consumes only a matching server-created grant for the
-      // current owner/org/thread/turn/tool/input tuple.
-      const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
-        isFirstRequest: requestHistory.length === 0,
-        systemPrompt: requestSystemPrompt,
-        messages,
-        tools: requestTools,
-        availableToolCount: availableRequestTools.length,
-      });
-
-      async function claimForegroundRunSlot(): Promise<
-        { earlyResponse: unknown } | { earlyResponse: null }
-      > {
-        if (!threadId || isBackgroundWorker) {
-          return { earlyResponse: null };
+      let slot;
+      try {
+        const runThreadId = threadId;
+        const shouldPreserveQueuedOrder = Boolean(
+          !isAuthorizedApprovalContinuation &&
+          !queuedMessageId &&
+          !queuedMessageClaimId &&
+          !isBackgroundWorker,
+        );
+        const queuedSubmissionStore = shouldPreserveQueuedOrder
+          ? await import("../chat-threads/store.js")
+          : undefined;
+        if (ownerEmail && !isAuthorizedApprovalContinuation) {
+          await ensureAgentToolApprovalTable();
         }
+        await queuedSubmissionStore?.ensureChatThreadTables();
+        slot = await tryClaimRunSlot(threadId, runId, undefined, {
+          turnId: effectiveTurnId,
+          ...(admittedQueuedMessage?.interruptActiveRun === true
+            ? { interruptApprovalPause: true }
+            : {}),
+          ...(turnInitiator ? { turnInitiator } : {}),
+          replayCompletedTurn:
+            typeof requestTurnId === "string" &&
+            Boolean(requestTurnId.trim()) &&
+            !approvedToolCallsForExecution,
+          dispatchMode: dispatchToBackground
+            ? "background"
+            : foregroundSelfChainEligible
+              ? "foreground-self-chain"
+              : "foreground",
+          ...(dispatchToBackground && durableDispatchPayload !== undefined
+            ? { dispatchPayload: durableDispatchPayload }
+            : {}),
+          ...(continueOf ? { continueOf } : {}),
+          ...(queuedSubmissionStore
+            ? {
+                hasPendingQueuedSubmission: (tx) =>
+                  queuedSubmissionStore.hasPendingQueuedSubmissionReceipt(
+                    tx,
+                    runThreadId,
+                  ),
+              }
+            : {}),
+          ...(ownerEmail &&
+          !isAuthorizedApprovalContinuation &&
+          admittedQueuedMessage?.interruptActiveRun !== true
+            ? {
+                hasPendingApproval: (tx) =>
+                  hasPendingCurrentTurnApproval(runThreadId, tx),
+              }
+            : {}),
+        });
+      } catch (error) {
+        await setupResumeClaim?.release();
         if (
-          typeof requestTurnId === "string" &&
-          requestTurnId &&
-          (await isTurnAborted(threadId, requestTurnId))
+          error instanceof AgentTurnInitiatorMismatchError ||
+          error instanceof AgentTurnInitiatorUnavailableError
         ) {
-          return { earlyResponse: { ok: true, stopped: true } };
-        }
-        const setupResumeOfRunId = setupResumeRefusedRunId(body);
-        setupResumeClaim =
-          setupResumeOfRunId && ownerEmail
-            ? await claimSetupResume({
-                ownerEmail,
-                threadId,
-                refusedRunId: setupResumeOfRunId,
-                turnId: effectiveTurnId,
-              })
-            : undefined;
-        if (setupResumeOfRunId && ownerEmail && !setupResumeClaim) {
+          setResponseStatus(event, 409);
           return {
-            earlyResponse: { ok: true, stopped: true, resumeAlreadySent: true },
+            earlyResponse: {
+              error: "This agent turn cannot resume for this initiator",
+            },
           };
         }
-        let slot;
-        try {
-          const runThreadId = threadId;
-          const shouldPreserveQueuedOrder = Boolean(
-            !isAuthorizedApprovalContinuation &&
-            !queuedMessageId &&
-            !queuedMessageClaimId &&
-            !isBackgroundWorker,
-          );
-          const queuedSubmissionStore = shouldPreserveQueuedOrder
-            ? await import("../chat-threads/store.js")
+        throw error;
+      }
+      if (slot.turnAborted) {
+        await setupResumeClaim?.release();
+        return { earlyResponse: { ok: true, stopped: true } };
+      }
+      if (slot.continueRefused) {
+        await setupResumeClaim?.release();
+        setResponseStatus(event, 409);
+        return { earlyResponse: continueRefusal(slot.continueRefused) };
+      }
+      if (slot.completedRunId) {
+        const stream = await replayCompletedTurn(threadId, effectiveTurnId);
+        if (!stream) {
+          setResponseStatus(event, 500);
+          return {
+            earlyResponse: { error: "Failed to replay completed agent run" },
+          };
+        }
+        setResponseHeader(event, "Content-Type", "text/event-stream");
+        setResponseHeader(event, "Cache-Control", "no-cache");
+        setResponseHeader(event, "Connection", "keep-alive");
+        setResponseHeader(event, "X-Run-Id", slot.completedRunId);
+        setRunTurnIdHeader(event, effectiveTurnId);
+        setResponseHeader(event, "X-Dispatch-Mode", "replay");
+        return { earlyResponse: stream };
+      }
+      if (!slot.claimed) {
+        await setupResumeClaim?.release();
+        if (slot.queuedSubmissionPending) {
+          const queued = await tryAdmitBusySubmission();
+          if (queued !== null) return { earlyResponse: queued };
+          return { earlyResponse: runSlotBusy(event, null) };
+        }
+        const queued = await tryAdmitBusySubmission();
+        if (queued !== null) return { earlyResponse: queued };
+        return { earlyResponse: runSlotBusy(event, slot.activeRunId) };
+      }
+      runRowState.foregroundInserted = true;
+      return { earlyResponse: null };
+    }
+
+    if (!backgroundDispatchAttempted) {
+      const slotResult = await claimForegroundRunSlot();
+      if (slotResult.earlyResponse !== null) {
+        return slotResult.earlyResponse;
+      }
+    }
+
+    const approvalStoreBinding = (
+      binding: AgentApprovalBinding,
+    ): AgentToolApprovalBinding => {
+      if (!ownerEmail) {
+        throw new Error(
+          "Cannot create or consume an approval without an authenticated owner",
+        );
+      }
+      return {
+        ownerEmail,
+        orgId: getRequestOrgId() ?? null,
+        threadId: effectiveThreadId,
+        turnId: effectiveTurnId,
+        toolName: binding.toolName,
+        toolRevision: binding.toolRevision,
+        callId: binding.callId,
+        approvalKey: binding.approvalKey,
+        argumentsHash: binding.argumentsHash,
+        ...(binding.approvalId ? { approvalId: binding.approvalId } : {}),
+      };
+    };
+    const approvalHooks = {
+      onApprovalRequired: async (binding: AgentApprovalBinding) => {
+        return createAgentToolApproval(approvalStoreBinding(binding));
+      },
+      consumeApproval: async (binding: AgentApprovalBinding) => {
+        if (!ownerEmail) return false;
+        return consumeAgentToolApproval(approvalStoreBinding(binding));
+      },
+      isToolAlwaysAllowed: async (binding: AgentApprovalBinding) => {
+        if (!ownerEmail) return false;
+        return isAgentToolAlwaysAllowed({
+          ownerEmail,
+          orgId: getRequestOrgId() ?? null,
+          toolName: binding.toolName,
+          toolRevision: binding.toolRevision,
+        });
+      },
+    };
+    if (
+      isBackgroundWorker &&
+      (await isTurnAborted(effectiveThreadId, effectiveTurnId))
+    ) {
+      await markRunAborted(runId, "user").catch(() => {});
+      return { ok: true, stopped: true };
+    }
+    const priorTurnInputTokensFromBody = Number(
+      (body as unknown as Record<string, unknown>)[
+        AGENT_CHAT_TURN_INPUT_TOKENS_FIELD
+      ],
+    );
+    let turnInputTokens = Number.isFinite(priorTurnInputTokensFromBody)
+      ? Math.max(0, priorTurnInputTokensFromBody)
+      : 0;
+
+    // A server successor and a continuation, automatic or chosen, resume the
+    // same turn the same way: the thread's tool calls and results, plus the turn's
+    // journal of finished steps, so nothing already done is sent again.
+    if (
+      (isChainedBackgroundContinuation ||
+        isReaperSuccessor ||
+        continueOf ||
+        isClientTurnContinuation) &&
+      effectiveThreadId
+    ) {
+      try {
+        const { getThread } = await import("../chat-threads/store.js");
+        const { latestPromptTurnId, resumeThreadHistoryForRequest } =
+          await import("./thread-data-builder.js");
+        const threadData =
+          isReaperSuccessor && !continueOf
+            ? undefined
+            : (await getThread(effectiveThreadId))?.threadData;
+        const { messages: resumed, foundTurnPrompt } =
+          isReaperSuccessor && !continueOf
+            ? { messages: [...messages], foundTurnPrompt: true }
+            : resumeThreadHistoryForRequest(threadData);
+        // A continuation always follows a stopped run, so a thread without
+        // that turn's prompt means its history was lost, not that there was
+        // none. A successor stays best-effort and resumes from what is there.
+        if ((continueOf || isClientTurnContinuation) && !foundTurnPrompt) {
+          throw new Error(`thread ${effectiveThreadId} has no turn prompt`);
+        }
+        // Resuming takes the thread's newest prompt, so a newer one, even one
+        // whose run never started, would run under this turn's journal.
+        const promptTurnId =
+          (continueOf || isClientTurnContinuation) && threadData
+            ? latestPromptTurnId(threadData)
             : undefined;
-          if (ownerEmail && !isAuthorizedApprovalContinuation) {
-            await ensureAgentToolApprovalTable();
+        if (promptTurnId && promptTurnId !== effectiveTurnId) {
+          if (await updateRunStatusIfRunning(runId, "errored")) {
+            await setRunTerminalReason(runId, CONTINUE_UNAVAILABLE_CODE);
           }
-          await queuedSubmissionStore?.ensureChatThreadTables();
-          slot = await tryClaimRunSlot(threadId, runId, undefined, {
-            turnId: effectiveTurnId,
-            ...(admittedQueuedMessage?.interruptActiveRun === true
-              ? { interruptApprovalPause: true }
-              : {}),
-            ...(turnInitiator ? { turnInitiator } : {}),
-            replayCompletedTurn:
-              typeof requestTurnId === "string" &&
-              Boolean(requestTurnId.trim()) &&
-              !approvedToolCallsForExecution,
-            dispatchMode: dispatchToBackground
-              ? "background"
-              : foregroundSelfChainEligible
-                ? "foreground-self-chain"
-                : "foreground",
-            ...(dispatchToBackground && durableDispatchPayload !== undefined
-              ? { dispatchPayload: durableDispatchPayload }
-              : {}),
-            ...(continueOf ? { continueOf } : {}),
-            ...(queuedSubmissionStore
-              ? {
-                  hasPendingQueuedSubmission: (tx) =>
-                    queuedSubmissionStore.hasPendingQueuedSubmissionReceipt(
-                      tx,
-                      runThreadId,
-                    ),
-                }
-              : {}),
-            ...(ownerEmail &&
-            !isAuthorizedApprovalContinuation &&
-            admittedQueuedMessage?.interruptActiveRun !== true
-              ? {
-                  hasPendingApproval: (tx) =>
-                    hasPendingCurrentTurnApproval(runThreadId, tx),
-                }
+          setResponseStatus(event, 409);
+          return continueRefusal(CONTINUE_UNAVAILABLE_CODE);
+        }
+        if (resumed.length > 0) {
+          const actionPreparationTool =
+            typeof backgroundRunMarker?.actionPreparationTool === "string" &&
+            backgroundRunMarker.actionPreparationTool.trim()
+              ? backgroundRunMarker.actionPreparationTool.trim()
+              : undefined;
+          const continuationReason = isAgentLoopContinuationReason(
+            backgroundRunMarker?.continuationReason,
+          )
+            ? backgroundRunMarker.continuationReason
+            : isReaperSuccessor
+              ? "network_interrupted"
+              : isClientTurnContinuation
+                ? "stream_ended"
+                : "run_timeout";
+          const journalRead = await loadPriorTurnToolCallJournal(
+            effectiveThreadId,
+            effectiveTurnId,
+            {
+              recoverCompletedExecutionSteps:
+                shouldRecoverCompletedExecutionSteps,
+            },
+          );
+          if (
+            (continueOf || isReaperSuccessor || isClientTurnContinuation) &&
+            journalRead.status === "unreadable"
+          ) {
+            throw new Error(journalRead.error);
+          }
+          appendRequestAttachmentContextToResumedHistory(
+            resumed,
+            requestAttachments,
+            {
+              vision: isAgentModelVisionCapable(
+                effectiveModel,
+                engine.capabilities.vision === true,
+              ),
+              textAttachmentStorage,
+            },
+          );
+          const journal =
+            journalRead.status === "read" ? journalRead.toolCallJournal : null;
+          const context =
+            shouldRecoverCompletedExecutionSteps &&
+            journalRead.status === "read"
+              ? buildTurnResumeContext({
+                  messages: resumed,
+                  journal,
+                  events: journalRead.events,
+                  steeredUserContent: (message) =>
+                    buildUserContentWithAttachments({
+                      text: message.text,
+                      ...(message.attachments === undefined
+                        ? {}
+                        : { attachments: message.attachments }),
+                      vision: isAgentModelVisionCapable(
+                        effectiveModel,
+                        engine.capabilities.vision === true,
+                      ),
+                    }),
+                })
+              : buildTurnResumeContext({ messages: resumed, journal });
+          appendAgentLoopContinuation(context.messages, continuationReason, {
+            ...(actionPreparationTool ? { actionPreparationTool } : {}),
+            ...(context.journalNote
+              ? { journalNote: context.journalNote }
               : {}),
           });
-        } catch (error) {
-          await setupResumeClaim?.release();
+          messages.length = 0;
+          messages.push(...context.messages);
+        }
+      } catch (error) {
+        if (continueOf || isReaperSuccessor || isClientTurnContinuation) {
+          // The browser's history lacks the stopped run's tool results, so
+          // continuing from it could repeat a step that already finished.
+          console.warn(
+            `[agent-chat] auto-continue history unreadable for thread ${effectiveThreadId}:`,
+            error,
+          );
+          const code = isReaperSuccessor
+            ? "recovery_history_unreadable"
+            : "auto_continue_history_unreadable";
+          if (await updateRunStatusIfRunning(runId, "errored")) {
+            await setRunTerminalReason(runId, code);
+          }
+          setResponseStatus(event, 503);
+          return {
+            error: "This turn's history could not be read to continue it.",
+            code,
+            retryable: true,
+          };
+        }
+        // Keep the body-derived messages — never drop the run.
+      }
+    }
+    if (
+      !isBackgroundWorker &&
+      !internalContinuation &&
+      threadId &&
+      historyMessages.length === 0
+    ) {
+      try {
+        const { getThread } = await import("../chat-threads/store.js");
+        const { latestPromptTurnId, recoverThreadHistoryForRequest } =
+          await import("./thread-data-builder.js");
+        const threadData = (await getThread(threadId))?.threadData;
+        const recovered = recoverThreadHistoryForRequest(threadData);
+        if (backgroundDispatchAttempted && threadData && recovered.length > 0) {
+          const persistedTurnId = latestPromptTurnId(threadData);
+          const lastRecovered = recovered.at(-1);
+          const lastRecoveredText =
+            lastRecovered?.role === "user"
+              ? lastRecovered.content
+                  .filter((p) => p.type === "text")
+                  .map((p) => p.text)
+                  .join("\n")
+                  .trim()
+              : undefined;
           if (
-            error instanceof AgentTurnInitiatorMismatchError ||
-            error instanceof AgentTurnInitiatorUnavailableError
+            persistedTurnId === effectiveTurnId ||
+            (persistedTurnId === undefined &&
+              lastRecovered?.role === "user" &&
+              lastRecoveredText === messageToPersist.trim())
           ) {
-            setResponseStatus(event, 409);
+            recovered.pop();
+          }
+        }
+        if (recovered.length > 0) messages.unshift(...recovered);
+      } catch (err) {
+        console.warn(
+          `[agent-chat] history recovery failed for thread ${threadId}; continuing with no prior context:`,
+          err,
+        );
+      }
+    }
+    if (!internalContinuation && !isChainedBackgroundContinuation && threadId) {
+      try {
+        const { loadStoppedPreviousTurnNote } =
+          await import("./previous-turn-note.js");
+        const note = await loadStoppedPreviousTurnNote(
+          threadId,
+          effectiveTurnId,
+        );
+        const prompt = messages.at(-1);
+        if (note && prompt?.role === "user") {
+          prompt.content = [{ type: "text", text: note }, ...prompt.content];
+        }
+      } catch (err) {
+        captureError(err, {
+          tags: { source: "agent-chat", failureClass: "previous-turn-note" },
+          extra: { threadId, turnId: effectiveTurnId },
+        });
+      }
+    }
+    setupMark("depsThread");
+    workerStep("owner_thread");
+
+    async function runOnRunPreparedHook(): Promise<
+      { earlyResponse: unknown } | { earlyResponse: null }
+    > {
+      if (
+        !options.onRunPrepared ||
+        internalContinuation ||
+        isBackgroundWorker
+      ) {
+        return { earlyResponse: null };
+      }
+      try {
+        const prepared = await options.onRunPrepared({
+          runId,
+          turnId: effectiveTurnId,
+          threadId,
+          message: messageToPersist,
+          ...(agentKitMessageId ? { agentKitMessageId } : {}),
+          ...(submissionPayload ? { submissionPayload } : {}),
+          attachments: requestAttachments,
+          ...submissionExpiryMetadata(requestMetadata),
+          ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+            ? { queuedMessageId: queuedMessageId.trim() }
+            : {}),
+          ...(typeof queuedMessageClaimId === "string" &&
+          queuedMessageClaimId.trim()
+            ? { queuedMessageClaimId: queuedMessageClaimId.trim() }
+            : {}),
+        });
+        const duplicateRunId =
+          prepared &&
+          typeof prepared.duplicateRunId === "string" &&
+          prepared.duplicateRunId.trim()
+            ? prepared.duplicateRunId.trim()
+            : undefined;
+        if (duplicateRunId) {
+          if (runRowState.foregroundInserted) {
+            await markRunAborted(runId, "duplicate_submission");
+          }
+          await setupResumeClaim?.release();
+          const stream = subscribeToRun(duplicateRunId, 0);
+          if (!stream) {
+            setResponseStatus(event, 503);
             return {
               earlyResponse: {
-                error: "This agent turn cannot resume for this initiator",
+                error: "The accepted submission run is no longer replayable",
+                code: "queued_message_run_unavailable",
+                retryable: true,
               },
-            };
-          }
-          throw error;
-        }
-        if (slot.turnAborted) {
-          await setupResumeClaim?.release();
-          return { earlyResponse: { ok: true, stopped: true } };
-        }
-        if (slot.continueRefused) {
-          await setupResumeClaim?.release();
-          setResponseStatus(event, 409);
-          return { earlyResponse: continueRefusal(slot.continueRefused) };
-        }
-        if (slot.completedRunId) {
-          const stream = await replayCompletedTurn(threadId, effectiveTurnId);
-          if (!stream) {
-            setResponseStatus(event, 500);
-            return {
-              earlyResponse: { error: "Failed to replay completed agent run" },
             };
           }
           setResponseHeader(event, "Content-Type", "text/event-stream");
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
-          setResponseHeader(event, "X-Run-Id", slot.completedRunId);
-          setRunTurnIdHeader(event, effectiveTurnId);
+          setResponseHeader(event, "X-Run-Id", duplicateRunId);
+          setRunTurnIdHeader(event, getRun(duplicateRunId)?.turnId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
           return { earlyResponse: stream };
         }
-        if (!slot.claimed) {
-          await setupResumeClaim?.release();
-          if (slot.queuedSubmissionPending) {
-            const queued = await tryAdmitBusySubmission();
-            if (queued !== null) return { earlyResponse: queued };
-            return { earlyResponse: runSlotBusy(event, null) };
-          }
-          const queued = await tryAdmitBusySubmission();
-          if (queued !== null) return { earlyResponse: queued };
-          return { earlyResponse: runSlotBusy(event, slot.activeRunId) };
-        }
-        runRowState.foregroundInserted = true;
-        return { earlyResponse: null };
-      }
-
-      if (!backgroundDispatchAttempted) {
-        const slotResult = await claimForegroundRunSlot();
-        if (slotResult.earlyResponse !== null) {
-          return slotResult.earlyResponse;
-        }
-      }
-
-      const approvalStoreBinding = (
-        binding: AgentApprovalBinding,
-      ): AgentToolApprovalBinding => {
-        if (!ownerEmail) {
-          throw new Error(
-            "Cannot create or consume an approval without an authenticated owner",
-          );
-        }
-        return {
-          ownerEmail,
-          orgId: getRequestOrgId() ?? null,
-          threadId: effectiveThreadId,
-          turnId: effectiveTurnId,
-          toolName: binding.toolName,
-          toolRevision: binding.toolRevision,
-          callId: binding.callId,
-          approvalKey: binding.approvalKey,
-          argumentsHash: binding.argumentsHash,
-          ...(binding.approvalId ? { approvalId: binding.approvalId } : {}),
-        };
-      };
-      const approvalHooks = {
-        onApprovalRequired: async (binding: AgentApprovalBinding) => {
-          return createAgentToolApproval(approvalStoreBinding(binding));
-        },
-        consumeApproval: async (binding: AgentApprovalBinding) => {
-          if (!ownerEmail) return false;
-          return consumeAgentToolApproval(approvalStoreBinding(binding));
-        },
-        isToolAlwaysAllowed: async (binding: AgentApprovalBinding) => {
-          if (!ownerEmail) return false;
-          return isAgentToolAlwaysAllowed({
-            ownerEmail,
-            orgId: getRequestOrgId() ?? null,
-            toolName: binding.toolName,
-            toolRevision: binding.toolRevision,
-          });
-        },
-      };
-      if (
-        isBackgroundWorker &&
-        (await isTurnAborted(effectiveThreadId, effectiveTurnId))
-      ) {
-        await markRunAborted(runId, "user").catch(() => {});
-        return { ok: true, stopped: true };
-      }
-      const priorTurnInputTokensFromBody = Number(
-        (body as unknown as Record<string, unknown>)[
-          AGENT_CHAT_TURN_INPUT_TOKENS_FIELD
-        ],
-      );
-      let turnInputTokens = Number.isFinite(priorTurnInputTokensFromBody)
-        ? Math.max(0, priorTurnInputTokensFromBody)
-        : 0;
-
-      // A server successor and a continuation, automatic or chosen, resume the
-      // same turn the same way: the thread's tool calls and results, plus the turn's
-      // journal of finished steps, so nothing already done is sent again.
-      if (
-        (isChainedBackgroundContinuation ||
-          isReaperSuccessor ||
-          continueOf ||
-          isClientTurnContinuation) &&
-        effectiveThreadId
-      ) {
-        try {
-          const { getThread } = await import("../chat-threads/store.js");
-          const { latestPromptTurnId, resumeThreadHistoryForRequest } =
-            await import("./thread-data-builder.js");
-          const threadData =
-            isReaperSuccessor && !continueOf
-              ? undefined
-              : (await getThread(effectiveThreadId))?.threadData;
-          const { messages: resumed, foundTurnPrompt } =
-            isReaperSuccessor && !continueOf
-              ? { messages: [...messages], foundTurnPrompt: true }
-              : resumeThreadHistoryForRequest(threadData);
-          // A continuation always follows a stopped run, so a thread without
-          // that turn's prompt means its history was lost, not that there was
-          // none. A successor stays best-effort and resumes from what is there.
-          if ((continueOf || isClientTurnContinuation) && !foundTurnPrompt) {
-            throw new Error(`thread ${effectiveThreadId} has no turn prompt`);
-          }
-          // Resuming takes the thread's newest prompt, so a newer one, even one
-          // whose run never started, would run under this turn's journal.
-          const promptTurnId =
-            (continueOf || isClientTurnContinuation) && threadData
-              ? latestPromptTurnId(threadData)
-              : undefined;
-          if (promptTurnId && promptTurnId !== effectiveTurnId) {
-            if (await updateRunStatusIfRunning(runId, "errored")) {
-              await setRunTerminalReason(runId, CONTINUE_UNAVAILABLE_CODE);
-            }
-            setResponseStatus(event, 409);
-            return continueRefusal(CONTINUE_UNAVAILABLE_CODE);
-          }
-          if (resumed.length > 0) {
-            const actionPreparationTool =
-              typeof backgroundRunMarker?.actionPreparationTool === "string" &&
-              backgroundRunMarker.actionPreparationTool.trim()
-                ? backgroundRunMarker.actionPreparationTool.trim()
-                : undefined;
-            const continuationReason = isAgentLoopContinuationReason(
-              backgroundRunMarker?.continuationReason,
-            )
-              ? backgroundRunMarker.continuationReason
-              : isReaperSuccessor
-                ? "network_interrupted"
-                : isClientTurnContinuation
-                  ? "stream_ended"
-                  : "run_timeout";
-            const journalRead = await loadPriorTurnToolCallJournal(
-              effectiveThreadId,
-              effectiveTurnId,
-              {
-                recoverCompletedExecutionSteps:
-                  shouldRecoverCompletedExecutionSteps,
-              },
-            );
-            if (
-              (continueOf || isReaperSuccessor || isClientTurnContinuation) &&
-              journalRead.status === "unreadable"
-            ) {
-              throw new Error(journalRead.error);
-            }
-            appendRequestAttachmentContextToResumedHistory(
-              resumed,
-              requestAttachments,
-              {
-                vision: isAgentModelVisionCapable(
-                  effectiveModel,
-                  engine.capabilities.vision === true,
-                ),
-                textAttachmentStorage,
-              },
-            );
-            const journal =
-              journalRead.status === "read"
-                ? journalRead.toolCallJournal
-                : null;
-            const context =
-              shouldRecoverCompletedExecutionSteps &&
-              journalRead.status === "read"
-                ? buildTurnResumeContext({
-                    messages: resumed,
-                    journal,
-                    events: journalRead.events,
-                    steeredUserContent: (message) =>
-                      buildUserContentWithAttachments({
-                        text: message.text,
-                        ...(message.attachments === undefined
-                          ? {}
-                          : { attachments: message.attachments }),
-                        vision: isAgentModelVisionCapable(
-                          effectiveModel,
-                          engine.capabilities.vision === true,
-                        ),
-                      }),
-                  })
-                : buildTurnResumeContext({ messages: resumed, journal });
-            appendAgentLoopContinuation(context.messages, continuationReason, {
-              ...(actionPreparationTool ? { actionPreparationTool } : {}),
-              ...(context.journalNote
-                ? { journalNote: context.journalNote }
-                : {}),
-            });
-            messages.length = 0;
-            messages.push(...context.messages);
-          }
-        } catch (error) {
-          if (continueOf || isReaperSuccessor || isClientTurnContinuation) {
-            // The browser's history lacks the stopped run's tool results, so
-            // continuing from it could repeat a step that already finished.
-            console.warn(
-              `[agent-chat] auto-continue history unreadable for thread ${effectiveThreadId}:`,
-              error,
-            );
-            const code = isReaperSuccessor
-              ? "recovery_history_unreadable"
-              : "auto_continue_history_unreadable";
-            if (await updateRunStatusIfRunning(runId, "errored")) {
-              await setRunTerminalReason(runId, code);
-            }
-            setResponseStatus(event, 503);
-            return {
-              error: "This turn's history could not be read to continue it.",
-              code,
-              retryable: true,
-            };
-          }
-          // Keep the body-derived messages — never drop the run.
-        }
-      }
-      if (
-        !isBackgroundWorker &&
-        !internalContinuation &&
-        threadId &&
-        historyMessages.length === 0
-      ) {
-        try {
-          const { getThread } = await import("../chat-threads/store.js");
-          const { latestPromptTurnId, recoverThreadHistoryForRequest } =
-            await import("./thread-data-builder.js");
-          const threadData = (await getThread(threadId))?.threadData;
-          const recovered = recoverThreadHistoryForRequest(threadData);
-          if (
-            backgroundDispatchAttempted &&
-            threadData &&
-            recovered.length > 0
-          ) {
-            const persistedTurnId = latestPromptTurnId(threadData);
-            const lastRecovered = recovered.at(-1);
-            const lastRecoveredText =
-              lastRecovered?.role === "user"
-                ? lastRecovered.content
-                    .filter((p) => p.type === "text")
-                    .map((p) => p.text)
-                    .join("\n")
-                    .trim()
-                : undefined;
-            if (
-              persistedTurnId === effectiveTurnId ||
-              (persistedTurnId === undefined &&
-                lastRecovered?.role === "user" &&
-                lastRecoveredText === messageToPersist.trim())
-            ) {
-              recovered.pop();
-            }
-          }
-          if (recovered.length > 0) messages.unshift(...recovered);
-        } catch (err) {
-          console.warn(
-            `[agent-chat] history recovery failed for thread ${threadId}; continuing with no prior context:`,
-            err,
-          );
-        }
-      }
-      if (
-        !internalContinuation &&
-        !isChainedBackgroundContinuation &&
-        threadId
-      ) {
-        try {
-          const { loadStoppedPreviousTurnNote } =
-            await import("./previous-turn-note.js");
-          const note = await loadStoppedPreviousTurnNote(
-            threadId,
-            effectiveTurnId,
-          );
-          const prompt = messages.at(-1);
-          if (note && prompt?.role === "user") {
-            prompt.content = [{ type: "text", text: note }, ...prompt.content];
-          }
-        } catch (err) {
-          captureError(err, {
-            tags: { source: "agent-chat", failureClass: "previous-turn-note" },
-            extra: { threadId, turnId: effectiveTurnId },
-          });
-        }
-      }
-      setupMark("depsThread");
-      workerStep("owner_thread");
-
-      async function runOnRunPreparedHook(): Promise<
-        { earlyResponse: unknown } | { earlyResponse: null }
-      > {
-        if (
-          !options.onRunPrepared ||
-          internalContinuation ||
-          isBackgroundWorker
-        ) {
-          return { earlyResponse: null };
-        }
-        try {
-          const prepared = await options.onRunPrepared({
-            runId,
-            turnId: effectiveTurnId,
-            threadId,
-            message: messageToPersist,
-            ...(agentKitMessageId ? { agentKitMessageId } : {}),
-            ...(submissionPayload ? { submissionPayload } : {}),
-            attachments: requestAttachments,
-            ...submissionExpiryMetadata(requestMetadata),
-            ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
-              ? { queuedMessageId: queuedMessageId.trim() }
-              : {}),
-            ...(typeof queuedMessageClaimId === "string" &&
-            queuedMessageClaimId.trim()
-              ? { queuedMessageClaimId: queuedMessageClaimId.trim() }
-              : {}),
-          });
-          const duplicateRunId =
-            prepared &&
-            typeof prepared.duplicateRunId === "string" &&
-            prepared.duplicateRunId.trim()
-              ? prepared.duplicateRunId.trim()
-              : undefined;
-          if (duplicateRunId) {
-            if (runRowState.foregroundInserted) {
-              await markRunAborted(runId, "duplicate_submission");
-            }
-            await setupResumeClaim?.release();
-            const stream = subscribeToRun(duplicateRunId, 0);
-            if (!stream) {
-              setResponseStatus(event, 503);
-              return {
-                earlyResponse: {
-                  error: "The accepted submission run is no longer replayable",
-                  code: "queued_message_run_unavailable",
-                  retryable: true,
-                },
-              };
-            }
-            setResponseHeader(event, "Content-Type", "text/event-stream");
-            setResponseHeader(event, "Cache-Control", "no-cache");
-            setResponseHeader(event, "Connection", "keep-alive");
-            setResponseHeader(event, "X-Run-Id", duplicateRunId);
-            setRunTurnIdHeader(event, getRun(duplicateRunId)?.turnId);
-            setResponseHeader(event, "X-Dispatch-Mode", "replay");
-            return { earlyResponse: stream };
-          }
-        } catch (error) {
-          if (runRowState.foregroundInserted) {
-            const terminalized = await updateRunStatusIfRunning(
+      } catch (error) {
+        if (runRowState.foregroundInserted) {
+          const terminalized = await updateRunStatusIfRunning(runId, "errored");
+          if (terminalized) {
+            await setRunTerminalReason(runId, "run_preparation_failed");
+            await setRunError(
               runId,
-              "errored",
+              "run_preparation_failed",
+              error instanceof Error ? error.message : String(error),
             );
-            if (terminalized) {
-              await setRunTerminalReason(runId, "run_preparation_failed");
-              await setRunError(
-                runId,
-                "run_preparation_failed",
-                error instanceof Error ? error.message : String(error),
-              );
-            }
           }
-          throw error;
         }
+        throw error;
+      }
+      return { earlyResponse: null };
+    }
+
+    async function dispatchDurableBackgroundRun(): Promise<
+      { earlyResponse: unknown } | { earlyResponse: null }
+    > {
+      if (!dispatchToBackground) {
         return { earlyResponse: null };
       }
-
-      async function dispatchDurableBackgroundRun(): Promise<
-        { earlyResponse: unknown } | { earlyResponse: null }
-      > {
-        if (!dispatchToBackground) {
-          return { earlyResponse: null };
-        }
-        let backgroundRowInserted = runRowState.foregroundInserted;
-        if (!backgroundRowInserted) {
-          try {
-            await insertRun(runId, effectiveThreadId, effectiveTurnId, {
-              dispatchMode: "background",
-              ...(durableDispatchPayload !== undefined
-                ? { dispatchPayload: durableDispatchPayload }
-                : {}),
-              ...(turnInitiator ? { turnInitiator } : {}),
-            });
-            backgroundRowInserted = true;
-          } catch (err) {
-            if (err instanceof ServicePrincipalRefusedError) throw err;
-            console.error(
-              "[agent-chat] background insertRun failed; falling back to inline:",
-              err instanceof Error ? err.message : err,
-            );
-          }
-        }
-        runRowState.durableInserted = backgroundRowInserted;
-
-        if (
-          backgroundRowInserted &&
-          (await isTurnAborted(effectiveThreadId, effectiveTurnId))
-        ) {
-          await markRunAborted(runId, "user");
-          return { earlyResponse: { ok: true, stopped: true } };
-        }
-
-        let dispatched = false;
-        const backgroundDispatchPath = resolveAgentChatProcessRunDispatchPath();
-        const expectsNetlifyBackgroundFunction =
-          dispatchPathTargetsNetlifyBackgroundFunction(backgroundDispatchPath);
+      let backgroundRowInserted = runRowState.foregroundInserted;
+      if (!backgroundRowInserted) {
         try {
-          await fireInternalDispatch({
-            event,
-            path: backgroundDispatchPath,
-            taskId: runId,
-            ...(expectsNetlifyBackgroundFunction
-              ? { awaitResponse: true, responseTimeoutMs: 5_000 }
+          await insertRun(runId, effectiveThreadId, effectiveTurnId, {
+            dispatchMode: "background",
+            ...(durableDispatchPayload !== undefined
+              ? { dispatchPayload: durableDispatchPayload }
               : {}),
-            body: backgroundRowInserted
-              ? {
-                  [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
-                    runId,
-                    turnId: effectiveTurnId,
-                    backgroundFunctionRuntimeExpected:
-                      expectsNetlifyBackgroundFunction,
-                    payloadRef: true,
-                    ...backgroundRunInitiatorMarker(runId, turnInitiator),
-                  },
-                }
-              : {
-                  ...body,
-                  [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
-                    runId,
-                    turnId: effectiveTurnId,
-                    backgroundFunctionRuntimeExpected:
-                      expectsNetlifyBackgroundFunction,
-                    ...backgroundRunInitiatorMarker(runId, turnInitiator),
-                  },
-                },
+            ...(turnInitiator ? { turnInitiator } : {}),
           });
-          dispatched = true;
+          backgroundRowInserted = true;
         } catch (err) {
+          if (err instanceof ServicePrincipalRefusedError) throw err;
           console.error(
-            "[agent-chat] background dispatch failed; falling back to inline:",
+            "[agent-chat] background insertRun failed; falling back to inline:",
             err instanceof Error ? err.message : err,
           );
         }
-
-        const backgroundOutcome = await resolveBackgroundDispatchOutcome({
-          dispatched,
-          backgroundRowInserted,
-          runId,
-          graceMs: BACKGROUND_CLAIM_GRACE_MS,
-          reaperGraceMs: UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
-          pollIntervalMs: BACKGROUND_CLAIM_POLL_MS,
-          readClaim: readBackgroundRunClaim,
-          claim: claimBackgroundRun,
-          streamWhenWorkerAlive: true,
-        });
-
-        if (
-          backgroundOutcome.action === "stream" ||
-          backgroundOutcome.action === "subscribe"
-        ) {
-          const stream = subscribeToRun(runId, 0);
-          if (stream) {
-            setResponseHeader(event, "Content-Type", "text/event-stream");
-            setResponseHeader(event, "Cache-Control", "no-cache");
-            setResponseHeader(event, "Connection", "keep-alive");
-            setResponseHeader(event, "X-Run-Id", runId);
-            setRunTurnIdHeader(event, effectiveTurnId);
-            setResponseHeader(event, "X-Dispatch-Mode", "background");
-            return { earlyResponse: stream };
-          }
-          const terminalReason =
-            backgroundOutcome.action === "stream"
-              ? "background_subscribe_failed"
-              : "background_dispatch_failed";
-          try {
-            const statusUpdated = await updateRunStatusIfRunning(
-              runId,
-              "errored",
-            );
-            if (statusUpdated) {
-              await setRunTerminalReason(runId, terminalReason);
-            }
-          } catch (cleanupErr) {
-            console.warn(
-              "[agent-chat] failed to mark background run errored after subscribe failure:",
-              cleanupErr,
-            );
-          }
-          setResponseStatus(event, 500);
-          return {
-            earlyResponse: {
-              error:
-                backgroundOutcome.action === "stream"
-                  ? "Failed to subscribe to background run"
-                  : "Failed to dispatch background run",
-            },
-          };
-        }
-
-        if (backgroundOutcome.reason === "worker-never-claimed") {
-          let priorDiag = "none";
-          try {
-            const priorClaim = await readBackgroundRunClaim(runId);
-            priorDiag = priorClaim?.diagStage ?? "none";
-          } catch (diagErr) {
-            console.warn(
-              "[agent-chat] failed to read prior background claim diagnostic:",
-              diagErr,
-            );
-          }
-          console.error(
-            "[agent-chat] background worker did not claim the 202-dispatched run " +
-              `within grace; recovering inline. bgFnPriorDiag=${priorDiag}`,
-            runId,
-          );
-          try {
-            await recordRunDiagnostic(
-              runId,
-              RUN_DIAG_STAGE.foregroundInlineRecovery,
-              `202 dispatched but no worker claimed within grace; bgFnPriorDiag=${priorDiag}`,
-            );
-          } catch (diagErr) {
-            console.warn(
-              "[agent-chat] failed to record foreground inline recovery diagnostic:",
-              diagErr,
-            );
-          }
-        }
-        return { earlyResponse: null };
       }
-
-      if (!backgroundDispatchAttempted) {
-        const preparedResult = await runOnRunPreparedHook();
-        if (preparedResult.earlyResponse !== null) {
-          return preparedResult.earlyResponse;
-        }
-        const dispatchResult = await dispatchDurableBackgroundRun();
-        if (dispatchResult.earlyResponse !== null) {
-          return dispatchResult.earlyResponse;
-        }
-      }
-
-      const trackedProgressOwner =
-        trackInRunsTray === true && ownerEmail ? ownerEmail : null;
-      const trackedProgressRunId = trackedProgressOwner
-        ? backgroundChatProgressRunId(effectiveTurnId)
-        : null;
-      const trackedProgressMetadata = trackedProgressRunId
-        ? {
-            kind: "agent-chat-background",
-            threadId: effectiveThreadId,
-            surfaceUrl: `agent-native://threads/${encodeURIComponent(effectiveThreadId)}`,
-            turnId: effectiveTurnId,
-          }
-        : null;
-      const noProgressRepeatForRun = (run: ActiveRun) =>
-        resolveBackgroundNoProgressRepeat({
-          run,
-          priorErrorCode: priorNoProgressErrorCode,
-          priorCount: priorNoProgressCount,
-        });
-      const willChainBackgroundContinuation = (run: ActiveRun) =>
-        shouldChainBackgroundContinuation({
-          isBackgroundWorker,
-          run,
-          continuationCount: backgroundContinuationCount,
-          foregroundSelfChainEligible,
-          dispatchedToBackground: dispatchToBackground,
-          priorNoProgressErrorCode,
-          priorNoProgressCount,
-          priorContinuationReason,
-        });
-
-      const completeTrackedProgressRun = async (
-        run: ActiveRun,
-        completionError?: unknown,
-      ) => {
-        if (!trackedProgressRunId || !trackedProgressOwner) return;
-        if (!completionError && willChainBackgroundContinuation(run)) {
-          return;
-        }
-        const terminalStatus =
-          run.status === "aborted"
-            ? "cancelled"
-            : run.status === "errored" || completionError
-              ? "failed"
-              : "succeeded";
-        const step =
-          terminalStatus === "succeeded"
-            ? "Agent finished."
-            : terminalStatus === "cancelled"
-              ? "Agent run was cancelled."
-              : "Agent stopped with an error.";
-        await completeProgressRun(
-          trackedProgressRunId,
-          trackedProgressOwner,
-          terminalStatus,
-          {
-            step,
-            metadata: {
-              ...(trackedProgressMetadata ?? {}),
-              runId: run.runId,
-            },
-          },
-        ).catch(() => {});
-      };
-
-      let lastTrackedProgressUpdateAt = 0;
-      const updateTrackedProgressFromEvent = (event: AgentChatEvent) => {
-        if (!trackedProgressRunId || !trackedProgressOwner) return;
-        const step = progressStepFromAgentChatEvent(event);
-        if (!step) return;
-        const now = Date.now();
-        if (now - lastTrackedProgressUpdateAt < 15_000) return;
-        lastTrackedProgressUpdateAt = now;
-        void retainRequestDbPoolScope(
-          updateRunProgress(trackedProgressRunId, trackedProgressOwner, {
-            step,
-            metadata: {
-              ...(trackedProgressMetadata ?? {}),
-              runId,
-            },
-          }).catch(() => {}),
-        );
-      };
+      runRowState.durableInserted = backgroundRowInserted;
 
       if (
-        trackedProgressRunId &&
-        trackedProgressOwner &&
-        !internalContinuation
+        backgroundRowInserted &&
+        (await isTurnAborted(effectiveThreadId, effectiveTurnId))
       ) {
-        await startProgressRun({
-          id: trackedProgressRunId,
-          owner: trackedProgressOwner,
-          title: messageToPersist,
-          step: "Starting agent.",
-          metadata: trackedProgressMetadata ?? undefined,
-        }).catch(() => {});
+        await markRunAborted(runId, "user");
+        return { earlyResponse: { ok: true, stopped: true } };
       }
 
-      const baseHandleRunComplete =
-        options.onRunComplete || trackedProgressRunId
-          ? async (run: ActiveRun) => {
-              try {
-                await runCompletionCallbackWithDatabaseRetry(() =>
-                  options.onRunComplete?.(
-                    run,
-                    threadId,
-                    completionTrackingSource,
-                  ),
-                );
-              } catch (err) {
-                await completeTrackedProgressRun(run, err);
-                throw err;
-              } finally {
-                completionTrackingSource = undefined;
+      let dispatched = false;
+      const backgroundDispatchPath = resolveAgentChatProcessRunDispatchPath();
+      const expectsNetlifyBackgroundFunction =
+        dispatchPathTargetsNetlifyBackgroundFunction(backgroundDispatchPath);
+      try {
+        await fireInternalDispatch({
+          event,
+          path: backgroundDispatchPath,
+          taskId: runId,
+          ...(expectsNetlifyBackgroundFunction
+            ? { awaitResponse: true, responseTimeoutMs: 5_000 }
+            : {}),
+          body: backgroundRowInserted
+            ? {
+                [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+                  runId,
+                  turnId: effectiveTurnId,
+                  backgroundFunctionRuntimeExpected:
+                    expectsNetlifyBackgroundFunction,
+                  payloadRef: true,
+                  ...backgroundRunInitiatorMarker(runId, turnInitiator),
+                },
               }
-              await completeTrackedProgressRun(run);
-            }
-          : undefined;
+            : {
+                ...body,
+                [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+                  runId,
+                  turnId: effectiveTurnId,
+                  backgroundFunctionRuntimeExpected:
+                    expectsNetlifyBackgroundFunction,
+                  ...backgroundRunInitiatorMarker(runId, turnInitiator),
+                },
+              },
+        });
+        dispatched = true;
+      } catch (err) {
+        console.error(
+          "[agent-chat] background dispatch failed; falling back to inline:",
+          err instanceof Error ? err.message : err,
+        );
+      }
 
-      const handleRunComplete =
-        isBackgroundWorker ||
-        foregroundSelfChainEligible ||
-        baseHandleRunComplete
-          ? async (run: ActiveRun) => {
-              if (
-                isBackgroundWorker &&
-                run.status === "errored" &&
-                !willChainBackgroundContinuation(run)
-              ) {
-                const errEvent = [...run.events]
-                  .reverse()
-                  .find((e) => e.event.type === "error")?.event as
-                  | { error?: string; errorCode?: string }
-                  | undefined;
+      const backgroundOutcome = await resolveBackgroundDispatchOutcome({
+        dispatched,
+        backgroundRowInserted,
+        runId,
+        graceMs: BACKGROUND_CLAIM_GRACE_MS,
+        reaperGraceMs: UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
+        pollIntervalMs: BACKGROUND_CLAIM_POLL_MS,
+        readClaim: readBackgroundRunClaim,
+        claim: claimBackgroundRun,
+        streamWhenWorkerAlive: true,
+      });
+
+      if (
+        backgroundOutcome.action === "stream" ||
+        backgroundOutcome.action === "subscribe"
+      ) {
+        const stream = subscribeToRun(runId, 0);
+        if (stream) {
+          setResponseHeader(event, "Content-Type", "text/event-stream");
+          setResponseHeader(event, "Cache-Control", "no-cache");
+          setResponseHeader(event, "Connection", "keep-alive");
+          setResponseHeader(event, "X-Run-Id", runId);
+          setRunTurnIdHeader(event, effectiveTurnId);
+          setResponseHeader(event, "X-Dispatch-Mode", "background");
+          return { earlyResponse: stream };
+        }
+        const terminalReason =
+          backgroundOutcome.action === "stream"
+            ? "background_subscribe_failed"
+            : "background_dispatch_failed";
+        try {
+          const statusUpdated = await updateRunStatusIfRunning(
+            runId,
+            "errored",
+          );
+          if (statusUpdated) {
+            await setRunTerminalReason(runId, terminalReason);
+          }
+        } catch (cleanupErr) {
+          console.warn(
+            "[agent-chat] failed to mark background run errored after subscribe failure:",
+            cleanupErr,
+          );
+        }
+        setResponseStatus(event, 500);
+        return {
+          earlyResponse: {
+            error:
+              backgroundOutcome.action === "stream"
+                ? "Failed to subscribe to background run"
+                : "Failed to dispatch background run",
+          },
+        };
+      }
+
+      if (backgroundOutcome.reason === "worker-never-claimed") {
+        let priorDiag = "none";
+        try {
+          const priorClaim = await readBackgroundRunClaim(runId);
+          priorDiag = priorClaim?.diagStage ?? "none";
+        } catch (diagErr) {
+          console.warn(
+            "[agent-chat] failed to read prior background claim diagnostic:",
+            diagErr,
+          );
+        }
+        console.error(
+          "[agent-chat] background worker did not claim the 202-dispatched run " +
+            `within grace; recovering inline. bgFnPriorDiag=${priorDiag}`,
+          runId,
+        );
+        try {
+          await recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.foregroundInlineRecovery,
+            `202 dispatched but no worker claimed within grace; bgFnPriorDiag=${priorDiag}`,
+          );
+        } catch (diagErr) {
+          console.warn(
+            "[agent-chat] failed to record foreground inline recovery diagnostic:",
+            diagErr,
+          );
+        }
+      }
+      return { earlyResponse: null };
+    }
+
+    if (!backgroundDispatchAttempted) {
+      const preparedResult = await runOnRunPreparedHook();
+      if (preparedResult.earlyResponse !== null) {
+        return preparedResult.earlyResponse;
+      }
+      const dispatchResult = await dispatchDurableBackgroundRun();
+      if (dispatchResult.earlyResponse !== null) {
+        return dispatchResult.earlyResponse;
+      }
+    }
+
+    const trackedProgressOwner =
+      trackInRunsTray === true && ownerEmail ? ownerEmail : null;
+    const trackedProgressRunId = trackedProgressOwner
+      ? backgroundChatProgressRunId(effectiveTurnId)
+      : null;
+    const trackedProgressMetadata = trackedProgressRunId
+      ? {
+          kind: "agent-chat-background",
+          threadId: effectiveThreadId,
+          surfaceUrl: `agent-native://threads/${encodeURIComponent(effectiveThreadId)}`,
+          turnId: effectiveTurnId,
+        }
+      : null;
+    const noProgressRepeatForRun = (run: ActiveRun) =>
+      resolveBackgroundNoProgressRepeat({
+        run,
+        priorErrorCode: priorNoProgressErrorCode,
+        priorCount: priorNoProgressCount,
+      });
+    const willChainBackgroundContinuation = (run: ActiveRun) =>
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker,
+        run,
+        continuationCount: backgroundContinuationCount,
+        foregroundSelfChainEligible,
+        dispatchedToBackground: dispatchToBackground,
+        priorNoProgressErrorCode,
+        priorNoProgressCount,
+        priorContinuationReason,
+      });
+
+    const completeTrackedProgressRun = async (
+      run: ActiveRun,
+      completionError?: unknown,
+    ) => {
+      if (!trackedProgressRunId || !trackedProgressOwner) return;
+      if (!completionError && willChainBackgroundContinuation(run)) {
+        return;
+      }
+      const terminalStatus =
+        run.status === "aborted"
+          ? "cancelled"
+          : run.status === "errored" || completionError
+            ? "failed"
+            : "succeeded";
+      const step =
+        terminalStatus === "succeeded"
+          ? "Agent finished."
+          : terminalStatus === "cancelled"
+            ? "Agent run was cancelled."
+            : "Agent stopped with an error.";
+      await completeProgressRun(
+        trackedProgressRunId,
+        trackedProgressOwner,
+        terminalStatus,
+        {
+          step,
+          metadata: {
+            ...(trackedProgressMetadata ?? {}),
+            runId: run.runId,
+          },
+        },
+      ).catch(() => {});
+    };
+
+    let lastTrackedProgressUpdateAt = 0;
+    const updateTrackedProgressFromEvent = (event: AgentChatEvent) => {
+      if (!trackedProgressRunId || !trackedProgressOwner) return;
+      const step = progressStepFromAgentChatEvent(event);
+      if (!step) return;
+      const now = Date.now();
+      if (now - lastTrackedProgressUpdateAt < 15_000) return;
+      lastTrackedProgressUpdateAt = now;
+      void retainRequestDbPoolScope(
+        updateRunProgress(trackedProgressRunId, trackedProgressOwner, {
+          step,
+          metadata: {
+            ...(trackedProgressMetadata ?? {}),
+            runId,
+          },
+        }).catch(() => {}),
+      );
+    };
+
+    if (trackedProgressRunId && trackedProgressOwner && !internalContinuation) {
+      await startProgressRun({
+        id: trackedProgressRunId,
+        owner: trackedProgressOwner,
+        title: messageToPersist,
+        step: "Starting agent.",
+        metadata: trackedProgressMetadata ?? undefined,
+      }).catch(() => {});
+    }
+
+    const baseHandleRunComplete =
+      options.onRunComplete || trackedProgressRunId
+        ? async (run: ActiveRun) => {
+            try {
+              await runCompletionCallbackWithDatabaseRetry(() =>
+                options.onRunComplete?.(
+                  run,
+                  threadId,
+                  completionTrackingSource,
+                ),
+              );
+            } catch (err) {
+              await completeTrackedProgressRun(run, err);
+              throw err;
+            } finally {
+              completionTrackingSource = undefined;
+            }
+            await completeTrackedProgressRun(run);
+          }
+        : undefined;
+
+    const handleRunComplete =
+      isBackgroundWorker || foregroundSelfChainEligible || baseHandleRunComplete
+        ? async (run: ActiveRun) => {
+            if (
+              isBackgroundWorker &&
+              run.status === "errored" &&
+              !willChainBackgroundContinuation(run)
+            ) {
+              const errEvent = [...run.events]
+                .reverse()
+                .find((e) => e.event.type === "error")?.event as
+                | { error?: string; errorCode?: string }
+                | undefined;
+              await recordRunDiagnostic(
+                run.runId,
+                RUN_DIAG_STAGE.workerThrew,
+                errEvent?.errorCode || errEvent?.error
+                  ? `${errEvent.errorCode ?? ""} ${errEvent.error ?? ""}`.trim()
+                  : "run ended in errored state",
+              ).catch(() => {});
+            }
+            const noProgressRepeat = noProgressRepeatForRun(run);
+            if (rateLimitChainCapTripped({ run, priorContinuationReason })) {
+              installRateLimitChainCapTerminalEvent(run);
+            } else if (noProgressRepeat.tripped) {
+              installBackgroundNoProgressTerminalEvent(run, noProgressRepeat);
+            }
+
+            await baseHandleRunComplete?.(run);
+
+            if (noProgressRepeat.tripped) {
+              if (run.continuationTerminalEvent?.type === "error") {
+                console.error(
+                  `[agent-chat] stopping background chain: ${noProgressRepeat.errorCode} ` +
+                    `failed ${noProgressRepeat.count}x with no progress`,
+                  run.runId,
+                );
                 await recordRunDiagnostic(
                   run.runId,
                   RUN_DIAG_STAGE.workerThrew,
-                  errEvent?.errorCode || errEvent?.error
-                    ? `${errEvent.errorCode ?? ""} ${errEvent.error ?? ""}`.trim()
-                    : "run ended in errored state",
+                  `chain_stopped_no_progress code=${noProgressRepeat.errorCode} count=${noProgressRepeat.count}`,
                 ).catch(() => {});
               }
-              const noProgressRepeat = noProgressRepeatForRun(run);
-              if (rateLimitChainCapTripped({ run, priorContinuationReason })) {
-                installRateLimitChainCapTerminalEvent(run);
-              } else if (noProgressRepeat.tripped) {
-                installBackgroundNoProgressTerminalEvent(run, noProgressRepeat);
+            } else if (
+              rateLimitChainCapTripped({ run, priorContinuationReason })
+            ) {
+              if (run.continuationTerminalEvent?.type === "error") {
+                console.error(
+                  `[agent-chat] stopping background chain: rate-limit cap reached ` +
+                    `(second consecutive rate-limited chunk)`,
+                  run.runId,
+                );
+                await recordRunDiagnostic(
+                  run.runId,
+                  RUN_DIAG_STAGE.workerThrew,
+                  `chain_stopped_rate_limited`,
+                ).catch(() => {});
               }
-
-              await baseHandleRunComplete?.(run);
-
-              if (noProgressRepeat.tripped) {
-                if (run.continuationTerminalEvent?.type === "error") {
-                  console.error(
-                    `[agent-chat] stopping background chain: ${noProgressRepeat.errorCode} ` +
-                      `failed ${noProgressRepeat.count}x with no progress`,
-                    run.runId,
-                  );
-                  await recordRunDiagnostic(
-                    run.runId,
-                    RUN_DIAG_STAGE.workerThrew,
-                    `chain_stopped_no_progress code=${noProgressRepeat.errorCode} count=${noProgressRepeat.count}`,
-                  ).catch(() => {});
-                }
-              } else if (
-                rateLimitChainCapTripped({ run, priorContinuationReason })
-              ) {
-                if (run.continuationTerminalEvent?.type === "error") {
-                  console.error(
-                    `[agent-chat] stopping background chain: rate-limit cap reached ` +
-                      `(second consecutive rate-limited chunk)`,
-                    run.runId,
-                  );
-                  await recordRunDiagnostic(
-                    run.runId,
-                    RUN_DIAG_STAGE.workerThrew,
-                    `chain_stopped_rate_limited`,
-                  ).catch(() => {});
-                }
-              } else if (willChainBackgroundContinuation(run)) {
-                await chainServerDrivenContinuation({
-                  event,
-                  run,
-                  effectiveThreadId,
-                  effectiveTurnId,
-                  requestBody: {
-                    ...body,
-                    ...(Array.isArray(attachments) ||
-                    requestAttachments.length > 0
-                      ? { attachments: requestAttachments }
-                      : {}),
-                  } as unknown as Record<string, unknown>,
-                  backgroundContinuationCount,
-                  noProgressRepeat,
-                  turnInputTokens,
-                  chainViaDurableBackground:
-                    isAgentChatDurableBackgroundEnabled({
-                      appOptIn: options.durableBackgroundRuns,
-                    }) && !runsInBackgroundFunction,
-                  turnInitiator,
-                  workerProvenInBackgroundFunction: runsInBackgroundFunction,
-                });
-              }
+            } else if (willChainBackgroundContinuation(run)) {
+              await chainServerDrivenContinuation({
+                event,
+                run,
+                effectiveThreadId,
+                effectiveTurnId,
+                requestBody: {
+                  ...body,
+                  ...(Array.isArray(attachments) ||
+                  requestAttachments.length > 0
+                    ? { attachments: requestAttachments }
+                    : {}),
+                } as unknown as Record<string, unknown>,
+                backgroundContinuationCount,
+                noProgressRepeat,
+                turnInputTokens,
+                chainViaDurableBackground:
+                  isAgentChatDurableBackgroundEnabled({
+                    appOptIn: options.durableBackgroundRuns,
+                  }) && !runsInBackgroundFunction,
+                turnInitiator,
+                workerProvenInBackgroundFunction: runsInBackgroundFunction,
+              });
             }
-          : undefined;
+          }
+        : undefined;
 
-      if (isBackgroundWorker) {
-        if (!backgroundRunClaimedEarly) {
+    if (isBackgroundWorker) {
+      if (!backgroundRunClaimedEarly) {
+        await recordRunDiagnostic(
+          runId,
+          RUN_DIAG_STAGE.workerEntered,
+          [
+            `runsInBackgroundFunction=${runsInBackgroundFunction}`,
+            `continuationCount=${backgroundContinuationCount}`,
+            backgroundRuntimeDetail,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        ).catch(() => {});
+        if (isChainedBackgroundContinuation) {
+          await insertRun(runId, effectiveThreadId, effectiveTurnId, {
+            dispatchMode: "background",
+            ...(turnInitiator ? { turnInitiator } : {}),
+          }).catch((error) => {
+            if (error instanceof ServicePrincipalRefusedError) throw error;
+          });
+        }
+        const won = await claimBackgroundRun(runId);
+        if (!won) {
           await recordRunDiagnostic(
             runId,
-            RUN_DIAG_STAGE.workerEntered,
-            [
-              `runsInBackgroundFunction=${runsInBackgroundFunction}`,
-              `continuationCount=${backgroundContinuationCount}`,
-              backgroundRuntimeDetail,
-            ]
-              .filter(Boolean)
-              .join(" "),
+            RUN_DIAG_STAGE.workerClaimLost,
           ).catch(() => {});
-          if (isChainedBackgroundContinuation) {
-            await insertRun(runId, effectiveThreadId, effectiveTurnId, {
-              dispatchMode: "background",
-              ...(turnInitiator ? { turnInitiator } : {}),
-            }).catch((error) => {
-              if (error instanceof ServicePrincipalRefusedError) throw error;
-            });
-          }
-          const won = await claimBackgroundRun(runId);
-          if (!won) {
-            await recordRunDiagnostic(
-              runId,
-              RUN_DIAG_STAGE.workerClaimLost,
-            ).catch(() => {});
-            return { ok: true, skipped: "already-claimed" };
-          }
-          await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimed).catch(
-            () => {},
-          );
-          await updateRunHeartbeat(runId).catch(() => {});
+          return { ok: true, skipped: "already-claimed" };
         }
-      }
-
-      setupMark("preStart");
-      workerStep("prestart");
-      const setupDetail =
-        Object.entries(setupMarks)
-          .map(([k, v]) => `${k}=${v}`)
-          .join(" ") +
-        ` total=${Date.now() - setupT0}` +
-        (backgroundRuntimeDetail ? ` ${backgroundRuntimeDetail}` : "") +
-        firstRequestPayloadDetail;
-      // Only slow setups are logged: the reported delay is seconds, and the
-      // marks show which step owns it.
-      if (Date.now() - setupT0 >= 1_000) {
-        console.warn(
-          `[agent-chat] slow run setup runId=${runId} ${setupDetail}`,
+        await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimed).catch(
+          () => {},
         );
+        await updateRunHeartbeat(runId).catch(() => {});
       }
+    }
 
-      const isSynchronousSelfChainContinuation =
-        isBackgroundWorker &&
-        !runsInBackgroundFunction &&
-        !isAgentChatDurableBackgroundEnabled({
-          appOptIn: options.durableBackgroundRuns,
-        });
-      const selfChainBudget = isSynchronousSelfChainContinuation
-        ? resolveSelfChainContinuationBudget(
-            Date.now() - setupT0,
-            resolveRunSoftTimeoutMs(options.runSoftTimeoutMs, {
-              useHostedDefault: true,
-              backgroundFunction: false,
-            }),
-          )
-        : null;
+    setupMark("preStart");
+    workerStep("prestart");
+    const setupDetail =
+      Object.entries(setupMarks)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(" ") +
+      ` total=${Date.now() - setupT0}` +
+      (backgroundRuntimeDetail ? ` ${backgroundRuntimeDetail}` : "") +
+      firstRequestPayloadDetail;
+    // Only slow setups are logged: the reported delay is seconds, and the
+    // marks show which step owns it.
+    if (Date.now() - setupT0 >= 1_000) {
+      console.warn(`[agent-chat] slow run setup runId=${runId} ${setupDetail}`);
+    }
 
-      const resolvedRunSoftTimeoutMs = resolveRunSoftTimeoutMs(
-        selfChainBudget && !selfChainBudget.skipToBoundary
-          ? selfChainBudget.softTimeoutMs
-          : options.runSoftTimeoutMs,
-        {
-          useHostedDefault: true,
-          backgroundFunction: runsInBackgroundFunction,
-        },
-      );
+    const isSynchronousSelfChainContinuation =
+      isBackgroundWorker &&
+      !runsInBackgroundFunction &&
+      !isAgentChatDurableBackgroundEnabled({
+        appOptIn: options.durableBackgroundRuns,
+      });
+    const selfChainBudget = isSynchronousSelfChainContinuation
+      ? resolveSelfChainContinuationBudget(
+          Date.now() - setupT0,
+          resolveRunSoftTimeoutMs(options.runSoftTimeoutMs, {
+            useHostedDefault: true,
+            backgroundFunction: false,
+          }),
+        )
+      : null;
 
-      if (backgroundSetupDeadlineExceeded?.()) {
-        return { ok: true, skipped: "setup-deadline" };
-      }
+    const resolvedRunSoftTimeoutMs = resolveRunSoftTimeoutMs(
+      selfChainBudget && !selfChainBudget.skipToBoundary
+        ? selfChainBudget.softTimeoutMs
+        : options.runSoftTimeoutMs,
+      {
+        useHostedDefault: true,
+        backgroundFunction: runsInBackgroundFunction,
+      },
+    );
 
-      // raw-sql-ok: run callback IDs and prompts reach static queries as bound arguments.
-      runStarted = true;
-      const startedRun = startRun(
-        runId,
-        effectiveThreadId,
-        async (rawSend, signal, control) => {
-          if (backgroundSetupDeadlineExceeded?.()) return;
-          const send = (event: AgentChatEvent) => {
-            rawSend(event);
-            updateTrackedProgressFromEvent(event);
-          };
-          const interruptQueuedRunAtBoundary =
-            async (): Promise<QueuedRunInterruptBoundaryResult> => {
-              if (!threadId) return "none";
-              const {
-                clearQueuedSubmissionInterruptRun,
-                listQueuedSubmissionReceipts,
-                mutateThreadQueuedMessages,
-                recordQueuedSubmissionInterruptRun,
-                retryQueuedSubmissionReceipt,
-              } = await import("../chat-threads/store.js");
-              const pending = await listQueuedSubmissionReceipts({
-                limit: 25,
-                threadId,
-                interruptActiveRun: true,
-              });
-              for (const receipt of pending) {
-                if (receipt.message?.interruptActiveRun !== true) continue;
-                const claimId = randomUUID();
-                let claimed = false;
-                try {
-                  const claim = await mutateThreadQueuedMessages(threadId, {
-                    type: "claimFromInbox",
-                    receipt,
+    if (backgroundSetupDeadlineExceeded?.()) {
+      return { ok: true, skipped: "setup-deadline" };
+    }
+
+    // raw-sql-ok: run callback IDs and prompts reach static queries as bound arguments.
+    runStarted = true;
+    const startedRun = startRun(
+      runId,
+      effectiveThreadId,
+      async (rawSend, signal, control) => {
+        if (backgroundSetupDeadlineExceeded?.()) return;
+        const send = (event: AgentChatEvent) => {
+          rawSend(event);
+          updateTrackedProgressFromEvent(event);
+        };
+        const interruptQueuedRunAtBoundary =
+          async (): Promise<QueuedRunInterruptBoundaryResult> => {
+            if (!threadId) return "none";
+            const {
+              clearQueuedSubmissionInterruptRun,
+              listQueuedSubmissionReceipts,
+              mutateThreadQueuedMessages,
+              recordQueuedSubmissionInterruptRun,
+              retryQueuedSubmissionReceipt,
+            } = await import("../chat-threads/store.js");
+            const pending = await listQueuedSubmissionReceipts({
+              limit: 25,
+              threadId,
+              interruptActiveRun: true,
+            });
+            for (const receipt of pending) {
+              if (receipt.message?.interruptActiveRun !== true) continue;
+              const claimId = randomUUID();
+              let claimed = false;
+              try {
+                const claim = await mutateThreadQueuedMessages(threadId, {
+                  type: "claimFromInbox",
+                  receipt,
+                  claimId,
+                });
+                if (!claim?.claimedMessage) continue;
+                claimed = true;
+                if (
+                  receipt.interruptRunId &&
+                  receipt.interruptRunId !== runId
+                ) {
+                  const { getRunById } = await import("./run-store.js");
+                  const interruptedRun = await getRunById(
+                    receipt.interruptRunId,
+                  );
+                  if (interruptedRun?.status === "running") continue;
+                  const cleared = await clearQueuedSubmissionInterruptRun({
+                    threadId,
+                    messageId: receipt.messageId,
+                    runId: receipt.interruptRunId,
                     claimId,
                   });
-                  if (!claim?.claimedMessage) continue;
-                  claimed = true;
-                  if (
-                    receipt.interruptRunId &&
-                    receipt.interruptRunId !== runId
-                  ) {
-                    const { getRunById } = await import("./run-store.js");
-                    const interruptedRun = await getRunById(
-                      receipt.interruptRunId,
-                    );
-                    if (interruptedRun?.status === "running") continue;
-                    const cleared = await clearQueuedSubmissionInterruptRun({
-                      threadId,
-                      messageId: receipt.messageId,
-                      runId: receipt.interruptRunId,
-                      claimId,
-                    });
-                    if (!cleared) continue;
-                  }
-                  if (
-                    !(await recordQueuedSubmissionInterruptRun({
-                      threadId,
-                      messageId: receipt.messageId,
-                      runId,
-                      claimId,
-                    }))
-                  ) {
-                    continue;
-                  }
-                  const aborted = await confirmQueuedRunInterrupt({
-                    abort: () => abortRunAtSafeBoundaryDurably(runId, "user"),
-                    defer: () =>
-                      retryQueuedSubmissionReceipt(
-                        threadId,
-                        receipt.messageId,
-                        Date.now() + 10_000,
-                        { claimId },
-                      ),
-                  });
-                  if (aborted === "pending") return "pending";
-                } finally {
-                  if (claimed) {
-                    await mutateThreadQueuedMessages(threadId, {
-                      type: "release",
-                      messageId: receipt.messageId,
-                      claimId,
-                    });
-                  }
+                  if (!cleared) continue;
                 }
-                return "aborted";
+                if (
+                  !(await recordQueuedSubmissionInterruptRun({
+                    threadId,
+                    messageId: receipt.messageId,
+                    runId,
+                    claimId,
+                  }))
+                ) {
+                  continue;
+                }
+                const aborted = await confirmQueuedRunInterrupt({
+                  abort: () => abortRunAtSafeBoundaryDurably(runId, "user"),
+                  defer: () =>
+                    retryQueuedSubmissionReceipt(
+                      threadId,
+                      receipt.messageId,
+                      Date.now() + 10_000,
+                      { claimId },
+                    ),
+                });
+                if (aborted === "pending") return "pending";
+              } finally {
+                if (claimed) {
+                  await mutateThreadQueuedMessages(threadId, {
+                    type: "release",
+                    messageId: receipt.messageId,
+                    claimId,
+                  });
+                }
               }
-              return "none";
-            };
-          const modelInputScopes = createModelInputScopeGuardRegistry(() => {
-            abortRun(runId, MODEL_INPUT_SCOPE_ABORT_REASON);
-          });
-          const {
-            beforeModelDispatch: guardedBeforeModelDispatch,
-            beforeWrite,
-          } = createRunSafeBoundaryGuards({
+              return "aborted";
+            }
+            return "none";
+          };
+        const modelInputScopes = createModelInputScopeGuardRegistry(() => {
+          abortRun(runId, MODEL_INPUT_SCOPE_ABORT_REASON);
+        });
+        const { beforeModelDispatch: guardedBeforeModelDispatch, beforeWrite } =
+          createRunSafeBoundaryGuards({
             signal,
             flushEvents: control.flushEvents,
             interruptRequestedAtBoundary: interruptQueuedRunAtBoundary,
             validateModelInput: modelInputScopes.validate,
           });
-          const exposureAssignment =
-            questionIntakeAssignment && !internalContinuation && !continueOf
-              ? questionIntakeAssignment
-              : null;
-          const beforeModelDispatch = exposureAssignment
-            ? trackExperimentExposureAtDispatch(
-                guardedBeforeModelDispatch,
-                () =>
-                  trackQuestionIntakeExposure(exposureAssignment, {
-                    appId: options.appId ?? "app",
-                    ...(threadId === undefined ? {} : { threadId }),
-                    turnId: effectiveTurnId,
-                    ...(ownerEmail ? { userId: ownerEmail } : {}),
-                  }),
-              )
-            : guardedBeforeModelDispatch;
+        const exposureAssignment =
+          questionIntakeAssignment && !internalContinuation && !continueOf
+            ? questionIntakeAssignment
+            : null;
+        const beforeModelDispatch = exposureAssignment
+          ? trackExperimentExposureAtDispatch(guardedBeforeModelDispatch, () =>
+              trackQuestionIntakeExposure(exposureAssignment, {
+                appId: options.appId ?? "app",
+                ...(threadId === undefined ? {} : { threadId }),
+                turnId: effectiveTurnId,
+                ...(ownerEmail ? { userId: ownerEmail } : {}),
+              }),
+            )
+          : guardedBeforeModelDispatch;
 
-          if (selfChainBudget?.skipToBoundary) {
-            await recordRunDiagnostic(
+        if (selfChainBudget?.skipToBoundary) {
+          await recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.workerSetupStep,
+            `self_chain_budget_exhausted elapsed=${Date.now() - setupT0}ms`,
+          ).catch(() => {});
+          send({ type: "auto_continue", reason: "run_timeout" });
+          return;
+        }
+
+        send({
+          type: "activity",
+          id: `agentkit:internal:${runId}:starting-agent`,
+          label: "Starting agent",
+        });
+
+        if (isBackgroundWorker) {
+          await recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.workerStarted,
+            setupDetail,
+          ).catch(() => {});
+        } else {
+          void retainRequestDbPoolScope(
+            recordRunDiagnostic(
               runId,
-              RUN_DIAG_STAGE.workerSetupStep,
-              `self_chain_budget_exhausted elapsed=${Date.now() - setupT0}ms`,
-            ).catch(() => {});
-            send({ type: "auto_continue", reason: "run_timeout" });
-            return;
-          }
-
-          send({
-            type: "activity",
-            id: `agentkit:internal:${runId}:starting-agent`,
-            label: "Starting agent",
-          });
-
-          if (isBackgroundWorker) {
-            await recordRunDiagnostic(
-              runId,
-              RUN_DIAG_STAGE.workerStarted,
+              RUN_DIAG_STAGE.setupTimings,
               setupDetail,
-            ).catch(() => {});
-          } else {
-            void retainRequestDbPoolScope(
-              recordRunDiagnostic(
-                runId,
-                RUN_DIAG_STAGE.setupTimings,
-                setupDetail,
-              ).catch(() => {}),
-            ).catch(() => {});
-          }
+            ).catch(() => {}),
+          ).catch(() => {});
+        }
 
-          if (options.onRunStart) {
-            await options.onRunStart(
-              send,
-              threadId ?? runId,
-              runId,
-              effectiveTurnId,
-            );
-          }
+        if (options.onRunStart) {
+          await options.onRunStart(
+            send,
+            threadId ?? runId,
+            runId,
+            effectiveTurnId,
+          );
+        }
 
-          const unknownOutcomes = noUnknownOutcomes();
-          if (customAgentRefs.length > 0) {
-            const ownerEmail = getRequestUserEmail();
-            if (!ownerEmail) throw new Error("no authenticated user");
-            const {
-              findAccessibleCustomAgent,
-              resolveAccessibleCustomAgentReference,
-            } = await import("../resources/agents.js");
-            const customResults = await Promise.allSettled(
-              customAgentRefs.map(async (ref, index) => {
-                const agentCallId = randomUUID();
+        const unknownOutcomes = noUnknownOutcomes();
+        if (customAgentRefs.length > 0) {
+          const ownerEmail = getRequestUserEmail();
+          if (!ownerEmail) throw new Error("no authenticated user");
+          const {
+            findAccessibleCustomAgent,
+            resolveAccessibleCustomAgentReference,
+          } = await import("../resources/agents.js");
+          const customResults = await Promise.allSettled(
+            customAgentRefs.map(async (ref, index) => {
+              const agentCallId = randomUUID();
+              send({
+                type: "agent_call",
+                agent: ref.name,
+                status: "start",
+                agentCallId,
+              });
+              try {
+                const profile = await resolveAccessibleCustomAgentReference(
+                  ownerEmail,
+                  ref,
+                  findAccessibleCustomAgent,
+                );
+                if (!profile) {
+                  throw new Error("Profile not found");
+                }
+
+                const profilePrompt =
+                  `${requestSystemPrompt}\n\n<custom-agent-profile name="${profile.name}" path="${profile.path}">\n` +
+                  (profile.description ? `${profile.description}\n\n` : "") +
+                  `${profile.instructions}` +
+                  (profile.workspace?.resources.length
+                    ? `\n\nAgent pack resources (read these with the resources tools when relevant):\n${profile.workspace.resources.map((resource) => `- ${resource.path}${resource.name ? ` (${resource.name})` : ""}`).join("\n")}`
+                    : "") +
+                  `\n</custom-agent-profile>`;
+
+                let responseText = "";
+                // A profile is its own model conversation running beside
+                // others, so it gets its own run context: its model and effort
+                // never stand in for another loop's, and it starts with
+                // nothing read, since the run's reads are what the run's
+                // model saw. New per-conversation fields reset here too.
+                const profileRun: RequestRunContext = {
+                  ...getRequestRunContext(),
+                  model: profile.model ?? model,
+                  reasoningEffort,
+                  toolSearchReads: undefined,
+                  extensionContentReads: undefined,
+                  extensionExcerptReads: undefined,
+                };
+                const profileStepNamespace = `custom_${createHash("sha256")
+                  .update(
+                    JSON.stringify([ref.refId || ref.path || ref.name, index]),
+                  )
+                  .digest("hex")
+                  .slice(0, 32)}`;
+                const namespacedToolCallId = (toolCallId: string) =>
+                  `${profileStepNamespace}_${createHash("sha256")
+                    .update(toolCallId)
+                    .digest("hex")
+                    .slice(0, 24)}`;
+                const namespacedDurableStepId = (logicalStepId: string) =>
+                  `${profileStepNamespace}_${createHash("sha256")
+                    .update(logicalStepId)
+                    .digest("hex")
+                    .slice(0, 24)}`;
+                const profileLoopOpts: Parameters<typeof runAgentLoop>[0] = {
+                  engine,
+                  model: profile.model ?? model,
+                  onModelSettings: (loopModel, effort) => {
+                    profileRun.model = loopModel;
+                    profileRun.reasoningEffort = effort;
+                  },
+                  systemPrompt: profilePrompt,
+                  tools: requestTools,
+                  availableTools: availableRequestTools,
+                  messages: internalContinuation
+                    ? structuredClone(messages)
+                    : [
+                        {
+                          role: "user",
+                          content: [
+                            {
+                              type: "text",
+                              text: enrichedMessage + referencedAgentContext,
+                            },
+                          ],
+                        },
+                      ],
+                  actions: requestActions,
+                  runId,
+                  threadId: effectiveThreadId,
+                  turnId: effectiveTurnId,
+                  durableStepIdForToolCall: namespacedDurableStepId,
+                  beforeModelDispatch,
+                  beforeWrite,
+                  unknownOutcomes,
+                  internalContinuation,
+                  ...(shouldRecoverCompletedExecutionSteps
+                    ? { recoverCompletedExecutionSteps: true }
+                    : {}),
+                  send: (event) => {
+                    if (event.type === "text") {
+                      responseText += event.text;
+                      send({
+                        type: "agent_call_text",
+                        agent: ref.name,
+                        text: event.text,
+                        agentCallId,
+                      });
+                    } else if (
+                      event.type === "tool_start" ||
+                      event.type === "tool_done"
+                    ) {
+                      send({
+                        ...event,
+                        id:
+                          event.id === undefined
+                            ? undefined
+                            : namespacedToolCallId(event.id),
+                      });
+                    }
+                  },
+                  signal,
+                  reasoningEffort,
+                  providerOptions: options.providerOptions,
+                  executionMode: requestMode,
+                  maxIterations: loopSettings.maxIterations,
+                  ...(resolvedRunSoftTimeoutMs > 0
+                    ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
+                    : {}),
+                };
+                const subUsage = await runWithRequestContext(
+                  { ...getRequestContext(), run: profileRun },
+                  () => runAgentLoop(profileLoopOpts),
+                );
+                await control.flushEvents();
+
+                try {
+                  const ownerEmail = options.resolveOwnerEmail
+                    ? await options.resolveOwnerEmail(event)
+                    : getRequestUserEmail();
+                  if (!ownerEmail) {
+                    return;
+                  }
+                  const { recordUsage } = await import("../usage/store.js");
+                  await recordUsage({
+                    ownerEmail,
+                    inputTokens: subUsage.inputTokens,
+                    outputTokens: subUsage.outputTokens,
+                    cacheReadTokens: subUsage.cacheReadTokens,
+                    cacheWriteTokens: subUsage.cacheWriteTokens,
+                    builderCreditsUsed: subUsage.builderCreditsUsed,
+                    engineName: engine.name,
+                    model: subUsage.model,
+                    label: `custom-agent:${ref.name}`,
+                    runId,
+                    threadId: effectiveThreadId,
+                    taskId: effectiveTurnId,
+                  });
+                } catch {}
+
                 send({
                   type: "agent_call",
                   agent: ref.name,
-                  status: "start",
+                  status: "done",
                   agentCallId,
                 });
-                try {
-                  const profile = await resolveAccessibleCustomAgentReference(
-                    ownerEmail,
-                    ref,
-                    findAccessibleCustomAgent,
-                  );
-                  if (!profile) {
-                    throw new Error("Profile not found");
-                  }
-
-                  const profilePrompt =
-                    `${requestSystemPrompt}\n\n<custom-agent-profile name="${profile.name}" path="${profile.path}">\n` +
-                    (profile.description ? `${profile.description}\n\n` : "") +
-                    `${profile.instructions}` +
-                    (profile.workspace?.resources.length
-                      ? `\n\nAgent pack resources (read these with the resources tools when relevant):\n${profile.workspace.resources.map((resource) => `- ${resource.path}${resource.name ? ` (${resource.name})` : ""}`).join("\n")}`
-                      : "") +
-                    `\n</custom-agent-profile>`;
-
-                  let responseText = "";
-                  // A profile is its own model conversation running beside
-                  // others, so it gets its own run context: its model and effort
-                  // never stand in for another loop's, and it starts with
-                  // nothing read, since the run's reads are what the run's
-                  // model saw. New per-conversation fields reset here too.
-                  const profileRun: RequestRunContext = {
-                    ...getRequestRunContext(),
-                    model: profile.model ?? model,
-                    reasoningEffort,
-                    toolSearchReads: undefined,
-                    extensionContentReads: undefined,
-                    extensionExcerptReads: undefined,
-                  };
-                  const profileStepNamespace = `custom_${createHash("sha256")
-                    .update(
-                      JSON.stringify([
-                        ref.refId || ref.path || ref.name,
-                        index,
-                      ]),
-                    )
-                    .digest("hex")
-                    .slice(0, 32)}`;
-                  const namespacedToolCallId = (toolCallId: string) =>
-                    `${profileStepNamespace}_${createHash("sha256")
-                      .update(toolCallId)
-                      .digest("hex")
-                      .slice(0, 24)}`;
-                  const namespacedDurableStepId = (logicalStepId: string) =>
-                    `${profileStepNamespace}_${createHash("sha256")
-                      .update(logicalStepId)
-                      .digest("hex")
-                      .slice(0, 24)}`;
-                  const profileLoopOpts: Parameters<typeof runAgentLoop>[0] = {
-                    engine,
-                    model: profile.model ?? model,
-                    onModelSettings: (loopModel, effort) => {
-                      profileRun.model = loopModel;
-                      profileRun.reasoningEffort = effort;
-                    },
-                    systemPrompt: profilePrompt,
-                    tools: requestTools,
-                    availableTools: availableRequestTools,
-                    messages: internalContinuation
-                      ? structuredClone(messages)
-                      : [
-                          {
-                            role: "user",
-                            content: [
-                              {
-                                type: "text",
-                                text: enrichedMessage + referencedAgentContext,
-                              },
-                            ],
-                          },
-                        ],
-                    actions: requestActions,
-                    runId,
-                    threadId: effectiveThreadId,
-                    turnId: effectiveTurnId,
-                    durableStepIdForToolCall: namespacedDurableStepId,
-                    beforeModelDispatch,
-                    beforeWrite,
-                    unknownOutcomes,
-                    internalContinuation,
-                    ...(shouldRecoverCompletedExecutionSteps
-                      ? { recoverCompletedExecutionSteps: true }
-                      : {}),
-                    send: (event) => {
-                      if (event.type === "text") {
-                        responseText += event.text;
-                        send({
-                          type: "agent_call_text",
-                          agent: ref.name,
-                          text: event.text,
-                          agentCallId,
-                        });
-                      } else if (
-                        event.type === "tool_start" ||
-                        event.type === "tool_done"
-                      ) {
-                        send({
-                          ...event,
-                          id:
-                            event.id === undefined
-                              ? undefined
-                              : namespacedToolCallId(event.id),
-                        });
-                      }
-                    },
-                    signal,
-                    reasoningEffort,
-                    providerOptions: options.providerOptions,
-                    executionMode: requestMode,
-                    maxIterations: loopSettings.maxIterations,
-                    ...(resolvedRunSoftTimeoutMs > 0
-                      ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
-                      : {}),
-                  };
-                  const subUsage = await runWithRequestContext(
-                    { ...getRequestContext(), run: profileRun },
-                    () => runAgentLoop(profileLoopOpts),
-                  );
-                  await control.flushEvents();
-
-                  try {
-                    const ownerEmail = options.resolveOwnerEmail
-                      ? await options.resolveOwnerEmail(event)
-                      : getRequestUserEmail();
-                    if (!ownerEmail) {
-                      return;
-                    }
-                    const { recordUsage } = await import("../usage/store.js");
-                    await recordUsage({
-                      ownerEmail,
-                      inputTokens: subUsage.inputTokens,
-                      outputTokens: subUsage.outputTokens,
-                      cacheReadTokens: subUsage.cacheReadTokens,
-                      cacheWriteTokens: subUsage.cacheWriteTokens,
-                      builderCreditsUsed: subUsage.builderCreditsUsed,
-                      engineName: engine.name,
-                      model: subUsage.model,
-                      label: `custom-agent:${ref.name}`,
-                      runId,
-                      threadId: effectiveThreadId,
-                      taskId: effectiveTurnId,
-                    });
-                  } catch {}
-
-                  send({
-                    type: "agent_call",
-                    agent: ref.name,
-                    status: "done",
-                    agentCallId,
-                  });
-                  return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent">\n${responseText}\n</agent-response>`;
-                } catch (err: any) {
-                  send({
-                    type: "agent_call",
-                    agent: ref.name,
-                    status: "error",
-                    agentCallId,
-                  });
-                  const message =
-                    userFacingLlmCredentialError(err, {
-                      agentName: ref.name,
-                      visitorFacing: isBuilderGatewayDeployConfigured(),
-                    }) ?? `Failed to run ${ref.name}: ${err?.message}`;
-                  return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent" error="true">\n${message}\n</agent-response>`;
-                }
-              }),
-            );
-
-            const customResponses = customResults
-              .filter(
-                (result): result is PromiseFulfilledResult<string> =>
-                  result.status === "fulfilled",
-              )
-              .map((result) => result.value);
-
-            if (customResponses.length > 0) {
-              const agentContext =
-                "Responses from custom workspace agents:\n\n" +
-                customResponses.join("\n\n");
-              const lastMsg = messages[messages.length - 1];
-              if (lastMsg?.role === "user" && Array.isArray(lastMsg.content)) {
-                const textPart = lastMsg.content.find(
-                  (p): p is import("./engine/types.js").EngineTextPart =>
-                    p.type === "text",
-                );
-                if (textPart) {
-                  textPart.text = agentContext + "\n\n" + textPart.text;
-                }
-              }
-            }
-          }
-
-          if (agentRefs.length > 0 && requestMode !== "plan") {
-            const [{ callAgent }, { resolveA2ACallerAuth }] = await Promise.all(
-              [import("../a2a/client.js"), import("../a2a/caller-auth.js")],
-            );
-            const results = await Promise.allSettled(
-              agentRefs.map(async (ref) => {
-                try {
-                  const responseText = await callConnectedAgentReference({
-                    agent: ref.name,
-                    path: ref.path,
-                    message: enrichedMessage + referencedAgentContext,
-                    send,
-                    callAgent,
-                    resolveCallerAuth: resolveA2ACallerAuth,
-                  });
-                  return `<agent-response name="${ref.name}" id="${ref.refId}">\n${responseText}\n</agent-response>`;
-                } catch (err: any) {
-                  const message =
-                    userFacingLlmCredentialError(err, {
-                      agentName: ref.name,
-                      visitorFacing: isBuilderGatewayDeployConfigured(),
-                    }) ?? `Failed to reach ${ref.name}: ${err?.message}`;
-                  return `<agent-response name="${ref.name}" id="${ref.refId}" error="true">\n${message}\n</agent-response>`;
-                }
-              }),
-            );
-
-            const agentResponses_local: string[] = [];
-            for (const result of results) {
-              if (result.status === "fulfilled") {
-                agentResponses_local.push(result.value);
-              }
-            }
-
-            if (agentResponses_local.length > 0) {
-              const agentContext =
-                "Responses from other agents:\n\n" +
-                agentResponses_local.join("\n\n");
-              const lastMsg = messages[messages.length - 1];
-              if (lastMsg?.role === "user" && Array.isArray(lastMsg.content)) {
-                const textPart = lastMsg.content.find(
-                  (p): p is import("./engine/types.js").EngineTextPart =>
-                    p.type === "text",
-                );
-                if (textPart) {
-                  textPart.text = agentContext + "\n\n" + textPart.text;
-                }
-              }
-            }
-          }
-
-          const userVisibleSentimentInput =
-            typeof displayMessage === "string" &&
-            displayMessage.trim().length > 0
-              ? displayMessage
-              : typeof message === "string" && message.trim().length > 0
-                ? message
-                : undefined;
-          const turnUsage: AgentLoopUsage = {
-            inputTokens: 0,
-            outputTokens: 0,
-            cacheReadTokens: 0,
-            cacheWriteTokens: 0,
-            engineName: engine.name,
-            model: effectiveModel,
-          };
-          const approvedActionIsPrivate = Boolean(
-            exactApprovedToolCall &&
-            requestActions[exactApprovedToolCall.name]?.persistInChatHistory ===
-              false,
-          );
-          const approvedActionEntry: unknown = exactApprovedToolCall
-            ? requestActions[exactApprovedToolCall.name]
-            : undefined;
-          const privateApprovalState =
-            exactApprovedToolCall &&
-            (approvedActionIsPrivate ||
-              (privateRequestHistory && approvedActionEntry == null))
-              ? { private: true, recorded: false }
-              : undefined;
-          const agentLoopOpts = {
-            ...(privateApprovalState
-              ? { historyPrivacyState: privateApprovalState }
-              : {}),
-            engine,
-            model: effectiveModel,
-            // Custom agent profile loops report into their own run context
-            // copies, so only this loop sets the run's model and effort.
-            onModelSettings: (
-              model: string,
-              effort: ReasoningEffort | undefined,
-            ) => options.onEngineResolved?.(engine, model, effort),
-            runId,
-            followUpSuggestions: preparedRequest?.followUpSuggestions ?? true,
-            systemPrompt: requestSystemPrompt,
-            tools: requestTools,
-            availableTools: availableRequestTools,
-            messages,
-            ...(Array.isArray(requestStructuredHistory)
-              ? {
-                  structuredHistoryImages: {
-                    history: requestStructuredHistory,
-                    resolutions: resolvedHistoryImages,
-                  },
-                }
-              : {}),
-            systemSections: contextXraySystemSections,
-            actions: requestActions,
-            beforeModelDispatch,
-            registerModelInputGuard: modelInputScopes.register,
-            beforeWrite,
-            unknownOutcomes,
-            internalContinuation,
-            send,
-            signal,
-            onUsage: (usage: AgentLoopUsage) => {
-              turnUsage.inputTokens += usage.inputTokens;
-              turnUsage.outputTokens += usage.outputTokens;
-              turnUsage.cacheReadTokens += usage.cacheReadTokens;
-              turnUsage.cacheWriteTokens += usage.cacheWriteTokens;
-              if (usage.builderCreditsUsed !== undefined) {
-                turnUsage.builderCreditsUsed =
-                  (turnUsage.builderCreditsUsed ?? 0) +
-                  usage.builderCreditsUsed;
-              }
-              turnUsage.engineName = usage.engineName ?? turnUsage.engineName;
-              turnUsage.model = usage.model;
-            },
-            ownerEmail,
-            orgId: getRequestOrgId() ?? null,
-            appId: options.appId,
-            ...(options.appId && getRequestOrgId()
-              ? { appAuthorization: getRequestRunContext()?.appAuthorization }
-              : {}),
-            attachments: requestAttachments,
-            reasoningEffort,
-            maxOutputTokens: resolveMainChatMaxOutputTokens(effectiveModel),
-            providerOptions: options.providerOptions,
-            executionMode: requestMode,
-            maxIterations: loopSettings.maxIterations,
-            maxRunInputTokens: loopSettings.maxRunInputTokens,
-            priorTurnInputTokens: turnInputTokens,
-            loadedSkillSlugs: normalizeLoadedSkillSlugs(
-              requestedLoadedSkillSlugs,
-            ),
-            finalResponseGuard: options.finalResponseGuard,
-            finalResponseGuardRequestText: messageToPersist,
-            ...(resolvedRunSoftTimeoutMs > 0
-              ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
-              : {}),
-            ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
-            ...(threadId
-              ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
-              : {}),
-            ...(shouldRecoverCompletedExecutionSteps
-              ? { recoverCompletedExecutionSteps: true }
-              : {}),
-            ...(approvedToolCallsForExecution
-              ? { approvedToolCalls: approvedToolCallsForExecution }
-              : {}),
-            ...(requestedApprovedToolCallAskIds
-              ? {
-                  approvedToolCallAskId: requestedApprovedToolCallAskIds[0],
-                }
-              : {}),
-            onApprovalRequired: approvalHooks.onApprovalRequired,
-            consumeApproval: approvalHooks.consumeApproval,
-            isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
-            ...(runsInBackgroundFunction
-              ? {
-                  resumeResumableErrorsInProcess: true,
-                  maxContinuations: MAX_BACKGROUND_RUN_CONTINUATIONS,
-                }
-              : {}),
-          };
-
-          send({
-            type: "activity",
-            id: `agentkit:internal:${runId}:contacting-model`,
-            label: "Contacting model",
-          });
-
-          let instrumented = false;
-          try {
-            if (privateApprovalState && exactApprovedToolCall) {
-              try {
-                const { recordThreadPrivateRun } =
-                  await import("./run-store.js");
-                await recordThreadPrivateRun(effectiveThreadId, runId);
-                privateApprovalState.recorded = true;
-              } catch {
+                return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent">\n${responseText}\n</agent-response>`;
+              } catch (err: any) {
                 send({
-                  type: "error",
-                  error: "Private turn provenance is unavailable.",
-                  errorCode: "private_history_provenance_unavailable",
-                  recoverable: false,
-                  omitFromPersistedHistory: true,
+                  type: "agent_call",
+                  agent: ref.name,
+                  status: "error",
+                  agentCallId,
                 });
-                return;
+                const message =
+                  userFacingLlmCredentialError(err, {
+                    agentName: ref.name,
+                    visitorFacing: isBuilderGatewayDeployConfigured(),
+                  }) ?? `Failed to run ${ref.name}: ${err?.message}`;
+                return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent" error="true">\n${message}\n</agent-response>`;
+              }
+            }),
+          );
+
+          const customResponses = customResults
+            .filter(
+              (result): result is PromiseFulfilledResult<string> =>
+                result.status === "fulfilled",
+            )
+            .map((result) => result.value);
+
+          if (customResponses.length > 0) {
+            const agentContext =
+              "Responses from custom workspace agents:\n\n" +
+              customResponses.join("\n\n");
+            const lastMsg = messages[messages.length - 1];
+            if (lastMsg?.role === "user" && Array.isArray(lastMsg.content)) {
+              const textPart = lastMsg.content.find(
+                (p): p is import("./engine/types.js").EngineTextPart =>
+                  p.type === "text",
+              );
+              if (textPart) {
+                textPart.text = agentContext + "\n\n" + textPart.text;
               }
             }
-            const isRequestToolGone = (name: string) =>
-              !requestActions[name] ||
-              isUnavailableActionEntry(requestActions[name]);
-            if (
-              exactApprovedToolCall &&
-              approvedToolCallsForExecution &&
-              isRequestToolGone(exactApprovedToolCall.name)
-            ) {
-              const result = formatToolNoLongerAvailable(
-                exactApprovedToolCall.name,
+          }
+        }
+
+        if (agentRefs.length > 0 && requestMode !== "plan") {
+          const [{ callAgent }, { resolveA2ACallerAuth }] = await Promise.all([
+            import("../a2a/client.js"),
+            import("../a2a/caller-auth.js"),
+          ]);
+          const results = await Promise.allSettled(
+            agentRefs.map(async (ref) => {
+              try {
+                const responseText = await callConnectedAgentReference({
+                  agent: ref.name,
+                  path: ref.path,
+                  message: enrichedMessage + referencedAgentContext,
+                  send,
+                  callAgent,
+                  resolveCallerAuth: resolveA2ACallerAuth,
+                });
+                return `<agent-response name="${ref.name}" id="${ref.refId}">\n${responseText}\n</agent-response>`;
+              } catch (err: any) {
+                const message =
+                  userFacingLlmCredentialError(err, {
+                    agentName: ref.name,
+                    visitorFacing: isBuilderGatewayDeployConfigured(),
+                  }) ?? `Failed to reach ${ref.name}: ${err?.message}`;
+                return `<agent-response name="${ref.name}" id="${ref.refId}" error="true">\n${message}\n</agent-response>`;
+              }
+            }),
+          );
+
+          const agentResponses_local: string[] = [];
+          for (const result of results) {
+            if (result.status === "fulfilled") {
+              agentResponses_local.push(result.value);
+            }
+          }
+
+          if (agentResponses_local.length > 0) {
+            const agentContext =
+              "Responses from other agents:\n\n" +
+              agentResponses_local.join("\n\n");
+            const lastMsg = messages[messages.length - 1];
+            if (lastMsg?.role === "user" && Array.isArray(lastMsg.content)) {
+              const textPart = lastMsg.content.find(
+                (p): p is import("./engine/types.js").EngineTextPart =>
+                  p.type === "text",
               );
-              const input = JSON.parse(
-                JSON.stringify(exactApprovedToolCall.input ?? {}),
-              );
-              send({
-                type: "tool_start",
-                id: exactApprovedToolCall.callId,
-                tool: exactApprovedToolCall.name,
-                input,
-                ...(privateRequestHistory
-                  ? { omitFromPersistedHistory: true as const }
-                  : {}),
-              });
-              send({
-                type: "tool_done",
-                id: exactApprovedToolCall.callId,
-                tool: exactApprovedToolCall.name,
-                input,
-                result,
-                isError: true,
-                completedSideEffect: false,
-                ...(privateRequestHistory
-                  ? { omitFromPersistedHistory: true as const }
-                  : {}),
-              });
-              const stop = approvedToolUnavailableStop(
-                exactApprovedToolCall.name,
-              );
+              if (textPart) {
+                textPart.text = agentContext + "\n\n" + textPart.text;
+              }
+            }
+          }
+        }
+
+        const userVisibleSentimentInput =
+          typeof displayMessage === "string" && displayMessage.trim().length > 0
+            ? displayMessage
+            : typeof message === "string" && message.trim().length > 0
+              ? message
+              : undefined;
+        const turnUsage: AgentLoopUsage = {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          engineName: engine.name,
+          model: effectiveModel,
+        };
+        const approvedActionIsPrivate = Boolean(
+          exactApprovedToolCall &&
+          requestActions[exactApprovedToolCall.name]?.persistInChatHistory ===
+            false,
+        );
+        const approvedActionEntry: unknown = exactApprovedToolCall
+          ? requestActions[exactApprovedToolCall.name]
+          : undefined;
+        const privateApprovalState =
+          exactApprovedToolCall &&
+          (approvedActionIsPrivate ||
+            (privateRequestHistory && approvedActionEntry == null))
+            ? { private: true, recorded: false }
+            : undefined;
+        const agentLoopOpts = {
+          ...(privateApprovalState
+            ? { historyPrivacyState: privateApprovalState }
+            : {}),
+          engine,
+          model: effectiveModel,
+          // Custom agent profile loops report into their own run context
+          // copies, so only this loop sets the run's model and effort.
+          onModelSettings: (
+            model: string,
+            effort: ReasoningEffort | undefined,
+          ) => options.onEngineResolved?.(engine, model, effort),
+          runId,
+          followUpSuggestions: preparedRequest?.followUpSuggestions ?? true,
+          systemPrompt: requestSystemPrompt,
+          tools: requestTools,
+          availableTools: availableRequestTools,
+          messages,
+          ...(Array.isArray(requestStructuredHistory)
+            ? {
+                structuredHistoryImages: {
+                  history: requestStructuredHistory,
+                  resolutions: resolvedHistoryImages,
+                },
+              }
+            : {}),
+          systemSections: contextXraySystemSections,
+          actions: requestActions,
+          beforeModelDispatch,
+          registerModelInputGuard: modelInputScopes.register,
+          beforeWrite,
+          unknownOutcomes,
+          internalContinuation,
+          send,
+          signal,
+          onUsage: (usage: AgentLoopUsage) => {
+            turnUsage.inputTokens += usage.inputTokens;
+            turnUsage.outputTokens += usage.outputTokens;
+            turnUsage.cacheReadTokens += usage.cacheReadTokens;
+            turnUsage.cacheWriteTokens += usage.cacheWriteTokens;
+            if (usage.builderCreditsUsed !== undefined) {
+              turnUsage.builderCreditsUsed =
+                (turnUsage.builderCreditsUsed ?? 0) + usage.builderCreditsUsed;
+            }
+            turnUsage.engineName = usage.engineName ?? turnUsage.engineName;
+            turnUsage.model = usage.model;
+          },
+          ownerEmail,
+          orgId: getRequestOrgId() ?? null,
+          appId: options.appId,
+          ...(options.appId && getRequestOrgId()
+            ? { appAuthorization: getRequestRunContext()?.appAuthorization }
+            : {}),
+          attachments: requestAttachments,
+          reasoningEffort,
+          maxOutputTokens: resolveMainChatMaxOutputTokens(effectiveModel),
+          providerOptions: options.providerOptions,
+          executionMode: requestMode,
+          maxIterations: loopSettings.maxIterations,
+          maxRunInputTokens: loopSettings.maxRunInputTokens,
+          priorTurnInputTokens: turnInputTokens,
+          loadedSkillSlugs: normalizeLoadedSkillSlugs(
+            requestedLoadedSkillSlugs,
+          ),
+          finalResponseGuard: options.finalResponseGuard,
+          finalResponseGuardRequestText: messageToPersist,
+          ...(resolvedRunSoftTimeoutMs > 0
+            ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
+            : {}),
+          ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
+          ...(threadId
+            ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
+            : {}),
+          ...(shouldRecoverCompletedExecutionSteps
+            ? { recoverCompletedExecutionSteps: true }
+            : {}),
+          ...(approvedToolCallsForExecution
+            ? { approvedToolCalls: approvedToolCallsForExecution }
+            : {}),
+          ...(requestedApprovedToolCallAskIds
+            ? {
+                approvedToolCallAskId: requestedApprovedToolCallAskIds[0],
+              }
+            : {}),
+          onApprovalRequired: approvalHooks.onApprovalRequired,
+          consumeApproval: approvalHooks.consumeApproval,
+          isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
+          ...(runsInBackgroundFunction
+            ? {
+                resumeResumableErrorsInProcess: true,
+                maxContinuations: MAX_BACKGROUND_RUN_CONTINUATIONS,
+              }
+            : {}),
+        };
+
+        send({
+          type: "activity",
+          id: `agentkit:internal:${runId}:contacting-model`,
+          label: "Contacting model",
+        });
+
+        let instrumented = false;
+        try {
+          if (privateApprovalState && exactApprovedToolCall) {
+            try {
+              const { recordThreadPrivateRun } = await import("./run-store.js");
+              await recordThreadPrivateRun(effectiveThreadId, runId);
+              privateApprovalState.recorded = true;
+            } catch {
               send({
                 type: "error",
-                error: stop.message,
-                errorCode: stop.errorCode,
+                error: "Private turn provenance is unavailable.",
+                errorCode: "private_history_provenance_unavailable",
                 recoverable: false,
+                omitFromPersistedHistory: true,
               });
               return;
             }
-            if (exactApprovedToolCall && approvedToolCallsForExecution) {
-              let pausedResult:
-                | Extract<EngineContentPart, { type: "tool-result" }>
-                | undefined;
-              if (!isBackgroundWorker && !privateRequestHistory) {
-                const pausedResults = agentLoopOpts.messages.flatMap(
-                  (message) =>
-                    message.content.filter(
-                      (part) =>
-                        part.type === "tool-result" &&
-                        part.toolCallId === exactApprovedToolCall.callId &&
-                        part.approvalPause === true,
-                    ),
-                );
-                if (pausedResults.length !== 1) {
-                  send({
-                    type: "error",
-                    error: "The agent run failed.",
-                    errorCode: "approved_tool_call_result_missing",
-                    recoverable: false,
-                  });
-                  return;
-                }
-                const [candidate] = pausedResults;
-                if (candidate?.type !== "tool-result") {
-                  throw new Error("Approved tool result changed unexpectedly.");
-                }
-                pausedResult = candidate;
-              }
-              send({
-                type: "activity",
-                label: `Running approved ${exactApprovedToolCall.name} action`,
-                tool: exactApprovedToolCall.name,
-              });
-              const approvedExecution = await executeAgentToolCall({
-                actions: requestActions,
-                name: exactApprovedToolCall.name,
-                input: exactApprovedToolCall.input,
-                callId: exactApprovedToolCall.callId,
-                signal: agentLoopOpts.signal,
-                ownerEmail,
-                orgId: getRequestOrgId() ?? null,
-                appId: options.appId,
-                runId,
-                threadId: effectiveThreadId,
-                turnId: effectiveTurnId,
-                ...(privateApprovalState
-                  ? { historyPrivacyState: privateApprovalState }
-                  : {}),
-                approvedToolCalls: approvedToolCallsForExecution,
-                ...(requestedApprovedToolCallAskIds
-                  ? {
-                      approvedToolCallAskId: requestedApprovedToolCallAskIds[0],
-                    }
-                  : {}),
-                onApprovalRequired: approvalHooks.onApprovalRequired,
-                consumeApproval: approvalHooks.consumeApproval,
-                isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
-                beforeWrite: agentLoopOpts.beforeWrite,
-                send,
-              });
-              if (
-                approvedExecution.status === "approval_required" ||
-                (approvedExecution.status === "failed" &&
-                  approvedExecution.terminalError)
-              ) {
+          }
+          const isRequestToolGone = (name: string) =>
+            !requestActions[name] ||
+            isUnavailableActionEntry(requestActions[name]);
+          if (
+            exactApprovedToolCall &&
+            approvedToolCallsForExecution &&
+            isRequestToolGone(exactApprovedToolCall.name)
+          ) {
+            const result = formatToolNoLongerAvailable(
+              exactApprovedToolCall.name,
+            );
+            const input = JSON.parse(
+              JSON.stringify(exactApprovedToolCall.input ?? {}),
+            );
+            send({
+              type: "tool_start",
+              id: exactApprovedToolCall.callId,
+              tool: exactApprovedToolCall.name,
+              input,
+              ...(privateRequestHistory
+                ? { omitFromPersistedHistory: true as const }
+                : {}),
+            });
+            send({
+              type: "tool_done",
+              id: exactApprovedToolCall.callId,
+              tool: exactApprovedToolCall.name,
+              input,
+              result,
+              isError: true,
+              completedSideEffect: false,
+              ...(privateRequestHistory
+                ? { omitFromPersistedHistory: true as const }
+                : {}),
+            });
+            const stop = approvedToolUnavailableStop(
+              exactApprovedToolCall.name,
+            );
+            send({
+              type: "error",
+              error: stop.message,
+              errorCode: stop.errorCode,
+              recoverable: false,
+            });
+            return;
+          }
+          if (exactApprovedToolCall && approvedToolCallsForExecution) {
+            let pausedResult:
+              | Extract<EngineContentPart, { type: "tool-result" }>
+              | undefined;
+            if (!isBackgroundWorker && !privateRequestHistory) {
+              const pausedResults = agentLoopOpts.messages.flatMap((message) =>
+                message.content.filter(
+                  (part) =>
+                    part.type === "tool-result" &&
+                    part.toolCallId === exactApprovedToolCall.callId &&
+                    part.approvalPause === true,
+                ),
+              );
+              if (pausedResults.length !== 1) {
+                send({
+                  type: "error",
+                  error: "The agent run failed.",
+                  errorCode: "approved_tool_call_result_missing",
+                  recoverable: false,
+                });
                 return;
               }
-              if (isBackgroundWorker) return;
-              if (privateRequestHistory) {
-                const privacy = approvedActionIsPrivate
-                  ? { omitFromPersistedHistory: true as const }
-                  : {};
-                agentLoopOpts.messages.push(
-                  {
-                    role: "assistant",
-                    content: [
-                      {
-                        type: "tool-call",
-                        id: exactApprovedToolCall.callId,
-                        name: exactApprovedToolCall.name,
-                        input: exactApprovedToolCall.input,
-                        ...privacy,
-                      },
-                    ],
-                  },
-                  {
-                    role: "user",
-                    content: [
-                      {
-                        type: "tool-result",
-                        toolCallId: exactApprovedToolCall.callId,
-                        toolName: exactApprovedToolCall.name,
-                        toolInput: JSON.stringify(
-                          exactApprovedToolCall.input ?? {},
-                        ),
-                        content: approvedExecution.output,
-                        ...(approvedExecution.status === "failed"
-                          ? { isError: true }
-                          : {}),
-                        ...privacy,
-                      },
-                    ],
-                  },
-                );
-              } else {
-                if (!pausedResult) {
-                  throw new Error("Approved tool result was not validated.");
-                }
-                pausedResult.content = approvedExecution.output;
-                if (approvedExecution.status === "failed") {
-                  pausedResult.isError = true;
-                } else {
-                  delete pausedResult.isError;
-                }
-                delete pausedResult.approvalPause;
-                delete pausedResult.approvalAskId;
+              const [candidate] = pausedResults;
+              if (candidate?.type !== "tool-result") {
+                throw new Error("Approved tool result changed unexpectedly.");
               }
-              delete agentLoopOpts.approvedToolCalls;
-              delete agentLoopOpts.approvedToolCallAskId;
+              pausedResult = candidate;
             }
-            try {
-              const { getObservabilityConfig, instrumentAgentLoop } =
-                await import("../observability/traces.js");
-              const obsConfig = await getObservabilityConfig();
-              if (obsConfig.enabled) {
-                instrumented = true;
-                await instrumentAgentLoop({
-                  runAgentLoop: runAgentLoopWithMainChatInternalContinuations,
-                  loopOpts: agentLoopOpts,
-                  runId,
-                  threadId: threadId ?? null,
-                  turnId: effectiveTurnId,
-                  userId: ownerEmail,
-                  config: obsConfig,
-                  spanName:
-                    turnUsageLabel && turnUsageLabel !== "chat"
-                      ? `agent_run:${turnUsageLabel}`
-                      : undefined,
-                  metadata: {
-                    modelSelectionSource,
-                    // What the request asked for; the loop may lower it on retry.
-                    reasoningEffortRequested: reasoningEffort ?? null,
-                    ...(prefetchStatus
-                      ? { contextPrefetchStatus: prefetchStatus }
-                      : {}),
-                    ...(screenStatus
-                      ? { screenContextStatus: screenStatus }
-                      : {}),
-                    ...(priorConnection.status !== "none"
-                      ? { priorConnectionRequest: priorConnection.status }
-                      : {}),
-                    ...(turnUsageLabel ? { label: turnUsageLabel } : {}),
-                    ...(experimentAssignments.length > 0
-                      ? { experimentAssignments }
-                      : {}),
-                  },
-                  experimentAssignments,
-                  singularExperimentAssignment,
-                  modelSelectionSource,
-                  sentimentInput: shouldInferSentimentForTurn({
-                    internalContinuation: Boolean(internalContinuation),
-                    isBackgroundWorker,
-                    backgroundContinuationCount,
-                    hasUserText: Boolean(userVisibleSentimentInput),
-                  })
-                    ? userVisibleSentimentInput
-                    : undefined,
-                  classifyError: () => {
-                    if (
-                      agentLoopOpts.signal.aborted &&
-                      agentLoopOpts.signal.reason === "run_timeout"
-                    ) {
-                      return {
-                        status: "success",
-                        errorMessage: null,
-                        metadata: {
-                          terminalReason: "run_timeout",
-                          recoverableContinuation: true,
-                        },
-                      };
-                    }
-                    return null;
-                  },
-                });
-              }
-            } catch (err) {
-              if (instrumented) throw err;
+            send({
+              type: "activity",
+              label: `Running approved ${exactApprovedToolCall.name} action`,
+              tool: exactApprovedToolCall.name,
+            });
+            const approvedExecution = await executeAgentToolCall({
+              actions: requestActions,
+              name: exactApprovedToolCall.name,
+              input: exactApprovedToolCall.input,
+              callId: exactApprovedToolCall.callId,
+              signal: agentLoopOpts.signal,
+              ownerEmail,
+              orgId: getRequestOrgId() ?? null,
+              appId: options.appId,
+              runId,
+              threadId: effectiveThreadId,
+              turnId: effectiveTurnId,
+              ...(privateApprovalState
+                ? { historyPrivacyState: privateApprovalState }
+                : {}),
+              approvedToolCalls: approvedToolCallsForExecution,
+              ...(requestedApprovedToolCallAskIds
+                ? {
+                    approvedToolCallAskId: requestedApprovedToolCallAskIds[0],
+                  }
+                : {}),
+              onApprovalRequired: approvalHooks.onApprovalRequired,
+              consumeApproval: approvalHooks.consumeApproval,
+              isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
+              beforeWrite: agentLoopOpts.beforeWrite,
+              send,
+            });
+            if (
+              approvedExecution.status === "approval_required" ||
+              (approvedExecution.status === "failed" &&
+                approvedExecution.terminalError)
+            ) {
+              return;
             }
-            if (!instrumented) {
-              await runAgentLoopWithMainChatInternalContinuations(
-                agentLoopOpts,
+            if (isBackgroundWorker) return;
+            if (privateRequestHistory) {
+              const privacy = approvedActionIsPrivate
+                ? { omitFromPersistedHistory: true as const }
+                : {};
+              agentLoopOpts.messages.push(
+                {
+                  role: "assistant",
+                  content: [
+                    {
+                      type: "tool-call",
+                      id: exactApprovedToolCall.callId,
+                      name: exactApprovedToolCall.name,
+                      input: exactApprovedToolCall.input,
+                      ...privacy,
+                    },
+                  ],
+                },
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "tool-result",
+                      toolCallId: exactApprovedToolCall.callId,
+                      toolName: exactApprovedToolCall.name,
+                      toolInput: JSON.stringify(
+                        exactApprovedToolCall.input ?? {},
+                      ),
+                      content: approvedExecution.output,
+                      ...(approvedExecution.status === "failed"
+                        ? { isError: true }
+                        : {}),
+                      ...privacy,
+                    },
+                  ],
+                },
               );
-            }
-          } finally {
-            turnInputTokens += turnUsage.inputTokens;
-            try {
-              const resolvedOwnerEmail = options.resolveOwnerEmail
-                ? await options.resolveOwnerEmail(event)
-                : getRequestUserEmail();
-              if (
-                resolvedOwnerEmail &&
-                (turnUsage.inputTokens > 0 ||
-                  turnUsage.outputTokens > 0 ||
-                  turnUsage.cacheReadTokens > 0 ||
-                  turnUsage.cacheWriteTokens > 0 ||
-                  turnUsage.builderCreditsUsed != null)
-              ) {
-                const { recordUsage } = await import("../usage/store.js");
-                await recordUsage({
-                  ownerEmail: resolvedOwnerEmail,
-                  inputTokens: turnUsage.inputTokens,
-                  outputTokens: turnUsage.outputTokens,
-                  cacheReadTokens: turnUsage.cacheReadTokens,
-                  cacheWriteTokens: turnUsage.cacheWriteTokens,
-                  builderCreditsUsed: turnUsage.builderCreditsUsed,
-                  engineName: engine.name,
-                  model: turnUsage.model,
-                  label: turnUsageLabel || "chat",
-                  runId,
-                  threadId: effectiveThreadId,
-                  taskId: effectiveTurnId,
-                });
+            } else {
+              if (!pausedResult) {
+                throw new Error("Approved tool result was not validated.");
               }
-            } catch {
-              // Usage recording failed — don't break the run
+              pausedResult.content = approvedExecution.output;
+              if (approvedExecution.status === "failed") {
+                pausedResult.isError = true;
+              } else {
+                delete pausedResult.isError;
+              }
+              delete pausedResult.approvalPause;
+              delete pausedResult.approvalAskId;
             }
+            delete agentLoopOpts.approvedToolCalls;
+            delete agentLoopOpts.approvedToolCallAskId;
           }
-        },
-        handleRunComplete,
-        {
-          softTimeoutMs: resolvedRunSoftTimeoutMs,
-          useHostedSoftTimeoutDefault: true,
-          backgroundFunction: runsInBackgroundFunction,
-          noProgressTimeoutMs: options.runNoProgressTimeoutMs,
-          turnId: effectiveTurnId,
-          agentKitApprovalContinuation:
-            internalContinuation &&
-            Boolean(approvedToolCallsForExecution?.length),
-          turnInitiator,
-          parentId: requestParentId,
-          waitUntil: getRequestRunContext()?.waitUntil,
-          dispatchMode: isBackgroundWorker
-            ? "background"
-            : foregroundSelfChainEligible
-              ? "foreground-self-chain"
-              : "foreground",
-          runRowAlreadyInserted: runRowState.foregroundInserted,
-          executionLease: true,
-          // An anonymous run is not a user; `run_started` does not name one either.
-          userId: turnInitiator?.anonymous
-            ? undefined
-            : (ownerEmail ?? undefined),
-          // Resolved AFTER stored-model/experiment overrides — the same value
-          // actually sent to the engine, not the raw client-requested model.
-          model: effectiveModel,
-          engineName: engine.name,
-          attemptCount: backgroundContinuationCount,
-        },
-      );
-      backgroundSetupStartedRun = startedRun;
-      void startedRun.livenessReady.then(() =>
-        stopBackgroundSetupHeartbeat?.(),
-      );
-
-      if (isBackgroundWorker) {
-        try {
-          await startedRun.finalized;
-          return { ok: true, runId };
+          try {
+            const { getObservabilityConfig, instrumentAgentLoop } =
+              await import("../observability/traces.js");
+            const obsConfig = await getObservabilityConfig();
+            if (obsConfig.enabled) {
+              instrumented = true;
+              await instrumentAgentLoop({
+                runAgentLoop: runAgentLoopWithMainChatInternalContinuations,
+                loopOpts: agentLoopOpts,
+                runId,
+                threadId: threadId ?? null,
+                turnId: effectiveTurnId,
+                userId: ownerEmail,
+                config: obsConfig,
+                spanName:
+                  turnUsageLabel && turnUsageLabel !== "chat"
+                    ? `agent_run:${turnUsageLabel}`
+                    : undefined,
+                metadata: {
+                  modelSelectionSource,
+                  // What the request asked for; the loop may lower it on retry.
+                  reasoningEffortRequested: reasoningEffort ?? null,
+                  ...(prefetchStatus
+                    ? { contextPrefetchStatus: prefetchStatus }
+                    : {}),
+                  ...(screenStatus
+                    ? { screenContextStatus: screenStatus }
+                    : {}),
+                  ...(priorConnection.status !== "none"
+                    ? { priorConnectionRequest: priorConnection.status }
+                    : {}),
+                  ...(turnUsageLabel ? { label: turnUsageLabel } : {}),
+                  ...(experimentAssignments.length > 0
+                    ? { experimentAssignments }
+                    : {}),
+                },
+                experimentAssignments,
+                singularExperimentAssignment,
+                modelSelectionSource,
+                sentimentInput: shouldInferSentimentForTurn({
+                  internalContinuation: Boolean(internalContinuation),
+                  isBackgroundWorker,
+                  backgroundContinuationCount,
+                  hasUserText: Boolean(userVisibleSentimentInput),
+                })
+                  ? userVisibleSentimentInput
+                  : undefined,
+                classifyError: () => {
+                  if (
+                    agentLoopOpts.signal.aborted &&
+                    agentLoopOpts.signal.reason === "run_timeout"
+                  ) {
+                    return {
+                      status: "success",
+                      errorMessage: null,
+                      metadata: {
+                        terminalReason: "run_timeout",
+                        recoverableContinuation: true,
+                      },
+                    };
+                  }
+                  return null;
+                },
+              });
+            }
+          } catch (err) {
+            if (instrumented) throw err;
+          }
+          if (!instrumented) {
+            await runAgentLoopWithMainChatInternalContinuations(agentLoopOpts);
+          }
         } finally {
-          stopBackgroundSetupHeartbeat?.();
+          turnInputTokens += turnUsage.inputTokens;
+          try {
+            const resolvedOwnerEmail = options.resolveOwnerEmail
+              ? await options.resolveOwnerEmail(event)
+              : getRequestUserEmail();
+            if (
+              resolvedOwnerEmail &&
+              (turnUsage.inputTokens > 0 ||
+                turnUsage.outputTokens > 0 ||
+                turnUsage.cacheReadTokens > 0 ||
+                turnUsage.cacheWriteTokens > 0 ||
+                turnUsage.builderCreditsUsed != null)
+            ) {
+              const { recordUsage } = await import("../usage/store.js");
+              await recordUsage({
+                ownerEmail: resolvedOwnerEmail,
+                inputTokens: turnUsage.inputTokens,
+                outputTokens: turnUsage.outputTokens,
+                cacheReadTokens: turnUsage.cacheReadTokens,
+                cacheWriteTokens: turnUsage.cacheWriteTokens,
+                builderCreditsUsed: turnUsage.builderCreditsUsed,
+                engineName: engine.name,
+                model: turnUsage.model,
+                label: turnUsageLabel || "chat",
+                runId,
+                threadId: effectiveThreadId,
+                taskId: effectiveTurnId,
+              });
+            }
+          } catch {
+            // Usage recording failed — don't break the run
+          }
         }
+      },
+      handleRunComplete,
+      {
+        softTimeoutMs: resolvedRunSoftTimeoutMs,
+        useHostedSoftTimeoutDefault: true,
+        backgroundFunction: runsInBackgroundFunction,
+        noProgressTimeoutMs: options.runNoProgressTimeoutMs,
+        turnId: effectiveTurnId,
+        agentKitApprovalContinuation:
+          internalContinuation &&
+          Boolean(approvedToolCallsForExecution?.length),
+        turnInitiator,
+        parentId: requestParentId,
+        waitUntil: getRequestRunContext()?.waitUntil,
+        dispatchMode: isBackgroundWorker
+          ? "background"
+          : foregroundSelfChainEligible
+            ? "foreground-self-chain"
+            : "foreground",
+        runRowAlreadyInserted: runRowState.foregroundInserted,
+        executionLease: true,
+        // An anonymous run is not a user; `run_started` does not name one either.
+        userId: turnInitiator?.anonymous
+          ? undefined
+          : (ownerEmail ?? undefined),
+        // Resolved AFTER stored-model/experiment overrides — the same value
+        // actually sent to the engine, not the raw client-requested model.
+        model: effectiveModel,
+        engineName: engine.name,
+        attemptCount: backgroundContinuationCount,
+      },
+    );
+    backgroundSetupStartedRun = startedRun;
+    void startedRun.livenessReady.then(() => stopBackgroundSetupHeartbeat?.());
+
+    if (isBackgroundWorker) {
+      try {
+        await startedRun.finalized;
+        return { ok: true, runId };
+      } finally {
+        stopBackgroundSetupHeartbeat?.();
       }
+    }
 
-      const stream = subscribeToRun(runId, 0);
-      if (!stream) {
-        setResponseStatus(event, 500);
-        return { error: "Failed to start agent run" };
-      }
+    const stream = subscribeToRun(runId, 0);
+    if (!stream) {
+      setResponseStatus(event, 500);
+      return { error: "Failed to start agent run" };
+    }
 
-      setResponseHeader(event, "Content-Type", "text/event-stream");
-      setResponseHeader(event, "Cache-Control", "no-cache");
-      setResponseHeader(event, "Connection", "keep-alive");
-      setResponseHeader(event, "X-Run-Id", runId);
-      setRunTurnIdHeader(event, effectiveTurnId);
-      setResponseHeader(
-        event,
-        "X-Dispatch-Mode",
-        foregroundSelfChainEligible ? "foreground-self-chain" : "foreground",
-      );
+    setResponseHeader(event, "Content-Type", "text/event-stream");
+    setResponseHeader(event, "Cache-Control", "no-cache");
+    setResponseHeader(event, "Connection", "keep-alive");
+    setResponseHeader(event, "X-Run-Id", runId);
+    setRunTurnIdHeader(event, effectiveTurnId);
+    setResponseHeader(
+      event,
+      "X-Dispatch-Mode",
+      foregroundSelfChainEligible ? "foreground-self-chain" : "foreground",
+    );
 
-      return stream;
+    return stream;
     } catch (error) {
       if (
         !runStarted &&
@@ -19249,7 +19198,14 @@ export function createProductionAgentHandler(
           );
         }
       }
-      await setupResumeClaim?.release().catch(() => {});
+      try {
+        await setupResumeClaim?.release();
+      } catch (releaseErr) {
+        console.warn(
+          "[agent-chat] failed to release setup resume claim:",
+          releaseErr,
+        );
+      }
       throw error;
     }
   });

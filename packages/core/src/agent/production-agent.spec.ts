@@ -10256,8 +10256,9 @@ describe("createProductionAgentHandler", () => {
 
     try {
       await expect(
-        runWithRequestContext({ userEmail: "alice@example.com", run: {} }, () =>
-          handler(event),
+        runWithRequestContext(
+          { userEmail: "alice@example.com", run: {} },
+          () => handler(event),
         ),
       ).rejects.toThrow("attachment hydration failed");
       expect(updateStatusSpy).toHaveBeenCalledWith(
