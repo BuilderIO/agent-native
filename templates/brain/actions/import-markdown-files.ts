@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -93,9 +93,15 @@ function normalizeMarkdownPath(value: string) {
 }
 
 function suppliedProvenanceApplied(
-  capture: { capturedAt?: string | null; kind?: string | null },
-  file: { kind?: string; capturedAt?: string },
+  capture:
+    | {
+        capturedAt?: string | null | undefined;
+        kind?: string | null | undefined;
+      }
+    | undefined,
+  file: { kind?: string | undefined; capturedAt?: string | undefined },
 ) {
+  if (!capture) return false;
   if (file.kind && capture.kind !== file.kind) return false;
   if (file.capturedAt) {
     const wanted = Date.parse(file.capturedAt);
@@ -226,8 +232,9 @@ export default defineAction({
         if (!suppliedProvenanceApplied(stored.capture, file.input)) {
           stored = await createCaptureWithWarnings(captureInput);
           if (!suppliedProvenanceApplied(stored.capture, file.input)) {
-            throw new Error(
+            fail(
               "The capture changed during import and the supplied capture time or kind was not applied. Retry the import.",
+              { errorCode: "capture_changed", statusCode: 409 },
             );
           }
         }
