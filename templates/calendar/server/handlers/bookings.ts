@@ -65,6 +65,12 @@ import { eventBlocksAvailability } from "../lib/calendar-availability.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 import { publicErrorReply } from "../lib/public-error-reply.js";
 import {
+  consumeSingleUseLink,
+  getSingleUseLinkStatus,
+  readSingleUseToken,
+  releaseSingleUseLink,
+} from "../lib/single-use-links.js";
+import {
   createZoomMeeting,
   deleteZoomMeeting,
   needsZoomCancellationReview,
@@ -577,6 +583,14 @@ function unavailableAvailabilityResponse(event: H3Event) {
     error:
       "The host's calendar availability could not be checked. Please try again later.",
     code: "calendar_availability_unavailable",
+  };
+}
+
+function singleUseLinkUnavailableResponse(event: H3Event) {
+  setResponseStatus(event, 410);
+  return {
+    error: "This single-use link has already been used or was turned off",
+    code: "single_use_link_used",
   };
 }
 
@@ -1246,6 +1260,16 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
     const link = bookingLink || undefined;
 
+    const singleUseToken = readSingleUseToken(body.singleUseToken);
+    if (
+      body.singleUseToken != null &&
+      (!link ||
+        !singleUseToken ||
+        (await getSingleUseLinkStatus(link.id, singleUseToken)) !== "available")
+    ) {
+      return singleUseLinkUnavailableResponse(event);
+    }
+
     const viewer = await resolveBookingViewer(event, link);
 
     const hostEmail = (link as any)?.ownerEmail || (link as any)?.owner_email;
@@ -1429,6 +1453,19 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         return { conflict: true } as const;
       }
 
+      if (
+        link &&
+        singleUseToken &&
+        !(await consumeSingleUseLink(tx, {
+          bookingLinkId: link.id,
+          token: singleUseToken,
+          bookingId: id,
+          usedAt: now,
+        }))
+      ) {
+        return { singleUseUnavailable: true } as const;
+      }
+
       await tx.insert(schema.bookings).values({
         id,
         name: attendeeName,
@@ -1459,6 +1496,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
     if ("unavailableReason" in insertResult) {
       return unavailableAvailabilityResponse(event);
+    }
+    if ("singleUseUnavailable" in insertResult) {
+      return singleUseLinkUnavailableResponse(event);
     }
     if (insertResult.conflict) {
       setResponseStatus(event, 409);
@@ -1500,6 +1540,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
             .update(schema.bookings)
             .set({ status: "cancelled" })
             .where(eq(schema.bookings.id, id));
+          if (singleUseToken) await releaseSingleUseLink(id);
           setResponseStatus(event, 503);
           return { error: "Failed to create booking" };
         }
