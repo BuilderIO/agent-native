@@ -26,6 +26,7 @@ const source = {
 
 const mocks = vi.hoisted(() => ({
   BrainCaptureConcurrentError: class extends Error {},
+  BrainClassifierUnavailableError: class extends Error {},
   BrainUnsafeSourceIdentityError: class extends Error {},
   contentHash: vi.fn(async () => "changed-hash"),
   enqueueCaptureInvalidation: vi.fn(async () => undefined),
@@ -99,6 +100,7 @@ vi.mock("../server/lib/brain.js", () => ({
 }));
 
 vi.mock("../server/lib/capture-sanitization.js", () => ({
+  BrainClassifierUnavailableError: mocks.BrainClassifierUnavailableError,
   BrainUnsafeSourceIdentityError: mocks.BrainUnsafeSourceIdentityError,
   sanitizeCaptureForStorage: mocks.sanitizeCaptureForStorage,
 }));
@@ -302,5 +304,26 @@ describe("resanitize-captures", () => {
       skipReason: "unsafe-source-identity",
     });
     expect(mocks.getDb().update).not.toHaveBeenCalled();
+  });
+
+  it("reports a capture whose screening is unavailable instead of aborting the batch", async () => {
+    mocks.sanitizeCaptureForStorage.mockRejectedValue(
+      new mocks.BrainClassifierUnavailableError("classifier unavailable"),
+    );
+
+    const result = await action.run({
+      captureIds: [capture.id],
+      limit: 25,
+      dryRun: false,
+      includeNonTranscript: false,
+      allowCitationDrift: true,
+    });
+
+    expect(result.updated).toBe(0);
+    expect(result.results[0]).toMatchObject({
+      id: capture.id,
+      skipped: true,
+      skipReason: "screening-unavailable",
+    });
   });
 });
