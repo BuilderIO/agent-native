@@ -119,6 +119,8 @@ const ASKS_FIRST = [
     { mode: "keep", targets: MESSAGE, comment: "From my manager" },
     null,
   ],
+  ["apply-ai-filter", { mode: "filter", targets: MESSAGE }, null],
+  ["apply-ai-filter", { mode: "keep", targets: MESSAGE }, null],
 ] as const;
 
 const RUNS_WITHOUT_ASKING = [
@@ -130,13 +132,6 @@ const RUNS_WITHOUT_ASKING = [
   ["manage-gmail-filters", { operation: "list" }, null],
   ["manage-gmail-filters", { operation: "get", id: "filter-1" }, null],
   ["manage-email-rules", { action: "list" }, null],
-  ["apply-ai-filter", { mode: "filter", targets: MESSAGE }, null],
-  [
-    "apply-ai-filter",
-    { mode: "filter", targets: MESSAGE, comment: "  " },
-    null,
-  ],
-  ["apply-ai-filter", { mode: "keep", targets: MESSAGE }, null],
   ["apply-ai-filter", { mode: "settings" }, null],
 ] as const;
 

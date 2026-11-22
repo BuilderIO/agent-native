@@ -142,9 +142,7 @@ export default defineAction({
   }),
   needsApproval: (args, ctx) =>
     isOutsideAgentCall(ctx) &&
-    (args.mode === "settings"
-      ? Object.keys(args.settings ?? {}).length > 0
-      : Boolean(args.comment?.trim())),
+    (args.mode !== "settings" || Object.keys(args.settings ?? {}).length > 0),
   mcpTool: "search",
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
