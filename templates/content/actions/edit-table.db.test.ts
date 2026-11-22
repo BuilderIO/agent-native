@@ -214,6 +214,28 @@ describe("edit-table", () => {
     });
   });
 
+  it("replays a change the table already had after the page moves on", async () => {
+    const args = {
+      id: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, BODY),
+      idempotencyKey: "header-row",
+      table: 1,
+      operations: [{ op: "set-header-row" as const, value: true }],
+    };
+    expect((await run(args)).receipt.outcome).toBe("unchanged");
+    await mutateDocumentBody({
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, BODY),
+      idempotencyKey: "intro",
+      edits: [{ find: "Before the table.", replace: "Intro, edited." }],
+      ctx,
+    });
+    const retry = await run(args);
+    expect(retry.receipt.idempotency.result).toBe("replayed");
+    expect(retry.receipt.outcome).toBe("unchanged");
+    expect(retry.table).toMatchObject({ table: 1, headerRow: true });
+  });
+
   it("refuses a change the table already had when the page it lands on has moved", async () => {
     const mutate = vi.mocked(mutateDocumentBody);
     const original = mutate.getMockImplementation();

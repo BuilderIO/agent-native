@@ -481,4 +481,10 @@ describe("editNfmTable finding the table", () => {
       ).code,
     ).toBe("TABLE_NOT_LOCATED");
   });
+
+  it("reads a fence as open past a closer less indented than its opener", () => {
+    const head = ["\t```", "code", "```", oneCell("Alpha"), "\t```"].join("\n");
+    const { markdown } = edit(`${head}\n${oneCell("Beta")}`, 1, ZEBRA);
+    expect(markdown).toBe(`${head}\n${oneCell("Zebra")}`);
+  });
 });

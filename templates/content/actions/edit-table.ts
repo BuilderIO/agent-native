@@ -194,7 +194,7 @@ async function readEditBase(
     bodyRevision: number;
   },
   baseRevision: string,
-): Promise<{ body: string; current: boolean }> {
+): Promise<string> {
   const base = parseDocumentRevisionToken(baseRevision);
   if (base === null) {
     throw new ActionContractError(
@@ -207,7 +207,7 @@ async function readEditBase(
     document.bodyRevision === base.revision &&
     documentContentHash(current) === base.contentHash
   ) {
-    return { body: current, current: true };
+    return current;
   }
   const db = getDb();
   const lookup = {
@@ -223,7 +223,7 @@ async function readEditBase(
       ...lookup,
       current: { revision: document.bodyRevision, content: current },
     }));
-  if (found !== null) return { body: found, current: false };
+  if (found !== null) return found;
   return staleBase(
     baseRevision,
     documentRevisionToken(document.bodyRevision, current),
@@ -307,7 +307,7 @@ export default defineAction({
     const base = await readEditBase(existing, args.baseRevision);
     let edited: ReturnType<typeof editNfmTable>;
     try {
-      edited = editNfmTable(base.body, args.table, args.operations);
+      edited = editNfmTable(base, args.table, args.operations);
     } catch (error) {
       if (!(error instanceof TableEditError)) throw error;
       throw new ActionContractError(error.message, {
@@ -315,14 +315,6 @@ export default defineAction({
         statusCode: error.code === "TABLE_NOT_FOUND" ? 404 : 422,
         details: error.details,
       });
-    }
-
-    if (!edited.changed && !base.current) {
-      staleBase(
-        args.baseRevision,
-        documentRevisionToken(existing.bodyRevision, existing.content ?? ""),
-        "The page changed after this revision; read it again before editing.",
-      );
     }
 
     const result = await mutateDocumentBody({
