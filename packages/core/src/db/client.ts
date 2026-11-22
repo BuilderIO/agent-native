@@ -1119,21 +1119,27 @@ async function withTransactionStatementTimeout<T>(
   const afterFirstSetupMs = timeoutMs - firstSetupElapsedMs;
   // The tightening round trip needs its own headroom; use the first trip as
   // an estimate, then still check the actual budget before the statement.
-  if (installed >= afterFirstSetupMs && afterFirstSetupMs > 1) {
+  if (
+    afterFirstSetupMs > 1 &&
+    installed > postgresStatementTimeoutMs(afterFirstSetupMs)
+  ) {
     installed = Math.min(
       installed,
-      Math.max(
-        1,
-        postgresStatementTimeoutMs(afterFirstSetupMs) - firstSetupElapsedMs,
-      ),
+      postgresStatementTimeoutMs(afterFirstSetupMs) - firstSetupElapsedMs,
     );
-    await runSetting(
-      { sql: SET_STATEMENT_TIMEOUT_SQL, args: [`${installed}ms`] },
-      afterFirstSetupMs,
-    );
+    if (installed > 0) {
+      await runSetting(
+        { sql: SET_STATEMENT_TIMEOUT_SQL, args: [`${installed}ms`] },
+        afterFirstSetupMs,
+      );
+    }
   }
   const remaining = remainingMs();
-  if (remaining <= 0 || installed >= remaining) {
+  if (
+    remaining <= 1 ||
+    installed <= 0 ||
+    installed > postgresStatementTimeoutMs(remaining)
+  ) {
     // A caller may catch this and keep using the transaction.
     await runSetting(
       { sql: SET_STATEMENT_TIMEOUT_SQL, args: [previous] },

@@ -2521,10 +2521,19 @@ describe("db/client postgres-js request pool recovery", () => {
   });
 
   it.each([
+    { previousMs: 0, firstRtt: 0, secondRtt: 0, succeeds: true },
     { previousMs: 0, firstRtt: 300, secondRtt: 300, succeeds: true },
     { previousMs: 3_725, firstRtt: 300, secondRtt: 300, succeeds: true },
+    { previousMs: 3_650, firstRtt: 300, secondRtt: 300, succeeds: true },
+    { previousMs: 3_450, firstRtt: 300, secondRtt: 0, succeeds: true },
     { previousMs: 2_000, firstRtt: 300, secondRtt: 0, succeeds: true },
-    { previousMs: 0, firstRtt: 2_100, secondRtt: 300, succeeds: true },
+    { previousMs: 0, firstRtt: 1_875, secondRtt: 0, succeeds: true },
+    { previousMs: 0, firstRtt: 1_900, secondRtt: 0, succeeds: false },
+    { previousMs: 0, firstRtt: 2_100, secondRtt: 300, succeeds: false },
+    { previousMs: 3_725, firstRtt: 2_100, secondRtt: 0, succeeds: false },
+    { previousMs: 1_000, firstRtt: 2_100, secondRtt: 0, succeeds: true },
+    { previousMs: 0, firstRtt: 300, secondRtt: 301, succeeds: false },
+    { previousMs: 0, firstRtt: 300, secondRtt: 549, succeeds: false },
     { previousMs: 0, firstRtt: 300, secondRtt: 1_000, succeeds: false },
     { previousMs: 3_725, firstRtt: 300, secondRtt: 1_000, succeeds: false },
     { previousMs: 0, firstRtt: 300, secondRtt: 3_700, succeeds: false },
@@ -2618,11 +2627,26 @@ describe("db/client postgres-js request pool recovery", () => {
       }
       if (succeeds) {
         expect(statementCap).toBeGreaterThan(0);
-        expect(statementCap).toBeLessThan(statementRemaining ?? 0);
+        expect(statementRemaining).toBeGreaterThan(1);
+        const remaining = statementRemaining ?? 0;
+        const headroom = Math.min(
+          250,
+          Math.max(1, Math.floor(remaining * 0.1)),
+        );
+        expect(statementCap).toBeLessThanOrEqual(remaining - headroom);
         if (previousMs > 0)
           expect(statementCap).toBeLessThanOrEqual(previousMs);
+        if (firstRtt === 300 && secondRtt === 300) {
+          expect(statementRemaining).toBe(3_400);
+          expect(statementCap).toBe(3_150);
+        }
+        if (previousMs === 3_450) expect(setupCaps).toEqual([3_450]);
+        if (firstRtt === 1_875) expect(statementCap).toBe(38);
       } else {
         expect(statementCap).toBeUndefined();
+        if (firstRtt === 1_900 || firstRtt === 2_100) {
+          expect(setupCaps).toEqual([previousMs > 0 ? previousMs : 3_750]);
+        }
       }
       expect(txSql.unsafe).toHaveBeenCalledWith("SELECT 2", []);
     },
