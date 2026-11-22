@@ -21,6 +21,7 @@ export default defineAction({
     commentId: z.string().describe("Comment ID"),
     emoji: z.string().min(1).describe("Emoji character (e.g. 👍, ❤️, 🔥)"),
   }),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const db = getDb();
     const viewerEmail = getRequestUserEmail();

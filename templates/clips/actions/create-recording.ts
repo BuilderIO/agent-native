@@ -143,6 +143,7 @@ export default defineAction({
   description:
     "Create a new recording row in 'uploading' status and return its id plus the chunk upload URL template. The frontend POSTs chunks to /api/uploads/:id/chunk?index=N&total=T&isFinal=0|1, then finalizes on the last chunk. Recorders can pass app/window title context for an immediate fallback title.",
   schema: createRecordingSchema,
+  mcpTool: "search",
   run: async (args, actionContext) => {
     const id = args.id || nanoid();
     const now = new Date().toISOString();
