@@ -538,13 +538,13 @@ describe("comments sidebar layout", () => {
 
     expect(source).toContain("selectedThreadIsOpen");
     expect(source).toMatch(
-      /presentation === "inline" &&\s+canComment &&\s+selectedThreadIsOpen/,
+      /presentation === "inline" &&\s+canComment &&\s+selectedThreadId &&\s+selectedThreadIsOpen/,
     );
-    expect(source).toContain("setReplyingThreadId(selectedThreadId)");
+    expect(source).toMatch(/setReplyingThreadId\(\s+selectedThreadId,/);
     expect(source).toContain("setReplyingThreadId(thread.threadId)");
     expect(source).not.toContain("current === thread.threadId ? null");
     expect(source).toMatch(
-      /useLayoutEffect\(\(\) => \{[\s\S]*?setReplyingThreadId\(selectedThreadId\)/,
+      /useLayoutEffect\(\(\) => \{[\s\S]*?setReplyingThreadId\(\s+selectedThreadId,/,
     );
   });
 
