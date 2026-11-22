@@ -93,18 +93,18 @@ export function seedFitsCollection(seed: TableCollectionSeed) {
   return tableCollectionSeedSchema.safeParse(seed).success;
 }
 
-export function replaceTableAsOneUndoStep(
+export function replaceBlockAsOneUndoStep(
   view: EditorView,
-  table: TableAt,
-  block: ProseMirrorNode,
+  target: TableAt,
+  replacement: ProseMirrorNode,
   meta: string,
 ) {
   const tr = view.state.tr.replaceWith(
-    table.pos,
-    table.pos + table.node.nodeSize,
-    block,
+    target.pos,
+    target.pos + target.node.nodeSize,
+    replacement,
   );
-  tr.setSelection(NodeSelection.create(tr.doc, table.pos));
+  tr.setSelection(NodeSelection.create(tr.doc, target.pos));
   const undoManager = yUndoPluginKey.getState(view.state)?.undoManager;
   undoManager?.stopCapturing();
   view.dispatch(closeHistory(tr).setMeta(meta, true).scrollIntoView());
@@ -131,5 +131,56 @@ export function followTable(state: EditorState, table: TableAt) {
       }
       return found?.node.eq(table.node) ? found : null;
     },
+  };
+}
+
+export function findInlineCollection(
+  doc: ProseMirrorNode,
+  ownerBlockId: string,
+): TableAt | null {
+  let found: TableAt | null = null;
+  doc.descendants((node, pos) => {
+    if (found) return false;
+    if (
+      node.type.name === "registryBlock" &&
+      node.attrs.blockType === "inline-database" &&
+      node.attrs.blockId === ownerBlockId
+    ) {
+      found = { node, pos };
+    }
+    return !found;
+  });
+  return found;
+}
+
+function cellContent(text: string) {
+  const content = text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .flatMap((line, index) => [
+      ...(index > 0 ? [{ type: "hardBreak" }] : []),
+      ...(line ? [{ type: "text", text: line }] : []),
+    ]);
+  return [{ type: "paragraph", ...(content.length ? { content } : {}) }];
+}
+
+export function collectionTableContent(
+  header: readonly string[],
+  rows: readonly (readonly string[])[],
+) {
+  const row = (
+    cells: readonly string[],
+    type: "tableHeader" | "tableCell",
+  ) => ({
+    type: "tableRow",
+    content: cells.map((text) => ({ type, content: cellContent(text) })),
+  });
+  return {
+    type: "table",
+    attrs: { headerRow: true },
+    content: [
+      row(header, "tableHeader"),
+      ...rows.map((cells) => row(cells, "tableCell")),
+    ],
   };
 }

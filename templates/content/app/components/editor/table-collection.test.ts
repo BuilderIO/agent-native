@@ -15,13 +15,15 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import {
+  collectionTableContent,
+  findInlineCollection,
   followTable,
-  replaceTableAsOneUndoStep,
+  replaceBlockAsOneUndoStep,
   seedFitsCollection,
   tableCollectionSeed,
   tableFitsCollection,
 } from "./table-collection";
-import { findTableByIndex } from "./table-commands";
+import { findTableByIndex, getTableHeaders } from "./table-commands";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
 const schema = getSchema(createVisualEditorExtensions());
@@ -284,7 +286,7 @@ describe("followTable on a page with a live copy", () => {
   });
 });
 
-describe("replaceTableAsOneUndoStep", () => {
+describe("replaceBlockAsOneUndoStep", () => {
   it("keeps the turn its own undo step, apart from edits to the table just before and to the block just after", () => {
     const view = new EditorView(document.createElement("div"), {
       state: EditorState.create({
@@ -298,7 +300,7 @@ describe("replaceTableAsOneUndoStep", () => {
       if (afterDone < 0 && node.text === "Done") afterDone = pos + 4;
     });
     dispatch(view.state.tr.insertText("!", afterDone));
-    replaceTableAsOneUndoStep(
+    replaceBlockAsOneUndoStep(
       view,
       tableAt(view.state, 0),
       paragraph("Collection"),
@@ -315,5 +317,53 @@ describe("replaceTableAsOneUndoStep", () => {
     undo(view.state, dispatch);
     expect(view.state.doc.child(1).eq(original)).toBe(true);
     view.destroy();
+  });
+});
+
+describe("collectionTableContent", () => {
+  it("builds a table with a header row and a row per record that turns back into the same collection", () => {
+    const built = schema.nodeFromJSON(
+      collectionTableContent(
+        ["Title", "Status", "Notes"],
+        [
+          ["Dune", "Read", ""],
+          ["Emma", "Unread", "Line one\r\nLine two"],
+        ],
+      ),
+    );
+
+    built.check();
+    expect(getTableHeaders(built)).toEqual({ row: true, column: false });
+    expect(tableCollectionSeed(built)).toEqual({
+      properties: ["Status", "Notes"],
+      rows: [
+        ["Dune", "Read", ""],
+        ["Emma", "Unread", "Line one\nLine two"],
+      ],
+    });
+  });
+});
+
+describe("findInlineCollection", () => {
+  it("finds the block that owns a collection by its block ID", () => {
+    const block = (blockId: string) =>
+      schema.node("registryBlock", {
+        blockType: "inline-database",
+        blockId,
+        __raw: `<InlineDatabase id="${blockId}" />`,
+      });
+    const doc = schema.node("doc", null, [
+      paragraph("Hi"),
+      block("inline-database-a"),
+      block("inline-database-b"),
+    ]);
+
+    const found = findInlineCollection(doc, "inline-database-b");
+
+    expect(found?.node.attrs.blockId).toBe("inline-database-b");
+    expect(doc.nodeAt(found?.pos ?? -1)?.attrs.blockId).toBe(
+      "inline-database-b",
+    );
+    expect(findInlineCollection(doc, "inline-database-c")).toBeNull();
   });
 });

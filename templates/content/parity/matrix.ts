@@ -820,6 +820,32 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "database.collection-to-table",
+    surface: "database",
+    label: "Turn an inline collection into a table",
+    uiEntrypoints: [
+      "app/components/editor/BlockActionsMenu.tsx",
+      "app/components/editor/use-turn-collection-into-table.ts",
+    ],
+    durableEffect:
+      "The page body swaps the inline collection's block for a table of its rows; the save that drops the block soft-deletes the collection, and one that brings the block back restores it.",
+    uiImplementation:
+      "The block menu reads the rows the inline view shows through a read-only action, builds a table in the editor and saves the page.",
+    status: "action-backed",
+    actions: ["read-collection-table"],
+    exception:
+      "This UI-only read is hidden with agentTool: false; agents read a collection with get-content-database or a CSV from export-document, and write the table into the page with edit-document.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/read-collection-table.db.test.ts",
+      "actions/content-database-lifecycle.db.test.ts",
+      "e2e/table-controls.spec.ts",
+    ],
+  },
+  {
     id: "database.form-submissions",
     surface: "database",
     label: "Submit public database forms as new rows",

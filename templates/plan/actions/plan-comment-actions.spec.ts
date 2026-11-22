@@ -15,6 +15,20 @@ const getDbMock = vi.hoisted(() => vi.fn());
 const originalAuthMode = process.env.AUTH_MODE;
 const originalPlanLocalMode = process.env.PLAN_LOCAL_MODE;
 
+const mirrorMock = vi.hoisted(() => ({
+  comments: vi.fn(async (..._args: unknown[]) => undefined),
+  deleted: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+
+vi.mock("@agent-native/core/review", () => ({
+  ensureReviewTables: vi.fn(async () => undefined),
+}));
+
+vi.mock("../server/lib/plan-comment-mirror.js", () => ({
+  mirrorPlanComments: mirrorMock.comments,
+  deleteMirroredPlanComments: mirrorMock.deleted,
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => ({ op: "and", args }),
   eq: (...args: unknown[]) => ({ op: "eq", args }),
@@ -188,7 +202,11 @@ function makeDb(
     set: vi.fn((patch: Record<string, unknown>) => {
       updateCapture.push(patch);
       return {
-        where: vi.fn(async () => undefined),
+        where: vi.fn(() =>
+          Object.assign(Promise.resolve(undefined), {
+            returning: vi.fn(async () => [{ id: "returned_cmt" }]),
+          }),
+        ),
       };
     }),
   }));
@@ -202,12 +220,17 @@ function makeDb(
       deleteCapture.push(where);
     }),
   }));
-  return {
+  const db = {
     insert: dbInsert,
     update: dbUpdate,
     select: dbSelect,
     delete: dbDelete,
+    transaction: vi.fn(
+      async (write: (tx: unknown) => Promise<unknown>): Promise<unknown> =>
+        write(db),
+    ),
   };
+  return db;
 }
 
 beforeEach(() => {
@@ -230,6 +253,8 @@ beforeEach(() => {
     role: "editor",
   });
   getDbMock.mockReset();
+  mirrorMock.comments.mockClear();
+  mirrorMock.deleted.mockClear();
   delete process.env.AUTH_MODE;
   process.env.PLAN_LOCAL_MODE = "0";
 });
@@ -275,6 +300,10 @@ describe("reply-to-plan-comment", () => {
     );
     expect(commentInsert).toBeDefined();
     expect(commentInsert?.message).toBe("Done — CTA updated.");
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(mirrorMock.comments).toHaveBeenCalledWith(db, "plan_1", [
+      result.commentId,
+    ]);
   });
 
   it("throws a friendly error when the parent comment is not on the plan", async () => {
@@ -357,6 +386,11 @@ describe("resolve-plan-comment", () => {
     expect(updates).toHaveLength(1);
     expect(updates[0]?.status).toBe("resolved");
     expect(updates[0]?.resolvedBy).toBeTruthy();
+    expect(mirrorMock.comments).toHaveBeenCalledWith(
+      db,
+      "plan_1",
+      expect.arrayContaining(["root_cmt"]),
+    );
   });
 
   it("reopens a resolved comment", async () => {
@@ -541,6 +575,11 @@ describe("delete-plan-comment", () => {
       updatedAt: "2026-06-10T00:00:00.000Z",
     });
     expect(assertAccessMock).not.toHaveBeenCalled();
+    expect(mirrorMock.deleted).toHaveBeenCalledWith(
+      "plan_1",
+      ["root_cmt", "reply_cmt", "nested_cmt"],
+      "agent@example.com",
+    );
   });
 
   it("allows a plan editor to delete someone else's reply", async () => {
@@ -633,6 +672,9 @@ describe("consume-plan-feedback", () => {
       consumedAt: "2026-06-10T00:00:00.000Z",
       updatedAt: "2026-06-10T00:00:00.000Z",
     });
+    expect(mirrorMock.comments).toHaveBeenCalledWith(db, "plan_1", [
+      "returned_cmt",
+    ]);
   });
 
   it("requires editor access — rejects when assertPlanEditor throws", async () => {

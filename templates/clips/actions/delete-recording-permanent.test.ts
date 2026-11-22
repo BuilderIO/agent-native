@@ -34,6 +34,13 @@ const mocks = vi.hoisted(() => ({
   // ("throws"), counting reads from 1 since the last clear.
   unreadableSummaries: new Map<string, (read: number) => boolean | "throws">(),
   summaryReads: new Map<string, number>(),
+  mirrorDeletes: [] as unknown[][],
+}));
+vi.mock("../server/lib/recording-comment-mirror.js", () => ({
+  prepareRecordingCommentMirror: async () => {},
+  deleteMirroredRecordingComments: async (...args: unknown[]) => {
+    mocks.mirrorDeletes.push(args);
+  },
 }));
 vi.mock("../server/lib/recording-media-cleanup-worker.js", async (original) => {
   const actual =
@@ -180,6 +187,7 @@ async function state(key: string, value: unknown) {
   ]);
 }
 beforeEach(async () => {
+  mocks.mirrorDeletes.length = 0;
   vi.clearAllMocks();
   mocks.owner = owner;
   mocks.role.mockResolvedValue("member");
@@ -588,6 +596,9 @@ describe("permanent recording deletion with durable media cleanup", () => {
     expect(recordings.find((r) => r.id === "other-footage")?.trashed_at).toBe(
       "2026-10-28T00:00:00Z",
     );
+    expect(mocks.mirrorDeletes).toEqual([
+      ["rec-1", "all", "owner@example.test"],
+    ]);
   });
   it("protects shared aliases, then retries when the final recording reference disappears", async () => {
     await insertRecording("rec-2", video + "?other-token=fake");

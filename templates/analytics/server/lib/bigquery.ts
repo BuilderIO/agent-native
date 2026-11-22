@@ -208,6 +208,13 @@ export class BigQueryMaximumBytesBilledError extends Error {
   }
 }
 
+export class BigQueryJobNotClaimedError extends Error {
+  constructor() {
+    super("BigQuery query was not allowed to start a job");
+    this.name = "BigQueryJobNotClaimedError";
+  }
+}
+
 // Only documented input/authorization rejections prove no job was created.
 // Other 4xx reasons can describe already-created jobs; 5xx/transport errors are ambiguous.
 // https://docs.cloud.google.com/bigquery/docs/error-messages
@@ -1042,6 +1049,8 @@ export interface RunQueryOptions {
    * maxBytesBilled) instead of cancelled. Ignored on a forced refresh.
    */
   resumeAfter?: AbortSignal;
+  claimJob?: () => Promise<boolean>;
+  onUncachedResult?: () => void;
   trace?: BigQueryQueryTrace;
 }
 
@@ -1961,6 +1970,9 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
   let agentGate: OutsideAgentBigQueryGate | undefined;
   let agentAdmission: OutsideAgentBigQueryAdmission | undefined;
   try {
+    if (options.claimJob && !(await options.claimJob())) {
+      throw new BigQueryJobNotClaimedError();
+    }
     traceStage(trace, "authenticating");
     agentGate = bigQueryJobGate();
     let principal: string | null = null;
@@ -2312,6 +2324,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     };
 
     traceStage(trace, "saving");
+    let keptInCache = false;
     if (cacheFence) {
       if (result.partial) {
         await releaseCacheQuery(cacheKey, cacheFence);
@@ -2322,10 +2335,13 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
           result,
           cacheFence,
         );
-        if (persisted) setL1(cacheKey, result, persisted);
-        else await releaseCacheQuery(cacheKey, cacheFence);
+        if (persisted) {
+          setL1(cacheKey, result, persisted);
+          keptInCache = true;
+        } else await releaseCacheQuery(cacheKey, cacheFence);
       }
     }
+    if (!keptInCache) options.onUncachedResult?.();
 
     // The cached copy stays unflagged: every read of it sets `cached: true`.
     completedResult = { ...result, cached: false };

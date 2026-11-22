@@ -5127,10 +5127,7 @@ async function resolveAnyCredential(options: {
     const credential = await resolveOptionalCredential({ ...options, key });
     if (credential?.value) return credential;
   }
-  const scopeGap = await describeCredentialScopeGap(
-    options.keys,
-    options.ctx,
-  ).catch(() => null);
+  const scopeGap = await describeGenericScopeGap(options.keys, options);
   if (options.workspaceProvider && !scopeGap) {
     return throwWorkspaceConnectionRequired({
       runtime: options.runtime,
@@ -5140,9 +5137,8 @@ async function resolveAnyCredential(options: {
     });
   }
   throw new Error(
-    `${options.provider} credential not configured. Tried: ${options.keys.join(
-      ", ",
-    )}${scopeGap ? `. ${scopeGap}` : ""}`,
+    `${options.provider} credential not configured. ` +
+      `${scopeGap ? `${scopeGap} ` : ""}Tried: ${options.keys.join(", ")}`,
   );
 }
 
@@ -5156,10 +5152,7 @@ async function resolveRequiredCredential(options: {
 }): Promise<ProviderApiResolvedCredential> {
   const credential = await resolveOptionalCredential(options);
   if (credential?.value) return credential;
-  const scopeGap = await describeCredentialScopeGap([options.key], options.ctx)
-    // coercion-ok: only enriches an error we throw either way — losing the scope
-    // hint still surfaces the real "not configured" failure, never a success.
-    .catch(() => null);
+  const scopeGap = await describeGenericScopeGap([options.key], options);
   if (options.workspaceProvider && !scopeGap) {
     return throwWorkspaceConnectionRequired({
       runtime: options.runtime,
@@ -5170,6 +5163,22 @@ async function resolveRequiredCredential(options: {
   }
   throw new Error(
     `${options.key} not configured${scopeGap ? `. ${scopeGap}` : ""}`,
+  );
+}
+
+async function describeGenericScopeGap(
+  keys: readonly string[],
+  options: {
+    workspaceProvider: string | undefined;
+    ctx: CredentialContext;
+    connectionId?: string | null;
+  },
+): Promise<string | null> {
+  if (options.workspaceProvider && options.connectionId?.trim()) return null;
+  return (
+    describeCredentialScopeGap(keys, options.ctx)
+      // coercion-ok: only enriches an error we throw either way, never a success.
+      .catch(() => null)
   );
 }
 
