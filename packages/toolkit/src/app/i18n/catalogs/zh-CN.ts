@@ -1874,6 +1874,7 @@ const messages: ToolkitAgentChatTranslation = {
     "存储凭据已清除。新上传的文件将存入 Builder.io。",
   "settings.storage.saveFailed": "无法保存文件存储。",
   "settings.storage.clearFailed": "无法清除存储凭据。",
+  "settings.timezoneLoadFailed": "无法加载你的时区。",
   "settings.storage.loadFailed": "无法加载文件存储设置。",
   "settings.storage.retry": "重试",
   "settings.storage.unreadable":

@@ -1985,6 +1985,7 @@ const messages: ToolkitAgentChatTranslation = {
     "स्टोरेज क्रेडेंशियल साफ़ हो गए। नए अपलोड Builder.io में जाएंगे।",
   "settings.storage.saveFailed": "फ़ाइल स्टोरेज सेव नहीं हो सका।",
   "settings.storage.clearFailed": "स्टोरेज क्रेडेंशियल साफ़ नहीं हो सके।",
+  "settings.timezoneLoadFailed": "आपका टाइमज़ोन लोड नहीं हो सका।",
   "settings.storage.loadFailed": "फ़ाइल स्टोरेज सेटिंग लोड नहीं हो सकीं।",
   "settings.storage.retry": "फिर से कोशिश करें",
   "settings.storage.unreadable":

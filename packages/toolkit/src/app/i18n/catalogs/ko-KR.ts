@@ -1984,6 +1984,7 @@ const messages: ToolkitAgentChatTranslation = {
     "스토리지 자격 증명을 지웠습니다. 새 업로드는 Builder.io에 저장됩니다.",
   "settings.storage.saveFailed": "파일 스토리지를 저장할 수 없습니다.",
   "settings.storage.clearFailed": "스토리지 자격 증명을 지울 수 없습니다.",
+  "settings.timezoneLoadFailed": "시간대를 불러올 수 없습니다.",
   "settings.storage.loadFailed": "파일 스토리지 설정을 불러올 수 없습니다.",
   "settings.storage.retry": "다시 시도",
   "settings.storage.unreadable":
