@@ -1538,8 +1538,6 @@ describe("patch-database-items through the MCP script catalog", () => {
     return { result, payload: JSON.parse(text) };
   }
 
-  // Reads a collection, then gives its rows ranks 30, 29, 28, ... in one
-  // patch.
   function rankScript(
     ids: Awaited<ReturnType<typeof fixture>>,
     idempotencyKey: string,
@@ -1588,13 +1586,13 @@ describe("patch-database-items through the MCP script catalog", () => {
         return [collections, found, rows, page].map((value) => typeof value);
       `,
     );
-    expect(reads.payload, JSON.stringify(reads.payload)).toMatchObject({
+    expect(reads.payload).toMatchObject({
       ok: true,
       result: ["object", "object", "object", "object"],
     });
 
     const patched = await runScript(client, rankScript(ids, "scripted-ranks"));
-    expect(patched.payload, JSON.stringify(patched.payload)).toMatchObject({
+    expect(patched.payload).toMatchObject({
       ok: true,
       result: { requested: 3, updated: 3 },
     });

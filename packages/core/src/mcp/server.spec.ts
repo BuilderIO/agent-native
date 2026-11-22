@@ -1215,8 +1215,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(await listed(byHeader)).toEqual(usual);
 
     vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_TOOLS", "true");
-    // The flag alone offers it to no one: the caller's organization must be
-    // on the list, and a caller with none never gets it.
     expect(await listed(byHeader)).toEqual(usual);
     vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_ORGS", "org_123");
     expect(await listed(byHeader)).toEqual(usual);

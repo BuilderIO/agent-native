@@ -133,13 +133,12 @@ describe("filesystemActionEntry", () => {
 
     for (const entry of [
       filesystemActionEntry(action),
-      loadActionsFromStaticRegistry({ rank: { default: action } }).rank!,
+      loadActionsFromStaticRegistry({ rank: { default: action } }).rank,
     ]) {
-      expect(entry.mcpScript).toBe("write");
-      expect(entry.mcpScriptWrite?.rowBound({ ids: ["a", "b"] })).toBe(2);
-      expect(entry.mcpScriptWrite?.destructive).toBe(false);
+      expect(entry?.mcpScript).toBe("write");
+      expect(entry?.mcpScriptWrite?.rowBound({ ids: ["a", "b"] })).toBe(2);
+      expect(entry?.mcpScriptWrite?.destructive).toBe(false);
     }
-    // A write without its contract is not kept as a write.
     const { mcpScriptWrite: _contract, ...withoutContract } = action;
     expect(
       filesystemActionEntry(withoutContract as never).mcpScript,

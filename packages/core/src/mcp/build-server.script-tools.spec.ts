@@ -251,9 +251,7 @@ describe("the MCP script catalog", () => {
       (tool) => tool.name,
     );
     const callers: MCPCallerIdentity[] = [
-      // Another organization.
       { ...user, userEmail: "bob@other.example", orgId: "org_2" },
-      // No organization, as a personal account.
       { ...user, userEmail: "carol@example.com", orgId: null },
     ];
     for (const caller of callers) {
@@ -261,12 +259,11 @@ describe("the MCP script catalog", () => {
       const listed = (await client.listTools()).tools.map((tool) => tool.name);
       expect(listed).toEqual(usual);
       expect(client.getInstructions()).not.toContain("catalog=script");
-      // Calling the tool directly, without listing it, is refused too.
-      const result: any = await client.callTool({
+      const result = await client.callTool({
         name: "run-script",
         arguments: { code: "return await api.listDocuments();" },
       });
-      expect(result.isError).toBe(true);
+      expect(result).toMatchObject({ isError: true });
     }
     expect(runs).toEqual([]);
   });
@@ -291,11 +288,11 @@ describe("the MCP script catalog", () => {
       expect((await client.listTools()).tools.map((t) => t.name)).not.toContain(
         "run-script",
       );
-      const result: any = await client.callTool({
+      const result = await client.callTool({
         name: "run-script",
         arguments: { code: "return await api.listDocuments();" },
       });
-      expect(result.isError).toBe(true);
+      expect(result).toMatchObject({ isError: true });
     }
     expect(runs).toEqual([]);
   });
@@ -335,7 +332,7 @@ describe("the MCP script catalog", () => {
             fence: async () => ({ status: "fenced" }),
             destructive: false,
           },
-        } as any,
+        } as never,
       },
     };
     const instructions = async (identity: MCPCallerIdentity) =>
@@ -346,7 +343,6 @@ describe("the MCP script catalog", () => {
     expect(await instructions(user)).toContain(
       "reading or changing many items",
     );
-    // A token that can only read reaches no write, so it is told only reads.
     expect(
       await instructions({ ...user, oauthScopes: ["mcp:read"] }),
     ).toContain("reading many items");

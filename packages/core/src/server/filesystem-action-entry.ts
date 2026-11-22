@@ -92,7 +92,6 @@ export function preserveActionFlags(
     out.mcpAnnotations = entry.mcpAnnotations;
   }
   if (entry.mcpScript === "read") out.mcpScript = "read";
-  // A write is kept only with the contract a script's ledger needs.
   if (
     entry.mcpScript === "write" &&
     isMcpScriptWriteContract(entry.mcpScriptWrite)

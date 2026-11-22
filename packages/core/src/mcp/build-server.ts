@@ -3558,10 +3558,6 @@ export async function createMCPServerForRequest(
         orgId: orgId ?? null,
       }),
   );
-  // A connection that asks for the script catalog, from an organization the
-  // app offers it to, is offered only `search-actions` and `run-script`, and
-  // every other tool name is unknown to it. Directory mode keeps its own
-  // closed catalog.
   const scriptCatalogOffered =
     !directoryCatalog && mcpScriptCatalogOfferedToOrg(orgId);
   const scriptCatalog =
@@ -4404,9 +4400,6 @@ export async function createMCPServerForRequest(
     });
   }
 
-  // What a script connection would offer this caller on the usual catalog,
-  // for the instructions pointer: nothing without the read scope or a grant
-  // covering the script tools, or when the grant can't be read.
   async function scriptCatalogForPointer() {
     if (!hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:read")) {
       return undefined;
@@ -4415,6 +4408,7 @@ export async function createMCPServerForRequest(
     try {
       ({ allowedActions } = await resolveServiceGrant());
     } catch {
+      // coercion-ok: an unreadable grant only leaves out the optional instructions pointer; each tool call checks the grant again.
       return undefined;
     }
     const toolsGranted = [MCP_SCRIPT_SEARCH_TOOL, MCP_SCRIPT_RUN_TOOL].every(

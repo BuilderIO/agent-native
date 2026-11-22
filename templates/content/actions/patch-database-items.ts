@@ -84,7 +84,6 @@ export default defineAction({
     receiptLocator: rowPatchReceiptLocator,
     reconcile: reconcileRowPatchReceipt,
     fence: fenceRowPatchReceipt,
-    // A patch replaces row values, and its receipt keeps only the new ones.
     destructive: true,
   },
   audit: {
