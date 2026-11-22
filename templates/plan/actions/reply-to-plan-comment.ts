@@ -10,7 +10,6 @@ import {
   resolveAccess,
   roleSatisfies,
 } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -21,7 +20,11 @@ import {
   resolvePlanAccessContext,
   resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
-import { mirrorPlanComments } from "../server/lib/plan-comment-mirror.js";
+import {
+  completePlanCommentRow,
+  findPlanCommentRow,
+  writePlanCommentRows,
+} from "../server/lib/plan-comments.js";
 import {
   buildUpdatedPlanCommentRows,
   emitPlanCommented,
@@ -115,25 +118,8 @@ export default defineAction({
     const db = getDb();
     const now = nowIso();
 
-    const [parentComment] = await db
-      .select({
-        id: schema.planComments.id,
-        planId: schema.planComments.planId,
-        parentCommentId: schema.planComments.parentCommentId,
-        sectionId: schema.planComments.sectionId,
-        kind: schema.planComments.kind,
-        anchor: schema.planComments.anchor,
-        resolutionTarget: schema.planComments.resolutionTarget,
-        status: schema.planComments.status,
-      })
-      .from(schema.planComments)
-      .where(
-        and(
-          eq(schema.planComments.id, args.commentId),
-          eq(schema.planComments.planId, args.planId),
-          isNull(schema.planComments.deletedAt),
-        ),
-      );
+    await ensureReviewTables();
+    const parentComment = await findPlanCommentRow(args.planId, args.commentId);
 
     if (!parentComment) {
       throw new Error(
@@ -170,12 +156,10 @@ export default defineAction({
 
     const insertedId = commentRow.id ?? newId("cmt");
 
-    await ensureReviewTables();
     await db.transaction(async (tx) => {
-      await tx
-        .insert(schema.planComments)
-        .values({ ...commentRow, id: insertedId });
-      await mirrorPlanComments(tx, args.planId, [insertedId]);
+      await writePlanCommentRows(tx, args.planId, [
+        completePlanCommentRow({ ...commentRow, id: insertedId }),
+      ]);
     });
 
     await writeEvent({

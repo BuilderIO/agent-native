@@ -13,6 +13,8 @@ export default mergeConfig(
       },
     },
     test: {
+      globalSetup: ["./vitest.global-setup.ts"],
+      setupFiles: ["./vitest.setup.ts"],
       hookTimeout: 60000,
       include: ["**/*.{test,spec}.?(c|m)[jt]s?(x)"],
       exclude: [

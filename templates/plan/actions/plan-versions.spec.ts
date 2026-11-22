@@ -62,6 +62,17 @@ vi.mock("../server/lib/plan-comment-mirror.js", () => ({
   deleteMirroredPlanComments: mirrorMock.deleted,
 }));
 
+const kit = vi.hoisted(() => ({
+  rows: [] as Array<Record<string, unknown>>,
+  write: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+
+vi.mock("../server/lib/plan-comments.js", () => ({
+  listPlanCommentRows: async (planId: string) =>
+    kit.rows.filter((row) => row.planId === planId),
+  writePlanCommentRows: kit.write,
+}));
+
 vi.mock("../server/db/index.js", () => ({
   // eslint-disable-next-line @typescript-eslint/no-use-before-define
   getDb: () => db,
@@ -322,6 +333,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await resetTables();
+  kit.rows = [];
+  kit.write.mockClear();
 });
 
 function asOwner(fn: () => Promise<any> | any) {
@@ -499,7 +512,7 @@ describe("plan version actions", () => {
     });
     expect(snapshot.created).toBe(true);
 
-    await db.insert(planSchema.planComments).values([
+    const onBothSections = [
       {
         id: "comment_on_a",
         planId: PLAN_ID,
@@ -540,7 +553,13 @@ describe("plan version actions", () => {
         createdAt: CREATED_AT,
         updatedAt: CREATED_AT,
       },
-    ]);
+    ] as const;
+    await db.insert(planSchema.planComments).values([...onBothSections]);
+    kit.rows = onBothSections.map((row) => ({
+      ...row,
+      deletedAt: null,
+      deletedBy: null,
+    }));
     const restored = await asOwner(() =>
       restorePlanVersion.run({ planId: PLAN_ID, versionId: snapshot.id! }),
     );
@@ -557,6 +576,7 @@ describe("plan version actions", () => {
 
     const commentOnB = comments.find((c) => c.id === "comment_on_b");
     expect(commentOnB?.sectionId).toBe("sec_b");
+    expect(kit.write).toHaveBeenCalledWith(expect.anything(), PLAN_ID, [], []);
   });
 
   it("restore nulls sectionId only for comments anchored to sections absent from the snapshot", async () => {
@@ -580,7 +600,7 @@ describe("plan version actions", () => {
       createdAt: CREATED_AT,
       updatedAt: CREATED_AT,
     });
-    await db.insert(planSchema.planComments).values([
+    const onSavedAndGone = [
       {
         id: "comment_surviving",
         planId: PLAN_ID,
@@ -621,7 +641,13 @@ describe("plan version actions", () => {
         createdAt: CREATED_AT,
         updatedAt: CREATED_AT,
       },
-    ]);
+    ] as const;
+    await db.insert(planSchema.planComments).values([...onSavedAndGone]);
+    kit.rows = onSavedAndGone.map((row) => ({
+      ...row,
+      deletedAt: null,
+      deletedBy: null,
+    }));
 
     await asOwner(() =>
       restorePlanVersion.run({ planId: PLAN_ID, versionId: snapshot.id! }),
@@ -637,5 +663,11 @@ describe("plan version actions", () => {
 
     expect(surviving?.sectionId).toBe("sec_saved");
     expect(orphaned?.sectionId).toBeNull();
+    expect(kit.write).toHaveBeenCalledWith(
+      expect.anything(),
+      PLAN_ID,
+      [],
+      [expect.objectContaining({ id: "comment_orphaned", sectionId: null })],
+    );
   });
 });
