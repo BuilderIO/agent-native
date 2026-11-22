@@ -40,7 +40,7 @@ const isoDate = z
 
 export default defineAction({
   description:
-    "Dry-run the caller-scoped BigQuery event-page queries for an onboarding journey. Returns requested and budget-allowed page counts, estimated bytes per page, and total possible bytes when every allowed page is estimated. Each page reserves the 25 GB per-query cap against maxTotalBytesBilled. Estimates stop after 45 seconds and explicitly report unestimated pages.",
+    "Dry-run the caller-scoped BigQuery event-page queries for an onboarding journey. Returns requested and budget-allowed page counts, estimated bytes per page, and total possible bytes when every allowed page is estimated. Each page reserves the 25 GB per-query cap against maxTotalBytesBilled unless its result is already cached; cached pages are free, so a repeat get-onboarding-journey call can read past the allowed count. Estimates stop after 45 seconds and explicitly report unestimated pages.",
   schema: z
     .object({
       dateFrom: isoDate.describe(
@@ -93,7 +93,7 @@ export default defineAction({
         .max(ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED)
         .optional()
         .describe(
-          "Aggregate cap for event-page queries, in bytes billed. Each allowed BigQuery page reserves its full 25 GB per-query cap. Defaults to 275 GB (11 pages), or 125 GB (5 pages) for an outside agent, whose cap is also lowered to what its daily BigQuery budget can still pay for, exactly as get-onboarding-journey applies it; the result's maxTotalBytesBilled is the cap applied, and maxTotalBytesBilledRequested what was asked when the budget lowered it. Set a higher value deliberately to allow more pages, up to 1.275 TB (51 pages). Match get-onboarding-journey.",
+          "Aggregate cap for event-page queries, in bytes billed. Each BigQuery page not already cached reserves its full 25 GB per-query cap. Defaults to 275 GB (11 pages), or 125 GB (5 pages) for an outside agent, whose cap is also lowered to what its daily BigQuery budget can still pay for, exactly as get-onboarding-journey applies it; the result's maxTotalBytesBilled is the cap applied, and maxTotalBytesBilledRequested what was asked when the budget lowered it. Set a higher value deliberately to allow more pages, up to 1.275 TB (51 pages). Match get-onboarding-journey.",
         ),
       experimentId: z
         .enum(ONBOARDING_JOURNEY_EXPERIMENT_IDS)
