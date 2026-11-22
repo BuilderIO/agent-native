@@ -9,9 +9,12 @@ import {
   latestDistillationQueuesForCaptures,
   sourceUrlFromMetadataRecord,
 } from "../server/lib/brain.js";
+import { publicSourceTitle } from "../server/lib/capture-sanitization.js";
 import {
   parseCaptureMetadata,
-  withheldZoomPassageCount,
+  publicCaptureExternalId,
+  withOmissionReceipt,
+  withheldPassageCount,
 } from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
@@ -148,6 +151,7 @@ export default defineAction({
         status: schema.brainRawCaptures.status,
         capturedAt: schema.brainRawCaptures.capturedAt,
         metadataJson: schema.brainRawCaptures.metadataJson,
+        omissionMarker: sql<boolean>`(${schema.brainRawCaptures.content} = ${"[…]"} OR ${schema.brainRawCaptures.content} LIKE ${"[…]\n%"} OR ${schema.brainRawCaptures.content} LIKE ${"%\n[…]\n%"} OR ${schema.brainRawCaptures.content} LIKE ${"%\n[…]\r%"} OR ${schema.brainRawCaptures.content} LIKE ${"%\n[…]"})`,
         createdAt: schema.brainRawCaptures.createdAt,
         updatedAt: schema.brainRawCaptures.updatedAt,
         ...(args.includePreview
@@ -173,27 +177,37 @@ export default defineAction({
       captures: rows.flatMap((row) => {
         const source = sourceMap.get(row.sourceId);
         if (!source) return [];
-        const metadata = parseCaptureMetadata(row.metadataJson);
+        const metadata = parseCaptureMetadata(
+          row.omissionMarker
+            ? withOmissionReceipt(row.metadataJson, "[…]", row.kind)
+            : row.metadataJson,
+        );
+        const withheldPassages = withheldPassageCount(
+          metadata,
+          source.provider,
+          row.kind,
+        );
         return [
           {
             id: row.id,
             sourceId: row.sourceId,
             source: {
               id: source.id,
-              title: redactSensitiveText(source.title),
+              title: redactSensitiveText(
+                publicSourceTitle(source.title, withheldPassages),
+              ),
               provider: source.provider,
               status: source.status,
             },
-            externalId: redactOptionalText(row.externalId),
+            externalId: redactOptionalText(
+              publicCaptureExternalId(row.externalId, metadata, row.kind),
+            ),
             title: redactSensitiveText(row.title),
             kind: row.kind,
             status: row.status,
             capturedAt: row.capturedAt,
             sourceUrl: sourceUrlFromMetadataRecord(metadata ?? {}),
-            withheldPassages: withheldZoomPassageCount(
-              metadata,
-              source.provider,
-            ),
+            withheldPassages,
             distillationQueue: redactDistillationQueue(
               queueByCapture.get(row.id) ?? null,
             ),

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { z } from "zod";
 
 const mocks = vi.hoisted(() => {
   class MockBrainCaptureBlockedError extends Error {
@@ -12,6 +13,11 @@ const mocks = vi.hoisted(() => {
 
   return {
     BrainCaptureBlockedError: MockBrainCaptureBlockedError,
+    BrainCaptureConcurrentError: class extends Error {
+      constructor() {
+        super("Capture changed concurrently. Retry the import.");
+      }
+    },
     createCapture: vi.fn(),
     ensureManualSource: vi.fn(),
     enqueueCaptureDistillation: vi.fn(),
@@ -25,6 +31,7 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("../server/lib/brain.js", () => ({
   BrainCaptureBlockedError: mocks.BrainCaptureBlockedError,
+  BrainCaptureConcurrentError: mocks.BrainCaptureConcurrentError,
   createCaptureWithWarnings: async (
     ...args: Parameters<typeof mocks.createCapture>
   ) => ({
@@ -39,8 +46,19 @@ vi.mock("../server/lib/distillation-queue.js", () => ({
   enqueueCaptureDistillation: mocks.enqueueCaptureDistillation,
 }));
 
-import { BrainClassifierUnavailableError } from "../server/lib/capture-sanitization.js";
+import {
+  BrainClassifierUnavailableError,
+  sanitizeCaptureForStorage,
+} from "../server/lib/capture-sanitization.js";
+import { withheldPassageCount } from "../server/lib/search-index-contracts.js";
+import { DEFAULT_BRAIN_SETTINGS } from "../shared/types.js";
 import action from "./import-markdown-files.js";
+
+const schema = (
+  action as typeof action & {
+    schema: z.ZodType<Parameters<typeof action.run>[0]>;
+  }
+).schema;
 
 const source = {
   id: "source-1",
@@ -107,6 +125,94 @@ describe("import-markdown-files", () => {
     });
   });
 
+  it("screens explicitly selected manual transcripts and reports only the safe receipt", async () => {
+    const content = [
+      "Roadmap launch is on track.",
+      "The product plan is ready.",
+      "Her salary increase is approved.",
+      "The API project is next.",
+      "The customer launch is Friday.",
+    ].join("\n");
+    let stored:
+      | Awaited<ReturnType<typeof sanitizeCaptureForStorage>>
+      | undefined;
+    mocks.createCapture.mockImplementation(async (input) => {
+      stored = await sanitizeCaptureForStorage({
+        ...input,
+        source: { ...source, ownerEmail: "owner@example.test" },
+        settings: {
+          ...DEFAULT_BRAIN_SETTINGS,
+          privacyClassifier: "deterministic",
+        },
+      });
+      if (stored.decision?.disposition !== "allowed") {
+        throw new mocks.BrainCaptureBlockedError({
+          disposition: "quarantined",
+        });
+      }
+      return {
+        id: "capture-1",
+        status: "queued",
+        kind: input.kind,
+        metadataJson: JSON.stringify(stored.metadata),
+      };
+    });
+
+    const args = schema.parse({
+      sourceId: "source-1",
+      files: [{ path: "meeting.txt", content }],
+      kind: "transcript",
+      enqueueDistillation: false,
+    });
+    const result = await action.run(args);
+    expect(result.files[0]).toMatchObject({
+      status: "imported",
+      withheldPassages: 1,
+      passageQuarantine: { version: 1, withheldPassages: 1 },
+    });
+    expect(mocks.createCapture.mock.calls[0]?.[0].kind).toBe("transcript");
+    expect(stored?.content).toContain("Roadmap launch");
+    expect(stored?.content).toContain("customer launch");
+    expect(stored?.content).not.toContain("salary");
+    expect(stored?.content).toContain("[…]");
+    expect(
+      withheldPassageCount(stored?.metadata ?? null, "manual", "transcript"),
+    ).toBe(1);
+    expect(JSON.stringify(result)).not.toContain("salary");
+
+    const documentArgs = schema.parse({
+      sourceId: "source-1",
+      files: [{ path: "document.txt", content }],
+      enqueueDistillation: false,
+    });
+    const document = await action.run(documentArgs);
+    expect(mocks.createCapture.mock.calls[1]?.[0].kind).toBe("document");
+    expect(document.files[0]?.status).toBe("blocked");
+  });
+
+  it("does not report a different persisted kind as an imported document", async () => {
+    mocks.createCapture.mockResolvedValue({
+      id: "stored-transcript",
+      kind: "transcript",
+      status: "queued",
+      metadataJson: JSON.stringify({
+        passageQuarantine: { version: 1, withheldPassages: 2 },
+      }),
+    });
+    const result = await action.run({
+      sourceId: "source-1",
+      files: [{ path: "notes.txt", content: "Plan" }],
+      kind: "document",
+      enqueueDistillation: true,
+    });
+    expect(result.files[0]).toMatchObject({
+      status: "failed",
+      errorCode: "capture_concurrent",
+      error: expect.stringMatching(/concurrent.*retry/i),
+    });
+    expect(mocks.enqueueCaptureDistillation).not.toHaveBeenCalled();
+  });
+
   it("imports plain text files and records their format", async () => {
     await action.run({
       sourceId: "source-1",
@@ -150,6 +256,38 @@ describe("import-markdown-files", () => {
       },
     ]);
     expect(result.summary.failed).toBe(2);
+  });
+
+  it("stops screening files once the request time budget is used up", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.createCapture.mockImplementationOnce(async (input) => {
+        vi.setSystemTime(Date.now() + 120_000);
+        return {
+          id: "capture-slow",
+          sourceId: input.sourceId,
+          status: "queued",
+          ...input,
+        };
+      });
+      const result = await action.run({
+        sourceTitle: "Onboarding docs",
+        files: [
+          { path: "first.md", content: "First" },
+          { path: "second.md", content: "Second" },
+        ],
+        enqueueDistillation: false,
+      });
+      expect(mocks.createCapture).toHaveBeenCalledTimes(1);
+      expect(result.summary).toMatchObject({ imported: 1, failed: 1 });
+      expect(result.files[1]).toMatchObject({
+        path: "second.md",
+        status: "failed",
+        errorCode: "batch_time_budget",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns a sensitivity receipt for a blocked file", async () => {
@@ -196,7 +334,11 @@ describe("report BRAIN-IMPORT-001: markdown screening unavailable", () => {
       if (input.title === "docs/b.md") {
         throw new BrainClassifierUnavailableError("jev-credential-unavailable");
       }
-      return { id: `capture-${input.title}`, status: "queued" };
+      return {
+        id: `capture-${input.title}`,
+        status: "queued",
+        kind: input.kind,
+      };
     });
 
     const result = await action.run({

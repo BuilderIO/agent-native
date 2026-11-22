@@ -18,12 +18,18 @@ import {
   safeCitationUrl,
 } from "./brain.js";
 import {
+  publicCaptureTitle,
+  publicSourceTitle,
+} from "./capture-sanitization.js";
+import {
   hybridSearchArtifacts,
   type SearchLaneStatuses,
 } from "./hybrid-search.js";
 import {
   parseCaptureMetadata,
-  withheldZoomPassageCount,
+  publicCaptureMetadata,
+  withheldPassageCount,
+  withOmissionReceipt,
 } from "./search-index-contracts.js";
 import { personalGoogleSourceFilter } from "./source-access.js";
 import { sourceAnswerPolicyFromConfig } from "./source-policy.js";
@@ -378,7 +384,7 @@ export function sourceUrlFromMetadata(
   metadata: Record<string, unknown>,
 ): string | null {
   for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"]) {
-    const value = safeCitationUrl(metadata[key]);
+    const value = safeCitationUrl(publicCaptureMetadata(metadata)[key]);
     if (value) return value;
   }
   return null;
@@ -393,11 +399,16 @@ function firstCitation(evidenceJson: string) {
 
 const CAPTURE_CONTENT_LIMIT = 4000;
 
-function captureMetadata(metadataJson: string | null): Record<string, unknown> {
-  const parsed = parseJson<unknown>(metadataJson, {});
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : {};
+function captureMetadata(row: {
+  metadataJson: string | null;
+  content?: string | null;
+  kind: string;
+}): Record<string, unknown> {
+  return publicCaptureMetadata(
+    parseCaptureMetadata(
+      withOmissionReceipt(row.metadataJson, row.content, row.kind),
+    ),
+  );
 }
 
 function captureLocation(metadata: Record<string, unknown>): string | null {
@@ -437,11 +448,12 @@ async function accessibleSourceMap(sourceIds: Array<string | null>) {
 
 function serializeSourceInfo(
   row: typeof schema.brainSources.$inferSelect | undefined,
+  withheldPassages: number | null = 0,
 ) {
   if (!row) return null;
   return {
     id: row.id,
-    title: redactSensitiveText(row.title),
+    title: redactSensitiveText(publicSourceTitle(row.title, withheldPassages)),
     provider: row.provider,
     status: row.status,
   };
@@ -635,23 +647,34 @@ async function searchCaptureResults(
   return rows.flatMap((row) => {
     const source = sources.get(row.sourceId);
     if (!source) return [];
-    const metadata = captureMetadata(row.metadataJson);
+    const metadata = captureMetadata(row);
+    const withheldPassages = withheldPassageCount(
+      parseCaptureMetadata(
+        withOmissionReceipt(row.metadataJson, row.content, row.kind),
+      ),
+      source.provider,
+      row.kind,
+    );
     const sourceUrl = sourceUrlFromMetadata(metadata);
     const snippet = redactSensitiveText(buildSnippet(row.content, terms));
     return [
       {
         type: "capture" as const,
         id: row.id,
-        title: redactSensitiveText(row.title),
+        title: redactSensitiveText(
+          publicCaptureTitle(row.title, withheldPassages !== 0),
+        ),
         snippet,
         summary: snippet,
         status: row.status,
         provider: source.provider,
-        source: serializeSourceInfo(source),
+        source: serializeSourceInfo(source, withheldPassages),
         sourceUrl,
         citation: {
           captureId: row.id,
-          captureTitle: redactSensitiveText(row.title),
+          captureTitle: redactSensitiveText(
+            publicCaptureTitle(row.title, withheldPassages !== 0),
+          ),
           quote: null,
           preview: snippet,
           verbatim: false,
@@ -677,10 +700,7 @@ async function searchCaptureResults(
         capturedAt: row.capturedAt,
         location: captureLocation(metadata),
         content: captureContent(row.content),
-        withheldPassages: withheldZoomPassageCount(
-          parseCaptureMetadata(row.metadataJson),
-          source.provider,
-        ),
+        withheldPassages,
       },
     ];
   });
@@ -749,7 +769,9 @@ async function searchSourceResults(
 async function semanticCaptureDetails(
   artifacts: Array<{ captureId: string; audienceId: string }>,
   accessibleSourceIds: string[],
-): Promise<Map<string, { content: string; metadataJson: string | null }>> {
+): Promise<
+  Map<string, { content: string; metadataJson: string | null; kind: string }>
+> {
   const captureIds = Array.from(
     new Set(artifacts.map((artifact) => artifact.captureId)),
   );
@@ -762,6 +784,7 @@ async function semanticCaptureDetails(
       id: schema.brainRawCaptures.id,
       content: schema.brainRawCaptures.content,
       metadataJson: schema.brainRawCaptures.metadataJson,
+      kind: schema.brainRawCaptures.kind,
     })
     .from(schema.brainRawCaptures)
     .where(
@@ -876,7 +899,18 @@ export async function searchEverythingWithLanes(args: {
             const source = sources.get(artifact.sourceId);
             const detail = details.get(artifact.captureId);
             if (!source || !detail) return [];
-            const metadata = captureMetadata(detail.metadataJson);
+            const metadata = captureMetadata(detail);
+            const withheldPassages = withheldPassageCount(
+              parseCaptureMetadata(
+                withOmissionReceipt(
+                  detail.metadataJson,
+                  detail.content,
+                  detail.kind,
+                ),
+              ),
+              source.provider,
+              detail.kind,
+            );
             const sourceUrl = sourceUrlFromMetadata(metadata);
             const snippet = redactSensitiveText(
               buildSnippet(artifact.text, terms),
@@ -885,16 +919,20 @@ export async function searchEverythingWithLanes(args: {
               {
                 type: "capture" as const,
                 id: artifact.captureId,
-                title: redactSensitiveText(artifact.title),
+                title: redactSensitiveText(
+                  publicCaptureTitle(artifact.title, withheldPassages !== 0),
+                ),
                 snippet,
                 summary: snippet,
                 status: "indexed",
                 provider: source.provider,
-                source: serializeSourceInfo(source),
+                source: serializeSourceInfo(source, withheldPassages),
                 sourceUrl,
                 citation: {
                   captureId: artifact.captureId,
-                  captureTitle: redactSensitiveText(artifact.title),
+                  captureTitle: redactSensitiveText(
+                    publicCaptureTitle(artifact.title, withheldPassages !== 0),
+                  ),
                   quote: null,
                   preview: snippet,
                   verbatim: false,
@@ -908,10 +946,7 @@ export async function searchEverythingWithLanes(args: {
                 capturedAt: artifact.capturedAt,
                 location: captureLocation(metadata),
                 content: captureContent(detail.content),
-                withheldPassages: withheldZoomPassageCount(
-                  parseCaptureMetadata(detail.metadataJson),
-                  source.provider,
-                ),
+                withheldPassages,
               },
             ];
           });
