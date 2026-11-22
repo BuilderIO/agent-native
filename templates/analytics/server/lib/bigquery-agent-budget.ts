@@ -1029,6 +1029,19 @@ export async function writeBigQueryAgentExecutionRecord(
 export async function pruneBigQueryAgentBudget(now: Date = new Date()) {
   const db = getDbExec();
   const cutoff = new Date(now.getTime() - RETENTION_MS).toISOString();
+  const finalized = await db.execute({
+    timeoutMs: 1_500,
+    maxAttempts: 1,
+    sql: `UPDATE analytics_bigquery_agent_executions AS e
+      SET status = 'abandoned', code = j.resolution, billed_bytes = j.billed_bytes,
+        provider_cache_hit = j.provider_cache_hit
+      FROM analytics_bigquery_agent_jobs AS j
+      WHERE e.status = 'submitting'
+        AND e.project_id = j.project_id AND e.job_id = j.job_id
+        AND j.state <> 'pending' AND j.lease_expires_at < $1
+      RETURNING e.id`,
+    args: [now.toISOString()],
+  });
   const jobs = await db.execute({
     timeoutMs: 1_500,
     maxAttempts: 1,
@@ -1051,6 +1064,7 @@ export async function pruneBigQueryAgentBudget(now: Date = new Date()) {
   });
   return {
     cutoff,
+    executionsFinalized: finalized.rows.length,
     admissionsDeleted: jobs.rows.length,
     executionsDeleted: executions.rows.length,
     approvalsDeleted: approvals.rows.length,

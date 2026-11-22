@@ -691,6 +691,57 @@ describe("reconciliation of an abandoned call's execution record", () => {
       billed: null,
     });
   });
+
+  it("has the daily cleanup finish a record left at submitting after its call settled the job and lost its final write", async () => {
+    await admit(alice, JOB, NOON);
+    await execution("exec-1", "job_1", "submitting");
+    await settleBigQueryAgentJob(
+      "builder-3b0a2",
+      "job_1",
+      { kind: "billed", billedBytes: 3 * 1024 ** 3, cacheHit: false },
+      NOON,
+    );
+    expect(await executionOf("exec-1")).toMatchObject({ status: "submitting" });
+    const result = await pruneBigQueryAgentBudget(
+      new Date(NOON.getTime() + 120_000),
+    );
+    expect(result.executionsFinalized).toBe(1);
+    expect(await executionOf("exec-1")).toEqual({
+      status: "abandoned",
+      code: "billed",
+      billed: String(3 * 1024 ** 3),
+    });
+  });
+
+  it("leaves a submitting record to its call while the job's lease is still live", async () => {
+    await admit(alice, JOB, NOON);
+    await execution("exec-1", "job_1", "submitting");
+    await settleBigQueryAgentJob(
+      "builder-3b0a2",
+      "job_1",
+      { kind: "billed", billedBytes: 3 * 1024 ** 3, cacheHit: false },
+      NOON,
+    );
+    const result = await pruneBigQueryAgentBudget(
+      new Date(NOON.getTime() + 30_000),
+    );
+    expect(result.executionsFinalized).toBe(0);
+    expect(await executionOf("exec-1")).toEqual({
+      status: "submitting",
+      code: null,
+      billed: null,
+    });
+  });
+
+  it("leaves a submitting record alone while its job is still pending", async () => {
+    await admit(alice, JOB, NOON);
+    await execution("exec-1", "job_1", "submitting");
+    const result = await pruneBigQueryAgentBudget(
+      new Date(NOON.getTime() + 120_000),
+    );
+    expect(result.executionsFinalized).toBe(0);
+    expect(await executionOf("exec-1")).toMatchObject({ status: "submitting" });
+  });
 });
 
 describe("settlement of finished jobs", () => {
