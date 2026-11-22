@@ -35,14 +35,23 @@ function installBootstrap(
   href = "https://example.test/apps?tab=activity#latest",
   userAgent = "Mozilla/5.0",
   sessionStorageThrows = false,
+  onLine = true,
 ) {
+  const windowListeners = new Map<string, () => void>();
   let onError: ((event: BootstrapResourceError) => void) | undefined;
   const sessionValues = new Map<string, string>();
   const dispatchEvent = vi.fn();
-  const windowState: Record<string, unknown> = { dispatchEvent };
+  const windowState: Record<string, unknown> = {
+    dispatchEvent,
+    addEventListener: (type: string, listener: () => void) => {
+      windowListeners.set(type, listener);
+    },
+  };
   const assign = vi.fn();
+  const reload = vi.fn();
   const location = {
     assign,
+    reload,
     href,
     hostname: new URL(href).hostname,
   };
@@ -63,7 +72,7 @@ function installBootstrap(
       },
     },
     location,
-    navigator: { userAgent },
+    navigator: { userAgent, onLine },
     sessionStorage: {
       getItem: (key: string) => {
         if (sessionStorageThrows)
@@ -82,12 +91,87 @@ function installBootstrap(
     dispatchEvent,
     location,
     onError,
+    reload,
     sessionValues,
+    windowListeners,
     windowState,
   };
 }
 
+function moduleScriptFailure(): BootstrapResourceError {
+  return {
+    target: {
+      src: "https://example.test/assets/route.js",
+      tagName: "SCRIPT",
+      type: "module",
+    },
+    stopImmediatePropagation: vi.fn(),
+  };
+}
+
 describe("route chunk recovery bootstrap", () => {
+  it("keeps the page offline and retries the original URL once back online", () => {
+    const {
+      assign,
+      onError,
+      reload,
+      sessionValues,
+      windowListeners,
+      windowState,
+    } = installBootstrap(
+      "https://example.test/apps?tab=activity#latest",
+      "Mozilla/5.0",
+      false,
+      false,
+    );
+
+    onError({
+      target: {
+        getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+        hasAttribute: () => false,
+        rel: "modulepreload",
+        tagName: "LINK",
+      },
+      stopImmediatePropagation: vi.fn(),
+    });
+
+    expect(assign).not.toHaveBeenCalled();
+    expect(sessionValues.has(STALE_CHUNK_RELOAD_AT_KEY)).toBe(false);
+    expect(windowState[STALE_CHUNK_RELOAD_AT_KEY]).toBeUndefined();
+    expect(windowState[STALE_CHUNK_EXHAUSTED_KEY]).toBeUndefined();
+
+    windowListeners.get("online")?.();
+    expect(reload).toHaveBeenCalledOnce();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("drops the pending retry when the user navigated elsewhere while offline", () => {
+    const { assign, location, onError, reload, windowListeners } =
+      installBootstrap(undefined, undefined, false, false);
+
+    onError(moduleScriptFailure());
+    location.href = "https://example.test/settings";
+    windowListeners.get("online")?.();
+
+    expect(reload).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("arms the online listener only once across repeated offline failures", () => {
+    const { onError, windowState } = installBootstrap(
+      undefined,
+      undefined,
+      false,
+      false,
+    );
+    const addEventListener = vi.spyOn(windowState, "addEventListener");
+
+    onError(moduleScriptFailure());
+    onError(moduleScriptFailure());
+
+    expect(addEventListener).toHaveBeenCalledOnce();
+  });
+
   it("retries required module failures before client handlers can classify them", () => {
     const { assign, onError, sessionValues, windowState } = installBootstrap();
     const stopImmediatePropagation = vi.fn();
