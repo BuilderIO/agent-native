@@ -66,26 +66,7 @@ import {
 import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import { runWithRequestContext } from "./request-context.js";
 
-export type GenericWorkspaceOAuthProvider =
-  | "figma"
-  | "gmail"
-  | "google_calendar"
-  | "google_docs"
-  | "google_drive"
-  | "bigquery"
-  | "google_sheets"
-  | "google_slides"
-  | "github"
-  | "hubspot"
-  | "salesforce"
-  | "jira"
-  | "sentry"
-  | "notion"
-  | "sigma"
-  | "slack"
-  | "zoom";
-
-const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
+export const WORKSPACE_PROVIDER_OAUTH_PROVIDERS = [
   "figma",
   "gmail",
   "google_calendar",
@@ -103,7 +84,12 @@ const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
   "sigma",
   "slack",
   "zoom",
-]);
+] as const;
+
+export type GenericWorkspaceOAuthProvider =
+  (typeof WORKSPACE_PROVIDER_OAUTH_PROVIDERS)[number];
+
+const SUPPORTED_PROVIDERS = new Set<string>(WORKSPACE_PROVIDER_OAUTH_PROVIDERS);
 // Whether one upstream account (a portal, an org, a site) is linked by each
 // user separately, so each owner gets its own token row. A provider that
 // starts owner-scoping after connections were saved must keep those
