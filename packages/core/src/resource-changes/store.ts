@@ -557,9 +557,10 @@ export async function failResourceChanges(
 }
 
 /**
- * Puts claimed changes back untried for `seconds`, without counting the
- * claim as an attempt: for a wait that is no change's fault, such as a
- * provider rate limiting every call.
+ * Puts claimed changes back for `seconds`. The claim isn't counted as an
+ * attempt, for a wait that is no change's fault, such as a provider rate
+ * limiting every call; `countAttempt` counts it, for a wait a change may
+ * have caused itself.
  */
 export async function deferResourceChanges(
   exec: DbExec,
@@ -567,6 +568,7 @@ export async function deferResourceChanges(
   changes: readonly ClaimedResourceChange[],
   seconds: number,
   fence?: ResourceChangeFence,
+  options: { countAttempt?: boolean } = {},
 ): Promise<void> {
   if (!changes.length) return;
   if (!Number.isFinite(seconds) || seconds < 0) {
@@ -578,13 +580,14 @@ export async function deferResourceChanges(
   await exec.execute({
     sql: `UPDATE ${RESOURCE_CHANGES_TABLE} AS c
           SET available_at = clock_timestamp() + make_interval(secs => ?),
-              attempts = greatest(c.attempts - 1, 0)
+              attempts = greatest(c.attempts - ?, 0)
           FROM (VALUES ${values.sql}) AS deferred (resource_id, seq)
           WHERE c.consumer = ? AND c.app = ? AND c.resource_type = ?
             AND c.resource_id IN (${values.ids})
             AND c.resource_id = deferred.resource_id AND c.seq = deferred.seq${guard.sql}`,
     args: [
       seconds,
+      options.countAttempt ? 0 : 1,
       ...values.args,
       feed.consumer,
       feed.app,
