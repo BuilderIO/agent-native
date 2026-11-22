@@ -71,7 +71,7 @@ export default {
     docs: {
       description: {
         component:
-          "Arrange a controlled set of panels in tab groups and resizable splits. Drag a tab to a group, insertion point or edge. On an overflowing strip, swipe sideways to browse tabs or drag vertically to dock a tab. The Arrange menu exposes each operation to keyboard and touch users. Each panel has a stable ID. Store the layout separately from the panel contents.",
+          "Drag a tab along its strip to reorder it, or onto another strip to join that group. The line marks the insertion point, including over empty strip space and the Arrange button. To split a pane, drag into the panel content until an edge highlights. Releasing over the unmarked center keeps the layout in place. On an overflowing strip, swipe sideways to browse tabs or drag vertically to start docking. The Arrange menu also supports keyboard and touch. Keep panel IDs stable and store the layout separately from their content.",
       },
     },
   },

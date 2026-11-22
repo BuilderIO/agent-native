@@ -309,17 +309,33 @@ function dockPointerFixture() {
   rect(assets, 64, 60);
   const inspectorBounds = rect(inspector, 304, 80);
   rect(leftRail, 0, 290);
-  rect(rightRail, 300, 230);
+  rect(rightRail, 300, 200);
+  const arrange = view.getByRole("button", { name: "Arrange Inspector" });
+  rect(arrange, 500, 30);
+  const inspectorPanel = view.getByRole("tabpanel", { name: "Inspector" });
+  const group = inspectorPanel.parentElement;
+  if (!group) throw new Error("Missing inspector panel group");
+  vi.spyOn(group, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(300, 0, 230, 320),
+  );
   Object.assign(shadow, {
-    elementFromPoint(x: number) {
-      for (const element of [layers, assets, inspector, leftRail, rightRail]) {
+    elementFromPoint(x: number, y: number) {
+      if (x >= 300 && x < 530 && y >= 24 && y < 320) return inspectorPanel;
+      for (const element of [
+        layers,
+        assets,
+        inspector,
+        leftRail,
+        rightRail,
+        arrange,
+      ]) {
         const bounds = element.getBoundingClientRect();
         if (x >= bounds.left && x < bounds.right) return element;
       }
       return null;
     },
   });
-  function gesture(source: HTMLElement, start: number) {
+  function gesture(source: HTMLElement, start: number, y = 12) {
     Object.assign(source, {
       setPointerCapture: vi.fn<(pointerId: number) => void>(),
     });
@@ -328,14 +344,19 @@ function dockPointerFixture() {
       pointerType: "mouse",
       isPrimary: true,
       button: 0,
-      clientY: 12,
+      clientY: y,
     };
     fireEvent.pointerDown(source, { ...pointer, clientX: start });
     return {
-      move: (x: number) =>
-        fireEvent.pointerMove(source, { ...pointer, buttons: 1, clientX: x }),
-      release: (x: number) =>
-        fireEvent.pointerUp(source, { ...pointer, clientX: x }),
+      move: (x: number, clientY = y) =>
+        fireEvent.pointerMove(source, {
+          ...pointer,
+          buttons: 1,
+          clientX: x,
+          clientY,
+        }),
+      release: (x: number, clientY = y) =>
+        fireEvent.pointerUp(source, { ...pointer, clientX: x, clientY }),
     };
   }
   return {
@@ -409,3 +430,43 @@ it.each([
     }
   },
 );
+
+it("keeps a horizontal drag on the tab strip through the Arrange button", async () => {
+  const dock = dockPointerFixture();
+  try {
+    const pointer = dock.gesture(dock.layers, 32, 1);
+    pointer.move(515);
+    await waitFor(() =>
+      expect(dock.inspector.getAttribute("data-dock-insert")).toBe("after"),
+    );
+    pointer.release(515);
+    expect(dock.request).toHaveBeenCalledWith({
+      ...dock.layout,
+      first: { type: "group", id: "left", tabs: ["Assets"], active: "Assets" },
+      second: {
+        type: "group",
+        id: "right",
+        tabs: ["Inspector", "Layers"],
+        active: "Layers",
+      },
+    });
+  } finally {
+    dock.close();
+  }
+});
+
+it("leaves the layout unchanged when the pointer leaves an insertion marker for the content center", async () => {
+  const dock = dockPointerFixture();
+  try {
+    const pointer = dock.gesture(dock.layers, 32);
+    pointer.move(325);
+    await waitFor(() =>
+      expect(dock.inspector.getAttribute("data-dock-insert")).toBe("before"),
+    );
+    pointer.move(415, 170);
+    pointer.release(415, 170);
+    expect(dock.request).not.toHaveBeenCalled();
+  } finally {
+    dock.close();
+  }
+});

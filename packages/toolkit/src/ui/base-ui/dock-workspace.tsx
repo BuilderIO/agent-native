@@ -153,6 +153,7 @@ interface DropTarget {
   tab: string;
   position: DockPosition;
   element: HTMLElement;
+  revealIn?: HTMLElement | null;
 }
 function scrollDockRail(
   root: HTMLElement,
@@ -192,30 +193,44 @@ function dropTarget(
 ): DropTarget | null {
   const group = el?.closest<HTMLElement>("[data-dock-group]");
   if (!group || group.closest(".dock-workspace") !== root) return null;
-  let header = el?.closest<HTMLElement>("[data-dock-tab]");
+  const first = group.firstElementChild;
+  const rail = first?.getAttribute("role") === "tablist" ? first : null;
+  const railBounds = rail?.getBoundingClientRect();
   const rtl = getComputedStyle(group).direction === "rtl";
-  const rail = el?.closest<HTMLElement>('[role="tablist"]');
-  if (!header && rail?.parentElement === group) {
+  if (rail && railBounds && y >= railBounds.top && y < railBounds.bottom) {
     const tabs = rail.getElementsByTagName("button");
-    let low = 0;
-    let high = tabs.length - 1;
-    let nearest = Infinity;
-    while (low <= high) {
-      const middle = Math.floor((low + high) / 2);
-      const tab = tabs.item(middle);
-      if (!tab) break;
-      const bounds = tab.getBoundingClientRect();
-      const distance = Math.max(bounds.left - x, x - bounds.right, 0);
-      if (distance < nearest) {
-        nearest = distance;
-        header = tab;
-      }
-      if (distance === 0) break;
-      if (x < bounds.left !== rtl) high = middle - 1;
-      else low = middle + 1;
+    if (rtl ? x < railBounds.left : x >= railBounds.right) {
+      const last = tabs.item(tabs.length - 1);
+      if (!last || last.dataset.dockTab === undefined) return null;
+      return {
+        tab: last.dataset.dockTab,
+        position: "after",
+        element: last,
+        revealIn: last.parentElement,
+      };
     }
-  }
-  if (header?.dataset.dockTab !== undefined) {
+    let header = el?.closest<HTMLElement>("[data-dock-tab]");
+    if (header?.parentElement !== rail) header = undefined;
+    if (!header) {
+      let low = 0;
+      let high = tabs.length - 1;
+      let nearest = Infinity;
+      while (low <= high) {
+        const middle = Math.floor((low + high) / 2);
+        const tab = tabs.item(middle);
+        if (!tab) break;
+        const bounds = tab.getBoundingClientRect();
+        const distance = Math.max(bounds.left - x, x - bounds.right, 0);
+        if (distance < nearest) {
+          nearest = distance;
+          header = tab;
+        }
+        if (distance === 0) break;
+        if (x < bounds.left !== rtl) high = middle - 1;
+        else low = middle + 1;
+      }
+    }
+    if (header?.dataset.dockTab === undefined) return null;
     const rect = header.getBoundingClientRect();
     return {
       tab: header.dataset.dockTab,
@@ -225,16 +240,14 @@ function dropTarget(
   }
   const rect = group.getBoundingClientRect(),
     nx = (x - rect.left) / rect.width,
-    ny = (y - rect.top) / rect.height;
+    top = railBounds?.bottom ?? rect.top,
+    ny = (y - top) / (rect.bottom - top);
   const nearest = Math.min(nx, 1 - nx, ny, 1 - ny);
-  let position: DockPosition = "center";
-  if (!el?.closest('[role="tablist"]') && nearest < 0.25) {
-    if (nearest === ny) position = "above";
-    else if (nearest === 1 - ny) position = "below";
-    else position = (nearest === nx) !== rtl ? "start" : "end";
-  }
-  if (group.hasAttribute("data-dock-slot") && position === "center")
-    return null;
+  if (nearest >= 0.25) return null;
+  let position: DockPosition;
+  if (nearest === ny) position = "above";
+  else if (nearest === 1 - ny) position = "below";
+  else position = (nearest === nx) !== rtl ? "start" : "end";
   const tab = group.dataset.activeTab;
   if (tab === undefined) return null;
   return {
@@ -428,6 +441,8 @@ export function DockWorkspace({
   const preview = React.useRef<DropTarget | null>(null);
   const paintedPoint = React.useRef<{ x: number; y: number } | null>(null);
   function showPreview(next: DropTarget | null) {
+    if (next?.revealIn && next.revealIn.scrollWidth > next.revealIn.clientWidth)
+      revealDockTab(next.revealIn, next.element);
     const previous = preview.current;
     if (
       previous?.tab === next?.tab &&
