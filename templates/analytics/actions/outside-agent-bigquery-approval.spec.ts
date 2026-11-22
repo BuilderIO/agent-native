@@ -413,6 +413,7 @@ function approveOnReviewPage(grant: Grant) {
 }
 
 beforeEach(async () => {
+  vi.stubEnv("DATABASE_URL", "pglite:memory");
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOON);
   database.client = await PGlite.create("memory://");
@@ -443,6 +444,7 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const close of closeClients.splice(0)) await close();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.useRealTimers();
   await database.client?.close();
   database.client = null;
