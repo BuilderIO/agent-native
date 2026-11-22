@@ -290,7 +290,7 @@ function isModuleAssetLoadFailure(win: Window, event: Event): boolean {
 }
 
 function isOffline(win: Window): boolean {
-  return win.navigator?.onLine === false;
+  return win.navigator.onLine === false;
 }
 
 function isAgentNativeDesktop(win: Window): boolean {
@@ -404,7 +404,6 @@ export function reloadForStaleChunk(
   now = Date.now(),
 ): boolean {
   if (!win?.location) return false;
-  // A network failure is not a stale deploy; keep recovery armed for later.
   if (isOffline(win)) return false;
   if (isAgentNativeDesktop(win)) {
     reportStaleChunkRecoveryExhausted(win, "desktop");
