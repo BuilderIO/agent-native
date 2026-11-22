@@ -657,8 +657,8 @@ describe("SettingsShell", () => {
       shells[1]?.querySelector('[data-settings-page="first-settings"]'),
     ).toBeNull();
 
-    const inputs = shells.map((shell) =>
-      shell.querySelector<HTMLInputElement>('input[type="search"]')!,
+    const inputs = shells.map(
+      (shell) => shell.querySelector<HTMLInputElement>('input[type="search"]')!,
     );
     const setValue = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
