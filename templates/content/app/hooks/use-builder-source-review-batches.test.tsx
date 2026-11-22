@@ -148,7 +148,6 @@ describe("useBuilderSourceReviewBatches", () => {
     );
     await settle();
 
-    // The listing waits for the first rows, so it can't hold them up.
     expect(requests()).toEqual([
       expect.objectContaining({
         scope: "selected",
@@ -196,6 +195,60 @@ describe("useBuilderSourceReviewBatches", () => {
     expect(latest.selectionChangeSetIdMap).toEqual({ c3: "c3-blocks" });
     expect(latest.progress).toBeNull();
     expect(latest.error).toBeNull();
+  });
+
+  it("keeps the first rows when the listing fails, and Retry asks only for the listing", async () => {
+    let failListing = true;
+    callAction.mockImplementation(async (_name: string, params: Request) => {
+      if (params.batchSize === 0) {
+        if (failListing) {
+          failListing = false;
+          throw new Error("Listing failed");
+        }
+        return response([], {
+          documentIds: [],
+          remainingDocumentIds: ["doc-1", "doc-2"],
+        });
+      }
+      const ids = params.documentIds ?? [];
+      return response(ids.map((id) => row(`c-${id}`, id)));
+    });
+
+    act(() =>
+      root.render(
+        <Probe
+          documentId="page-1"
+          sourceId="source-1"
+          scope="all"
+          priorityDocumentIds={["doc-1"]}
+          enabled
+        />,
+      ),
+    );
+    await settle();
+
+    expect(latest.error?.message).toBe("Listing failed");
+    expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
+      ["c-doc-1"],
+    );
+
+    const sentBeforeRetry = requests().length;
+    act(() => latest.retry());
+    await settle();
+
+    expect(requests().slice(sentBeforeRetry)).toEqual([
+      expect.objectContaining({ scope: "all", batchSize: 0 }),
+      expect.objectContaining({
+        scope: "selected",
+        documentIds: ["doc-2"],
+        bodyComparison: "text",
+      }),
+    ]);
+    expect(latest.error).toBeNull();
+    expect(latest.progress).toBeNull();
+    expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
+      ["c-doc-1", "c-doc-2"],
+    );
   });
 
   it("loads a few batches at once, keeps rows when one fails, and Retry finishes", async () => {

@@ -247,9 +247,6 @@ export function useBuilderSourceReviewBatches(args: {
               : [];
           let response: PreviewBuilderSourceReviewResponse;
           if (firstPages.length > 0) {
-            // The page listing loads every row of the source and holds up a
-            // request sent alongside it on the server, so it's asked for only
-            // once the first rows are in.
             response = await load({
               scope: "selected",
               documentIds: firstPages,
