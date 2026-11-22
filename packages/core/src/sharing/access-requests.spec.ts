@@ -236,7 +236,7 @@ async function errorOf(promise: Promise<unknown>) {
 }
 
 beforeAll(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`
     CREATE TABLE qa_request_docs (
       id TEXT PRIMARY KEY,

@@ -70,7 +70,7 @@ async function list(args: Record<string, unknown> = {}) {
 }
 
 beforeAll(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   sharedClient = frameworkClientFor(pglite.db);
   const { resourcePut } = await import("../../resources/store.js");
   // Seeded in reverse so path order has to come from the list, not the table.
