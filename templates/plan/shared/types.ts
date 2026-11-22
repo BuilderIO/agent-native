@@ -145,7 +145,6 @@ export interface PlanSection {
   updatedAt: string;
 }
 
-/** One reaction on a comment: how many gave it, and whether the reader did. */
 export interface PlanCommentReaction {
   reaction: string;
   count: number;

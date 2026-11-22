@@ -441,10 +441,6 @@ export function commentAndDescendantIds(
   return ids;
 }
 
-/**
- * Whose reactions the request's are: the person, as Plan writes for them, or
- * `agent:<email>` for their agent. Null for anyone who can't react.
- */
 export function planReactionActor(ctx: unknown): string | null {
   const email = getRequestUserEmail();
   if (isAnonymousPublicViewer(email) || isGuestAuthorIdentity(email)) {
@@ -456,31 +452,24 @@ export function planReactionActor(ctx: unknown): string | null {
   });
 }
 
-/** Each comment's reactions as `actor` sees them, in the order first given. */
 export async function planCommentReactions(
   commentIds: readonly string[],
   actor: string | null,
-): Promise<Record<string, PlanCommentReaction[]>> {
+): Promise<Map<string, PlanCommentReaction[]>> {
   const reactors = await listReviewCommentReactors(commentIds);
-  return Object.fromEntries(
+  return new Map(
     Object.entries(reactors).map(([id, byReaction]) => [
       id,
       Object.entries(byReaction).map(([reaction, actors]) => ({
         reaction,
         count: actors.length,
         reactedByMe:
-          actor !== null &&
-          actors.some((who) => who.toLowerCase() === actor),
+          actor !== null && actors.some((who) => who.toLowerCase() === actor),
       })),
     ]),
   );
 }
 
-/**
- * Adds or removes `actorEmail`'s reaction on a comment. It takes the plan row
- * and then the comment's row, as Plan's other comment writers do, so a
- * reaction can't land on a comment that a concurrent delete is removing.
- */
 export async function reactToPlanComment(
   db: PlanDb,
   planId: string,
@@ -512,7 +501,7 @@ export async function reactToPlanComment(
     [reaction.commentId],
     reaction.actorEmail,
   );
-  return reactions[reaction.commentId] ?? [];
+  return reactions.get(reaction.commentId) ?? [];
 }
 
 export async function deletePlanCommentThread(

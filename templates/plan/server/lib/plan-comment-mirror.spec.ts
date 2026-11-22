@@ -1060,7 +1060,9 @@ describe("Plan comments in the review kit", () => {
       { id: "react-kept", message: "Kept" },
       { id: "react-gone", message: "Deleted" },
     ]);
-    const otherPlanId = await newPlan([{ id: "react-other", message: "Other" }]);
+    const otherPlanId = await newPlan([
+      { id: "react-other", message: "Other" },
+    ]);
     await call(deleteComment, { planId, commentId: "react-gone" });
     const react = (target: string, commentId: string) =>
       call(reactToComment, {

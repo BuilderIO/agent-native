@@ -78,8 +78,8 @@ export default defineAction({
     const bundle = {
       ...loaded,
       comments: loaded.comments.map((comment) => {
-        const given = reactions[comment.id];
-        return given && given.length > 0
+        const given = reactions.get(comment.id);
+        return given !== undefined && given.length > 0
           ? { ...comment, reactions: given }
           : comment;
       }),

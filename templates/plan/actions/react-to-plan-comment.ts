@@ -27,14 +27,30 @@ export default defineAction({
       .min(1)
       .max(32)
       .describe("The reaction, such as an emoji"),
-    active: z.boolean().describe("true to add the reaction, false to remove it"),
+    active: z
+      .boolean()
+      .describe("true to add the reaction, false to remove it"),
+  }),
+  outputSchema: z.object({
+    planId: z.string(),
+    commentId: z.string(),
+    reaction: z.string(),
+    active: z.boolean(),
+    reactions: z.array(
+      z.object({
+        reaction: z.string(),
+        count: z.number().int(),
+        reactedByMe: z.boolean(),
+      }),
+    ),
   }),
   publicAgent: {
     expose: true,
     readOnly: false,
     requiresAuth: true,
     title: "React to Plan Comment",
-    description: "Add or remove a reaction on a comment in an Agent-Native Plan.",
+    description:
+      "Add or remove a reaction on a comment in an Agent-Native Plan.",
   },
   mcpApp: {
     compactCatalog: true,
