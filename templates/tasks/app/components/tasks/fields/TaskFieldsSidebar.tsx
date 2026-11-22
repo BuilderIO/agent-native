@@ -9,7 +9,8 @@ import { SidePanel } from "@/components/shared/SidePanel";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import type { FieldValue, TaskFieldValue } from "@/hooks/use-custom-fields";
-import { useUpdateTask, type TaskWithFields } from "@/hooks/use-tasks";
+import { useTaskSave, type TaskChange } from "@/hooks/use-task-save";
+import type { TaskWithFields } from "@/hooks/use-tasks";
 
 import { FieldValueControl } from "./controls/FieldValueControl";
 import { TaskTitleSection } from "./TaskTitleSection";
@@ -47,7 +48,7 @@ export function TaskFieldsSidebar({
 function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
   const t = useT();
   const fields = task.fields ?? [];
-  const updateTask = useUpdateTask();
+  const taskSave = useTaskSave();
   const suggestRoute = useActionMutation<RouteSuggestion, { taskId: string }>(
     "suggest-task-route",
   );
@@ -80,20 +81,18 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
     }
   };
 
+  const { save } = taskSave;
   const saveUpdate = useCallback(
-    (payload: {
-      title?: string;
-      fieldValues?: Array<{ fieldId: string; value: FieldValue | null }>;
-    }) => {
-      void updateTask
-        .mutateAsync({ taskId: task.id, ...payload })
-        .catch((caught) => {
-          toast.error(
-            (caught as Error)?.message ?? t("taskFields.updateError"),
-          );
-        });
+    (change: TaskChange) => {
+      void save(task.id, change).catch((caught: unknown) => {
+        toast.error(
+          caught instanceof Error
+            ? caught.message
+            : t("taskFields.updateError"),
+        );
+      });
     },
-    [task.id, updateTask, t],
+    [task.id, save, t],
   );
 
   return (
@@ -172,6 +171,7 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
           })),
         }}
       />
+      {taskSave.conflictPrompt}
     </div>
   );
 }

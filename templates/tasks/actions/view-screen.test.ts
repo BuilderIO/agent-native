@@ -8,7 +8,7 @@ const {
   getInboxItem,
   listCustomFields,
   getCustomField,
-  listTaskFieldValues,
+  getTaskWithFields,
   getTaskCardFieldIds,
 } = vi.hoisted(() => ({
   readAppStateForCurrentTab: vi.fn(),
@@ -18,7 +18,7 @@ const {
   getInboxItem: vi.fn(),
   listCustomFields: vi.fn(),
   getCustomField: vi.fn(),
-  listTaskFieldValues: vi.fn(),
+  getTaskWithFields: vi.fn(),
   getTaskCardFieldIds: vi.fn(),
 }));
 
@@ -50,7 +50,7 @@ vi.mock("../server/custom-fields/store.js", () => ({
 }));
 
 vi.mock("../server/custom-fields/task-fields.js", () => ({
-  listTaskFieldValues,
+  getTaskWithFields,
 }));
 
 vi.mock("../server/user-config/store.js", () => ({
@@ -67,10 +67,10 @@ describe("view-screen tasks context", () => {
     listInboxItems.mockReset();
     listCustomFields.mockReset();
     getCustomField.mockReset();
-    listTaskFieldValues.mockReset();
+    getTaskWithFields.mockReset();
     getTaskCardFieldIds.mockReset();
     getTaskCardFieldIds.mockResolvedValue([]);
-    listTaskFieldValues.mockResolvedValue([]);
+    getTaskWithFields.mockResolvedValue({ fields: [], revision: "rev_t1" });
     readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "tasksSelection") return null;
       return undefined;
@@ -148,6 +148,8 @@ describe("view-screen tasks context", () => {
         done: false,
         inListSnapshot: true,
       },
+      selectedTaskFields: [],
+      selectedTaskRevision: "rev_t1",
     });
   });
 
@@ -340,7 +342,7 @@ describe("view-screen tasks context", () => {
       },
     );
 
-    expect(listTaskFieldValues).not.toHaveBeenCalled();
+    expect(getTaskWithFields).not.toHaveBeenCalled();
     expect(screen).toMatchObject({
       list: { totalCount: 0, items: [] },
     });
@@ -437,7 +439,7 @@ describe("view-screen inbox context", () => {
     getTask.mockReset();
     listCustomFields.mockReset();
     getCustomField.mockReset();
-    listTaskFieldValues.mockReset();
+    getTaskWithFields.mockReset();
   });
 
   it("returns list for the inbox view", async () => {

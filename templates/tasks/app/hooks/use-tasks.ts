@@ -3,6 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
 
 import type { TaskFieldValue } from "../../server/custom-fields/task-fields.js";
 import type { FieldValue } from "../../server/custom-fields/values/store.js";
@@ -12,7 +13,10 @@ import { LIST_TASKS_QUERY_KEY, invalidateTasks } from "./cache";
 export type { Task } from "../../server/tasks/store.js";
 export { LIST_TASKS_QUERY_KEY };
 
-export type TaskWithFields = Task & { fields?: TaskFieldValue[] };
+export type TaskWithFields = Task & {
+  fields?: TaskFieldValue[];
+  revision?: string;
+};
 
 type ListTasksData = { tasks: TaskWithFields[]; hasCompletedTasks?: boolean };
 
@@ -166,6 +170,7 @@ export function useUpdateTask() {
       title?: string;
       done?: boolean;
       fieldValues?: Array<{ fieldId: string; value: FieldValue | null }>;
+      expectedRevision?: string;
     }
   >("update-task", {
     onMutate: async ({ taskId, title, done, fieldValues }) => {
@@ -204,6 +209,20 @@ export function useUpdateTask() {
     },
     ...listTasksOptimisticLifecycle(queryClient),
   });
+}
+
+export function useReadCachedTask() {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (taskId: string): TaskWithFields | undefined => {
+      for (const [, data] of snapshotListTasksQueries(queryClient)) {
+        const task = data?.tasks.find((candidate) => candidate.id === taskId);
+        if (task?.fields && task.revision) return task;
+      }
+      return undefined;
+    },
+    [queryClient],
+  );
 }
 
 export function useDeleteTask() {
