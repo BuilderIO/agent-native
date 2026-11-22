@@ -57,7 +57,11 @@ import searchEverythingAction from "../../actions/search-everything.js";
 import searchKnowledgeAction from "../../actions/search-knowledge.js";
 import writeKnowledgeAction from "../../actions/write-knowledge.js";
 import { schema } from "../db/index.js";
-import { knowledgeRevision, writeKnowledgeRecord } from "./brain.js";
+import {
+  knowledgeRevision,
+  validateEvidence,
+  writeKnowledgeRecord,
+} from "./brain.js";
 
 const qaEmail = "qa-fleet@builder.io";
 const client = new PGlite();
@@ -356,6 +360,25 @@ describe("redaction covers every displayed field", () => {
       expect(seen.output).not.toContain(contact);
     },
   );
+
+  it("returns no source URL for a receipt-free transcript that has an omission marker", async () => {
+    await database
+      .update(schema.brainRawCaptures)
+      .set({
+        kind: "transcript",
+        content: `${captureContent}\n[…]\nThe rest of the call.`,
+        metadataJson: JSON.stringify({
+          sourceUrl: "https://example.test/full-recording",
+        }),
+      })
+      .where(eq(schema.brainRawCaptures.id, "capture"));
+    const [item] = await asQa(() =>
+      validateEvidence([
+        { captureId: "capture", quote: "Morgan will ship Atlas" },
+      ]),
+    );
+    expect(item).not.toHaveProperty("sourceUrl");
+  });
 
   it("keeps an ordinary safe citation URL on a redacted row", async () => {
     const saved = await asQa(() =>
