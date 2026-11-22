@@ -128,20 +128,22 @@ describe("get-feature-flags action", () => {
     );
   });
 
-  it.each(["direct", "wrapped"])(
-    "propagates a %s database connection timeout without per-flag reads",
-    async (shape) => {
+  it.each([
+    ["CONNECT_TIMEOUT", "direct"],
+    ["CONNECT_TIMEOUT", "wrapped"],
+    ["DB_CONNECT_COOLDOWN", "direct"],
+    ["DB_CONNECT_COOLDOWN", "wrapped"],
+    ["ECONNREFUSED", "direct"],
+    ["ECONNREFUSED", "wrapped"],
+    ["EAI_AGAIN", "direct"],
+    ["EAI_AGAIN", "wrapped"],
+  ])(
+    "propagates %s database errors (%s) without per-flag reads",
+    async (code, shape) => {
       registry.registerFeatureFlags([{ key: "flag-a" }, { key: "flag-b" }]);
-      const timeout = Object.assign(
-        new Error("DB connect timed out after 10000ms"),
-        {
-          code: "CONNECT_TIMEOUT",
-        },
-      );
+      const cause = Object.assign(new Error("Database unavailable"), { code });
       const error =
-        shape === "wrapped"
-          ? new Error("Failed query", { cause: timeout })
-          : timeout;
+        shape === "wrapped" ? new Error("Failed query", { cause }) : cause;
       getSettingsRawMock.mockRejectedValueOnce(error);
 
       await expect(
