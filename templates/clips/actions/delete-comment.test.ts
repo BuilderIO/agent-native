@@ -42,7 +42,7 @@ vi.mock("../server/lib/recording-comments.js", () => ({
         comment.resourceId === resourceId &&
         (!threadId || comment.threadId === threadId),
     ),
-  recordingReviewContext: (ctx?: { userEmail?: string }) => ({
+  commentDeleteContext: (ctx?: { userEmail?: string }) => ({
     ...ctx,
     userEmail: ctx?.userEmail ?? mockGetUserEmail() ?? undefined,
   }),

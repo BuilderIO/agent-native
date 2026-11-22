@@ -834,6 +834,37 @@ describe("Clips' comment access through the review kit", () => {
     expect(await compareAccess("acc-off", EDITOR)).toEqual(both(false, false));
   });
 
+  it("lets a viewer delete their own reply after the owner turns comments off", async () => {
+    await createRecording("acc-off-later", { shares: [[VIEWER, "viewer"]] });
+    const thread = await as(OWNER, () =>
+      addComment.run({
+        recordingId: "acc-off-later",
+        content: "Owner's note",
+        videoTimestampMs: 0,
+      }),
+    );
+    const reply = await as(VIEWER, () =>
+      addComment.run({
+        recordingId: "acc-off-later",
+        content: "Viewer's reply",
+        videoTimestampMs: 0,
+        threadId: thread.threadId,
+        parentId: thread.id,
+      }),
+    );
+    const { getDb, schema } = dbModule;
+    await getDb()
+      .update(schema.recordings)
+      .set({ enableComments: false })
+      .where(eq(schema.recordings.id, "acc-off-later"));
+
+    await expect(
+      as(VIEWER, () => deleteComment.run({ id: reply.id })),
+    ).resolves.toMatchObject({ deletedCommentIds: [reply.id] });
+    expect((await stored(reply.id))?.status).toBe("deleted");
+    expect((await stored(thread.id))?.status).toBe("open");
+  });
+
   it("lets a thread's author or an editor resolve it, and moves no one's comment in time", async () => {
     await createRecording("acc-resolve", {
       shares: [

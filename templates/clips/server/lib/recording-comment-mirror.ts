@@ -166,6 +166,7 @@ async function copyRecording(
 ): Promise<void> {
   try {
     const copied = await getDb().transaction(async (tx) => {
+      await lockRecordingCommentThreads(recordingId);
       const recordings = await tx
         .select(RECORDING_SHARING)
         .from(schema.recordings)

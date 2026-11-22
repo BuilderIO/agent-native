@@ -10,10 +10,10 @@ import { z } from "zod";
 
 import { assertCommentAccess } from "../server/lib/comment-access.js";
 import {
+  commentDeleteContext,
   findRecordingComment,
   RECORDING_REVIEW_RESOURCE,
   recordingKitComments,
-  recordingReviewContext,
 } from "../server/lib/recording-comments.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 
@@ -29,7 +29,7 @@ export default defineAction({
     const existing = await findRecordingComment(args.id);
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
-    const reviewCtx = recordingReviewContext(ctx);
+    const reviewCtx = commentDeleteContext(ctx);
     const isAuthor = sameOwnerEmail(existing.authorEmail, reviewCtx.userEmail);
 
     await assertCommentAccess(

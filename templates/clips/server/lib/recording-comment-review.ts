@@ -16,6 +16,7 @@ import { z } from "zod";
 import { sendRecordingCommentEmails } from "./activity-notifications.js";
 import { commentAccessRefusal } from "./comment-access.js";
 import {
+  isCommentDelete,
   RECORDING_REVIEW_RESOURCE,
   VIDEO_TIME_ANCHOR,
 } from "./recording-comments.js";
@@ -48,7 +49,8 @@ export async function resolveRecordingCommentAccess(
   if (!access) return null;
   const requestHeaders =
     ctx?.requestHeaders instanceof Headers ? ctx.requestHeaders : undefined;
-  if (commentAccessRefusal(recordingId, access, "read", requestHeaders)) {
+  const operation = isCommentDelete(ctx) ? "delete" : "read";
+  if (commentAccessRefusal(recordingId, access, operation, requestHeaders)) {
     return null;
   }
   return {
@@ -111,10 +113,12 @@ export async function guardRecordingCommentWrite(
   }
   const recordingId = eventRecordingId(event);
   // guard:allow-unscoped — the kit checked the writer's access before its write hook runs; this reads only whether comments are on.
-  const { rows } = await tx.execute(sql`SELECT enable_comments
+  const read = sql`SELECT enable_comments
       FROM recordings
-     WHERE id = ${sql.value(recordingId)}
-       FOR KEY SHARE`);
+     WHERE id = ${sql.value(recordingId)}`;
+  const { rows } = await tx.execute(
+    event.type === "created" ? sql`${read} FOR KEY SHARE` : read,
+  );
   if (!rows[0]?.enable_comments) {
     throw new ForbiddenError("Comments are turned off for this recording.");
   }

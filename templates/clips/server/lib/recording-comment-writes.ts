@@ -175,13 +175,13 @@ async function savedBeforeKit(
   };
 }
 
-async function keyed<T>(write: () => Promise<T>): Promise<T> {
+async function unlessKeyConflict<T>(
+  write: () => Promise<T>,
+): Promise<T | null> {
   try {
     return await write();
   } catch (error) {
-    if (error instanceof ReviewCommentSubmissionConflictError) {
-      refuseKey(KEY_USED);
-    }
+    if (error instanceof ReviewCommentSubmissionConflictError) return null;
     throw error;
   }
 }
@@ -221,9 +221,10 @@ export async function saveRecordingComment(
     args.mentions,
     recording.organizationId ?? "",
   );
-  let clientOperationId: string | undefined;
+  let keyedComment: { clientOperationId: string; target: KeyedComment } | null =
+    null;
   if (args.idempotencyKey) {
-    clientOperationId = commentClientOperationId(
+    const clientOperationId = commentClientOperationId(
       authorEmail,
       args.idempotencyKey,
     );
@@ -239,6 +240,7 @@ export async function saveRecordingComment(
       (await savedWithKey(clientOperationId, target)) ??
       (await savedBeforeKit(authorEmail, args.idempotencyKey, target));
     if (saved) return saved;
+    keyedComment = { clientOperationId, target };
   }
 
   const shared = {
@@ -247,9 +249,11 @@ export async function saveRecordingComment(
     body: args.content,
     authorName,
     mentions: kitMentions(mentions),
-    ...(clientOperationId ? { clientOperationId } : {}),
+    ...(keyedComment
+      ? { clientOperationId: keyedComment.clientOperationId }
+      : {}),
   };
-  const saved = await keyed(async () => {
+  const saved = await unlessKeyConflict(async () => {
     if (!parentId) {
       return createReviewComment.run(
         {
@@ -273,6 +277,13 @@ export async function saveRecordingComment(
       reviewCtx,
     );
   });
+  if (!saved) {
+    const replay =
+      keyedComment &&
+      (await savedWithKey(keyedComment.clientOperationId, keyedComment.target));
+    if (!replay) refuseKey(KEY_USED);
+    return replay;
+  }
 
   const result = {
     id: saved.id,

@@ -1890,6 +1890,36 @@ describe("video comments through a doc", () => {
       expect(state.notified).toHaveLength(1);
     });
 
+    it("saves one comment when the same people arrive in another order at once", async () => {
+      const ana = await readerInWorkspaces("clips-org");
+      const ben = await readerInWorkspaces("clips-org");
+      const asOwner = (mentions: { email: string; name: string }[]) =>
+        withDbExec(coreDb(), () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            addCommentAction.run({
+              recordingId: "rec-upload",
+              content: "Once",
+              videoTimestampMs: 2_500,
+              mentions,
+              idempotencyKey: KEY,
+            }),
+          ),
+        );
+      const [one, two] = await Promise.all([
+        asOwner([
+          { email: ana, name: "Ana" },
+          { email: ben, name: "Ben" },
+        ]),
+        asOwner([
+          { email: ben, name: "B." },
+          { email: ana, name: "Ana" },
+        ]),
+      ]);
+      expect(two.id).toBe(one.id);
+      expect(await storedComments()).toHaveLength(1);
+      expect(state.notified).toHaveLength(1);
+    });
+
     it("refuses a key that isn't one", async () => {
       const write = await token({ scope: SCOPES.comment });
       for (const key of [

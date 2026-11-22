@@ -64,6 +64,20 @@ export function recordingReviewContext(
   };
 }
 
+const DELETING_COMMENT = "clipsDeletingComment";
+
+export function commentDeleteContext(
+  ctx: ActionRunContext | undefined,
+): ActionRunContext & ReviewResourceContext {
+  return { ...recordingReviewContext(ctx), [DELETING_COMMENT]: true };
+}
+
+export function isCommentDelete(
+  ctx: ReviewResourceContext | undefined,
+): boolean {
+  return ctx?.[DELETING_COMMENT] === true;
+}
+
 export async function findRecordingComment(
   id: string,
 ): Promise<ReviewComment | null> {
