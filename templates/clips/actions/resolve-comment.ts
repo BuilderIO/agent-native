@@ -7,6 +7,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { assertCommentAccess } from "../server/lib/comment-access.js";
+import {
+  mirrorRecordingComments,
+  prepareRecordingCommentMirror,
+} from "../server/lib/recording-comment-mirror.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 const cliBoolean = z.preprocess((value) => {
@@ -61,10 +65,14 @@ export default defineAction({
     const next = args.resolved ?? !existing.resolved;
     const now = new Date().toISOString();
 
-    await db
-      .update(schema.recordingComments)
-      .set({ resolved: next, updatedAt: now })
-      .where(eq(schema.recordingComments.id, args.id));
+    await prepareRecordingCommentMirror();
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.recordingComments)
+        .set({ resolved: next, updatedAt: now })
+        .where(eq(schema.recordingComments.id, args.id));
+      await mirrorRecordingComments(tx, existing.recordingId, [args.id]);
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
