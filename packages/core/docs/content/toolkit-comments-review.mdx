@@ -195,7 +195,13 @@ app switches only once the stores agree. Sharing counts: the kit keeps the
 resource's owner, org and visibility on each copy, so a resource whose sharing
 changed since its comments were copied differs until they're copied again. `listMirroredResourceIds(type, page)`
 finds resources with comments only the kit still has, which a copy driven by
-the app's own table would miss.
+the app's own table would miss. While the first copy rolls out, a server still
+on the old code can delete a comment only in the app's table, after a reply
+went in through the kit's own actions. `deleteOrphanedMirroredReplies(resource,
+ids)` deletes the comments among `ids` whose thread's first comment or parent
+the kit no longer holds, as the kit's own delete would have; a copy passes it
+the `extra` comments. The app runs the copy once more in a later release, once
+every server writes both stores, to catch what the old servers wrote.
 
 At the switch the app's actions keep their names and results but call the
 kit's actions, `commentsWrittenByApp` comes off, and the copy runs once more

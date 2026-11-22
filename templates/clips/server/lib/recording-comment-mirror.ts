@@ -2,6 +2,7 @@ import { getDbExec } from "@agent-native/core/db";
 import {
   compareMirroredReviewComments,
   deleteMirroredReviewComments,
+  deleteOrphanedMirroredReplies,
   ensureReviewTables,
   listMirroredResourceIds,
   mirrorReviewComments,
@@ -143,6 +144,7 @@ export interface RecordingCommentCopyReport {
   failedRecordings: string[];
   differences: Array<{ recordingId: string } & ReviewMirrorDifference>;
   kitWrittenComments: Array<{ recordingId: string; id: string }>;
+  orphanedReplies: Array<{ recordingId: string; id: string }>;
 }
 
 const RECORDING_PAGE_SIZE = 200;
@@ -160,6 +162,7 @@ export async function copyRecordingCommentsToReviewKit(): Promise<RecordingComme
     failedRecordings: [],
     differences: [],
     kitWrittenComments: [],
+    orphanedReplies: [],
   };
   let after = "";
   for (;;) {
@@ -252,10 +255,14 @@ async function copyRecording(
           ? new Set<string>()
           : await copiedFromClips(recordingId);
       const stale = extra.filter((id) => fromClips.has(id));
-      const kitWritten = extra.filter((id) => !fromClips.has(id));
+      const kitOnly = extra.filter((id) => !fromClips.has(id));
       if (stale.length > 0) {
         await deleteMirroredRecordingComments(recordingId, stale);
       }
+      const { deleted: orphaned } = await deleteOrphanedMirroredReplies(
+        resource,
+        kitOnly,
+      );
       const remaining =
         stale.length === 0
           ? differences
@@ -263,11 +270,11 @@ async function copyRecording(
       return {
         rows,
         copies,
-        kitWritten,
+        kitWritten: kitOnly.filter((id) => !orphaned.includes(id)),
+        orphaned,
         differences: remaining.filter(
           (difference) =>
-            difference.problem !== "extra" ||
-            !kitWritten.includes(difference.id),
+            difference.problem !== "extra" || !kitOnly.includes(difference.id),
         ),
       };
     });
@@ -287,6 +294,9 @@ async function copyRecording(
     }
     for (const id of copied.kitWritten) {
       report.kitWrittenComments.push({ recordingId, id });
+    }
+    for (const id of copied.orphaned) {
+      report.orphanedReplies.push({ recordingId, id });
     }
   } catch (error) {
     report.failedRecordings.push(recordingId);

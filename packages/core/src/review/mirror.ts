@@ -505,6 +505,48 @@ export async function deleteMirroredReviewComments(
 }
 
 /**
+ * Deletes the comments among `ids` whose thread's first comment, or whose
+ * parent, the kit has deleted or never held. A startup copy passes the
+ * comments only the kit holds: a reply written through the kit's own actions
+ * under a comment the app deleted only in its own table, which the kit would
+ * have deleted with its thread had the delete gone through the kit.
+ */
+export async function deleteOrphanedMirroredReplies(
+  resource: ReviewMirrorResource,
+  ids: readonly string[],
+): Promise<{ deleted: string[] }> {
+  if (ids.length === 0) return { deleted: [] };
+  await prepareTables();
+  const orphaned = await inWrite(async (client) => {
+    const found: string[] = [];
+    for (const batch of chunks(ids)) {
+      const { rows } = await client.execute(sql`SELECT c.id
+            FROM agent_review_comments c
+           WHERE c.resource_type = ${sql.value(resource.resourceType)}
+             AND c.resource_id = ${sql.value(resource.resourceId)}
+             AND c.deleted_at IS NULL
+             AND c.id IN ${sql.in(batch)}
+             AND ((c.thread_id <> c.id
+                   AND NOT EXISTS (SELECT 1 FROM agent_review_comments root
+                                    WHERE root.id = c.thread_id
+                                      AND root.resource_type = c.resource_type
+                                      AND root.resource_id = c.resource_id
+                                      AND root.deleted_at IS NULL))
+               OR (c.parent_comment_id IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM agent_review_comments parent
+                                    WHERE parent.id = c.parent_comment_id
+                                      AND parent.resource_type = c.resource_type
+                                      AND parent.resource_id = c.resource_id
+                                      AND parent.deleted_at IS NULL)))`);
+      for (const row of rows) found.push(String(row.id));
+    }
+    return found;
+  });
+  await deleteMirroredReviewComments(resource, orphaned);
+  return { deleted: orphaned };
+}
+
+/**
  * Locks a resource's live thread roots `FOR UPDATE`, in ID order, the order
  * the kit's own writes take them. A comment write holds its thread before the
  * app's write hook reads the resource's row, so an app deleting a resource
