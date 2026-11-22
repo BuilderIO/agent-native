@@ -3228,6 +3228,46 @@ function hasCommunityPrCorrection(message) {
 }
 const COMMUNITY_PR_HANDLING_PATTERN = { matches: hasCommunityPrCorrection };
 
+// Fleet corrections: match complaints, not routine status or requests to measure.
+const FLEET_PATTERNS = [
+  {
+    key: "fleet-m5-idle",
+    label: "M5 idle while work needs capacity",
+    fixedBy: "fleet-ops briefs/LEAD.md: Hourly check-in, item 1",
+    re: /\b(?:m5\b[^.!?\n]{0,100}\b(?:idle|idling|underutili[sz]ed|underused|no (?:jobs|work))|(?:idle|idling)\b[^.!?\n]{0,60}\bm5)\b/i,
+  },
+  {
+    key: "fleet-dropped-asks",
+    label: "Dropped or overdue ask / empty dashboard",
+    fixedBy: "fleet-ops briefs/LEAD.md: Operator loop, Stay responsive (no specific overdue-ask rule)",
+    re: /\b(?:asked|requested)\b[^.!?\n]{0,100}\b(?:24\s*(?:h|hours?)|yesterday|days? ago|still (?:not|hasn['’]t|haven['’]t))\b|\b(?:dropped|forgotten|missed)\s+(?:my |the |an? )?(?:asks?|requests?)\b|\b(?:dashboard|board)\b[^.!?\n]{0,70}\b(?:empty|blank)\b/i,
+  },
+  {
+    key: "fleet-unmeasured-panels",
+    label: "Dashboard panels unmeasured or unavailable",
+    fixedBy: "fleet-ops briefs/LEAD.md: Operator loop, report-only fleet health telemetry",
+    re: /\b(?:dashboard|panels?|metrics?|scorecard)\b[^.!?\n]{0,80}\b(?:unmeasured|unavailable|not measured|missing data|no data)\b|\b(?:unmeasured|unavailable)\b[^.!?\n]{0,60}\b(?:dashboard|panels?|metrics?|scorecard)\b/i,
+  },
+  {
+    key: "fleet-outward-copy",
+    label: "Outward messages sound machine-written",
+    fixedBy: "fleet-ops briefs/RULES.md: 21 (contact boundary; no outward-copy quality rule)",
+    re: /\b(?:messages?|repl(?:y|ies)|emails?|posts?)\b[^.!?\n]{0,100}\b(?:sounds?|reads?|looks?)\s+(?:like\s+)?(?:an?\s+)?(?:ai|bot|robot|robotic|machine[- ]written)\b|\b(?:ai|bot|robotic)\b[^.!?\n]{0,60}\b(?:sounding|generated)\s+(?:messages?|repl(?:y|ies)|emails?|posts?)\b/i,
+  },
+];
+
+const FLEET_REGEX_CASES = [
+  ["fleet-m5-idle", true, "M5 idle again with work queued"],
+  ["fleet-m5-idle", false, "M5 has work running"],
+  ["fleet-dropped-asks", true, "I asked for this 24 hours ago"],
+  ["fleet-dropped-asks", true, "Why is the dashboard empty?"],
+  ["fleet-dropped-asks", false, "Please add this to the dashboard"],
+  ["fleet-unmeasured-panels", true, "These dashboard panels are unavailable"],
+  ["fleet-unmeasured-panels", false, "Measure the dashboard panels"],
+  ["fleet-outward-copy", true, "Those replies sound like a bot"],
+  ["fleet-outward-copy", false, "Read the messages in the channel"],
+];
+
 function matchesPattern(pattern, text) {
   return pattern.matches
     ? pattern.matches(text)
@@ -3714,6 +3754,13 @@ if (process.argv.includes("--self-test")) {
       FEEDBACK_UNREQUESTED_SLACK_POSTS_RE.test(message) !== expected,
   );
   failures.push(
+    ...FLEET_REGEX_CASES.filter(
+      ([key, expected, message]) =>
+        FLEET_PATTERNS.find((pattern) => pattern.key === key).re.test(message) !==
+        expected,
+    ),
+  );
+  failures.push(
     ...FEEDBACK_REGEX_CASES.filter(
       ([expected, message]) =>
         UNANSWERED_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
@@ -4084,13 +4131,14 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_UNREQUESTED_SLACK_POSTS_CASES.length + FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + SNAPSHOT_DIFF_REVIEW_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + FEEDBACK_REPORTS_MISSED_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FLEET_REGEX_CASES.length + FEEDBACK_UNREQUESTED_SLACK_POSTS_CASES.length + FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + SNAPSHOT_DIFF_REVIEW_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + FEEDBACK_REPORTS_MISSED_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
 }
 
 const PATTERNS = [
+  ...FLEET_PATTERNS,
   {
     key: "snapshot-oracle-diff",
     label: "Had to clarify snapshot output is reviewed as a diff",
