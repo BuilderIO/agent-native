@@ -254,7 +254,7 @@ describe("redaction covers every displayed field", () => {
     expect(fetched.knowledge?.evidence[0]).not.toHaveProperty("capturedAt");
   });
 
-  it.each(["2026-11", "Nov 18"])(
+  it.each(["2026-11", "Nov 18", "November 18", "18 novembre"])(
     "does not bring a redacted meeting time back after an edit for %s",
     async (redaction) => {
       await database
