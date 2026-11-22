@@ -726,6 +726,21 @@ export async function readCachedLabels(
   return { labels: [...labelsById.values()], labelMapByAccount };
 }
 
+export async function addCachedGmailLabel(
+  ownerEmail: string,
+  accountEmail: string,
+  label: CachedGmailLabel,
+): Promise<void> {
+  const account = (await readSyncAccounts(ownerEmail)).find(
+    (row) => row.accountEmail === accountEmail.toLowerCase(),
+  );
+  if (!account?.labels || account.labels.some((row) => row.id === label.id))
+    return;
+  await patchSyncAccount(ownerEmail, accountEmail, {
+    labels: [...account.labels, label],
+  });
+}
+
 export type LocalLabelDelta = {
   add?: string[];
   remove?: string[];

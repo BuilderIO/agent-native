@@ -1,5 +1,4 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
@@ -25,6 +24,8 @@ import {
   IconInbox,
   IconMail,
   IconMailOpened,
+  IconPlus,
+  IconTag,
   IconTrash,
   IconX,
   IconSettings,
@@ -88,8 +89,6 @@ import {
   useBulkMarkRead,
   useLabels,
   EMPTY_LABELS,
-  useMoveEmail,
-  MoveEmailPartialFailure,
   releaseOwnedInboxRemoval,
   releaseSuppressionClaims,
   type AccountError,
@@ -119,6 +118,13 @@ import {
   retryNextPage as runPaginationRetry,
   shouldShowPaginationRetry,
 } from "./infinite-pagination";
+import {
+  LabelPicker,
+  useApplyLabel,
+  type LabelChoice,
+  type LabelPickerAction,
+  type LabelPickerRequest,
+} from "./LabelPicker";
 
 type EmailsPage = { emails: EmailMessage[]; nextPageToken?: string };
 type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
@@ -671,7 +677,10 @@ export function EmailList({
     () => new Map(labels.map((label) => [label.id, label.name])),
     [labels],
   );
-  const moveEmail = useMoveEmail();
+  const applyLabel = useApplyLabel(labelParam || undefined);
+  const [labelPicker, setLabelPicker] = useState<LabelPickerRequest | null>(
+    null,
+  );
   const cancelScheduledJob = useDeleteScheduledJob();
   const sendScheduledJobNow = useSendScheduledJobNow();
   const confirmUncertainScheduled = useConfirmUncertainScheduledEmail();
@@ -680,12 +689,13 @@ export function EmailList({
     null,
   );
   const queryClient = useQueryClient();
+  const userLabels = useMemo(
+    () => labels.filter((label) => label.type === "user"),
+    [labels],
+  );
   const movableLabels = useMemo(
-    () =>
-      labels.filter(
-        (label) => label.type === "user" && label.id !== labelParam,
-      ),
-    [labels, labelParam],
+    () => userLabels.filter((label) => label.id !== labelParam),
+    [userLabels, labelParam],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1892,57 +1902,24 @@ export function EmailList({
     setSelectedIds,
   ]);
 
-  const moveFocusedToLabel = useCallback(
-    async (labelId: string, labelName: string) => {
-      const keys = getActionThreadKeys();
-      if (keys.length === 0) return;
-      const targets = resolveTargets(keys);
-      try {
-        const result = await moveEmail.mutateAsync({
-          id: targets.map((target) => target.latestMessage.id).join(","),
-          label: labelId,
-          removeLabel: labelParam || undefined,
-          accountEmails: targets
-            .map((target) => target.latestMessage.accountEmail ?? "")
-            .join(","),
-          threadIds: targets
-            .map(
-              (target) =>
-                target.latestMessage.threadId || target.latestMessage.id,
-            )
-            .join(","),
-        });
-        setSelectedIds(new Set());
-        toast(
-          targets.length > 1
-            ? t("mail.toasts.moveManySucceeded", {
-                count: result.succeeded.length,
-                label: labelName,
-              })
-            : t("mail.toasts.moveSucceeded", { label: labelName }),
-        );
-      } catch (error) {
-        if (error instanceof MoveEmailPartialFailure) {
-          reportWriteFailure(error, {
-            label: t("mail.toasts.movePartialFailed", {
-              succeeded: error.result.succeeded.length,
-              total: error.result.requested.length,
-              failed: error.result.failed.length,
-            }),
-          });
-        } else {
-          toast.error(actionErrorMessage(error) ?? t("mail.toasts.moveFailed"));
-        }
-      }
+  const openLabelPicker = useCallback(
+    (action: LabelPickerAction, createOnly = false) => {
+      if (getActionThreadKeys().length === 0) return;
+      setLabelPicker({ action, createOnly });
     },
-    [
-      getActionThreadKeys,
-      resolveTargets,
-      moveEmail,
-      labelParam,
-      setSelectedIds,
-      t,
-    ],
+    [getActionThreadKeys],
+  );
+
+  const labelFocused = useCallback(
+    (action: LabelPickerAction, choice: LabelChoice) => {
+      const targets = resolveTargets(getActionThreadKeys()).map(
+        (target) => target.latestMessage,
+      );
+      if (targets.length === 0) return;
+      setSelectedIds(new Set());
+      void applyLabel(action, choice, targets);
+    },
+    [applyLabel, getActionThreadKeys, resolveTargets, setSelectedIds],
   );
 
   const getThreadMessagesForKey = useCallback(
@@ -2063,6 +2040,8 @@ export function EmailList({
       { key: "#", shift: "either", handler: trashFocused },
       { key: "u", handler: toggleFocusedRead },
       { key: "x", handler: toggleFocusedSelection },
+      { key: "l", handler: () => openLabelPicker("label") },
+      { key: "v", handler: () => openLabelPicker("move") },
       { key: "s", handler: starFocused },
       { key: "r", handler: replyFocused },
       { key: "f", handler: forwardFocused },
@@ -2683,25 +2662,46 @@ export function EmailList({
                 <IconMail className="h-3.5 w-3.5" />
                 {t("mail.actions.markUnread")}
               </DropdownMenuItem>
-              {movableLabels.length > 0 && (
-                <DropdownMenuSub>
+              {(
+                [
+                  ["label", userLabels, IconTag, "mail.actions.labelAs"],
+                  ["move", movableLabels, IconFolder, "mail.actions.moveTo"],
+                ] as const
+              ).map(([action, choices, Icon, titleKey]) => (
+                <DropdownMenuSub key={action}>
                   <DropdownMenuSubTrigger>
-                    <IconFolder className="h-3.5 w-3.5" />
-                    {t("mail.actions.moveTo")}
+                    <Icon className="h-3.5 w-3.5" />
+                    {t(titleKey)}
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="max-h-72 w-56 overflow-y-auto">
-                    {movableLabels.map((label) => (
+                    {choices.map((label) => (
                       <DropdownMenuItem
                         key={label.id}
-                        onClick={() => moveFocusedToLabel(label.id, label.name)}
+                        onClick={() =>
+                          labelFocused(action, {
+                            id: label.id,
+                            name: label.name,
+                            isNew: false,
+                          })
+                        }
                         className="text-xs"
                       >
-                        {label.name}
+                        <span data-an-block className="truncate">
+                          {label.name}
+                        </span>
                       </DropdownMenuItem>
                     ))}
+                    {choices.length > 0 && <DropdownMenuSeparator />}
+                    <DropdownMenuItem
+                      onClick={() => openLabelPicker(action, true)}
+                      className="text-xs"
+                    >
+                      <IconPlus className="h-3.5 w-3.5" />
+                      {t("mail.actions.newLabel")}
+                    </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
-              )}
+              ))}
               {view !== "trash" && (
                 <DropdownMenuItem
                   onClick={trashFocused}
@@ -2745,8 +2745,10 @@ export function EmailList({
       archiveFocused,
       markFocusedRead,
       markFocusedUnread,
+      userLabels,
       movableLabels,
-      moveFocusedToLabel,
+      labelFocused,
+      openLabelPicker,
       view,
       trashFocused,
       selectAllThreads,
@@ -2943,6 +2945,12 @@ export function EmailList({
           action={aiFilterDialog?.action ?? "filter"}
           targets={aiFilterDialog?.targets ?? []}
           onComplete={() => setSelectedIds(new Set())}
+        />
+        <LabelPicker
+          request={labelPicker}
+          labels={labelPicker?.action === "move" ? movableLabels : userLabels}
+          onClose={() => setLabelPicker(null)}
+          onPick={(choice, action) => labelFocused(action, choice)}
         />
         <div
           style={{
