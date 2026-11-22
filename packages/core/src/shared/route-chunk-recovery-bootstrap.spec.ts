@@ -35,6 +35,7 @@ function installBootstrap(
   href = "https://example.test/apps?tab=activity#latest",
   userAgent = "Mozilla/5.0",
   sessionStorageThrows = false,
+  onLine = true,
 ) {
   let onError: ((event: BootstrapResourceError) => void) | undefined;
   const sessionValues = new Map<string, string>();
@@ -63,7 +64,7 @@ function installBootstrap(
       },
     },
     location,
-    navigator: { userAgent },
+    navigator: { userAgent, onLine },
     sessionStorage: {
       getItem: (key: string) => {
         if (sessionStorageThrows)
@@ -88,6 +89,27 @@ function installBootstrap(
 }
 
 describe("route chunk recovery bootstrap", () => {
+  it("leaves an offline module failure alone so the app stays mounted", () => {
+    const { assign, dispatchEvent, onError, sessionValues, windowState } =
+      installBootstrap(undefined, undefined, false, false);
+    const stopImmediatePropagation = vi.fn();
+
+    onError({
+      target: {
+        src: "https://example.test/assets/route.js",
+        tagName: "SCRIPT",
+        type: "module",
+      },
+      stopImmediatePropagation,
+    });
+
+    expect(assign).not.toHaveBeenCalled();
+    expect(sessionValues.has(STALE_CHUNK_RELOAD_AT_KEY)).toBe(false);
+    expect(windowState[STALE_CHUNK_RELOAD_AT_KEY]).toBeUndefined();
+    expect(dispatchEvent).not.toHaveBeenCalled();
+    expect(stopImmediatePropagation).not.toHaveBeenCalled();
+  });
+
   it("retries required module failures before client handlers can classify them", () => {
     const { assign, onError, sessionValues, windowState } = installBootstrap();
     const stopImmediatePropagation = vi.fn();

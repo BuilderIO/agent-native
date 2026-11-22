@@ -70,6 +70,7 @@ if(typeof window.dispatchEvent==="function"&&typeof CustomEvent==="function")win
 }
 return;
 }
+if(navigator.onLine===false)return;
 if(/^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/.test(location.hostname))return;
 if(url.pathname.endsWith(pathSuffix)||url.pathname.endsWith(pathSuffix+"/")||url.searchParams.get(queryParam)===queryValue)return;
 const now=Date.now();

@@ -35,6 +35,7 @@ export interface RouteChunkRecoveryState {
   routeModuleFailureAt: number;
   recoveryHref: string | null;
   recovering: boolean;
+  offlineRetryHref: string | null;
 }
 
 export function createRouteChunkRecoveryState(): RouteChunkRecoveryState {
@@ -44,6 +45,7 @@ export function createRouteChunkRecoveryState(): RouteChunkRecoveryState {
     routeModuleFailureAt: 0,
     recoveryHref: null,
     recovering: false,
+    offlineRetryHref: null,
   };
 }
 
@@ -287,6 +289,10 @@ function isModuleAssetLoadFailure(win: Window, event: Event): boolean {
   return !target.src || isAppAssetHref(win, target.src);
 }
 
+function isOffline(win: Window): boolean {
+  return win.navigator?.onLine === false;
+}
+
 function isAgentNativeDesktop(win: Window): boolean {
   return /AgentNativeDesktop/i.test(win.navigator?.userAgent || "");
 }
@@ -398,6 +404,8 @@ export function reloadForStaleChunk(
   now = Date.now(),
 ): boolean {
   if (!win?.location) return false;
+  // A network failure is not a stale deploy; keep recovery armed for later.
+  if (isOffline(win)) return false;
   if (isAgentNativeDesktop(win)) {
     reportStaleChunkRecoveryExhausted(win, "desktop");
     return false;
@@ -458,6 +466,10 @@ function recoverToIntendedNavigation(
       : null;
   const recoveryTarget = target ?? sameCurrentTarget;
   if (!recoveryTarget) return false;
+  if (isOffline(win)) {
+    state.offlineRetryHref = recoveryTarget;
+    return false;
+  }
   state.recovering = true;
   state.recoveryHref = recoveryTarget;
   if (isAgentNativeDesktop(win)) {
@@ -502,7 +514,10 @@ function patchHistoryMethod(
   win.history[method] = function patchedHistoryMethod(...args) {
     if (typeof args[2] === "string" || args[2] instanceof URL) {
       const href = sameOriginHref(win, String(args[2]));
-      if (href) rememberIntendedNavigation(state, href);
+      if (href) {
+        rememberIntendedNavigation(state, href);
+        state.offlineRetryHref = null;
+      }
     }
     const result = original.apply(this, args);
     recordNav();
@@ -590,6 +605,13 @@ export function installRouteChunkRecovery(
   patchHistoryMethod(win, state, "pushState");
   patchHistoryMethod(win, state, "replaceState");
   patchReload(win, state);
+
+  win.addEventListener("online", () => {
+    const href = state.offlineRetryHref;
+    if (!href) return;
+    state.offlineRetryHref = null;
+    hardNavigate(win, href);
+  });
 
   win.addEventListener("unhandledrejection", (event) => {
     const reason = (event as PromiseRejectionEvent).reason;

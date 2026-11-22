@@ -32,6 +32,7 @@ function createFakeWindow(
     lockReload?: boolean;
     sessionStorageGetterThrows?: boolean;
     sessionStorageThrows?: boolean;
+    offline?: boolean;
     userAgent?: string;
     viteDevRecovery?: boolean;
   } = {},
@@ -107,6 +108,7 @@ function createFakeWindow(
     sessionStorage,
     navigator: {
       userAgent: opts.userAgent ?? "Mozilla/5.0",
+      onLine: !opts.offline,
     },
     console: {
       error: vi.fn(),
@@ -137,6 +139,9 @@ function createFakeWindow(
     originalPushState,
     originalReplaceState,
     originalReload,
+    setOnline(onLine: boolean) {
+      (fakeWindow.navigator as { onLine: boolean }).onLine = onLine;
+    },
     dispatchDocument(type: string, event: Event) {
       for (const listener of documentListeners.get(type) ?? []) listener(event);
     },
@@ -144,6 +149,12 @@ function createFakeWindow(
       for (const listener of windowListeners.get(type) ?? []) listener(event);
     },
   };
+}
+
+function offlineFailureEvent(): Event {
+  return Object.assign(new Event("unhandledrejection"), {
+    reason: new Error("Failed to fetch dynamically imported module: /a.js"),
+  });
 }
 
 function expectRecoveryNavigation(
@@ -172,6 +183,109 @@ function expectRecoveryNavigation(
 }
 
 describe("route chunk recovery", () => {
+  const routeModuleError =
+    "Error loading route module `/dispatch/assets/route.js`, reloading page...";
+  const intendedHref = "https://example.com/dispatch/new-app";
+
+  function offlineClickFailure() {
+    const harness = createFakeWindow("https://example.com/dispatch/apps", {
+      offline: true,
+    });
+    installRouteChunkRecovery(harness.fakeWindow);
+    rememberRouteChunkRecoveryNavigation(intendedHref, harness.fakeWindow);
+    return harness;
+  }
+
+  it("keeps the app mounted when a router route module fails offline", () => {
+    const { fakeWindow, fakeLocation, originalReplaceState, originalReload } =
+      offlineClickFailure();
+    const exhausted = vi.fn();
+    fakeWindow.addEventListener(
+      STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
+      exhausted,
+    );
+
+    fakeWindow.console.error(routeModuleError);
+    fakeWindow.location.reload();
+
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+    expect(originalReload).not.toHaveBeenCalled();
+    expect(originalReplaceState).not.toHaveBeenCalled();
+    expect(fakeWindow.sessionStorage.getItem(STALE_CHUNK_RELOAD_AT_KEY)).toBe(
+      null,
+    );
+    expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
+    expect(exhausted).not.toHaveBeenCalled();
+  });
+
+  it("does not hard-navigate or arm the cooldown for an offline dynamic import failure", () => {
+    const { fakeWindow, fakeLocation, dispatchWindow } = offlineClickFailure();
+
+    dispatchWindow(
+      "unhandledrejection",
+      Object.assign(new Event("unhandledrejection"), {
+        reason: new Error("Failed to fetch dynamically imported module: /a.js"),
+      }),
+    );
+
+    expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(false);
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+    expect(fakeWindow.sessionStorage.getItem(STALE_CHUNK_RELOAD_AT_KEY)).toBe(
+      null,
+    );
+    expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
+  });
+
+  it("navigates to the plain intended target once when back online", () => {
+    const { fakeLocation, dispatchWindow, setOnline } = offlineClickFailure();
+
+    dispatchWindow("unhandledrejection", offlineFailureEvent());
+    setOnline(true);
+    dispatchWindow("online", new Event("online"));
+    dispatchWindow("online", new Event("online"));
+
+    expect(fakeLocation.assign).toHaveBeenCalledOnce();
+    expect(fakeLocation.assign).toHaveBeenCalledWith(intendedHref);
+  });
+
+  it("retries only the latest offline target", () => {
+    const { fakeWindow, fakeLocation, dispatchWindow, setOnline } =
+      offlineClickFailure();
+    const latest = "https://example.com/dispatch/other";
+
+    dispatchWindow("unhandledrejection", offlineFailureEvent());
+    rememberRouteChunkRecoveryNavigation(latest, fakeWindow);
+    dispatchWindow("unhandledrejection", offlineFailureEvent());
+    setOnline(true);
+    dispatchWindow("online", new Event("online"));
+
+    expect(fakeLocation.assign).toHaveBeenCalledOnce();
+    expect(fakeLocation.assign).toHaveBeenCalledWith(latest);
+  });
+
+  it("drops the pending offline target after navigating elsewhere", () => {
+    const { fakeWindow, fakeLocation, dispatchWindow, setOnline } =
+      offlineClickFailure();
+
+    dispatchWindow("unhandledrejection", offlineFailureEvent());
+    fakeWindow.history.pushState(null, "", "/dispatch/settings");
+    setOnline(true);
+    dispatchWindow("online", new Event("online"));
+
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+  });
+
+  it("still recovers a stale chunk when a failure happens online after an offline one", () => {
+    const { fakeWindow, fakeLocation, dispatchWindow, setOnline } =
+      offlineClickFailure();
+
+    dispatchWindow("unhandledrejection", offlineFailureEvent());
+    setOnline(true);
+
+    expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
+    expectRecoveryNavigation(fakeLocation, "https://example.com/dispatch/apps");
+  });
+
   it("detects React Router and dynamic import failures", () => {
     expect(
       isRouteModuleReloadMessage(
@@ -645,7 +759,7 @@ describe("route chunk recovery", () => {
     installRouteChunkRecovery(fakeWindow);
 
     expect(fakeWindow.document.addEventListener).toHaveBeenCalledTimes(2);
-    expect(fakeWindow.addEventListener).toHaveBeenCalledTimes(2);
+    expect(fakeWindow.addEventListener).toHaveBeenCalledTimes(3);
   });
 
   it("reloads for a failed module preload while ignoring other resource errors", () => {
