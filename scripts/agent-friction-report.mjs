@@ -3230,21 +3230,30 @@ const COMMUNITY_PR_HANDLING_PATTERN = { matches: hasCommunityPrCorrection };
 
 // Exclude negated, completed, and measurement-only statements in the same clause.
 function fleetCorrection(re, text) {
-  return String(text)
-    .split(/[.!?;\n]|\b(?:but|however)\b/i)
-    .some(
-      (clause) =>
-        re.test(clause) &&
-        !/\b(?:not|isn['’]t|aren['’]t|wasn['’]t|weren['’]t|never|no longer)\s+(?:\w+\s+){0,4}(?:idle|idling|underused|underutili[sz]ed|sound|sounds|read|reads|look|looks|empty|blank|unavailable)\b/i.test(
-          clause,
-        ) &&
-        !/\b(?:you|we)\s+(?:have\s+)?(?:finished|completed|fixed|delivered|resolved)\b/i.test(
-          clause,
-        ) &&
-        !/\b(?:measure|measuring|count|track|report|evaluate|audit|assess)\b[^.!?\n]{0,100}\b(?:how (?:often|many)|whether|if)\b/i.test(
-          clause,
-        ),
-    );
+  for (const sentence of String(text).split(/[.!?;\n]/)) {
+    let offset = 0;
+    for (const clause of sentence.split(/\b(?:and|but|however)\b/i)) {
+      const start = sentence.indexOf(clause, offset);
+      offset = start + clause.length;
+      const hit = re.exec(clause);
+      if (!hit) continue;
+      const after = sentence.slice(start + hit.index + hit[0].length);
+      if (
+        /\b(?:not|isn['’]t|aren['’]t|wasn['’]t|weren['’]t|don['’]t|doesn['’]t|didn['’]t|never|no longer)\s+(?:\w+\s+){0,4}(?:idle|idling|underused|underutili[sz]ed|sound|sounds|read|reads|look|looks|empty|blank|unavailable)\b/i.test(
+          hit[0],
+        ) ||
+        /^\s*,?\s*(?:(?:and|but)\s+)?(?:you|we|it|that|this)\s+(?:(?:have|has|had|was|is)\s+)?(?:finished|completed|fixed|delivered|resolved|done)\b/i.test(
+          after,
+        ) ||
+        /\b(?:measure|measuring|count|track|report|evaluate|audit|assess)\s+(?:how\s+(?:often|many)|whether|if)\b/i.test(
+          clause.slice(0, hit.index),
+        )
+      )
+        continue;
+      return true;
+    }
+  }
+  return false;
 }
 
 const FLEET_PATTERNS = [
@@ -3285,8 +3294,12 @@ const FLEET_REGEX_CASES = [
   ["fleet-m5-idle", false, "M5 has work running"],
   ["fleet-m5-idle", false, "M5 is not idle"],
   ["fleet-m5-idle", true, "M5 was not idle, but M5 is idle again"],
+  ["fleet-m5-idle", true, "You completed the M5 ticket and M5 is idle again"],
+  ["fleet-m5-idle", true, "Track M5 idle and fix it if it stalls"],
   ["fleet-dropped-asks", true, "I asked for this 24 hours ago"],
   ["fleet-dropped-asks", true, "Why is the dashboard empty?"],
+  ["fleet-dropped-asks", true, "The dashboard is empty and M5 is not idle"],
+  ["fleet-dropped-asks", false, "The dashboard was empty, but we fixed it"],
   ["fleet-dropped-asks", false, "Please add this to the dashboard"],
   ["fleet-dropped-asks", false, "I asked yesterday and you finished it"],
   ["fleet-dropped-asks", true, "I asked yesterday and it is still not done"],
@@ -3301,6 +3314,7 @@ const FLEET_REGEX_CASES = [
   ["fleet-outward-copy", true, "Those replies sound like a bot"],
   ["fleet-outward-copy", false, "Read the messages in the channel"],
   ["fleet-outward-copy", false, "These replies do not sound like a bot"],
+  ["fleet-outward-copy", false, "These replies don't sound like a bot"],
 ];
 
 function matchesPattern(pattern, text) {
