@@ -1223,6 +1223,27 @@ describe("comment review interactions", () => {
       expect(resolveButtons()).toHaveLength(1);
     });
 
+    it("offers no Resolve until Accept has saved", () => {
+      const showSaving = (saving: boolean) =>
+        render("one", [thread("one")], "inline", {
+          suggestions: [
+            asked("first", "accepted"),
+            asked("second", "accepted"),
+          ],
+          onDecideSuggestionProposal: decide,
+          decidingSuggestion: (id) => saving && id === "first",
+        });
+
+      showSaving(true);
+      expect(
+        container.querySelector("[data-thread-suggestion-decided]"),
+      ).not.toBeNull();
+      expect(resolveButtons()).toHaveLength(0);
+
+      showSaving(false);
+      expect(resolveButtons()).toHaveLength(1);
+    });
+
     it("marks each edit it steps to on the page", () => {
       const onStepThreadSuggestion = vi.fn();
       render("one", [thread("one")], "inline", {

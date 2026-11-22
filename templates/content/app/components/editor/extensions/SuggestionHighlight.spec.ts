@@ -768,6 +768,10 @@ describe("SuggestionHighlight", () => {
     expect(css).toMatch(
       /\.content-editor\s+\.suggestion-block-widget\.suggestion-highlight--active\[data-suggestion-widget\]\s*\{\s*box-shadow: inset 3px 0 hsl\(var\(--suggestion\)\);/,
     );
+    // A whole new line keeps only its edge bar; a removed one stays struck.
+    expect(css).toMatch(
+      /\.content-editor\s+\.suggestion-block-widget\.suggestion-highlight--active\[data-suggestion-widget\]:not\(\s*\.suggestion-delete-widget\s*\)\s*\{\s*text-decoration: none;\s*\}/,
+    );
   });
 
   it("sets new words apart from the whole words they replace", () => {

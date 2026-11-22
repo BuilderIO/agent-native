@@ -232,7 +232,13 @@ export function ThreadSuggestionBody({
   const groupRef = useRef<HTMLDivElement>(null);
   const settledRef = useRef<HTMLDivElement>(null);
   const showRef = useRef<HTMLButtonElement>(null);
-  const decidingHere = useRef(false);
+  // Edits decided here. The card follows the outcome only when they were the
+  // last to settle, so a teammate deciding the rest doesn't move the page.
+  const decidedHere = useRef(new Set<string>());
+  const lastPending = useRef<string[]>([]);
+  const pendingIds = suggestions
+    .filter(({ status }) => status === "pending")
+    .map(({ id }) => id);
   const pendingUnits = units.filter(
     ({ leader }) => leader.status === "pending",
   );
@@ -269,8 +275,12 @@ export function ThreadSuggestionBody({
     )?.focus({ preventScroll: true });
   }, [steppedEditId]);
   useLayoutEffect(() => {
-    if (!decided || !decidingHere.current) return;
-    decidingHere.current = false;
+    if (!decided) return;
+    const settledHere =
+      lastPending.current.length > 0 &&
+      lastPending.current.every((id) => decidedHere.current.has(id));
+    decidedHere.current.clear();
+    if (!settledHere) return;
     const focusHere = keepsFocus();
     const frame = requestAnimationFrame(() => {
       settledRef.current?.scrollIntoView({ block: "nearest" });
@@ -278,6 +288,9 @@ export function ThreadSuggestionBody({
     });
     return () => cancelAnimationFrame(frame);
   }, [decided]);
+  useLayoutEffect(() => {
+    if (pendingIds.length) lastPending.current = pendingIds;
+  });
   useLayoutEffect(() => {
     if (!shown) return;
     const frame = requestAnimationFrame(() =>
@@ -318,7 +331,7 @@ export function ThreadSuggestionBody({
     unit: (typeof units)[number],
     decision: SuggestionDecision,
   ) => {
-    decidingHere.current = true;
+    for (const { id } of unit.members) decidedHere.current.add(id);
     if (unit.members.length > 1)
       onDecideUnit(
         unit.members.filter(({ status }) => status === "pending"),
@@ -327,7 +340,7 @@ export function ThreadSuggestionBody({
     else onDecide(unit.leader, decision);
   };
   const decideRemaining = (decision: SuggestionDecision) => {
-    decidingHere.current = true;
+    for (const id of pendingIds) decidedHere.current.add(id);
     if (onDecideRemaining) onDecideRemaining(decision);
     else for (const unit of pendingUnits) decideUnit(unit, decision);
   };

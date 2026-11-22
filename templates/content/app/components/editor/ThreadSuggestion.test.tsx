@@ -537,6 +537,44 @@ describe("ThreadSuggestionBody", () => {
     }
   });
 
+  it("stays put when someone else decides the rest after an edit decided here", async () => {
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    try {
+      const [first, second] = edits(2);
+      const onDecide = vi.fn();
+      const handlers = { onDecide, onDecideRemaining: vi.fn() };
+      render([first!, second!], handlers);
+      const accept = button("comments.acceptEdit");
+      accept.focus();
+      act(() => accept.click());
+      expect(onDecide).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "edit-0" }),
+        "accepted",
+      );
+      render([withStatus(first, "accepted"), second!], handlers);
+
+      render(
+        [withStatus(first, "accepted"), withStatus(second, "accepted")],
+        handlers,
+      );
+      await act(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+          ),
+      );
+
+      expect(scrollIntoView).not.toHaveBeenCalled();
+      expect(document.activeElement).not.toBe(
+        requiredElement("[data-thread-suggestion-show]"),
+      );
+    } finally {
+      scrollIntoView.mockRestore();
+    }
+  });
+
   it("says how many edits ended each way when some were rejected", () => {
     const [first, second, third] = edits(3);
     render([

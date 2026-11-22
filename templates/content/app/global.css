@@ -3024,6 +3024,14 @@ button.discussion-subject-quote:hover {
   .suggestion-block-widget.suggestion-highlight--active[data-suggestion-widget] {
   box-shadow: inset 3px 0 hsl(var(--suggestion));
 }
+/* Its new text isn't underlined like active inserted words; removed lines
+   stay struck through. */
+.content-editor
+  .suggestion-block-widget.suggestion-highlight--active[data-suggestion-widget]:not(
+    .suggestion-delete-widget
+  ) {
+  text-decoration: none;
+}
 .content-editor .suggestion-block-widget[data-suggestion-widget] > * {
   color: inherit;
 }
