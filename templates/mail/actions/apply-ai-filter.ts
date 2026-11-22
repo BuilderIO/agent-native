@@ -140,6 +140,7 @@ export default defineAction({
     comment: z.string().max(500).optional(),
     settings: settingsSchema.optional(),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

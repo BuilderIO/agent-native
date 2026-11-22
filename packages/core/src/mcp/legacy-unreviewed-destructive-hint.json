@@ -496,14 +496,12 @@
   "mail": [
     "apply-ai-filter",
     "archive-email",
-    "bootstrap-watches",
     "bulk-archive",
     "cancel-scheduled-email",
     "create-attachment-upload",
     "create-scheduled-job",
     "create-scheduled-send",
     "export-emails",
-    "import-gmail-signature",
     "manage-automations",
     "manage-email-rules",
     "manage-gmail-filters",
@@ -512,12 +510,9 @@
     "mark-thread-read",
     "move-email",
     "navigate",
-    "open-queued-draft",
     "queue-email-draft",
     "record-ai-priority-feedback",
     "refine-ai-filter",
-    "refresh-list",
-    "request-code-change",
     "respond-calendar-invite",
     "resync-inbox",
     "send-email",
@@ -529,9 +524,7 @@
     "trigger-automations",
     "unarchive-email",
     "untrash-email",
-    "update-mail-settings",
-    "update-queued-draft",
-    "view-composer"
+    "update-queued-draft"
   ],
   "plan": [
     "consume-plan-feedback",
