@@ -183,6 +183,7 @@ import {
   AppNotice,
   WorkspaceAppLayoutNotice,
 } from "../workspace-app-layout-notice";
+import { activeWorkspaceAppFrame } from "./active-workspace-app-frame";
 import { Header } from "./Header";
 import {
   HeaderActionsProvider,
@@ -2556,17 +2557,8 @@ function DispatchLayout({
 
     const handleWorkspaceAppMessage = (event: MessageEvent) => {
       if (event.data?.type !== "agentNative.toggleSidebar") return;
-      const frame = [
-        ...document.querySelectorAll<HTMLIFrameElement>(
-          "[data-dispatch-workspace-app-frame]",
-        ),
-      ].find(
-        (candidate) =>
-          candidate
-            .closest("[data-chat-first-surface-content]")
-            ?.getAttribute("aria-hidden") !== "true",
-      );
-      if (!(frame instanceof HTMLIFrameElement)) return;
+      const frame = activeWorkspaceAppFrame();
+      if (!frame) return;
       if (event.source !== frame.contentWindow) return;
 
       const open = event.data.data?.open;
