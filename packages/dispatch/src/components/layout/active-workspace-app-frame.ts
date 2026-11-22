@@ -4,11 +4,6 @@ const HIDEABLE_WRAPPERS = [
   "[data-chat-first-surface-content]",
 ];
 
-/**
- * The workspace-app iframe the user can currently see. Kept-alive apps stay
- * mounted under `aria-hidden` cache entries, and ChatFirst panes can hide their
- * surface wrapper, so a frame counts only when neither wrapper is hidden.
- */
 export function activeWorkspaceAppFrame(
   root: ParentNode = document,
 ): HTMLIFrameElement | null {

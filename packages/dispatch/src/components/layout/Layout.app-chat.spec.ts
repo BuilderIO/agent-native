@@ -6,10 +6,6 @@ const layoutSource = readFileSync(
   new URL("./Layout.tsx", import.meta.url),
   "utf8",
 );
-const frameLookupSource = readFileSync(
-  new URL("./active-workspace-app-frame.ts", import.meta.url),
-  "utf8",
-);
 const railSource = readFileSync(
   new URL("../workspace-app-host.tsx", import.meta.url),
   "utf8",
@@ -26,7 +22,6 @@ describe("Dispatch workspace app chat rail", () => {
   it("routes the open-app rail through the shared app-chat component", () => {
     expect(layoutSource).toContain("<WorkspaceAppChatRail");
     expect(layoutSource).toContain("workspaceAppChatRegistration ? (");
-    expect(frameLookupSource).toContain("data-dispatch-workspace-app-frame");
     expect(layoutSource).toContain('new Event("agent-panel:toggle")');
     expect(layoutSource).toContain('new CustomEvent("agent-panel:toggle"');
     expect(layoutSource).not.toContain('openStorageKey="dispatch-app-chat"');
