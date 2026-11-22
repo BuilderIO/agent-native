@@ -83,24 +83,36 @@ pub(super) fn screen_track_bit_rate(width_px: u32, height_px: u32) -> i64 {
 /// Places frames on the file's timeline: at their recording time, never before
 /// zero, and each at least one frame interval after the last so times always
 /// advance.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct FrameTimeline {
+    spacing_secs: f64,
     first_secs: Option<f64>,
     last_secs: Option<f64>,
     frames: u64,
 }
 
+/// The screen track's, at up to `SCREEN_TRACK_MAX_FPS`.
+impl Default for FrameTimeline {
+    fn default() -> Self {
+        Self::with_max_fps(SCREEN_TRACK_MAX_FPS)
+    }
+}
+
 impl FrameTimeline {
-    pub(super) fn min_spacing_secs() -> f64 {
-        1.0 / f64::from(SCREEN_TRACK_MAX_FPS)
+    /// A timeline for frames coming at up to `max_fps` a second.
+    pub(super) fn with_max_fps(max_fps: u32) -> Self {
+        Self {
+            spacing_secs: 1.0 / f64::from(max_fps.max(1)),
+            first_secs: None,
+            last_secs: None,
+            frames: 0,
+        }
     }
 
     /// Where a frame at `recording_secs` would go. A frame from before the
     /// first one, held until the clock started, goes at zero.
     pub(super) fn place(&self, recording_secs: f64) -> f64 {
-        let earliest = self
-            .last_secs
-            .map_or(0.0, |last| last + Self::min_spacing_secs());
+        let earliest = self.last_secs.map_or(0.0, |last| last + self.spacing_secs);
         recording_secs.max(earliest)
     }
 
@@ -124,9 +136,7 @@ impl FrameTimeline {
     /// Where the file ends: when the track stopped, but never before its last
     /// frame has been shown for a frame interval.
     pub(super) fn end_secs(&self, stopped_secs: Option<f64>) -> f64 {
-        let after_last = self
-            .last_secs
-            .map_or(0.0, |last| last + Self::min_spacing_secs());
+        let after_last = self.last_secs.map_or(0.0, |last| last + self.spacing_secs);
         stopped_secs.unwrap_or(after_last).max(after_last)
     }
 }
