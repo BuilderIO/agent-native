@@ -28,7 +28,7 @@ export default defineAction({
     "link that works once",
   ],
   description:
-    "Make a single-use URL for an active booking link: it takes exactly one booking, then stops working. Give the returned url to one person. Cancelling or rescheduling that booking does not reopen it.",
+    "Make a single-use URL for an active booking link: it takes exactly one booking, then stops working for good. Give the returned url to one person.",
   schema: z.object({
     bookingLinkId: z
       .string()

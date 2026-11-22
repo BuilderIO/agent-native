@@ -23,7 +23,7 @@ export default defineAction({
   needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   searchHints: ["revoke single-use link", "turn off one-time link"],
   description:
-    "Turn off a single-use URL that hasn't been used, so it can't book. A URL that already made its booking can't be revoked; cancel that booking instead.",
+    "Turn off a single-use URL that hasn't been used yet, so nobody can book through it. A used URL can't be turned off.",
   schema: z.object({
     bookingLinkId: z
       .string()
