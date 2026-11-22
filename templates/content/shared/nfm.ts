@@ -2442,6 +2442,48 @@ function parseGfmPipeTable(
   };
 }
 
+export interface NfmTableSource {
+  startLine: number;
+  endLine: number;
+  indent: number;
+}
+
+export function locateNfmTables(lines: readonly string[]): NfmTableSource[] {
+  const source = [...lines];
+  const tables: NfmTableSource[] = [];
+  let fence: string | undefined;
+  let next = 0;
+  for (const [i, line] of source.entries()) {
+    if (i < next) continue;
+    const indent = leadingTabs(line);
+    const dedent = line.slice(indent);
+    if (fence) {
+      if (closesFence(dedent.match(FENCE_CLOSE), fence)) fence = undefined;
+      continue;
+    }
+    const open = matchFenceOpen(dedent);
+    if (open) {
+      fence = open[1];
+      continue;
+    }
+    if (matchContainerOpen(dedent) === "<table") {
+      const close = source.findIndex(
+        (candidate, at) => at > i && candidate.trim() === "</table>",
+      );
+      if (close === -1) continue;
+      tables.push({ startLine: i, endLine: close + 1, indent });
+      next = close + 1;
+      continue;
+    }
+    const pipeTable = parseGfmPipeTable(source, i, indent, 0);
+    if (pipeTable) {
+      tables.push({ startLine: i, endLine: pipeTable.end, indent });
+      next = pipeTable.end;
+    }
+  }
+  return tables;
+}
+
 type ListKind = "bullet" | "ordered" | "task";
 function listKindOf(dedent: string): ListKind | null {
   if (/^- \[[ xX]\]\s/.test(dedent)) return "task";
