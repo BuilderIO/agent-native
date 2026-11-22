@@ -174,11 +174,16 @@ async function deletePlanRows(
     eq(schema.plans.id, planId),
     eq(schema.plans.ownerEmail, ownerEmail),
   );
-  await db
+  const owned = await db
     .select({ id: schema.plans.id })
     .from(schema.plans)
     .where(ownPlan)
     .for("update");
+  if (owned.length === 0) {
+    throw new ForbiddenError(
+      `Plan ${planId} changed owner before it could be deleted. Nothing was deleted.`,
+    );
+  }
   await deleteMirroredPlanComments(planId, "all", ownerEmail);
   await db
     .delete(schema.planComments)

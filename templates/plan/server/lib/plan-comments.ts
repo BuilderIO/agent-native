@@ -3,9 +3,11 @@ import {
   deleteMirroredReviewComments,
   ensureReviewTables,
   getReviewCommentById,
+  listReviewCommentReactors,
   mirrorReviewComments,
   queryReviewComments,
   type ReviewComment,
+  type ReviewCommentCopy,
   type ReviewCommentPosition,
 } from "@agent-native/core/review";
 import { and, eq, inArray, isNull } from "drizzle-orm";
@@ -99,10 +101,8 @@ export function completePlanCommentRow(
 
 const KIT_PAGE_SIZE = 500;
 
-export async function listPlanCommentRows(
-  planId: string,
-): Promise<PlanCommentRow[]> {
-  const rows: PlanCommentRow[] = [];
+async function listPlanKitComments(planId: string): Promise<ReviewComment[]> {
+  const comments: ReviewComment[] = [];
   let after: ReviewCommentPosition | undefined;
   for (;;) {
     const page = await queryReviewComments({
@@ -114,12 +114,18 @@ export async function listPlanCommentRows(
       after,
       limit: KIT_PAGE_SIZE,
     });
-    rows.push(...page.map(planCommentRow));
+    comments.push(...page);
     const full = page.length === KIT_PAGE_SIZE;
     const last = page.pop();
-    if (!full || !last) return rows;
+    if (!full || !last) return comments;
     after = { createdAt: last.createdAt, id: last.id };
   }
+}
+
+export async function listPlanCommentRows(
+  planId: string,
+): Promise<PlanCommentRow[]> {
+  return (await listPlanKitComments(planId)).map(planCommentRow);
 }
 
 export async function findPlanCommentRow(
@@ -231,13 +237,27 @@ async function lockPlanComments(
   return found;
 }
 
+async function livePlanResource(db: PlanDb, planId: string) {
+  const resource = await planResource(db, planId);
+  const plans = await db
+    .select({ deletedAt: schema.plans.deletedAt })
+    .from(schema.plans)
+    .where(eq(schema.plans.id, planId));
+  if (plans.some((plan) => plan.deletedAt)) {
+    throw new Error(`Plan ${planId} not found`);
+  }
+  return resource;
+}
+
 async function sectionIdsOnPlan(
   db: PlanDb,
   planId: string,
-  rows: readonly PlanCommentRow[],
+  sectionIds: ReadonlyArray<string | null | undefined>,
 ): Promise<Set<string>> {
   const named = [
-    ...new Set(rows.flatMap((row) => (row.sectionId ? [row.sectionId] : []))),
+    ...new Set(
+      sectionIds.flatMap((sectionId) => (sectionId ? [sectionId] : [])),
+    ),
   ];
   if (named.length === 0) return new Set();
   const found = await db
@@ -252,6 +272,74 @@ async function sectionIdsOnPlan(
   return new Set(found.map((row) => row.id));
 }
 
+function withAnchorText(
+  metadata: Record<string, unknown> | null,
+  anchorText: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  const current: Record<string, unknown> = metadata ?? {};
+  const { anchorText: _replaced, ...kept } = current;
+  const next = { ...kept, ...anchorText };
+  return Object.keys(next).length > 0 ? next : null;
+}
+
+function patchedCopy(
+  comment: ReviewComment,
+  patch: PlanCommentPatch,
+  reactors: Record<string, string[]> | undefined,
+): ReviewCommentCopy {
+  const plan = planCommentCopy(
+    { ...planCommentRow(comment), ...patch },
+    comment.threadId,
+  );
+  const sets = (...keys: Array<keyof PlanCommentPatch>) =>
+    keys.some((key) => patch[key] !== undefined);
+  const routed = sets("message", "anchor", "mentionsJson", "resolutionTarget");
+  return {
+    id: comment.id,
+    threadId: comment.threadId,
+    parentCommentId: comment.parentCommentId,
+    targetId: comment.targetId,
+    surfaceId: (sets("sectionId") ? plan.surfaceId : comment.surfaceId) ?? null,
+    ...(sets("anchor")
+      ? {
+          anchor: plan.anchor,
+          anchorKind: plan.anchorKind ?? null,
+          anchorVersion: plan.anchorVersion ?? null,
+          metadata: withAnchorText(comment.metadata, plan.metadata),
+        }
+      : {
+          anchor: comment.anchor,
+          anchorKind: comment.anchorKind ?? null,
+          anchorVersion: comment.anchorVersion ?? null,
+          metadata: comment.metadata,
+        }),
+    body: sets("message") ? plan.body : comment.body,
+    authorEmail: comment.authorEmail,
+    authorName: comment.authorName,
+    createdBy: comment.createdBy,
+    mentions: routed ? (plan.mentions ?? []) : comment.mentions,
+    resolutionTarget: routed
+      ? (plan.resolutionTarget ?? null)
+      : comment.resolutionTarget,
+    resolved: sets("status") ? plan.resolved : comment.status === "resolved",
+    resolvedBy: sets("status", "resolvedBy")
+      ? (plan.resolvedBy ?? null)
+      : comment.resolvedBy,
+    resolvedAt: sets("status", "resolvedAt")
+      ? (plan.resolvedAt ?? null)
+      : comment.resolvedAt,
+    createdAt: comment.createdAt,
+    updatedAt: plan.updatedAt,
+    reactions: Object.entries(reactors ?? {}).flatMap(([reaction, actors]) =>
+      actors.map((actorEmail) => ({ actorEmail, reaction })),
+    ),
+    kind: (sets("kind") ? plan.kind : undefined) ?? comment.kind,
+    consumedAt: sets("consumedAt")
+      ? (plan.consumedAt ?? null)
+      : comment.consumedAt,
+  };
+}
+
 export async function writePlanCommentRows(
   db: PlanDb,
   planId: string,
@@ -259,7 +347,7 @@ export async function writePlanCommentRows(
   patches: readonly PlanCommentPatch[] = [],
 ): Promise<void> {
   if (rows.length === 0 && patches.length === 0) return;
-  const resource = await planResource(db, planId);
+  const resource = await livePlanResource(db, planId);
   const added = [...new Map(rows.map((row) => [row.id, row])).values()];
   const merged = new Map<string, PlanCommentPatch>();
   for (const patch of patches) {
@@ -269,29 +357,53 @@ export async function writePlanCommentRows(
     ...added.map((row) => row.id),
     ...merged.keys(),
   ]);
-  const current =
+  const fresh = added.filter((row) => !found.has(row.id));
+  const kit =
     merged.size > 0
-      ? new Map((await listPlanCommentRows(planId)).map((row) => [row.id, row]))
-      : new Map<string, PlanCommentRow>();
-  const live = [
-    ...added.filter((row) => !found.has(row.id)),
-    ...[...merged.values()].flatMap((patch) => {
-      const row = current.get(patch.id);
-      return row ? [{ ...row, ...patch }] : [];
-    }),
-  ];
-  if (live.length === 0) return;
-  const sections = await sectionIdsOnPlan(db, planId, live);
-  const placed = live.map((row) =>
-    row.sectionId && !sections.has(row.sectionId)
-      ? { ...row, sectionId: null }
-      : row,
-  );
-  const threads = await threadIdsFor(planId, placed);
-  await mirrorReviewComments(
-    resource,
-    placed.map((row) => planCommentCopy(row, threads.get(row.id) ?? row.id)),
-  );
+      ? new Map(
+          (await listPlanKitComments(planId)).map((comment) => [
+            comment.id,
+            comment,
+          ]),
+        )
+      : new Map<string, ReviewComment>();
+  const patched = [...merged.values()].flatMap((patch) => {
+    const comment = kit.get(patch.id);
+    return comment ? [{ comment, patch }] : [];
+  });
+  const sections = await sectionIdsOnPlan(db, planId, [
+    ...fresh.map((row) => row.sectionId),
+    ...patched.map(({ patch }) => patch.sectionId),
+  ]);
+  const placed = (sectionId: string | null | undefined) =>
+    !sectionId || sections.has(sectionId);
+
+  if (fresh.length > 0) {
+    const newRows = fresh.map((row) =>
+      placed(row.sectionId) ? row : { ...row, sectionId: null },
+    );
+    const threads = await threadIdsFor(planId, newRows);
+    await mirrorReviewComments(
+      resource,
+      newRows.map((row) => planCommentCopy(row, threads.get(row.id) ?? row.id)),
+      { onlyMissing: true },
+    );
+  }
+  if (patched.length > 0) {
+    const reactors = await listReviewCommentReactors(
+      patched.map(({ comment }) => comment.id),
+    );
+    await mirrorReviewComments(
+      resource,
+      patched.map(({ comment, patch }) =>
+        patchedCopy(
+          comment,
+          placed(patch.sectionId) ? patch : { ...patch, sectionId: null },
+          reactors[comment.id],
+        ),
+      ),
+    );
+  }
 }
 
 export function commentAndDescendantIds(
@@ -327,11 +439,13 @@ export async function deletePlanCommentThread(
   now: string,
 ): Promise<string[]> {
   const plans = await db
-    .select({ id: schema.plans.id })
+    .select({ deletedAt: schema.plans.deletedAt })
     .from(schema.plans)
     .where(eq(schema.plans.id, planId))
     .for("no key update");
-  if (plans.length === 0) throw new Error(`Plan ${planId} not found`);
+  if (plans.length === 0 || plans.some((plan) => plan.deletedAt)) {
+    throw new Error(`Plan ${planId} not found`);
+  }
   const ids = commentAndDescendantIds(
     await listPlanCommentRows(planId),
     commentId,

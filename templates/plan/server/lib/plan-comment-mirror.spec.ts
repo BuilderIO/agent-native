@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { getDbExec } from "@agent-native/core/db";
 import {
   getReviewCommentById,
+  listReviewCommentReactors,
   mirrorReviewComments,
 } from "@agent-native/core/review";
 import consumeReviewFeedback from "@agent-native/core/review/actions/consume-review-feedback";
@@ -856,6 +857,77 @@ describe("Plan comments in the review kit", () => {
       }),
     ).rejects.toThrow("which isn't on it");
     expect(await stored("too-late")).toBeNull();
+  });
+
+  it("keeps what Plan doesn't store when Plan changes a comment", async () => {
+    const planId = await newPlan();
+    const at = "2026-11-21T12:00:00.000Z";
+    await mirrorReviewComments({ resourceType: "plan", resourceId: planId }, [
+      {
+        id: "kit-shaped",
+        threadId: "kit-shaped",
+        parentCommentId: null,
+        targetId: "frame-1",
+        anchor: { x: 0.25, y: 0.5 },
+        anchorKind: "frame-point",
+        anchorVersion: 2,
+        body: "Written around Plan",
+        authorEmail: "bot@example.test",
+        authorName: null,
+        createdBy: "system",
+        kind: "review",
+        resolved: false,
+        createdAt: at,
+        updatedAt: at,
+        metadata: { images: ["shot.png"] },
+        reactions: [{ actorEmail: "viewer@example.test", reaction: "👀" }],
+      },
+    ]);
+
+    await call(consumeFeedback, { planId, commentIds: ["kit-shaped"] });
+    await call(resolveComment, {
+      planId,
+      commentId: "kit-shaped",
+      status: "resolved",
+    });
+
+    expect(await stored("kit-shaped")).toMatchObject({
+      status: "resolved",
+      consumedAt: expect.any(String),
+      body: "Written around Plan",
+      createdBy: "system",
+      kind: "review",
+      targetId: "frame-1",
+      anchor: { x: 0.25, y: 0.5 },
+      anchorKind: "frame-point",
+      anchorVersion: 2,
+      metadata: { images: ["shot.png"] },
+    });
+    expect(await listReviewCommentReactors(["kit-shaped"])).toEqual({
+      "kit-shaped": { "👀": ["viewer@example.test"] },
+    });
+  });
+
+  it("refuses a comment write on a plan in the trash", async () => {
+    const planId = await newPlan();
+    await call(deletePlan, { planId, mode: "soft" });
+
+    await expect(
+      dbModule.getDb().transaction(async (tx) => {
+        await comments.writePlanCommentRows(tx, planId, [
+          comments.completePlanCommentRow({
+            id: "trashed-write",
+            planId,
+            message: "Written after the trash",
+            createdAt: "2026-11-22T10:00:00.000Z",
+            updatedAt: "2026-11-22T10:00:00.000Z",
+          }),
+        ]);
+      }),
+    ).rejects.toThrow(`Plan ${planId} not found`);
+
+    await call(deletePlan, { planId, mode: "restore" });
+    expect(await stored("trashed-write")).toBeNull();
   });
 
   it("marks a comment consumed once when its ID is sent twice", async () => {
