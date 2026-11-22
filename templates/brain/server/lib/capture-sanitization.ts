@@ -910,6 +910,9 @@ export async function sanitizeCaptureForStorage(
     [input.source.provider === "zoom"
       ? "zoomPassageQuarantine"
       : "passageQuarantine"]: { version: 1, withheldPassages },
+    ...(typeof result.metadata.participantsCount === "number"
+      ? { participantsCount: result.metadata.participantsCount }
+      : {}),
   };
   return {
     ...result,

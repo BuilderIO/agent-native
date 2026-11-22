@@ -16,6 +16,7 @@ import {
 import {
   parseCaptureMetadata,
   publicCaptureExternalId,
+  readWithheldPassages,
   withOmissionReceipt,
   withheldPassageCount,
 } from "../server/lib/search-index-contracts.js";
@@ -172,7 +173,13 @@ export default defineAction({
       .orderBy(desc(schema.brainRawCaptures.capturedAt))
       .limit(args.limit);
     const markerCandidates = rows
-      .filter((row) => row.omissionMarker)
+      .filter(
+        (row) =>
+          row.omissionMarker &&
+          row.kind === "transcript" &&
+          readWithheldPassages(parseCaptureMetadata(row.metadataJson) ?? {}) ===
+            undefined,
+      )
       .map((row) => row.id);
     const standaloneMarker = new Set(
       (markerCandidates.length
