@@ -11451,7 +11451,7 @@ describe("server/auth", () => {
         await database.exec(`
           CREATE TABLE sessions (token TEXT PRIMARY KEY, email TEXT, created_at BIGINT NOT NULL);
           CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT, email_verified BOOLEAN);
-          CREATE TABLE "session" (token TEXT PRIMARY KEY, user_id TEXT, expires_at TIMESTAMPTZ NOT NULL);
+          CREATE TABLE "session" (token TEXT PRIMARY KEY, user_id TEXT, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
           INSERT INTO "user" VALUES ('user-1', 'session@example.com', TRUE);
           INSERT INTO "session" VALUES
             ('active-token', 'user-1', NOW() + INTERVAL '1 hour'),
@@ -13105,6 +13105,7 @@ describe("server/auth", () => {
         },
         anonymousId: "anon_google_1",
         sessionId: "session_google_1",
+        consent: { performance: "allowed", targeting: "allowed" },
       });
     });
 
@@ -13181,6 +13182,7 @@ describe("server/auth", () => {
         },
         anonymousId: "anon_state_1",
         sessionId: "session_state_1",
+        consent: { performance: "allowed", targeting: "allowed" },
       });
     });
 
@@ -13241,6 +13243,7 @@ describe("server/auth", () => {
           origin: "mcp_oauth",
           anonymousId: undefined,
           sessionId: undefined,
+          consent: { performance: "withheld", targeting: "withheld" },
         }),
       );
       expect(trackSignupEvent.mock.calls[0]?.[0].attribution).toBeUndefined();
@@ -13307,6 +13310,7 @@ describe("server/auth", () => {
           attribution: undefined,
           anonymousId: "anon_state_targeting_revoked",
           sessionId: "session_state_targeting_revoked",
+          consent: { performance: "allowed", targeting: "withheld" },
         }),
       );
     });

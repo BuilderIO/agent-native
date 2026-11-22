@@ -877,6 +877,32 @@ export const contentDatabaseSourceExecutionClaims = table(
   },
 );
 
+export const contentDatabaseBuilderAutosaves = table(
+  "content_database_builder_autosaves",
+  {
+    id: text("id").primaryKey(),
+    sourceId: text("source_id").notNull(),
+    databaseItemId: text("database_item_id").notNull(),
+    documentId: text("document_id").notNull(),
+    enabled: integer("enabled").notNull().default(1),
+    state: text("state").notNull().default("idle"),
+    reason: text("reason"),
+    lastError: text("last_error"),
+    attemptId: text("attempt_id"),
+    claimedEditAt: text("claimed_edit_at"),
+    savedEditAt: text("saved_edit_at"),
+    lastSavedAt: text("last_saved_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (autosave) => [
+    uniqueIndex("content_database_builder_autosaves_source_item_unique").on(
+      autosave.sourceId,
+      autosave.databaseItemId,
+    ),
+  ],
+);
+
 export const contentDatabaseMigrationReceipts = table(
   "content_database_migration_receipts",
   {

@@ -458,3 +458,8 @@ describe("manage-service-providers", () => {
     expect(service(result, "voice").effectiveProvider).toBe("openai");
   });
 });
+
+it("keeps manage-service-providers in the app, off MCP", async () => {
+  const { default: action } = await import("./manage-service-providers.js");
+  expect(action.mcpTool).toBe(false);
+});

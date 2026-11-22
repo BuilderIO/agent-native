@@ -2142,8 +2142,115 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .auth-centered {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
     width: 100%;
+  }
+  .auth-page [data-agent-native-consent-banner] {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+    max-width: 400px;
+    margin-top: 1rem;
+    padding: 1rem;
+    background: color-mix(in srgb, currentColor 5%, var(--auth-wave-bg));
+    border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+    border-radius: 12px;
+    color: inherit;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-align: start;
+  }
+  .auth-marketing-home .form-panel > [data-agent-native-consent-banner] {
+    width: min(27.5rem, 100%);
+    max-width: 27.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .auth-page [data-agent-native-consent-banner] a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .auth-page [data-agent-native-consent-banner] label {
+    display: inline;
+    margin: 0;
+    color: inherit;
+    font-size: inherit;
+  }
+  .auth-page [data-consent-settings] {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .auth-page [data-consent-settings] > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .auth-page [data-consent-actions] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .auth-page [data-consent-actions] > button {
+    flex: 1 1 0%;
+    min-height: 2rem;
+    padding: 0.375rem 0.75rem;
+    background: transparent;
+    border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+    border-radius: 6px;
+    color: inherit;
+    font: inherit;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .auth-page [data-consent-actions] > button:hover {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+  }
+  .auth-page [data-consent-actions] > [data-consent-manage] {
+    border-color: transparent;
+  }
+  .auth-page [data-agent-native-consent-banner] [role="switch"] {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    width: 2rem;
+    height: 1.15rem;
+    padding: 1px;
+    background: color-mix(in srgb, currentColor 22%, transparent);
+    border: 0;
+    border-radius: 999px;
+    color: inherit;
+    cursor: pointer;
+  }
+  .auth-page [data-agent-native-consent-banner] [role="switch"][aria-checked="true"] {
+    background: currentColor;
+  }
+  .auth-page [data-agent-native-consent-banner] [role="switch"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  .auth-page [data-agent-native-consent-banner] [data-slot="switch-thumb"] {
+    display: block;
+    width: calc(1.15rem - 2px);
+    height: calc(1.15rem - 2px);
+    background: currentColor;
+    border-radius: 999px;
+    transition: transform 150ms;
+  }
+  .auth-page [data-agent-native-consent-banner] [role="switch"][aria-checked="true"] [data-slot="switch-thumb"] {
+    background: var(--auth-wave-bg);
+    transform: translateX(0.85rem);
+  }
+  [dir="rtl"] .auth-page [data-agent-native-consent-banner] [role="switch"][aria-checked="true"] [data-slot="switch-thumb"] {
+    transform: translateX(-0.85rem);
+  }
+  .auth-page [data-agent-native-consent-banner] :is(a, button):focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
   }
   .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow: clip; }
   .auth-marketing-shell { padding: 0; }

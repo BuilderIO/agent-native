@@ -1241,6 +1241,7 @@ const BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY = 72;
 const BUILDER_BODY_HYDRATION_BULK_PRELOAD_MIN_JOBS = 20;
 const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
 const BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS = 2 * 60 * 1000;
+const BUILDER_BODY_HYDRATION_RUN_BUDGET_MS = 20 * 1000;
 const BUILDER_BODY_HYDRATION_POSTGRES_BULK_LIMIT = 200;
 const BUILDER_BODY_HYDRATION_MAX_BOUND_PARAMS_PER_ROW = 8;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION =
@@ -3300,11 +3301,13 @@ async function preparePristineBuilderBodyHydration(args: {
 async function persistPristineBuilderBodyHydrationsInBulk(
   prepared: PreparedPristineBuilderBodyHydration[],
   now: string,
+  runDeadline = Number.POSITIVE_INFINITY,
 ) {
   const db = getDb();
   const persistedJobIds = new Set<string>();
   const chunkLimit = builderBodyHydrationBulkChunkLimit();
   for (const batch of chunks(prepared, chunkLimit)) {
+    if (persistedJobIds.size > 0 && Date.now() >= runDeadline) break;
     try {
       await db.transaction(async (tx) => {
         const queueOwnership = batch.map(({ job }) =>
@@ -3605,7 +3608,10 @@ export async function processBuilderBodyHydrationQueue(args: {
   preloadedJobs?: ContentDatabaseBodyHydrationQueueRowDb[];
   preloadBodies?: boolean;
   retryFailed?: boolean;
+  runBudgetMs?: number;
 }) {
+  const runDeadline =
+    Date.now() + (args.runBudgetMs ?? BUILDER_BODY_HYDRATION_RUN_BUDGET_MS);
   const db = getDb();
   const [hydrationSource] = await db
     .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
@@ -3645,6 +3651,9 @@ export async function processBuilderBodyHydrationQueue(args: {
         ),
       );
   }
+  const claimLeaseCutoff = new Date(
+    Date.now() - BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS,
+  ).toISOString();
   const persistedJobs = async (queryLimit: number) =>
     db
       .select()
@@ -3655,6 +3664,17 @@ export async function processBuilderBodyHydrationQueue(args: {
             isNull(schema.contentDatabaseBodyHydrationQueue.nextAttemptAt),
             lte(schema.contentDatabaseBodyHydrationQueue.nextAttemptAt, now),
           ),
+          args.preloadBodies === true
+            ? or(
+                isNull(
+                  schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt,
+                ),
+                lt(
+                  schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt,
+                  claimLeaseCutoff,
+                ),
+              )
+            : undefined,
           args.documentId
             ? and(
                 eq(
@@ -3683,7 +3703,10 @@ export async function processBuilderBodyHydrationQueue(args: {
           args.preloadedJobs!.filter(
             (job) =>
               job.sourceId === args.sourceId &&
-              (!job.nextAttemptAt || job.nextAttemptAt <= now),
+              (!job.nextAttemptAt || job.nextAttemptAt <= now) &&
+              (args.preloadBodies !== true ||
+                !job.lastAttemptedAt ||
+                job.lastAttemptedAt < claimLeaseCutoff),
           ),
         ).slice(0, limit);
         return persistedJobs(limit + preloadedJobs.length).then((rows) => {
@@ -3695,9 +3718,6 @@ export async function processBuilderBodyHydrationQueue(args: {
         });
       })()
     : persistedJobs(limit));
-  const claimLeaseCutoff = new Date(
-    Date.now() - BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS,
-  ).toISOString();
 
   let succeeded = 0;
   let failed = 0;
@@ -3897,13 +3917,23 @@ export async function processBuilderBodyHydrationQueue(args: {
   const bulkPersistedJobIds = await persistPristineBuilderBodyHydrationsInBulk(
     preparedPristineHydrations,
     now,
+    runDeadline,
   );
   succeeded += bulkPersistedJobIds.size;
+  let startedJobs = bulkPersistedJobIds.size;
+  let releasedJobs = 0;
   await processWithConcurrency(
     claimedJobs.filter((job) => !bulkPersistedJobIds.has(job.id)),
     BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY,
     async (job) => {
       const attemptNow = new Date().toISOString();
+      if (startedJobs > 0 && Date.now() >= runDeadline) {
+        if (await releaseBuilderBodyHydrationClaim(job, attemptNow)) {
+          releasedJobs += 1;
+        }
+        return;
+      }
+      startedJobs += 1;
       try {
         const delayMs = builderBodyHydrationDelayMs();
         if (delayMs > 0) await sleep(delayMs);
@@ -4006,27 +4036,83 @@ export async function processBuilderBodyHydrationQueue(args: {
       }
     },
   );
-  const [remaining] = await db
+  const leaseCutoff = new Date(
+    Date.now() - BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS,
+  ).toISOString();
+  const queue = schema.contentDatabaseBodyHydrationQueue;
+  const remainingRows = await db
     .select({
       count: sql<number>`COUNT(*)`,
-      ready: sql<number>`SUM(CASE WHEN ${schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt} IS NULL AND (${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} IS NULL OR ${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} <= ${now}) THEN 1 ELSE 0 END)`,
+      ready: sql<number>`SUM(CASE WHEN (${queue.lastAttemptedAt} IS NULL AND (${queue.nextAttemptAt} IS NULL OR ${queue.nextAttemptAt} <= ${now})) OR ${queue.lastAttemptedAt} < ${leaseCutoff} THEN 1 ELSE 0 END)`,
       nextAttemptAt: sql<
         string | null
-      >`MIN(CASE WHEN ${schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt} IS NULL THEN ${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} END)`,
+      >`MIN(CASE WHEN ${queue.lastAttemptedAt} IS NULL THEN ${queue.nextAttemptAt} END)`,
+      oldestClaimAt: sql<
+        string | null
+      >`MIN(CASE WHEN ${queue.lastAttemptedAt} >= ${leaseCutoff} THEN ${queue.lastAttemptedAt} END)`,
     })
-    .from(schema.contentDatabaseBodyHydrationQueue)
-    .where(
-      eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.sourceId),
-    );
+    .from(queue)
+    .where(eq(queue.sourceId, args.sourceId));
+  const remaining = remainingRows.length > 0 ? remainingRows[0] : null;
   return {
     sourceId: args.sourceId,
-    processed: claimedJobs.length,
+    processed: claimedJobs.length - releasedJobs,
     succeeded,
     failed,
     remaining: Number(remaining?.count ?? 0),
     ready: Number(remaining?.ready ?? 0),
-    nextAttemptAt: remaining?.nextAttemptAt ?? null,
+    nextAttemptAt: earliestBuilderBodyHydrationAttemptAt(
+      remaining?.nextAttemptAt ?? null,
+      remaining?.oldestClaimAt ?? null,
+    ),
   };
+}
+
+function earliestBuilderBodyHydrationAttemptAt(
+  nextAttemptAt: string | null,
+  oldestClaimAt: string | null,
+) {
+  const claimLapsesAt = oldestClaimAt
+    ? Date.parse(oldestClaimAt) + BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS
+    : Number.NaN;
+  if (!Number.isFinite(claimLapsesAt)) return nextAttemptAt;
+  const lapse = new Date(claimLapsesAt).toISOString();
+  return nextAttemptAt && nextAttemptAt < lapse ? nextAttemptAt : lapse;
+}
+
+async function releaseBuilderBodyHydrationClaim(
+  job: ContentDatabaseBodyHydrationQueueRowDb,
+  now: string,
+) {
+  const db = getDb();
+  const released = await db
+    .update(schema.contentDatabaseBodyHydrationQueue)
+    .set({
+      attempts: Math.max(0, job.attempts - 1),
+      lastAttemptedAt: null,
+      updatedAt: now,
+    })
+    .where(builderBodyHydrationQueueOwnershipFilter(job))
+    .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+  if (released.length === 0) return false;
+  const queue = schema.contentDatabaseBodyHydrationQueue;
+  await db
+    .update(schema.contentDatabaseItems)
+    .set({ bodyHydrationStatus: "pending", updatedAt: now })
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.id, job.databaseItemId),
+        eq(schema.contentDatabaseItems.bodyHydrationStatus, "hydrating"),
+        inArray(
+          schema.contentDatabaseItems.id,
+          db
+            .select({ id: queue.databaseItemId })
+            .from(queue)
+            .where(and(eq(queue.id, job.id), isNull(queue.lastAttemptedAt))),
+        ),
+      ),
+    );
+  return true;
 }
 
 export async function withBuilderBodySourceValues(

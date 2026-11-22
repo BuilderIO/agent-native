@@ -1,4 +1,8 @@
-import { fail } from "@agent-native/core/action";
+import {
+  ActionContractError,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { getDbExec } from "@agent-native/core/db";
 import {
@@ -12,6 +16,14 @@ import {
   resourcePutWithDb,
   SHARED_OWNER,
 } from "@agent-native/core/resources/store";
+import { SAVE_CONFLICT_ERROR_CODE } from "@agent-native/core/save-conflict";
+import {
+  changedRowCount,
+  checkSaveRevision,
+  countSaveOutcome,
+  saveConflict,
+  saveRevisionOf,
+} from "@agent-native/core/save-conflict/server";
 import { encryptSecretValue } from "@agent-native/core/secrets";
 import {
   getRequestOrgId,
@@ -563,9 +575,67 @@ export async function latestDistillationQueuesForCaptures(
   return byCapture;
 }
 
-export function serializeKnowledge(
-  row: typeof schema.brainKnowledge.$inferSelect,
-) {
+type KnowledgeRow = typeof schema.brainKnowledge.$inferSelect;
+
+const KNOWLEDGE_COLUMNS: Record<keyof KnowledgeRow, boolean> = {
+  id: true,
+  sourceId: true,
+  captureId: true,
+  audienceId: true,
+  audienceAclHash: true,
+  kind: true,
+  title: true,
+  body: true,
+  summary: true,
+  topic: true,
+  tagsJson: true,
+  entitiesJson: true,
+  evidenceJson: true,
+  intelligenceKind: true,
+  provenanceJson: true,
+  publishedResourcePath: false,
+  supersedesId: true,
+  supersededById: true,
+  confidence: true,
+  status: true,
+  publishTier: true,
+  createdBy: true,
+  publishedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  ownerEmail: true,
+  orgId: true,
+  visibility: true,
+};
+const knowledgeColumnKeys = (
+  Object.keys(KNOWLEDGE_COLUMNS) as Array<keyof KnowledgeRow>
+).filter((key) => KNOWLEDGE_COLUMNS[key]);
+
+export function knowledgeRevision(row: KnowledgeRow): string {
+  return saveRevisionOf(
+    Object.fromEntries(
+      knowledgeColumnKeys.map((key) => [key, row[key] ?? null]),
+    ),
+  );
+}
+
+export function nextKnowledgeUpdatedAt(stored: string) {
+  const now = nowIso();
+  return now > stored ? now : new Date(Date.parse(stored) + 1).toISOString();
+}
+
+function knowledgeRowUnchanged(row: KnowledgeRow) {
+  return and(
+    ...knowledgeColumnKeys.map((key) => {
+      const value = row[key] ?? null;
+      return value === null
+        ? isNull(schema.brainKnowledge[key])
+        : eq(schema.brainKnowledge[key], value);
+    }),
+  );
+}
+
+export function serializeKnowledge(row: KnowledgeRow) {
   return {
     id: row.id,
     sourceId: row.sourceId,
@@ -596,6 +666,7 @@ export function serializeKnowledge(
     publishedAt: row.publishedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    revision: knowledgeRevision(row),
   };
 }
 
@@ -1637,6 +1708,7 @@ async function knowledgeCitingCapture(captureId: string, db: DbHandle) {
     .select({
       id: schema.brainKnowledge.id,
       publishedResourcePath: schema.brainKnowledge.publishedResourcePath,
+      updatedAt: schema.brainKnowledge.updatedAt,
     })
     .from(schema.brainKnowledge)
     .where(
@@ -1686,7 +1758,15 @@ async function invalidateDerivedForLockedCapture(
         effects,
       );
   }
-  if (knowledge.length) {
+  const idsByUpdatedAt = new Map<string, string[]>();
+  for (const row of knowledge) {
+    const updatedAt = nextKnowledgeUpdatedAt(row.updatedAt);
+    idsByUpdatedAt.set(updatedAt, [
+      ...(idsByUpdatedAt.get(updatedAt) ?? []),
+      row.id,
+    ]);
+  }
+  for (const [updatedAt, ids] of idsByUpdatedAt) {
     await db
       .update(schema.brainKnowledge)
       .set({
@@ -1696,14 +1776,9 @@ async function invalidateDerivedForLockedCapture(
         evidenceJson: "[]",
         status: "redacted",
         publishedResourcePath: null,
-        updatedAt: nowIso(),
+        updatedAt,
       })
-      .where(
-        inArray(
-          schema.brainKnowledge.id,
-          knowledge.map((row) => row.id),
-        ),
-      );
+      .where(inArray(schema.brainKnowledge.id, ids));
   }
   const proposals = await db
     .select({ id: schema.brainProposals.id })
@@ -1943,7 +2018,9 @@ export async function expireSensitivityQuarantines(at = nowIso()) {
   return rows.length;
 }
 
-export class EvidenceQuoteMismatchError extends Error {
+export class EvidenceInputError extends Error {}
+
+export class EvidenceQuoteMismatchError extends EvidenceInputError {
   constructor(captureId: string) {
     super(`Evidence quote is not an exact substring of capture ${captureId}`);
     this.name = "EvidenceQuoteMismatchError";
@@ -1957,9 +2034,10 @@ export async function validateEvidenceWithContent(
   const content = new Map<string, string>();
   for (const item of evidence) {
     const access = await getAccessibleCapture(item.captureId);
-    if (!access) throw new Error(`No access to capture ${item.captureId}`);
+    if (!access)
+      throw new EvidenceInputError(`No access to capture ${item.captureId}`);
     const quote = item.quote.trim();
-    if (!quote) throw new Error("Evidence quote cannot be empty");
+    if (!quote) throw new EvidenceInputError("Evidence quote cannot be empty");
     if (!access.capture.content.includes(quote)) {
       throw new EvidenceQuoteMismatchError(item.captureId);
     }
@@ -2112,6 +2190,7 @@ function escapeRegExp(value: string): string {
 
 export interface WriteKnowledgeInput {
   knowledgeId?: string;
+  expectedRevision?: string | undefined;
   title: string;
   body: string;
   kind?: BrainKnowledgeKind;
@@ -2123,6 +2202,7 @@ export interface WriteKnowledgeInput {
   confidence?: number;
   publishTier?: BrainPublishTier;
   supersedesId?: string;
+  supersedesRevision?: string | undefined;
   rationale?: string;
   redactions?: string[];
   publishCanonical?: boolean;
@@ -2149,6 +2229,7 @@ export interface BrainCanonicalResourcePreview {
   markdown: string;
   canPublish: boolean;
   alreadyPublishedPath?: string | null;
+  revision?: string;
   warnings: string[];
 }
 
@@ -2205,19 +2286,11 @@ function sourceUrlFromCaptureMetadata(metadataJson: string) {
 }
 
 async function publishKnowledgeResourceInTransaction(
-  values: {
-    id: string;
-    title: string;
-    summary: string;
-    body: string;
-    topic?: string | null;
-    tags: string[];
-    evidence: BrainEvidence[];
-  },
+  knowledgeId: string,
+  resource: ReturnType<typeof buildCanonicalResource>,
   effects: AfterCommitEffects,
 ) {
   requireResourceStore(effects);
-  const resource = buildCanonicalResource(values);
   const write = await resourcePutWithDb(
     getDbExec(),
     SHARED_OWNER,
@@ -2230,7 +2303,7 @@ async function publishKnowledgeResourceInTransaction(
       metadata: {
         app: "brain",
         type: "company-brain-knowledge",
-        knowledgeId: values.id,
+        knowledgeId,
       },
     },
   );
@@ -2251,40 +2324,31 @@ async function canPublishCanonicalAudience(audienceId: string | null) {
 export async function setKnowledgeCanonicalResource(
   knowledgeId: string,
   published: boolean,
+  expectedRevision?: string,
 ) {
   const peeked = await peekKnowledgeRow(knowledgeId);
   const { value: knowledge, effects } = await transactWithResourceStore(
     getDb(),
     mayTouchCanonicalResource(peeked, published),
     async (_scoped, effects) => {
-      await lockKnowledgeWriteSet({ knowledgeId, evidence: [] });
+      const { evidenceLocked } = await lockKnowledgeWriteSet({
+        knowledgeId,
+        evidence: [],
+      });
       const access = await assertAccess(
         "brain-knowledge",
         knowledgeId,
         "editor",
       );
-      const row = access.resource;
+      const row: KnowledgeRow = access.resource;
       await assertDerivedAudienceAccess(row);
-      const db = getDb();
       if (published && row.intelligenceKind) {
         fail(
           "Structured intelligence requires live evidence checks and cannot be mirrored to shared workspace context.",
           { errorCode: "intelligence_canonical_forbidden", statusCode: 403 },
         );
       }
-
-      if (!published) {
-        if (row.publishedResourcePath) {
-          await deleteCanonicalResourceInTransaction(
-            row.publishedResourcePath,
-            effects,
-          );
-        }
-        await db
-          .update(schema.brainKnowledge)
-          .set({ publishedResourcePath: null, updatedAt: nowIso() })
-          .where(eq(schema.brainKnowledge.id, knowledgeId));
-      } else {
+      if (published) {
         if (!(await canPublishCanonicalAudience(row.audienceId))) {
           throw new Error(
             "Audience-restricted Brain knowledge cannot become workspace-wide canonical context.",
@@ -2295,32 +2359,57 @@ export async function setKnowledgeCanonicalResource(
             "Only published Brain knowledge can become company context.",
           );
         }
-        const publishedResourcePath =
-          await publishKnowledgeResourceInTransaction(
-            {
-              id: row.id,
-              title: row.title,
-              summary: row.summary,
-              body: row.body,
-              topic: row.topic,
-              tags: parseJson<string[]>(row.tagsJson, []),
-              evidence: parseJson<BrainEvidence[]>(row.evidenceJson, []),
-            },
-            effects,
-          );
-        await db
-          .update(schema.brainKnowledge)
-          .set({ publishedResourcePath, updatedAt: nowIso() })
-          .where(eq(schema.brainKnowledge.id, knowledgeId));
       }
-
-      const updated = firstRow(
-        await db
-          .select()
-          .from(schema.brainKnowledge)
-          .where(eq(schema.brainKnowledge.id, knowledgeId))
-          .limit(1),
+      const resource = buildCanonicalResource(
+        canonicalValuesFromKnowledgeRow(row),
       );
+      const stored = published
+        ? await canonicalMirrorIsCurrent(
+            row.publishedResourcePath,
+            resource,
+            effects,
+          )
+        : row.publishedResourcePath === null;
+      const decision = await decideKnowledgeSave({
+        record: "knowledge",
+        expectedRevision,
+        requireRevision: true,
+        row,
+        current: serializeKnowledge(row),
+        evidenceLocked,
+        alreadyStored: async () => stored && !published,
+      });
+      if (decision === "already_applied" || stored)
+        return serializeKnowledge(row);
+
+      const publishedResourcePath = published
+        ? await publishKnowledgeResourceInTransaction(row.id, resource, effects)
+        : null;
+      if (
+        row.publishedResourcePath &&
+        row.publishedResourcePath !== publishedResourcePath
+      ) {
+        await deleteCanonicalResourceInTransaction(
+          row.publishedResourcePath,
+          effects,
+        );
+      }
+      const written = await getDb()
+        .update(schema.brainKnowledge)
+        .set({
+          publishedResourcePath,
+          updatedAt: nextKnowledgeUpdatedAt(row.updatedAt),
+        })
+        .where(knowledgeRowUnchanged(row))
+        .returning();
+      const changed = changedRowCount(written);
+      if (changed === 0) throw await currentKnowledgeConflict(knowledgeId);
+      if (changed > 1)
+        throw new Error(
+          `Save of knowledge ${knowledgeId} changed ${changed} rows.`,
+        );
+      countSaveOutcome("knowledge", "written");
+      const updated = firstRow(written);
       if (!updated) throw new Error("Knowledge row vanished during the update");
       return serializeKnowledge(updated);
     },
@@ -2484,6 +2573,7 @@ export async function previewKnowledgeCanonicalResource(input: {
       markdown: resource.markdown,
       canPublish: row.status === "published" && audienceCanPublish,
       alreadyPublishedPath: row.publishedResourcePath,
+      revision: knowledgeRevision(row),
       warnings,
     };
   }
@@ -2543,6 +2633,7 @@ type PeekedKnowledgeRow = {
   provenanceJson: string | null;
   publishedResourcePath: string | null;
   intelligenceKind: string | null;
+  updatedAt: string;
 };
 
 function mayTouchCanonicalResource(
@@ -2553,7 +2644,7 @@ function mayTouchCanonicalResource(
   return wantsPublication && !peeked?.intelligenceKind;
 }
 
-function firstRow<T>(rows: readonly T[]): T | undefined {
+export function firstRow<T>(rows: readonly T[]): T | undefined {
   return rows[0];
 }
 
@@ -2571,6 +2662,7 @@ async function peekKnowledgeRow(
         provenanceJson: schema.brainKnowledge.provenanceJson,
         publishedResourcePath: schema.brainKnowledge.publishedResourcePath,
         intelligenceKind: schema.brainKnowledge.intelligenceKind,
+        updatedAt: schema.brainKnowledge.updatedAt,
       })
       .from(schema.brainKnowledge)
       .where(eq(schema.brainKnowledge.id, knowledgeId))
@@ -2608,15 +2700,12 @@ export async function lockKnowledgeWriteSet(input: {
   const locked = input.knowledgeId
     ? await peekKnowledgeRow(input.knowledgeId)
     : null;
-  if (locked && [...storedCaptureIds(locked)].some((id) => !captureIds.has(id)))
-    fail(
-      "The knowledge evidence changed while it was being saved. Read it again and retry.",
-      {
-        errorCode: "knowledge_evidence_changed",
-        statusCode: 409,
-      },
-    );
-  return locked;
+  return {
+    locked,
+    evidenceLocked:
+      !locked ||
+      [...storedCaptureIds(locked)].every((id) => captureIds.has(id)),
+  };
 }
 
 async function assertKnowledgeEditorAccess(
@@ -2645,23 +2734,215 @@ const storedEvidenceInputSchema = z.array(
   z.object({ captureId: z.string().min(1), quote: z.string() }).passthrough(),
 );
 
-export async function writeKnowledgeRecordInTransaction(
+export interface WriteKnowledgeOptions {
+  legacyProposalCreatedAt?: string;
+}
+
+function knowledgeConflict(row: KnowledgeRow) {
+  return saveConflict(
+    "knowledge",
+    serializeKnowledge(row),
+    knowledgeRevision(row),
+  );
+}
+
+function supersededConflict(row: KnowledgeRow) {
+  countSaveOutcome("superseded_knowledge", "conflict");
+  return new ActionContractError(
+    `The superseded knowledge ${row.id} changed after you read it, so nothing was saved. Decide again from details.current and resend with supersedesRevision set to details.currentRevision.`,
+    {
+      errorCode: SAVE_CONFLICT_ERROR_CODE,
+      statusCode: 409,
+      details: {
+        current: serializeKnowledge(row),
+        currentRevision: knowledgeRevision(row),
+      },
+    },
+  );
+}
+
+function supersessionIsStored(
+  superseded: Pick<
+    KnowledgeRow,
+    "status" | "supersededById" | "publishedResourcePath"
+  >,
+  id: string,
+) {
+  return (
+    superseded.status === "archived" &&
+    superseded.supersededById === id &&
+    superseded.publishedResourcePath === null
+  );
+}
+
+function changedAfterLegacyProposal(row: KnowledgeRow, createdAt: string) {
+  const changedAt = Date.parse(row.updatedAt);
+  const proposedAt = Date.parse(createdAt);
+  if (Number.isNaN(changedAt) || Number.isNaN(proposedAt)) return true;
+  return changedAt >= proposedAt;
+}
+
+function revisionReadByWriter(
   input: WriteKnowledgeInput,
+  existing: KnowledgeRow,
+  options: WriteKnowledgeOptions,
+) {
+  const legacyCreatedAt = options.legacyProposalCreatedAt;
+  if (legacyCreatedAt === undefined || input.expectedRevision !== undefined)
+    return {
+      expectedRevision: input.expectedRevision,
+      requireRevision: legacyCreatedAt === undefined,
+    };
+  return {
+    expectedRevision: changedAfterLegacyProposal(existing, legacyCreatedAt)
+      ? null
+      : knowledgeRevision(existing),
+    requireRevision: false,
+  };
+}
+
+function supersededChangedSinceRead(
+  input: WriteKnowledgeInput,
+  superseded: KnowledgeRow,
+  options: WriteKnowledgeOptions,
+) {
+  if (input.supersedesRevision !== undefined)
+    return input.supersedesRevision !== knowledgeRevision(superseded);
+  if (options.legacyProposalCreatedAt !== undefined)
+    return changedAfterLegacyProposal(
+      superseded,
+      options.legacyProposalCreatedAt,
+    );
+  fail(
+    "supersedesRevision is required with supersedesId: send the superseded record's revision from your latest read.",
+    { errorCode: "supersedes_revision_required", statusCode: 400 },
+  );
+}
+
+async function readSupersededKnowledge(
+  input: WriteKnowledgeInput,
+  id: string,
+  options: WriteKnowledgeOptions,
+) {
+  if (!input.supersedesId) return null;
+  const access = await assertAccess(
+    "brain-knowledge",
+    input.supersedesId,
+    "editor",
+  );
+  const superseded: KnowledgeRow = access.resource;
+  if (supersessionIsStored(superseded, id))
+    return { row: superseded, stored: true };
+  const successor = superseded.supersededById;
+  if (superseded.status === "archived" && successor && successor !== id)
+    fail(
+      `Knowledge ${superseded.id} was already superseded by ${successor}, so nothing was saved. Edit ${successor}, or supersede it instead.`,
+      {
+        errorCode: "knowledge_already_superseded",
+        statusCode: 409,
+        details: { supersededById: successor },
+      },
+    );
+  if (supersededChangedSinceRead(input, superseded, options))
+    throw supersededConflict(superseded);
+  return { row: superseded, stored: false };
+}
+
+async function currentKnowledgeConflict(id: string) {
+  const row = firstRow(
+    await getDb()
+      .select()
+      .from(schema.brainKnowledge)
+      .where(eq(schema.brainKnowledge.id, id))
+      .limit(1),
+  );
+  if (!row)
+    fail(`Knowledge ${id} not found`, {
+      errorCode: "knowledge_not_found",
+      statusCode: 404,
+    });
+  return knowledgeConflict(row);
+}
+
+export async function touchKnowledgeRevision(
+  row: KnowledgeRow,
+): Promise<KnowledgeRow | null> {
+  const touched = await getDb()
+    .update(schema.brainKnowledge)
+    .set({ updatedAt: nextKnowledgeUpdatedAt(row.updatedAt) })
+    .where(knowledgeRowUnchanged(row))
+    .returning();
+  const changed = changedRowCount(touched);
+  if (changed > 1)
+    throw new Error(`Touching knowledge ${row.id} changed ${changed} rows.`);
+  return firstRow(touched) ?? null;
+}
+
+function isExpectedProbeFailure(error: unknown) {
+  if (error instanceof EvidenceInputError) return true;
+  return isActionContractError(error) && error.statusCode < 500;
+}
+
+export async function decideKnowledgeSave<T>(check: {
+  record: string;
+  expectedRevision: string | null | undefined;
+  requireRevision: boolean;
+  row: KnowledgeRow;
+  current: T;
+  evidenceLocked: boolean;
+  alreadyStored: () => Promise<boolean>;
+}): Promise<"apply" | "already_applied"> {
+  const revision = knowledgeRevision(check.row);
+  const checked = check.requireRevision || check.expectedRevision !== undefined;
+  let stored = false;
+  if (
+    checked &&
+    (check.expectedRevision !== revision || !check.evidenceLocked)
+  ) {
+    try {
+      stored = await check.alreadyStored();
+    } catch (error) {
+      if (!isExpectedProbeFailure(error)) throw error;
+      throw saveConflict(check.record, check.current, revision);
+    }
+  }
+  const decision = checkSaveRevision({
+    record: check.record,
+    expectedRevision: check.expectedRevision,
+    requireRevision: check.requireRevision,
+    current: { value: check.current, revision },
+    isSameSave: () => stored,
+  });
+  if (decision === "already_applied" || check.evidenceLocked) return decision;
+  if (!stored) throw saveConflict(check.record, check.current, revision);
+  countSaveOutcome(check.record, "already_applied");
+  return "already_applied";
+}
+
+type CanonicalResource = ReturnType<typeof buildCanonicalResource>;
+
+async function canonicalMirrorIsCurrent(
+  storedPath: string | null,
+  resource: CanonicalResource,
   effects: AfterCommitEffects,
 ) {
-  const userEmail = requireUserEmail();
-  const settings = await readBrainSettings();
-  const locked = await lockKnowledgeWriteSet({
-    knowledgeId: input.knowledgeId,
-    supersedesId: input.supersedesId,
-    evidence: input.evidence ?? [],
+  if (storedPath !== resource.path) return false;
+  requireResourceStore(effects);
+  const { rows } = await getDbExec().execute({
+    sql: "SELECT content FROM resources WHERE owner = ? AND path = ?",
+    args: [SHARED_OWNER, resource.path],
   });
-  const db = getDb();
-  const existingAccess = input.knowledgeId
-    ? await assertKnowledgeEditorAccess(input.knowledgeId, userEmail, locked)
-    : null;
-  const existing = existingAccess?.resource ?? null;
-  if (existing) await assertDerivedAudienceAccess(existing);
+  const mirror = firstRow(rows) as { content?: unknown } | undefined;
+  return mirror?.content === resource.markdown;
+}
+
+async function planKnowledgeWrite(
+  input: WriteKnowledgeInput,
+  id: string,
+  existing: KnowledgeRow | null,
+  settings: BrainSettings,
+  mode: "write" | "check",
+) {
   if (existing?.intelligenceKind && input.publishCanonical) {
     fail(
       "Structured intelligence requires live evidence checks and cannot be mirrored to shared workspace context.",
@@ -2711,11 +2992,15 @@ export async function writeKnowledgeRecordInTransaction(
   const { evidence, content: validatedContent } = validated;
   const sourceId = evidence[0]?.sourceId ?? null;
   const captureId = evidence[0]?.captureId ?? null;
-  const evidenceAudience = evidence.length
-    ? await ensureEvidenceIntersectionAudience({
-        captureIds: evidence.map((item) => item.captureId),
-        sourceId: sourceId!,
-      })
+  const lead = firstRow(evidence);
+  const evidenceAudience = lead
+    ? await ensureEvidenceIntersectionAudience(
+        {
+          captureIds: evidence.map((item) => item.captureId),
+          sourceId: lead.sourceId,
+        },
+        mode === "write" ? "ensure" : "derive",
+      )
     : null;
   if (
     input.publishCanonical &&
@@ -2737,12 +3022,9 @@ export async function writeKnowledgeRecordInTransaction(
     redactions: input.redactions,
     autoRedactEmails: settings.autoRedactEmails,
   });
-  const now = nowIso();
   if (input.supersedesId) {
     await assertAccess("brain-knowledge", input.supersedesId, "editor");
   }
-  const ownerEmail = existing?.ownerEmail ?? userEmail;
-  const orgId = existing?.orgId ?? getRequestOrgId() ?? null;
   const visibility = visibilityForTier(tier);
   const status = redacted.redacted ? "redacted" : statusForTier(tier);
   const material = {
@@ -2762,39 +3044,172 @@ export async function writeKnowledgeRecordInTransaction(
   const provenanceJson = evidence.length
     ? await buildKnowledgeProvenance(material, validatedContent)
     : null;
-
-  const id = input.knowledgeId ?? nanoid();
-  if (existing) {
-    await db
-      .update(schema.brainKnowledge)
-      .set({
-        ...material,
-        audienceAclHash: evidenceAudience?.aclHash ?? null,
-        provenanceJson,
-        supersedesId: input.supersedesId ?? null,
-        status,
-        publishTier: tier,
-        visibility,
-        publishedAt:
-          status === "published" ? (existing.publishedAt ?? now) : null,
-        updatedAt: now,
-      })
-      .where(eq(schema.brainKnowledge.id, id));
-  } else {
-    await db.insert(schema.brainKnowledge).values({
-      id,
+  const audienceCanPublish =
+    !existing?.intelligenceKind &&
+    (await canPublishCanonicalAudience(material.audienceId));
+  const storedPath = existing?.publishedResourcePath ?? null;
+  const canonical:
+    | { kind: "none" }
+    | { kind: "remove"; path: string }
+    | { kind: "publish"; resource: CanonicalResource } =
+    storedPath && (status !== "published" || !audienceCanPublish)
+      ? { kind: "remove", path: storedPath }
+      : status === "published" &&
+          audienceCanPublish &&
+          (input.publishCanonical || storedPath)
+        ? {
+            kind: "publish",
+            resource: buildCanonicalResource({
+              id,
+              title: redacted.title,
+              summary: redacted.summary,
+              body: redacted.body,
+              topic: redacted.topic,
+              tags: redacted.tags,
+              evidence: redacted.evidence,
+            }),
+          }
+        : { kind: "none" };
+  return {
+    tier,
+    status,
+    columns: {
       ...material,
       audienceAclHash: evidenceAudience?.aclHash ?? null,
       provenanceJson,
       supersedesId: input.supersedesId ?? null,
-      supersededById: null,
       status,
       publishTier: tier,
-      createdBy: userEmail,
-      publishedAt: status === "published" ? now : null,
-      ownerEmail,
-      orgId,
       visibility,
+    },
+    canonical,
+  };
+}
+
+async function plannedKnowledgeIsStored(
+  plan: Awaited<ReturnType<typeof planKnowledgeWrite>>,
+  row: KnowledgeRow,
+  effects: AfterCommitEffects,
+) {
+  const columns = Object.entries(plan.columns) as Array<
+    [keyof KnowledgeRow, unknown]
+  >;
+  if (columns.some(([key, value]) => (row[key] ?? null) !== (value ?? null)))
+    return false;
+  if ((plan.status === "published") !== (row.publishedAt !== null))
+    return false;
+  if (plan.canonical.kind === "remove") return false;
+  if (plan.canonical.kind === "none" && row.publishedResourcePath !== null)
+    return false;
+  if (
+    plan.canonical.kind === "publish" &&
+    !(await canonicalMirrorIsCurrent(
+      row.publishedResourcePath,
+      plan.canonical.resource,
+      effects,
+    ))
+  )
+    return false;
+  const supersedesId = plan.columns.supersedesId;
+  if (!supersedesId) return true;
+  const superseded = firstRow(
+    await getDb()
+      .select({
+        status: schema.brainKnowledge.status,
+        supersededById: schema.brainKnowledge.supersededById,
+        publishedResourcePath: schema.brainKnowledge.publishedResourcePath,
+      })
+      .from(schema.brainKnowledge)
+      .where(eq(schema.brainKnowledge.id, supersedesId))
+      .limit(1),
+  );
+  return superseded ? supersessionIsStored(superseded, row.id) : false;
+}
+
+export async function knowledgeWriteIsStored(
+  input: WriteKnowledgeInput,
+  row: KnowledgeRow,
+  effects: AfterCommitEffects,
+) {
+  const plan = await planKnowledgeWrite(
+    input,
+    row.id,
+    row,
+    await readBrainSettings(),
+    "check",
+  );
+  return plannedKnowledgeIsStored(plan, row, effects);
+}
+
+export async function writeKnowledgeRecordInTransaction(
+  input: WriteKnowledgeInput,
+  effects: AfterCommitEffects,
+  options: WriteKnowledgeOptions = {},
+) {
+  const userEmail = requireUserEmail();
+  if (input.knowledgeId && input.supersedesId === input.knowledgeId)
+    fail("Knowledge cannot supersede itself.", {
+      errorCode: "knowledge_supersedes_self",
+      statusCode: 400,
+    });
+  const settings = await readBrainSettings();
+  const { locked, evidenceLocked } = await lockKnowledgeWriteSet({
+    knowledgeId: input.knowledgeId,
+    supersedesId: input.supersedesId,
+    evidence: input.evidence ?? [],
+  });
+  const db = getDb();
+  const existingAccess = input.knowledgeId
+    ? await assertKnowledgeEditorAccess(input.knowledgeId, userEmail, locked)
+    : null;
+  const existing: KnowledgeRow | null = existingAccess?.resource ?? null;
+  const id = input.knowledgeId ?? nanoid();
+  if (existing) {
+    await assertDerivedAudienceAccess(existing);
+    const decision = await decideKnowledgeSave({
+      record: "knowledge",
+      ...revisionReadByWriter(input, existing, options),
+      row: existing,
+      current: serializeKnowledge(existing),
+      evidenceLocked,
+      alreadyStored: async () =>
+        plannedKnowledgeIsStored(
+          await planKnowledgeWrite(input, id, existing, settings, "check"),
+          existing,
+          effects,
+        ),
+    });
+    if (decision === "already_applied")
+      return {
+        mode: "knowledge" as const,
+        knowledge: serializeKnowledge(existing),
+      };
+  }
+  const superseded = await readSupersededKnowledge(input, id, options);
+  const plan = await planKnowledgeWrite(input, id, existing, settings, "write");
+  const now = existing ? nextKnowledgeUpdatedAt(existing.updatedAt) : nowIso();
+  const publishedAt =
+    plan.status === "published" ? (existing?.publishedAt ?? now) : null;
+  if (existing) {
+    const written = await db
+      .update(schema.brainKnowledge)
+      .set({ ...plan.columns, publishedAt, updatedAt: now })
+      .where(knowledgeRowUnchanged(existing))
+      .returning({ id: schema.brainKnowledge.id });
+    const changed = changedRowCount(written);
+    if (changed === 0) throw await currentKnowledgeConflict(id);
+    if (changed > 1)
+      throw new Error(`Save of knowledge ${id} changed ${changed} rows.`);
+    countSaveOutcome("knowledge", "written");
+  } else {
+    await db.insert(schema.brainKnowledge).values({
+      id,
+      ...plan.columns,
+      supersededById: null,
+      createdBy: userEmail,
+      publishedAt,
+      ownerEmail: userEmail,
+      orgId: getRequestOrgId() ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -2805,41 +3220,17 @@ export async function writeKnowledgeRecordInTransaction(
     .where(eq(schema.brainKnowledge.id, id))
     .limit(1);
   let returned = knowledge;
-  let audienceCanPublish = false;
-  if (!existing?.intelligenceKind) {
-    audienceCanPublish = await canPublishCanonicalAudience(
-      evidenceAudience?.audienceId ?? null,
-    );
-  }
-  const shouldMaintainCanonical = Boolean(existing?.publishedResourcePath);
-  if (
-    existing?.publishedResourcePath &&
-    (status !== "published" || !audienceCanPublish)
-  ) {
-    await deleteCanonicalResourceInTransaction(
-      existing.publishedResourcePath,
-      effects,
-    );
+  if (plan.canonical.kind === "remove") {
+    await deleteCanonicalResourceInTransaction(plan.canonical.path, effects);
     await db
       .update(schema.brainKnowledge)
-      .set({ publishedResourcePath: null, updatedAt: nowIso() })
+      .set({ publishedResourcePath: null, updatedAt: now })
       .where(eq(schema.brainKnowledge.id, id));
     returned = { ...knowledge, publishedResourcePath: null };
-  } else if (
-    status === "published" &&
-    audienceCanPublish &&
-    (input.publishCanonical || shouldMaintainCanonical)
-  ) {
+  } else if (plan.canonical.kind === "publish") {
     const publishedResourcePath = await publishKnowledgeResourceInTransaction(
-      {
-        id,
-        title: redacted.title,
-        summary: redacted.summary,
-        body: redacted.body,
-        topic: redacted.topic,
-        tags: redacted.tags,
-        evidence: redacted.evidence,
-      },
+      id,
+      plan.canonical.resource,
       effects,
     );
     if (
@@ -2853,7 +3244,7 @@ export async function writeKnowledgeRecordInTransaction(
     }
     await db
       .update(schema.brainKnowledge)
-      .set({ publishedResourcePath, updatedAt: nowIso() })
+      .set({ publishedResourcePath, updatedAt: now })
       .where(eq(schema.brainKnowledge.id, id));
     const [updated] = await db
       .select()
@@ -2862,22 +3253,28 @@ export async function writeKnowledgeRecordInTransaction(
       .limit(1);
     returned = updated;
   }
-  if (input.supersedesId) {
-    const superseded = await peekKnowledgeRow(input.supersedesId, db);
-    if (superseded?.publishedResourcePath)
+  if (superseded && !superseded.stored) {
+    const old = superseded.row;
+    if (old.publishedResourcePath)
       await deleteCanonicalResourceInTransaction(
-        superseded.publishedResourcePath,
+        old.publishedResourcePath,
         effects,
       );
-    await db
+    const archived = await db
       .update(schema.brainKnowledge)
       .set({
         supersededById: id,
         status: "archived",
         publishedResourcePath: null,
-        updatedAt: nowIso(),
+        updatedAt: nextKnowledgeUpdatedAt(old.updatedAt),
       })
-      .where(eq(schema.brainKnowledge.id, input.supersedesId));
+      .where(knowledgeRowUnchanged(old))
+      .returning({ id: schema.brainKnowledge.id });
+    const changed = changedRowCount(archived);
+    if (changed !== 1)
+      throw new Error(
+        `Superseding knowledge ${old.id} changed ${changed} rows.`,
+      );
   }
   if (!existing) {
     effects.pending.push(() => {
@@ -2890,7 +3287,7 @@ export async function writeKnowledgeRecordInTransaction(
             output_id: id,
             output_type: "knowledge",
             kind: input.kind ?? "fact",
-            publish_tier: tier,
+            publish_tier: plan.tier,
           },
           { userId: userEmail },
         );
@@ -2905,7 +3302,10 @@ export async function writeKnowledgeRecordInTransaction(
   };
 }
 
-export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
+export async function writeKnowledgeRecord(
+  input: WriteKnowledgeInput,
+  options: WriteKnowledgeOptions = {},
+) {
   requireUserEmail();
   const peeked = input.knowledgeId
     ? await peekKnowledgeRow(input.knowledgeId)
@@ -2918,7 +3318,7 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
     mayTouchCanonicalResource(peeked, Boolean(input.publishCanonical)) ||
       Boolean(supersededPeek?.publishedResourcePath),
     async (_scoped, effects) =>
-      writeKnowledgeRecordInTransaction(input, effects),
+      writeKnowledgeRecordInTransaction(input, effects, options),
   );
   return {
     ...result,

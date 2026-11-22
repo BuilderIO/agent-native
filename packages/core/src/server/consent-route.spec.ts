@@ -6,6 +6,7 @@ import {
   createConsentHandler,
   createConsentRegionHandler,
   requestAllowsConsentCategoryFromHeaders,
+  requestConsentCategoryStateFromHeaders,
 } from "./consent-route.js";
 
 describe("request consent decisions", () => {
@@ -45,6 +46,32 @@ describe("request consent decisions", () => {
       ),
     ).toBe(false);
   });
+
+  it.each([
+    [{ "cf-ipcountry": "US" }, "allowed", "allowed"],
+    [{ "cf-ipcountry": "DE" }, "withheld", "withheld"],
+    [
+      { "cf-ipcountry": "DE", cookie: "an_consent=1.p1.t0" },
+      "allowed",
+      "withheld",
+    ],
+    [{ cookie: "an_consent=1.p0.t1" }, "withheld", "allowed"],
+    [{}, "unknown", "unknown"],
+    [{ "cf-ipcountry": "XX" }, "unknown", "unknown"],
+    [{ "cf-ipcountry": "ZZ" }, "unknown", "unknown"],
+  ])(
+    "tells a withheld category from an unknown country (%o)",
+    (headers, performance, targeting) => {
+      const request = new Headers(headers);
+
+      expect(
+        requestConsentCategoryStateFromHeaders(request, "performance"),
+      ).toBe(performance);
+      expect(requestConsentCategoryStateFromHeaders(request, "targeting")).toBe(
+        targeting,
+      );
+    },
+  );
 });
 
 function region(headers: Record<string, string> = {}, method = "GET") {

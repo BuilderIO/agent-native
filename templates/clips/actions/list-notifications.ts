@@ -22,6 +22,7 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(500).default(200),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const me = getCurrentOwnerEmail();

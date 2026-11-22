@@ -18,6 +18,7 @@ export default defineAction({
         "When true, Clips AI tools watch the full video (screen + audio) with a Gemini model, not just the transcript.",
       ),
   }),
+  mcpTool: false,
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("Sign in required");

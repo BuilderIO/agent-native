@@ -1361,7 +1361,10 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       await withMcpClient({ pair }, async (client) => {
         const { tools } = await client.listTools();
         expect(tools.map(({ name }) => name)).toEqual(["pair"]);
-        const { inputSchema } = tools[0]!;
+        const inputSchema = tools.find(
+          ({ name }) => name === "pair",
+        )?.inputSchema;
+        if (!inputSchema) throw new Error("Expected the pair tool");
         expect(inputSchema.properties).toMatchObject({
           pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
         });

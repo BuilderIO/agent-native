@@ -386,6 +386,37 @@ export async function listReadyAutomationTriggerIds(
   return rows.map((row) => String((row as Record<string, unknown>).trigger_id));
 }
 
+/**
+ * When the next queued event can be claimed, for the Netlify idle marker: the
+ * earliest retry time or lapsed claim among each trigger's head event, or
+ * `null` when the queue is empty. Events behind a head wait for it, so they
+ * are left out, matching the claim in `claimNextAutomationTriggerEvent`.
+ */
+export async function nextAutomationTriggerEventDueAt(
+  appId?: string | null,
+): Promise<number | null> {
+  await ensureAutomationTriggerEventQueue();
+  const scope = appScopePredicate(appId);
+  // raw-sql-ok: TABLE is a constant and scope.sql is one of two fixed predicates.
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT MIN(CASE WHEN head.status = 'pending' THEN head.available_at
+                 ELSE COALESCE(head.claimed_at, 0) + ? END) AS due_at
+          FROM ${TABLE} AS head
+          WHERE head.${scope.sql}
+            AND head.status IN ('pending', 'processing')
+            AND NOT EXISTS (
+              SELECT 1 FROM ${TABLE} AS earlier
+              WHERE earlier.${scope.sql}
+                AND earlier.trigger_id = head.trigger_id
+                AND earlier.sequence_id < head.sequence_id
+                AND earlier.status IN ('pending', 'processing')
+            )`,
+    args: [CLAIM_LEASE_MS(), ...scope.args, ...scope.args],
+  });
+  const dueAt = (rows[0] as Record<string, unknown> | undefined)?.due_at;
+  return dueAt === null || dueAt === undefined ? null : Number(dueAt);
+}
+
 export async function reserveAutomationTriggerEventPurge(
   appId?: string | null,
   now = Date.now(),
