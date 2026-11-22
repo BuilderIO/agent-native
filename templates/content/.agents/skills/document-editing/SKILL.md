@@ -257,10 +257,10 @@ the end; `cells` fills it), `delete-row` / `delete-column`, `move-row` /
 `set-color` (a `row`, a `column`, or both for one cell; `color` is a colour or
 one ending in `_bg`, or `null` to clear). A pipe table comes back as a
 `<table>` block with the same content. The result is `edit-document`'s receipt
-plus `table`, the table's new size and settings (`null` when nothing was saved,
-or when the page came back `unchanged` but no longer matches the one you read). Read the page just before
+plus `table`, the table's new size and settings (`null` when nothing was saved). Read the page just before
 editing: if it changed since, the edit can refuse with `STALE_BASE_REVISION`
-and `details.currentRevision`; read it again and resend. A table it can't
+and `details.currentRevision`; read it again and resend. A change the table
+already has refuses that way whenever the page has moved on. A table it can't
 find exactly on the page, or whose text holds lines a table can't keep, refuses
 with `TABLE_NOT_LOCATED`; change that table with `edit-document`.
 

@@ -225,18 +225,17 @@ async function readEditBase(
     }));
   if (found !== null) return { body: found, current: false };
   return staleBase(
-    document,
     baseRevision,
+    documentRevisionToken(document.bodyRevision, current),
     "The exact edit base is unavailable.",
   );
 }
 
 function staleBase(
-  document: { content: string | null; bodyRevision: number },
   baseRevision: string,
+  currentRevision: string,
   message: string,
 ): never {
-  const current = document.content ?? "";
   recordContentSaveOutcome("edit_document", {
     outcome: "refusal",
     origin: "agent",
@@ -249,7 +248,7 @@ function staleBase(
     statusCode: 409,
     details: {
       expectedRevision: baseRevision,
-      currentRevision: documentRevisionToken(document.bodyRevision, current),
+      currentRevision,
     },
   });
 }
@@ -320,8 +319,8 @@ export default defineAction({
 
     if (!edited.changed && !base.current) {
       staleBase(
-        existing,
         args.baseRevision,
+        documentRevisionToken(existing.bodyRevision, existing.content ?? ""),
         "The page changed after this revision; read it again before editing.",
       );
     }
@@ -334,6 +333,16 @@ export default defineAction({
       ctx,
       currentBaseOnly: true,
     });
+    if (
+      result.receipt.outcome === "unchanged" &&
+      result.receipt.hashes.after !== documentContentHash(edited.markdown)
+    ) {
+      staleBase(
+        args.baseRevision,
+        result.receipt.revisions.after,
+        "The page changed after this revision; read it again before editing.",
+      );
+    }
     await writeAppState("refresh-signal", { ts: Date.now() });
     const isAgentCaller =
       ctx.caller === "tool" || ctx.caller === "mcp" || ctx.caller === "a2a";
@@ -365,8 +374,7 @@ export default defineAction({
     }
     const saved =
       result.receipt.outcome === "applied" ||
-      (result.receipt.outcome === "unchanged" &&
-        result.receipt.hashes.after === documentContentHash(edited.markdown));
+      result.receipt.outcome === "unchanged";
     return { ...result, table: saved ? edited.summary : null };
   },
 });

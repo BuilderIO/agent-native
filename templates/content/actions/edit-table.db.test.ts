@@ -14,6 +14,12 @@ import {
   vi,
 } from "vitest";
 
+vi.mock("./_document-edit-mutation.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_document-edit-mutation.js")>();
+  return { ...actual, mutateDocumentBody: vi.fn(actual.mutateDocumentBody) };
+});
+
 vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/application-state")
@@ -206,6 +212,37 @@ describe("edit-table", () => {
       statusCode: 409,
       details: { currentRevision: documentRevisionToken(1, edited) },
     });
+  });
+
+  it("refuses a change the table already had when the page it lands on has moved", async () => {
+    const mutate = vi.mocked(mutateDocumentBody);
+    const original = mutate.getMockImplementation();
+    if (!original) throw new Error("mutateDocumentBody isn't wrapped.");
+    mutate.mockImplementationOnce(async (args) => {
+      const result = await original(args);
+      return {
+        ...result,
+        receipt: {
+          ...result.receipt,
+          revisions: { ...result.receipt.revisions, after: "live-revision" },
+          hashes: { ...result.receipt.hashes, after: "live-hash" },
+        },
+      };
+    });
+    await expect(
+      run({
+        id: DOCUMENT_ID,
+        baseRevision: documentRevisionToken(0, BODY),
+        idempotencyKey: "header-row-live",
+        table: 1,
+        operations: [{ op: "set-header-row", value: true }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "STALE_BASE_REVISION",
+      statusCode: 409,
+      details: { currentRevision: "live-revision" },
+    });
+    expect(await body()).toBe(BODY);
   });
 
   it("answers a missing table and a bad position with their codes, writing nothing", async () => {
