@@ -6,7 +6,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
-import { mirrorPlanComments } from "../server/lib/plan-comment-mirror.js";
+import {
+  listPlanCommentRows,
+  writePlanCommentRows,
+} from "../server/lib/plan-comments.js";
 import {
   createPlanVersionSnapshot,
   parsePlanVersionSnapshot,
@@ -105,6 +108,16 @@ export default defineAction({
       }
 
       const survivingSectionIds = new Set(snapshot.sections.map((s) => s.id));
+      await writePlanCommentRows(
+        tx,
+        planId,
+        [],
+        (await listPlanCommentRows(planId))
+          .filter(
+            (row) => row.sectionId && !survivingSectionIds.has(row.sectionId),
+          )
+          .map((row) => ({ id: row.id, sectionId: null, updatedAt: now })),
+      );
       const commentAnchorMap = new Map<string, string>();
       if (survivingSectionIds.size > 0) {
         const anchored = await tx
@@ -172,8 +185,6 @@ export default defineAction({
             );
         }
       }
-
-      await mirrorPlanComments(tx, planId, "all");
 
       await tx.insert(schema.planEvents).values({
         id: newId("evt"),

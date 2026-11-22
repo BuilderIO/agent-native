@@ -10,18 +10,13 @@ const { state } = vi.hoisted(() => ({
   },
 }));
 
-const mirrorMock = vi.hoisted(() => ({
-  comments: vi.fn(async (..._args: unknown[]) => undefined),
-  deleted: vi.fn(async (..._args: unknown[]) => undefined),
-}));
-
 vi.mock("@agent-native/core/review", () => ({
   ensureReviewTables: vi.fn(async () => undefined),
 }));
 
-vi.mock("../server/lib/plan-comment-mirror.js", () => ({
-  mirrorPlanComments: mirrorMock.comments,
-  deleteMirroredPlanComments: mirrorMock.deleted,
+vi.mock("../server/lib/plan-comments.js", () => ({
+  listPlanCommentRows: vi.fn(async () => []),
+  writePlanCommentRows: vi.fn(async () => undefined),
 }));
 
 vi.mock("drizzle-orm", () => ({
