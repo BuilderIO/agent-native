@@ -2044,6 +2044,7 @@ export class EvidenceQuoteMismatchError extends EvidenceInputError {
 
 export async function validateEvidenceWithContent(
   evidence: BrainEvidenceInput[],
+  options: { reusingStoredEvidence?: boolean } = {},
 ): Promise<{ evidence: BrainEvidence[]; content: Map<string, string> }> {
   const validated: BrainEvidence[] = [];
   const content = new Map<string, string>();
@@ -2064,12 +2065,18 @@ export async function validateEvidenceWithContent(
     const sourceUrl = safeCitationUrl(
       item.sourceUrl ?? item.url ?? metadata.sourceUrl,
     );
+    // Saved evidence keeps a date only if it was saved with one; a date that
+    // an earlier redaction removed must not come back when the item is reused.
+    const storedDateKept =
+      !options.reusingStoredEvidence ||
+      typeof (item as { capturedAt?: unknown }).capturedAt === "string";
     const result: BrainEvidence = {
       captureId: item.captureId,
       sourceId: access.capture.sourceId,
       captureTitle: access.capture.title,
       quote,
-      ...(access.source.provider === "manual" &&
+      ...(storedDateKept &&
+      access.source.provider === "manual" &&
       access.capture.externalId?.startsWith("markdown:") &&
       metadata.capturedAtSource === "manual-markdown" &&
       !Number.isNaN(Date.parse(access.capture.capturedAt))
@@ -3014,7 +3021,9 @@ async function planKnowledgeWrite(
   }
   let validated: Awaited<ReturnType<typeof validateEvidenceWithContent>>;
   try {
-    validated = await validateEvidenceWithContent(evidenceInput);
+    validated = await validateEvidenceWithContent(evidenceInput, {
+      reusingStoredEvidence: reusesStoredEvidence,
+    });
   } catch (error) {
     if (reusesStoredEvidence && error instanceof EvidenceQuoteMismatchError)
       fail(

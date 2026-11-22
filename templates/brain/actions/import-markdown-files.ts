@@ -41,31 +41,31 @@ type ImportedMarkdownResult =
       errorCode?: string;
     };
 
-const markdownFileSchema = z
-  .object({
-    path: z.string().trim().min(1).max(2_000),
-    content: z.string().max(MAX_MARKDOWN_FILE_CHARS),
-    kind: z
-      .enum(["document", "transcript"])
-      .optional()
-      .describe(
-        "Set document or transcript explicitly; when omitted, preserve an existing capture's kind or use document for a new file.",
-      ),
-    capturedAt: z.iso
-      .datetime({ offset: true })
-      .optional()
-      .describe(
-        "Capture time as an ISO 8601 datetime with timezone, when known.",
-      ),
-    participants: z
-      .array(z.string().trim().min(1).max(200))
-      .max(100)
-      .optional()
-      .describe(
-        "Optional participant labels. Privacy screening discards the labels and stores only their count; they do not grant access or change the audience. An empty list preserves the existing count.",
-      ),
-  })
-  .strict();
+// Unknown per-file keys are stripped, as before provenance fields existed, so
+// callers that send extra fields (title, metadata) keep working.
+const markdownFileSchema = z.object({
+  path: z.string().trim().min(1).max(2_000),
+  content: z.string().max(MAX_MARKDOWN_FILE_CHARS),
+  kind: z
+    .enum(["document", "transcript"])
+    .optional()
+    .describe(
+      "Set document or transcript explicitly; when omitted, preserve an existing capture's kind or use document for a new file.",
+    ),
+  capturedAt: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe(
+      "Capture time as an ISO 8601 datetime with timezone, when known.",
+    ),
+  participants: z
+    .array(z.string().trim().min(1).max(200))
+    .max(100)
+    .optional()
+    .describe(
+      "Optional participant labels. Privacy screening discards the labels and stores only their count; they do not grant access or change the audience. An empty list preserves the existing count.",
+    ),
+});
 
 function normalizeMarkdownPath(value: string) {
   const rawPath = value.trim().replace(/\\/g, "/");
@@ -92,6 +92,19 @@ function normalizeMarkdownPath(value: string) {
     };
   }
   return { path, error: null };
+}
+
+function suppliedProvenanceApplied(
+  capture: { capturedAt?: string | null; kind?: string | null },
+  file: { kind?: string; capturedAt?: string },
+) {
+  if (file.kind && capture.kind !== file.kind) return false;
+  if (file.capturedAt) {
+    const wanted = Date.parse(file.capturedAt);
+    if (!capture.capturedAt || Date.parse(capture.capturedAt) !== wanted)
+      return false;
+  }
+  return true;
 }
 
 export default defineAction({
@@ -191,28 +204,39 @@ export default defineAction({
     for (const file of validFiles) {
       const normalizedPath = file.normalizedPath;
       try {
-        const { capture, postCommitWarnings } = await createCaptureWithWarnings(
-          {
-            sourceId: source.id,
-            externalId: `markdown:${normalizedPath}`,
-            title: normalizedPath,
-            ...(file.input.kind ? { kind: file.input.kind } : {}),
-            content: file.input.content,
-            ...(file.input.capturedAt
-              ? {
-                  capturedAt: file.input.capturedAt,
-                  capturedAtSource: "manual-markdown" as const,
-                }
+        const captureInput = {
+          sourceId: source.id,
+          externalId: `markdown:${normalizedPath}`,
+          title: normalizedPath,
+          ...(file.input.kind ? { kind: file.input.kind } : {}),
+          content: file.input.content,
+          ...(file.input.capturedAt
+            ? {
+                capturedAt: file.input.capturedAt,
+                capturedAtSource: "manual-markdown" as const,
+              }
+            : {}),
+          metadata: {
+            path: normalizedPath,
+            sourceFormat: documentImportFormat(normalizedPath) ?? "markdown",
+            ...(file.input.participants?.length
+              ? { participants: file.input.participants }
               : {}),
-            metadata: {
-              path: normalizedPath,
-              sourceFormat: documentImportFormat(normalizedPath) ?? "markdown",
-              ...(file.input.participants?.length
-                ? { participants: file.input.participants }
-                : {}),
-            },
           },
-        );
+        };
+        let stored = await createCaptureWithWarnings(captureInput);
+        // A concurrent first import of the same path can win the insert; the
+        // store then returns the winner's row without this request's
+        // provenance. Apply it with the normal update against that row.
+        if (!suppliedProvenanceApplied(stored.capture, file.input)) {
+          stored = await createCaptureWithWarnings(captureInput);
+          if (!suppliedProvenanceApplied(stored.capture, file.input)) {
+            throw new Error(
+              "The capture changed during import and the supplied capture time or kind was not applied. Retry the import.",
+            );
+          }
+        }
+        const { capture, postCommitWarnings } = stored;
         let distillation: "queued" | "existing" | "skipped" | "failed" =
           "skipped";
         let distillationError: string | undefined;

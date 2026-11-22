@@ -253,6 +253,41 @@ describe("redaction covers every displayed field", () => {
     expect(JSON.stringify(fetched)).not.toContain("2026-11-18T12:00:00.000Z");
     expect(fetched.knowledge?.evidence[0]).not.toHaveProperty("capturedAt");
   });
+
+  it("does not bring a redacted meeting time back when a later edit reuses the saved evidence", async () => {
+    await database
+      .update(schema.brainRawCaptures)
+      .set({
+        externalId: "markdown:meeting.md",
+        metadataJson: JSON.stringify({ capturedAtSource: "manual-markdown" }),
+      })
+      .where(eq(schema.brainRawCaptures.id, "capture"));
+    const saved = await asQa(() =>
+      writeKnowledgeRecord({
+        title: "Atlas launch",
+        body: "The launch is planned.",
+        evidence: [{ captureId: "capture", quote: "Morgan will ship Atlas" }],
+        redactions: ["2026-11"],
+        publishTier: "company",
+      }),
+    );
+    const id = saved.knowledge.id;
+    const expectedRevision = knowledgeRevision(await storedRow(id));
+    await asQa(() =>
+      writeKnowledgeRecord({
+        knowledgeId: id,
+        expectedRevision,
+        title: "Atlas launch plan",
+        body: "The launch is planned.",
+      }),
+    );
+    const row = await storedRow(id);
+    expect(row.title).toBe("Atlas launch plan");
+    expect(row.evidenceJson).not.toContain("2026-11");
+    const fetched = await asQa(() => getKnowledgeAction.run({ id }));
+    expect(JSON.stringify(fetched)).not.toContain("2026-11-18T12:00:00.000Z");
+    expect(fetched.knowledge?.evidence[0]).not.toHaveProperty("capturedAt");
+  });
   const safeUrl = "https://example.test/notes/atlas";
   const encodedDestination = (times: number) => {
     let at = "@";

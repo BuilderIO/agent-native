@@ -285,3 +285,86 @@ describe("report BRAIN-IMPORT-001: markdown screening unavailable", () => {
     expect(mocks.enqueueCaptureDistillation).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("import-markdown-files provenance races and extra fields", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.ensureManualSource.mockResolvedValue(source);
+    mocks.getAccessibleSource.mockResolvedValue({ resource: source });
+    mocks.enqueueCaptureDistillation.mockResolvedValue({
+      existing: false,
+      queueItem: { id: "queue-1" },
+    });
+  });
+
+  it("applies the supplied meeting time when a concurrent import won the insert", async () => {
+    mocks.createCapture
+      .mockResolvedValueOnce({
+        id: "capture-raced",
+        sourceId: "source-1",
+        status: "queued",
+        kind: "document",
+        capturedAt: "2026-11-22T00:00:00.000Z",
+      })
+      .mockImplementationOnce(async (input) => ({
+        id: "capture-raced",
+        sourceId: "source-1",
+        status: "queued",
+        kind: input.kind,
+        capturedAt: input.capturedAt,
+      }));
+
+    const result = await action.run({
+      sourceTitle: "Onboarding docs",
+      files: [
+        {
+          path: "meeting.md",
+          content: "Morgan will ship Atlas",
+          kind: "transcript",
+          capturedAt: "2026-11-18T12:00:00.000Z",
+        },
+      ],
+      enqueueDistillation: false,
+    });
+
+    expect(mocks.createCapture).toHaveBeenCalledTimes(2);
+    expect(result.summary).toMatchObject({ imported: 1, failed: 0 });
+  });
+
+  it("reports a failure instead of success when the supplied meeting time still cannot be applied", async () => {
+    mocks.createCapture.mockResolvedValue({
+      id: "capture-raced",
+      sourceId: "source-1",
+      status: "queued",
+      kind: "document",
+      capturedAt: "2026-11-22T00:00:00.000Z",
+    });
+
+    const result = await action.run({
+      sourceTitle: "Onboarding docs",
+      files: [
+        {
+          path: "meeting.md",
+          content: "Morgan will ship Atlas",
+          capturedAt: "2026-11-18T12:00:00.000Z",
+        },
+      ],
+      enqueueDistillation: false,
+    });
+
+    expect(result.summary).toMatchObject({ imported: 0, failed: 1 });
+  });
+
+  it("ignores unknown per-file fields instead of rejecting the batch", () => {
+    const schema = (
+      action as unknown as {
+        schema: { safeParse: (value: unknown) => { success: boolean } };
+      }
+    ).schema;
+    expect(
+      schema.safeParse({
+        files: [{ path: "a.md", content: "text", title: "A", metadata: {} }],
+      }).success,
+    ).toBe(true);
+  });
+});
