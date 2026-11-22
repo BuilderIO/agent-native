@@ -269,8 +269,6 @@ const messages = {
       commentDeleted: "Comentario eliminado",
       commentResolved: "Comentario resuelto",
       commentReopened: "Comentario reabierto",
-      mentionMember: "Mencionar miembro de la organización",
-      searchingPeople: "Buscando personas...",
       noMatchingMembers: "No hay miembros de la organización coincidentes.",
       open: "Abierto",
       options: "Opciones de comentarios",
@@ -278,7 +276,6 @@ const messages = {
       replyPlaceholder: "Responder",
       resolved: "Resuelto",
       saveFailed: "No se pudo guardar. Intentar otra vez.",
-      saving: "Ahorro",
       sendFailed: "No se pudo enviar. Intentar otra vez.",
       sendReply: "Enviar respuesta",
       signInDescription:

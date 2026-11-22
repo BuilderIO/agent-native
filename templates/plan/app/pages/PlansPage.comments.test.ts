@@ -321,6 +321,10 @@ describe("plan comment thread UI model", () => {
 
     menu.setAttribute("data-review-format-toolbar", "");
     expect(commentMenuIsOpen()).toBe(false);
+    const linkField = document.createElement("input");
+    menu.append(linkField);
+    expect(commentMenuIsOpen()).toBe(true);
+    linkField.remove();
 
     menu.removeAttribute("data-review-format-toolbar");
     menu.removeAttribute("data-review-popover");

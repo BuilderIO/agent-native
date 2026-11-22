@@ -715,7 +715,6 @@ const messages = {
       toAgent: "An den Agenten senden",
       cancelComment: "Kommentar abbrechen",
       addPlaceholder: "Kommentar hinzufügen...",
-      saving: "Sparen",
       saveFailed: "Speichern nicht möglich. Bitte versuchen Sie es erneut.",
       signInTitle: "Melden Sie sich an, um einen Kommentar abzugeben",
       signInDescription:
@@ -742,8 +741,6 @@ const messages = {
       commentDeleted: "Kommentar gelöscht",
       commentResolved: "Kommentar gelöst",
       commentReopened: "Kommentar erneut geöffnet",
-      mentionMember: "Organisationsmitglied erwähnen",
-      searchingPeople: "Personen werden gesucht...",
       noMatchingMembers: "Keine passenden Organisationsmitglieder.",
       noOpen:
         "Es sind keine Kommentare geöffnet. Klicken Sie auf „Kommentare“ und dann auf „Kommentar platzieren“.",

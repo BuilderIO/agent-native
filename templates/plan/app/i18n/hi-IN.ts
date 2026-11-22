@@ -685,7 +685,6 @@ const messages = {
       toAgent: "एजेंट को भेजें",
       cancelComment: "टिप्पणी रद्द करें",
       addPlaceholder: "एक टिप्पणी जोड़ने...",
-      saving: "सहेजा जा रहा है",
       saveFailed: "सहेजने में असमर्थ. कृपया पुन: प्रयास करें।",
       signInTitle: "टिप्पणी करने के लिए साइन इन करें",
       signInDescription: "इस कार्यक्रम पर समीक्षा छोड़ने के लिए एक निःशुल्क खाता बनाएँ।",
@@ -711,8 +710,6 @@ const messages = {
       commentDeleted: "टिप्पणी हटाई गई",
       commentResolved: "टिप्पणी हल की गई",
       commentReopened: "टिप्पणी फिर से खोली गई",
-      mentionMember: "संगठन सदस्य का उल्लेख करें",
-      searchingPeople: "लोग खोजे जा रहे हैं...",
       noMatchingMembers: "कोई मेल खाता संगठन सदस्य नहीं मिला।",
       noOpen:
         "कोई टिप्पणी खुली नहीं है. टिप्पणियाँ पर क्लिक करें, फिर टिप्पणी रखें पर क्लिक करें।",

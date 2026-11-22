@@ -697,7 +697,6 @@ const messages = {
       toAgent: "إرسال إلى الوكيل",
       cancelComment: "إلغاء التعليق",
       addPlaceholder: "إضافة تعليق...",
-      saving: "توفير",
       saveFailed: "غير قادر على الحفظ. يرجى المحاولة مرة أخرى.",
       signInTitle: "تسجيل الدخول للتعليق",
       signInDescription: "قم بإنشاء حساب مجاني لترك تعليق على هذا البرنامج.",
@@ -723,8 +722,6 @@ const messages = {
       commentDeleted: "تم حذف التعليق",
       commentResolved: "تم حل التعليق",
       commentReopened: "تمت إعادة فتح التعليق",
-      mentionMember: "اذكر عضوًا في المؤسسة",
-      searchingPeople: "جارٍ البحث عن أشخاص...",
       noMatchingMembers: "لا يوجد أعضاء مطابقون في المؤسسة.",
       noOpen:
         "لا توجد تعليقات مفتوحة. انقر على التعليقات، ثم انقر على إضافة تعليق.",

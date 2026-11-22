@@ -32,7 +32,10 @@ import { AnnotationPopover, InlineCommentPopover } from "./PlansPage";
 type EditorElement = HTMLElement & {
   editor: {
     commands: { focus: (position: "end") => boolean };
-    state: { tr: { insertText: (text: string) => unknown } };
+    state: {
+      doc: { content: { size: number } };
+      tr: { insertText: (text: string, from?: number, to?: number) => unknown };
+    };
     view: { dispatch: (transaction: unknown) => void };
   };
 };
@@ -59,6 +62,14 @@ const settle = () =>
 function editor() {
   const found = container.querySelector<EditorElement>(".ProseMirror");
   if (!found) throw new Error("No comment box on screen");
+  return found;
+}
+
+function submitButton() {
+  const found = container.querySelector<HTMLButtonElement>(
+    'button[type="submit"]',
+  );
+  if (!found) throw new Error("No send button on screen");
   return found;
 }
 
@@ -181,6 +192,40 @@ describe("comment box focus", () => {
 
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps a comment for a person once its mention is deleted", async () => {
+    act(() =>
+      root.render(
+        <InlineCommentPopover
+          anchor={{ x: 1 } as InlineAnchor}
+          position={{ left: 0, top: 0, pinLeft: 0, pinTop: 0, width: 320 }}
+          initialDraft={{
+            message: "@[Pat](mailto:pat%40example.com) look here",
+            mentions: [],
+            resolutionTarget: "agent",
+          }}
+          onCancel={() => {}}
+          onSubmit={async () => {}}
+        />,
+      ),
+    );
+    await settle();
+    expect(submitButton().disabled).toBe(false);
+
+    act(() => {
+      const { state, view } = editor().editor;
+      view.dispatch(
+        state.tr.insertText("Just a note", 1, state.doc.content.size - 1),
+      );
+    });
+    await settle();
+
+    expect(editor().textContent).toBe("Just a note");
+    expect(submitButton().disabled).toBe(true);
+    expect(container.textContent).toContain(
+      "plansPage.comments.mentionRequired",
+    );
+  });
 });
 
 function annotation(id: string): RuntimeAnnotation {
@@ -302,9 +347,11 @@ describe("thread popover reply", () => {
     typeReply("Reply for A");
     await sendReply();
     typeReply("Next thought");
+    expect(submitButton().disabled).toBe(true);
     await act(async () => finishSending());
 
     expect(editor().textContent).toBe("Next thought");
+    expect(submitButton().disabled).toBe(false);
   });
 
   it("brings back a reply that fails after you leave its thread", async () => {

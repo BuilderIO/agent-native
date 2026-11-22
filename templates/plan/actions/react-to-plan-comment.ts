@@ -52,6 +52,11 @@ export default defineAction({
     description:
       "Add or remove a reaction on a comment in an Agent-Native Plan.",
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   mcpApp: {
     compactCatalog: true,
   },

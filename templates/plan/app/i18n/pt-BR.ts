@@ -713,7 +713,6 @@ const messages = {
       toAgent: "Enviar para agente",
       cancelComment: "Cancelar comentário",
       addPlaceholder: "Adicione um comentário...",
-      saving: "Salvando",
       saveFailed: "Não foi possível salvar. Por favor, tente novamente.",
       signInTitle: "Faça login para comentar",
       signInDescription:
@@ -740,8 +739,6 @@ const messages = {
       commentDeleted: "Comentário excluído",
       commentResolved: "Comentário resolvido",
       commentReopened: "Comentário reaberto",
-      mentionMember: "Mencionar membro da organização",
-      searchingPeople: "Buscando pessoas...",
       noMatchingMembers: "Nenhum membro da organização correspondente.",
       noOpen:
         "Não há comentários abertos. Clique em Comentários e em Colocar comentário.",

@@ -699,7 +699,7 @@ export function shouldKeepCommentPopoverOpenForTarget(
 }
 
 const OPEN_COMMENT_MENU_SELECTOR =
-  '[data-comment-popover-portal][data-state="open"], [data-review-popover][data-state="open"]:not([data-review-format-toolbar])';
+  '[data-comment-popover-portal][data-state="open"], [data-review-popover][data-state="open"]:not([data-review-format-toolbar]), [data-review-format-toolbar][data-state="open"] input';
 
 export function commentMenuIsOpen() {
   return document.querySelector(OPEN_COMMENT_MENU_SELECTOR) !== null;
@@ -2578,6 +2578,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const updateLocalCommentMutation = useUpdateLocalPlanComments();
   const deleteCommentMutation = useDeletePlanComment();
   const reactToCommentMutation = useReactToPlanComment();
+  const reactionQueuesRef = useRef(new Map<string, Promise<unknown>>());
   const deletePlanMutation = useDeletePlan();
 
   const handleArchivePlan = useCallback(
@@ -4867,24 +4868,45 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             : current,
       );
     await queryClient.cancelQueries({ queryKey });
+    const reactedBefore =
+      queryClient
+        .getQueryData<PlanBundleWithHtml>(queryKey)
+        ?.comments.find((comment) => comment.id === commentId)
+        ?.reactions?.some(
+          (item) => item.reaction === reaction && item.reactedByMe,
+        ) ?? false;
     setReactions((current) =>
       togglePlanCommentReaction(current, reaction, active),
     );
-    try {
-      const result = await reactToCommentMutation.mutateAsync({
-        planId: bundle.plan.id,
+    const planId = bundle.plan.id;
+    const queues = reactionQueuesRef.current;
+    const request = (queues.get(commentId) ?? Promise.resolve()).then(() =>
+      reactToCommentMutation.mutateAsync({
+        planId,
         commentId,
         reaction,
         active,
-      });
-      setReactions(() => result.reactions);
+      }),
+    );
+    const turn = request.catch(() => undefined);
+    queues.set(commentId, turn);
+    try {
+      const result = await request;
+      if (queues.get(commentId) === turn) {
+        setReactions(() => result.reactions);
+      }
     } catch (error) {
-      setReactions((current) =>
-        togglePlanCommentReaction(current, reaction, !active),
-      );
+      if (reactedBefore !== active) {
+        setReactions((current) =>
+          togglePlanCommentReaction(current, reaction, !active),
+        );
+      }
+      void queryClient.invalidateQueries({ queryKey });
       toast.error(
         actionErrorMessage(error) ?? t("plansPage.comments.reactionFailed"),
       );
+    } finally {
+      if (queues.get(commentId) === turn) queues.delete(commentId);
     }
   };
 
@@ -9187,14 +9209,13 @@ function InlineCommentPopover({
   }, []);
   const message = planCommentMessage(box).trim();
   const mentions = extractCommentMentions(message);
+  if (!resolverTouched && mentions.length > 0 && chosenTarget !== "human") {
+    setChosenTarget("human");
+  }
   const draft: CommentDraft = {
     message,
     mentions,
-    resolutionTarget: lockToAgent
-      ? "agent"
-      : !resolverTouched && mentions.length > 0
-        ? "human"
-        : chosenTarget,
+    resolutionTarget: lockToAgent ? "agent" : chosenTarget,
   };
   const canSubmit = canSubmitInlineCommentDraft({
     draft,
@@ -9402,6 +9423,7 @@ function ReplyComposer({
         commentLabel={t("plansPage.comments.sendReply")}
         ariaLabel={placeholder ?? t("plansPage.comments.replyPlaceholder")}
         autoFocus={autoFocus}
+        submitDisabled={!canSubmit}
       />
       {failedThreadIds.includes(threadId) && (
         <p className="text-xs text-destructive">

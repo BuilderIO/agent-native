@@ -1,5 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { findCommentMentions } from "@agent-native/core/review/plain-text";
+import {
+  findCommentMentions,
+  type CommentMentionCandidate,
+} from "@agent-native/core/review/plain-text";
 import type {
   ReviewComment,
   ReviewMention,
@@ -44,8 +47,63 @@ export function planCommentBoxDraft(message: string): PlanCommentBoxDraft {
   return { text: message, mentions: [] };
 }
 
+const NAME_CHAR_BEFORE = /[\p{L}\p{M}\p{N}_]$/u;
+const NAME_CHAR_AFTER = /^[\p{L}\p{M}\p{N}_]/u;
+
+function pinSharedNames(
+  text: string,
+  mentions: readonly ReviewMention[],
+): CommentMentionCandidate[] {
+  const byLabel = new Map<string, ReviewMention[]>();
+  for (const mention of mentions) {
+    const named = byLabel.get(mention.label) ?? [];
+    const email = mention.email?.toLowerCase();
+    if (!named.some((other) => other.email?.toLowerCase() === email)) {
+      named.push(mention);
+    }
+    byLabel.set(mention.label, named);
+  }
+  const pinned: CommentMentionCandidate[] = [];
+  for (const [label, named] of byLabel) {
+    if (named.length < 2) {
+      pinned.push(...named);
+      continue;
+    }
+    const source = `@${label}`;
+    const places: number[] = [];
+    for (
+      let at = text.indexOf(source);
+      at !== -1;
+      at = text.indexOf(source, at + 1)
+    ) {
+      const end = at + source.length;
+      const partOfLonger = mentions.some(
+        (other) =>
+          other.label.length > label.length &&
+          text.startsWith(`@${other.label}`, at),
+      );
+      const inWord =
+        NAME_CHAR_BEFORE.test(text.slice(Math.max(0, at - 2), at)) ||
+        (NAME_CHAR_BEFORE.test(label) &&
+          NAME_CHAR_AFTER.test(text.slice(end, end + 2)));
+      if (!partOfLonger && !inWord) places.push(at);
+    }
+    if (places.length === named.length) {
+      named.forEach((person, index) =>
+        pinned.push({ ...person, at: places[index] }),
+      );
+    } else {
+      pinned.push(...named);
+    }
+  }
+  return pinned;
+}
+
 export function planCommentMessage(draft: PlanCommentBoxDraft): string {
-  const picked = findCommentMentions(draft.text, draft.mentions)
+  const picked = findCommentMentions(
+    draft.text,
+    pinSharedNames(draft.text, draft.mentions),
+  )
     .filter((found) => !found.inline)
     .sort((a, b) => b.at - a.at);
   let message = draft.text;
@@ -204,7 +262,6 @@ export function PlanCommentEntry({
   showReactions,
   canReact,
   onReact,
-  onEdit,
   deleteLabel,
   onDelete,
   editor,
@@ -215,7 +272,6 @@ export function PlanCommentEntry({
   showReactions: boolean;
   canReact: boolean;
   onReact: (reaction: string, active: boolean) => void;
-  onEdit?: (() => void) | undefined;
   deleteLabel: string;
   onDelete?: (() => void) | undefined;
   editor?: ReactNode;
@@ -248,13 +304,11 @@ export function PlanCommentEntry({
       }
       onReact={(_comment, reaction, active) => onReact(reaction, active)}
       menu={
-        onEdit || onDelete ? (
+        onDelete ? (
           <ReviewCommentMenu
             moreActionsLabel={t("plansPage.comments.moreActions")}
             ariaLabel={t("plansPage.comments.moreActionsFor", { author })}
-            editLabel={t("plansPage.comments.editComment")}
             deleteLabel={deleteLabel}
-            onEdit={onEdit}
             onDelete={onDelete}
           />
         ) : undefined

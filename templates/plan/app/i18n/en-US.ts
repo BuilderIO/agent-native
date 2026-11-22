@@ -688,7 +688,6 @@ const messages = {
       toAgent: "To agent",
       cancelComment: "Cancel comment",
       addPlaceholder: "Add a comment...",
-      saving: "Saving",
       saveFailed: "Couldn't save. Try again.",
       signInTitle: "Sign in to comment",
       signInDescription:
@@ -716,8 +715,6 @@ const messages = {
       commentDeleted: "Comment deleted",
       commentResolved: "Comment resolved",
       commentReopened: "Comment reopened",
-      mentionMember: "Mention organization member",
-      searchingPeople: "Searching people...",
       noMatchingMembers: "No matching organization members.",
       deleteThreadTitle: "Delete thread?",
       deleteCommentTitle: "Delete comment?",
