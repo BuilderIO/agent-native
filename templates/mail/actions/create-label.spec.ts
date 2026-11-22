@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   gmailListLabels: vi.fn(),
   gmailCreateLabel: vi.fn(),
   addCachedGmailLabel: vi.fn(),
-  getAccessTokens: vi.fn(),
+  getClientsWithErrors: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -25,13 +25,11 @@ vi.mock("../server/lib/google-api.js", () => ({
   gmailCreateLabel: mocks.gmailCreateLabel,
 }));
 vi.mock("../server/lib/google-auth.js", () => ({
+  getClientsWithErrors: mocks.getClientsWithErrors,
   isConnected: mocks.isConnected,
 }));
 vi.mock("../server/lib/inbox-store.js", () => ({
   addCachedGmailLabel: mocks.addCachedGmailLabel,
-}));
-vi.mock("./helpers.js", () => ({
-  getAccessTokens: mocks.getAccessTokens,
 }));
 
 import action from "./create-label";
@@ -44,12 +42,15 @@ describe("create-label action", () => {
     mocks.addCachedGmailLabel.mockResolvedValue(undefined);
   });
 
-  it("reuses a label an account already has and creates it where it is missing", async () => {
+  it("reuses a label an account already has, creates it where it is missing, and reports an account it cannot reach", async () => {
     mocks.isConnected.mockResolvedValue(true);
-    mocks.getAccessTokens.mockResolvedValue([
-      { email: "has@example.com", accessToken: "has-token" },
-      { email: "missing@example.com", accessToken: "missing-token" },
-    ]);
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [
+        { email: "has@example.com", accessToken: "has-token" },
+        { email: "missing@example.com", accessToken: "missing-token" },
+      ],
+      errors: [{ email: "expired@example.com", error: "invalid_grant" }],
+    });
     mocks.gmailListLabels.mockImplementation(async (token) => ({
       labels:
         token === "has-token" ? [{ id: "Label_7", name: "Receipts" }] : [],
@@ -63,10 +64,15 @@ describe("create-label action", () => {
     const result = await action.run({ name: "receipts" });
 
     expect(result).toEqual({
-      status: "complete",
+      status: "partial",
       backend: "gmail",
       label: { id: "receipts", name: "Receipts", type: "user" },
       accounts: [
+        {
+          accountEmail: "expired@example.com",
+          status: "failed",
+          error: "invalid_grant",
+        },
         { accountEmail: "has@example.com", status: "existing" },
         { accountEmail: "missing@example.com", status: "created" },
       ],

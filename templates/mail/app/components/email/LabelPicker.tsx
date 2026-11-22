@@ -170,6 +170,13 @@ export function useApplyLabel(removeLabel?: string) {
             ...(accountEmails.length > 0 ? { accountEmails } : {}),
           });
           label = { id: result.label.id, name: result.label.name };
+          if (result.status === "partial")
+            toast.error(
+              result.accounts
+                .filter((account) => account.status === "failed")
+                .map((account) => `${account.accountEmail}: ${account.error}`)
+                .join("; "),
+            );
         } catch (error) {
           toast.error(
             actionErrorMessage(error) ?? t("mail.toasts.createLabelFailed"),

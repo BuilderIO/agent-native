@@ -9,10 +9,12 @@ import {
   normalizeLabel,
 } from "../server/lib/email-label-change.js";
 import { gmailCreateLabel, gmailListLabels } from "../server/lib/google-api.js";
-import { isConnected } from "../server/lib/google-auth.js";
+import {
+  getClientsWithErrors,
+  isConnected,
+} from "../server/lib/google-auth.js";
 import { addCachedGmailLabel } from "../server/lib/inbox-store.js";
 import type { Label } from "../shared/types.js";
-import { getAccessTokens } from "./helpers.js";
 
 const accountResultSchema = z.object({
   accountEmail: z.string(),
@@ -33,6 +35,10 @@ const createLabelOutputSchema = z.object({
 
 type CreateLabelAccountResult = z.infer<typeof accountResultSchema>;
 export type CreateLabelResult = z.infer<typeof createLabelOutputSchema>;
+
+function labelViewId(name: string): string {
+  return name.toLowerCase().replace(/_/g, " ");
+}
 
 export default defineAction({
   description:
@@ -82,61 +88,75 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    const id = normalizeLabel(name);
-    const label = { id, name, type: "user" as const };
+    const key = normalizeLabel(name);
+    const label = { id: labelViewId(name), name, type: "user" as const };
 
     if (!(await isConnected(ownerEmail))) {
-      let existingName: string | undefined;
+      let existing: Label | undefined;
       await mutateUserSetting(ownerEmail, "labels", (current) => {
         const labels: Label[] = Array.isArray(current?.labels)
           ? (current.labels as Label[])
           : [];
-        existingName = labels.find(
-          (entry) => normalizeLabel(entry.name) === id,
-        )?.name;
-        return existingName ? { labels } : { labels: [...labels, label] };
+        existing = labels.find((entry) => normalizeLabel(entry.name) === key);
+        return existing ? { labels } : { labels: [...labels, label] };
       });
-      if (!existingName)
-        await writeAppState("refresh-signal", { ts: Date.now() });
+      if (!existing) await writeAppState("refresh-signal", { ts: Date.now() });
       return {
         status: "complete",
         backend: "local",
-        label: existingName ? { ...label, name: existingName } : label,
+        label: existing
+          ? { id: existing.id, name: existing.name, type: "user" }
+          : label,
         accounts: [],
       };
     }
 
-    const requested = accountEmails?.length
-      ? new Set(accountEmails.map((email) => email.toLowerCase()))
-      : undefined;
-    const connected = await getAccessTokens(ownerEmail);
-    const accounts = requested
-      ? connected.filter(({ email }) => requested.has(email.toLowerCase()))
-      : connected;
-    const results: CreateLabelAccountResult[] = [...(requested ?? [])]
-      .filter(
-        (email) =>
-          !connected.some((account) => account.email.toLowerCase() === email),
-      )
-      .map((accountEmail) => ({
-        accountEmail,
-        status: "failed",
-        error: `Account ${accountEmail} is not connected for this user`,
-      }));
+    const requested = accountEmails?.map((email) => email.toLowerCase());
+    const { clients, errors } = await getClientsWithErrors(
+      ownerEmail,
+      requested?.length ? requested : undefined,
+    );
+    const reached = new Set(
+      [...clients, ...errors].map(({ email }) => email.toLowerCase()),
+    );
+    const results: CreateLabelAccountResult[] = [
+      ...errors.map(({ email, error }) => ({
+        accountEmail: email,
+        status: "failed" as const,
+        error,
+      })),
+      ...(requested ?? [])
+        .filter((email) => !reached.has(email))
+        .map((accountEmail) => ({
+          accountEmail,
+          status: "failed" as const,
+          error: `Account ${accountEmail} is not connected for this user`,
+        })),
+    ];
 
     let labelName = name;
-    for (const { email, accessToken } of accounts) {
+    for (const { email, accessToken } of clients) {
       try {
         const existing = ((await gmailListLabels(accessToken)).labels ??
           []) as {
           id?: string;
           name?: string;
+          type?: string;
         }[];
         const match = existing.find(
-          (entry) => entry.name && normalizeLabel(entry.name) === id,
+          (entry) => entry.name && normalizeLabel(entry.name) === key,
         );
-        if (match?.name) {
+        if (match?.id && match.name) {
           labelName = match.name;
+          await addCachedGmailLabel(ownerEmail, email, {
+            id: match.id,
+            name: match.name,
+            type: match.type ?? "user",
+            messagesTotal: 0,
+            messagesUnread: 0,
+            threadsTotal: 0,
+            threadsUnread: 0,
+          });
           results.push({ accountEmail: email, status: "existing" });
           continue;
         }
@@ -183,7 +203,7 @@ export default defineAction({
     return {
       status: failed.length > 0 ? "partial" : "complete",
       backend: "gmail",
-      label: { ...label, name: labelName },
+      label: { ...label, id: labelViewId(labelName), name: labelName },
       accounts: results,
     };
   },

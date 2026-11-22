@@ -2881,32 +2881,26 @@ export function useLabelEmail() {
         throw new LabelEmailPartialFailure(result);
       return result;
     },
-    onSettled: () =>
-      Promise.all(
+    onSettled: (_result, _error, { id, threadId, threadIds }) => {
+      const threads = (threadIds ?? threadId ?? id)
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      for (const thread of new Set(threads)) invalidateCachedThread(thread);
+      return Promise.all(
         [["emails"], LABELS_QUERY_KEY, INBOX_THREADS_QUERY_KEY].map((key) =>
           qc.invalidateQueries({ queryKey: key }),
         ),
-      ),
+      );
+    },
   });
 }
 
 export function useCreateLabel() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (variables: {
-      name: string;
-      accountEmails?: string[];
-    }) => {
-      const result = await callAction("create-label", variables);
-      if (result.status === "partial")
-        throw new Error(
-          result.accounts
-            .filter((account) => account.status === "failed")
-            .map((account) => `${account.accountEmail}: ${account.error}`)
-            .join("; "),
-        );
-      return result;
-    },
+    mutationFn: async (variables: { name: string; accountEmails?: string[] }) =>
+      callAction("create-label", variables),
     onSuccess: (result) => {
       qc.setQueriesData<{ labels: Label[]; errors: unknown[] }>(
         { queryKey: LABELS_QUERY_KEY },

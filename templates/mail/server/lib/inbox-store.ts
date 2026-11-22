@@ -731,13 +731,27 @@ export async function addCachedGmailLabel(
   accountEmail: string,
   label: CachedGmailLabel,
 ): Promise<void> {
-  const account = (await readSyncAccounts(ownerEmail)).find(
-    (row) => row.accountEmail === accountEmail.toLowerCase(),
-  );
-  if (!account?.labels || account.labels.some((row) => row.id === label.id))
-    return;
-  await patchSyncAccount(ownerEmail, accountEmail, {
-    labels: [...account.labels, label],
+  const conditions = [
+    eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)),
+  ];
+  await getDb().transaction(async (tx) => {
+    const rows = await tx
+      .select({ labelsJson: schema.mailSyncAccounts.labelsJson })
+      .from(schema.mailSyncAccounts)
+      .where(and(...conditions))
+      .for("update")
+      .limit(1);
+    const row = rows.length > 0 ? rows[0] : undefined;
+    const labels = readStateJson<CachedGmailLabel[] | null>(
+      {},
+      "labels_json",
+      row ? row.labelsJson : null,
+      (parsed) =>
+        Array.isArray(parsed) ? (parsed as CachedGmailLabel[]) : null,
+      null,
+    );
+    if (!labels || labels.some((existing) => existing.id === label.id)) return;
+    await applySyncPatch(tx, conditions, { labels: [...labels, label] });
   });
 }
 
