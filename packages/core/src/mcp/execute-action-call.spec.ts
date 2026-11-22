@@ -29,6 +29,7 @@ import {
   type McpActionCallOutcome,
   embedCredentialGuard,
   executeMcpActionCall,
+  MCP_APPROVAL_NOTICE_MAX_CHARS,
   redactEmbedCredentials,
   runMcpActionCallUnredacted,
   UnreadableResultError,
@@ -1792,5 +1793,98 @@ describe("MCP action approval grants", () => {
       result: { rows: 1 },
     });
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  describe("approval notice", () => {
+    const asking = (approvalNotice: ActionEntry["approvalNotice"]) => {
+      const run = vi.fn(async () => ({ rows: 1 }));
+      return {
+        run,
+        callable: {
+          read: entry({ mcpNeedsApproval: () => true, approvalNotice, run }),
+        },
+      };
+    };
+
+    it("states the notice trimmed on the grant and the review", async () => {
+      const { run, callable } = asking(
+        async () => "  Allow up to $5.00 of BigQuery today?\n",
+      );
+
+      const outcome = await runUnredacted(callable, "read", {});
+
+      expect(outcome).toMatchObject({
+        status: "approval-required",
+        review: { notice: "Allow up to $5.00 of BigQuery today?" },
+      });
+      expect([...grants.values()]).toEqual([
+        expect.objectContaining({
+          approvalNotice: "Allow up to $5.00 of BigQuery today?",
+        }),
+      ]);
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["no notice", undefined],
+      ["a blank notice", " \n "],
+    ])("asks with the arguments alone for %s", async (_label, notice) => {
+      const { callable } = asking(async () => notice);
+
+      const outcome = await runUnredacted(callable, "read", {});
+
+      expect(outcome).toMatchObject({ status: "approval-required" });
+      expect(outcome).not.toHaveProperty("review.notice");
+      expect([...grants.values()]).toEqual([
+        expect.objectContaining({ approvalNotice: undefined }),
+      ]);
+    });
+
+    it("fails the call, with no grant, when the notice isn't text", async () => {
+      const { run, callable } = asking(
+        (async () => 42) as unknown as ActionEntry["approvalNotice"],
+      );
+
+      const outcome = await runUnredacted(callable, "read", {});
+
+      expect(outcome).toMatchObject({ status: "threw", stage: "approval" });
+      expect(outcome).toHaveProperty(
+        "error",
+        new TypeError("read's approvalNotice returned number, not text."),
+      );
+      expect(grants.size).toBe(0);
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("states a notice at the length limit whole, after trimming", async () => {
+      const long = "y".repeat(MCP_APPROVAL_NOTICE_MAX_CHARS);
+      const { callable } = asking(async () => ` ${long} `);
+
+      await expect(runUnredacted(callable, "read", {})).resolves.toMatchObject({
+        status: "approval-required",
+        review: { notice: long },
+      });
+      expect([...grants.values()]).toEqual([
+        expect.objectContaining({ approvalNotice: long }),
+      ]);
+    });
+
+    it("fails the call, with no grant, when the notice is over the length limit", async () => {
+      const { run, callable } = asking(async () =>
+        "x".repeat(MCP_APPROVAL_NOTICE_MAX_CHARS + 1),
+      );
+
+      const outcome = await runUnredacted(callable, "read", {});
+
+      expect(outcome).toMatchObject({ status: "threw", stage: "approval" });
+      expect(outcome).toHaveProperty(
+        "error",
+        new RangeError(
+          `read's approvalNotice is longer than ${MCP_APPROVAL_NOTICE_MAX_CHARS} characters, more than a review shows whole.`,
+        ),
+      );
+      expect(grants.size).toBe(0);
+      expect(run).not.toHaveBeenCalled();
+    });
   });
 });

@@ -155,6 +155,20 @@ describe("filesystemActionEntry", () => {
     }
   });
 
+  it("drops an MCP-only approval, notice or proof of the wrong shape from a module that skipped defineAction", () => {
+    const entry = filesystemActionEntry({
+      description: "Read the warehouse",
+      mcpNeedsApproval: true,
+      approvalNotice: "Allow up to $5.00 of BigQuery today?",
+      approvalProof: "client",
+      run: async () => null,
+    } as never);
+
+    expect(entry.mcpNeedsApproval).toBeUndefined();
+    expect(entry.approvalNotice).toBeUndefined();
+    expect(entry.approvalProof).toBeUndefined();
+  });
+
   it("refuses an approval proof it doesn't know, or a predicate that isn't a function", () => {
     const base = {
       description: "Read the warehouse",
