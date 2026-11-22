@@ -4,6 +4,7 @@ import type {
   ContentDatabaseSource,
   ContentDatabaseSourceFieldMapping,
 } from "@shared/api";
+import { FILES_PROPERTY_TYPES } from "@shared/properties";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -233,27 +234,25 @@ describe("Add Property picker", () => {
     expect(mutations.configure.mutateAsync).not.toHaveBeenCalled();
   });
 
-  // Files keeps only the properties the app gives it, and its view has read
-  // the collection before it draws the button.
-  it("draws nothing on a collection that refuses new properties", async () => {
-    function ReadCollection({
-      systemRole,
-      children,
-    }: {
-      systemRole: string | null;
-      children: ReactNode;
-    }) {
-      const queryClient = useQueryClient();
-      useState(() =>
-        queryClient.setQueryData(contentDatabaseQueryKey("document"), {
-          database: { id: "database", systemRole },
-        }),
-      );
-      return children;
-    }
+  function ReadCollection({
+    systemRole,
+    children,
+  }: {
+    systemRole: string | null;
+    children: ReactNode;
+  }) {
+    const queryClient = useQueryClient();
+    useState(() =>
+      queryClient.setQueryData(contentDatabaseQueryKey("document"), {
+        database: { id: "database", systemRole },
+      }),
+    );
+    return children;
+  }
 
+  it("draws nothing on a system collection that takes no new properties", async () => {
     const { rerender } = renderUi(
-      <ReadCollection systemRole="files">
+      <ReadCollection systemRole="workspaces">
         <AddProperty documentId="document" databaseId="database" />
       </ReadCollection>,
     );
@@ -265,5 +264,41 @@ describe("Add Property picker", () => {
       </ReadCollection>,
     );
     expect(queryByLabel("editor.properties.addProperty")).not.toBeNull();
+  });
+
+  it("offers Files only the types its sidebar can use, and no source fields", async () => {
+    renderUi(
+      <ReadCollection systemRole="files">
+        <AddProperty
+          documentId="document"
+          databaseId="database"
+          source={articles}
+        />
+      </ReadCollection>,
+    );
+    await openPicker();
+
+    for (const type of FILES_PROPERTY_TYPES) {
+      expect(queryByLabel(addTypeLabel(type))).not.toBeNull();
+    }
+    for (const type of ["relation", "files_media", "blocks", "created_time"]) {
+      expect(queryByLabel(addTypeLabel(type))).toBeNull();
+    }
+    expect(queryByLabel("editor.properties.sourceField(Budget)")).toBeNull();
+  });
+
+  it("offers the types a page's property list names over the cached read", async () => {
+    renderUi(
+      <AddProperty
+        documentId="document"
+        databaseId="database"
+        propertyTypes={["text", "number"]}
+      />,
+    );
+    await openPicker();
+
+    expect(queryByLabel(addTypeLabel("text"))).not.toBeNull();
+    expect(queryByLabel(addTypeLabel("number"))).not.toBeNull();
+    expect(queryByLabel(addTypeLabel("select"))).toBeNull();
   });
 });
