@@ -3563,6 +3563,7 @@ function DatabaseTable({
               onChange={filterKit.setState}
               nouns={{ items: dbText("filterRows") }}
               nestedGroups
+              groupMode="and"
               align="end"
             >
               <ContentTableToolbarButton
@@ -7320,6 +7321,7 @@ export function DatabaseActiveConstraintsBar({
         state={filterState}
         onChange={onFilterStateChange}
         nestedGroups
+        groupMode="and"
         clearable={false}
       />
       {searchQuery.trim() ? (

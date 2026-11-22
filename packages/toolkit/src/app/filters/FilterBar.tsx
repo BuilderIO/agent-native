@@ -27,7 +27,7 @@ import {
   findFilterRule,
   isDefaultFilterState,
   isFilterRuleComplete,
-  pruneFilterState,
+  pruneFilterGroup,
   removeFilterItem,
   setFilterMode,
   setPinnedFilter,
@@ -222,6 +222,7 @@ function GroupChip({
   onChange,
   counts,
   nestedGroups,
+  groupMode,
   text,
   onOpenChange,
 }: FilterControlProps & {
@@ -238,7 +239,8 @@ function GroupChip({
         modal
         onOpenChange={(next) => {
           onOpenChange(next);
-          if (!next) onChange(pruneFilterState(stateRef.current, fields));
+          if (!next)
+            onChange(pruneFilterGroup(stateRef.current, group.id, fields));
         }}
       >
         <PopoverTrigger asChild>
@@ -265,6 +267,7 @@ function GroupChip({
             }}
             counts={counts}
             nestedGroups={nestedGroups}
+            groupMode={groupMode}
             text={text}
           />
         </PopoverContent>
@@ -333,6 +336,7 @@ export function FilterBar({
   onChange,
   counts,
   nestedGroups,
+  groupMode,
   onClear,
   clearable,
   copyLink,
@@ -383,6 +387,7 @@ export function FilterBar({
               onChange={onChange}
               counts={shownCounts}
               nestedGroups={nestedGroups}
+              groupMode={groupMode}
               text={text}
               onOpenChange={(open) => setOpenGroupId(open ? item.id : null)}
             />

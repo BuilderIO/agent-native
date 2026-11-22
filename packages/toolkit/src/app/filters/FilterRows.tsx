@@ -65,6 +65,8 @@ export interface FilterControlProps {
   counts?: FilterCounts | undefined;
   /** Lets a group hold groups of its own, one level down, as Content's saved views do. */
   nestedGroups?: boolean | undefined;
+  /** How a group added from these controls starts matching its rules; `"or"` unless set. */
+  groupMode?: FilterMode | undefined;
 }
 
 export const FILTER_POPOVER_CLASS =
@@ -525,6 +527,7 @@ export function FilterGroupBlock({
   onChange,
   counts,
   nestedGroups,
+  groupMode,
   nested = false,
   text,
 }: FilterControlProps & {
@@ -577,6 +580,7 @@ export function FilterGroupBlock({
             state={state}
             onChange={onChange}
             counts={counts}
+            groupMode={groupMode}
             nested
             text={text}
           />
@@ -606,7 +610,11 @@ export function FilterGroupBlock({
             text={text}
             onAdd={(rule) =>
               onChange(
-                addFilterGroup(state, createFilterGroup([rule]), group.id),
+                addFilterGroup(
+                  state,
+                  createFilterGroup([rule], groupMode),
+                  group.id,
+                ),
               )
             }
           >

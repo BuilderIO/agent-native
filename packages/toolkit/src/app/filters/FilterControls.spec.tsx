@@ -464,6 +464,23 @@ describe("FilterDateEditor", () => {
     });
   });
 
+  it("keeps a saved range's direction when the field offers only the other", () => {
+    const onChange = vi.fn();
+    render(
+      <DateEditor
+        onChange={onChange}
+        rule={createFilterRule(createdField, ["next_3_days"], "is_within")}
+      />,
+    );
+    expect(dateInput("Enter a number").value).toBe("3");
+    expect(hasButtonNamed("Next")).toBe(true);
+    click(rangeApply());
+    expect(onChange).toHaveBeenLastCalledWith({
+      operator: "is_within",
+      value: ["next_3_days"],
+    });
+  });
+
   it("starts from a saved range and takes counts up to 999", () => {
     const anyDates: FilterField = { ...createdField, dates: "any" };
     render(
@@ -488,19 +505,24 @@ function Bar({
   barFields = fields,
   nestedGroups,
   clearable,
+  onStateChange,
 }: {
   initial: FilterState;
   onClear?: () => void;
   barFields?: FilterField[];
   nestedGroups?: boolean;
   clearable?: boolean;
+  onStateChange?: (state: FilterState) => void;
 }) {
   const [state, setState] = useState(initial);
   return (
     <FilterBar
       fields={barFields}
       state={state}
-      onChange={setState}
+      onChange={(next) => {
+        setState(next);
+        onStateChange?.(next);
+      }}
       onClear={onClear}
       nestedGroups={nestedGroups}
       clearable={clearable}
@@ -715,6 +737,31 @@ describe("FilterBar", () => {
     expect(hasButtonNamed("Add rule")).toBe(true);
     expect(hasButtonNamed("Add group")).toBe(false);
   });
+
+  it("leaves another group's unfinished rule alone when a group closes", () => {
+    const onStateChange = vi.fn();
+    const unfinished = createFilterRule(tagsField);
+    const other = createFilterGroup([
+      createFilterRule(ownerField, ["agent"]),
+      unfinished,
+    ]);
+    render(
+      <Bar
+        onStateChange={onStateChange}
+        initial={addFilterGroup(
+          addFilterGroup(
+            createFilterState(fields),
+            createFilterGroup([createFilterRule(ownerField, ["alice"])]),
+          ),
+          other,
+        )}
+      />,
+    );
+    click(buttonNamed("(Made by: Alice)"));
+    click(buttonNamed("(Made by: Alice)"));
+    const last: FilterState = onStateChange.mock.lastCall?.[0];
+    expect(last.items.find((item) => item.id === other.id)).toEqual(other);
+  });
 });
 
 describe("FilterButton", () => {
@@ -827,6 +874,42 @@ describe("FilterButton", () => {
       "Choose a field",
     );
     expect(addRule.closest('[aria-hidden="true"]')).toBeNull();
+  });
+
+  it("starts each group the user adds in the app's mode", () => {
+    const onChange = vi.fn();
+    function Grouped() {
+      const [state, setState] = useState(createFilterState(fields));
+      return (
+        <FilterButton
+          fields={fields}
+          state={state}
+          onChange={(next) => {
+            setState(next);
+            onChange(next);
+          }}
+          nouns={nouns}
+          nestedGroups
+          groupMode="and"
+        />
+      );
+    }
+    render(<Grouped />);
+    click(buttonNamed("Filter"));
+    click(buttonNamed("Add group"));
+    typeInto(combobox(), "alice");
+    pressEnter(combobox());
+    const added: FilterState = onChange.mock.lastCall?.[0];
+    const group = added.items.at(0);
+    expect(group).toMatchObject({ kind: "group", mode: "and" });
+    click(buttonNamed("Add group"));
+    typeInto(combobox(), "demo");
+    pressEnter(combobox());
+    const nested: FilterState = onChange.mock.lastCall?.[0];
+    expect(nested.items.at(0)).toMatchObject({
+      kind: "group",
+      rules: [{ kind: "rule" }, { kind: "group", mode: "and" }],
+    });
   });
 });
 

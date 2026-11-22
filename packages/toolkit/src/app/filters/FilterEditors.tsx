@@ -370,7 +370,7 @@ function FilterDateRangeForm({
   text: FilterText;
   onApply: (token: string) => void;
 }) {
-  const directions: readonly ("past" | "next")[] =
+  const fieldDirections: readonly ("past" | "next")[] =
     field.dates === "past"
       ? ["past"]
       : field.dates === "future"
@@ -380,10 +380,14 @@ function FilterDateRangeForm({
     rule.operator === "is_within"
       ? parseFilterDateRange(rule.value.at(0) ?? "")
       : null;
+  const savedDirection =
+    saved && saved.direction !== "this" ? saved.direction : null;
+  const directions =
+    savedDirection && !fieldDirections.includes(savedDirection)
+      ? [...fieldDirections, savedDirection]
+      : fieldDirections;
   const [direction, setDirection] = useState<"past" | "next">(
-    saved && saved.direction !== "this" && directions.includes(saved.direction)
-      ? saved.direction
-      : (directions[0] ?? "past"),
+    savedDirection ?? directions.at(0) ?? "past",
   );
   const [count, setCount] = useState(
     saved && saved.direction !== "this" ? String(saved.count) : "7",

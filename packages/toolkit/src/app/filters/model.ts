@@ -203,11 +203,12 @@ export function isFilterOperator(value: string): value is FilterOperator {
   return (FILTER_OPERATORS as readonly string[]).includes(value);
 }
 
+const itemIdSeed = Math.random().toString(36).slice(2, 8);
 let lastItemId = 0;
 
 export function filterItemId(prefix: "r" | "g") {
   lastItemId += 1;
-  return `${prefix}${lastItemId.toString(36)}`;
+  return `${prefix}-${itemIdSeed}-${lastItemId.toString(36)}`;
 }
 
 export function createFilterRule(
@@ -381,6 +382,19 @@ export function pruneFilterState(
   fields: readonly FilterField<never>[],
 ): FilterState {
   return { ...state, items: pruneItems(state.items, fields) };
+}
+
+export function pruneFilterGroup(
+  state: FilterState,
+  groupId: string,
+  fields: readonly FilterField<never>[],
+): FilterState {
+  return {
+    ...state,
+    items: state.items.flatMap((item) =>
+      item.id === groupId ? pruneItems([item], fields) : [item],
+    ),
+  };
 }
 
 function mapItemRules(

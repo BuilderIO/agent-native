@@ -51,6 +51,7 @@ function FilterPanelBody({
   onChange,
   counts,
   nestedGroups,
+  groupMode,
   nouns,
   text,
 }: FilterPanelProps & { text: FilterText }) {
@@ -116,6 +117,7 @@ function FilterPanelBody({
                   onChange={onChange}
                   counts={counts}
                   nestedGroups={nestedGroups}
+                  groupMode={groupMode}
                   text={text}
                 />
               )}
@@ -140,7 +142,9 @@ function FilterPanelBody({
           counts={counts}
           text={text}
           onAdd={(rule) =>
-            onChange(addFilterGroup(state, createFilterGroup([rule])))
+            onChange(
+              addFilterGroup(state, createFilterGroup([rule], groupMode)),
+            )
           }
         >
           <Button type="button" variant="ghost" size="sm" className="h-8">
@@ -176,6 +180,7 @@ export function FilterButton({
   onChange,
   counts,
   nestedGroups,
+  groupMode,
   nouns,
   onClear,
   clearable,
@@ -242,6 +247,7 @@ export function FilterButton({
       onChange={handleChange}
       counts={shownCounts}
       nestedGroups={nestedGroups}
+      groupMode={groupMode}
       nouns={nouns}
       text={text}
     />

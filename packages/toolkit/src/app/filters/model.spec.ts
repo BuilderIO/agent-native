@@ -1004,6 +1004,15 @@ describe("groups inside groups", () => {
     expect(matchingIds(nestedState().state)).toEqual(["1", "4"]);
   });
 
+  it("makes a new group's ID one a reload can't hand out again", async () => {
+    vi.resetModules();
+    const before = await import("./model.js");
+    const saved = before.createFilterGroup([]).id;
+    vi.resetModules();
+    const after = await import("./model.js");
+    expect(after.createFilterGroup([]).id).not.toBe(saved);
+  });
+
   it("adds a group only at the top or one level down", () => {
     const { outer, inner, state } = nestedState();
     const child = createFilterGroup([demo()]);
