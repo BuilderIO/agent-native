@@ -357,13 +357,11 @@ describe("the prior connection read on a fresh thread", () => {
         workerStage: "streaming",
         lastLivenessAt: Date.now(),
       });
-    const subscribe = vi
-      .spyOn(runManager, "subscribeToRun")
-      .mockReturnValue(
-        new ReadableStream<Uint8Array>({
-          start: (controller) => controller.close(),
-        }),
-      );
+    const subscribe = vi.spyOn(runManager, "subscribeToRun").mockReturnValue(
+      new ReadableStream<Uint8Array>({
+        start: (controller) => controller.close(),
+      }),
+    );
 
     try {
       await turn();

@@ -4019,6 +4019,25 @@ async function main(): Promise<void> {
       if (
         status === 409 &&
         request.method() === "POST" &&
+        /^\/_agent-native\/agent-chat\/threads\/[^/]+\/queued$/u.test(
+          responseUrl.pathname,
+        )
+      ) {
+        pendingHttpErrorDetails.push(
+          response
+            .text()
+            .then((detail) =>
+              httpErrors.push(`${error}: ${detail.slice(0, 500)}`),
+            )
+            .catch(() =>
+              httpErrors.push(`${error}: response body unavailable`),
+            ),
+        );
+        return;
+      }
+      if (
+        status === 409 &&
+        request.method() === "POST" &&
         responseUrl.pathname === "/_agent-native/agent-chat"
       ) {
         pendingHttpErrorDetails.push(
@@ -4130,13 +4149,14 @@ async function main(): Promise<void> {
       historyDiagnostics.length > 0
         ? `\n\nBrowser history mutations:\n${historyDiagnostics.join("\n")}`
         : "";
+    const queueBlock = `\n\nQueue operations:\n${JSON.stringify(network.queueOperations, null, 2)}`;
     const providerBlock = `\n\nLoopback provider state:\n${JSON.stringify(
       provider.state,
       null,
       2,
     )}`;
     primaryError = new Error(
-      `${message}${browserBlock}${httpBlock}${diagnosticsBlock}${historyBlock}${providerBlock}\n\nRecent dev logs:\n${logs}`,
+      `${message}${browserBlock}${httpBlock}${diagnosticsBlock}${historyBlock}${queueBlock}${providerBlock}\n\nRecent dev logs:\n${logs}`,
     );
   } finally {
     try {
