@@ -15,6 +15,7 @@ export interface FocusReturn {
 }
 
 const focusLayers: Element[] = [];
+let pullingFocusBack = false;
 
 function activeFocusLayer() {
   return focusLayers.findLast(
@@ -197,11 +198,17 @@ export function useFocusReturn<T extends Element>(
         )
           return;
 
-        const previous = event.detail.originalEvent.relatedTarget;
-        if (previous instanceof HTMLElement && content.contains(previous))
-          previous.focus({ preventScroll: true });
-        else if (content instanceof HTMLElement)
-          content.focus({ preventScroll: true });
+        if (pullingFocusBack) return;
+        pullingFocusBack = true;
+        try {
+          const previous = event.detail.originalEvent.relatedTarget;
+          if (previous instanceof HTMLElement && content.contains(previous))
+            previous.focus({ preventScroll: true });
+          else if (content instanceof HTMLElement)
+            content.focus({ preventScroll: true });
+        } finally {
+          pullingFocusBack = false;
+        }
       },
       close(event: Event, preferTrigger = true) {
         const current = entry.current;
