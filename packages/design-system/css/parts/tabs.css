@@ -253,15 +253,19 @@
     }
 
     > .tabs-list > .tabs-tab {
+      --_tab-surface: transparent;
       min-inline-size: var(--_tabs-tab-height);
+      border-radius: var(--_tab-radius) var(--_tab-radius) 0 0;
+      corner-shape: var(--corner-shape, round);
+      background-color: var(--_tab-surface);
     }
 
     > .tabs-list > .tabs-tab::before {
+      background-color: transparent;
       border-radius: var(--_tab-radius);
     }
 
-    > .tabs-panel,
-    > .tabs-list > .tabs-tab[data-active] {
+    > .tabs-panel {
       background-color: var(--_frame);
     }
 
@@ -271,13 +275,12 @@
     }
 
     > .tabs-list > .tabs-tab[data-active] {
+      --_tab-surface: var(--_frame);
       z-index: 1;
-      border-radius: var(--_tab-radius) var(--_tab-radius) 0 0;
-      corner-shape: var(--corner-shape, round);
     }
 
     /* The two outside corners end flush with the panel. */
-    > .tabs-list > .tabs-tab[data-active]::after {
+    > .tabs-list > .tabs-tab::after {
       content: "";
       position: absolute;
       pointer-events: none;
@@ -288,19 +291,21 @@
         radial-gradient(
             circle var(--_shoulder) at top left,
             transparent calc(100% - 0.5px),
-            var(--_frame) calc(100% + 0.5px)
+            var(--_tab-surface) calc(100% + 0.5px)
           )
           left bottom / var(--_shoulder) 100% no-repeat,
         radial-gradient(
             circle var(--_shoulder) at top right,
             transparent calc(100% - 0.5px),
-            var(--_frame) calc(100% + 0.5px)
+            var(--_tab-surface) calc(100% + 0.5px)
           )
           right bottom / var(--_shoulder) 100% no-repeat;
     }
 
-    > .tabs-list > .tabs-tab[data-active]::before {
-      background-color: transparent;
+    @media (hover: hover) {
+      > .tabs-list > .tabs-tab:not([data-active], [data-disabled]):hover {
+        --_tab-surface: var(--fill-hover);
+      }
     }
 
     @media (forced-colors: active) {
