@@ -3322,8 +3322,6 @@ export function CommentsSidebar({
           !thread.resolved &&
           threadCanResolve(thread) &&
           !pendingElsewhere &&
-          // Accepted shows as soon as Accept starts; resolving before it
-          // saves would strand the edits if it fails.
           !members.some(suggestionBusy)
             ? () => handleResolve(thread)
             : undefined,

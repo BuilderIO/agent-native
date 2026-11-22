@@ -545,7 +545,10 @@ describe("ThreadSuggestionBody", () => {
       const [first, second] = edits(2);
       const onDecide = vi.fn();
       const handlers = { onDecide, onDecideRemaining: vi.fn() };
-      render([first!, second!], handlers);
+      render(
+        [withStatus(first, "pending"), withStatus(second, "pending")],
+        handlers,
+      );
       const accept = button("comments.acceptEdit");
       accept.focus();
       act(() => accept.click());
@@ -553,7 +556,10 @@ describe("ThreadSuggestionBody", () => {
         expect.objectContaining({ id: "edit-0" }),
         "accepted",
       );
-      render([withStatus(first, "accepted"), second!], handlers);
+      render(
+        [withStatus(first, "accepted"), withStatus(second, "pending")],
+        handlers,
+      );
 
       render(
         [withStatus(first, "accepted"), withStatus(second, "accepted")],

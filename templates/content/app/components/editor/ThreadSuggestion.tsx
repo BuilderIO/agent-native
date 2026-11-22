@@ -232,8 +232,6 @@ export function ThreadSuggestionBody({
   const groupRef = useRef<HTMLDivElement>(null);
   const settledRef = useRef<HTMLDivElement>(null);
   const showRef = useRef<HTMLButtonElement>(null);
-  // Edits decided here. The card follows the outcome only when they were the
-  // last to settle, so a teammate deciding the rest doesn't move the page.
   const decidedHere = useRef(new Set<string>());
   const lastPending = useRef<string[]>([]);
   const pendingIds = suggestions
