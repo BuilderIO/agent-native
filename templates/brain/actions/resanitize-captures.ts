@@ -206,7 +206,7 @@ export default defineAction({
           beforeLength,
           afterLength: beforeLength,
           method: "not-sanitized",
-          rawContentRetained: false,
+          rawContentRetained: true,
           skipped: true,
           skipReason: "unsafe-source-identity",
           dependentKnowledgeIds: derivedRefs.knowledgeIds,

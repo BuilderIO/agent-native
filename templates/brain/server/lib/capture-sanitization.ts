@@ -667,7 +667,7 @@ const SOURCE_LOCATOR =
   /[\\/\r\n]|%[\da-f]{2}|\b(?:https?|ftp|file|data|mailto):|\b(?:[a-z\d-]+\.)+[a-z]{2,}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b/i;
 
 const BARE_LINK =
-  /(?:\bwww\.|\b(?:[a-z\d-]+\.)+[a-z]{2,}(?::\d+)?\/)[^\s<>"')\]]*/gi;
+  /(?:\bwww\.|\b(?:[a-z\d-]+\.)+[a-z]{2,}(?::\d+)?[/?#])[^\s<>"')\]]*/gi;
 const LINK_REMOVED = "[link removed]";
 
 export class BrainUnsafeSourceIdentityError extends Error {

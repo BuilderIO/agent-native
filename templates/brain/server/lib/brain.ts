@@ -1238,7 +1238,7 @@ export async function commitPreparedCaptureWithWarnings(
   const audienceInvalidations: Array<() => Promise<AudienceInvalidationFlush>> =
     [];
   const {
-    value: { result: finalized, audience },
+    value: { result: finalized, audience, saved },
     effects,
   } = await transactWithResourceStore(
     db,
@@ -1299,7 +1299,14 @@ export async function commitPreparedCaptureWithWarnings(
         !(result.rowsAffected === 0 && values.externalId)
       )
         await invalidateDerivedForLockedCapture(captureId, scoped, effects);
-      return { result, audience };
+      const saved = firstRow(
+        await scoped
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(eq(schema.brainRawCaptures.id, captureId))
+          .limit(1),
+      );
+      return { result, audience, saved };
     },
   );
   const committedEffects = await runAfterCommitEffects(effects);
@@ -1333,13 +1340,7 @@ export async function commitPreparedCaptureWithWarnings(
     if (receipt) throw new BrainCaptureBlockedError(receipt);
     throw new Error("Capture finalization was blocked");
   }
-  const capture = firstRow(
-    await db
-      .select()
-      .from(schema.brainRawCaptures)
-      .where(eq(schema.brainRawCaptures.id, captureId))
-      .limit(1),
-  );
+  const capture = saved;
   if (!capture) throw new BrainCaptureConcurrentError();
   const invalidationReason = derivedInputChanged
     ? "content-changed"
@@ -1819,12 +1820,15 @@ async function discardUnreferencedQuarantineBlob(
   try {
     const event = firstRow(
       await db
-        .select({ handle: schema.brainSensitivityEvents.quarantineBlobHandle })
+        .select({
+          quarantineBlobHandle:
+            schema.brainSensitivityEvents.quarantineBlobHandle,
+        })
         .from(schema.brainSensitivityEvents)
         .where(eventLocator)
         .limit(1),
     );
-    if (event?.handle === handle) return;
+    if (event?.quarantineBlobHandle === handle) return;
   } catch {
     return;
   }
@@ -1915,7 +1919,8 @@ export async function recordBlockedCapture(input: {
       await scoped
         .select({
           id: schema.brainSensitivityEvents.id,
-          handle: schema.brainSensitivityEvents.quarantineBlobHandle,
+          quarantineBlobHandle:
+            schema.brainSensitivityEvents.quarantineBlobHandle,
         })
         .from(schema.brainSensitivityEvents)
         .where(eventLocator)
@@ -1947,35 +1952,32 @@ export async function recordBlockedCapture(input: {
         .update(schema.brainSensitivityEvents)
         .set({ ...eventValues, reviewedBy: null, reviewedAt: null })
         .where(where);
-    if (quarantineBlobHandle === null) {
-      const before = await readEventHandle(scoped);
-      await insertEvent();
-      await overwrite(eventLocator);
-      return {
-        id: before?.id ?? eventId,
-        displacedHandle: before?.handle ?? null,
-      };
-    }
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await insertEvent();
       const current = await readEventHandle(scoped);
       if (!current) continue;
-      if (current.handle === quarantineBlobHandle)
+      if (
+        quarantineBlobHandle !== null &&
+        current.quarantineBlobHandle === quarantineBlobHandle
+      )
         return { id: current.id, displacedHandle: null };
       await overwrite(
         and(
           eventLocator,
-          current.handle === null
+          current.quarantineBlobHandle === null
             ? isNull(schema.brainSensitivityEvents.quarantineBlobHandle)
             : eq(
                 schema.brainSensitivityEvents.quarantineBlobHandle,
-                current.handle,
+                current.quarantineBlobHandle,
               ),
         ),
       );
       const after = await readEventHandle(scoped);
-      if (after?.handle === quarantineBlobHandle)
-        return { id: current.id, displacedHandle: current.handle };
+      if (after?.quarantineBlobHandle === quarantineBlobHandle)
+        return {
+          id: current.id,
+          displacedHandle: current.quarantineBlobHandle,
+        };
     }
     throw new BrainCaptureConcurrentError();
   };
@@ -2033,8 +2035,6 @@ export async function recordBlockedCapture(input: {
     throw error;
   }
   await deleteQuarantineHandle(written.displacedHandle);
-  if (prior?.quarantineBlobHandle !== written.displacedHandle)
-    await deleteQuarantineHandle(prior?.quarantineBlobHandle);
   if (input.existing && effects) {
     await runAfterCommitEffects(effects);
     await enqueueBrainOperation({

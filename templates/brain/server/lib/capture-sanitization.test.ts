@@ -1182,6 +1182,29 @@ describe("Zoom restricted-line withholding", () => {
     expect(result.content).toContain("[link removed]");
   });
 
+  it.each([
+    "example.test?meeting=abc",
+    "https://example.test?token=abc",
+    "www.example.test",
+    "example.test:8443/rec#part",
+  ])(
+    "removes a root link with a query or fragment from a partial transcript (%s)",
+    async (link) => {
+      mocks.classifyWithJev.mockImplementation(
+        judge(mentions("MEDICAL_LEAVE")),
+      );
+      const lines = withLine(5, `Recording is at ${link} for everyone`);
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details", lines)), {
+          source: { ...baseInput.source, provider: "manual" as const },
+        }),
+      );
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.content).not.toContain("example.test");
+      expect(result.content).not.toContain("token=abc");
+    },
+  );
+
   it.each(["Sprint v1.2 review", "Standup 2026.11.20"])(
     "keeps passage withholding for an ordinary source title (%s)",
     async (title) => {

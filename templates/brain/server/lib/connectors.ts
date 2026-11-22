@@ -24,7 +24,10 @@ import {
   serializeCapture,
   stableJson,
 } from "./brain.js";
-import { BrainClassifierUnavailableError } from "./capture-sanitization.js";
+import {
+  BrainClassifierUnavailableError,
+  BrainUnsafeSourceIdentityError,
+} from "./capture-sanitization.js";
 import {
   invalidateGoogleCaptureAudiences,
   invalidateGoogleSourceAudiences,
@@ -83,17 +86,29 @@ export interface ConnectorSyncResult {
   stats?: Record<string, unknown>;
 }
 
+async function createCaptureRetryingOnce(
+  values: Parameters<typeof createCapture>[0],
+) {
+  try {
+    return await createCapture(values);
+  } catch (error) {
+    if (!(error instanceof BrainCaptureConcurrentError)) throw error;
+    return await createCapture(values);
+  }
+}
+
 async function createConnectorCapture(
   values: Parameters<typeof createCapture>[0],
 ) {
   try {
-    return { capture: await createCapture(values), blocked: false };
+    return { capture: await createCaptureRetryingOnce(values), blocked: false };
   } catch (error) {
-    if (error instanceof BrainCaptureBlockedError) {
+    if (
+      error instanceof BrainCaptureBlockedError ||
+      error instanceof BrainUnsafeSourceIdentityError
+    ) {
       return { capture: null, blocked: true };
     }
-    if (error instanceof BrainCaptureConcurrentError)
-      return { capture: null, blocked: false };
     throw error;
   }
 }
@@ -104,8 +119,6 @@ async function commitConnectorCapture(prepared: PreparedCapture) {
   } catch (error) {
     if (error instanceof BrainCaptureBlockedError)
       return { capture: null, blocked: true };
-    if (error instanceof BrainCaptureConcurrentError)
-      return { capture: null, blocked: false };
     throw error;
   }
 }
@@ -1156,7 +1169,7 @@ async function createSlackThreadCapture(input: {
   });
   if (!normalized) return { capture: null, blocked: false };
   try {
-    const capture = await createCapture({
+    const capture = await createCaptureRetryingOnce({
       sourceId: input.source.id,
       externalId: normalized.externalId,
       title: normalized.title,
@@ -1171,8 +1184,6 @@ async function createSlackThreadCapture(input: {
     if (error instanceof BrainCaptureBlockedError) {
       return { capture: null, blocked: true };
     }
-    if (error instanceof BrainCaptureConcurrentError)
-      return { capture: null, blocked: false };
     throw error;
   }
 }
