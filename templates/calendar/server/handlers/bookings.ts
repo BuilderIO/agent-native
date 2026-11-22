@@ -1501,6 +1501,13 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return singleUseLinkUnavailableResponse(event);
     }
     if (insertResult.conflict) {
+      if (
+        link &&
+        singleUseToken &&
+        (await getSingleUseLinkStatus(link.id, singleUseToken)) !== "available"
+      ) {
+        return singleUseLinkUnavailableResponse(event);
+      }
       setResponseStatus(event, 409);
       return { error: "This time slot is no longer available" };
     }
@@ -1524,6 +1531,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
 
     if (conferencing?.type === "zoom") {
+      let zoomRefused = false;
       try {
         const zoomResult = await createZoomMeeting({
           hostEmail,
@@ -1536,26 +1544,32 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           zoomResult.status === "not_started" ||
           zoomResult.status === "rejected"
         ) {
-          await getDb()
-            .update(schema.bookings)
-            .set({ status: "cancelled" })
-            .where(eq(schema.bookings.id, id));
-          if (singleUseToken) await releaseSingleUseLink(id);
-          setResponseStatus(event, 503);
-          return { error: "Failed to create booking" };
+          zoomRefused = true;
+        } else {
+          if (!zoomResult.meetingUrl) {
+            throw new Error("Zoom meeting was not created");
+          }
+          meetingLink = zoomResult.meetingUrl;
+          zoomMeetingId = zoomResult.meetingId;
+          zoomAccountId = zoomResult.accountId;
         }
-        if (!zoomResult.meetingUrl) {
-          throw new Error("Zoom meeting was not created");
-        }
-        meetingLink = zoomResult.meetingUrl;
-        zoomMeetingId = zoomResult.meetingId;
-        zoomAccountId = zoomResult.accountId;
       } catch (error) {
         console.error(
           `[bookings] Failed to create Zoom meeting for ${hostEmail}:`,
           error,
         );
         meetingLinkPending = true;
+      }
+      if (zoomRefused) {
+        await getDb().transaction(async (tx) => {
+          await tx
+            .update(schema.bookings)
+            .set({ status: "cancelled" })
+            .where(eq(schema.bookings.id, id));
+          if (singleUseToken) await releaseSingleUseLink(tx, id);
+        });
+        setResponseStatus(event, 503);
+        return { error: "Failed to create booking" };
       }
     }
 

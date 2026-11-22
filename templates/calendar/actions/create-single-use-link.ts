@@ -63,8 +63,8 @@ export default defineAction({
       });
     }
 
-    const created = await createSingleUseLink({ bookingLinkId, createdBy });
     const username = await ensureBookingUsername(link.ownerEmail);
+    const created = await createSingleUseLink({ bookingLinkId, createdBy });
     return {
       ...created,
       url: buildSingleUseLinkUrl({

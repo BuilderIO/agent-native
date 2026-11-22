@@ -181,7 +181,7 @@ describe("single-use links", () => {
     });
     await consume(token, "booking-1");
 
-    await releaseSingleUseLink("booking-1");
+    await releaseSingleUseLink(dbModule.getDb(), "booking-1");
 
     expect(await getSingleUseLinkStatus("link-1", token)).toBe("available");
     expect(await consume(token, "booking-2")).toBe(true);

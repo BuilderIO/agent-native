@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  captureError: vi.fn(),
   getAppProductionUrl: () => "https://calendar.example.com",
   getForwardedRequestOrigin: () => "https://calendar.example.com",
   getSession: mocks.getSession,
@@ -808,9 +809,63 @@ describe("draft booking availability previews", () => {
       const response = await book({});
 
       expect(response).toEqual({ error: "Failed to create booking" });
+      expect(mocks.insertedBookings[0]?.status).toBe("cancelled");
       expect(mocks.releaseSingleUseLink).toHaveBeenCalledWith(
+        expect.objectContaining({ update: expect.any(Function) }),
         mocks.insertedBookings[0]?.id,
       );
+    });
+
+    it("doesn't confirm the booking when giving the token back fails", async () => {
+      bookingLink.conferencing = JSON.stringify({ type: "zoom" });
+      mocks.createZoomMeeting.mockResolvedValueOnce({ status: "rejected" });
+      mocks.releaseSingleUseLink.mockRejectedValueOnce(new Error("db down"));
+
+      const event = {};
+
+      const response = await book(event);
+
+      expect(response).toMatchObject({ error: "Internal server error" });
+      expect(mocks.setResponseStatus).toHaveBeenLastCalledWith(event, 500);
+      expect(mocks.createGoogleEvent).not.toHaveBeenCalled();
+    });
+
+    it("reports a spent token, not a taken slot, when the other booking took both", async () => {
+      mocks.insertedBookings.push({
+        id: "booking-other",
+        start: body.start,
+        end: body.end,
+        slug: body.slug,
+        status: "confirmed",
+      });
+      mocks.getSingleUseLinkStatus
+        .mockResolvedValueOnce("available")
+        .mockResolvedValueOnce("used");
+      const event = {};
+
+      const response = await book(event);
+
+      expect(response).toMatchObject({ code: "single_use_link_used" });
+      expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 410);
+      expect(mocks.consumeSingleUseLink).not.toHaveBeenCalled();
+    });
+
+    it("still reports a taken slot when the token is unspent", async () => {
+      mocks.insertedBookings.push({
+        id: "booking-other",
+        start: body.start,
+        end: body.end,
+        slug: body.slug,
+        status: "confirmed",
+      });
+      const event = {};
+
+      const response = await book(event);
+
+      expect(response).toEqual({
+        error: "This time slot is no longer available",
+      });
+      expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 409);
     });
   });
 });

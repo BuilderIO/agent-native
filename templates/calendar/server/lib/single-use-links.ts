@@ -135,8 +135,11 @@ export async function consumeSingleUseLink(
   return rows.length > 0;
 }
 
-export async function releaseSingleUseLink(bookingId: string): Promise<void> {
-  await getDb()
+export async function releaseSingleUseLink(
+  db: UpdateDb,
+  bookingId: string,
+): Promise<void> {
+  await db
     .update(schema.bookingLinkSingleUseTokens)
     .set({ usedAt: null, bookingId: null })
     .where(eq(schema.bookingLinkSingleUseTokens.bookingId, bookingId));
@@ -150,7 +153,7 @@ export async function revokeSingleUseLink(
     eq(schema.bookingLinkSingleUseTokens.token, token),
     eq(schema.bookingLinkSingleUseTokens.bookingLinkId, bookingLinkId),
   );
-  await getDb()
+  const revoked = await getDb()
     .update(schema.bookingLinkSingleUseTokens)
     .set({ revokedAt: new Date().toISOString() })
     .where(
@@ -159,11 +162,15 @@ export async function revokeSingleUseLink(
         isNull(schema.bookingLinkSingleUseTokens.usedAt),
         isNull(schema.bookingLinkSingleUseTokens.revokedAt),
       ),
-    );
-  const rows = await getDb()
-    .select()
-    .from(schema.bookingLinkSingleUseTokens)
-    .where(where);
+    )
+    .returning();
+  const rows =
+    revoked.length > 0
+      ? revoked
+      : await getDb()
+          .select()
+          .from(schema.bookingLinkSingleUseTokens)
+          .where(where);
   const row = rows.find((candidate) => candidate.token === token);
   return row ? toSingleUseLink(row) : null;
 }

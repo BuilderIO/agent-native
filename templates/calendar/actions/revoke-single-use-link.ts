@@ -53,6 +53,7 @@ export default defineAction({
       });
     }
 
+    const username = await ensureBookingUsername(link.ownerEmail);
     const revoked = await revokeSingleUseLink(bookingLinkId, token);
     if (!revoked) {
       fail("This booking link has no single-use link with that token", {
@@ -66,8 +67,13 @@ export default defineAction({
         { errorCode: "single_use_link_used", statusCode: 409 },
       );
     }
+    if (revoked.status === "available") {
+      fail(
+        "That single-use link was freed by a booking that didn't go through while it was being turned off. Try again.",
+        { errorCode: "single_use_link_changed", statusCode: 409 },
+      );
+    }
 
-    const username = await ensureBookingUsername(link.ownerEmail);
     return {
       ...revoked,
       url: buildSingleUseLinkUrl({
