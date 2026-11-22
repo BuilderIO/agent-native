@@ -39,7 +39,7 @@ const errors = defineActionErrors(
 );
 
 const queryability = {
-  queryable: z.boolean(),
+  queryable: z.boolean().nullable(),
   notQueryableReason: z.string().optional(),
 };
 
@@ -105,10 +105,17 @@ function queryable(
   projectId: string,
   datasetId: string,
   tableId: string,
-  type: string | undefined,
-): { queryable: boolean; notQueryableReason?: string } {
+  resource: BigQueryTableMetadata | null,
+): { queryable: boolean | null; notQueryableReason?: string } {
+  if (!resource) {
+    return {
+      queryable: null,
+      notQueryableReason:
+        "Its table metadata could not be read, so whether query-warehouse can read it is unknown. Describe it with table to check.",
+    };
+  }
   try {
-    checkBigQueryAgentTableKind({ projectId, datasetId, tableId }, type);
+    checkBigQueryAgentTableKind({ projectId, datasetId, tableId }, resource);
     return { queryable: true };
   } catch (error) {
     if (error instanceof BigQueryAgentSqlRefusal) {
@@ -207,7 +214,7 @@ async function describeTable(
     table: {
       ...ref,
       type: meta.type ?? null,
-      ...queryable(ref.projectId, ref.datasetId, ref.tableId, meta.type),
+      ...queryable(ref.projectId, ref.datasetId, ref.tableId, meta),
       description: meta.description ?? null,
       location: meta.location ?? null,
       numRows: meta.numRows ? Number(meta.numRows) : null,
@@ -229,6 +236,7 @@ interface Candidate {
   nameScore: number;
   matchedColumns: string[];
   descriptionMatch: boolean;
+  meta?: BigQueryTableMetadata | null;
 }
 
 function termsIn(text: string | undefined, terms: string[]): number {
@@ -239,7 +247,7 @@ function termsIn(text: string | undefined, terms: string[]): number {
 
 export default defineAction({
   description:
-    "Find tables and columns that query-warehouse can read: Analytics' reviewed BigQuery datasets only, never the rest of the warehouse. With search, ranks tables whose dataset, table, column names or descriptions contain the words; with dataset, limits the search to that dataset; with table (dataset.table or project.dataset.table), returns that table's columns and whether query-warehouse can query it (unreviewed views and external tables cannot). Bounded: each dataset lists up to 1,000 tables and one call reads at most 40 tables' columns; complete: false, incompleteReasons, errors and columnSearch say what was not searched, so narrow with dataset rather than treating a miss as absence. Reads metadata only; nothing is billed.",
+    "Find tables and columns that query-warehouse can read: Analytics' reviewed BigQuery datasets only, never the rest of the warehouse. With search, ranks tables whose dataset, table, column names or descriptions contain the words; with dataset, limits the search to that dataset; with table (dataset.table or project.dataset.table), returns that table's columns and whether query-warehouse can query it (unreviewed views, external and BigLake tables cannot; queryable is null when the table's metadata could not be read). Bounded: each dataset lists up to 1,000 tables and one call reads at most 40 tables' columns; complete: false, incompleteReasons, errors and columnSearch say what was not searched, so narrow with dataset rather than treating a miss as absence. Reads metadata only; nothing is billed.",
   schema: z.object({
     search: z
       .string()
@@ -277,7 +285,7 @@ export default defineAction({
   readOnly: true,
   agentTool: false,
   mcpTool: true,
-  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  publicAgent: { expose: false, readOnly: true, requiresAuth: true },
   run: async (args) => {
     const deadline = AbortSignal.timeout(DEADLINE_MS);
     const projectId = await getBigQueryProjectId(deadline);
@@ -335,59 +343,60 @@ export default defineAction({
       descriptionMatch: false,
     }));
 
+    const readMetadata = async (candidate: Candidate) => {
+      if (candidate.meta !== undefined) return candidate.meta;
+      try {
+        candidate.meta = await getBigQueryTableMetadata(
+          {
+            projectId,
+            datasetId: candidate.datasetId,
+            tableId: candidate.tableId,
+          },
+          deadline,
+        );
+        candidate.type = candidate.meta.type ?? candidate.type;
+        if (candidate.meta.description) {
+          candidate.description = candidate.meta.description;
+        }
+      } catch (error) {
+        candidate.meta = null;
+        failures.push({
+          datasetId: candidate.datasetId,
+          tableId: candidate.tableId,
+          message: unreadable(error),
+        });
+      }
+      return candidate.meta;
+    };
+
     let columnSearch: { tablesRead: number; tablesListed: number } | undefined;
     if (terms.length) {
       const toRead = [...candidates]
         .sort((a, b) => b.nameScore - a.nameScore)
         .slice(0, COLUMN_READS_PER_CALL);
+      let tablesRead = 0;
       await Promise.all(
         toRead.map(async (candidate) => {
-          try {
-            const meta = await getBigQueryTableMetadata(
-              {
-                projectId,
-                datasetId: candidate.datasetId,
-                tableId: candidate.tableId,
-              },
-              deadline,
-            );
-            candidate.type = meta.type ?? candidate.type;
-            if (meta.description) candidate.description = meta.description;
-            candidate.descriptionMatch = termsIn(meta.description, terms) > 0;
-            candidate.matchedColumns = flattenBigQueryFields(
-              meta.schema?.fields,
+          const meta = await readMetadata(candidate);
+          if (!meta) return;
+          tablesRead++;
+          candidate.descriptionMatch = termsIn(meta.description, terms) > 0;
+          candidate.matchedColumns = flattenBigQueryFields(meta.schema?.fields)
+            .filter(
+              (column) =>
+                termsIn(column.name, terms) > 0 ||
+                termsIn(column.description, terms) > 0,
             )
-              .filter(
-                (column) =>
-                  termsIn(column.name, terms) > 0 ||
-                  termsIn(column.description, terms) > 0,
-              )
-              .map((column) => column.name);
-          } catch (error) {
-            failures.push({
-              datasetId: candidate.datasetId,
-              tableId: candidate.tableId,
-              message: unreadable(error),
-            });
-          }
+            .map((column) => column.name);
         }),
       );
-      columnSearch = {
-        tablesRead: toRead.length,
-        tablesListed: candidates.length,
-      };
-      if (toRead.length < candidates.length) {
+      columnSearch = { tablesRead, tablesListed: candidates.length };
+      if (tablesRead < candidates.length) {
         incompleteReasons.push(
-          `Columns were searched in ${toRead.length} of ${candidates.length} tables (those whose names matched first); pass dataset to search the rest.`,
+          `Columns were searched in ${tablesRead} of ${candidates.length} tables (those whose names matched first); pass dataset to search the rest.`,
         );
       }
     }
-    if (failures.length) {
-      incompleteReasons.push(
-        `${failures.length} dataset or table read${failures.length === 1 ? "" : "s"} failed; see errors.`,
-      );
-    }
-
     const score = (candidate: Candidate) =>
       candidate.nameScore * 10 +
       candidate.matchedColumns.length * 3 +
@@ -402,12 +411,19 @@ export default defineAction({
           ),
       );
     const limit = args.limit ?? DEFAULT_LIMIT;
+    const returned = matches.slice(0, limit);
+    await Promise.all(returned.map(readMetadata));
+    if (failures.length) {
+      incompleteReasons.push(
+        `${failures.length} dataset or table read${failures.length === 1 ? "" : "s"} failed; see errors.`,
+      );
+    }
     return {
       mode: "tables" as const,
       projectId,
       datasets,
       search: args.search || null,
-      tables: matches.slice(0, limit).map((candidate) => ({
+      tables: returned.map((candidate) => ({
         projectId,
         datasetId: candidate.datasetId,
         tableId: candidate.tableId,
@@ -416,7 +432,7 @@ export default defineAction({
           projectId,
           candidate.datasetId,
           candidate.tableId,
-          candidate.type,
+          candidate.meta ?? null,
         ),
         ...(candidate.description
           ? { description: candidate.description.slice(0, 500) }

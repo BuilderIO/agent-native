@@ -22,6 +22,7 @@ import {
   persistBigQueryJobUsage,
   finalizeBigQueryJobUsage,
   readBigQueryJobBilling,
+  type BigQueryJobBilling,
   type BigQueryJobUsage,
 } from "./bigquery-usage";
 import { resolveCredential } from "./credentials";
@@ -91,6 +92,10 @@ export interface BigQueryTableMetadata {
   lastModifiedTime?: string;
   timePartitioning?: unknown;
   clustering?: unknown;
+  externalDataConfiguration?: unknown;
+  biglakeConfiguration?: unknown;
+  cloneDefinition?: unknown;
+  snapshotDefinition?: unknown;
   schema?: { fields?: BigQueryTableField[] };
 }
 
@@ -124,7 +129,7 @@ function safeBigQueryReason(reason: unknown): BigQueryBackendReason {
     : "other";
 }
 
-function bigQueryReasonFromResponse(body: string): BigQueryBackendReason {
+function rawBigQueryReason(body: string): string | null {
   try {
     const parsed = JSON.parse(body) as {
       error?: {
@@ -135,10 +140,15 @@ function bigQueryReasonFromResponse(body: string): BigQueryBackendReason {
     const reason =
       parsed.error?.errors?.find((entry) => entry.reason)?.reason ??
       parsed.error?.details?.find((entry) => entry.reason)?.reason;
-    return safeBigQueryReason(reason);
+    return typeof reason === "string" ? reason : null;
   } catch {
-    return "other";
+    // coercion-ok: an unparseable body has no reason, which callers read as unknown.
+    return null;
   }
+}
+
+function bigQueryReasonFromResponse(body: string): BigQueryBackendReason {
+  return safeBigQueryReason(rawBigQueryReason(body));
 }
 
 export class BigQueryBackendError extends Error {
@@ -319,7 +329,7 @@ export async function bigQueryGet<T>(
   });
 
   if (!res.ok) {
-    const text = await res.text();
+    const text = await untilAborted(res.text(), signal);
     let detail = "";
     try {
       const parsed = JSON.parse(text) as { error?: { message?: string } };
@@ -333,7 +343,23 @@ export async function bigQueryGet<T>(
     );
   }
 
-  return (await res.json()) as T;
+  return (await untilAborted(res.json(), signal)) as T;
+}
+
+function untilAborted<T>(read: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return read;
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(createAbortError());
+    if (signal.aborted) {
+      onAbort();
+      read.catch(() => undefined);
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    read.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", onAbort);
+    });
+  });
 }
 
 export function flattenBigQueryFields(
@@ -1156,7 +1182,7 @@ interface BigQueryGetQueryResultsResponse {
   schema?: { fields?: BigQueryField[] };
   rows?: { f: { v: unknown }[] }[];
   totalRows?: string;
-  nextPageToken?: string;
+  pageToken?: string;
   jobComplete?: boolean;
   totalBytesProcessed?: string;
   cacheHit?: boolean;
@@ -1199,6 +1225,7 @@ async function cancelQueryJob(
   token: string,
   location?: string,
   timeoutMs: number = CACHE_CANCEL_TIMEOUT_MS,
+  bound?: AbortSignal,
 ): Promise<boolean> {
   const locationQuery = location
     ? `?location=${encodeURIComponent(location)}`
@@ -1207,7 +1234,9 @@ async function cancelQueryJob(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs/${jobId}/cancel${locationQuery}`,
     {
       method: "POST",
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: bound
+        ? AbortSignal.any([AbortSignal.timeout(timeoutMs), bound])
+        : AbortSignal.timeout(timeoutMs),
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -1539,10 +1568,36 @@ const NUMERIC_BQ_TYPES = new Set([
   "BIGNUMERIC",
 ]);
 
-function coerceCell(value: unknown, type: string): unknown {
+const DECIMAL_TEXT = /^-?\d+(?:\.\d+)?$/;
+
+function canonicalDecimal(text: string): string {
+  const negative = text.startsWith("-");
+  const [whole = "", fraction = ""] = (negative ? text.slice(1) : text).split(
+    ".",
+  );
+  const digits = whole.replace(/^0+(?=\d)/, "");
+  const decimals = fraction.replace(/0+$/, "");
+  const sign = negative && (digits !== "0" || decimals) ? "-" : "";
+  return `${sign}${digits}${decimals ? `.${decimals}` : ""}`;
+}
+
+function exactCell(value: string, upper: string): number | string {
+  if (upper === "FLOAT" || upper === "FLOAT64") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : value;
+  }
+  if (!DECIMAL_TEXT.test(value)) return value;
+  const n = Number(value);
+  return Number.isFinite(n) && String(n) === canonicalDecimal(value)
+    ? n
+    : value;
+}
+
+function coerceCell(value: unknown, type: string, exact = false): unknown {
   if (value == null) return value;
   const upper = type.toUpperCase();
   if (NUMERIC_BQ_TYPES.has(upper) && typeof value === "string") {
+    if (exact) return exactCell(value, upper);
     const n = Number(value);
     return Number.isNaN(n) ? value : n;
   }
@@ -1555,12 +1610,19 @@ function coerceCell(value: unknown, type: string): unknown {
 function rowsToObjects(
   rows: { f: { v: unknown }[] }[],
   fields: BigQueryField[],
+  { exactNumbers = false }: { exactNumbers?: boolean } = {},
 ): Record<string, unknown>[] {
+  const fieldAt = new Map(fields.map((field, index) => [index, field]));
   return rows.map((row) => {
     const obj: Record<string, unknown> = {};
     row.f.forEach((cell, i) => {
-      const field = fields[i];
-      obj[field.name] = coerceCell(cell.v, field.type);
+      const field = fieldAt.get(i);
+      if (!field) {
+        throw new Error(
+          "BigQuery returned a cell its result schema does not name.",
+        );
+      }
+      obj[field.name] = coerceCell(cell.v, field.type, exactNumbers);
     });
     return obj;
   });
@@ -1590,6 +1652,7 @@ export interface DryRunQueryResult {
   timedOut?: true;
   /** HTTP status of a failed dry-run request; 400 means BigQuery rejected the SQL. */
   status?: number;
+  reason?: string;
   /** Absent when BigQuery's dry-run response carried no schema. */
   schema?: { name: string; type: string }[];
   /** Absent when BigQuery's dry-run response carried no byte estimate. */
@@ -1623,7 +1686,7 @@ function exactByteCount(value: unknown): number | "malformed" | undefined {
 function referencedTablesFrom(
   value: unknown,
 ): BigQueryReferencedTable[] | "malformed" | undefined {
-  if (value === undefined || value === null) return undefined;
+  if (value === undefined) return undefined;
   if (!Array.isArray(value)) return "malformed";
   const tables: BigQueryReferencedTable[] = [];
   for (const entry of value as Array<Record<string, unknown> | null>) {
@@ -1646,7 +1709,7 @@ function referencedTablesFrom(
 function referencedRoutinesFrom(
   value: unknown,
 ): BigQueryReferencedRoutine[] | "malformed" | undefined {
-  if (value === undefined || value === null) return undefined;
+  if (value === undefined) return undefined;
   if (!Array.isArray(value)) return "malformed";
   const routines: BigQueryReferencedRoutine[] = [];
   for (const entry of value as Array<Record<string, unknown> | null>) {
@@ -1668,6 +1731,7 @@ function referencedRoutinesFrom(
 
 async function readDryRunStatistics(
   res: Response,
+  signal?: AbortSignal,
 ): Promise<
   Pick<
     DryRunQueryResult,
@@ -1692,8 +1756,9 @@ async function readDryRunStatistics(
     };
   };
   try {
-    job = await res.json();
-  } catch {
+    job = await untilAborted(res.json(), signal);
+  } catch (error) {
+    if (signal?.aborted) throw error;
     // coercion-ok: a dry run that succeeded without a readable body is validated SQL with no schema or byte estimate, and both fields stay absent.
     return {};
   }
@@ -1842,15 +1907,27 @@ async function sendDryRun(
     });
     const res = await Promise.race([request, timeout]);
 
-    if (res.ok) return { error: null, ...(await readDryRunStatistics(res)) };
+    if (res.ok) {
+      return {
+        error: null,
+        ...(await readDryRunStatistics(res, controller.signal)),
+      };
+    }
 
-    const text = await res.text();
+    const text = await untilAborted(res.text(), controller.signal);
+    const reason = rawBigQueryReason(text);
     try {
       const parsed = JSON.parse(text) as {
         error?: { message?: string };
       };
       const msg = parsed.error?.message?.trim();
-      if (msg) return { error: msg, status: res.status };
+      if (msg) {
+        return {
+          error: msg,
+          status: res.status,
+          ...(reason ? { reason } : {}),
+        };
+      }
       // coercion-ok: malformed BigQuery error bodies use the status fallback below.
     } catch {
       // Fall through
@@ -1858,6 +1935,7 @@ async function sendDryRun(
     return {
       error: `BigQuery validation failed (${res.status})`,
       status: res.status,
+      ...(reason ? { reason } : {}),
     };
   } catch (error) {
     if (timedOut) return { error: timeoutMessage, timedOut: true };
@@ -2364,7 +2442,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       ...(typeof data.cacheHit === "boolean"
         ? { providerCacheHit: data.cacheHit }
         : {}),
-      ...(data.nextPageToken || !hasReportedTotal || totalRows > rows.length
+      ...(data.pageToken || !hasReportedTotal || totalRows > rows.length
         ? { truncated: true }
         : {}),
       ...(data.errors?.length
@@ -2489,6 +2567,11 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
   };
 }
 
+export type BoundedBigQueryJobFailureCode =
+  | "query_bytes_cap_exceeded"
+  | "query_quota_exceeded"
+  | "query_failed";
+
 export type BoundedBigQueryJobOutcome =
   | {
       status: "completed";
@@ -2499,20 +2582,15 @@ export type BoundedBigQueryJobOutcome =
       providerCacheHit: boolean | null;
       bytesProcessed: number | null;
     }
+  | { status: "not_submitted"; reason: "deadline" | "admission_lapsed" }
   | {
       status: "rejected";
-      code:
-        | "query_bytes_cap_exceeded"
-        | "query_quota_exceeded"
-        | "query_failed";
+      code: BoundedBigQueryJobFailureCode;
       message: string;
     }
   | {
       status: "failed";
-      code:
-        | "query_bytes_cap_exceeded"
-        | "query_quota_exceeded"
-        | "query_failed";
+      code: BoundedBigQueryJobFailureCode;
       message: string;
       location: string | undefined;
     }
@@ -2521,21 +2599,40 @@ export type BoundedBigQueryJobOutcome =
       reason: "timeout" | "submission_unknown" | "poll_unreadable";
       location: string | undefined;
       cancelRequested: boolean;
+      cancelConfirmed: boolean;
     };
 
 const BOUNDED_JOB_LOOKUP_TIMEOUT_MS = 2_000;
 const BOUNDED_JOB_CANCEL_TIMEOUT_MS = 2_000;
 const BOUNDED_JOB_SERVER_TIMEOUT_MS = 10 * 60_000;
+const QUOTA_REASONS = new Set([
+  "quotaExceeded",
+  "rateLimitExceeded",
+  "jobRateLimitExceeded",
+]);
+const TERMINAL_JOB_REASONS = new Set(["jobBackendError", "jobInternalError"]);
 
 function failureCode(
   reason: BigQueryBackendReason,
   message: string,
-): "query_bytes_cap_exceeded" | "query_quota_exceeded" | "query_failed" {
+): BoundedBigQueryJobFailureCode {
   if (hasMaximumBytesBilledMessage([message]))
     return "query_bytes_cap_exceeded";
   return reason === "quota_exceeded" || reason === "rate_limited"
     ? "query_quota_exceeded"
     : "query_failed";
+}
+
+function parseResults(text: string): BigQueryGetQueryResultsResponse | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return parsed !== null && typeof parsed === "object"
+      ? (parsed as BigQueryGetQueryResultsResponse)
+      : null;
+  } catch {
+    // coercion-ok: null is "unreadable" here, and every caller turns it into a typed failure.
+    return null;
+  }
 }
 
 export async function runBoundedBigQueryJob(input: {
@@ -2546,6 +2643,7 @@ export async function runBoundedBigQueryJob(input: {
   maximumBytesBilled: number;
   token: string;
   signal: AbortSignal;
+  cleanupSignal?: AbortSignal;
   maxRows: number;
   maxResultBytes: number;
   submitBy: number;
@@ -2556,39 +2654,57 @@ export async function runBoundedBigQueryJob(input: {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
+  const bounded = (ms: number) =>
+    input.cleanupSignal
+      ? AbortSignal.any([AbortSignal.timeout(ms), input.cleanupSignal])
+      : AbortSignal.timeout(ms);
   let location: string | undefined = input.location ?? undefined;
   let cancelRequested = false;
+  let cancelConfirmed = false;
   const uncertain = async (
     reason: "timeout" | "submission_unknown" | "poll_unreadable",
   ): Promise<BoundedBigQueryJobOutcome> => {
-    if (reason === "timeout") {
+    if (reason !== "submission_unknown") {
       cancelRequested = true;
       try {
-        await cancelQueryJob(
+        cancelConfirmed = await cancelQueryJob(
           projectId,
           jobId,
           token,
           location,
           BOUNDED_JOB_CANCEL_TIMEOUT_MS,
+          input.cleanupSignal,
         );
       } catch {
-        // coercion-ok: a cancel that did not land leaves the outcome uncertain, which is what is reported.
+        // coercion-ok: a cancel that did not land is reported as requested and unconfirmed.
         console.warn("[bigquery] Bounded job cancellation was not confirmed.");
       }
     }
-    return { status: "uncertain", reason, location, cancelRequested };
+    return {
+      status: "uncertain",
+      reason,
+      location,
+      cancelRequested,
+      cancelConfirmed,
+    };
   };
-  const lookUp = async (): Promise<"found" | "missing" | "unknown"> => {
+  const failed = (
+    code: BoundedBigQueryJobFailureCode,
+    message: string,
+  ): BoundedBigQueryJobOutcome => ({
+    status: "failed",
+    code,
+    message: message.slice(0, 4_000),
+    location,
+  });
+  const lookUp = async (): Promise<BigQueryJobBilling> => {
     const read = await readBigQueryJobBilling(
       { projectId, jobId, location: location ?? null },
       token,
-      AbortSignal.timeout(BOUNDED_JOB_LOOKUP_TIMEOUT_MS),
+      bounded(BOUNDED_JOB_LOOKUP_TIMEOUT_MS),
     );
-    if (read.kind === "found") {
-      location = read.location ?? location;
-      return "found";
-    }
-    return read.kind === "not_found" ? "missing" : "unknown";
+    if (read.kind === "found") location = read.location ?? location;
+    return read;
   };
   const submit = () =>
     fetch(
@@ -2617,28 +2733,36 @@ export async function runBoundedBigQueryJob(input: {
     );
 
   for (let attempt = 0; ; attempt++) {
-    if (attempt > 0 && admissionLapsed(input)) {
-      return uncertain("submission_unknown");
+    if (signal.aborted) {
+      return attempt === 0
+        ? { status: "not_submitted", reason: "deadline" }
+        : uncertain("timeout");
+    }
+    if (admissionLapsed(input)) {
+      return attempt === 0
+        ? { status: "not_submitted", reason: "admission_lapsed" }
+        : uncertain("submission_unknown");
     }
     let res: Response;
+    let text: string;
     try {
       res = await submit();
+      text = await untilAborted(res.text(), signal);
     } catch (error) {
       if (signal.aborted) return uncertain("timeout");
       if (!(error instanceof Error)) throw error;
       const found = await lookUp();
-      if (found === "found") break;
-      if (found === "missing" && attempt === 0) continue;
+      if (found.kind === "found") break;
+      if (found.kind === "not_found" && attempt === 0) continue;
       return uncertain("submission_unknown");
     }
     if (res.ok) {
-      let inserted: { jobReference?: { jobId?: string; location?: string } };
+      let inserted: { jobReference?: { jobId?: string; location?: string } } =
+        {};
       try {
-        inserted = (await res.json()) as typeof inserted;
-      } catch (error) {
-        if (signal.aborted) return uncertain("timeout");
-        if (!(error instanceof Error)) throw error;
-        inserted = {};
+        inserted = JSON.parse(text) as typeof inserted;
+      } catch {
+        // coercion-ok: an accepted insert with an unreadable body keeps the frozen location; polls confirm the job.
       }
       if (
         inserted.jobReference?.jobId !== undefined &&
@@ -2649,7 +2773,6 @@ export async function runBoundedBigQueryJob(input: {
       location = inserted.jobReference?.location ?? location;
       break;
     }
-    const text = await res.text();
     if (isDuplicateJobRejection(res.status, text)) {
       location = duplicateJobLocation(text, jobId) ?? location;
       break;
@@ -2671,7 +2794,14 @@ export async function runBoundedBigQueryJob(input: {
       };
     }
     if (signal.aborted) return uncertain("timeout");
-    if ((await lookUp()) === "found") break;
+    const found = await lookUp();
+    if (found.kind === "found") break;
+    if (
+      found.kind === "not_found" &&
+      QUOTA_REASONS.has(rawBigQueryReason(text) ?? "")
+    ) {
+      return { status: "rejected", code: "query_quota_exceeded", message };
+    }
     return uncertain("submission_unknown");
   }
 
@@ -2684,13 +2814,35 @@ export async function runBoundedBigQueryJob(input: {
     if (pageToken) params.set("pageToken", pageToken);
     return `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(projectId)}/queries/${encodeURIComponent(jobId)}?${params}`;
   };
+  const settleUnreadablePoll = async (): Promise<
+    BoundedBigQueryJobOutcome | "running"
+  > => {
+    const read = await lookUp();
+    if (read.kind !== "found") return uncertain("poll_unreadable");
+    if (read.state !== "DONE") return "running";
+    if (read.errorReason !== null) {
+      const message =
+        read.errorMessage ??
+        `BigQuery job ${jobId} failed (${read.errorReason}).`;
+      return failed(
+        failureCode(safeBigQueryReason(read.errorReason), message),
+        message,
+      );
+    }
+    return failed(
+      "query_failed",
+      `BigQuery job ${jobId} finished, but its results could not be read, so no rows are returned.`,
+    );
+  };
   let data: BigQueryGetQueryResultsResponse = { jobComplete: false };
   const rows: Record<string, unknown>[] = [];
   let bytes = 2;
   const keep = (
     page: BigQueryGetQueryResultsResponse["rows"],
   ): "rows" | "bytes" | null => {
-    for (const row of rowsToObjects(page ?? [], data.schema?.fields ?? [])) {
+    for (const row of rowsToObjects(page ?? [], data.schema?.fields ?? [], {
+      exactNumbers: true,
+    })) {
       if (rows.length === input.maxRows) return "rows";
       bytes += Buffer.byteLength(JSON.stringify(row)) + 1;
       if (bytes > input.maxResultBytes) return "bytes";
@@ -2698,28 +2850,38 @@ export async function runBoundedBigQueryJob(input: {
     }
     return null;
   };
+  const incomplete = (total: number, seen: number) =>
+    failed(
+      "query_failed",
+      `BigQuery reported ${total} rows for job ${jobId} but its result pages held ${seen}, so no rows are returned. Ask again.`,
+    );
   let truncation: "rows" | "bytes" | null = null;
   try {
     while (!data.jobComplete) {
       if (signal.aborted) return uncertain("timeout");
       const res = await fetch(pageUrl(), { signal, headers });
-      if (!res.ok) {
-        const text = await res.text();
+      const text = await untilAborted(res.text(), signal);
+      const parsed = res.ok ? parseResults(text) : null;
+      if (!parsed) {
         const message =
           bigQueryProviderDetailFromResponse(text) ??
           `BigQuery job error (${res.status}).`;
         if (isMaximumBytesBilledError(res.status, text)) {
-          return {
-            status: "failed",
-            code: "query_bytes_cap_exceeded",
-            message,
-            location,
-          };
+          return failed("query_bytes_cap_exceeded", message);
         }
-        return uncertain("poll_unreadable");
+        if (TERMINAL_JOB_REASONS.has(rawBigQueryReason(text) ?? "")) {
+          return failed(
+            "query_failed",
+            `BigQuery job ${jobId} failed: ${message}`,
+          );
+        }
+        const settled = await settleUnreadablePoll();
+        if (settled !== "running") return settled;
+        await waitForPollInterval(signal);
+        continue;
       }
-      data = (await res.json()) as BigQueryGetQueryResultsResponse;
-      const failed =
+      data = parsed;
+      const jobError =
         data.errorResult ??
         (data.jobComplete &&
         data.errors?.length &&
@@ -2727,26 +2889,46 @@ export async function runBoundedBigQueryJob(input: {
         data.totalRows === undefined
           ? data.errors[0]
           : undefined);
-      if (data.jobComplete && failed) {
-        const message = failed.message ?? "BigQuery job failed.";
-        return {
-          status: "failed",
-          code: failureCode(safeBigQueryReason(failed.reason), message),
-          message: message.slice(0, 4_000),
-          location,
-        };
+      if (data.jobComplete && jobError) {
+        const message = jobError.message ?? "BigQuery job failed.";
+        return failed(
+          failureCode(safeBigQueryReason(jobError.reason), message),
+          message,
+        );
       }
     }
+    const total = exactByteCount(data.totalRows);
+    if (typeof total !== "number") {
+      return failed(
+        "query_failed",
+        `BigQuery job ${jobId} finished without a readable row count, so no rows are returned. Ask again.`,
+      );
+    }
+    let seen = data.rows?.length ?? 0;
     truncation = keep(data.rows);
-    let pageToken = data.nextPageToken;
-    while (pageToken && truncation === null) {
+    let pageToken = data.pageToken;
+    while (truncation === null && seen < total) {
+      if (!pageToken) return incomplete(total, seen);
       if (signal.aborted) return uncertain("timeout");
       const res = await fetch(pageUrl(pageToken), { signal, headers });
-      if (!res.ok) return uncertain("poll_unreadable");
-      const page = (await res.json()) as BigQueryGetQueryResultsResponse;
+      const text = await untilAborted(res.text(), signal);
+      const page = res.ok ? parseResults(text) : null;
+      if (!page) {
+        const message =
+          bigQueryProviderDetailFromResponse(text) ??
+          `BigQuery answered ${res.status}.`;
+        return failed(
+          failureCode(bigQueryReasonFromResponse(text), message),
+          `BigQuery job ${jobId} finished, but a page of its results could not be read (${message}), so no rows are returned.`,
+        );
+      }
+      const count = page.rows?.length ?? 0;
+      if (count === 0) return incomplete(total, seen);
+      seen += count;
       truncation = keep(page.rows);
-      pageToken = page.nextPageToken;
+      pageToken = page.pageToken;
     }
+    if (truncation === null && seen !== total) return incomplete(total, seen);
   } catch (error) {
     if (signal.aborted) return uncertain("timeout");
     throw error;

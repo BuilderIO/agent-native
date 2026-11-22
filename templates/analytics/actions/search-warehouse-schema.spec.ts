@@ -281,6 +281,92 @@ describe("search-warehouse-schema", () => {
     expect(result.matched).toBe(5);
   });
 
+  it("marks a managed BigLake table typed TABLE as not queryable, from its whole tables.get resource", async () => {
+    const lake = `lake_users_${suffix}`;
+    table("dbt_mart", lake, [{ name: "id" }], {
+      biglakeConfiguration: {
+        connectionId: "builder-3b0a2.us.lake",
+        storageUri: "gs://lake/users",
+        fileFormat: "PARQUET",
+        tableFormat: "ICEBERG",
+      },
+    });
+    const result = await search({ table: `dbt_mart.${lake}` });
+    expect(result.table).toMatchObject({
+      type: "TABLE",
+      queryable: false,
+      notQueryableReason: expect.stringMatching(/BigLake/),
+    });
+  });
+
+  it.each([
+    [
+      "a snapshot",
+      {
+        type: "SNAPSHOT",
+        snapshotDefinition: { snapshotTime: "2026-11-01T00:00:00Z" },
+      },
+    ],
+    [
+      "a clone",
+      { type: "TABLE", cloneDefinition: { cloneTime: "2026-11-01T00:00:00Z" } },
+    ],
+  ])("marks %s as queryable", async (_name, extra) => {
+    const copy = `users_copy_${suffix}`;
+    table("dbt_mart", copy, [{ name: "id" }], extra);
+    const result = await search({ table: `dbt_mart.${copy}` });
+    expect(result.table).toMatchObject({ queryable: true });
+  });
+
+  it("classifies every listed table it returns from that table's own resource", async () => {
+    const plain = `a_plain_${suffix}`;
+    const lake = `b_lake_${suffix}`;
+    const unread = `c_unread_${suffix}`;
+    lists.finance = {
+      tables: [{ tableId: plain }, { tableId: lake }, { tableId: unread }],
+    };
+    table("finance", plain, [{ name: "id" }]);
+    table("finance", lake, [{ name: "id" }], {
+      externalDataConfiguration: { sourceUris: ["gs://x/*"] },
+    });
+    const result = await search({ dataset: "finance" });
+    expect(result.tables).toEqual([
+      expect.objectContaining({ tableId: plain, queryable: true }),
+      expect.objectContaining({
+        tableId: lake,
+        type: "TABLE",
+        queryable: false,
+        notQueryableReason: expect.stringMatching(/external/),
+      }),
+      expect.objectContaining({
+        tableId: unread,
+        queryable: null,
+        notQueryableReason: expect.stringMatching(/could not be read/),
+      }),
+    ]);
+    expect(result.complete).toBe(false);
+    expect(result.errors).toEqual([
+      expect.objectContaining({ datasetId: "finance", tableId: unread }),
+    ]);
+  });
+
+  it("counts only the tables whose columns it actually read", async () => {
+    lists.hubspot = {
+      tables: [
+        { tableId: `deals_${suffix}` },
+        { tableId: `deals_lines_${suffix}` },
+        { tableId: `deals_gone_${suffix}` },
+      ],
+    };
+    table("hubspot", `deals_${suffix}`, [{ name: "amount" }]);
+    table("hubspot", `deals_lines_${suffix}`, [{ name: "amount" }]);
+    const result = await search({ dataset: "hubspot", search: "deals" });
+    expect(result.columnSearch).toEqual({ tablesRead: 2, tablesListed: 3 });
+    expect(result.errors).toEqual([
+      expect.objectContaining({ tableId: `deals_gone_${suffix}` }),
+    ]);
+  });
+
   it("reports a dataset it could not list instead of leaving it out silently", async () => {
     delete lists.finance;
     const result = await search({});

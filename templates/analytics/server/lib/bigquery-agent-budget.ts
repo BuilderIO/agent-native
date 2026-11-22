@@ -101,6 +101,10 @@ export const BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION_SQL = [
   `ALTER TABLE analytics_bigquery_agent_executions ADD COLUMN IF NOT EXISTS bytes_processed BIGINT`,
 ];
 
+export const BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION_SQL = [
+  `ALTER TABLE analytics_bigquery_agent_executions ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN`,
+];
+
 export interface OutsideAgentIdentity {
   ownerEmail: string;
   orgId: string | null;
@@ -396,6 +400,7 @@ export interface BigQueryAgentAdmissionRequest {
   estimatedBytes: number | null;
   reservedBytes: number;
   leaseMs: number;
+  location?: string | null;
 }
 
 export type BigQueryAgentRefusalCode =
@@ -549,8 +554,8 @@ export async function admitBigQueryAgentJob(
         sql: `INSERT INTO analytics_bigquery_agent_jobs (
             request_id, project_id, job_id, owner_email, org_id, org_key, credential_scope,
             credential_fingerprint, source, utc_day, estimated_bytes, reserved_bytes, state,
-            submission_state, created_at, lease_expires_at
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending','admitted',$13,$14)`,
+            submission_state, created_at, lease_expires_at, location
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending','admitted',$13,$14,$15)`,
         args: [
           requestId,
           request.projectId,
@@ -566,6 +571,7 @@ export async function admitBigQueryAgentJob(
           request.reservedBytes,
           admittedAt.toISOString(),
           leaseExpiresAt,
+          request.location ?? null,
         ],
       });
       return {
@@ -912,20 +918,37 @@ export interface BigQueryAgentExecutionRecord {
   providerCacheHit: boolean | null;
   rowCount: number | null;
   truncated: boolean;
-  cancelled: boolean;
+  cancelRequested: boolean;
+  cancelConfirmed: boolean;
   startedAt: string;
   durationMs: number;
 }
 
 export async function writeBigQueryAgentExecutionRecord(
   record: BigQueryAgentExecutionRecord,
+  options: { timeoutMs?: number } = {},
 ): Promise<void> {
+  // raw-sql-ok: static INSERT with bound values; only the per-call timeout is computed.
   await getDbExec().execute({
+    timeoutMs:
+      options.timeoutMs === undefined
+        ? undefined
+        : Math.max(1, options.timeoutMs),
+    maxAttempts: options.timeoutMs === undefined ? undefined : 1,
     sql: `INSERT INTO analytics_bigquery_agent_executions (
         id, owner_email, org_id, caller, source, policy_version, query_hash, project_id, job_id,
         status, code, estimated_bytes, reserved_bytes, billed_bytes, provider_cache_hit,
-        row_count, truncated, cancelled, started_at, duration_ms, location, bytes_processed
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+        row_count, truncated, cancelled, started_at, duration_ms, location, bytes_processed,
+        cancel_requested
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+      ON CONFLICT (id) DO UPDATE SET
+        project_id = EXCLUDED.project_id, job_id = EXCLUDED.job_id, status = EXCLUDED.status,
+        code = EXCLUDED.code, estimated_bytes = EXCLUDED.estimated_bytes,
+        reserved_bytes = EXCLUDED.reserved_bytes, billed_bytes = EXCLUDED.billed_bytes,
+        provider_cache_hit = EXCLUDED.provider_cache_hit, row_count = EXCLUDED.row_count,
+        truncated = EXCLUDED.truncated, cancelled = EXCLUDED.cancelled,
+        duration_ms = EXCLUDED.duration_ms, location = EXCLUDED.location,
+        bytes_processed = EXCLUDED.bytes_processed, cancel_requested = EXCLUDED.cancel_requested`,
     args: [
       record.id,
       record.ownerEmail,
@@ -944,11 +967,12 @@ export async function writeBigQueryAgentExecutionRecord(
       record.providerCacheHit,
       record.rowCount,
       record.truncated,
-      record.cancelled,
+      record.cancelConfirmed,
       record.startedAt,
       record.durationMs,
       record.location,
       record.bytesProcessed,
+      record.cancelRequested,
     ],
   });
 }

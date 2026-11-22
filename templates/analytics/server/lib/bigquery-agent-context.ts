@@ -171,6 +171,7 @@ export interface OutsideAgentBigQueryGate {
     capBytes: number;
     estimate?: () => Promise<BigQueryBillableEstimate>;
     reconciler?: BigQueryAgentReconciler;
+    location?: string | null;
   }): Promise<OutsideAgentBigQueryAdmission>;
   submitted(
     admission: OutsideAgentBigQueryAdmission,
@@ -323,6 +324,7 @@ export function createOutsideAgentBigQueryGate(options: {
                 : Math.min(estimatedBytes, reservedBytes),
             reservedBytes,
             leaseMs: options.leaseMs,
+            ...(input.location ? { location: input.location } : {}),
           },
           {
             now: now(),

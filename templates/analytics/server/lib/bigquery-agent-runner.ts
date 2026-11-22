@@ -15,6 +15,8 @@ import {
   readBigQueryAgentBudget,
   usd,
   writeBigQueryAgentExecutionRecord,
+  type BigQueryAgentReconciler,
+  type OutsideAgentIdentity,
 } from "./bigquery-agent-budget.js";
 import {
   createOutsideAgentBigQueryCall,
@@ -69,11 +71,16 @@ import { getBigQueryAccess } from "./gcloud.js";
 export const BIGQUERY_AGENT_MAX_ROWS = 5_000;
 export const BIGQUERY_AGENT_MAX_RESULT_BYTES = 1_000_000;
 export const BIGQUERY_AGENT_DEFAULT_DEADLINE_MS = 22_000;
-const PLAN_DEADLINE_MS = 10_000;
+export const BIGQUERY_AGENT_CLEANUP_MS = 4_000;
+const RECORD_RESERVE_MS = 1_000;
+const DEFAULT_WORK_MS =
+  BIGQUERY_AGENT_DEFAULT_DEADLINE_MS - BIGQUERY_AGENT_CLEANUP_MS;
 const MAX_TABLES = 20;
 const SETTLEMENT_TIMEOUT_MS = 1_500;
 const LEASE_MARGIN_MS = 60_000;
 const JOB_LABELS = { agent_native_workload: "outside-agent-query" };
+const NOT_SENT =
+  "The query's job was not sent: its deadline or budget reservation ran out first, so nothing ran and nothing was charged. Ask again.";
 
 export type BigQueryAgentQueryCode =
   | OutsideAgentBigQueryRefusalCode
@@ -83,6 +90,7 @@ export type BigQueryAgentQueryCode =
   | "query_feature_not_allowed"
   | "query_invalid"
   | "query_bytes_cap_exceeded"
+  | "query_row_too_large"
   | "query_timeout"
   | "query_quota_exceeded"
   | "query_failed"
@@ -164,6 +172,64 @@ export type BigQueryAgentQueryResult =
       report: OutsideAgentBigQueryReport;
     };
 
+export interface BigQueryAgentDeadline {
+  readonly signal: AbortSignal;
+  readonly wrapUp: AbortSignal;
+  readonly cleanup: AbortSignal;
+  readonly startedAt: Date;
+  readonly startedAtMs: number;
+  readonly endsAtMs: number;
+}
+
+export function startBigQueryAgentDeadline(
+  options: { workMs?: number; cleanupMs?: number; signal?: AbortSignal } = {},
+): BigQueryAgentDeadline {
+  const workMs = options.workMs ?? DEFAULT_WORK_MS;
+  const cleanupMs = options.cleanupMs ?? BIGQUERY_AGENT_CLEANUP_MS;
+  const recordMs = Math.min(RECORD_RESERVE_MS, Math.floor(cleanupMs / 2));
+  const work = AbortSignal.timeout(workMs);
+  const startedAtMs = performance.now();
+  return Object.freeze({
+    signal: options.signal ? AbortSignal.any([options.signal, work]) : work,
+    wrapUp: AbortSignal.timeout(workMs + cleanupMs - recordMs),
+    cleanup: AbortSignal.timeout(workMs + cleanupMs),
+    startedAt: new Date(),
+    startedAtMs,
+    endsAtMs: startedAtMs + workMs + cleanupMs,
+  });
+}
+
+function withCallerSignal(
+  deadline: BigQueryAgentDeadline,
+  signal: AbortSignal | undefined,
+): BigQueryAgentDeadline {
+  return signal
+    ? Object.freeze({
+        ...deadline,
+        signal: AbortSignal.any([deadline.signal, signal]),
+      })
+    : deadline;
+}
+
+function remainingMs(deadline: BigQueryAgentDeadline): number {
+  return Math.floor(deadline.endsAtMs - performance.now());
+}
+
+function bounded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortError());
+    if (signal.aborted) {
+      work.catch(() => undefined);
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", onAbort);
+    });
+  });
+}
+
 export interface BigQueryAgentQueryInput {
   sql: string;
   source: string;
@@ -171,6 +237,9 @@ export interface BigQueryAgentQueryInput {
   askVia?: string;
   estimateOnly?: boolean;
   deadlineMs?: number;
+  deadline?: BigQueryAgentDeadline;
+  decided?: BigQueryAgentDecision;
+  beforeAdmission?: () => Promise<void>;
   signal?: AbortSignal;
   maxRows?: number;
   maxResultBytes?: number;
@@ -208,8 +277,37 @@ interface RecordState {
   providerCacheHit: boolean | null;
   rowCount: number | null;
   truncated: boolean;
-  cancelled: boolean;
+  cancelRequested: boolean;
+  cancelConfirmed: boolean;
 }
+
+interface DecisionBase {
+  readonly deadline: BigQueryAgentDeadline;
+  readonly identity: OutsideAgentIdentity;
+  readonly call: OutsideAgentBigQueryCall;
+  readonly record: RecordState;
+}
+
+export type BigQueryAgentDecision =
+  | (DecisionBase & {
+      readonly status: "admitted";
+      readonly needsApproval: false;
+      readonly frozen: FrozenQuery;
+      readonly admission: OutsideAgentBigQueryAdmission;
+    })
+  | (DecisionBase & {
+      readonly status: "ask";
+      readonly needsApproval: true;
+      readonly frozen: FrozenQuery;
+      readonly reservedBytes: number;
+    })
+  | (DecisionBase & {
+      readonly status: "refused";
+      readonly needsApproval: false;
+      readonly code: BigQueryAgentFailureCode;
+      readonly message: string;
+      readonly report?: OutsideAgentBigQueryReport;
+    });
 
 class QueryRefusal extends Error {
   readonly code: BigQueryAgentFailureCode;
@@ -225,12 +323,6 @@ function abortError(): Error {
     "BigQuery agent query deadline exceeded",
     "AbortError",
   );
-}
-
-function deadlineSignal(deadlineMs: number, signal?: AbortSignal) {
-  return signal
-    ? AbortSignal.any([signal, AbortSignal.timeout(deadlineMs)])
-    : AbortSignal.timeout(deadlineMs);
 }
 
 function estimatedCost(record: {
@@ -267,20 +359,22 @@ async function freezeQuery(
     "BIGQUERY_PROJECT_ID",
     credentialContext,
   );
-  const { token, principal } = await getBigQueryAccess({
-    signal: deadline,
-    projectId,
-  });
-  if (deadline.aborted) throw abortError();
+  const { token, principal } = await bounded(
+    getBigQueryAccess({ signal: deadline, projectId }),
+    deadline,
+  );
   const tables = await Promise.all(
     checked.tables.map(async (ref) => ({
       ref,
-      metadata: await getBigQueryTableMetadata(ref, deadline, { token }),
+      metadata: await bounded(
+        getBigQueryTableMetadata(ref, deadline, { token }),
+        deadline,
+      ),
     })),
   );
   let location: string | null = null;
   for (const { ref, metadata } of tables) {
-    checkBigQueryAgentTableKind(ref, metadata.type);
+    checkBigQueryAgentTableKind(ref, metadata);
     const at = metadata.location;
     if (typeof at !== "string" || !at) {
       throw new QueryRefusal(
@@ -305,7 +399,18 @@ async function freezeQuery(
   const dryRun = await dryRunFrozenQuery(access, checked.sql, deadline);
   if (dryRun.error !== null) {
     const status = dryRun.status ?? 0;
-    if (dryRun.timedOut || status === 401 || status === 429 || status >= 500) {
+    if (
+      status === 429 ||
+      dryRun.reason === "quotaExceeded" ||
+      dryRun.reason === "rateLimitExceeded" ||
+      dryRun.reason === "jobRateLimitExceeded"
+    ) {
+      throw new QueryRefusal(
+        "query_quota_exceeded",
+        "BigQuery's own quota or rate limit refused this query's dry run, so nothing ran and nothing was charged. Wait a minute before asking again.",
+      );
+    }
+    if (dryRun.timedOut || status === 401 || status >= 500) {
       throw new QueryRefusal(
         "estimate_unavailable",
         "BigQuery could not estimate this query's cost, so nothing ran and nothing was charged. Try again in a few minutes.",
@@ -406,70 +511,251 @@ function emptyRecord(): RecordState {
     providerCacheHit: null,
     rowCount: null,
     truncated: false,
-    cancelled: false,
+    cancelRequested: false,
+    cancelConfirmed: false,
   };
+}
+
+function newCall(
+  input: { source: string; askVia?: string },
+  identity: OutsideAgentIdentity,
+  deadline: BigQueryAgentDeadline,
+): OutsideAgentBigQueryCall {
+  return createOutsideAgentBigQueryCall({
+    identity,
+    source: input.source,
+    reservation: "dry-run",
+    leaseMs: Math.max(0, remainingMs(deadline)) + LEASE_MARGIN_MS,
+    ...(input.askVia ? { askVia: input.askVia } : {}),
+  });
+}
+
+function reconcilerFor(frozen: FrozenQuery): BigQueryAgentReconciler {
+  return createBigQueryAgentReconciler(frozen.access.token, {
+    credentialScope: frozen.credentialScope,
+    credentialFingerprint: frozen.credentialFingerprint,
+  });
+}
+
+function admit(
+  call: OutsideAgentBigQueryCall,
+  frozen: FrozenQuery,
+  deadline: BigQueryAgentDeadline,
+): Promise<OutsideAgentBigQueryAdmission> {
+  return bounded(
+    call.gate.admit({
+      projectId: frozen.access.projectId,
+      jobId: `agent_native_mcp_${randomUUID().replace(/-/g, "")}`,
+      credentialScope: frozen.credentialScope,
+      credentialFingerprint: frozen.credentialFingerprint,
+      exclusive: true,
+      capBytes: OUTSIDE_AGENT_JOB_CAP_BYTES,
+      estimate: async () => frozen.estimate,
+      reconciler: reconcilerFor(frozen),
+      location: frozen.access.location,
+    }),
+    deadline.wrapUp,
+  );
+}
+
+function admissionRefusal(
+  error: unknown,
+  deadline: BigQueryAgentDeadline,
+): {
+  code: BigQueryAgentFailureCode;
+  message: string;
+  report?: OutsideAgentBigQueryReport;
+} {
+  if (error instanceof OutsideAgentBigQueryRefusalError) {
+    return {
+      code: error.code,
+      message: error.message,
+      report: outsideAgentRefusalReport(error),
+    };
+  }
+  if (deadline.signal.aborted || deadline.wrapUp.aborted) {
+    return {
+      code: "query_timeout",
+      message:
+        "The query's budget check did not finish before its deadline, so nothing ran and nothing was charged. Ask again.",
+    };
+  }
+  console.error("[bigquery-agent] Admission failed", {
+    errorType: error instanceof Error ? error.name : "non_error",
+  });
+  return {
+    code: "budget_unavailable",
+    message: refusalMessage({ code: "budget_unavailable" }),
+  };
+}
+
+export async function decideBigQueryAgentQuery(input: {
+  sql: string;
+  source: string;
+  caller?: string;
+  askVia?: string;
+  deadline: BigQueryAgentDeadline;
+}): Promise<BigQueryAgentDecision> {
+  const { deadline } = input;
+  const identity = outsideAgentIdentity(
+    getRequestUserEmail(),
+    getRequestOrgId(),
+  );
+  const base: DecisionBase = {
+    deadline,
+    identity,
+    call: newCall(input, identity, deadline),
+    record: emptyRecord(),
+  };
+  let frozen: FrozenQuery;
+  try {
+    frozen = await freezeQuery(input.sql, deadline.signal, base.record);
+  } catch (error) {
+    return {
+      ...base,
+      status: "refused",
+      needsApproval: false,
+      ...refusalOf(error, deadline.signal),
+    };
+  }
+  try {
+    const admission = await admit(base.call, frozen, deadline);
+    if (deadline.signal.aborted) {
+      await bounded(base.call.gate.rejected(admission), deadline.wrapUp).catch(
+        () => undefined,
+      );
+      return {
+        ...base,
+        status: "refused",
+        needsApproval: false,
+        code: "query_timeout",
+        message: NOT_SENT,
+      };
+    }
+    return {
+      ...base,
+      status: "admitted",
+      needsApproval: false,
+      frozen,
+      admission,
+    };
+  } catch (error) {
+    if (
+      input.askVia &&
+      error instanceof OutsideAgentBigQueryRefusalError &&
+      error.code === "approval_required"
+    ) {
+      return {
+        ...base,
+        status: "ask",
+        needsApproval: true,
+        frozen,
+        reservedBytes: frozen.reservedBytes,
+      };
+    }
+    return {
+      ...base,
+      status: "refused",
+      needsApproval: false,
+      ...admissionRefusal(error, deadline),
+    };
+  }
+}
+
+export async function releaseBigQueryAgentDecision(
+  decision: BigQueryAgentDecision,
+): Promise<void> {
+  if (decision.status !== "admitted") return;
+  await bounded(
+    decision.call.gate.rejected(decision.admission),
+    decision.deadline.wrapUp,
+  ).catch(() => undefined);
 }
 
 export async function planBigQueryAgentQuery(
   sql: string,
-  options: { signal?: AbortSignal; deadlineMs?: number } = {},
+  options: { deadline?: BigQueryAgentDeadline } = {},
 ): Promise<BigQueryAgentQueryPlan> {
-  const deadline = deadlineSignal(
-    options.deadlineMs ?? PLAN_DEADLINE_MS,
-    options.signal,
-  );
+  const deadline = options.deadline ?? startBigQueryAgentDeadline();
   try {
-    const frozen = await freezeQuery(sql, deadline, emptyRecord());
+    const frozen = await freezeQuery(sql, deadline.signal, emptyRecord());
     return {
       status: "planned",
       estimatedBytes: frozen.estimatedBytes,
       reservedBytes: frozen.reservedBytes,
     };
   } catch (error) {
-    return { status: "refused", ...refusalOf(error, deadline) };
+    return { status: "refused", ...refusalOf(error, deadline.signal) };
   }
 }
 
 export async function runBigQueryAgentQuery(
   input: BigQueryAgentQueryInput,
 ): Promise<BigQueryAgentQueryResult> {
-  const startedAt = new Date();
-  const deadlineMs = Math.min(
-    input.deadlineMs ?? BIGQUERY_AGENT_DEFAULT_DEADLINE_MS,
-    BIGQUERY_AGENT_DEFAULT_DEADLINE_MS,
-  );
-  const deadline = deadlineSignal(deadlineMs, input.signal);
-  const identity = outsideAgentIdentity(
+  const currentIdentity = outsideAgentIdentity(
     getRequestUserEmail(),
     getRequestOrgId(),
   );
-  const call = createOutsideAgentBigQueryCall({
-    identity,
-    source: input.source,
-    reservation: "dry-run",
-    leaseMs: deadlineMs + LEASE_MARGIN_MS,
-    ...(input.askVia ? { askVia: input.askVia } : {}),
-  });
+  const decided =
+    input.decided &&
+    input.decided.identity.ownerEmail === currentIdentity.ownerEmail &&
+    input.decided.identity.orgId === currentIdentity.orgId
+      ? input.decided
+      : undefined;
+  const deadline = withCallerSignal(
+    decided?.deadline ??
+      input.deadline ??
+      startBigQueryAgentDeadline({
+        workMs: Math.min(input.deadlineMs ?? DEFAULT_WORK_MS, DEFAULT_WORK_MS),
+      }),
+    input.signal,
+  );
+  const identity = decided?.identity ?? currentIdentity;
+  const call = decided?.call ?? newCall(input, identity, deadline);
+  const record = decided?.record ?? emptyRecord();
+  const executionId = randomUUID();
   const queryHash = createHash("sha256").update(input.sql).digest("hex");
-  const record = emptyRecord();
+  const report = async (): Promise<OutsideAgentBigQueryReport> => {
+    try {
+      return await bounded(call.report(), deadline.wrapUp);
+    } catch {
+      // coercion-ok: a budget that could not be read in time is reported as unread (today: null), never as zero.
+      return outsideAgentBigQueryReport(call.gate.summary(), null);
+    }
+  };
+  const writeRecord = (
+    status: string,
+    code: string | null,
+    signal: AbortSignal = deadline.cleanup,
+  ) =>
+    bounded(
+      writeBigQueryAgentExecutionRecord(
+        {
+          id: executionId,
+          ownerEmail: identity.ownerEmail,
+          orgId: identity.orgId,
+          caller: input.caller ?? "mcp",
+          source: input.source,
+          policyVersion: BIGQUERY_AGENT_SQL_POLICY_VERSION,
+          queryHash,
+          ...record,
+          status,
+          code,
+          startedAt: deadline.startedAt.toISOString(),
+          durationMs: Math.max(
+            0,
+            Math.round(performance.now() - deadline.startedAtMs),
+          ),
+        },
+        { timeoutMs: remainingMs(deadline) },
+      ),
+      signal,
+    );
   const finish = async (
     result: BigQueryAgentQueryResult,
   ): Promise<BigQueryAgentQueryResult> => {
     try {
-      await writeBigQueryAgentExecutionRecord({
-        id: randomUUID(),
-        ownerEmail: identity.ownerEmail,
-        orgId: identity.orgId,
-        caller: input.caller ?? "mcp",
-        source: input.source,
-        policyVersion: BIGQUERY_AGENT_SQL_POLICY_VERSION,
-        queryHash,
-        ...record,
-        status: result.status,
-        code: result.code,
-        startedAt: startedAt.toISOString(),
-        durationMs: Date.now() - startedAt.getTime(),
-      });
+      await writeRecord(result.status, result.code);
     } catch {
       // coercion-ok: an ungoverned run returns no rows; this typed failure says why.
       console.error("[bigquery-agent] Execution record not written", {
@@ -497,13 +783,13 @@ export async function runBigQueryAgentQuery(
   const refused = async (
     code: BigQueryAgentFailureCode,
     message: string,
-    report?: OutsideAgentBigQueryReport,
+    refusalReport?: OutsideAgentBigQueryReport,
   ) =>
     finish({
       status: "refused",
       code,
       message,
-      report: report ?? (await call.report()),
+      report: refusalReport ?? (await report()),
       ...(record.reservedBytes !== null
         ? {
             cost: estimatedCost({
@@ -514,18 +800,21 @@ export async function runBigQueryAgentQuery(
         : {}),
     });
 
+  if (decided?.status === "refused") {
+    return refused(decided.code, decided.message, decided.report);
+  }
   let frozen: FrozenQuery;
-  try {
-    frozen = await freezeQuery(input.sql, deadline, record);
-  } catch (error) {
-    const refusal = refusalOf(error, deadline);
-    return refused(refusal.code, refusal.message);
+  if (decided) {
+    frozen = decided.frozen;
+  } else {
+    try {
+      frozen = await freezeQuery(input.sql, deadline.signal, record);
+    } catch (error) {
+      const refusal = refusalOf(error, deadline.signal);
+      return refused(refusal.code, refusal.message);
+    }
   }
   const { projectId, location, token } = frozen.access;
-  const reconciler = createBigQueryAgentReconciler(token, {
-    credentialScope: frozen.credentialScope,
-    credentialFingerprint: frozen.credentialFingerprint,
-  });
   const executed = {
     executedSql: frozen.sql,
     referencedTables: frozen.tables.map(bigQueryTableKey),
@@ -534,10 +823,17 @@ export async function runBigQueryAgentQuery(
   if (input.estimateOnly) {
     let budget;
     try {
-      budget = await readBigQueryAgentBudget(identity, {
-        reconcile: reconciler,
-      });
+      budget = await bounded(
+        readBigQueryAgentBudget(identity, { reconcile: reconcilerFor(frozen) }),
+        deadline.signal,
+      );
     } catch (error) {
+      if (deadline.signal.aborted) {
+        return refused(
+          "query_timeout",
+          "The budget read for this estimate did not finish before its deadline. Nothing ran and nothing was charged.",
+        );
+      }
       if (error instanceof BigQueryAgentBudgetUnavailableError) {
         return refused(
           "budget_unavailable",
@@ -567,45 +863,64 @@ export async function runBigQueryAgentQuery(
     });
   }
 
-  const jobId = `agent_native_mcp_${randomUUID().replace(/-/g, "")}`;
   let admission: OutsideAgentBigQueryAdmission;
-  try {
-    admission = await call.gate.admit({
-      projectId,
-      jobId,
-      credentialScope: frozen.credentialScope,
-      credentialFingerprint: frozen.credentialFingerprint,
-      exclusive: true,
-      capBytes: OUTSIDE_AGENT_JOB_CAP_BYTES,
-      estimate: async () => frozen.estimate,
-      reconciler,
-    });
-  } catch (error) {
-    if (error instanceof OutsideAgentBigQueryRefusalError) {
-      return refused(
-        error.code,
-        error.message,
-        outsideAgentRefusalReport(error),
-      );
+  if (decided?.status === "admitted") {
+    admission = decided.admission;
+  } else {
+    if (input.beforeAdmission) {
+      try {
+        await bounded(input.beforeAdmission(), deadline.wrapUp);
+      } catch (error) {
+        const refusal = admissionRefusal(error, deadline);
+        return refused(refusal.code, refusal.message);
+      }
     }
-    throw error;
+    if (deadline.signal.aborted) return refused("query_timeout", NOT_SENT);
+    try {
+      admission = await admit(call, frozen, deadline);
+    } catch (error) {
+      const refusal = admissionRefusal(error, deadline);
+      return refused(refusal.code, refusal.message, refusal.report);
+    }
   }
-  record.reservedBytes = admission.reservedBytes;
-  if (deadline.aborted || admissionLapsed(admission)) {
-    await call.gate.rejected(admission);
-    return refused(
-      "query_timeout",
-      "The query's deadline passed before its job was sent, so nothing ran and nothing was charged. Ask again.",
+  const { jobId } = admission;
+  const release = () =>
+    bounded(call.gate.rejected(admission), deadline.wrapUp).catch(
+      () => undefined,
     );
+  record.reservedBytes = admission.reservedBytes;
+  if (deadline.signal.aborted || admissionLapsed(admission)) {
+    await release();
+    return refused("query_timeout", NOT_SENT);
   }
   record.jobId = jobId;
+  try {
+    await writeRecord("submitting", null, deadline.signal);
+  } catch {
+    // coercion-ok: no durable record means no job; the reservation is released and the typed failure says nothing ran.
+    record.jobId = null;
+    await release();
+    return finish({
+      status: "failed",
+      code: "execution_record_unavailable",
+      message:
+        "The query's governance record could not be saved before its job was sent, so nothing ran. Try again later.",
+      jobId: null,
+      cost: null,
+      report: await report(),
+    });
+  }
 
   const usage = withBigQueryUsageAttribution(
     { workload: "outside-agent-query" },
     () => newBigQueryJobUsage(projectId, jobId, frozen.credentialContext),
   );
   usage.location = location ?? undefined;
-  const usageRecorded = await persistBigQueryJobUsage(usage);
+  const usageRecorded = await bounded(
+    persistBigQueryJobUsage(usage),
+    deadline.signal,
+    // coercion-ok: false is persistBigQueryJobUsage's own "usage not recorded" answer, which finalization reports as unavailable.
+  ).catch(() => false);
 
   let outcome: BoundedBigQueryJobOutcome;
   try {
@@ -617,7 +932,8 @@ export async function runBigQueryAgentQuery(
       sql: frozen.sql,
       maximumBytesBilled: admission.reservedBytes,
       token,
-      signal: deadline,
+      signal: deadline.signal,
+      cleanupSignal: deadline.wrapUp,
       maxRows: input.maxRows ?? BIGQUERY_AGENT_MAX_ROWS,
       maxResultBytes: input.maxResultBytes ?? BIGQUERY_AGENT_MAX_RESULT_BYTES,
       submitBy: admission.submitBy,
@@ -630,55 +946,81 @@ export async function runBigQueryAgentQuery(
       reason: "submission_unknown",
       location: location ?? undefined,
       cancelRequested: false,
+      cancelConfirmed: false,
     };
   }
   const jobLocation =
-    (outcome.status !== "rejected" ? outcome.location : undefined) ??
+    (outcome.status === "rejected" || outcome.status === "not_submitted"
+      ? undefined
+      : outcome.location) ??
     location ??
     undefined;
   record.location = jobLocation ?? null;
   usage.location = jobLocation;
   usage.submissionState =
-    outcome.status === "rejected"
+    outcome.status === "rejected" || outcome.status === "not_submitted"
       ? "rejected"
       : outcome.status === "uncertain"
         ? "unknown"
         : "accepted";
-  await finalizeBigQueryJobUsage(usage, token, usageRecorded);
+  await bounded(
+    finalizeBigQueryJobUsage(usage, token, usageRecorded, deadline.wrapUp),
+    deadline.wrapUp,
+  ).catch(() => undefined);
 
+  if (outcome.status === "not_submitted") {
+    await release();
+    return refused("query_timeout", NOT_SENT);
+  }
   if (outcome.status === "rejected") {
-    await call.gate.rejected(admission);
+    await release();
     return finish({
       status: "failed",
       code: outcome.code,
-      message: `BigQuery refused the job before it ran, so nothing was charged: ${outcome.message.slice(0, 1_000)}`,
+      message:
+        outcome.code === "query_quota_exceeded"
+          ? `BigQuery's own quota or rate limit refused the job before it ran, so nothing was charged: ${outcome.message.slice(0, 1_000)} Wait a minute before asking again.`
+          : `BigQuery refused the job before it ran, so nothing was charged: ${outcome.message.slice(0, 1_000)}`,
       jobId,
       cost: jobCost(call, frozen, admission),
-      report: await call.report(),
+      report: await report(),
     });
   }
   if (outcome.status === "uncertain") {
-    record.cancelled = outcome.cancelRequested;
-    await call.gate.submitted(admission, "unknown", jobLocation);
+    record.cancelRequested = outcome.cancelRequested;
+    record.cancelConfirmed = outcome.cancelConfirmed;
+    await bounded(
+      call.gate.submitted(admission, "unknown", jobLocation),
+      deadline.wrapUp,
+    ).catch(() => undefined);
     return finish({
       status: "uncertain",
       code:
         outcome.reason === "timeout" ? "query_timeout" : "job_outcome_unknown",
-      message: `BigQuery job ${jobId} may still be running${outcome.cancelRequested ? " (a cancel was requested)" : ""}; up to ${formatUsd(admission.reservedBytes)} stays reserved against today's budgets until its outcome is confirmed. Do not resubmit this query.`,
+      message: `BigQuery job ${jobId} may still be running${outcome.cancelConfirmed ? " (BigQuery accepted a cancel request)" : outcome.cancelRequested ? " (a cancel was requested but not confirmed)" : ""}; up to ${formatUsd(admission.reservedBytes)} stays reserved against today's budgets until its outcome is confirmed. Do not resubmit this query.`,
       jobId,
       cost: jobCost(call, frozen, admission),
-      report: await call.report(),
+      report: await report(),
     });
   }
 
-  await call.gate.submitted(admission, "accepted", jobLocation);
-  await call.gate.settle(admission, () =>
-    readBigQueryJobBilling(
-      { projectId, jobId, location: jobLocation ?? null },
-      token,
-      AbortSignal.timeout(SETTLEMENT_TIMEOUT_MS),
+  await bounded(
+    call.gate.submitted(admission, "accepted", jobLocation),
+    deadline.wrapUp,
+  ).catch(() => undefined);
+  await bounded(
+    call.gate.settle(admission, () =>
+      readBigQueryJobBilling(
+        { projectId, jobId, location: jobLocation ?? null },
+        token,
+        AbortSignal.any([
+          AbortSignal.timeout(SETTLEMENT_TIMEOUT_MS),
+          deadline.wrapUp,
+        ]),
+      ),
     ),
-  );
+    deadline.wrapUp,
+  ).catch(() => undefined);
   const cost = jobCost(call, frozen, admission);
   if (outcome.status === "completed" && cost.providerCacheHit === null) {
     cost.providerCacheHit = outcome.providerCacheHit;
@@ -692,15 +1034,27 @@ export async function runBigQueryAgentQuery(
       message:
         outcome.code === "query_bytes_cap_exceeded"
           ? `The query needed more than its ${formatUsd(admission.reservedBytes)} reservation, so BigQuery stopped it. Narrow the date range or columns before asking again.`
-          : `BigQuery job ${jobId} failed: ${outcome.message.slice(0, 1_000)}`,
+          : outcome.code === "query_quota_exceeded"
+            ? `BigQuery job ${jobId} hit BigQuery's own quota or rate limit: ${outcome.message.slice(0, 1_000)} Wait a minute before asking again.`
+            : `BigQuery job ${jobId} failed: ${outcome.message.slice(0, 1_000)}`,
       jobId,
       cost,
-      report: await call.report(),
+      report: await report(),
     });
   }
   record.rowCount = outcome.rows.length;
   record.truncated = outcome.truncation !== null;
   record.bytesProcessed = outcome.bytesProcessed;
+  if (outcome.rows.length === 0 && outcome.truncation === "bytes") {
+    return finish({
+      status: "failed",
+      code: "query_row_too_large",
+      message: `BigQuery job ${jobId} ran, but its first row alone is larger than the ${Math.round((input.maxResultBytes ?? BIGQUERY_AGENT_MAX_RESULT_BYTES) / 1_000).toLocaleString("en-US")} KB result limit, so no rows are returned. Select fewer or smaller columns (drop long text, JSON or array columns) or aggregate, then ask again.`,
+      jobId,
+      cost,
+      report: await report(),
+    });
+  }
   return finish({
     status: "completed",
     code: "ready",
@@ -715,7 +1069,7 @@ export async function runBigQueryAgentQuery(
     truncation: outcome.truncation,
     bytesProcessed: outcome.bytesProcessed,
     cost,
-    report: await call.report(),
+    report: await report(),
   });
 }
 

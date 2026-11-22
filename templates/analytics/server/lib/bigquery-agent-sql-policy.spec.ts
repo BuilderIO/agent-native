@@ -225,19 +225,187 @@ describe("BigQuery outside-agent SQL policy", () => {
 
   it("refuses unreviewed views and external tables, and accepts plain tables", () => {
     const ref = { projectId: PROJECT, datasetId: "dbt_mart", tableId: "v" };
-    expect(refusal(() => checkBigQueryAgentTableKind(ref, "VIEW")).code).toBe(
+    expect(
+      refusal(() => checkBigQueryAgentTableKind(ref, { type: "VIEW" })).code,
+    ).toBe("query_table_not_allowed");
+    expect(
+      refusal(() =>
+        checkBigQueryAgentTableKind(ref, { type: "MATERIALIZED_VIEW" }),
+      ).code,
+    ).toBe("query_table_not_allowed");
+    expect(
+      refusal(() => checkBigQueryAgentTableKind(ref, { type: "EXTERNAL" }))
+        .code,
+    ).toBe("query_feature_not_allowed");
+    expect(refusal(() => checkBigQueryAgentTableKind(ref, {})).code).toBe(
       "query_table_not_allowed",
     );
+    expect(() =>
+      checkBigQueryAgentTableKind(ref, { type: "TABLE" }),
+    ).not.toThrow();
+  });
+
+  describe("table kinds read from the whole tables.get resource", () => {
+    const ref = { projectId: PROJECT, datasetId: "dbt_mart", tableId: "t" };
+
+    it.each([
+      [
+        "a managed BigLake (Iceberg) table typed TABLE",
+        {
+          type: "TABLE",
+          biglakeConfiguration: {
+            connectionId: "builder-3b0a2.us.lake",
+            storageUri: "gs://lake/t",
+            fileFormat: "PARQUET",
+            tableFormat: "ICEBERG",
+          },
+        },
+        /BigLake/,
+      ],
+      [
+        "a table typed TABLE with an external data configuration",
+        {
+          type: "TABLE",
+          externalDataConfiguration: { sourceUris: ["gs://x/*"] },
+        },
+        /external/,
+      ],
+      [
+        "a table typed SNAPSHOT that reads external storage",
+        {
+          type: "SNAPSHOT",
+          externalDataConfiguration: { sourceUris: ["gs://x/*"] },
+        },
+        /external/,
+      ],
+    ])("refuses %s", (_name, metadata, reason) => {
+      const error = refusal(() => checkBigQueryAgentTableKind(ref, metadata));
+      expect(error.code).toBe("query_feature_not_allowed");
+      expect(error.message).toMatch(reason);
+    });
+
+    it("accepts a table snapshot, which is native and read-only", () => {
+      expect(() =>
+        checkBigQueryAgentTableKind(ref, {
+          type: "SNAPSHOT",
+          snapshotDefinition: {
+            baseTableReference: {
+              projectId: PROJECT,
+              datasetId: "dbt_mart",
+              tableId: "users",
+            },
+            snapshotTime: "2026-11-01T00:00:00Z",
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it("accepts a table clone, which is native storage typed TABLE", () => {
+      expect(() =>
+        checkBigQueryAgentTableKind(ref, {
+          type: "TABLE",
+          cloneDefinition: {
+            baseTableReference: {
+              projectId: PROJECT,
+              datasetId: "dbt_mart",
+              tableId: "users",
+            },
+            cloneTime: "2026-11-01T00:00:00Z",
+          },
+        }),
+      ).not.toThrow();
+    });
+  });
+
+  it.each([
+    ["EXECUTE IMMEDIATE", "EXECUTE IMMEDIATE 'SELECT 1'"],
+    ["CALL", "CALL `builder-3b0a2.dbt_mart.refresh`()"],
+    ["SET", "SET @@dataset_id = 'dbt_mart'"],
+    [
+      "LOAD DATA",
+      "LOAD DATA INTO `builder-3b0a2.dbt_mart.users` FROM FILES (format = 'CSV', uris = ['gs://x/*'])",
+    ],
+    [
+      "ASSERT",
+      "ASSERT (SELECT COUNT(*) FROM `builder-3b0a2.dbt_mart.users`) > 0",
+    ],
+    [
+      "a JavaScript UDF body",
+      "CREATE TEMP FUNCTION f(x FLOAT64) RETURNS FLOAT64 LANGUAGE js AS r'''return x * 2;'''; SELECT f(id) FROM `builder-3b0a2.dbt_mart.users`",
+    ],
+  ])("refuses a script or non-query statement: %s", (_name, sql) => {
+    expect(refused(sql).code).toBe("query_statement_not_allowed");
+  });
+
+  it.each([
+    [
+      "VECTOR_SEARCH",
+      "SELECT * FROM VECTOR_SEARCH(TABLE `builder-3b0a2.dbt_mart.docs`, 'embedding', (SELECT [1.0] AS embedding))",
+      /Table functions/,
+    ],
+    [
+      "VECTOR_SEARCH in an expression",
+      "SELECT VECTOR_SEARCH(1) FROM `builder-3b0a2.dbt_mart.users`",
+      /VECTOR_SEARCH is not allowed/,
+    ],
+    [
+      "OBJ.*",
+      "SELECT OBJ.GET_ACCESS_URL(ref, 'r') FROM `builder-3b0a2.dbt_mart.users`",
+      /OBJ\.\*, KEYS\.\* and AEAD\.\* functions are not allowed/,
+    ],
+    [
+      "KEYS.*",
+      "SELECT KEYS.KEYSET_CHAIN('gcp-kms://k', b'x') FROM `builder-3b0a2.dbt_mart.users`",
+      /OBJ\.\*, KEYS\.\* and AEAD\.\* functions are not allowed/,
+    ],
+    [
+      "AEAD.*",
+      "SELECT AEAD.DECRYPT_STRING(keyset, secret, 'aad') FROM `builder-3b0a2.dbt_mart.users`",
+      /OBJ\.\*, KEYS\.\* and AEAD\.\* functions are not allowed/,
+    ],
+  ])("refuses %s", (_name, sql, reason) => {
+    const error = refused(sql);
+    expect(error.code).toBe("query_feature_not_allowed");
+    expect(error.message).toMatch(reason);
+  });
+
+  it("accepts a table named with all three parts quoted separately", () => {
     expect(
-      refusal(() => checkBigQueryAgentTableKind(ref, "MATERIALIZED_VIEW")).code,
-    ).toBe("query_table_not_allowed");
+      checkBigQueryAgentSql(
+        "SELECT id FROM `builder-3b0a2`.`dbt_mart`.`users`",
+        PROJECT,
+      ).tables,
+    ).toEqual([
+      { projectId: PROJECT, datasetId: "dbt_mart", tableId: "users" },
+    ]);
+  });
+
+  it("refuses an implicit array path, which reads as an unqualified table", () => {
+    const error = refused(
+      "SELECT tag FROM `builder-3b0a2.dbt_mart.users` AS u, u.tags AS tag",
+    );
+    expect(error.code).toBe("query_table_not_allowed");
+    expect(error.message).toContain("project.dataset.table");
+  });
+
+  it("accepts time travel on an allowlisted table", () => {
     expect(
-      refusal(() => checkBigQueryAgentTableKind(ref, "EXTERNAL")).code,
-    ).toBe("query_feature_not_allowed");
-    expect(
-      refusal(() => checkBigQueryAgentTableKind(ref, undefined)).code,
-    ).toBe("query_table_not_allowed");
-    expect(() => checkBigQueryAgentTableKind(ref, "TABLE")).not.toThrow();
+      checkBigQueryAgentSql(
+        "SELECT id FROM `builder-3b0a2.dbt_mart.users` FOR SYSTEM_TIME AS OF TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR)",
+        PROJECT,
+      ).tables,
+    ).toEqual([
+      { projectId: PROJECT, datasetId: "dbt_mart", tableId: "users" },
+    ]);
+  });
+
+  it("refuses a bare dashed project name, which needs backticks or @project", () => {
+    expect(() =>
+      checkBigQueryAgentSql(
+        "SELECT id FROM builder-3b0a2.dbt_mart.users",
+        PROJECT,
+      ),
+    ).toThrow(BigQueryAgentSqlRefusal);
   });
 
   describe("dry-run cross-check", () => {

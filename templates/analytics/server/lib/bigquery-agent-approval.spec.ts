@@ -88,7 +88,6 @@ const {
   BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
   OUTSIDE_AGENT_JOB_CAP_BYTES,
   OUTSIDE_AGENT_ORG_LIMIT_BYTES,
-  OUTSIDE_AGENT_PERSON_BASE_BYTES,
   OUTSIDE_AGENT_PERSON_CEILING_BYTES,
   readBigQueryAgentBudget,
 } = await import("./bigquery-agent-budget");
@@ -96,7 +95,6 @@ const {
   allowanceApprovalNotice,
   allowanceBudget,
   needsAllowanceApproval,
-  needsAllowanceApprovalWithin,
   recordReviewedAllowance,
 } = await import("./bigquery-agent-approval");
 const { OutsideAgentBigQueryRefusalError } =
@@ -255,50 +253,6 @@ describe("asking past the no-ask allowance", () => {
       );
     },
   );
-});
-
-describe("asking about a call whose cost is a range until its dry run", () => {
-  const MIN = 10 * 1024 ** 2;
-  const range = { minBytes: MIN, maxBytes: JOB };
-
-  async function decide(exact: () => Promise<number | null>) {
-    const read = must(await allowanceBudget(aliceOverMcp));
-    return needsAllowanceApprovalWithin(read.budget, range, exact);
-  }
-
-  it("asks nothing, and plans nothing, while even the largest call fits the no-ask allowance", async () => {
-    const exact = vi.fn(async () => JOB);
-    expect(await decide(exact)).toBe(false);
-    expect(exact).not.toHaveBeenCalled();
-  });
-
-  it("asks, without planning, when even the smallest call would pass $1", async () => {
-    for (let index = 0; index < 3; index++) await admit(JOB);
-    expect(
-      (await admit(OUTSIDE_AGENT_PERSON_BASE_BYTES - 3 * JOB - 5_000_000))
-        .status,
-    ).toBe("admitted");
-    const exact = vi.fn(async () => MIN);
-    expect(await decide(exact)).toBe(true);
-    expect(exact).not.toHaveBeenCalled();
-  });
-
-  it("plans the call when the answer depends on its size, and asks only past $1", async () => {
-    for (let index = 0; index < 3; index++) await admit(JOB);
-    expect(await decide(async () => JOB)).toBe(true);
-    expect(await decide(async () => 1024 ** 3)).toBe(false);
-  });
-
-  it("asks nothing about a call it could not plan unless even the smallest call needs it", async () => {
-    for (let index = 0; index < 3; index++) await admit(JOB);
-    expect(await decide(async () => null)).toBe(false);
-  });
-
-  it("asks nothing about a call past the $5 ceiling, which no approval lifts", async () => {
-    await approveBigQueryAgentDailyAllowance(alice, "test", NOON);
-    for (let index = 0; index < 17; index++) await admit(JOB);
-    expect(await decide(async () => JOB)).toBe(false);
-  });
 });
 
 describe("recording a review-page approval", () => {

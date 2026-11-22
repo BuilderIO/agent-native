@@ -8,13 +8,17 @@ import type {
   BigQueryAgentQueryResult,
 } from "../server/lib/bigquery-agent-runner.js";
 
+function must<T>(value: T | null | undefined, message = "Expected a value"): T {
+  if (value === null || value === undefined) throw new Error(message);
+  return value;
+}
+
 const mocks = vi.hoisted(() => ({
   run: vi.fn(),
-  plan: vi.fn(),
+  decide: vi.fn(),
   allowanceBudget: vi.fn(),
   askAbout: vi.fn(),
   record: vi.fn(),
-  order: [] as string[],
 }));
 
 vi.mock("@agent-native/core/action", async (importOriginal) => ({
@@ -34,7 +38,7 @@ vi.mock("../server/lib/bigquery-agent-runner.js", async (importOriginal) => ({
     typeof import("../server/lib/bigquery-agent-runner.js")
   >()),
   runBigQueryAgentQuery: mocks.run,
-  planBigQueryAgentQuery: mocks.plan,
+  decideBigQueryAgentQuery: mocks.decide,
 }));
 vi.mock("../server/lib/bigquery-agent-approval.js", async (importOriginal) => ({
   ...(await importOriginal<
@@ -53,6 +57,8 @@ const {
 } = await import("../server/lib/bigquery-agent-budget.js");
 const { BIGQUERY_AGENT_SQL_POLICY_VERSION } =
   await import("../server/lib/bigquery-agent-sql-policy.js");
+const { startBigQueryAgentDeadline } =
+  await import("../server/lib/bigquery-agent-runner.js");
 
 const SQL =
   "SELECT DATE_TRUNC(DATE(created_at), WEEK) AS week, COUNT(*) AS signups FROM `builder-3b0a2.dbt_mart.users` GROUP BY week";
@@ -157,21 +163,16 @@ async function thrown(work: () => Promise<unknown>) {
 beforeEach(() => {
   for (const mock of [
     mocks.run,
-    mocks.plan,
+    mocks.decide,
     mocks.allowanceBudget,
     mocks.askAbout,
     mocks.record,
   ]) {
     mock.mockReset();
   }
-  mocks.order = [];
-  mocks.record.mockImplementation(async () => {
-    mocks.order.push("record");
-  });
-  mocks.run.mockImplementation(async () => {
-    mocks.order.push("run");
-    return completed([{ week: "2026-11-16", signups: 42 }]);
-  });
+  mocks.run.mockImplementation(async () =>
+    completed([{ week: "2026-11-16", signups: 42 }]),
+  );
 });
 
 describe("query-warehouse results", () => {
@@ -279,7 +280,9 @@ describe("query-warehouse failures", () => {
     ["refused", "over_job_cap", 422],
     ["refused", "budget_unavailable", 503],
     ["refused", "estimate_unavailable", 503],
+    ["refused", "query_quota_exceeded", 429],
     ["failed", "query_bytes_cap_exceeded", 422],
+    ["failed", "query_row_too_large", 422],
     ["failed", "query_quota_exceeded", 429],
     ["failed", "query_failed", 502],
     ["failed", "execution_record_unavailable", 503],
@@ -309,22 +312,22 @@ describe("query-warehouse failures", () => {
 });
 
 describe("query-warehouse callers", () => {
-  it("asks through itself over MCP, and records a review-page approval before it runs", async () => {
+  it("asks through itself over MCP, and records a review-page approval only once its checks pass", async () => {
     await runWith({});
-    expect(mocks.run).toHaveBeenCalledWith(
-      expect.objectContaining<Partial<BigQueryAgentQueryInput>>({
-        sql: SQL,
-        source: "query-warehouse",
-        caller: "mcp",
-        askVia: "query-warehouse",
-        estimateOnly: false,
-      }),
-    );
+    const input = mocks.run.mock.calls[0]?.[0] as BigQueryAgentQueryInput;
+    expect(input).toMatchObject<Partial<BigQueryAgentQueryInput>>({
+      sql: SQL,
+      source: "query-warehouse",
+      caller: "mcp",
+      askVia: "query-warehouse",
+      estimateOnly: false,
+    });
+    expect(mocks.record).not.toHaveBeenCalled();
+    await must(input.beforeAdmission)();
     expect(mocks.record).toHaveBeenCalledWith({
       ownerEmail: "alice@example.com",
       orgId: "org-1",
     });
-    expect(mocks.order).toEqual(["record", "run"]);
   });
 
   it("over A2A, where nothing can ask, runs without an ask route", async () => {
@@ -354,85 +357,124 @@ describe("query-warehouse callers", () => {
       message: "Nothing ran.",
     } satisfies BigQueryAgentQueryResult);
     await runWith({ dryRun: true });
-    expect(mocks.record).not.toHaveBeenCalled();
+    expect(mocks.run.mock.calls[0]?.[0]).not.toHaveProperty("beforeAdmission");
   });
 });
 
 describe("query-warehouse asks once past $1", () => {
-  const ask = (args: Record<string, unknown>) =>
-    action.mcpNeedsApproval(
-      action.schema.parse({ sql: SQL, ...args }),
-      MCP as ActionRunContext,
-    );
+  let sql = SQL;
+  let sequence = 0;
+  beforeEach(() => {
+    sequence++;
+    sql = `${SQL} -- call ${sequence}`;
+  });
+  // raw-sql-ok: a fixed test SELECT with a per-test comment suffix, passed to mocked runner calls only.
+  const args = (extra: Record<string, unknown> = {}) =>
+    action.schema.parse({ sql, ...extra });
+  const ask = (extra: Record<string, unknown> = {}) =>
+    action.mcpNeedsApproval(args(extra), MCP as ActionRunContext);
+  const notice = () =>
+    action.approvalNotice(args(), {
+      ...MCP,
+      actionName: "query-warehouse",
+      askedAt: Date.now(),
+    } as never);
+  const decision = (extra: Record<string, unknown>) => ({
+    deadline: startBigQueryAgentDeadline(),
+    identity: { ownerEmail: "alice@example.com", orgId: "org-1" },
+    ...extra,
+  });
 
   it("never asks about a dry run", async () => {
     expect(await ask({ dryRun: true })).toBe(false);
-    expect(mocks.allowanceBudget).not.toHaveBeenCalled();
+    expect(mocks.decide).not.toHaveBeenCalled();
   });
 
-  it("asks nothing, and plans nothing, early in the day", async () => {
-    mocks.allowanceBudget.mockResolvedValue({ budget: budgetWith(0) });
-    expect(await ask({})).toBe(false);
-    expect(mocks.plan).not.toHaveBeenCalled();
-  });
-
-  it("asks when this query's planned reservation would pass the $1 allowance", async () => {
-    mocks.allowanceBudget.mockResolvedValue({
-      budget: budgetWith(OUTSIDE_AGENT_PERSON_BASE_BYTES - 5 * GIB),
-    });
-    mocks.plan.mockResolvedValue({
-      status: "planned",
-      estimatedBytes: 30 * GIB,
-      reservedBytes: 33 * GIB,
-    });
-    expect(await ask({})).toBe(true);
-    expect(mocks.plan).toHaveBeenCalledWith(
-      SQL,
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  it("asks exactly when the decision says this call needs the person's approval", async () => {
+    mocks.decide.mockResolvedValue(
+      decision({ status: "admitted", needsApproval: false }),
     );
-
-    mocks.plan.mockResolvedValue({
-      status: "planned",
-      estimatedBytes: GIB,
-      reservedBytes: 1.1 * GIB,
-    });
-    expect(await ask({})).toBe(false);
+    expect(await ask()).toBe(false);
+    mocks.decide.mockResolvedValue(
+      decision({ status: "ask", needsApproval: true, reservedBytes: 33 * GIB }),
+    );
+    expect(await ask()).toBe(true);
+    // raw-sql-ok: a fixed test SELECT with a per-test comment suffix, passed to mocked runner calls only.
+    expect(mocks.decide).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sql,
+        source: "query-warehouse",
+        caller: "mcp",
+        askVia: "query-warehouse",
+        deadline: expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      }),
+    );
   });
 
-  it("asks nothing about a query its own checks will refuse", async () => {
-    mocks.allowanceBudget.mockResolvedValue({
-      budget: budgetWith(OUTSIDE_AGENT_PERSON_BASE_BYTES - 5 * GIB),
-    });
-    mocks.plan.mockResolvedValue({
-      status: "refused",
-      code: "query_table_not_allowed",
-      message: "outside the allowlist",
-    });
-    expect(await ask({})).toBe(false);
+  it("never asks when deciding fails, because a throw would ask", async () => {
+    mocks.decide.mockRejectedValue(new Error("connection reset"));
+    expect(await ask()).toBe(false);
   });
 
-  it("asks nothing when the budget can't be read, so the run refuses on its own", async () => {
-    mocks.allowanceBudget.mockResolvedValue(null);
-    expect(await ask({})).toBe(false);
+  it("hands the run the plan, reservation and deadline its approval decision made", async () => {
+    const decided = decision({ status: "admitted", needsApproval: false });
+    mocks.decide.mockResolvedValue(decided);
+    expect(await ask()).toBe(false);
+    // raw-sql-ok: a fixed test SELECT with a per-test comment suffix, passed to mocked runner calls only.
+    await runWith({ sql });
+    expect(mocks.run).toHaveBeenCalledWith(
+      expect.objectContaining({ decided }),
+    );
+    // raw-sql-ok: a fixed test SELECT with a per-test comment suffix, passed to mocked runner calls only.
+    await runWith({ sql });
+    expect(mocks.run.mock.calls[1]?.[0]).not.toHaveProperty("decided");
   });
 
-  it("states what this query can bill in the question", async () => {
+  it("states what this query can bill in the question from the plan it decided on, without planning again", async () => {
+    mocks.decide.mockResolvedValue(
+      decision({ status: "ask", needsApproval: true, reservedBytes: 33 * GIB }),
+    );
     mocks.askAbout.mockResolvedValue(
       budgetWith(OUTSIDE_AGENT_PERSON_BASE_BYTES - 5 * GIB),
     );
-    mocks.plan.mockResolvedValue({
-      status: "planned",
-      estimatedBytes: 30 * GIB,
-      reservedBytes: 33 * GIB,
-    });
-    const notice = await action.approvalNotice(
-      action.schema.parse({ sql: SQL }),
-      { ...MCP, actionName: "query-warehouse", askedAt: Date.now() } as never,
-    );
-    expect(notice).toMatch(/^Allow up to \$5\.00 of BigQuery today\?/);
-    expect(notice).toContain("this call can bill up to $0.21");
+    expect(await ask()).toBe(true);
+    const text = await notice();
+    expect(text).toMatch(/^Allow up to \$5\.00 of BigQuery today\?/);
+    expect(text).toContain("this call can bill up to $0.21");
+    expect(mocks.decide).toHaveBeenCalledTimes(1);
     const [, askBytes, runsOnBigQuery] = mocks.askAbout.mock.calls[0] ?? [];
     expect(askBytes).toBe(33 * GIB);
     expect(await (runsOnBigQuery as () => Promise<boolean>)()).toBe(true);
+  });
+
+  it("refuses with the query's own code, and asks nothing, when the SQL was refused", async () => {
+    mocks.decide.mockResolvedValue(
+      decision({
+        status: "refused",
+        needsApproval: false,
+        code: "query_statement_not_allowed",
+        message: "Outside agents can run exactly one read-only SELECT.",
+      }),
+    );
+    expect(await ask()).toBe(false);
+    const error = await thrown(notice);
+    expect(error).toMatchObject({
+      errorCode: "query_statement_not_allowed",
+      statusCode: 422,
+    });
+    expect(mocks.askAbout).not.toHaveBeenCalled();
+  });
+});
+
+describe("query-warehouse description", () => {
+  it("describes the daily limits as defaults an admin can change, and points to the effective ones", () => {
+    expect(action.description).toMatch(/by default/);
+    expect(action.description).toMatch(/admin can change/);
+    expect(action.description).toMatch(/bigQueryBudget\.today/);
+  });
+
+  it("says a dashed project name needs backticks or @project", () => {
+    expect(action.description).toMatch(/backticks/);
+    expect(action.description).toContain("@project");
   });
 });

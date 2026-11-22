@@ -7,7 +7,7 @@ import {
   type AgentSqlToken,
 } from "@agent-native/core/agent-sql";
 
-export const BIGQUERY_AGENT_SQL_POLICY_VERSION = "2026-11-22.1";
+export const BIGQUERY_AGENT_SQL_POLICY_VERSION = "2026-11-22.2";
 
 export const BIGQUERY_AGENT_DATASET_ALLOWLIST: Readonly<
   Partial<Record<string, readonly string[]>>
@@ -42,6 +42,8 @@ const DENIED_FUNCTIONS = new Set([
   "changes",
   "vector_search",
 ]);
+
+const DENIED_NAMESPACES = new Set(["obj", "keys", "aead"]);
 
 const DENIED_WORDS = new Set(["information_schema", "_table_suffix"]);
 
@@ -177,6 +179,9 @@ function denyFeatures(tokens: readonly AgentSqlToken[]): void {
     if (namespace === "ml" || namespace === "ai") {
       feature(`${namespace.toUpperCase()}.* functions are not allowed.`);
     }
+    if (DENIED_NAMESPACES.has(namespace)) {
+      feature("OBJ.*, KEYS.* and AEAD.* functions are not allowed.");
+    }
     if (qualifiers.length > 1 || !BUILTIN_FUNCTION_NAMESPACES.has(namespace)) {
       feature(
         "Persistent, remote, and other user-defined functions are not allowed.",
@@ -242,12 +247,31 @@ export function checkBigQueryAgentSql(
   return { sql: resolved, tables: [...tables.values()] };
 }
 
+export interface BigQueryAgentTableResource {
+  type?: string;
+  externalDataConfiguration?: unknown;
+  biglakeConfiguration?: unknown;
+  cloneDefinition?: unknown;
+  snapshotDefinition?: unknown;
+}
+
 export function checkBigQueryAgentTableKind(
   ref: BigQueryAgentTableRef,
-  type: string | undefined,
+  resource: BigQueryAgentTableResource,
 ): void {
-  if (type === "TABLE" || type === "SNAPSHOT") return;
   const name = bigQueryTableKey(ref);
+  const { type } = resource;
+  if (resource.biglakeConfiguration !== undefined) {
+    feature(
+      `\`${name}\` is a BigLake table whose data lives outside BigQuery storage, which is not allowed.`,
+    );
+  }
+  if (resource.externalDataConfiguration !== undefined) {
+    feature(
+      `\`${name}\` reads data stored outside BigQuery (an external table), which is not allowed.`,
+    );
+  }
+  if (type === "TABLE" || type === "SNAPSHOT") return;
   if (
     (type === "VIEW" || type === "MATERIALIZED_VIEW") &&
     BIGQUERY_AGENT_REVIEWED_VIEWS.has(name)

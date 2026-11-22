@@ -219,7 +219,10 @@ describe("a bounded job's one resend", () => {
     ],
   ];
 
-  function stubAmbiguousSubmit(resend: () => Response = accepted) {
+  function stubAmbiguousSubmit(
+    resend: () => Response = accepted,
+    onFirstSend: () => void = () => undefined,
+  ) {
     const sent: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -227,7 +230,10 @@ describe("a bounded job's one resend", () => {
         const url = new URL(String(input));
         if (init?.method === "POST" && url.pathname.endsWith("/jobs")) {
           sent.push(JSON.parse(String(init.body)).jobReference.jobId);
-          if (sent.length === 1) throw new TypeError("fetch failed");
+          if (sent.length === 1) {
+            onFirstSend();
+            throw new TypeError("fetch failed");
+          }
           return resend();
         }
         if (url.pathname.endsWith(`/jobs/${TARGET}`)) {
@@ -269,12 +275,28 @@ describe("a bounded job's one resend", () => {
   });
 
   it("does not resend once its admission has lapsed", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const sent = stubAmbiguousSubmit(accepted, () =>
+        vi.setSystemTime(Date.now() + 120_000),
+      );
+      expect(await run(Date.now() + 60_000)).toMatchObject({
+        status: "uncertain",
+        reason: "submission_unknown",
+      });
+      expect(sent).toEqual([TARGET]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("makes no first send once its admission has lapsed", async () => {
     const sent = stubAmbiguousSubmit();
-    expect(await run(Date.now() - 1)).toMatchObject({
-      status: "uncertain",
-      reason: "submission_unknown",
+    expect(await run(Date.now() - 1)).toEqual({
+      status: "not_submitted",
+      reason: "admission_lapsed",
     });
-    expect(sent).toEqual([TARGET]);
+    expect(sent).toEqual([]);
   });
 
   it.each(refusals)(

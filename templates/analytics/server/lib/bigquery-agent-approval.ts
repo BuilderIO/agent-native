@@ -31,20 +31,6 @@ export function needsAllowanceApproval(
   return budgetRefusalFor(budget, bytes)?.code === "approval_required";
 }
 
-export async function needsAllowanceApprovalWithin(
-  budget: BigQueryAgentBudgetSnapshot,
-  range: { minBytes: number; maxBytes: number },
-  exactBytes: () => Promise<number | null>,
-): Promise<boolean> {
-  const smallest = budgetRefusalFor(budget, range.minBytes)?.code ?? null;
-  const largest = budgetRefusalFor(budget, range.maxBytes)?.code ?? null;
-  if (smallest === largest) return smallest === "approval_required";
-  const bytes = await exactBytes();
-  return bytes === null
-    ? smallest === "approval_required"
-    : needsAllowanceApproval(budget, bytes);
-}
-
 export async function firstPartyQueriesRunOnBigQuery(
   identity: OutsideAgentIdentity,
 ): Promise<boolean> {

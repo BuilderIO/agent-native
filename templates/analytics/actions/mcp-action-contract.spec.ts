@@ -10,6 +10,7 @@ import {
 import { generateActionRegistryForProject } from "@agent-native/core/vite";
 import { describe, expect, it } from "vitest";
 
+import { filterDirectA2AActions } from "../../../packages/core/src/server/agent-chat/action-filters-a2a.js";
 import { ANALYTICS_MCP } from "../server/lib/analytics-mcp";
 
 const projectRoot = path.resolve(
@@ -354,6 +355,30 @@ describe("Analytics MCP tools/list", () => {
     for (const name of [...VETOED, "estimate-query-cost"]) {
       expect(served, name).not.toContain(name);
     }
+  }, 60_000);
+
+  it("serves the warehouse tools over MCP only, never as direct A2A actions, because sibling apps ask Analytics in words", async () => {
+    const registry = loadActionsFromStaticRegistry(actionsRegistry);
+    const direct = Object.keys(
+      filterDirectA2AActions(registry, {
+        connectorCatalog: [...DIRECT_MCP_READS, ...ANALYTICS_MCP.keyToolNames],
+        externalAgents: { authenticatedReads: "auto" },
+      }),
+    );
+    expect(direct).toContain("get-onboarding-journey");
+    expect(direct).not.toContain("query-warehouse");
+    expect(direct).not.toContain("search-warehouse-schema");
+    expect(
+      ["query-warehouse", "search-warehouse-schema"].map(
+        (name) => actions[name].publicAgent?.expose,
+      ),
+    ).toEqual([false, false]);
+    expect(actions["query-warehouse"].publicAgent?.allowRawQueryInput).toBe(
+      true,
+    );
+    const served = await listAppTools(["mcp:read"]);
+    expect(served).toContain("query-warehouse");
+    expect(served).toContain("search-warehouse-schema");
   }, 60_000);
 
   it("serves the bounded query tool to a read token and keeps every other raw-SQL read off", async () => {
