@@ -186,6 +186,24 @@ describe("formatting source ranges", () => {
     expect(suggestionFormattingSourceSlice(source, from, from + 2)).toBeNull();
   });
 
+  it("slices a tilde fence whose language holds a backtick", () => {
+    // Only a tilde fence can carry such a language, so the page writes one.
+    const source = docToNfm(
+      nfmToDoc(L("Before", "~~~a`b", "code line", "~~~", "After")),
+    );
+    const from = source.indexOf("~~~");
+    const to = source.indexOf("After");
+    expect(source.slice(from, to)).toBe(L("~~~a`b", "code line", "~~~", ""));
+    expect(suggestionFormattingSourceSlice(source, from, to)).toEqual([
+      { type: "block", text: "~~~a`b" },
+      { type: "break", text: "↵" },
+      { type: "text", text: "code line", marks: [] },
+      { type: "break", text: "↵" },
+      { type: "block", text: "~~~" },
+      { type: "break", text: "↵" },
+    ]);
+  });
+
   it("slices and maps a span that ends in empty paragraphs", () => {
     const source = "Alpha. More.\n<empty-block/>\n<empty-block/>\nBravo.";
     const from = "Alpha.".length;

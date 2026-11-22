@@ -682,9 +682,10 @@ const EMPTY_BLOCK = "<empty-block/>";
 // The syntax that opens a line's block: a heading, list item, task, or quote.
 const BLOCK_MARKER = /^(?:#{1,6} |(?:> )+|[-*+] (?:\[[ xX]\] )?|\d+[.)] )/;
 // A line that is all syntax: a divider, or a code block's opening or closing
-// fence with its language.
+// fence with its language. Only a backtick fence's language can't hold a
+// backtick, which is why a language with one is written after a tilde fence.
 const WHOLE_LINE_BLOCK =
-  /^(?:(?:-{3,}|\*{3,}|_{3,})[ \t]*|(?:`{3,}|~{3,})[^\r\n`]*)(?=\r\n|\r|\n|$)/;
+  /^(?:(?:-{3,}|\*{3,}|_{3,})[ \t]*|`{3,}[^\r\n`]*|~{3,}[^\r\n]*)(?=\r\n|\r|\n|$)/;
 
 // `blocks` admits block syntax and empty paragraphs. Without it a gap holds
 // only line breaks and indentation, which is what places a zero-width
