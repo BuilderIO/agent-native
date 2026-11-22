@@ -937,6 +937,8 @@ const editor = {
     addOption: "إضافة خيار",
     addProperty: "أضف خاصية",
     addPropertyFailed: "تعذرت إضافة الخاصية.",
+    addPropertyTypeUnsupported:
+      "لا يمكن لهذه المجموعة أن تضم خصائص من نوع {{type}}.",
     addPropertyLink: "أضف رابط {{name}}",
     addPropertyPerson: "إضافة شخص {{name}}",
     addPropertyType: "إضافة خاصية {{type}}",

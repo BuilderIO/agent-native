@@ -4657,7 +4657,16 @@ function AddPropertyPicker({
       setRelationDatabaseQuery("");
       setOpen(false);
     } catch (error) {
-      setAddPropertyError(error instanceof Error ? error.message : "");
+      setAddPropertyError(
+        (error as { errorCode?: unknown } | null)?.errorCode ===
+          "SYSTEM_DATABASE_UNSUPPORTED"
+          ? t("editor.properties.addPropertyTypeUnsupported", {
+              type: t(`editor.propertyTypes.${type}`),
+            })
+          : error instanceof Error
+            ? error.message
+            : "",
+      );
     } finally {
       setPendingPropertyType(null);
     }

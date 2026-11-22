@@ -301,4 +301,26 @@ describe("Add Property picker", () => {
     expect(queryByLabel(addTypeLabel("number"))).not.toBeNull();
     expect(queryByLabel(addTypeLabel("select"))).toBeNull();
   });
+
+  it("shows a translated refusal when the collection refuses the type", async () => {
+    mutations.configure.mutateAsync.mockRejectedValue(
+      Object.assign(new Error("Files can't take a text property."), {
+        errorCode: "SYSTEM_DATABASE_UNSUPPORTED",
+      }),
+    );
+    renderUi(
+      <AddProperty
+        documentId="document"
+        databaseId="database"
+        propertyTypes={["text"]}
+      />,
+    );
+    await openPicker();
+
+    await click(byLabel(addTypeLabel("text")));
+
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+      "editor.properties.addPropertyFailed editor.properties.addPropertyTypeUnsupported(editor.propertyTypes.text)",
+    );
+  });
 });

@@ -956,6 +956,8 @@ const editor = {
     addOption: "옵션 추가",
     addProperty: "속성 추가",
     addPropertyFailed: "속성을 추가하지 못했습니다.",
+    addPropertyTypeUnsupported:
+      "이 컬렉션에는 {{type}} 속성을 추가할 수 없습니다.",
     addPropertyLink: "{{name}} 링크 추가",
     addPropertyPerson: "{{name}} 사람 추가",
     addPropertyType: "{{type}} 속성 추가",
