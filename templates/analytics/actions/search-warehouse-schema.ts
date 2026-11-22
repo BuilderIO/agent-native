@@ -16,7 +16,7 @@ import {
 } from "../server/lib/bigquery.js";
 
 const TABLES_PER_DATASET = 1_000;
-const COLUMN_READS_PER_CALL = 40;
+const METADATA_READS_PER_CALL = 40;
 const MAX_COLUMNS = 300;
 const DEADLINE_MS = 15_000;
 const DEFAULT_LIMIT = 20;
@@ -247,7 +247,7 @@ function termsIn(text: string | undefined, terms: string[]): number {
 
 export default defineAction({
   description:
-    "Find tables and columns that query-warehouse can read: Analytics' reviewed BigQuery datasets only, never the rest of the warehouse. With search, ranks tables whose dataset, table, column names or descriptions contain the words; with dataset, limits the search to that dataset; with table (dataset.table or project.dataset.table), returns that table's columns and whether query-warehouse can query it (unreviewed views, external and BigLake tables cannot; queryable is null when the table's metadata could not be read). Bounded: each dataset lists up to 1,000 tables and one call reads at most 40 tables' columns; complete: false, incompleteReasons, errors and columnSearch say what was not searched, so narrow with dataset rather than treating a miss as absence. Reads metadata only; nothing is billed.",
+    "Find tables and columns that query-warehouse can read: Analytics' reviewed BigQuery datasets only, never the rest of the warehouse. With search, ranks tables whose dataset, table, column names or descriptions contain the words; with dataset, limits the search to that dataset; with table (dataset.table or project.dataset.table), returns that table's columns and whether query-warehouse can query it (unreviewed views, external and BigLake tables cannot; queryable is null when the table's metadata could not be read). Bounded: each dataset lists up to 1,000 tables and one call reads at most 40 tables' metadata, for columns and queryable alike (queryable is null for a returned table past that); complete: false, incompleteReasons, errors and columnSearch say what was not searched, so narrow with dataset rather than treating a miss as absence. Reads metadata only; nothing is billed.",
   schema: z.object({
     search: z
       .string()
@@ -343,8 +343,11 @@ export default defineAction({
       descriptionMatch: false,
     }));
 
+    let metadataReads = 0;
     const readMetadata = async (candidate: Candidate) => {
       if (candidate.meta !== undefined) return candidate.meta;
+      if (metadataReads >= METADATA_READS_PER_CALL) return undefined;
+      metadataReads++;
       try {
         candidate.meta = await getBigQueryTableMetadata(
           {
@@ -372,8 +375,14 @@ export default defineAction({
     let columnSearch: { tablesRead: number; tablesListed: number } | undefined;
     if (terms.length) {
       const toRead = [...candidates]
-        .sort((a, b) => b.nameScore - a.nameScore)
-        .slice(0, COLUMN_READS_PER_CALL);
+        .sort(
+          (a, b) =>
+            b.nameScore - a.nameScore ||
+            `${a.datasetId}.${a.tableId}`.localeCompare(
+              `${b.datasetId}.${b.tableId}`,
+            ),
+        )
+        .slice(0, METADATA_READS_PER_CALL);
       let tablesRead = 0;
       await Promise.all(
         toRead.map(async (candidate) => {
@@ -413,6 +422,14 @@ export default defineAction({
     const limit = args.limit ?? DEFAULT_LIMIT;
     const returned = matches.slice(0, limit);
     await Promise.all(returned.map(readMetadata));
+    const unchecked = returned.filter(
+      (candidate) => candidate.meta === undefined,
+    ).length;
+    if (unchecked) {
+      incompleteReasons.push(
+        `${unchecked} returned table${unchecked === 1 ? " was" : "s were"} not checked: one call reads at most ${METADATA_READS_PER_CALL} tables' metadata, so their queryable is null. Describe one with table, or narrow with dataset or search.`,
+      );
+    }
     if (failures.length) {
       incompleteReasons.push(
         `${failures.length} dataset or table read${failures.length === 1 ? "" : "s"} failed; see errors.`,
@@ -428,12 +445,17 @@ export default defineAction({
         datasetId: candidate.datasetId,
         tableId: candidate.tableId,
         type: candidate.type ?? null,
-        ...queryable(
-          projectId,
-          candidate.datasetId,
-          candidate.tableId,
-          candidate.meta ?? null,
-        ),
+        ...(candidate.meta === undefined
+          ? {
+              queryable: null,
+              notQueryableReason: `Not checked: one call reads at most ${METADATA_READS_PER_CALL} tables' metadata. Describe it with table to check.`,
+            }
+          : queryable(
+              projectId,
+              candidate.datasetId,
+              candidate.tableId,
+              candidate.meta,
+            )),
         ...(candidate.description
           ? { description: candidate.description.slice(0, 500) }
           : {}),

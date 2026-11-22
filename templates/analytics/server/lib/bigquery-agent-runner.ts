@@ -81,6 +81,8 @@ const LEASE_MARGIN_MS = 60_000;
 const JOB_LABELS = { agent_native_workload: "outside-agent-query" };
 const NOT_SENT =
   "The query's job was not sent: its deadline or budget reservation ran out first, so nothing ran and nothing was charged. Ask again.";
+const DAY_CHANGED =
+  "The query's job was not sent: the UTC day ended after its budget was reserved under that day's allowance, so nothing ran and nothing was charged. Ask again to run it under today's budget.";
 
 export type BigQueryAgentQueryCode =
   | OutsideAgentBigQueryRefusalCode
@@ -213,6 +215,13 @@ function withCallerSignal(
 
 function remainingMs(deadline: BigQueryAgentDeadline): number {
   return Math.floor(deadline.endsAtMs - performance.now());
+}
+
+export function withinBigQueryAgentDeadline<T>(
+  work: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  return bounded(work, signal);
 }
 
 function bounded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -869,7 +878,7 @@ export async function runBigQueryAgentQuery(
   } else {
     if (input.beforeAdmission) {
       try {
-        await bounded(input.beforeAdmission(), deadline.wrapUp);
+        await bounded(input.beforeAdmission(), deadline.signal);
       } catch (error) {
         const refusal = admissionRefusal(error, deadline);
         return refused(refusal.code, refusal.message);
@@ -937,6 +946,7 @@ export async function runBigQueryAgentQuery(
       maxRows: input.maxRows ?? BIGQUERY_AGENT_MAX_ROWS,
       maxResultBytes: input.maxResultBytes ?? BIGQUERY_AGENT_MAX_RESULT_BYTES,
       submitBy: admission.submitBy,
+      admittedOnUtcDay: admission.utcDay,
       labels: JOB_LABELS,
     });
   } catch {
@@ -970,7 +980,9 @@ export async function runBigQueryAgentQuery(
 
   if (outcome.status === "not_submitted") {
     await release();
-    return refused("query_timeout", NOT_SENT);
+    return outcome.reason === "day_changed"
+      ? refused("admission_expired", DAY_CHANGED)
+      : refused("query_timeout", NOT_SENT);
   }
   if (outcome.status === "rejected") {
     await release();

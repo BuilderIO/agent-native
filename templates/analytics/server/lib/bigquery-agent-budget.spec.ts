@@ -590,6 +590,94 @@ describe("reconciler", () => {
   });
 });
 
+describe("reconciliation of an abandoned call's execution record", () => {
+  const found = (billedBytes: number): Reconciler => ({
+    credentialScope: "default",
+    credentialFingerprint: PRINCIPAL,
+    async observe() {
+      return {
+        kind: "found",
+        state: "DONE",
+        billedBytes,
+        cacheHit: false,
+        statementType: "SELECT",
+        errorReason: null,
+        location: "US",
+      };
+    },
+  });
+
+  async function execution(id: string, jobId: string, status: string) {
+    await must(database.client).query(
+      `INSERT INTO analytics_bigquery_agent_executions (id, owner_email, org_id, caller, source, policy_version,
+         query_hash, project_id, job_id, status, code, truncated, cancelled, started_at, duration_ms)
+       VALUES ($1, 'alice@example.com', 'org-1', 'mcp', 'query-warehouse', 'test', 'hash', 'builder-3b0a2',
+         $2, $3, NULL, false, false, $4, 0)`,
+      [id, jobId, status, NOON.toISOString()],
+    );
+  }
+
+  async function executionOf(id: string) {
+    const { rows } = await must(database.client).query(
+      "SELECT status, code, billed_bytes::text AS billed FROM analytics_bigquery_agent_executions WHERE id = $1",
+      [id],
+    );
+    return rows[0];
+  }
+
+  it("finalizes a record left at submitting when it settles that job's reservation", async () => {
+    await admit(alice, JOB, NOON);
+    await execution("exec-1", "job_1", "submitting");
+    const later = new Date(NOON.getTime() + 120_000);
+    expect(
+      await reconcileStaleBigQueryAgentJobs(alice, found(3 * 1024 ** 3), later),
+    ).toBe(1);
+    expect(await executionOf("exec-1")).toEqual({
+      status: "abandoned",
+      code: "billed",
+      billed: String(3 * 1024 ** 3),
+    });
+  });
+
+  it("finalizes it as abandoned when the job never existed", async () => {
+    await admit(alice, JOB, NOON);
+    await execution("exec-1", "job_1", "submitting");
+    const absent: Reconciler = {
+      credentialScope: "default",
+      credentialFingerprint: PRINCIPAL,
+      async observe() {
+        return { kind: "absent" };
+      },
+    };
+    await reconcileStaleBigQueryAgentJobs(
+      alice,
+      absent,
+      new Date(NOON.getTime() + 120_000),
+    );
+    expect(await row("job_1")).toMatchObject({ state: "released" });
+    expect(await executionOf("exec-1")).toEqual({
+      status: "abandoned",
+      code: "not_found",
+      billed: null,
+    });
+  });
+
+  it("leaves a record the call itself finished alone", async () => {
+    await admit(alice, JOB, NOON);
+    await execution("exec-1", "job_1", "uncertain");
+    await reconcileStaleBigQueryAgentJobs(
+      alice,
+      found(3 * 1024 ** 3),
+      new Date(NOON.getTime() + 120_000),
+    );
+    expect(await executionOf("exec-1")).toEqual({
+      status: "uncertain",
+      code: null,
+      billed: null,
+    });
+  });
+});
+
 describe("settlement of finished jobs", () => {
   function finished(
     errorReason: string | null,

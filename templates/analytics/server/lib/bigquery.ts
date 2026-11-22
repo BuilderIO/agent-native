@@ -1588,9 +1588,10 @@ function exactCell(value: string, upper: string): number | string {
   }
   if (!DECIMAL_TEXT.test(value)) return value;
   const n = Number(value);
-  return Number.isFinite(n) && String(n) === canonicalDecimal(value)
-    ? n
-    : value;
+  if (!Number.isFinite(n) || String(n) !== canonicalDecimal(value)) {
+    return value;
+  }
+  return Number.isInteger(n) && !Number.isSafeInteger(n) ? value : n;
 }
 
 function coerceCell(value: unknown, type: string, exact = false): unknown {
@@ -2582,7 +2583,10 @@ export type BoundedBigQueryJobOutcome =
       providerCacheHit: boolean | null;
       bytesProcessed: number | null;
     }
-  | { status: "not_submitted"; reason: "deadline" | "admission_lapsed" }
+  | {
+      status: "not_submitted";
+      reason: "deadline" | "admission_lapsed" | "day_changed";
+    }
   | {
       status: "rejected";
       code: BoundedBigQueryJobFailureCode;
@@ -2647,6 +2651,7 @@ export async function runBoundedBigQueryJob(input: {
   maxRows: number;
   maxResultBytes: number;
   submitBy: number;
+  admittedOnUtcDay: string;
   labels?: Record<string, string>;
 }): Promise<BoundedBigQueryJobOutcome> {
   const { projectId, jobId, token, signal } = input;
@@ -2733,14 +2738,20 @@ export async function runBoundedBigQueryJob(input: {
     );
 
   for (let attempt = 0; ; attempt++) {
+    const onlySend = attempt === 0;
     if (signal.aborted) {
-      return attempt === 0
+      return onlySend
         ? { status: "not_submitted", reason: "deadline" }
         : uncertain("timeout");
     }
     if (admissionLapsed(input)) {
-      return attempt === 0
+      return onlySend
         ? { status: "not_submitted", reason: "admission_lapsed" }
+        : uncertain("submission_unknown");
+    }
+    if (new Date().toISOString().slice(0, 10) !== input.admittedOnUtcDay) {
+      return onlySend
+        ? { status: "not_submitted", reason: "day_changed" }
         : uncertain("submission_unknown");
     }
     let res: Response;
@@ -2753,7 +2764,7 @@ export async function runBoundedBigQueryJob(input: {
       if (!(error instanceof Error)) throw error;
       const found = await lookUp();
       if (found.kind === "found") break;
-      if (found.kind === "not_found" && attempt === 0) continue;
+      if (found.kind === "not_found" && onlySend) continue;
       return uncertain("submission_unknown");
     }
     if (res.ok) {
@@ -2781,7 +2792,7 @@ export async function runBoundedBigQueryJob(input: {
       bigQueryProviderDetailFromResponse(text) ??
       `BigQuery refused the job (${res.status}).`;
     if (
-      attempt === 0 &&
+      onlySend &&
       (isMaximumBytesBilledError(res.status, text) ||
         isDefiniteJobSubmissionRejection(res.status, text))
     ) {
@@ -2797,6 +2808,7 @@ export async function runBoundedBigQueryJob(input: {
     const found = await lookUp();
     if (found.kind === "found") break;
     if (
+      onlySend &&
       found.kind === "not_found" &&
       QUOTA_REASONS.has(rawBigQueryReason(text) ?? "")
     ) {
@@ -2905,10 +2917,19 @@ export async function runBoundedBigQueryJob(input: {
       );
     }
     let seen = data.rows?.length ?? 0;
+    if (seen > total) return incomplete(total, seen);
     truncation = keep(data.rows);
     let pageToken = data.pageToken;
+    const consumed = new Set<string>();
     while (truncation === null && seen < total) {
       if (!pageToken) return incomplete(total, seen);
+      if (consumed.has(pageToken)) {
+        return failed(
+          "query_failed",
+          `BigQuery repeated a result page for job ${jobId} before its ${total} rows were read, so no rows are returned. Ask again.`,
+        );
+      }
+      consumed.add(pageToken);
       if (signal.aborted) return uncertain("timeout");
       const res = await fetch(pageUrl(pageToken), { signal, headers });
       const text = await untilAborted(res.text(), signal);
@@ -2922,9 +2943,19 @@ export async function runBoundedBigQueryJob(input: {
           `BigQuery job ${jobId} finished, but a page of its results could not be read (${message}), so no rows are returned.`,
         );
       }
+      if (
+        page.totalRows !== undefined &&
+        exactByteCount(page.totalRows) !== total
+      ) {
+        return failed(
+          "query_failed",
+          `BigQuery reported different row counts for job ${jobId} across its result pages, so no rows are returned. Ask again.`,
+        );
+      }
       const count = page.rows?.length ?? 0;
       if (count === 0) return incomplete(total, seen);
       seen += count;
+      if (seen > total) return incomplete(total, seen);
       truncation = keep(page.rows);
       pageToken = page.pageToken;
     }

@@ -16,6 +16,7 @@ function must<T>(value: T | null | undefined, message = "Expected a value"): T {
 const mocks = vi.hoisted(() => ({
   run: vi.fn(),
   decide: vi.fn(),
+  release: vi.fn(),
   allowanceBudget: vi.fn(),
   askAbout: vi.fn(),
   record: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("../server/lib/bigquery-agent-runner.js", async (importOriginal) => ({
   >()),
   runBigQueryAgentQuery: mocks.run,
   decideBigQueryAgentQuery: mocks.decide,
+  releaseBigQueryAgentDecision: mocks.release,
 }));
 vi.mock("../server/lib/bigquery-agent-approval.js", async (importOriginal) => ({
   ...(await importOriginal<
@@ -59,6 +61,24 @@ const { BIGQUERY_AGENT_SQL_POLICY_VERSION } =
   await import("../server/lib/bigquery-agent-sql-policy.js");
 const { startBigQueryAgentDeadline } =
   await import("../server/lib/bigquery-agent-runner.js");
+const { runWithRequestContext } = await import("@agent-native/core/server");
+
+function invocation<T>(work: () => Promise<T>): Promise<T> {
+  return Promise.resolve(
+    runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      work,
+    ),
+  );
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 const SQL =
   "SELECT DATE_TRUNC(DATE(created_at), WEEK) AS week, COUNT(*) AS signups FROM `builder-3b0a2.dbt_mart.users` GROUP BY week";
@@ -164,6 +184,7 @@ beforeEach(() => {
   for (const mock of [
     mocks.run,
     mocks.decide,
+    mocks.release,
     mocks.allowanceBudget,
     mocks.askAbout,
     mocks.record,
@@ -419,15 +440,104 @@ describe("query-warehouse asks once past $1", () => {
   it("hands the run the plan, reservation and deadline its approval decision made", async () => {
     const decided = decision({ status: "admitted", needsApproval: false });
     mocks.decide.mockResolvedValue(decided);
-    expect(await ask()).toBe(false);
-    // raw-sql-ok: a fixed test SELECT with a per-test comment suffix, passed to mocked runner calls only.
-    await runWith({ sql });
+    await invocation(async () => {
+      expect(await ask()).toBe(false);
+      // raw-sql-ok: a fixed test SELECT with a per-test comment suffix, passed to mocked runner calls only.
+      await runWith({ sql });
+    });
     expect(mocks.run).toHaveBeenCalledWith(
       expect.objectContaining({ decided }),
     );
     // raw-sql-ok: a fixed test SELECT with a per-test comment suffix, passed to mocked runner calls only.
-    await runWith({ sql });
+    await invocation(() => runWith({ sql }));
     expect(mocks.run.mock.calls[1]?.[0]).not.toHaveProperty("decided");
+    expect(mocks.release).not.toHaveBeenCalled();
+  });
+
+  it("never hands one call's decision to another call with the same SQL", async () => {
+    const decided = decision({ status: "admitted", needsApproval: false });
+    mocks.decide.mockResolvedValue(decided);
+    await invocation(async () => {
+      expect(await ask()).toBe(false);
+    });
+    // raw-sql-ok: a fixed test SELECT with a per-test comment suffix, passed to mocked runner calls only.
+    await invocation(() => runWith({ sql }));
+    expect(mocks.run.mock.calls[0]?.[0]).not.toHaveProperty("decided");
+  });
+
+  it("keeps two overlapping identical calls on their own decisions when one asks while the other has yet to run", async () => {
+    const admitted = decision({ status: "admitted", needsApproval: false });
+    const asked = decision({
+      status: "ask",
+      needsApproval: true,
+      reservedBytes: 33 * GIB,
+    });
+    mocks.decide.mockResolvedValueOnce(admitted).mockResolvedValueOnce(asked);
+    mocks.askAbout.mockResolvedValue(
+      budgetWith(OUTSIDE_AGENT_PERSON_BASE_BYTES - 5 * GIB),
+    );
+    const firstDecided = deferred();
+    const secondNoticed = deferred();
+    const first = invocation(async () => {
+      expect(await ask()).toBe(false);
+      firstDecided.resolve();
+      await secondNoticed.promise;
+      // raw-sql-ok: a fixed test SELECT with a per-test comment suffix, passed to mocked runner calls only.
+      await runWith({ sql });
+    });
+    const second = invocation(async () => {
+      await firstDecided.promise;
+      expect(await ask()).toBe(true);
+      const text = await notice();
+      secondNoticed.resolve();
+      return text;
+    });
+    const [, text] = await Promise.all([first, second]);
+    expect(text).toContain("this call can bill up to $0.21");
+    expect(mocks.askAbout.mock.calls[0]?.[1]).toBe(33 * GIB);
+    expect(mocks.release).not.toHaveBeenCalled();
+    expect(mocks.run).toHaveBeenCalledTimes(1);
+    expect(mocks.run.mock.calls[0]?.[0]).toMatchObject({ decided: admitted });
+  });
+
+  it("releases an admission its call never runs once the call's work deadline passes, and a late run still gets that decision", async () => {
+    const decided = decision({
+      status: "admitted",
+      needsApproval: false,
+      deadline: startBigQueryAgentDeadline({ workMs: 200, cleanupMs: 400 }),
+    });
+    mocks.decide.mockResolvedValue(decided);
+    await invocation(async () => {
+      expect(await ask()).toBe(false);
+      await new Promise((resolve) =>
+        decided.deadline.signal.addEventListener("abort", resolve),
+      );
+      expect(mocks.release).toHaveBeenCalledExactlyOnceWith(decided);
+      // raw-sql-ok: a fixed test SELECT with a per-test comment suffix, passed to mocked runner calls only.
+      await runWith({ sql });
+    });
+    expect(mocks.run.mock.calls[0]?.[0]).toMatchObject({ decided });
+    expect(mocks.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers the approval question within the call's deadline when its budget read stalls", async () => {
+    mocks.decide.mockResolvedValue(
+      decision({
+        status: "ask",
+        needsApproval: true,
+        reservedBytes: 33 * GIB,
+        deadline: startBigQueryAgentDeadline({ workMs: 200, cleanupMs: 400 }),
+      }),
+    );
+    mocks.askAbout.mockReturnValue(new Promise(() => undefined));
+    const error = await invocation(async () => {
+      expect(await ask()).toBe(true);
+      return thrown(notice);
+    });
+    expect(error).toMatchObject({
+      errorCode: "query_timeout",
+      statusCode: 504,
+    });
   });
 
   it("states what this query can bill in the question from the plan it decided on, without planning again", async () => {
@@ -437,8 +547,10 @@ describe("query-warehouse asks once past $1", () => {
     mocks.askAbout.mockResolvedValue(
       budgetWith(OUTSIDE_AGENT_PERSON_BASE_BYTES - 5 * GIB),
     );
-    expect(await ask()).toBe(true);
-    const text = await notice();
+    const text = await invocation(async () => {
+      expect(await ask()).toBe(true);
+      return notice();
+    });
     expect(text).toMatch(/^Allow up to \$5\.00 of BigQuery today\?/);
     expect(text).toContain("this call can bill up to $0.21");
     expect(mocks.decide).toHaveBeenCalledTimes(1);
@@ -456,8 +568,10 @@ describe("query-warehouse asks once past $1", () => {
         message: "Outside agents can run exactly one read-only SELECT.",
       }),
     );
-    expect(await ask()).toBe(false);
-    const error = await thrown(notice);
+    const error = await invocation(async () => {
+      expect(await ask()).toBe(false);
+      return thrown(notice);
+    });
     expect(error).toMatchObject({
       errorCode: "query_statement_not_allowed",
       statusCode: 422,

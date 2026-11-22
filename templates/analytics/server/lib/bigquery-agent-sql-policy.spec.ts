@@ -399,6 +399,14 @@ describe("BigQuery outside-agent SQL policy", () => {
     ]);
   });
 
+  it("refuses TABLESAMPLE SYSTEM even on an allowlisted table, since the lexer cannot bound its source", () => {
+    const error = refused(
+      "SELECT id FROM `builder-3b0a2.dbt_mart.users` TABLESAMPLE SYSTEM (10 PERCENT)",
+    );
+    expect(error.code).toBe("query_feature_not_allowed");
+    expect(error.message).toContain("source boundary");
+  });
+
   it("refuses a bare dashed project name, which needs backticks or @project", () => {
     expect(() =>
       checkBigQueryAgentSql(

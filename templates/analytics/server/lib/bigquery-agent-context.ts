@@ -124,6 +124,7 @@ export interface OutsideAgentBigQueryAdmission {
   created: boolean;
   exclusive: boolean;
   submitBy: number;
+  utcDay: string;
 }
 
 export function submitByForLease(leaseExpiresAt: string): number {
@@ -362,6 +363,7 @@ export function createOutsideAgentBigQueryGate(options: {
       }
       const admission: OutsideAgentBigQueryAdmission = {
         submitBy,
+        utcDay: result.utcDay,
         requestId: result.requestId,
         projectId: input.projectId,
         jobId: input.jobId,

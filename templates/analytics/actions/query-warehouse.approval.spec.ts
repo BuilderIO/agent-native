@@ -175,11 +175,14 @@ const {
   BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
   BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION_SQL,
   BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION_SQL,
+  OUTSIDE_AGENT_JOB_CAP_BYTES,
   OUTSIDE_AGENT_PERSON_BASE_BYTES,
   OUTSIDE_AGENT_PERSON_CEILING_BYTES,
 } = await import("../server/lib/bigquery-agent-budget");
 const { BIGQUERY_USAGE_MIGRATION_SQL } =
   await import("../server/lib/bigquery-usage");
+const { reservationForEstimate } =
+  await import("../server/lib/bigquery-agent-context");
 const { default: queryWarehouse } = await import("./query-warehouse");
 
 const USERS = {
@@ -216,13 +219,13 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-async function connect() {
+async function connect(action: typeof queryWarehouse = queryWarehouse) {
   const server = await createMCPServerForRequest(
     {
       name: "Analytics",
       description: "Analytics test server",
       appId: "analytics",
-      actions: { "query-warehouse": queryWarehouse },
+      actions: { "query-warehouse": action },
     },
     {
       userEmail: "alice@example.com",
@@ -474,5 +477,58 @@ describe("query-warehouse over MCP, past the $1 no-ask allowance", () => {
         "SELECT status, code FROM analytics_bigquery_agent_executions",
       ),
     ).toEqual([{ status: "refused", code: "budget_unavailable" }]);
+  });
+});
+
+describe("query-warehouse over MCP: overlapping identical calls", () => {
+  it("keeps each call on its own decision when one asks while the other, already cleared, has yet to run", async () => {
+    const reserved = reservationForEstimate(GIB, OUTSIDE_AGENT_JOB_CAP_BYTES);
+    await seedSpend(
+      OUTSIDE_AGENT_PERSON_BASE_BYTES - reserved - Math.floor(reserved / 2),
+    );
+    let firstRunEntered!: () => void;
+    const firstCleared = new Promise<void>((resolve) => {
+      firstRunEntered = resolve;
+    });
+    let releaseFirstRun!: () => void;
+    const secondAsked = new Promise<void>((resolve) => {
+      releaseFirstRun = resolve;
+    });
+    let runs = 0;
+    const call = await connect({
+      ...queryWarehouse,
+      run: async (args, context) => {
+        if (++runs === 1) {
+          firstRunEntered();
+          await secondAsked;
+        }
+        return queryWarehouse.run(args, context);
+      },
+    } as typeof queryWarehouse);
+
+    const first = call({ sql: SQL });
+    await firstCleared;
+    const second = await call({ sql: SQL });
+    releaseFirstRun();
+    const ran = await first;
+
+    expect(second.isError).toBe(true);
+    const grant = onlyGrant();
+    expect(text(second)).toContain(
+      `http://localhost:8080/_agent-native/mcp/approvals/${grant.nonce}`,
+    );
+    expect(must(grant.approvalNotice)).toMatch(/^Allow up to \$5\.00/);
+    expect(ran.isError).not.toBe(true);
+    expect(ran.structuredContent).toMatchObject({
+      status: "ok",
+      rows: [{ week: "2026-11-16", signups: 42 }],
+    });
+    expect(runs).toBe(1);
+    expect(bigQuery.submissions).toBe(1);
+    expect(
+      await rows(
+        "SELECT state FROM analytics_bigquery_agent_jobs WHERE source <> 'seed'",
+      ),
+    ).toEqual([{ state: "settled" }]);
   });
 });

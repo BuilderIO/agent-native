@@ -269,6 +269,39 @@ describe("search-warehouse-schema", () => {
     expect(result.complete).toBe(false);
   });
 
+  it("shares one 40-table metadata allowance between the column search and the tables it returns", async () => {
+    lists.dbt_staging_bigquery = {
+      tables: Array.from({ length: 60 }, (_, index) => ({
+        tableId: `signups_${suffix}_${index}`,
+      })),
+    };
+    for (let index = 0; index < 60; index++) {
+      table("dbt_staging_bigquery", `signups_${suffix}_${index}`, [
+        { name: "id" },
+      ]);
+    }
+    const result = await search({
+      dataset: "dbt_staging_bigquery",
+      search: "signups",
+      limit: 50,
+    });
+    expect(
+      requested.filter((path) => /\/tables\/[^/]+$/.test(path)),
+    ).toHaveLength(40);
+    expect(result.tables).toHaveLength(50);
+    expect(result.matched).toBe(60);
+    expect(
+      result.tables.filter((entry) => entry.queryable === true),
+    ).toHaveLength(40);
+    const unchecked = result.tables.filter((entry) => entry.queryable === null);
+    expect(unchecked).toHaveLength(10);
+    expect(unchecked[0]?.notQueryableReason).toMatch(/Not checked/);
+    expect(result.complete).toBe(false);
+    expect(result.incompleteReasons).toContainEqual(
+      expect.stringMatching(/^10 returned tables were not checked/),
+    );
+  });
+
   it("returns at most limit tables and says more matched", async () => {
     lists.metrics = {
       tables: Array.from({ length: 5 }, (_, index) => ({

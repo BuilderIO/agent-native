@@ -415,6 +415,7 @@ export type BigQueryAgentAdmission =
       reservedBytes: number;
       created: boolean;
       leaseExpiresAt: string;
+      utcDay: string;
       budget: BigQueryAgentBudgetSnapshot;
     }
   | {
@@ -475,7 +476,7 @@ export async function admitBigQueryAgentJob(
         admittedAt.getTime() + request.leaseMs,
       ).toISOString();
       const existing = await tx.execute({
-        sql: `SELECT request_id, state, resolution, owner_email, reserved_bytes::text AS reserved
+        sql: `SELECT request_id, state, resolution, owner_email, reserved_bytes::text AS reserved, utc_day
           FROM analytics_bigquery_agent_jobs WHERE project_id = $1 AND job_id = $2 FOR UPDATE`,
         args: [request.projectId, request.jobId],
       });
@@ -486,6 +487,7 @@ export async function admitBigQueryAgentJob(
             resolution: string | null;
             owner_email: string;
             reserved: unknown;
+            utc_day: string;
           }
         | undefined;
       if (
@@ -530,6 +532,7 @@ export async function admitBigQueryAgentJob(
           reservedBytes: readBytes(prior.reserved, "reserved"),
           created: false,
           leaseExpiresAt: lease,
+          utcDay: prior.utc_day,
           budget: await snapshotWith(tx, identity, limits, admittedAt),
         };
       }
@@ -580,6 +583,7 @@ export async function admitBigQueryAgentJob(
         reservedBytes: request.reservedBytes,
         created: true,
         leaseExpiresAt,
+        utcDay: budget.utcDay,
         budget: {
           ...budget,
           person: reserve(budget.person, request.reservedBytes),
@@ -714,48 +718,89 @@ export async function settleBigQueryAgentJob(
   now: Date = new Date(),
   options: {
     leaseExpiredAt?: Date;
+    finalizeAbandonedExecution?: boolean;
   } = {},
 ): Promise<boolean> {
   return guardBudget(async () => {
     const at = now.toISOString();
     const leaseGuard = options.leaseExpiredAt?.toISOString() ?? null;
-    const result =
-      settlement.kind === "billed"
-        ? await getDbExec().execute({
-            sql: `UPDATE analytics_bigquery_agent_jobs
-              SET state = 'settled', billed_bytes = $3, provider_cache_hit = $4,
-                resolution = $5, resolved_at = $6, submission_state = 'accepted'
-              WHERE project_id = $1 AND job_id = $2 AND state = 'pending'
-              RETURNING request_id`,
-            args: [
-              projectId,
-              jobId,
-              settlement.billedBytes,
-              settlement.cacheHit,
-              settlement.cacheHit === true ? "cache_hit" : "billed",
-              at,
-            ],
-          })
-        : settlement.kind === "charged_reservation"
-          ? await getDbExec().execute({
-              sql: `UPDATE analytics_bigquery_agent_jobs
-                SET state = 'settled', billed_bytes = reserved_bytes, resolution = $3, resolved_at = $4
-                WHERE project_id = $1 AND job_id = $2 AND state = 'pending'
-                  AND ($5::text IS NULL OR lease_expires_at < $5::text)
-                RETURNING request_id`,
-              args: [projectId, jobId, settlement.reason, at, leaseGuard],
-            })
-          : await getDbExec().execute({
-              sql: `UPDATE analytics_bigquery_agent_jobs
-                SET state = 'released', resolution = $3, resolved_at = $4,
-                  submission_state = CASE WHEN $3 = 'rejected' THEN 'rejected' ELSE submission_state END
-                WHERE project_id = $1 AND job_id = $2 AND state = 'pending'
-                  AND ($5::text IS NULL OR lease_expires_at < $5::text)
-                RETURNING request_id`,
-              args: [projectId, jobId, settlement.kind, at, leaseGuard],
-            });
-    return result.rows.length > 0;
+    const db = getDbExec();
+    if (!options.finalizeAbandonedExecution) {
+      return settleWith(db, projectId, jobId, settlement, at, leaseGuard);
+    }
+    if (!db.transaction) {
+      throw new BigQueryAgentBudgetUnavailableError("no_transactions");
+    }
+    return db.transaction.bind(db)(async (tx) => {
+      const settled = await settleWith(
+        tx,
+        projectId,
+        jobId,
+        settlement,
+        at,
+        leaseGuard,
+      );
+      if (settled) {
+        await tx.execute({
+          sql: `UPDATE analytics_bigquery_agent_executions AS e
+            SET status = 'abandoned', code = j.resolution, billed_bytes = j.billed_bytes,
+              provider_cache_hit = j.provider_cache_hit
+            FROM analytics_bigquery_agent_jobs AS j
+            WHERE j.project_id = $1 AND j.job_id = $2
+              AND e.project_id = j.project_id AND e.job_id = j.job_id
+              AND e.status = 'submitting'`,
+          args: [projectId, jobId],
+        });
+      }
+      return settled;
+    });
   });
+}
+
+async function settleWith(
+  exec: DbExec,
+  projectId: string,
+  jobId: string,
+  settlement: BigQueryAgentSettlement,
+  at: string,
+  leaseGuard: string | null,
+): Promise<boolean> {
+  const result =
+    settlement.kind === "billed"
+      ? await exec.execute({
+          sql: `UPDATE analytics_bigquery_agent_jobs
+            SET state = 'settled', billed_bytes = $3, provider_cache_hit = $4,
+              resolution = $5, resolved_at = $6, submission_state = 'accepted'
+            WHERE project_id = $1 AND job_id = $2 AND state = 'pending'
+            RETURNING request_id`,
+          args: [
+            projectId,
+            jobId,
+            settlement.billedBytes,
+            settlement.cacheHit,
+            settlement.cacheHit === true ? "cache_hit" : "billed",
+            at,
+          ],
+        })
+      : settlement.kind === "charged_reservation"
+        ? await exec.execute({
+            sql: `UPDATE analytics_bigquery_agent_jobs
+              SET state = 'settled', billed_bytes = reserved_bytes, resolution = $3, resolved_at = $4
+              WHERE project_id = $1 AND job_id = $2 AND state = 'pending'
+                AND ($5::text IS NULL OR lease_expires_at < $5::text)
+              RETURNING request_id`,
+            args: [projectId, jobId, settlement.reason, at, leaseGuard],
+          })
+        : await exec.execute({
+            sql: `UPDATE analytics_bigquery_agent_jobs
+              SET state = 'released', resolution = $3, resolved_at = $4,
+                submission_state = CASE WHEN $3 = 'rejected' THEN 'rejected' ELSE submission_state END
+              WHERE project_id = $1 AND job_id = $2 AND state = 'pending'
+                AND ($5::text IS NULL OR lease_expires_at < $5::text)
+              RETURNING request_id`,
+            args: [projectId, jobId, settlement.kind, at, leaseGuard],
+          });
+  return result.rows.length > 0;
 }
 
 export interface BigQueryAgentPendingJob {
@@ -833,6 +878,7 @@ export async function reconcileStaleBigQueryAgentJobs(
           now,
           {
             leaseExpiredAt: now,
+            finalizeAbandonedExecution: true,
           },
         )
       )
@@ -948,7 +994,9 @@ export async function writeBigQueryAgentExecutionRecord(
         provider_cache_hit = EXCLUDED.provider_cache_hit, row_count = EXCLUDED.row_count,
         truncated = EXCLUDED.truncated, cancelled = EXCLUDED.cancelled,
         duration_ms = EXCLUDED.duration_ms, location = EXCLUDED.location,
-        bytes_processed = EXCLUDED.bytes_processed, cancel_requested = EXCLUDED.cancel_requested`,
+        bytes_processed = EXCLUDED.bytes_processed, cancel_requested = EXCLUDED.cancel_requested
+      WHERE analytics_bigquery_agent_executions.status = 'submitting'
+        AND EXCLUDED.status <> 'submitting'`,
     args: [
       record.id,
       record.ownerEmail,
