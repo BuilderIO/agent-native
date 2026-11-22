@@ -1879,6 +1879,7 @@ const messages: ToolkitAgentChatTranslation = {
     "儲存憑證已清除。新上傳的檔案會存入 Builder.io。",
   "settings.storage.saveFailed": "無法儲存檔案儲存空間。",
   "settings.storage.clearFailed": "無法清除儲存憑證。",
+  "settings.timezoneLoadFailed": "無法載入你的時區。",
   "settings.storage.loadFailed": "無法載入檔案儲存空間設定。",
   "settings.storage.retry": "重試",
   "settings.storage.unreadable":
