@@ -6,6 +6,14 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import {
+  allowanceApprovalNotice,
+  allowanceBudget,
+  allowanceToAskAbout,
+  firstPartyQueriesRunOnBigQuery,
+  needsAllowanceApproval,
+  recordReviewedAllowance,
+} from "../server/lib/bigquery-agent-approval.js";
 import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget.js";
 import {
   describeOutsideAgentBigQueryReport,
@@ -21,7 +29,11 @@ import {
   FIRST_PARTY_TEMPLATE_NAMES,
   isCalendarDate,
 } from "../server/lib/first-party-metric-catalog.js";
-import { outsideAgentOnboardingEventBytes } from "../server/lib/onboarding-journey-agent-budget.js";
+import {
+  approvedOutsideAgentOnboardingBound,
+  outsideAgentOnboardingEventBytes,
+  smallestOutsideAgentOnboardingCall,
+} from "../server/lib/onboarding-journey-agent-budget.js";
 import {
   DEFAULT_ONBOARDING_EVENT_ROW_BUDGET,
   getOnboardingJourney,
@@ -30,6 +42,7 @@ import {
   ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED,
+  ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_JOURNEY_QUERY_BUDGET_MS,
   OnboardingJourneyReadError,
   JourneyRecordingsError,
@@ -279,6 +292,32 @@ export default defineAction({
   mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   grounding: true,
+  mcpNeedsApproval: async (args, ctx) => {
+    const read = await allowanceBudget(ctx);
+    return (
+      read !== null &&
+      (await firstPartyQueriesRunOnBigQuery(read.identity)) &&
+      needsAllowanceApproval(
+        read.budget,
+        smallestOutsideAgentOnboardingCall(args),
+      )
+    );
+  },
+  approvalNotice: async (args, ctx) => {
+    const budget = await allowanceToAskAbout(
+      ctx,
+      smallestOutsideAgentOnboardingCall(args),
+    );
+    return allowanceApprovalNotice(
+      budget,
+      approvedOutsideAgentOnboardingBound(
+        budget,
+        args.maxTotalBytesBilled,
+        args,
+      ),
+    );
+  },
+  approvalProof: "review-page",
   run: async (args, context?: ActionRunContext) => {
     const days =
       (Date.parse(`${args.dateTo}T00:00:00Z`) -
@@ -333,17 +372,27 @@ export default defineAction({
         );
       }
       const identity = outsideAgentIdentity(scope.userEmail, scope.orgId);
-      const { requested, applied, refusal } =
-        await outsideAgentOnboardingEventBytes(
-          identity,
-          args.maxTotalBytesBilled,
-          {
-            followUpMode: args.followUpMode,
-            experimentId: args.experimentId,
-            splitDesignFirstTouch: args.splitDesignFirstTouch,
-          },
-          context?.signal,
-        );
+      const call = {
+        followUpMode: args.followUpMode,
+        experimentId: args.experimentId,
+        splitDesignFirstTouch: args.splitDesignFirstTouch,
+      };
+      const askVia =
+        context?.caller === "mcp" ? "get-onboarding-journey" : undefined;
+      const onBigQuery = await firstPartyQueriesRunOnBigQuery(identity);
+      if (onBigQuery) await recordReviewedAllowance(identity);
+      const unbudgeted =
+        args.maxTotalBytesBilled ??
+        ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED;
+      const { requested, applied, refusal } = onBigQuery
+        ? await outsideAgentOnboardingEventBytes(
+            identity,
+            args.maxTotalBytesBilled,
+            call,
+            context?.signal,
+            askVia,
+          )
+        : { requested: unbudgeted, applied: unbudgeted, refusal: null };
       if (refusal) throw refusal;
       const { value, report } = await runOutsideAgentBigQueryCall(
         {
@@ -351,6 +400,7 @@ export default defineAction({
           source: "get-onboarding-journey",
           reservation: "full-cap",
           leaseMs: ONBOARDING_JOURNEY_QUERY_BUDGET_MS + 60_000,
+          ...(askVia ? { askVia } : {}),
         },
         () =>
           getOnboardingJourney(scope, journeyArgs(applied), context?.signal),

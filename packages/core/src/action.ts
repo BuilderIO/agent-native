@@ -16,6 +16,8 @@ import {
 import {
   ACTION_EXECUTION_KEY,
   actionExecutionStorage,
+  currentActionApproval,
+  currentActionApprovalAskedAt,
   currentActionOriginCaller,
   endInvocationEvidence,
   holdInvocationEvidence,
@@ -54,6 +56,7 @@ import {
   buildAgentNavigationKeptResult,
   isAgentNavigationRefusedError,
 } from "./application-state/navigate-write-guard.js";
+import { isReversibleWriteInlineApprovalAction } from "./approval/reversible-write-policy.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { RecordActionAuditInput } from "./audit/record.js";
 import type { ActionAuditConfig } from "./audit/types.js";
@@ -115,6 +118,8 @@ export type {
 } from "./action-receipt.js";
 export {
   ACTION_EXECUTION_KEY,
+  currentActionApproval,
+  currentActionApprovalAskedAt,
   currentActionOriginCaller,
   withoutWriteObservation,
 };
@@ -299,6 +304,12 @@ export interface ActionRunContext {
     userAgent?: string;
     oauthClientId?: string;
   };
+}
+
+/** What an action's `approvalNotice` runs with. */
+export interface ActionApprovalNoticeContext extends ActionRunContext {
+  /** When the server asked, in epoch milliseconds; the grant records it. */
+  askedAt: number;
 }
 
 export type ActionAuthorize<TArgs> = (
@@ -1382,6 +1393,40 @@ interface DefineActionWithSchema<
     args: StandardSchemaV1.InferOutput<TSchema>,
     ctx?: ActionRunContext,
   ) => string;
+  /**
+   * Over MCP only, whether this call needs the person's approval before it
+   * runs, for a reason server state decides rather than what the action does,
+   * such as a spend allowance. It asks through the same grants, prompt and
+   * review page as `needsApproval`, but leaves the action's listing,
+   * annotations, A2A exposure and every other surface as they are, so the
+   * action must refuse on its own wherever no approval reached it (see
+   * `currentActionApproval`). A throw asks.
+   */
+  mcpNeedsApproval?: (
+    args: StandardSchemaV1.InferOutput<TSchema>,
+    ctx?: ActionRunContext,
+  ) => boolean | Promise<boolean>;
+  /**
+   * Facts the MCP approval prompt, review link and review page state that
+   * the call's arguments don't carry, such as a cost, a limit or an expiry.
+   * The server computes it when it asks, never from the call's words, and
+   * date any time-bound fact from `ctx.askedAt`: the grant records that
+   * time as when the person was asked. Returning nothing shows the
+   * arguments alone; a throw, or text over 2,000 characters, fails the call
+   * rather than ask without it.
+   */
+  approvalNotice?: (
+    args: StandardSchemaV1.InferOutput<TSchema>,
+    ctx: ActionApprovalNoticeContext,
+  ) => string | undefined | Promise<string | undefined>;
+  /**
+   * `"review-page"`: over MCP, only the person's approval on the app's review
+   * page approves a call. A client's form answer never does, so the prompt
+   * opens the page or the call returns its link, and no-approvals mode does
+   * not skip the question. A reversible-write inline approval never links to
+   * the page, so `defineAction` refuses the two together.
+   */
+  approvalProof?: "review-page";
   allowPersistentApproval?: boolean;
   /**
    * Authorization gate that runs before `run()` on **every** caller — agent
@@ -1517,6 +1562,18 @@ interface DefineActionWithParams<
     args: InferParams<TParams>,
     ctx?: ActionRunContext,
   ) => string;
+  /** See `DefineActionWithSchema.mcpNeedsApproval`. */
+  mcpNeedsApproval?: (
+    args: InferParams<TParams>,
+    ctx?: ActionRunContext,
+  ) => boolean | Promise<boolean>;
+  /** See `DefineActionWithSchema.approvalNotice`. */
+  approvalNotice?: (
+    args: InferParams<TParams>,
+    ctx: ActionApprovalNoticeContext,
+  ) => string | undefined | Promise<string | undefined>;
+  /** See `DefineActionWithSchema.approvalProof`. */
+  approvalProof?: "review-page";
   allowPersistentApproval?: boolean;
   authorize?: ActionAuthorize<InferParams<TParams>>;
   access?: ActionAccessConfig;
@@ -1584,6 +1641,15 @@ export interface ActionDefinition<TInput, TReturn> {
     | boolean
     | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
   readonly approvalLabel?: (args: TInput, ctx?: ActionRunContext) => string;
+  readonly mcpNeedsApproval?: (
+    args: TInput,
+    ctx?: ActionRunContext,
+  ) => boolean | Promise<boolean>;
+  readonly approvalNotice?: (
+    args: TInput,
+    ctx: ActionApprovalNoticeContext,
+  ) => string | undefined | Promise<string | undefined>;
+  readonly approvalProof?: "review-page";
   readonly allowPersistentApproval?: boolean;
   readonly audit?: ActionAuditConfig;
   readonly access?: ActionAccessConfig;
@@ -1726,6 +1792,27 @@ export function defineAction(options: any) {
     throw new Error(
       'defineAction: userTurn: "approval" needs needsApproval (not false) or requiresUserTurn; otherwise a call without an admitted grant would run the write unattended.',
     );
+  }
+  if (
+    options.approvalProof !== undefined &&
+    options.approvalProof !== "review-page"
+  ) {
+    throw new Error(
+      'defineAction: approvalProof is "review-page" or left out; any other value would weaken the proof it names.',
+    );
+  }
+  if (
+    options.approvalProof === "review-page" &&
+    isReversibleWriteInlineApprovalAction(options)
+  ) {
+    throw new Error(
+      'defineAction: approvalProof: "review-page" can\'t be combined with a reversible-write inline approval, which never links to the review page, so no call could be approved.',
+    );
+  }
+  for (const key of ["mcpNeedsApproval", "approvalNotice"] as const) {
+    if (options[key] !== undefined && typeof options[key] !== "function") {
+      throw new Error(`defineAction: ${key} must be a function.`);
+    }
   }
 
   const tool: ActionTool = {
@@ -2270,6 +2357,15 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof options.approvalLabel === "function"
       ? { approvalLabel: options.approvalLabel }
+      : {}),
+    ...(typeof options.mcpNeedsApproval === "function"
+      ? { mcpNeedsApproval: options.mcpNeedsApproval }
+      : {}),
+    ...(typeof options.approvalNotice === "function"
+      ? { approvalNotice: options.approvalNotice }
+      : {}),
+    ...(options.approvalProof === "review-page"
+      ? { approvalProof: options.approvalProof }
       : {}),
     ...(typeof options.allowPersistentApproval === "boolean"
       ? { allowPersistentApproval: options.allowPersistentApproval }
@@ -3474,6 +3570,14 @@ export function preparedCallArguments(call: PreparedActionCall): unknown {
   return copyActionArguments(prepared.snapshot);
 }
 
+/**
+ * `noApprovalsMode: false` decides by the predicate alone, for an approval
+ * only a person's review may give (`approvalProof: "review-page"`).
+ */
+export interface ApprovalDecisionOptions {
+  noApprovalsMode?: false;
+}
+
 async function isNoApprovalsForCall(ctx: ActionRunContext): Promise<boolean> {
   const { isNoApprovalsMode } = await import("./approval/no-approvals-mode.js");
   return isNoApprovalsMode(ctx.userEmail);
@@ -3492,10 +3596,13 @@ export async function preparedCallNeedsApproval(
   },
   call: PreparedActionCall,
   ctx: ActionRunContext,
+  options: ApprovalDecisionOptions = {},
 ): Promise<boolean> {
   const gate = entry.needsApproval;
   if (typeof gate !== "function" && gate !== true) return false;
-  if (await isNoApprovalsForCall(ctx)) return false;
+  if (options.noApprovalsMode !== false && (await isNoApprovalsForCall(ctx))) {
+    return false;
+  }
   if (typeof gate !== "function") return true;
   try {
     return Boolean(await gate(preparedCallArguments(call), ctx));
@@ -3519,8 +3626,11 @@ export async function preparedCallClearsReview(
   },
   call: PreparedActionCall,
   ctx: ActionRunContext,
+  options: ApprovalDecisionOptions = {},
 ): Promise<boolean> {
-  if (await isNoApprovalsForCall(ctx)) return true;
+  if (options.noApprovalsMode !== false && (await isNoApprovalsForCall(ctx))) {
+    return true;
+  }
   const gate = entry.needsApproval;
   if (typeof gate !== "function") return false;
   try {

@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { firstPartyQueriesRunOnBigQuery } from "../server/lib/bigquery-agent-approval.js";
 import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget.js";
 import { failForOutsideAgentRefusal } from "../server/lib/bigquery-agent-calls.js";
 import {
@@ -186,18 +187,23 @@ export default defineAction({
         : {}),
     };
     try {
-      const allowance = isOutsideAgentCaller(context?.caller)
-        ? await outsideAgentOnboardingEventBytes(
-            outsideAgentIdentity(scope.userEmail, scope.orgId),
-            args.maxTotalBytesBilled,
-            {
-              followUpMode: args.followUpMode,
-              experimentId: args.experimentId,
-              splitDesignFirstTouch: args.splitDesignFirstTouch,
-            },
-            context?.signal,
-          )
+      const identity = isOutsideAgentCaller(context?.caller)
+        ? outsideAgentIdentity(scope.userEmail, scope.orgId)
         : null;
+      const allowance =
+        identity && (await firstPartyQueriesRunOnBigQuery(identity))
+          ? await outsideAgentOnboardingEventBytes(
+              identity,
+              args.maxTotalBytesBilled,
+              {
+                followUpMode: args.followUpMode,
+                experimentId: args.experimentId,
+                splitDesignFirstTouch: args.splitDesignFirstTouch,
+              },
+              context?.signal,
+              context?.caller === "mcp" ? "get-onboarding-journey" : undefined,
+            )
+          : null;
       if (allowance?.refusal) throw allowance.refusal;
       const estimate = await estimateOnboardingJourneyEventQueryCost(
         scope,

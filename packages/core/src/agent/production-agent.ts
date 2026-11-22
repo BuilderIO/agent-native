@@ -1487,6 +1487,20 @@ export interface ActionEntry {
     args: unknown,
     ctx?: import("../action.js").ActionRunContext,
   ): string;
+  /** See `ActionDefinition.mcpNeedsApproval`. */
+  mcpNeedsApproval?(
+    this: void,
+    args: unknown,
+    ctx?: import("../action.js").ActionRunContext,
+  ): boolean | Promise<boolean>;
+  /** See `ActionDefinition.approvalNotice`. */
+  approvalNotice?(
+    this: void,
+    args: unknown,
+    ctx: import("../action.js").ActionApprovalNoticeContext,
+  ): string | undefined | Promise<string | undefined>;
+  /** See `ActionDefinition.approvalProof`. */
+  approvalProof?: "review-page";
   allowPersistentApproval?: boolean;
   /**
    * Identifies what this entry does under its name. Approvals, including

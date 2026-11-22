@@ -18,6 +18,11 @@ import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import {
+  currentActionApproval,
+  currentActionApprovalAskedAt,
+} from "../action-frame.js";
+import {
+  actionCallIntent,
   AgentActionStopError,
   AgentConnectionRequiredError,
   defineAction,
@@ -22131,6 +22136,41 @@ describe("runAgentLoop", () => {
       name: "QA probe",
       requestId: "3f1a0b8e-2f8e-4b0a-9c1a-1d2e3f4a5b6c",
     });
+  });
+
+  it("never reports a review-page approval from a dispatcher's audit label alone", async () => {
+    const seen: unknown[] = [];
+    const action = defineAction({
+      description: "Read the warehouse",
+      schema: z.object({}),
+      needsApproval: true,
+      run: async () => {
+        seen.push([currentActionApproval(), currentActionApprovalAskedAt()]);
+        return "read";
+      },
+    });
+    const entry = action as unknown as ActionEntry;
+    const prepared = await actionCallIntent(entry, {});
+    if (!prepared.valid) throw prepared.error;
+
+    const result = await executeAgentToolCall({
+      actions: { "read-warehouse": entry },
+      name: "read-warehouse",
+      callId: "labelled-review",
+      input: {},
+      ownerEmail: "alice@example.com",
+      orgId: "acme",
+      approvedToolCalls: [
+        approvalKeyWithArguments(
+          toolCallCacheKey("read-warehouse", {}),
+          prepared.argumentsHash,
+        ),
+      ],
+      auditOverride: { approval: "mcp-review" },
+    });
+
+    expect(result.status).toBe("completed");
+    expect(seen).toEqual([[undefined, undefined]]);
   });
 
   it("strips null placeholders beside a chosen false and runs the tool", async () => {
