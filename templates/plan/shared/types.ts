@@ -145,6 +145,13 @@ export interface PlanSection {
   updatedAt: string;
 }
 
+/** One reaction on a comment: how many gave it, and whether the reader did. */
+export interface PlanCommentReaction {
+  reaction: string;
+  count: number;
+  reactedByMe: boolean;
+}
+
 export interface PlanComment {
   id: string;
   planId: string;
@@ -165,6 +172,7 @@ export interface PlanComment {
   consumedAt?: string | null;
   deletedAt?: string | null;
   deletedBy?: string | null;
+  reactions?: PlanCommentReaction[];
   createdAt: string;
   updatedAt: string;
 }

@@ -61,7 +61,7 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 | `get-plan-blocks`, `list-plan-components`, `visual-answer` | Block schemas, components, visual answers |
 | `publish-visual-plan`, `export-visual-plan` | Share hosted; export HTML/MD/JSON/MDX |
 | `get-plan-access-status`, `request-plan-access` | Check or request access |
-| `get-plan-feedback`, `consume-plan-feedback`, `resolve-plan-comment`, `reply-to-plan-comment`, `delete-plan-comment` | Read, consume, resolve, reply, delete feedback |
+| `get-plan-feedback`, `consume-plan-feedback`, `resolve-plan-comment`, `reply-to-plan-comment`, `react-to-plan-comment`, `delete-plan-comment` | Read, consume, resolve, reply, react to, delete feedback |
 | `list-plan-versions`, `get-plan-version`, `restore-plan-version` | List, inspect, restore snapshots |
 | `read-visual-plan-source`, `import-visual-plan-source`, `patch-visual-plan-source` | Read, replace, patch MDX source |
 | `get-local-plan-folder`, `update-local-plan-folder`, `update-local-plan-comments`, `promote-local-plan-folder`, `validate-local-plan-source` | DB-free local plan folders |

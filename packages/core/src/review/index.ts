@@ -74,6 +74,7 @@ export {
   reviewCommentIdForClientOperation,
   routeReviewThread,
   sendReviewThreadToAgent,
+  setReviewCommentReaction,
 } from "./store.js";
 export {
   compareMirroredReviewComments,

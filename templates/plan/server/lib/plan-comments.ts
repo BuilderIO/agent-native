@@ -6,18 +6,28 @@ import {
   listReviewCommentReactors,
   mirrorReviewComments,
   queryReviewComments,
+  reviewReactionActor,
+  setReviewCommentReaction,
   type ReviewComment,
   type ReviewCommentCopy,
   type ReviewCommentPosition,
+  type ReviewResourceContext,
 } from "@agent-native/core/review";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import {
   PLAN_COMMENT_KINDS,
   type PlanAuthor,
   type PlanCommentKind,
+  type PlanCommentReaction,
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
+import {
+  isAnonymousPublicViewer,
+  isGuestAuthorIdentity,
+  resolvePlanOwnerEmailForWrite,
+} from "./local-identity.js";
 import {
   PLAN_REVIEW_RESOURCE,
   planCommentCopy,
@@ -429,6 +439,80 @@ export function commentAndDescendantIds(
     stack.push(...(childrenByParent.get(id) ?? []));
   }
   return ids;
+}
+
+/**
+ * Whose reactions the request's are: the person, as Plan writes for them, or
+ * `agent:<email>` for their agent. Null for anyone who can't react.
+ */
+export function planReactionActor(ctx: unknown): string | null {
+  const email = getRequestUserEmail();
+  if (isAnonymousPublicViewer(email) || isGuestAuthorIdentity(email)) {
+    return null;
+  }
+  return reviewReactionActor({
+    ...(ctx as ReviewResourceContext | undefined),
+    userEmail: resolvePlanOwnerEmailForWrite(email) ?? null,
+  });
+}
+
+/** Each comment's reactions as `actor` sees them, in the order first given. */
+export async function planCommentReactions(
+  commentIds: readonly string[],
+  actor: string | null,
+): Promise<Record<string, PlanCommentReaction[]>> {
+  const reactors = await listReviewCommentReactors(commentIds);
+  return Object.fromEntries(
+    Object.entries(reactors).map(([id, byReaction]) => [
+      id,
+      Object.entries(byReaction).map(([reaction, actors]) => ({
+        reaction,
+        count: actors.length,
+        reactedByMe:
+          actor !== null &&
+          actors.some((who) => who.toLowerCase() === actor),
+      })),
+    ]),
+  );
+}
+
+/**
+ * Adds or removes `actorEmail`'s reaction on a comment. It takes the plan row
+ * and then the comment's row, as Plan's other comment writers do, so a
+ * reaction can't land on a comment that a concurrent delete is removing.
+ */
+export async function reactToPlanComment(
+  db: PlanDb,
+  planId: string,
+  reaction: {
+    commentId: string;
+    actorEmail: string;
+    reaction: string;
+    active: boolean;
+  },
+): Promise<PlanCommentReaction[]> {
+  await livePlanResource(db, planId);
+  await lockPlanComments(planId, [reaction.commentId]);
+  const comment = await getReviewCommentById(
+    reaction.commentId,
+    {},
+    { bypassScope: true },
+  );
+  if (
+    !comment ||
+    comment.resourceType !== PLAN_REVIEW_RESOURCE ||
+    comment.resourceId !== planId ||
+    comment.status === "deleted" ||
+    comment.deletedAt !== null
+  ) {
+    throw new Error(`Comment ${reaction.commentId} isn't on plan ${planId}.`);
+  }
+  await setReviewCommentReaction(reaction);
+  const reactions = await planCommentReactions(
+    [reaction.commentId],
+    reaction.actorEmail,
+  );
+  return reactions[reaction.commentId] ?? [];
 }
 
 export async function deletePlanCommentThread(

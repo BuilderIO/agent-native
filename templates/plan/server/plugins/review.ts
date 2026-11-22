@@ -59,6 +59,6 @@ export default defineNitroPlugin(() => {
     },
     resolveAccess: resolvePlanReviewAccess,
     commentsWrittenByApp:
-      "Plan comments are written with update-visual-plan, reply-to-plan-comment, resolve-plan-comment, consume-plan-feedback and delete-plan-comment.",
+      "Plan comments are written with update-visual-plan, reply-to-plan-comment, resolve-plan-comment, consume-plan-feedback, react-to-plan-comment and delete-plan-comment.",
   });
 });
