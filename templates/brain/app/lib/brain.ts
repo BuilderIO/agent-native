@@ -159,6 +159,8 @@ export interface MarkdownImportFileResult {
   path: string;
   status: "imported" | "blocked" | "failed";
   captureId?: string;
+  withheldPassages?: number | null;
+  passageQuarantine?: { version: 1; withheldPassages: number | null };
   distillation?: "queued" | "existing" | "skipped" | "failed";
   error?: string;
   errorCode?: string;

@@ -2119,6 +2119,10 @@ export default {
     flagsUnavailable: "علامات الميزات غير متاحة",
     flagsUnreachable:
       "تعذر الوصول إلى دليل مساحة العمل. أعد المحاولة عند توفر الاتصال.",
+    verifiedFlagChangeOrg:
+      "تم التحقق في {{time}}: {{flag}} في {{app}} مضبوط على {{availability}} لهذه المؤسسة.",
+    verifiedFlagChangeGlobal:
+      "تم التحقق في {{time}}: {{flag}} في {{app}} مضبوط على {{availability}} لكل المؤسسات.",
     flagsEmpty: "لم يبلغ أي تطبيق في مساحة العمل عن علامات",
     flagsEmptyDetail:
       "ستظهر العلامات المسجلة هنا عندما تصبح التطبيقات المتصلة جاهزة.",

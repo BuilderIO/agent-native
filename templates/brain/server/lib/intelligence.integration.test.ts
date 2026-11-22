@@ -868,8 +868,9 @@ describe("evidence-backed intelligence", () => {
         })
         .where(eq(schema.brainRawCaptures.id, capture.id));
     };
+    // oracle-change: the stale-reimport rejection is the shared concurrent-change error.
     await expect(createCapture(file)).rejects.toThrow(
-      "Capture changed during import",
+      "Capture changed concurrently",
     );
     const current = first(
       await database

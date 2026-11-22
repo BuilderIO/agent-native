@@ -469,17 +469,37 @@ function builderPreviewReturnOrigin(): string {
   return "";
 }
 
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "[::1]" ||
+      /^127(?:\.\d{1,3}){3}$/.test(hostname)
+    );
+  } catch {
+    // coercion-ok: an unreadable origin is treated as hosted.
+    return false;
+  }
+}
+
 export function resolveOAuthReturnOrigin(input: {
   previewOrigin: string;
   workspaceGatewayReturnOrigin: string;
   userAgent: string;
+  currentOrigin?: string;
 }): string {
+  const currentOrigin =
+    input.currentOrigin ??
+    (typeof window === "undefined" ? "" : window.location.origin);
+  const desktopGatewayReturn =
+    (isAgentNativeDesktop(input.userAgent) ||
+      isBuilderDesktop(input.userAgent)) &&
+    isLoopbackOrigin(currentOrigin);
   return (
     input.previewOrigin ||
     input.workspaceGatewayReturnOrigin ||
-    (isAgentNativeDesktop(input.userAgent) || isBuilderDesktop(input.userAgent)
-      ? BUILDER_DESKTOP_RETURN_ORIGIN
-      : "")
+    (desktopGatewayReturn ? BUILDER_DESKTOP_RETURN_ORIGIN : "")
   );
 }
 
@@ -487,12 +507,14 @@ export function oauthReturnTarget(
   target: string,
   workspaceGatewayReturnOrigin: string,
   userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
+  currentOrigin = typeof window === "undefined" ? "" : window.location.origin,
 ): string {
   const path = normalizeOAuthReturnPath(target);
   const origin = resolveOAuthReturnOrigin({
     previewOrigin: builderPreviewReturnOrigin(),
     workspaceGatewayReturnOrigin,
     userAgent,
+    currentOrigin,
   });
   return origin ? origin + path : path;
 }

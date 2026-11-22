@@ -275,6 +275,14 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 import { bindFixtureProvenance } from "../../test-utils/knowledge-provenance.js";
+import { publicCaptureTitle } from "./capture-sanitization.js";
+import {
+  parseCaptureMetadata,
+  publicCaptureExternalId,
+  publicCaptureMetadata,
+  withheldPassageCount,
+  withOmissionReceipt,
+} from "./search-index-contracts.js";
 import {
   buildFederatedSearchCoverage,
   buildSnippet,
@@ -962,6 +970,40 @@ describe("Brain semantic capture hits", () => {
     expect(rows[0]?.content).toBeTruthy();
   });
 
+  it("reports manual transcript withholding on semantic hits", async () => {
+    mocks.rows.sources.push({
+      ...mocks.rows.sources[0],
+      id: "source-manual",
+      provider: "manual",
+    });
+    seedSemanticCapture({
+      id: "capture-semantic-manual",
+      sourceId: "source-manual",
+      metadata: {
+        passageQuarantine: { version: 1, withheldPassages: 2 },
+        sourceUrl: "https://example.test/private-transcript",
+        meetingTopic: "https://example.test/private-transcript",
+      },
+    });
+    const capture = mocks.rows.captures.find(
+      (row) => row.id === "capture-semantic-manual",
+    );
+    if (!capture) throw new Error("missing test capture");
+    capture.kind = "transcript";
+    const { rows } = await searchEverythingWithLanes({
+      query: "reduce customer waiting",
+      type: "capture",
+    });
+    expect(rows).toMatchObject([
+      {
+        id: "capture-semantic-manual",
+        withheldPassages: 2,
+        sourceUrl: null,
+        location: null,
+      },
+    ]);
+  });
+
   it("does not enrich semantic hits whose capture is outside the allowed scope", async () => {
     seedSemanticCapture({
       id: "capture-semantic-blocked",
@@ -1086,6 +1128,48 @@ describe("Brain semantic capture hits", () => {
     });
     expect(allowed.some((row) => row.id === "knowledge-freemium-current")).toBe(
       true,
+    );
+  });
+});
+
+describe("receipt-free transcripts with an omission marker", () => {
+  it("masks a locator-shaped capture title only for a partial capture", () => {
+    expect(publicCaptureTitle("www.example.test/full", true)).toBe(
+      "Transcript excerpt",
+    );
+    expect(publicCaptureTitle("www.example.test/full", false)).toBe(
+      "www.example.test/full",
+    );
+    expect(publicCaptureTitle("Weekly sync", true)).toBe("Weekly sync");
+  });
+
+  const metadataJson = JSON.stringify({
+    sourceUrl: "https://example.test/full",
+  });
+  const content = "Alex: hello\n[…]\nSam: wrapping up";
+
+  it("counts as partial with an unknown number of withheld passages", () => {
+    const receipted = withOmissionReceipt(metadataJson, content, "transcript");
+    const metadata = parseCaptureMetadata(receipted);
+    expect(withheldPassageCount(metadata, "manual", "transcript")).toBeNull();
+    expect(
+      publicCaptureExternalId("recording.md", metadata, "transcript"),
+    ).toBe(null);
+    expect(publicCaptureMetadata(metadata)).not.toHaveProperty("sourceUrl");
+  });
+
+  it("leaves complete transcripts, documents and existing receipts alone", () => {
+    expect(withOmissionReceipt(metadataJson, "Alex: hello", "transcript")).toBe(
+      metadataJson,
+    );
+    expect(withOmissionReceipt(metadataJson, content, "document")).toBe(
+      metadataJson,
+    );
+    const receipted = JSON.stringify({
+      passageQuarantine: { version: 1, withheldPassages: 2 },
+    });
+    expect(withOmissionReceipt(receipted, content, "transcript")).toBe(
+      receipted,
     );
   });
 });
