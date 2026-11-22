@@ -83,6 +83,7 @@ function render(
     onResolve?: () => void;
     onStep?: (suggestion: ResourceSuggestion) => void;
     conflict?: (suggestion: ResourceSuggestion) => boolean;
+    busy?: (suggestion: ResourceSuggestion) => boolean;
     stickyDecision?: boolean;
   } = {},
 ) {
@@ -92,7 +93,7 @@ function render(
         <ThreadSuggestionBody
           suggestions={suggestions}
           canDecide={handlers.canDecide ?? true}
-          busy={() => false}
+          busy={handlers.busy ?? (() => false)}
           conflict={handlers.conflict ?? (() => false)}
           onDecide={handlers.onDecide ?? (() => {})}
           onDecideUnit={handlers.onDecideUnit ?? (() => {})}
@@ -579,6 +580,56 @@ describe("ThreadSuggestionBody", () => {
     } finally {
       scrollIntoView.mockRestore();
     }
+  });
+
+  it("stays put when someone else decides edits whose decision here failed", async () => {
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    try {
+      const onDecideRemaining = vi.fn();
+      render(edits(2), { onDecideRemaining });
+      act(() => button('comments.acceptEdits:{"count":2}').click());
+      expect(onDecideRemaining).toHaveBeenCalledWith("accepted");
+      render(edits(2), { onDecideRemaining, busy: () => true });
+      render(edits(2), { onDecideRemaining });
+
+      render(
+        edits(2).map((suggestion) => withStatus(suggestion, "accepted")),
+        { onDecideRemaining },
+      );
+      await act(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+          ),
+      );
+
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    } finally {
+      scrollIntoView.mockRestore();
+    }
+  });
+
+  it("hands focus to Show when its decision lands before saving ends", async () => {
+    const onDecideRemaining = vi.fn();
+    const accepted = () =>
+      edits(2).map((suggestion) => withStatus(suggestion, "accepted"));
+    render(edits(2), { onDecideRemaining });
+    const accept = button('comments.acceptEdits:{"count":2}');
+    accept.focus();
+    act(() => accept.click());
+    render(edits(2), { onDecideRemaining, busy: () => true });
+    render(accepted(), { onDecideRemaining, busy: () => true });
+    render(accepted(), { onDecideRemaining });
+    await act(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+
+    expect(document.activeElement).toBe(
+      requiredElement("[data-thread-suggestion-show]"),
+    );
   });
 
   it("says how many edits ended each way when some were rejected", () => {

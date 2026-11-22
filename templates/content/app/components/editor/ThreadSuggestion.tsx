@@ -286,6 +286,11 @@ export function ThreadSuggestionBody({
     });
     return () => cancelAnimationFrame(frame);
   }, [decided]);
+  const deciding = suggestions.some(busy);
+  useLayoutEffect(() => {
+    if (deciding) return;
+    for (const id of pendingIds) decidedHere.current.delete(id);
+  }, [deciding]);
   useLayoutEffect(() => {
     if (pendingIds.length) lastPending.current = pendingIds;
   });
