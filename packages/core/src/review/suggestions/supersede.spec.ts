@@ -113,7 +113,7 @@ const revise = (supersedes: string[], idempotencyKey = "revision-1") =>
   );
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetStoreLedgerSnapshotForTests();
   __resetSuggestionTablesForTests();
   resolveThread.mockReset();

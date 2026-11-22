@@ -1,7 +1,15 @@
 import { createRequire } from "node:module";
 
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../../packages/core/package.json", import.meta.url),
@@ -53,6 +61,7 @@ vi.mock("../bigquery.js", () => ({
 
 import * as dbModule from "../../db/index.js";
 import { BigQueryMaximumBytesBilledError } from "../bigquery.js";
+import { resetPublicSchema } from "../testing/pglite-reset.js";
 import {
   collectContentForAllTenants,
   collectContentForCollection,
@@ -164,8 +173,16 @@ describe("content collection", () => {
     return (await client.query(sql)).rows as Array<Record<string, unknown>>;
   }
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     mocks.getDb.mockReset();
     mocks.getDb.mockReturnValue(drizzle(client, { schema: dbModule.schema }));
     mocks.listBuilderBlogArticles.mockReset();
@@ -181,10 +198,6 @@ describe("content collection", () => {
     for (const statement of CONTENT_SEARCH_QUERIES_MIGRATION_SQL) {
       await client.exec(statement);
     }
-  });
-
-  afterEach(async () => {
-    await client.close();
   });
 
   it("writes the article list with authors under the stored owner and marks the run succeeded", async () => {

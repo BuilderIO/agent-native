@@ -2143,6 +2143,7 @@ const messages: ToolkitAgentChatTranslation = {
     "تم مسح بيانات اعتماد التخزين. ستذهب الملفات الجديدة إلى Builder.io.",
   "settings.storage.saveFailed": "تعذّر حفظ تخزين الملفات.",
   "settings.storage.clearFailed": "تعذّر مسح بيانات اعتماد التخزين.",
+  "settings.timezoneLoadFailed": "تعذّر تحميل منطقتك الزمنية.",
   "settings.storage.loadFailed": "تعذّر تحميل إعدادات تخزين الملفات.",
   "settings.storage.retry": "إعادة المحاولة",
   "settings.storage.unreadable":

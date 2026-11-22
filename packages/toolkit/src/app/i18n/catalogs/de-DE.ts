@@ -2126,6 +2126,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Dateispeicher konnte nicht gespeichert werden.",
   "settings.storage.clearFailed":
     "Speicher-Zugangsdaten konnten nicht gelöscht werden.",
+  "settings.timezoneLoadFailed": "Deine Zeitzone konnte nicht geladen werden.",
   "settings.storage.loadFailed":
     "Dateispeicher-Einstellungen konnten nicht geladen werden.",
   "settings.storage.retry": "Erneut versuchen",

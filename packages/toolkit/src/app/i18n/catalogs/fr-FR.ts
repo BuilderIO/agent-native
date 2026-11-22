@@ -2163,6 +2163,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Impossible d'enregistrer le stockage des fichiers.",
   "settings.storage.clearFailed":
     "Impossible d'effacer les identifiants de stockage.",
+  "settings.timezoneLoadFailed": "Impossible de charger votre fuseau horaire.",
   "settings.storage.loadFailed":
     "Impossible de charger les paramètres de stockage des fichiers.",
   "settings.storage.retry": "Réessayer",

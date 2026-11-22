@@ -98,6 +98,8 @@ export interface TimezoneSelectProps {
   id?: string;
   /** The trigger's height: `sm` for a settings row, 32px. */
   size?: "sm" | "default";
+  /** Shows a neutral dash instead of any zone, e.g. when the saved value could not be read. */
+  unavailable?: boolean;
 }
 
 export function TimezoneSelect({
@@ -108,6 +110,7 @@ export function TimezoneSelect({
   systemLabel,
   id,
   size = "default",
+  unavailable = false,
 }: TimezoneSelectProps) {
   const [open, setOpen] = useState(false);
   const detected = browserTimezone();
@@ -125,8 +128,9 @@ export function TimezoneSelect({
     [value],
   );
 
-  const triggerLabel =
-    value === SYSTEM_VALUE
+  const triggerLabel = unavailable
+    ? "\u2014"
+    : value === SYSTEM_VALUE
       ? (systemLabel ?? SYSTEM_VALUE)
       : selected
         ? `(${selected.offsetLabel}) ${selected.placeLabel}`

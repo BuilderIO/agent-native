@@ -190,7 +190,7 @@ async function rowCount(id: string): Promise<number> {
 }
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   _resetInitPromiseForTests();
   // Creates the tables through the store's own migrations.
   await listStagedDatasets({ appId: APP, ownerEmail: "setup@example.com" });

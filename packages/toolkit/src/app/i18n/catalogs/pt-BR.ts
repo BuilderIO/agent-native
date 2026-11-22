@@ -2134,6 +2134,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Não foi possível salvar o armazenamento de arquivos.",
   "settings.storage.clearFailed":
     "Não foi possível limpar as credenciais de armazenamento.",
+  "settings.timezoneLoadFailed": "Não foi possível carregar seu fuso horário.",
   "settings.storage.loadFailed":
     "Não foi possível carregar as configurações de armazenamento de arquivos.",
   "settings.storage.retry": "Tentar novamente",

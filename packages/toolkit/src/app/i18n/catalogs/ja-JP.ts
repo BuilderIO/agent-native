@@ -2022,6 +2022,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.saveFailed": "ファイルストレージを保存できませんでした。",
   "settings.storage.clearFailed":
     "ストレージの認証情報を消去できませんでした。",
+  "settings.timezoneLoadFailed": "タイムゾーンを読み込めませんでした。",
   "settings.storage.loadFailed":
     "ファイルストレージの設定を読み込めませんでした。",
   "settings.storage.retry": "再試行",

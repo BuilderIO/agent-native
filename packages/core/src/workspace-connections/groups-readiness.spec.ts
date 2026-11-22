@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 it("provisions group-sharing dependencies on a fresh hosted database without release migrations", async () => {
-  const database = await createTestPglite();
+  const database = await createTestPglite({ reuseEmptyBootstrap: true });
   const exec: DbExec = {
     async execute(input) {
       if (typeof input === "string") {

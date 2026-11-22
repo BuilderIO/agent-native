@@ -5,6 +5,14 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import {
+  allowanceApprovalNotice,
+  allowanceBudget,
+  allowanceToAskAbout,
+  firstPartyQueriesRunOnBigQuery,
+  needsAllowanceApproval,
+  recordReviewedAllowance,
+} from "../server/lib/bigquery-agent-approval.js";
 import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget.js";
 import {
   outsideAgentBigQueryReportSchema,
@@ -18,6 +26,7 @@ import {
 } from "../server/lib/bigquery-agent-context.js";
 import { BigQueryMaximumBytesBilledError } from "../server/lib/bigquery.js";
 import {
+  FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED,
   getFirstPartyAnalyticsHealth,
   unavailableFirstPartyAnalyticsHealth,
 } from "../server/lib/first-party-analytics-health.js";
@@ -117,16 +126,43 @@ export default defineAction({
   readOnly: true,
   mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  mcpNeedsApproval: async (_args, ctx) => {
+    const read = await allowanceBudget(ctx);
+    return (
+      read !== null &&
+      (await firstPartyQueriesRunOnBigQuery(read.identity)) &&
+      needsAllowanceApproval(
+        read.budget,
+        FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED,
+      )
+    );
+  },
+  approvalNotice: async (_args, ctx) =>
+    allowanceApprovalNotice(
+      await allowanceToAskAbout(
+        ctx,
+        FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED,
+      ),
+      FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED,
+    ),
+  approvalProof: "review-page",
   run: async (_args, context?: ActionRunContext) => {
     const scope = resolveScope();
     try {
       if (isOutsideAgentCaller(context?.caller)) {
+        const identity = outsideAgentIdentity(scope.userEmail, scope.orgId);
+        if (await firstPartyQueriesRunOnBigQuery(identity)) {
+          await recordReviewedAllowance(identity);
+        }
         const { value, report } = await runOutsideAgentBigQueryCall(
           {
-            identity: outsideAgentIdentity(scope.userEmail, scope.orgId),
+            identity,
             source: "get-first-party-analytics-health",
             reservation: "full-cap",
             leaseMs: 60_000,
+            ...(context?.caller === "mcp"
+              ? { askVia: "get-first-party-analytics-health" }
+              : {}),
           },
           () => getFirstPartyAnalyticsHealth(scope),
         );
