@@ -630,6 +630,22 @@ describe("route chunk recovery", () => {
     });
   });
 
+  it("reports desktop exhaustion instead of arming an offline retry", () => {
+    const harness = createFakeWindow(undefined, {
+      onLine: false,
+      userAgent: "Mozilla/5.0 AgentNativeDesktop/1.0",
+    });
+
+    expect(reloadForStaleChunk(harness.fakeWindow, 1_000)).toBe(false);
+    harness.dispatchWindow("online", new Event("online"));
+
+    expect(harness.fakeLocation.assign).not.toHaveBeenCalled();
+    expect(harness.originalReload).not.toHaveBeenCalled();
+    expect(readStaleChunkRecoveryExhausted(harness.fakeWindow)).toEqual({
+      reason: "desktop",
+    });
+  });
+
   it("arms the retry from the console hook when reload cannot be patched offline", () => {
     const harness = createFakeWindow(undefined, {
       onLine: false,

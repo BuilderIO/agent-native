@@ -421,7 +421,7 @@ function retryNavigationWhenOnline(
   win.addEventListener("online", () => {
     const pending = flags[OFFLINE_RETRY_KEY] as OfflineRetry | undefined;
     delete flags[OFFLINE_RETRY_KEY];
-    if (!pending || isExternalEmbed(win)) return;
+    if (!pending || isExternalEmbed(win) || isAgentNativeDesktop(win)) return;
     if (win.location.href !== pending.from) return;
     if (pending.href.split("#")[0] === win.location.href.split("#")[0]) {
       win.location.reload();
@@ -436,7 +436,7 @@ export function reloadForStaleChunk(
   now = Date.now(),
 ): boolean {
   if (!win?.location) return false;
-  if (isOffline(win) && !isExternalEmbed(win)) {
+  if (isOffline(win) && !isExternalEmbed(win) && !isAgentNativeDesktop(win)) {
     const state = recoveryStates.get(win);
     retryNavigationWhenOnline(
       win,
