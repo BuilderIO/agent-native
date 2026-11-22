@@ -664,7 +664,7 @@ const safeSourceConfig = z.strictObject({
 });
 
 const SOURCE_LOCATOR =
-  /[\\/\r\n]|%[\da-f]{2}|\b(?:https?|ftp|file|data|mailto):|\b(?:[a-z\d-]+\.)+[a-z]{2,}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b/i;
+  /[\\\r\n]|%[\da-f]{2}|\b(?:https?|ftp|file|data|mailto):|\b(?:[a-z\d-]+\.)+[a-z]{2,}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b/i;
 
 const BARE_LINK =
   /(?:\bwww\.|\b(?:[a-z\d-]+\.)+[a-z]{2,}(?::\d+)?[/?#]|\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:[/?#]|\b)|\blocalhost(?::\d+)?(?:[/?#]|\b))[^\s<>"')\]]*/gi;
@@ -910,6 +910,9 @@ export async function sanitizeCaptureForStorage(
     [input.source.provider === "zoom"
       ? "zoomPassageQuarantine"
       : "passageQuarantine"]: { version: 1, withheldPassages },
+    ...(typeof result.metadata.participantsCount === "number"
+      ? { participantsCount: result.metadata.participantsCount }
+      : {}),
   };
   return {
     ...result,

@@ -55,6 +55,7 @@ import {
 } from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -1787,6 +1788,9 @@ function ingestSourceKey(source: BrainSource) {
 type MarkdownFileSelection = {
   path: string;
   file: File;
+  transcript: boolean | null;
+  capturedAt: string;
+  participants: string;
 };
 
 function actionErrorMessage(error: unknown) {
@@ -1816,7 +1820,13 @@ function MarkdownImportDialog({
     MarkdownImportResponse,
     {
       sourceId: string;
-      files: Array<{ path: string; content: string }>;
+      files: Array<{
+        path: string;
+        content: string;
+        kind?: "document" | "transcript";
+        capturedAt?: string;
+        participants?: string[];
+      }>;
       enqueueDistillation: boolean;
       kind: "document" | "transcript";
     }
@@ -1837,7 +1847,14 @@ function MarkdownImportDialog({
     const byPath = new Map<string, MarkdownFileSelection>();
     for (const file of selected) {
       const path = file.webkitRelativePath || file.name;
-      if (documentImportFormat(path)) byPath.set(path, { path, file });
+      if (documentImportFormat(path))
+        byPath.set(path, {
+          path,
+          file,
+          transcript: null,
+          capturedAt: "",
+          participants: "",
+        });
     }
     setFiles(Array.from(byPath.values()));
     setSkippedFileCount(selected.length - byPath.size);
@@ -1851,10 +1868,30 @@ function MarkdownImportDialog({
     setReadError(null);
     try {
       const payload = await Promise.all(
-        files.map(async ({ path, file }) => ({
-          path,
-          content: await file.text(),
-        })),
+        files.map(
+          async ({ path, file, transcript, capturedAt, participants }) => ({
+            path,
+            content: await file.text(),
+            ...(transcript === null
+              ? {}
+              : {
+                  kind: transcript
+                    ? ("transcript" as const)
+                    : ("document" as const),
+                }),
+            ...(capturedAt
+              ? { capturedAt: new Date(capturedAt).toISOString() }
+              : {}),
+            ...(participants.trim()
+              ? {
+                  participants: participants
+                    .split(",")
+                    .map((name) => name.trim())
+                    .filter(Boolean),
+                }
+              : {}),
+          }),
+        ),
       );
       const nextResult = await importMarkdownFiles.mutateAsync({
         sourceId: source.id,
@@ -1979,18 +2016,68 @@ function MarkdownImportDialog({
 
             {files.length ? (
               <div className="grid max-h-48 gap-1 overflow-y-auto rounded-md border border-border p-3 text-xs text-muted-foreground">
-                {files.slice(0, 20).map(({ path }) => (
-                  <p key={path} className="truncate font-mono">
-                    {path}
-                  </p>
+                {files.map((item) => (
+                  <details key={item.path}>
+                    <summary className="cursor-pointer truncate font-mono">
+                      {item.path}
+                    </summary>
+                    <div className="grid gap-2 py-2">
+                      <label className="grid gap-1">
+                        {t("sources.importCaptureTime")}
+                        <Input
+                          type="datetime-local"
+                          value={item.capturedAt}
+                          onChange={(event) =>
+                            setFiles((current) =>
+                              current.map((entry) =>
+                                entry.path === item.path
+                                  ? { ...entry, capturedAt: event.target.value }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label className="grid gap-1">
+                        {t("sources.importParticipants")}
+                        <Input
+                          value={item.participants}
+                          onChange={(event) =>
+                            setFiles((current) =>
+                              current.map((entry) =>
+                                entry.path === item.path
+                                  ? {
+                                      ...entry,
+                                      participants: event.target.value,
+                                    }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <Checkbox
+                          checked={
+                            item.transcript === null
+                              ? "indeterminate"
+                              : item.transcript
+                          }
+                          onCheckedChange={(checked) =>
+                            setFiles((current) =>
+                              current.map((entry) =>
+                                entry.path === item.path
+                                  ? { ...entry, transcript: checked === true }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        />
+                        {t("sources.importTranscript")}
+                      </label>
+                    </div>
+                  </details>
                 ))}
-                {files.length > 20 ? (
-                  <p>
-                    {t("sources.manualImportMoreFiles", {
-                      count: (files.length - 20).toLocaleString(),
-                    })}
-                  </p>
-                ) : null}
               </div>
             ) : null}
 

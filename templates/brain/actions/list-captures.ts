@@ -9,10 +9,14 @@ import {
   latestDistillationQueuesForCaptures,
   sourceUrlFromMetadataRecord,
 } from "../server/lib/brain.js";
-import { publicSourceTitle } from "../server/lib/capture-sanitization.js";
+import {
+  publicCaptureTitle,
+  publicSourceTitle,
+} from "../server/lib/capture-sanitization.js";
 import {
   parseCaptureMetadata,
   publicCaptureExternalId,
+  readWithheldPassages,
   withOmissionReceipt,
   withheldPassageCount,
 } from "../server/lib/search-index-contracts.js";
@@ -151,7 +155,7 @@ export default defineAction({
         status: schema.brainRawCaptures.status,
         capturedAt: schema.brainRawCaptures.capturedAt,
         metadataJson: schema.brainRawCaptures.metadataJson,
-        omissionMarker: sql<boolean>`(${schema.brainRawCaptures.content} = ${"[…]"} OR ${schema.brainRawCaptures.content} LIKE ${"[…]\n%"} OR ${schema.brainRawCaptures.content} LIKE ${"%\n[…]\n%"} OR ${schema.brainRawCaptures.content} LIKE ${"%\n[…]\r%"} OR ${schema.brainRawCaptures.content} LIKE ${"%\n[…]"})`,
+        omissionMarker: sql<boolean>`${schema.brainRawCaptures.content} LIKE ${"%[…]%"}`,
         createdAt: schema.brainRawCaptures.createdAt,
         updatedAt: schema.brainRawCaptures.updatedAt,
         ...(args.includePreview
@@ -168,6 +172,32 @@ export default defineAction({
       .where(and(...captureClauses))
       .orderBy(desc(schema.brainRawCaptures.capturedAt))
       .limit(args.limit);
+    const markerCandidates = rows
+      .filter(
+        (row) =>
+          row.omissionMarker &&
+          row.kind === "transcript" &&
+          readWithheldPassages(parseCaptureMetadata(row.metadataJson) ?? {}) ===
+            undefined,
+      )
+      .map((row) => row.id);
+    const standaloneMarker = new Set(
+      (markerCandidates.length
+        ? await db
+            .select({
+              id: schema.brainRawCaptures.id,
+              content: schema.brainRawCaptures.content,
+            })
+            .from(schema.brainRawCaptures)
+            .where(inArray(schema.brainRawCaptures.id, markerCandidates))
+        : []
+      )
+        .filter(
+          (row) =>
+            withOmissionReceipt("{}", row.content, "transcript") !== "{}",
+        )
+        .map((row) => row.id),
+    );
     const queueByCapture = await latestDistillationQueuesForCaptures(
       rows.map((row) => row.id),
     );
@@ -178,7 +208,7 @@ export default defineAction({
         const source = sourceMap.get(row.sourceId);
         if (!source) return [];
         const metadata = parseCaptureMetadata(
-          row.omissionMarker
+          standaloneMarker.has(row.id)
             ? withOmissionReceipt(row.metadataJson, "[…]", row.kind)
             : row.metadataJson,
         );
@@ -202,7 +232,9 @@ export default defineAction({
             externalId: redactOptionalText(
               publicCaptureExternalId(row.externalId, metadata, row.kind),
             ),
-            title: redactSensitiveText(row.title),
+            title: redactSensitiveText(
+              publicCaptureTitle(row.title, withheldPassages !== 0),
+            ),
             kind: row.kind,
             status: row.status,
             capturedAt: row.capturedAt,

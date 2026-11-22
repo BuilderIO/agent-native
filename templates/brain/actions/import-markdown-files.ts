@@ -1,4 +1,8 @@
-import { defineAction } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -53,6 +57,25 @@ type ImportedMarkdownResult =
 const markdownFileSchema = z.object({
   path: z.string().trim().min(1).max(2_000),
   content: z.string().max(MAX_MARKDOWN_FILE_CHARS),
+  kind: z
+    .enum(["document", "transcript"])
+    .optional()
+    .describe(
+      "Set document or transcript explicitly; when omitted, preserve an existing capture's kind or use document for a new file.",
+    ),
+  capturedAt: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe(
+      "Capture time as an ISO 8601 datetime with timezone, when known.",
+    ),
+  participants: z
+    .array(z.string().trim().min(1).max(200))
+    .max(100)
+    .optional()
+    .describe(
+      "Optional participant labels. Privacy screening discards the labels and stores only their count; they do not grant access or change the audience. An empty list preserves the existing count.",
+    ),
 });
 
 function normalizeMarkdownPath(value: string) {
@@ -82,9 +105,48 @@ function normalizeMarkdownPath(value: string) {
   return { path, error: null };
 }
 
+function suppliedProvenanceApplied(
+  capture:
+    | {
+        capturedAt?: string | null | undefined;
+        kind?: string | null | undefined;
+        metadataJson?: string | null | undefined;
+      }
+    | undefined,
+  file: {
+    kind?: string | undefined;
+    capturedAt?: string | undefined;
+    participants?: string[] | undefined;
+  },
+) {
+  if (!capture) return false;
+  if (file.kind && capture.kind !== file.kind) return false;
+  if (file.capturedAt || file.participants?.length) {
+    const metadata = JSON.parse(capture.metadataJson ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    if (file.capturedAt) {
+      const wanted = Date.parse(file.capturedAt);
+      if (
+        !capture.capturedAt ||
+        Date.parse(capture.capturedAt) !== wanted ||
+        metadata.capturedAtSource !== "manual-markdown"
+      )
+        return false;
+    }
+    if (
+      file.participants?.length &&
+      metadata.participantsCount !== file.participants.length
+    )
+      return false;
+  }
+  return true;
+}
+
 export default defineAction({
   description:
-    "Import a bounded folder or batch of Markdown (.md, .markdown) or plain text (.txt) files into a manual Brain source. Paths are preserved for deduplication and each file is queued for distillation by default.",
+    "Import a bounded folder or batch of Markdown (.md, .markdown) or plain text (.txt) files into a manual Brain source. Paths are preserved for deduplication and each file is queued for distillation by default. Participant labels are screened to a count, not retained or used as access grants.",
   schema: z.object({
     sourceId: z.string().min(1).optional(),
     sourceTitle: z
@@ -196,22 +258,50 @@ export default defineAction({
         continue;
       }
       try {
-        const { capture, postCommitWarnings } = await createCaptureWithWarnings(
-          {
-            sourceId: source.id,
-            externalId: `markdown:${normalizedPath}`,
-            title: normalizedPath,
-            kind: args.kind ?? "document",
-            content: file.input.content,
-            metadata: {
-              path: normalizedPath,
-              sourceFormat: documentImportFormat(normalizedPath) ?? "markdown",
-            },
+        const effectiveKind = file.input.kind ?? args.kind;
+        const captureInput = {
+          sourceId: source.id,
+          externalId: `markdown:${normalizedPath}`,
+          title: normalizedPath,
+          ...(effectiveKind ? { kind: effectiveKind } : {}),
+          content: file.input.content,
+          ...(file.input.capturedAt
+            ? {
+                capturedAt: file.input.capturedAt,
+                capturedAtSource: "manual-markdown" as const,
+              }
+            : {}),
+          metadata: {
+            path: normalizedPath,
+            sourceFormat: documentImportFormat(normalizedPath) ?? "markdown",
+            ...(file.input.participants?.length
+              ? { participants: file.input.participants }
+              : {}),
           },
-        );
-        if (capture.kind !== (args.kind ?? "document")) {
-          throw new BrainCaptureConcurrentError();
+        };
+        let stored = await createCaptureWithWarnings(captureInput);
+        if (
+          !suppliedProvenanceApplied(stored.capture, {
+            ...file.input,
+            kind: effectiveKind,
+          })
+        ) {
+          stored = await createCaptureWithWarnings(captureInput);
+          if (
+            !suppliedProvenanceApplied(stored.capture, {
+              ...file.input,
+              kind: effectiveKind,
+            })
+          ) {
+            if (effectiveKind && stored.capture.kind !== effectiveKind)
+              throw new BrainCaptureConcurrentError();
+            fail(
+              "The capture changed during import and the supplied provenance was not applied. Retry the import.",
+              { errorCode: "capture_changed", statusCode: 409 },
+            );
+          }
         }
+        const { capture, postCommitWarnings } = stored;
         let distillation: "queued" | "existing" | "skipped" | "failed" =
           "skipped";
         let distillationError: string | undefined;
@@ -282,6 +372,10 @@ export default defineAction({
             path: normalizedPath,
             status: "failed",
             error: error instanceof Error ? error.message : String(error),
+            ...(isActionContractError(error) &&
+            error.errorCode === "capture_changed"
+              ? { errorCode: error.errorCode }
+              : {}),
           });
         }
       }

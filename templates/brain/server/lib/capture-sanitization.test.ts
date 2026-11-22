@@ -1205,6 +1205,23 @@ describe("Zoom restricted-line withholding", () => {
     },
   );
 
+  it("keeps the participant count when screening withholds a passage", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details")), {
+        source: { ...baseInput.source, provider: "manual" as const },
+        metadata: { participants: ["Avery", "Blake"] },
+      }),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.metadata.passageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 1,
+    });
+    expect(result.metadata.participantsCount).toBe(2);
+    expect(result.metadata).not.toHaveProperty("participants");
+  });
+
   it.each(["192.168.1.20:8080/transcript", "localhost:3000/full", "10.0.0.5"])(
     "removes an IP or local-host locator from a partial transcript (%s)",
     async (link) => {
@@ -1243,7 +1260,7 @@ describe("Zoom restricted-line withholding", () => {
     expect(result.content).not.toContain("example.test");
   });
 
-  it.each(["Sprint v1.2 review", "Standup 2026.11.20"])(
+  it.each(["Sprint v1.2 review", "Standup 2026.11.20", "Q3/Q4 planning"])(
     "keeps passage withholding for an ordinary source title (%s)",
     async (title) => {
       mocks.classifyWithJev.mockImplementation(

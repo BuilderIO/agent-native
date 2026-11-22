@@ -222,6 +222,7 @@ export interface SearchEverythingResult {
   citation?: {
     captureId?: string | null;
     captureTitle?: string | null;
+    capturedAt?: string | null;
     quote?: string | null;
     sourceUrl?: string | null;
   } | null;

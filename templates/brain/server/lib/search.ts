@@ -16,6 +16,7 @@ import {
   parseJson,
   publishedKnowledgeStatusClause,
   safeCitationUrl,
+  sanitizeEvidenceCitationUrls,
 } from "./brain.js";
 import {
   publicCaptureTitle,
@@ -54,6 +55,7 @@ export interface UniversalSearchResult {
   citation: {
     captureId?: string | null;
     captureTitle?: string | null;
+    capturedAt?: string | null;
     quote?: string | null;
     sourceUrl?: string | null;
     preview?: string | null;
@@ -391,7 +393,9 @@ export function sourceUrlFromMetadata(
 }
 
 function firstCitation(evidenceJson: string) {
-  const evidence = parseJson<BrainEvidence[]>(evidenceJson, []);
+  const evidence = sanitizeEvidenceCitationUrls(
+    parseJson<BrainEvidence[]>(evidenceJson, []),
+  );
   return (
     evidence.find((item) => item.sourceUrl ?? item.url) ?? evidence[0] ?? null
   );
@@ -588,6 +592,7 @@ async function searchKnowledgeResults(
       citation: citation
         ? {
             captureId: citation.captureId,
+            capturedAt: citation.capturedAt,
             captureTitle: citation.captureTitle
               ? redactSensitiveText(citation.captureTitle)
               : citation.captureTitle,
@@ -602,6 +607,31 @@ async function searchKnowledgeResults(
       score,
     };
   });
+}
+
+function trustedMarkdownCaptureTime(
+  provider: string,
+  externalId: string | null,
+  capturedAt: string,
+  metadata: Record<string, unknown>,
+) {
+  return provider === "manual" &&
+    externalId?.startsWith("markdown:") &&
+    metadata.capturedAtSource === "manual-markdown" &&
+    !Number.isNaN(Date.parse(capturedAt))
+    ? capturedAt
+    : undefined;
+}
+
+function captureSourceTime(
+  provider: string,
+  externalId: string | null,
+  capturedAt: string,
+  metadata: Record<string, unknown>,
+) {
+  if (provider !== "manual" || !externalId?.startsWith("markdown:"))
+    return capturedAt;
+  return trustedMarkdownCaptureTime(provider, externalId, capturedAt, metadata);
 }
 
 async function searchCaptureResults(
@@ -675,6 +705,12 @@ async function searchCaptureResults(
           captureTitle: redactSensitiveText(
             publicCaptureTitle(row.title, withheldPassages !== 0),
           ),
+          capturedAt: trustedMarkdownCaptureTime(
+            source.provider,
+            row.externalId,
+            row.capturedAt,
+            metadata,
+          ),
           quote: null,
           preview: snippet,
           verbatim: false,
@@ -697,7 +733,12 @@ async function searchCaptureResults(
             parseJson<Record<string, unknown>>(source.configJson, {}),
           ).authority /
             200,
-        capturedAt: row.capturedAt,
+        capturedAt: captureSourceTime(
+          source.provider,
+          row.externalId,
+          row.capturedAt,
+          metadata,
+        ),
         location: captureLocation(metadata),
         content: captureContent(row.content),
         withheldPassages,
@@ -770,7 +811,16 @@ async function semanticCaptureDetails(
   artifacts: Array<{ captureId: string; audienceId: string }>,
   accessibleSourceIds: string[],
 ): Promise<
-  Map<string, { content: string; metadataJson: string | null; kind: string }>
+  Map<
+    string,
+    {
+      content: string;
+      metadataJson: string | null;
+      kind: string;
+      externalId: string | null;
+      capturedAt: string;
+    }
+  >
 > {
   const captureIds = Array.from(
     new Set(artifacts.map((artifact) => artifact.captureId)),
@@ -785,6 +835,8 @@ async function semanticCaptureDetails(
       content: schema.brainRawCaptures.content,
       metadataJson: schema.brainRawCaptures.metadataJson,
       kind: schema.brainRawCaptures.kind,
+      externalId: schema.brainRawCaptures.externalId,
+      capturedAt: schema.brainRawCaptures.capturedAt,
     })
     .from(schema.brainRawCaptures)
     .where(
@@ -933,6 +985,12 @@ export async function searchEverythingWithLanes(args: {
                   captureTitle: redactSensitiveText(
                     publicCaptureTitle(artifact.title, withheldPassages !== 0),
                   ),
+                  capturedAt: trustedMarkdownCaptureTime(
+                    source.provider,
+                    detail.externalId,
+                    detail.capturedAt,
+                    metadata,
+                  ),
                   quote: null,
                   preview: snippet,
                   verbatim: false,
@@ -943,7 +1001,15 @@ export async function searchEverythingWithLanes(args: {
                 score: artifact.score * 100,
                 reasons: artifact.reasons,
                 lane: artifact.lane,
-                capturedAt: artifact.capturedAt,
+                capturedAt: captureSourceTime(
+                  source.provider,
+                  detail.externalId,
+                  source.provider === "manual" &&
+                    detail.externalId?.startsWith("markdown:")
+                    ? detail.capturedAt
+                    : artifact.capturedAt,
+                  metadata,
+                ),
                 location: captureLocation(metadata),
                 content: captureContent(detail.content),
                 withheldPassages,
