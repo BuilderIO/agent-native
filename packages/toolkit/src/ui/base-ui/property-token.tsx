@@ -72,7 +72,7 @@ function TokenOptions<T>({
 
 const detachItem = { action: "detach" } as const;
 
-/** A controlled token picker. Children supply the literal property editor. */
+/** A controlled token picker. Children supply the literal property editor. The color callback supplies a CSS color for each preview. */
 export function PropertyTokenField<T>({
   binding,
   label,
@@ -90,7 +90,6 @@ export function PropertyTokenField<T>({
   label: string;
   children: React.ReactNode;
   format?: (value: T) => string;
-  /** CSS color used to preview each value. */
   color?: (value: T) => string;
   swatchRef?: React.Ref<HTMLSpanElement>;
   prefix?: React.ReactNode;

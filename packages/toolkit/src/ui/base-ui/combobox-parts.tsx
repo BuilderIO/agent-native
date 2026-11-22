@@ -35,8 +35,6 @@ export function listboxActionName(
   const label = React.isValidElement<{ children?: React.ReactNode }>(render)
     ? (render.props.children ?? children)
     : children;
-  // A standalone trigger has role="combobox", which needs an author-provided name.
-  // A fallback title lets a composed button supply its own text, title or ARIA name.
   return {
     title: typeof label === "string" && label.trim() ? label : fallback,
   };
@@ -137,15 +135,14 @@ export function useListboxOpenChange<
         listener?.(open, details);
         return;
       }
-      let held = false;
+      const holdState = { held: false };
       const hold = details.preventUnmountOnClose;
       details.preventUnmountOnClose = () => {
-        held = true;
+        holdState.held = true;
         hold();
       };
       listener?.(false, details);
-      if (held || details.isCanceled) return;
-      // An unconsumed Enter can activate the trigger when focus returns.
+      if (holdState.held || details.isCanceled) return;
       event.preventDefault();
       actionsRef.current?.unmount();
     },
@@ -228,8 +225,6 @@ export function createListboxPopup(
             frame = win.requestAnimationFrame(() => {
               frame = undefined;
               const next = doc.activeElement;
-              // Base UI can suppress focus-out immediately after a click. Respect a host
-              // that already received the dismissal and chose to keep its popup open.
               if (
                 requests === closeRequests.current &&
                 node.hasAttribute("data-open") &&
@@ -242,7 +237,6 @@ export function createListboxPopup(
             });
           };
           const leaveDocument = () => {
-            // Tab into browser chrome has no relatedTarget for Base UI's focus-out handler.
             if (
               doc.activeElement === doc.body &&
               node.hasAttribute("data-open")

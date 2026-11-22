@@ -20,15 +20,23 @@ export function createGroupProps<D extends PropDefs>(defs: D) {
     children?: React.ReactNode;
   }) {
     const values: Record<string, unknown> = value;
-    const inherited = names.map((name) => values[name]);
-    const given = React.useMemo(() => {
-      const result: Record<string, unknown> = {};
-      names.forEach((name, index) => {
-        if (inherited[index] !== undefined) result[name] = inherited[index];
-      });
-      return result as PropsOf<D>;
-      // oxlint-disable-next-line react-hooks/exhaustive-deps -- The static prop definition fixes the dependency order and length.
-    }, inherited);
+    const pick = () =>
+      Object.fromEntries(
+        names
+          .filter((name) => values[name] !== undefined)
+          .map((name) => [name, values[name]]),
+      ) as PropsOf<D>;
+    const [previous, setPrevious] = React.useState(pick);
+    let given = previous;
+    if (
+      names.some(
+        (name) =>
+          !Object.is((previous as Record<string, unknown>)[name], values[name]),
+      )
+    ) {
+      given = pick();
+      setPrevious(given);
+    }
     return <Context.Provider value={given}>{children}</Context.Provider>;
   }
 

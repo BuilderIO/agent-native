@@ -21,7 +21,7 @@ import { activeElementInRoot } from "./surface-target.js";
 const SelectPortal = scopePortal(BaseSelect.Portal);
 
 const SelectContext = React.createContext<{
-  size?: string;
+  size?: string | undefined;
   name?: AccessibleName;
   triggerRef?: React.RefObject<HTMLButtonElement | null>;
   listRef?: React.RefObject<HTMLDivElement | null>;
@@ -60,7 +60,6 @@ function Select<Value, Multiple extends boolean | undefined = false>(
     queueMicrotask(() => {
       const trigger = triggerRef.current;
       const list = listRef.current;
-      // Base UI otherwise keeps focus in the closing option until its exit animation finishes.
       if (
         trigger?.getAttribute("aria-expanded") === "false" &&
         list?.contains(activeElementInRoot(list))

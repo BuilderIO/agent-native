@@ -70,7 +70,7 @@ it.each(["readOnly", "disabled"] as const)(
       { phase: "cancel" },
     ]);
     expect(field().value).toBe("40");
-    if (mode === "readOnly") expect(document.activeElement).toBe(field());
+    expect(document.activeElement === field()).toBe(mode === "readOnly");
     view.rerender(<PropertyNumber {...props} />);
     fireEvent.blur(field());
     expect(onEdit).toHaveBeenCalledTimes(2);

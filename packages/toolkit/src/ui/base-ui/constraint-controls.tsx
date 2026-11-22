@@ -168,7 +168,7 @@ export interface ConstraintControlsProps extends Omit<
 export function ConstraintControls({
   value,
   onChange,
-  disabled,
+  disabled = false,
   labels,
   className,
   ...props

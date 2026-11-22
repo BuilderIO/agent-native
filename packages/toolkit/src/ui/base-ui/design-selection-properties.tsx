@@ -39,6 +39,7 @@ import {
   DesignPropertySection as Section,
   DesignSelectionHeader,
 } from "./design-property-inspector.js";
+import { requireItem } from "./indexed-item.js";
 import { InspectorGrid } from "./inspector.js";
 import {
   AutoLayoutControls,
@@ -115,7 +116,6 @@ export interface DesignLayerIdentity {
 }
 type LayerGeometry = DesignLayerGeometry;
 
-// Hosts retain these updates during a gesture. Capture only the edit parameters.
 type NumericProperty =
   | "x"
   | "y"
@@ -128,9 +128,9 @@ function commonValue<T>(
   layers: readonly LayerGeometry[],
   read: (layer: LayerGeometry) => T,
 ) {
-  const first = read(layers[0]);
+  const first = read(requireItem(layers, 0));
   for (let i = 1; i < layers.length; i++) {
-    if (!Object.is(first, read(layers[i]))) return null;
+    if (!Object.is(first, read(requireItem(layers, i)))) return null;
   }
   return first;
 }
@@ -200,12 +200,20 @@ function RadiusField<G extends LayerGeometry>({
       ...layer,
       radiusToken: undefined,
       radius: resolvePropertyToken(
-        { token: layer.radiusToken, value: layer.radius },
+        {
+          ...(layer.radiusToken === undefined
+            ? {}
+            : { token: layer.radiusToken }),
+          value: layer.radius,
+        },
         tokens,
       ),
     }));
   const binding = useTokenBinding(
-    { token: id ?? undefined, value: current[0].radius },
+    {
+      ...(id == null ? {} : { token: id }),
+      value: requireItem(current, 0).radius,
+    },
     tokens,
     (next) => {
       if (next.token === undefined) detach();
@@ -221,7 +229,7 @@ function RadiusField<G extends LayerGeometry>({
     <PropertyTokenField
       binding={binding}
       prefix={<IconRadiusTopLeft />}
-      mixed={id === null ? { label: "Mixed", detach } : undefined}
+      {...(id === null ? { mixed: { label: "Mixed", detach } } : {})}
       label={label + " token"}
       format={(n) => n + "px"}
     >
@@ -491,13 +499,11 @@ export function DesignSelectionProperties<
     )
       return null;
     const indices: number[] = [];
-    for (let i = 0; i < selectedLayers.length; i++) {
-      if (!lockedLayerIds.has(selectedLayers[i].id)) indices.push(i);
+    for (const [index, layer] of selectedLayers.entries()) {
+      if (!lockedLayerIds.has(layer.id)) indices.push(index);
     }
     return indices;
   }, [selectedLayers, lockedLayerIds]);
-  // The JSON array ends in "]". A suffix of editable indices also distinguishes
-  // an entirely locked selection (empty suffix) from an unlocked one (no suffix).
   const selectionKey = React.useMemo(
     () =>
       eligible === null
@@ -510,14 +516,14 @@ export function DesignSelectionProperties<
   const layers = React.useMemo(
     () =>
       eligible?.length
-        ? eligible.map((i) => selectedLayers[i])
+        ? eligible.map((i) => requireItem(selectedLayers, i))
         : selectedLayers,
     [eligible, selectedLayers],
   );
   const current = React.useMemo(
     () =>
       eligible?.length
-        ? eligible.map((i) => selectedGeometry[i])
+        ? eligible.map((i) => requireItem(selectedGeometry, i))
         : selectedGeometry,
     [eligible, selectedGeometry],
   );
@@ -583,8 +589,8 @@ export function DesignSelectionProperties<
         {children}
       </DesignPropertyInspector>
     );
-  const selection = layers[0],
-    g = current[0],
+  const selection = requireItem(layers, 0),
+    g = requireItem(current, 0),
     single = selectedLayers.length === 1;
   const frame = single && selection.container;
   const action = (
@@ -846,8 +852,8 @@ export function DesignSelectionProperties<
     );
   }
   const renderLayout = () => {
-    let width: number | null = current[0].width;
-    let height: number | null = current[0].height;
+    let width: number | null = g.width;
+    let height: number | null = g.height;
     let hasLocked = false;
     let hasUnlocked = false;
     let cannotAddLock = false;
@@ -876,7 +882,7 @@ export function DesignSelectionProperties<
     return (
       <Section title="Layout" className="design-property-inspector-layout">
         <LayoutDimensions
-          suffixes={incompatibleLock ? undefined : dimensionMenus}
+          {...(incompatibleLock ? {} : { suffixes: dimensionMenus })}
           dimensionsReadOnly={incompatibleLock}
           width={width}
           height={height}
@@ -982,8 +988,8 @@ export function DesignSelectionProperties<
                           swatch.ownerDocument.defaultView?.getComputedStyle(
                             swatch,
                           ).backgroundColor;
-                        const first = paints[0];
-                        if (first.kind !== "solid") return;
+                        const first = paints.at(0);
+                        if (first?.kind !== "solid") return;
                         const next = [
                           {
                             ...first,

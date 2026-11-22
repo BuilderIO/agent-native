@@ -37,7 +37,7 @@ export const CustomGrid: StoryObj = {
     if (!panel) throw new Error("Missing inspector");
     const region = panel.getBoundingClientRect();
     const rtl = getComputedStyle(panel).direction === "rtl";
-    const track = (selector: string) => {
+    const measurePart = (selector: string) => {
       const el = panel.querySelector(selector);
       if (!el) throw new Error("Missing inspector part: " + selector);
       const box = el.getBoundingClientRect();
@@ -47,7 +47,7 @@ export const CustomGrid: StoryObj = {
       ];
     };
     const fieldWidth = (region.width - 24 - 12 - 40 - 2 * 16) / 2;
-    await expect(track('.input:has(input[aria-label="X"])')).toEqual([
+    await expect(measurePart('.input:has(input[aria-label="X"])')).toEqual([
       24,
       fieldWidth,
     ]);
@@ -56,37 +56,41 @@ export const CustomGrid: StoryObj = {
       '.input:has(input[aria-label="Rotation"])',
       '[aria-label="Horizontal alignment"]',
     ]) {
-      await expect(track(part)).toEqual([24, pairWidth]);
+      await expect(measurePart(part)).toEqual([24, pairWidth]);
     }
-    await expect(track('[aria-label="Vertical alignment"]')).toEqual([
+    await expect(measurePart('[aria-label="Vertical alignment"]')).toEqual([
       24 + pairWidth + 16,
       pairWidth,
     ]);
     await expect(
-      track(".design-property-inspector-instance .segmented-control"),
+      measurePart(".design-property-inspector-instance .segmented-control"),
     ).toEqual([24, region.width - 48]);
-    await expect(track('[aria-label="Selection actions"]')).toEqual(
-      track('[aria-label="Auto layout"]'),
+    await expect(measurePart('[aria-label="Selection actions"]')).toEqual(
+      measurePart('[aria-label="Auto layout"]'),
     );
-    await expect(track(".paint-editor-trigger")).toEqual([
+    await expect(measurePart(".paint-editor-trigger")).toEqual([
       24,
       region.width - 24 - 12 - 2 * 40 - 16,
     ]);
-    const first = track('.input:has(input[aria-label="Width"])');
-    const second = track('.input:has(input[aria-label="Height"])');
-    const action = track('[aria-label="Auto layout"]');
-    await expect(track('[aria-label="Breakpoint"]')).toEqual([24, 160]);
-    await expect(track('[aria-label="Remove responsive rule"]')).toEqual([
+    const first = measurePart('.input:has(input[aria-label="Width"])');
+    const second = measurePart('.input:has(input[aria-label="Height"])');
+    const action = measurePart('[aria-label="Auto layout"]');
+    await expect(measurePart('[aria-label="Breakpoint"]')).toEqual([24, 160]);
+    await expect(measurePart('[aria-label="Remove responsive rule"]')).toEqual([
       24 + 160 + 16 + (40 - action[1]) / 2,
       action[1],
     ]);
     await userEvent.click(canvas.getByRole("button", { name: "Auto layout" }));
-    await expect(track(".alignment-picker")).toEqual(first);
-    await expect(track('[aria-label="Layout direction"]')).toEqual(second);
-    await expect(track('[aria-label="Wrap"]')).toEqual(action);
+    await expect(measurePart(".alignment-picker")).toEqual(first);
+    await expect(measurePart('[aria-label="Layout direction"]')).toEqual(
+      second,
+    );
+    await expect(measurePart('[aria-label="Wrap"]')).toEqual(action);
     await userEvent.click(canvas.getByLabelText("Grid", { exact: true }));
-    await expect(track(".grid-size-picker")).toEqual(first);
-    await expect(track('.input:has(input[aria-label="Gap"])')).toEqual(second);
+    await expect(measurePart(".grid-size-picker")).toEqual(first);
+    await expect(measurePart('.input:has(input[aria-label="Gap"])')).toEqual(
+      second,
+    );
   },
 };
 export const AutoLayout: StoryObj = {

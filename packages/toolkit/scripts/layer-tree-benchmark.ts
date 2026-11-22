@@ -1,4 +1,3 @@
-// Run from the repository root with node packages/toolkit/scripts/layer-tree-benchmark.ts [--browser=chromium|webkit].
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -65,7 +64,6 @@ async function measureWindowedScroll(page: Page) {
     const rowHeight = first.getBoundingClientRect().height;
     const bounds = tree.getBoundingClientRect();
     const x = bounds.left + bounds.width / 2;
-    // Probe inside the browser viewport when the host panel is partially clipped.
     const edges = [
       Math.max(0, bounds.top) + 1,
       Math.min(innerHeight, bounds.bottom) - 1,
@@ -83,7 +81,6 @@ async function measureWindowedScroll(page: Page) {
     let uncovered = 0;
     let furthest = 0;
     let peakRows = 0;
-    // Scroll 120 rows per second for three seconds in each direction.
     do {
       const elapsed = last - start;
       tree.scrollTop =
@@ -165,7 +162,6 @@ async function dragAcrossDocument(page: Page) {
   await scrollTo(0);
   assert.equal(await row("Section 51").getAttribute("aria-posinset"), "1");
   assert.equal(await row("Section 51").getAttribute("aria-setsize"), "50");
-  // Check both ends of the moved range after their original DOM nodes have unmounted.
   for (const [position, name, order] of [
     [5000, "Section 1", "100"],
     [9900, "Section 50", "149"],
@@ -206,11 +202,13 @@ try {
         const frame = () =>
           new Promise((resolve) => requestAnimationFrame(resolve));
         const samples: number[] = [];
+        const focusedAttribute = (name: string) =>
+          document.activeElement?.getAttribute(name);
         for (let i = 0; i < 8; i++) {
           samples.push(await keyFrame("ArrowDown", { shiftKey: true }));
         }
         if (
-          document.activeElement?.getAttribute("aria-label") !== "Layer 8" ||
+          focusedAttribute("aria-label") !== "Layer 8" ||
           tree.querySelectorAll('[aria-selected="true"]').length !== 9
         )
           throw new Error("Range selection did not reach Layer 8");
@@ -231,8 +229,8 @@ try {
         }
         const selectAll = await keyFrame("End", { shiftKey: true });
         if (
-          document.activeElement?.getAttribute("aria-label") !== "Layer 99" ||
-          document.activeElement.getAttribute("aria-selected") !== "true"
+          focusedAttribute("aria-label") !== "Layer 99" ||
+          focusedAttribute("aria-selected") !== "true"
         )
           throw new Error("Range did not reach the last section");
         await keyFrame("Enter");
@@ -241,11 +239,11 @@ try {
           throw new Error("Rename did not start");
         await keyFrame("Escape");
         const reorder = await keyFrame("ArrowUp", { altKey: true });
-        if (document.activeElement?.getAttribute("aria-posinset") !== "98")
+        if (focusedAttribute("aria-posinset") !== "98")
           throw new Error("Last layer did not move");
         await keyFrame("Home");
         const collapse = await keyFrame("ArrowLeft");
-        if (document.activeElement?.getAttribute("aria-expanded") !== "false")
+        if (focusedAttribute("aria-expanded") !== "false")
           throw new Error("Section did not collapse");
         return {
           mounted,

@@ -154,6 +154,38 @@ export default {
   },
 } satisfies Meta;
 export const MixedSelection: StoryObj = { render: () => <MixedLayout /> };
+const mouse = {
+  pointerId: 1,
+  pointerType: "mouse",
+  isPrimary: true,
+  clientY: 20,
+};
+function pressScrub(handle: Element, x: number) {
+  return fireEvent.pointerDown(handle, {
+    ...mouse,
+    button: 0,
+    buttons: 1,
+    clientX: x,
+  });
+}
+function moveScrub(handle: Element, x: number, movementX: number) {
+  return fireEvent.pointerMove(handle, {
+    ...mouse,
+    button: -1,
+    buttons: 1,
+    clientX: x,
+    movementX,
+  });
+}
+function releaseScrub(handle: Element, x: number) {
+  return fireEvent.pointerUp(handle, {
+    ...mouse,
+    button: 0,
+    buttons: 0,
+    clientX: x,
+  });
+}
+
 export const EditAndUndo: StoryObj = {
   render: () => <MixedLayout />,
   play: async ({ canvas, userEvent }) => {
@@ -177,12 +209,10 @@ export const EditAndUndo: StoryObj = {
     await expect(subtitle).toHaveStyle({ width: "200px", height: "48px" });
     await expect(height).toHaveValue("");
     const scrub = canvas.getByText("W", { selector: "label" });
-    await userEvent.pointer([
-      { target: scrub, keys: "[MouseLeft>]", coords: { x: 100, y: 20 } },
-      { target: scrub, coords: { x: 112, y: 20 } },
-      { target: scrub, coords: { x: 120, y: 20 } },
-      { target: scrub, keys: "[/MouseLeft]", coords: { x: 120, y: 20 } },
-    ]);
+    await pressScrub(scrub, 100);
+    await moveScrub(scrub, 112, 12);
+    await moveScrub(scrub, 120, 8);
+    await releaseScrub(scrub, 120);
     await expect(title).toHaveStyle({ width: "220px", height: "55px" });
     await userEvent.click(undo);
     await expect(title).toHaveStyle({ width: "200px", height: "50px" });
@@ -211,10 +241,8 @@ export const InterruptedScrub: StoryObj = {
       const label = canvas.getByText("W", { selector: "label" });
       const fieldset = label.closest("fieldset");
       if (!fieldset) throw new Error("Missing layout fieldset");
-      await userEvent.pointer([
-        { target: label, keys: "[MouseLeft>]", coords: { x: 50, y: 20 } },
-        { target: label, coords: { x: 70, y: 20 } },
-      ]);
+      await pressScrub(label, 50);
+      await moveScrub(label, 70, 20);
       await expect(title).not.toHaveStyle({ width: "160px" });
       if (interruption === "pointercancel")
         await fireEvent.pointerCancel(label, { pointerId: 1 });
@@ -236,10 +264,8 @@ export const InterruptedScrub: StoryObj = {
         expect(title).toHaveStyle({ width: "160px", height: "40px" }),
       );
       const handle = canvas.getByText("W", { selector: "label" });
-      await userEvent.pointer([
-        { target: handle, coords: { x: 80, y: 20 } },
-        { target: handle, keys: "[/MouseLeft]" },
-      ]);
+      await moveScrub(handle, 80, 10);
+      await releaseScrub(handle, 80);
       await expect(canvas.getByRole("textbox", { name: "Width" })).toHaveValue(
         "",
       );

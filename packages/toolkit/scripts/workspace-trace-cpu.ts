@@ -1,4 +1,3 @@
-// Analyze saved Chromium traces after the benchmark so profiling does not affect the next drag.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
@@ -17,8 +16,6 @@ interface TraceEvent {
   args?: { data?: { type?: string } };
 }
 
-// Each category is inclusive. Merge nested events within it before intersecting
-// with frame boundaries on Chromium's renderer thread CPU clock (microseconds).
 function categoryCpu(events: TraceEvent[], clock: number[]) {
   const spans: { start: number; end: number }[] = [];
   for (const event of events) {
@@ -54,7 +51,6 @@ function summarizeDrag(events: TraceEvent[]) {
     .sort((a, b) => a.ts - b.ts);
   let pressed: TraceEvent | undefined;
   let drag: { start: TraceEvent; end: TraceEvent } | undefined;
-  // Clicks during setup and verification can occur in the same trace.
   for (const event of pointers) {
     if (event.args?.data?.type === "pointerdown") {
       pressed = event;
@@ -100,7 +96,6 @@ function summarizeDrag(events: TraceEvent[]) {
       typeof end.tdur === "number",
     "Trace is missing renderer CPU timing for pointer press or release",
   );
-  // Press and release can perform work outside the first and last full frame intervals.
   const pressToFirstFrame = (clock[0] - start.tts) / 1000;
   const lastFrameThroughRelease =
     (end.tts + end.tdur - clock[clock.length - 1]) / 1000;

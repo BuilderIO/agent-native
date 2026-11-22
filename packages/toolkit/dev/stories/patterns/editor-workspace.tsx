@@ -654,8 +654,6 @@ function readDock(narrow: boolean) {
     };
   }
 }
-// Geometry previews update these two surfaces together. Keep that subscription
-// below the dock tree so the file navigator does not reconcile on each move.
 type GeometryPanels = { canvas: React.ReactNode; inspector: React.ReactNode };
 const GeometryPanelContext = React.createContext<GeometryPanels | null>(null);
 function GeometryPanel({ name }: { name: keyof GeometryPanels }) {
@@ -963,7 +961,7 @@ export function EditorWorkspace({
   function redo() {
     setPreview(null);
     setHistory((h) => {
-      const next = h.future[0];
+      const next = h.future.at(0);
       return next
         ? { doc: next, past: [...h.past, h.doc], future: h.future.slice(1) }
         : h;
@@ -1083,6 +1081,7 @@ export function EditorWorkspace({
         />
       ) : narrow ? (
         <SplitPane
+          className="workspace-split-region"
           axis="block"
           side="end"
           label="Tool panel height"
@@ -1105,10 +1104,18 @@ export function EditorWorkspace({
                 <TabsTab value="file">File</TabsTab>
                 <TabsTab value="inspector">Inspector</TabsTab>
               </TabsList>
-              <TabsPanel value="file" keepMounted>
+              <TabsPanel
+                className="workspace-mobile-panel"
+                value="file"
+                keepMounted
+              >
                 {layers}
               </TabsPanel>
-              <TabsPanel value="inspector" keepMounted>
+              <TabsPanel
+                className="workspace-mobile-panel"
+                value="inspector"
+                keepMounted
+              >
                 {properties}
               </TabsPanel>
             </Tabs>
@@ -1118,6 +1125,7 @@ export function EditorWorkspace({
         </SplitPane>
       ) : (
         <SplitPane
+          className="workspace-split-region"
           pane={layers}
           separatorRef={fileSeparator}
           label="Layers panel width"
@@ -1132,6 +1140,7 @@ export function EditorWorkspace({
           collapsible
         >
           <SplitPane
+            className="workspace-split-region"
             side="end"
             pane={properties}
             label="Properties panel width"

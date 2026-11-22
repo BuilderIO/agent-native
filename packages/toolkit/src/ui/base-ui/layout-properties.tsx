@@ -182,7 +182,6 @@ export function PropertyNumber({
           }
         }}
         onValueCommitted={(next) => {
-          // Disabling the focused input can dispatch blur during the DOM update.
           if (input.current?.matches(":disabled, [readonly]")) return;
           typing.current = false;
           if (next === null) {
@@ -363,7 +362,7 @@ const DimensionField = React.memo(function DimensionField({
   );
 });
 
-/** Width and height can independently be mixed. The host owns aspect locks per selection. */
+/** Width and height can independently be mixed. Use lockDisabled to control lock availability and dimensionsReadOnly to keep incompatible selections inspectable. */
 export function LayoutDimensions({
   width,
   height,
@@ -383,9 +382,7 @@ export function LayoutDimensions({
   height: number | null;
   locked: boolean | "mixed";
   onLockChange: (locked: boolean) => void;
-  /** Override availability when the displayed dimensions represent several frames. */
   lockDisabled?: boolean;
-  /** Keep sizes inspectable while the host resolves an incompatible lock. */
   dimensionsReadOnly?: boolean;
   onEdit: (edit: PropertyEdit<LayoutResize>) => void;
   limits?: LayoutSizeLimits;
@@ -529,7 +526,7 @@ export function AutoLayoutControls({
           {value.mode === "grid" ? (
             <GridSizePicker
               className="justify-self-start"
-              labels={gridLabels}
+              {...(gridLabels && { labels: gridLabels })}
               value={value.grid}
               onValueChange={(grid) => commit({ grid })}
             />
@@ -537,7 +534,7 @@ export function AutoLayoutControls({
             <AlignmentPicker
               className="justify-self-start"
               aria-label={labels.matrix ?? "Frame alignment"}
-              getCellLabel={getCellLabel}
+              {...(getCellLabel && { getCellLabel })}
               direction={value.mode}
               value={value.alignment}
               onValueChange={(alignment) => commit({ alignment })}

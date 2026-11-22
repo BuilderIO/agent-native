@@ -205,7 +205,9 @@ export function DesignFileTreeViewport({
     if (!node) return;
     let last = node.clientHeight;
     if (last > 0) setHeight(last);
-    const observer = new ResizeObserver(([entry]) => {
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries.at(0);
+      if (!entry) return;
       const next = entry.contentRect.height;
       if (next !== last) {
         last = next;

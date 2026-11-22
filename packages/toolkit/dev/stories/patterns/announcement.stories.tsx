@@ -99,7 +99,6 @@ export const VideoDialog: Story = {
     const feature = within(dialog).getByRole("link", {
       name: "Explore styles (opens in a new tab)",
     });
-    // Exercise the CTA without launching the destination from the story runner.
     feature.addEventListener("click", (event) => event.preventDefault(), {
       once: true,
     });

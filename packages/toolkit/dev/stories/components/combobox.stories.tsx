@@ -325,8 +325,8 @@ export const Variants: Story = {
     const input = canvas.getByRole("combobox", { name });
     const fields = canvas.getAllByRole("combobox");
     const index = fields.indexOf(input);
-    const previous = fields[index - 1];
-    const next = fields[index + 1];
+    const previous = index > 0 ? fields.at(index - 1) : undefined;
+    const next = fields.at(index + 1);
     if (!previous || !next) throw new Error("Expected adjacent variant fields");
     await userEvent.click(input);
     const page = within(canvasElement.ownerDocument.body);
@@ -959,12 +959,14 @@ export const LongLabels: Story = {
     const option = within(list).getByRole("option", { selected: true });
     const frame = input.closest(".input")?.parentElement;
     if (!frame) throw new Error("Missing picker boundary");
-    await waitFor(() => {
+    await waitFor(async () => {
       const area = frame.getBoundingClientRect();
       const row = option.getBoundingClientRect();
-      expect(row.left).toBeGreaterThanOrEqual(area.left);
-      expect(row.right).toBeLessThanOrEqual(area.right);
-      expect(option.scrollWidth).toBeLessThanOrEqual(option.clientWidth + 1);
+      await expect(row.left).toBeGreaterThanOrEqual(area.left);
+      await expect(row.right).toBeLessThanOrEqual(area.right);
+      await expect(option.scrollWidth).toBeLessThanOrEqual(
+        option.clientWidth + 1,
+      );
     });
     await userEvent.keyboard("{Escape}");
   },

@@ -1,5 +1,3 @@
-// From the repository root: node packages/toolkit/scripts/workspace-benchmark.ts [--headed] [--divider-only | --docked-divider | --scrub-only | --all-selected | --docked-selection] [--target-hz=60|120]
-// Browser traces, screenshots and raw samples are written to .tmp/workspace-benchmark.
 import assert from "node:assert/strict";
 import { createWriteStream } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -527,11 +525,9 @@ async function sustainedScrub(page: Page, label: string, allSelected: boolean) {
         let raf = 0;
         const sample = (time: number) => {
           run.frameTimes.push(time - origin);
-          // Read the projected width without forcing layout every frame. All rendered widths are independently sampled below.
           const value = parseFloat(projectedBox.style.width);
           if (value !== run.previewWidths.at(-1)) run.changes++;
           run.previewWidths.push(value);
-          // The initial mixed selection has no single width to compare.
           if (
             value !== initialWidth ||
             field.value !== "" ||
@@ -556,8 +552,6 @@ async function sustainedScrub(page: Page, label: string, allSelected: boolean) {
           }
           raf = requestAnimationFrame(sample);
         };
-        // Base UI installs its window capture listener after the handle receives pointerdown.
-        // Sampling again on document capture includes the synchronous controlled React update.
         let moveStart = 0;
         const beginMove = () => {
           moveStart = performance.now();
@@ -691,11 +685,12 @@ async function finishTrace(cdp: CDPSession, file: string) {
   const handle = await completion;
   async function* chunks() {
     try {
-      while (true) {
-        const r = await cdp.send("IO.read", { handle });
-        yield Buffer.from(r.data, r.base64Encoded ? "base64" : "utf8");
-        if (r.eof) break;
-      }
+      let eof: boolean;
+      do {
+        const chunk = await cdp.send("IO.read", { handle });
+        yield Buffer.from(chunk.data, chunk.base64Encoded ? "base64" : "utf8");
+        eof = chunk.eof;
+      } while (!eof);
     } finally {
       await cdp.send("IO.close", { handle });
     }
@@ -905,8 +900,8 @@ try {
     },
     viewport: view,
   };
-  let failed = false;
-  let unverified = false;
+  type Status = "passed" | "unverified" | "failed";
+  const outcomes = new Set<Status>();
   async function runBrowser(browser: Browser) {
     const workloads = allSelected
       ? ["selection-scrub"]
@@ -1001,7 +996,6 @@ try {
           });
           await first.click();
           await first.press("Shift+End");
-          // Make the fully populated Home page active while retaining the document-wide selection.
           await page.keyboard.press("Home");
           await first.press("Control+Space");
           await first.press("Control+Space");
@@ -1061,7 +1055,7 @@ try {
           (samples.length * 1000) / samples.reduce((a, b) => a + b, 0);
         const minimumHz = targetHz * 0.99;
         const inputHz = (run.moveTimes.length * 1000) / run.duration;
-        let status: "passed" | "unverified" | "failed" = "passed";
+        let status: Status = "passed";
         let qualification = "passed at target cadence";
         if (idleHz < minimumHz) {
           status = "unverified";
@@ -1152,8 +1146,7 @@ try {
           ...frames,
         };
         console.log(label, JSON.stringify(result[label]));
-        failed ||= status === "failed";
-        unverified ||= status === "unverified";
+        outcomes.add(status);
       } finally {
         await page.close();
       }
@@ -1166,7 +1159,12 @@ try {
     await wk.close();
   }
   await runBrowser(browser);
-  result.status = failed ? "failed" : unverified ? "unverified" : "passed";
+  const status: Status = outcomes.has("failed")
+    ? "failed"
+    : outcomes.has("unverified")
+      ? "unverified"
+      : "passed";
+  result.status = status;
   await writeFile(
     path.join(
       out,
@@ -1178,7 +1176,7 @@ try {
     ),
     JSON.stringify(result, null, 2) + "\n",
   );
-  process.exitCode = failed ? 1 : unverified ? 2 : 0;
+  process.exitCode = { passed: 0, failed: 1, unverified: 2 }[status];
 } finally {
   await browser.close();
 }

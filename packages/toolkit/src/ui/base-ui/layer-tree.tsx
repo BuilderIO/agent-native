@@ -11,6 +11,7 @@ import { cn } from "../../utils.js";
 import { isComposingKey } from "../is-composing-key.js";
 import { IconButton } from "./button.js";
 import { useControlledValue } from "./controlled-value.js";
+import { indexedItem, requireItem } from "./indexed-item.js";
 import { Input } from "./input.js";
 import {
   selectedAncestorLookup,
@@ -72,7 +73,6 @@ export interface LayerTreeProps<T extends LayerRecord> extends Omit<
   renderActions?: (item: T, commands: LayerRowCommands) => React.ReactNode;
 }
 
-// Mount four successive scroll positions together, with three spare rows at either edge.
 const windowStep = 4;
 const overscan = 3;
 const emptySelection: ReadonlySet<string> = new Set();
@@ -121,7 +121,6 @@ export function LayerTree<T extends LayerRecord>({
   const open = React.useMemo(() => new Set(opened), [opened]);
   const selectedSet = React.useMemo(() => new Set(selected), [selected]);
   const windowed = viewportHeight !== undefined;
-  // Windowed rows resolve inherited selection only for items being painted.
   const indexedSelection = windowed ? emptySelection : selectedSet;
   const hasSelectedAncestor = React.useMemo(() => {
     if (!windowed || !selectedSet.size) return undefined;
@@ -131,13 +130,11 @@ export function LayerTree<T extends LayerRecord>({
     () => visibleLayers(index, open, indexedSelection),
     [index, open, indexedSelection],
   );
-  // Normalize only names encountered by typeahead. A new row order or rename
-  // starts a fresh cache, and ordinary navigation never scans the document.
   const searchName = React.useMemo(() => {
     const names: string[] = [];
     return (position: number) =>
-      (names[position] ??= rows[position].item.name
-        .normalize()
+      (names[position] ??= requireItem(rows, position)
+        .item.name.normalize()
         .toLocaleLowerCase());
   }, [rows]);
   const [active, setActive] = React.useState<string | null>(null);
@@ -235,12 +232,11 @@ export function LayerTree<T extends LayerRecord>({
       if (i !== undefined && i < first) first = i;
       if (first === 0) break;
     }
-    return (rows[first] ?? rows[0])?.item.id;
+    return indexedItem(rows, first === Infinity ? 0 : first)?.item.id;
   }, [active, rowIndices, rows, selectedSet]);
   const focusOnMount = React.useRef(autoFocus);
   const focusedEmptyTree = React.useRef(false);
   React.useLayoutEffect(() => {
-    // An unmounted source can no longer deliver its native dragend event.
     if (dragSource.current !== null && !rowIndices.has(dragSource.current))
       endDrag();
     const detached = detachedFocus.current;
@@ -250,11 +246,9 @@ export function LayerTree<T extends LayerRecord>({
       focusedRow.current = null;
     if (editing !== null) {
       const position = rowIndices.get(editing);
-      if (
-        position === undefined ||
-        rows[position].locked ||
-        rows[position].item.fixed
-      ) {
+      const row =
+        position === undefined ? undefined : requireItem(rows, position);
+      if (!row || row.locked || row.item.fixed) {
         setEditing(null);
         if (
           position !== undefined &&
@@ -312,7 +306,6 @@ export function LayerTree<T extends LayerRecord>({
       const offset = root.scrollTop;
       const height = root.clientHeight;
       if (top < offset || bottom > offset + height) {
-        // Mount the destination viewport in the same commit as the focused row.
         root.scrollTop = top < offset ? top : bottom - height;
         updateWindow(root.scrollTop, rowHeight);
       }
@@ -340,7 +333,7 @@ export function LayerTree<T extends LayerRecord>({
       const ids: string[] = [];
       const last = Math.max(from, to);
       for (let i = Math.min(from, to); i <= last; i++)
-        ids.push(rows[i].item.id);
+        ids.push(requireItem(rows, i).item.id);
       setSelected(add ? [...new Set([...selected, ...ids])] : ids);
     } else {
       anchor.current = id;
@@ -398,7 +391,7 @@ export function LayerTree<T extends LayerRecord>({
       isComposingKey(event)
     )
       return;
-    const row = rows[i];
+    const row = indexedItem(rows, i);
     if (!row) return;
     const { item, locked } = row;
     const id = item.id;
@@ -409,7 +402,6 @@ export function LayerTree<T extends LayerRecord>({
     ) {
       key = key === "ArrowLeft" ? "ArrowRight" : "ArrowLeft";
     }
-    // Some keyboard layouts report AltGraph text as Control+Alt.
     const altGraphText =
       event.getModifierState("AltGraph") &&
       /^.$/u.test(key.normalize()) &&
@@ -495,7 +487,7 @@ export function LayerTree<T extends LayerRecord>({
         for (let step = 0; step < rows.length; step++) {
           const position = (start + step) % rows.length;
           if (searchName(position).startsWith(prefix)) {
-            focus(rows[position].item.id);
+            focus(requireItem(rows, position).item.id);
             break;
           }
         }
@@ -542,7 +534,6 @@ export function LayerTree<T extends LayerRecord>({
   const inView = windowed
     ? Array.from({ length: end - start }, (_, n) => start + n)
     : [];
-  // Keep the roving tab stop and any live editor mounted across a manual scroll.
   if (windowed) {
     for (const id of [focusId, editing, dragSource.current]) {
       const i = id == null ? undefined : rowIndices.get(id);
@@ -554,7 +545,6 @@ export function LayerTree<T extends LayerRecord>({
     <div
       {...props}
       ref={tree}
-      // Keep the empty root focusable until focus can move to the first restored row.
       tabIndex={
         props.tabIndex ??
         (!rows.length || focusedEmptyTree.current ? -1 : undefined)
@@ -599,7 +589,7 @@ export function LayerTree<T extends LayerRecord>({
           locked,
           parentLocked,
           selectedAncestor,
-        } = rows[i];
+        } = requireItem(rows, i);
         const id = item.id;
         const edit = editing === id;
         const tab = focusId === id ? 0 : -1;

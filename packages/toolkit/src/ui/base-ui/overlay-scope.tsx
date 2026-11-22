@@ -36,11 +36,9 @@ export function scopePortal(
       React.useEffect(() => {
         if (targetRef !== committedRef) setCommittedRef(targetRef);
       }, [targetRef, committedRef]);
-      // Base UI resolves refs in a child layout effect, before React attaches ancestor refs.
       const resolved = targetRef && targetRef !== committedRef ? null : target;
       return (
         <Portal {...props} ref={ref} container={resolved}>
-          {/* Nested popups use Base UI's parent portal for focus and stacking. */}
           <TargetContext.Provider value={undefined}>
             {children}
           </TargetContext.Provider>

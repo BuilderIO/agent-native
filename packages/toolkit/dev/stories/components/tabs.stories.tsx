@@ -163,12 +163,12 @@ export const Wrapped: Story = {
     if (!indicator) throw new Error("Missing tab indicator");
     const checkSelection = async (name: string) => {
       const selected = canvas.getByRole("tab", { name, selected: true });
-      await waitFor(() => {
+      await waitFor(async () => {
         const tab = selected.getBoundingClientRect();
         const line = indicator.getBoundingClientRect();
-        expect(Math.abs(line.bottom - tab.bottom)).toBeLessThan(1);
-        expect(Math.abs(line.left - tab.left)).toBeLessThan(1);
-        expect(Math.abs(line.width - tab.width)).toBeLessThan(1);
+        await expect(Math.abs(line.bottom - tab.bottom)).toBeLessThan(1);
+        await expect(Math.abs(line.left - tab.left)).toBeLessThan(1);
+        await expect(Math.abs(line.width - tab.width)).toBeLessThan(1);
       });
     };
     await checkSelection("Code");

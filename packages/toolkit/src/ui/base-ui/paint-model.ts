@@ -1,3 +1,4 @@
+import { requireItem } from "./indexed-item.js";
 import {
   resolvePropertyToken,
   type PropertyBinding,
@@ -39,7 +40,7 @@ export function equalPaintStacks(
   return (
     a.length === b.length &&
     a.every((paint, i) => {
-      const other = b[i];
+      const other = requireItem(b, i);
       if (paint === other) return true;
       if (paint.visible !== other.visible || paint.opacity !== other.opacity)
         return false;
@@ -49,11 +50,13 @@ export function equalPaintStacks(
         other.kind === "linear" &&
         paint.angle === other.angle &&
         paint.stops.length === other.stops.length &&
-        paint.stops.every(
-          (stop, j) =>
-            stop.offset === other.stops[j].offset &&
-            sameColor(stop.color, other.stops[j].color),
-        )
+        paint.stops.every((stop, j) => {
+          const corresponding = requireItem(other.stops, j);
+          return (
+            stop.offset === corresponding.offset &&
+            sameColor(stop.color, corresponding.color)
+          );
+        })
       );
     })
   );
@@ -64,14 +67,17 @@ function editParts<T extends { id: string }>(
   next: readonly T[],
   prepare: (part: T, original: T) => (local: T) => T,
 ) {
-  const indices = new Map(source.map((part, i) => [part.id, i]));
+  const indices = new Map(
+    source.map((part, index) => [part.id, { index, original: part }]),
+  );
   const edits = next.map((part) => {
-    const index = indices.get(part.id);
-    if (index === undefined) return { part };
+    const match = indices.get(part.id);
+    if (!match) return { part };
+    const { index, original } = match;
     return {
       part,
       index,
-      update: part === source[index] ? undefined : prepare(part, source[index]),
+      update: part === original ? undefined : prepare(part, original),
     };
   });
   return (target: readonly T[] = source): readonly T[] => {

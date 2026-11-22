@@ -1,3 +1,5 @@
+import { indexedItem, requireItem } from "./indexed-item.js";
+
 /** Sibling order follows array order. Parent references keep subtrees intact during moves. */
 export interface LayerRecord {
   id: string;
@@ -17,19 +19,19 @@ export interface LayerMove {
   placement: LayerPlacement;
 }
 
-function walkLayers<T>(
+function walkLayers<T extends LayerRecord>(
   roots: readonly T[],
   childrenOf: (item: T) => readonly T[] | undefined,
   visit: (item: T, depth: number, position: number, count: number) => void,
 ) {
   const stack = [{ siblings: roots, cursor: 0 }];
   while (stack.length) {
-    const group = stack[stack.length - 1];
+    const group = requireItem(stack, stack.length - 1);
     if (group.cursor === group.siblings.length) {
       stack.pop();
       continue;
     }
-    const item = group.siblings[group.cursor++];
+    const item = requireItem(group.siblings, group.cursor++);
     visit(item, stack.length - 1, group.cursor, group.siblings.length);
     const children = childrenOf(item);
     if (children?.length) stack.push({ siblings: children, cursor: 0 });
@@ -52,6 +54,7 @@ export function indexLayers<T extends LayerRecord>(items: readonly T[]) {
   }
   const order: T[] = [];
   type Location = {
+    locked: boolean;
     sibling: number;
     start: number;
     end: number;
@@ -61,7 +64,7 @@ export function indexLayers<T extends LayerRecord>(items: readonly T[]) {
   const ancestors: Location[] = [];
   function finishSubtrees(depth: number) {
     while (ancestors.length > depth) {
-      ancestors[ancestors.length - 1].end = order.length;
+      requireItem(ancestors, ancestors.length - 1).end = order.length;
       ancestors.pop();
     }
   }
@@ -70,13 +73,14 @@ export function indexLayers<T extends LayerRecord>(items: readonly T[]) {
     (item) => children.get(item.id),
     (item, depth, position) => {
       finishSubtrees(depth);
-      const parent = ancestors[depth - 1];
+      const parent = indexedItem(ancestors, depth - 1);
+      const parentLocked = parent?.locked === true;
       const location = {
         sibling: position - 1,
         start: order.length,
         end: order.length + 1,
-        parentLocked:
-          !!parent && (parent.parentLocked || !!order[parent.start].locked),
+        parentLocked,
+        locked: parentLocked || item.locked === true,
       };
       locations.set(item, location);
       ancestors.push(location);
@@ -144,8 +148,8 @@ export function selectedAncestorLookup<T extends LayerRecord>(
   selected: ReadonlySet<string>,
 ): (item: T) => boolean {
   if (selected.size === 1) {
-    const [id] = selected;
-    const ancestor = index.byId.get(id);
+    const first = selected.values().next();
+    const ancestor = first.done ? undefined : index.byId.get(first.value);
     return (item) => ancestor !== undefined && index.isAncestor(ancestor, item);
   }
   const cache = new Map<string, boolean>();
@@ -173,8 +177,8 @@ export function visibleLayers<T extends LayerRecord>(
     index.children.get(null) ?? [],
     (item) => (expanded.has(item.id) ? index.children.get(item.id) : undefined),
     (item, depth, position, count) => {
-      const parentLocked = depth > 0 && locks[depth - 1];
-      const selectedAncestor = depth > 0 && selectedParents[depth - 1];
+      const parentLocked = locks[depth - 1] === true;
+      const selectedAncestor = selectedParents[depth - 1] === true;
       const locked = parentLocked || item.locked === true;
       locks[depth] = locked;
       selectedParents[depth] = selectedAncestor || selection.has(item.id);
@@ -230,20 +234,25 @@ export function createSiblingMoveTarget<T extends LayerRecord>(
     const siblings = index.children.get(item.parentId);
     if (!siblings) return undefined;
     const position = index.siblingIndex(item);
-    const neighbor = siblings[position + step];
+    const neighbor = indexedItem(siblings, position + step);
     if (!neighbor || !selected.has(item.id) || !selected.has(neighbor.id))
       return neighbor;
     let run = runs.get(item);
     if (!run) {
       let first = position;
       let last = position;
-      while (first > 0 && selected.has(siblings[first - 1].id)) first--;
-      while (last + 1 < siblings.length && selected.has(siblings[last + 1].id))
+      while (first > 0 && selected.has(requireItem(siblings, first - 1).id))
+        first--;
+      while (
+        last + 1 < siblings.length &&
+        selected.has(requireItem(siblings, last + 1).id)
+      )
         last++;
       run = { first, last };
-      for (let i = first; i <= last; i++) runs.set(siblings[i], run);
+      for (let i = first; i <= last; i++)
+        runs.set(requireItem(siblings, i), run);
     }
-    return siblings[step < 0 ? run.first - 1 : run.last + 1];
+    return indexedItem(siblings, step < 0 ? run.first - 1 : run.last + 1);
   };
 }
 
@@ -272,7 +281,6 @@ export function createLayerMovePlanner<T extends LayerRecord>(
     const offset = inside
       ? siblings.length
       : index.siblingIndex(target) + Number(placement === "after");
-    // The drop is a no-op when the moving roots already occupy the adjacent block.
     const start = placement === "after" ? offset : offset - moving.size;
     if (blockParent === parentId && first === start) return null;
     return { parentId, siblings, offset, moving };
@@ -296,7 +304,9 @@ export function resolveLayerMove<T extends LayerRecord>(
   const ordered: T[] = [];
   const sourceParents = new Set<string | null>();
   const single =
-    move.ids.length === 1 ? index.byId.get(move.ids[0]) : undefined;
+    move.ids.length === 1
+      ? index.byId.get(requireItem(move.ids, 0))
+      : undefined;
   const roots = single
     ? [single]
     : index.order.filter((item) => moving.has(item.id));
@@ -307,7 +317,7 @@ export function resolveLayerMove<T extends LayerRecord>(
         ordered.push(item.parentId === parentId ? item : { ...item, parentId });
       }
     }
-    const sibling = siblings[i];
+    const sibling = indexedItem(siblings, i);
     if (sibling && !moving.has(sibling.id)) ordered.push(sibling);
   }
   const next: T[] = [];

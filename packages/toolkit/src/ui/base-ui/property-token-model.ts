@@ -9,7 +9,6 @@ export interface PropertyToken<T> {
   value: T;
 }
 
-/** Index an immutable property-specific catalog once for all fields using it. */
 const catalogs = new WeakMap<
   readonly PropertyToken<unknown>[],
   ReadonlyMap<string, PropertyToken<unknown>>

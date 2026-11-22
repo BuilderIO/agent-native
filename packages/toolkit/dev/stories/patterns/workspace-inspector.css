@@ -21,12 +21,13 @@
   border: 0;
   background: transparent;
 }
-.workspace-avatar-stack .avatar {
-  inline-size: var(--control-height-2);
-  block-size: var(--control-height-2);
+.workspace-avatar-member {
+  --size-3: var(--control-height-2);
+  display: inline-flex;
+  border-radius: var(--radius-full);
   outline: 1px solid var(--surface-nav);
 }
-.workspace-avatar-stack .avatar + .avatar {
+.workspace-avatar-member + .workspace-avatar-member {
   margin-inline-start: calc(-1 * var(--control-gap));
 }
 .workspace-comment-button {

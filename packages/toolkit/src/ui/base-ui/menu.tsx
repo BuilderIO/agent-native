@@ -147,8 +147,6 @@ const MenuSubmenuPopup = React.forwardRef<
       setHost(null);
       return;
     }
-    // Keep VoiceOver's focus guards outside the menu role, but before Base UI's
-    // trailing focus guard so Tab still leaves the entire menu in one press.
     const node = menu.ownerDocument.createElement("div");
     node.style.display = "contents";
     menu.after(node);

@@ -6,7 +6,6 @@ import type {
 } from "../../../src/ui/base-ui/layout-properties.js";
 import type { Paint } from "../../../src/ui/base-ui/paint-editor.js";
 
-// Home at the prototype's 1280px desktop breakpoint, in unscaled document coordinates.
 type SourceLayer = readonly [
   id: string,
   parentId: string,

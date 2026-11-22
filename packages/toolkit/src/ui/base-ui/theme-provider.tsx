@@ -21,7 +21,6 @@ interface ThemeAxes {
   density?: Density;
   radius?: RadiusPreset;
   corners?: "round" | "squircle";
-  /** Identifier registered in CSS with paletteCss(palette, { id }). */
   palette?: string;
 }
 
@@ -69,7 +68,7 @@ function systemPreference(win: Window | null | undefined) {
   return store;
 }
 
-/** Scopes theme tokens and portals to one element. Omitted axes inherit from enclosing theme regions.
+/** Scopes theme tokens and portals to one element. Omitted axes inherit from enclosing theme regions. The palette prop accepts an identifier registered with paletteCss.
  * @import import { ThemeProvider } from "@agent-native/toolkit/ui/base-ui/theme-provider";
  */
 export function ThemeProvider({
@@ -108,7 +107,6 @@ export function ThemeProvider({
     props: mergeProps<"div">(attributes, props),
   });
   const inheritedDirection = useDirection();
-  // A render element or callback can override the direction passed to the provider.
   const dir = React.isValidElement<React.HTMLAttributes<HTMLElement>>(element)
     ? (element.props.dir ?? props.dir)
     : props.dir;
@@ -121,7 +119,6 @@ export function ThemeProvider({
     const sync = () =>
       setAutomaticDirection(host.matches(":dir(rtl)") ? "rtl" : "ltr");
     sync();
-    // Native auto direction follows the first strong character as content changes.
     const observer = new win.MutationObserver(sync);
     observer.observe(host, {
       subtree: true,

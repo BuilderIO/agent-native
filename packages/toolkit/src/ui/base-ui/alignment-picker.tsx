@@ -196,13 +196,14 @@ const AlignmentPicker = React.forwardRef<HTMLDivElement, AlignmentPickerProps>(
     );
     const cells = cellsFor(value, direction);
     const checked = cells.find((cell) => isChecked(cell, value, direction));
-    const tabStop = checked ?? cells[0];
+    const tabStop = checked ?? cells.at(0);
     const buttons = React.useRef(new Map<string, HTMLButtonElement>());
     const detachedFocus = React.useRef<HTMLButtonElement | null>(null);
     React.useLayoutEffect(() => {
       const previous = detachedFocus.current;
       detachedFocus.current = null;
       if (
+        tabStop &&
         previous &&
         !previous.isConnected &&
         previous.ownerDocument.activeElement === previous.ownerDocument.body

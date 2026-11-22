@@ -119,7 +119,6 @@ const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
           onValueCommitted={
             onValueCommitted &&
             ((value, details) => {
-              // Disabling a focused input can blur it before the scrub cancellation observer runs.
               const input = scrubControl.current;
               if (
                 details.event.type === "focusout" &&
@@ -133,7 +132,6 @@ const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
           onValueChange={
             root.value !== undefined && onValueChange
               ? (value, details) => {
-                  // Base UI derives the next scrub delta from its last rendered value.
                   if (details.reason === "scrub")
                     flushSync(() => onValueChange(value, details));
                   else onValueChange(value, details);
@@ -199,7 +197,6 @@ const NumberFieldScrubArea = React.forwardRef<
     const themeCursor = React.useCallback((cursor: HTMLSpanElement | null) => {
       const handle = activeHandle.current;
       if (!cursor || !handle) return;
-      // Base UI portals the replacement pointer to body, outside the field's theme.
       const style = handle.ownerDocument.defaultView?.getComputedStyle(handle);
       if (!style) return;
       for (const token of [
@@ -216,7 +213,6 @@ const NumberFieldScrubArea = React.forwardRef<
       NumberFieldScrubAreaProps["onPointerDownCapture"]
     > = (event) => {
       onPointerDownCapture?.(event);
-      // The scrub handle is a span, so a disabled fieldset only disables its input.
       const control = event.currentTarget.querySelector("label")?.control;
       if (
         control?.matches(":disabled, [readonly]") ||
@@ -244,7 +240,6 @@ const NumberFieldScrubArea = React.forwardRef<
       const pointerId = event.pointerId;
       const cancel = () => {
         controller.abort();
-        // Base UI releases its scrub listeners on pointerup or handle unmount.
         flushSync(() => {
           resetHandle();
           onScrubCancel?.();
@@ -268,15 +263,12 @@ const NumberFieldScrubArea = React.forwardRef<
           { once: true },
         );
       }
-      // Base UI listens for scrub moves and releases on the window, without filtering pointer IDs.
       const cancelOtherPointer = (other: PointerEvent) => {
         if (other.pointerId !== pointerId) cancel();
       };
       win.addEventListener("pointerdown", cancelOtherPointer, options);
       let x = event.clientX,
         y = event.clientY;
-      // WebKit can send moving, unlocked pointers with zero relative motion.
-      // Supply that delta before Base UI consumes it, only for this active drag.
       win.addEventListener(
         "pointermove",
         (move) => {
@@ -313,7 +305,6 @@ const NumberFieldScrubArea = React.forwardRef<
         },
         options,
       );
-      // Focusing the field blurs the previous control during pointerdown.
       win.addEventListener("blur", cancel, {
         signal: controller.signal,
       });

@@ -57,7 +57,6 @@ function dimensions(axis: "inline" | "block", node: HTMLElement) {
   const styles = node.ownerDocument.defaultView?.getComputedStyle(node);
   const mode = styles?.writingMode ?? "horizontal-tb";
   const vertical = mode.startsWith("vertical") || mode.startsWith("sideways");
-  // Sideways-lr lays out an LTR inline axis from bottom to top.
   const reversed =
     axis === "inline"
       ? (styles?.direction === "rtl") !== (mode === "sideways-lr")
@@ -67,7 +66,6 @@ function dimensions(axis: "inline" | "block", node: HTMLElement) {
     sign: reversed ? -1 : 1,
   };
 }
-// Remove binary arithmetic noise before choosing a grid line or exposing its value.
 function gridNumber(value: number) {
   return Number.isInteger(value) ? value : Number(value.toPrecision(15));
 }
@@ -162,11 +160,9 @@ export function SplitPane({
     const update = (entries: ResizeObserverEntry[] = []) => {
       for (const entry of entries) {
         if (entry.target === node) content = entry.contentRect;
-        if (entry.target === handle) handleBox = entry.borderBoxSize?.[0];
+        if (entry.target === handle) handleBox = entry.borderBoxSize[0];
       }
       const { horizontal } = dimensions(axis, node);
-      // Before observer delivery, estimate the content box from client geometry.
-      // Observer boxes retain fractional layout pixels even inside a scaled host.
       let extent: number;
       if (content) extent = horizontal ? content.width : content.height;
       else {
@@ -276,7 +272,6 @@ export function SplitPane({
       const snapped = gridNumber(
         Math.round(gridNumber(raw / active.snapStep)) * active.snapStep,
       );
-      // A gesture starting between grid lines cannot move opposite the pointer.
       active.next = clamp(
         delta > 0
           ? Math.max(active.startSize, snapped)
@@ -286,8 +281,6 @@ export function SplitPane({
     if (end) {
       const next = active.next;
       discardGesture(false);
-      // A controlled host may decline the commit. React only updates attributes
-      // whose props change, so restore the rendered values before notifying it.
       reflect(current);
       if (next !== active.startSize || active.painted !== active.startSize)
         commit(next, active.startSize);
@@ -354,7 +347,6 @@ export function SplitPane({
           const rect = node.getBoundingClientRect();
           const projected = horizontal ? rect.width : rect.height;
           const layout = horizontal ? node.offsetWidth : node.offsetHeight;
-          // offsetWidth and offsetHeight round fractional layout pixels.
           const layoutPerClientPixel =
             projected > 0 && layout > 0 && Math.abs(projected - layout) > 0.5
               ? layout / projected

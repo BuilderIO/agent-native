@@ -290,15 +290,11 @@ it.each([false, true])(
     if (hasDraft) fireEvent.change(editor, { target: { value: "My title" } });
     view.rerender(tree("Updated title"));
     expect(editor.value).toBe(hasDraft ? "My title" : "Updated title");
-    if (hasDraft) {
-      fireEvent.keyDown(editor, { key: "Enter" });
-      expect(onItemsChange).toHaveBeenCalledExactlyOnceWith([
-        { id: "title", parentId: null, name: "My title" },
-      ]);
-    } else {
-      fireEvent.blur(editor);
-      expect(onItemsChange).not.toHaveBeenCalled();
-    }
+    if (hasDraft) fireEvent.keyDown(editor, { key: "Enter" });
+    else fireEvent.blur(editor);
+    expect(onItemsChange.mock.calls).toEqual(
+      hasDraft ? [[[{ id: "title", parentId: null, name: "My title" }]]] : [],
+    );
   },
 );
 

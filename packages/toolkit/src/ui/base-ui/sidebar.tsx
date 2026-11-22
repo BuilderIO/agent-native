@@ -50,8 +50,12 @@ function Sidebar({ render, ref, ...props }: SidebarProps) {
     : props;
   return (
     <SidebarDrawer
-      label={name["aria-label"]}
-      aria-labelledby={name["aria-labelledby"]}
+      {...(name["aria-label"] === undefined
+        ? {}
+        : { label: name["aria-label"] })}
+      {...(name["aria-labelledby"] === undefined
+        ? {}
+        : { "aria-labelledby": name["aria-labelledby"] })}
     >
       {element}
     </SidebarDrawer>

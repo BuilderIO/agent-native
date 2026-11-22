@@ -127,7 +127,6 @@ export function withImportTags(
     }
     return resolved;
   }
-  // Autodocs reads its description at runtime. The static agent manifest only sees docgen.
   function guideFor(storyPath: string) {
     if (!storyPath.endsWith(".stories.tsx")) return undefined;
     const guide = path.resolve(

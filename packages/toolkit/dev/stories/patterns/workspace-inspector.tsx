@@ -59,6 +59,14 @@ function Collaboration() {
   ]);
   const [draft, setDraft] = React.useState("");
   const [status, setStatus] = React.useState("");
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setStatus("Copied");
+    } catch {
+      setStatus("Select the link to copy");
+    }
+  }
   return (
     <>
       <div className="workspace-collaborators">
@@ -70,14 +78,15 @@ function Collaboration() {
               aria-label="People in this file"
             >
               {["V", "A", "S"].map((p, i) => (
-                <Avatar
-                  key={p}
-                  color={(["warning", "success", "accent"] as const)[i]}
-                  radius="full"
-                  variant="solid"
-                >
-                  <AvatarFallback>{p}</AvatarFallback>
-                </Avatar>
+                <span className="workspace-avatar-member" key={p}>
+                  <Avatar
+                    color={(["warning", "success", "accent"] as const)[i]}
+                    radius="full"
+                    variant="solid"
+                  >
+                    <AvatarFallback>{p}</AvatarFallback>
+                  </Avatar>
+                </span>
               ))}
             </button>
           }
@@ -135,18 +144,7 @@ function Collaboration() {
             onFocus={(e) => e.target.select()}
           />
         </label>
-        <Button
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(window.location.href);
-              setStatus("Copied");
-            } catch {
-              setStatus("Select the link to copy");
-            }
-          }}
-        >
-          Copy link
-        </Button>
+        <Button onClick={() => void copyLink()}>Copy link</Button>
         <span role="status">{status}</span>
       </Flyout>
     </>

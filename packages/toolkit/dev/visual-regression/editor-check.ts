@@ -1,4 +1,3 @@
-// Run against a local Storybook with node packages/toolkit/dev/visual-regression/editor-check.ts http://127.0.0.1:6006.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
@@ -326,7 +325,6 @@ for (const engine of [chromium, webkit]) {
       await forcedSwitch(page);
       await overlays(page);
     }
-    // A 1280x900 display at 200% exposes a 640x450 CSS viewport with a 2x pixel ratio.
     const zoom = await browser.newPage({
       viewport: { width: 640, height: 450 },
       deviceScaleFactor: 2,

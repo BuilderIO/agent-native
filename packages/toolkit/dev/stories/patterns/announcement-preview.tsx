@@ -66,7 +66,6 @@ export function AnnouncementPreview({
       video.pause();
       playbackPosition.current = video.currentTime;
     }
-    // Pin the paused frame before hiding it and restore it on reopen.
     if (playbackPosition.current > 0)
       video.currentTime = playbackPosition.current;
   }

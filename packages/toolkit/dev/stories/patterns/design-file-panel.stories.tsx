@@ -225,7 +225,7 @@ export const FindNestedLayer: StoryObj<typeof Demo> = {
     await userEvent.click(search);
     const input = canvas.getByRole("searchbox");
     await userEvent.type(input, "ÉTUDE");
-    fireEvent.keyDown(input, { key: "Escape", isComposing: true });
+    await fireEvent.keyDown(input, { key: "Escape", isComposing: true });
     await expect(input).toHaveFocus();
     const matches = within(
       canvas.getByRole("navigation", { name: "Matching layers" }),
@@ -290,7 +290,7 @@ export const FilterByType: StoryObj<typeof Demo> = {
 };
 
 export const NestedLibraryViews: StoryObj<typeof Demo> = {
-  render: () => {
+  render: function NestedLibraryViewsExample() {
     const [tab, setTab] = React.useState("library");
     return (
       <div style={{ inlineSize: "min(320px, 100%)", blockSize: 320 }}>
@@ -339,7 +339,7 @@ export const NestedLibraryViews: StoryObj<typeof Demo> = {
 };
 
 export const NarrowPageList: StoryObj<typeof Demo> = {
-  render: () => {
+  render: function NarrowPageListExample() {
     const [page, setPage] = React.useState("library");
     return (
       <div style={{ inlineSize: 160 }}>

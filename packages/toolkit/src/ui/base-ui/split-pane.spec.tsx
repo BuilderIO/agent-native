@@ -346,8 +346,9 @@ it("paints and cancels pointer previews on the pane's own window", () => {
   document.body.append(frame);
   try {
     const doc = frame.contentDocument;
-    const win = doc?.defaultView;
-    if (!win || !doc) throw new Error("Expected a preview window");
+    if (!doc) throw new Error("Expected an iframe document");
+    const win = doc.defaultView;
+    if (!win) throw new Error("Expected a preview window");
     vi.spyOn(win.HTMLElement.prototype, "clientWidth", "get").mockReturnValue(
       700,
     );

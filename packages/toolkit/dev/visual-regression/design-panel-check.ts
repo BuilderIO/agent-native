@@ -1,4 +1,3 @@
-// Pass the Storybook URL and the built Design artifact.
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -58,7 +57,6 @@ async function checkPanelGrid(page: Page, prototype: Page) {
   const handle = page.getByRole("separator", {
     name: "Properties panel width",
   });
-  // Off-step pointer movement and keyboard resizing must land on the same tracks.
   for (const [travel, expected] of [
     [13, 296],
     [-55, 240],
@@ -439,7 +437,6 @@ async function primitives(page: Page, panel: Panel) {
     result[name] = await page.locator(selector).evaluate((node) => {
       const stage = node.closest("[data-storybook-stage]");
       if (!stage) throw new Error("No Storybook theme scope.");
-      // Render the same primitive markup outside both pattern selectors in the same theme scope.
       const wrapper = document.createElement("div");
       wrapper.style.cssText =
         "position:fixed;top:0;left:-1000px;display:flex;align-items:center";
@@ -507,9 +504,14 @@ async function galleryImage(
 }
 
 function deltaRows(ref: Capture, actual: Capture) {
+  assert.equal(
+    actual.rows.length,
+    ref.rows.length,
+    "Unexpected layer row count",
+  );
   return ref.rows.map((row, i) => {
     const compared = actual.rows[i];
-    assert.equal(compared?.name, row.name, "Unexpected row at " + i);
+    assert.equal(compared.name, row.name, "Unexpected row at " + i);
     return {
       name: row.name,
       x: compared.x - row.x,
@@ -569,7 +571,6 @@ try {
   await proto.locator("#spec-grid-btn").click();
   await proto.screenshot({ path: path.join(output, "prototype.png") });
   await workspace.screenshot({ path: path.join(output, "workspace.png") });
-  // The artifact reserves a review strip above the actual editor. Compare the panels at the same usable height.
   const editorHeight =
     viewport.height - (await bounds(proto.locator("#insp-head"))).y;
   await Promise.all(

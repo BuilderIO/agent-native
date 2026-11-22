@@ -331,8 +331,8 @@ export const Variants: Story = {
     const input = canvas.getByRole("combobox", { name });
     const fields = canvas.getAllByRole("combobox");
     const index = fields.indexOf(input);
-    const previous = fields[index - 1];
-    const next = fields[index + 1];
+    const previous = index > 0 ? fields.at(index - 1) : undefined;
+    const next = fields.at(index + 1);
     if (!previous || !next) throw new Error("Expected adjacent variant fields");
     await userEvent.click(input);
     const page = within(canvasElement.ownerDocument.body);

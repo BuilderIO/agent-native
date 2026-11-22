@@ -50,7 +50,6 @@ export function frameStats(
   };
 }
 
-/** Group geometry samples by pointer sweep, including an empty group if the preview stopped updating. */
 export function sweepWidths(
   widths: number[],
   frameTimes: number[],

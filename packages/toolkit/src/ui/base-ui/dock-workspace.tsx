@@ -15,6 +15,7 @@ import {
   type DockLayout,
   type DockPosition,
 } from "./dock-layout.js";
+import { requireItem } from "./indexed-item.js";
 import {
   Menu,
   MenuItem,
@@ -75,7 +76,6 @@ const defaultLabels = {
   ...edges,
 };
 
-// A perpendicular split shares the same span. Parallel splits each need their own track.
 function dockTracks(node: DockLayout, axis: "inline" | "block"): number {
   if (node.type !== "split") return 1;
   const first = dockTracks(node.first, axis);
@@ -90,8 +90,6 @@ function dockMinimum(node: DockLayout, axis: "inline" | "block") {
 
 function revealDockTab(list: HTMLElement, tab: HTMLElement) {
   if (list.scrollWidth <= list.clientWidth) return;
-  // The positioned rail is the tab's offset parent. Keep offsets and scrolling
-  // in layout pixels even when an embedding surface scales the workspace.
   const left = tab.offsetLeft - list.scrollLeft;
   const right = left + tab.offsetWidth - list.clientWidth;
   if (left < 0 && right <= 0)
@@ -202,7 +200,6 @@ function dropTarget(
     rail?.parentElement === group &&
     rail.scrollWidth > rail.clientWidth
   ) {
-    // The rail padding is reachable at the end of an edge scroll.
     const first = rail.querySelector<HTMLElement>(
       "[data-dock-tab]:first-of-type",
     );
@@ -243,7 +240,6 @@ function dropTarget(
   };
 }
 
-// Keep the React subtree and its DOM host stable when a split is rebuilt.
 function PanelContent({
   panel,
   layout,
@@ -273,7 +269,6 @@ function PanelContent({
     }
     const positions = scrollPositions.current;
     if (restoreScroll.current && !slot.hidden) {
-      // Reattaching an existing DOM subtree resets native scroll boxes.
       for (const [target, offset] of positions) {
         if (element.contains(target)) target.scrollTo(offset);
         else positions.delete(target);
@@ -319,8 +314,6 @@ type DockFocusSnapshot = {
   group: string;
 } | null;
 
-// A rebuilt split detaches its slots during the mutation phase. Capture focus
-// before that happens, then restore it after the panel portals are reattached.
 class DockFocus extends React.Component<
   DockFocusProps,
   unknown,
@@ -697,7 +690,12 @@ export function DockWorkspace({
                 {index > 0 && (
                   <MenuItem
                     onClick={() =>
-                      command(node, node, node.tabs[index - 1], "before")
+                      command(
+                        node,
+                        node,
+                        requireItem(node.tabs, index - 1),
+                        "before",
+                      )
                     }
                   >
                     {text.earlier}
@@ -706,7 +704,12 @@ export function DockWorkspace({
                 {index < node.tabs.length - 1 && (
                   <MenuItem
                     onClick={() =>
-                      command(node, node, node.tabs[index + 1], "after")
+                      command(
+                        node,
+                        node,
+                        requireItem(node.tabs, index + 1),
+                        "after",
+                      )
                     }
                   >
                     {text.later}

@@ -136,7 +136,6 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
       observeFieldsetDisabled(openTrigger, observer);
       return () => observer.disconnect();
     }, [openTrigger, rest.disabled]);
-    // A portal can still receive an event before the fieldset observer runs.
     const canEdit = () =>
       openTrigger !== null &&
       !openTrigger.matches(":disabled") &&

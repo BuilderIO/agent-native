@@ -6,8 +6,7 @@
   background: var(--surface-canvas);
   color: var(--fg-default);
 }
-.workspace-stage > .split-pane,
-.workspace-stage .split-pane-content > .split-pane {
+.workspace-split-region {
   height: 100%;
 }
 .workspace-inspector {
@@ -254,7 +253,7 @@
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
 }
-.workspace-mobile-tools > .tabs-panel {
+.workspace-mobile-panel {
   min-height: 0;
   overflow: auto;
 }

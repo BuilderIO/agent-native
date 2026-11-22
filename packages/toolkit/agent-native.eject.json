@@ -2127,6 +2127,7 @@
         "next-themes",
         "react",
         "react-day-picker",
+        "react-dom",
         "react-hook-form",
         "react-resizable-panels",
         "recharts",

@@ -126,8 +126,6 @@ export function tokensCss(
   }
 
   for (const radius of RADIUS_PRESETS) {
-    // App themes can define their own shape tokens, so rebind the nearest
-    // explicit radius preset when entering a different app scope.
     const selectors = ":scope[data-radius],\n[data-app-theme][data-app-theme]";
     sections.push(
       `@scope ([data-radius="${radius}"]) {\n${block(
@@ -225,8 +223,6 @@ export function themeCss(
   }
 
   const root = `[data-app-theme="${theme.name}"]`;
-  // Keep a class or attribute outside :where() on each subject so WebKit can skip
-  // inactive themes when recalculating styles on ordinary descendants.
   const themeRoot = `:where(:scope)${root}`;
   const scoped = [
     block(
@@ -239,8 +235,6 @@ export function themeCss(
   const limit = theme.readsScales ? " to ([data-app-theme])" : "";
   sections.push(`@scope (${root})${limit} {\n${scoped.join("\n\n")}\n}`);
 
-  // Either axis can be the nearer ancestor. Equal specificity lets scope
-  // proximity resolve nested appearances and nested app themes in both orders.
   const appearanceSelectors = (mode: string) => [
     `:scope:where(${root}) .${mode}`,
     `:scope:where(.${mode}) ${root}`,
@@ -252,8 +246,6 @@ export function themeCss(
     selectors.map((selector) => `${selector}${NO_PALETTE}`).join(",\n");
   const lightScales = scales([themeRoot, ...light]);
   const darkScales = scales(dark);
-  // Appearance classes inside a region can also match an enclosing app’s rules.
-  // Reset only foreign slots so values supplied by this theme’s base still inherit.
   const foreignSlots = new Set(
     [...appearanceKeys].filter(
       (key) => !(key in theme.base || key in theme.light || key in theme.dark),
@@ -351,8 +343,6 @@ export function paletteCss(
     throw new TypeError(`Palette id must be alphanumeric with dashes: ${id}`);
   }
   const scope = `[data-palette="${id}"]`;
-  // A palette can introduce a brand inside an appearance, or enclose an appearance
-  // change. Equal specificity lets scope proximity resolve both kinds of nesting.
   function selectors(mode: "light" | "dark") {
     const appearance =
       mode === "light" ? ":where(:root:not(.dark), .light)" : ":where(.dark)";

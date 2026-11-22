@@ -34,7 +34,6 @@ export type AutocompleteProps<Item> = Omit<
     filteredItems?: SuggestionItems<Item>;
   };
 
-// Base UI accepts flat and grouped data at runtime, but declares separate JSX overloads.
 const AutocompleteRoot: <Item>(
   props: Omit<AutocompleteProps<Item>, keyof AccessibleName>,
 ) => React.JSX.Element = BaseAutocomplete.Root;

@@ -13,6 +13,7 @@ import * as React from "react";
 import { isComposingKey } from "../is-composing-key.js";
 import { Badge } from "./badge.js";
 import { Button, IconButton } from "./button.js";
+import { indexedItem, requireItem } from "./indexed-item.js";
 import { Input } from "./input.js";
 import {
   InspectorSection,
@@ -111,7 +112,7 @@ interface ColorFieldProps {
   value: PaintColor;
   tokens?: readonly PaintToken[];
   onChange: (next: PaintColor) => void;
-  labels?: Partial<PaintEditorLabels>;
+  labels?: Partial<PaintEditorLabels> | undefined;
   container?: Container;
 }
 
@@ -220,7 +221,6 @@ function usePaintEdit<T>(
   });
   React.useLayoutEffect(
     () => () => {
-      // A removed field can no longer safely write its old paint back into the stack.
       if (original.current) {
         original.current = null;
         cancelPreview.current?.();
@@ -238,8 +238,6 @@ function usePaintEdit<T>(
       }
       return;
     }
-    // A lock can blur the field before its popup unmounts. Keep the pending
-    // preview available for cancellation when that blur tries to commit.
     if (isLocked?.()) return;
     if (edit.phase === "preview") original.current ??= { value };
     else original.current = null;
@@ -256,7 +254,7 @@ function PaintNumber({
 }: Pick<PropertyNumberProps, "label" | "step" | "min" | "max"> & {
   value: number;
   onChange: Change<number>;
-  onCancelPreview?: () => void;
+  onCancelPreview?: (() => void) | undefined;
 }) {
   const id = React.useId();
   const edit = usePaintEdit(value, onChange, onCancelPreview);
@@ -278,9 +276,9 @@ interface GradientProps {
   stops: readonly PaintStop[];
   tokens?: readonly PaintToken[];
   onChange: Change<readonly PaintStop[]>;
-  onCancelPreview?: () => void;
+  onCancelPreview?: (() => void) | undefined;
   createId?: () => string;
-  labels?: Partial<PaintEditorLabels>;
+  labels?: Partial<PaintEditorLabels> | undefined;
   container?: Container;
 }
 function newPaintId() {
@@ -305,18 +303,19 @@ export function PaintGradientStops({
     0,
     stops.findIndex((s) => s.id === current),
   );
-  const stop = stops[index];
   const direction = useDirection();
   const editStops = usePaintEdit(stops, onChange, onCancelPreview);
-  if (stops.length < 2 || !stop)
+  if (stops.length < 2)
     throw new Error("A linear paint requires at least two stops.");
+  const stop = requireItem(stops, index);
   const positions = stops.map((s) => s.offset);
   function positionsChanged(next: readonly number[], phase: Phase) {
     editStops({
       phase,
-      value: stops.map((stop, i) =>
-        stop.offset === next[i] ? stop : { ...stop, offset: next[i] },
-      ),
+      value: stops.map((stop, i) => {
+        const offset = requireItem(next, i);
+        return stop.offset === offset ? stop : { ...stop, offset };
+      }),
     });
   }
   function replace(next: PaintStop, phase: Phase) {
@@ -327,10 +326,10 @@ export function PaintGradientStops({
   }
   function add() {
     const right = index === stops.length - 1 ? index : index + 1;
-    const left = stops[right - 1];
+    const left = requireItem(stops, right - 1);
     const newStop = {
       id: createId(),
-      offset: (left.offset + stops[right].offset) / 2,
+      offset: (left.offset + requireItem(stops, right).offset) / 2,
       color: stop.color,
     };
     onChange(
@@ -410,7 +409,7 @@ export function PaintGradientStops({
                 stops.filter((s) => s.id !== stop.id),
                 "commit",
               );
-              setCurrent(stops[index === 0 ? 1 : index - 1].id);
+              setCurrent(requireItem(stops, index === 0 ? 1 : index - 1).id);
             }}
           >
             <IconMinus />
@@ -436,9 +435,9 @@ export interface PaintEditorProps extends Omit<
   value: readonly Paint[];
   onValueChange: Change<readonly Paint[]>;
   /** Discard the host’s transient edit. Without a handler cancellation commits the original value. */
-  onCancelPreview?: () => void;
+  onCancelPreview?: (() => void) | undefined;
   tokens?: readonly PaintToken[];
-  labels?: Partial<PaintEditorLabels>;
+  labels?: Partial<PaintEditorLabels> | undefined;
   container?: Container;
   createId?: () => string;
   headerActions?: React.ReactNode;
@@ -482,7 +481,7 @@ export function PaintEditor({
   React.useLayoutEffect(() => {
     const trigger = addButton.current;
     const win = trigger?.ownerDocument.defaultView;
-    if (!win || !trigger?.closest("fieldset")) return;
+    if (!win || !trigger.closest("fieldset")) return;
     let wasLocked = locked();
     const observer = new win.MutationObserver(() => {
       const isLocked = locked();
@@ -522,9 +521,11 @@ export function PaintEditor({
   function move(index: number, to: number) {
     if (locked()) return;
     const next = value.slice();
-    [next[index], next[to]] = [next[to], next[index]];
+    const paint = requireItem(value, index);
+    next[index] = requireItem(value, to);
+    next[to] = paint;
     onValueChange(next, "commit");
-    setFocusId(value[index].id);
+    setFocusId(paint.id);
   }
   const addControl = (
     <Menu key={`menu-${overlayRevision}`}>
@@ -584,7 +585,11 @@ export function PaintEditor({
                 value.filter((p) => p.id !== paint.id),
                 "commit",
               );
-              setFocusId(value[i + 1]?.id ?? value[i - 1]?.id ?? paint.id);
+              setFocusId(
+                indexedItem(value, i + 1)?.id ??
+                  indexedItem(value, i - 1)?.id ??
+                  paint.id,
+              );
             };
             const defaultFields = (
               <>

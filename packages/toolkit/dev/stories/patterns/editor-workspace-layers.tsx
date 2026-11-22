@@ -379,7 +379,6 @@ export const WorkspaceLayersPanel = React.memo(function WorkspaceLayersPanel({
         setFilter(false);
         setKind("all");
         setShowLayers(true);
-        // A tab returning during its exit transition can still contain the old tree.
         revealTree();
         setFocusTree(true);
         setTab("file");

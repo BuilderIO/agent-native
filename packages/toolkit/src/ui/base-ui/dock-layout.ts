@@ -1,3 +1,5 @@
+import { requireItem } from "./indexed-item.js";
+
 export type DockGroup = {
   type: "group";
   id: string;
@@ -73,7 +75,6 @@ export function isDockLayout(
       continue;
     }
     if (node.type === "split") {
-      // Each split needs one more nonempty leaf, and each leaf owns a panel.
       splits++;
       if (
         splits >= allowed.size ||
@@ -153,7 +154,9 @@ export function restoreDockSurface(
   if (leaf.type === "surface") return layout;
   const surface: DockSurface = { type: "surface", id: leaf.id, panel };
   const tabs = leaf.tabs.filter((tab) => tab !== panel);
-  if (!tabs.length) return updateDockNode(layout, leaf.id, () => surface);
+  const firstTab = tabs.at(0);
+  if (firstTab === undefined)
+    return updateDockNode(layout, leaf.id, () => surface);
   const nextId = dockIdAllocator(layout);
   return updateDockNode(layout, leaf.id, () => ({
     type: "split",
@@ -166,7 +169,7 @@ export function restoreDockSurface(
       type: "group",
       id: nextId("group"),
       tabs,
-      active: leaf.active === panel ? tabs[0] : leaf.active,
+      active: leaf.active === panel ? firstTab : leaf.active,
     },
   }));
 }
@@ -217,10 +220,19 @@ export function moveDockTab(
   if (!canPlaceDockTab(source, tab, destination, target, position))
     return layout;
   const remaining = source.tabs.filter((id) => id !== tab);
-  const active =
-    source.active === tab
-      ? remaining[Math.min(source.tabs.indexOf(tab), remaining.length - 1)]
-      : source.active;
+  const remainingGroup: DockGroup | null = remaining.length
+    ? {
+        ...source,
+        tabs: remaining,
+        active:
+          source.active === tab
+            ? requireItem(
+                remaining,
+                Math.min(source.tabs.indexOf(tab), remaining.length - 1),
+              )
+            : source.active,
+      }
+    : null;
   const nextId = split ? dockIdAllocator(layout) : undefined;
   function transform(node: DockLayout): DockLayout | null {
     if (node.type === "split") {
@@ -231,10 +243,8 @@ export function moveDockTab(
         ? node
         : { ...node, first, second };
     }
-    const group =
-      node === source ? { ...source, tabs: remaining, active } : node;
-    if (node !== destination)
-      return group.type === "surface" || group.tabs.length ? group : null;
+    const group = node === source ? remainingGroup : node;
+    if (node !== destination || !group) return group;
     if (!nextId) {
       if (group.type === "surface") return group;
       const tabs = [...group.tabs];

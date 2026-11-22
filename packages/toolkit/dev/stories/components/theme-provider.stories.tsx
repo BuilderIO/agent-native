@@ -212,7 +212,7 @@ const registeredPalettes = [
 
 /** The nearest palette wins when an appearance changes inside another brand. */
 export const NestedPalettes: StoryObj = {
-  render: () => {
+  render: function NestedPalettesExample() {
     const [reversed, setReversed] = React.useState(false);
     return (
       <>
@@ -473,7 +473,7 @@ export const ReadingDirection: StoryObj = {
 };
 
 export const InitialDialog: StoryObj = {
-  render: () => {
+  render: function InitialDialogExample() {
     const [outer, setOuter] = React.useState<HTMLDivElement | null>(null);
     return (
       <ThemeProvider

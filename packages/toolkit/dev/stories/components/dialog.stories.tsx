@@ -157,7 +157,7 @@ export const Nested: Story = {
 
 /** A media-led tutorial built entirely from Dialog parts. */
 export const Tutorial: Story = {
-  render: (args) => {
+  render: function TutorialExample(args) {
     const portal = React.useRef<HTMLDivElement>(null);
     return (
       <div ref={portal}>

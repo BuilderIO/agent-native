@@ -499,7 +499,6 @@ function useAnchor(container: ToastContainer | undefined): HTMLElement | null {
   );
   const [fromRef, setFromRef] = React.useState<HTMLElement | null>(null);
   const isRef = container != null && "current" in container;
-  // Ancestor DOM refs attach after descendant layout effects.
   React.useEffect(() => {
     const next = isRef ? container.current : null;
     if (next !== fromRef) setFromRef(next);

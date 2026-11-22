@@ -1,20 +1,19 @@
 import { useLayoutEffect, useRef } from "react";
 
-// Review geometry belongs to the preview. Measurements and observers exist only while Spacing is on.
 export function PanelSpacing() {
   const ref = useRef<HTMLCanvasElement>(null);
   useLayoutEffect(() => {
     const canvas = ref.current;
-    const host = canvas?.parentElement;
-    const ctx = canvas?.getContext("2d");
-    if (!host || !canvas || !ctx) return;
+    if (!canvas) return;
+    const host = canvas.parentElement;
+    const ctx = canvas.getContext("2d");
+    if (!host || !ctx) return;
     const regions = ".design-property-inspector, .design-file-panel";
     const controls =
       ".input, .select-trigger, .segmented-control, .icon-button, .toggle, .workspace-share, .paint-editor-trigger, .design-property-inspector-transform";
     const observedPanels = new Set<Element>();
     let frame = 0;
-    function paint() {
-      if (!host || !canvas || !ctx) return;
+    const paint = () => {
       frame = 0;
       const origin = canvas.getBoundingClientRect();
       const ratio = window.devicePixelRatio;
@@ -119,7 +118,7 @@ export function PanelSpacing() {
         for (const x of columns) ctx.fillRect(x, 0, 1, r.height);
         ctx.restore();
       }
-    }
+    };
     function schedule() {
       if (!frame) frame = requestAnimationFrame(paint);
     }
