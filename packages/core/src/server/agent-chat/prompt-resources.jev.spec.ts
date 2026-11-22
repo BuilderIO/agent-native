@@ -3025,6 +3025,10 @@ description: My renamed voice.
 
     let inFlight = 0;
     let maxInFlight = 0;
+    let releaseBarrier: (() => void) | undefined;
+    const barrier = new Promise<void>((resolve) => {
+      releaseBarrier = resolve;
+    });
     const byKey = new Map<string, string>([
       [`${workspaceOwner}::AGENTS.md`, "WORKSPACE_AGENTS_BODY"],
       [`__shared__::AGENTS.md`, "APP_DEFAULT_AGENTS_BODY"],
@@ -3039,7 +3043,10 @@ description: My renamed voice.
       async (owner: string, resourcePath: string) => {
         inFlight += 1;
         maxInFlight = Math.max(maxInFlight, inFlight);
-        await new Promise((resolve) => setTimeout(resolve, 25));
+        if (inFlight >= 4) {
+          releaseBarrier?.();
+        }
+        await barrier;
         inFlight -= 1;
         const content = byKey.get(`${owner}::${resourcePath}`);
         if (!content) return null;

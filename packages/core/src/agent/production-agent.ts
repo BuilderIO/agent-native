@@ -15946,7 +15946,7 @@ export function createProductionAgentHandler(
           : {}),
       },
     );
-    const contextPrefetchDeadlineAt = Date.now() + 1_300;
+    let contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
       ownerEmail,
@@ -16508,808 +16508,6 @@ export function createProductionAgentHandler(
       isReaperSuccessor ||
       Boolean(continueOf) ||
       isClientTurnContinuation;
-    // When this foreground request will dispatch to a durable background
-    // worker, the worker rebuilds the system prompt, screen/files/Jev context,
-    // and message history itself. Defer that work so the foreground returns
-    // response headers immediately, running it lazily only if dispatch falls
-    // back inline.
-    const deferExecutionContext =
-      dispatchToBackground && !shouldRecoverCompletedExecutionSteps;
-
-    const prepareExecutionContext = async () => {
-      const effectivePrefetchDeadlineAt = deferExecutionContext
-        ? Date.now() + 1_300
-        : contextPrefetchDeadlineAt;
-      const effectiveDispatchToBackground = deferExecutionContext
-        ? false
-        : dispatchToBackground;
-
-      attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
-      const resolvedHistoryImages =
-        await hydrateStructuredHistoryImageReferences(
-          requestStructuredHistory,
-          { vision: modelSupportsVision, budget: attachmentHydrationBudget },
-        );
-      const modelPreparedContext = await preparedRequest?.prepareAfterModel?.({
-        model: effectiveModel,
-        vision: modelSupportsVision,
-        hydrationBudget: attachmentHydrationBudget,
-        historyImageUrls: attemptedStructuredHistoryImageUrls(
-          requestStructuredHistory,
-          resolvedHistoryImages,
-          modelSupportsVision,
-        ),
-      });
-      if (modelPreparedContext) {
-        if (Array.isArray(modelPreparedContext.contextAttachments)) {
-          requestContextAttachments = [
-            ...requestContextAttachments,
-            ...(await downscaleOversizedInlineImages(
-              modelPreparedContext.contextAttachments,
-            )),
-          ];
-        }
-        if (typeof modelPreparedContext.contextNote === "string") {
-          requestContextNote = [
-            requestContextNote,
-            modelPreparedContext.contextNote,
-          ]
-            .filter(Boolean)
-            .join("\n");
-        }
-      }
-
-      setupMark("prepDone");
-      workerStep("env_config");
-      const integrationMessage = [...integrationIntents, requestMessage].join(
-        "\n\n",
-      );
-      const enrichedMessageThunk = () =>
-        enrichMessage(integrationMessage, requestReferences);
-      const loopSettingsThunk = () =>
-        readAgentLoopSettings({
-          userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
-          orgId: getRequestOrgId() ?? null,
-        }).catch(() => readAgentLoopSettings({}));
-
-      let systemPromptError: Error | null = null;
-      const systemPromptThunk = (): Promise<string> =>
-        (async (): Promise<string> => {
-          const sysPromptStart = Date.now();
-          try {
-            const built =
-              typeof options.systemPrompt === "function"
-                ? await options.systemPrompt(event)
-                : options.systemPrompt;
-            const treatmentInstructions =
-              treatmentInstructionsForQuestionIntake(
-                questionIntakeConfig,
-                questionIntakeAssignment,
-              );
-            return treatmentInstructions
-              ? [built, treatmentInstructions].filter(Boolean).join("\n\n")
-              : built;
-          } catch (error) {
-            systemPromptError =
-              error instanceof Error
-                ? error
-                : new Error(
-                    typeof error === "string" && error.trim()
-                      ? error
-                      : "system prompt preparation failed",
-                  );
-            return "";
-          } finally {
-            setupMarks.sysPromptMs = Date.now() - sysPromptStart;
-          }
-        })();
-
-      const timeContextThunk = (): Promise<string> =>
-        (async (): Promise<string> => {
-          try {
-            const tzRaw = getHeader(event, "x-user-timezone");
-            const timezone =
-              typeof tzRaw === "string" &&
-              tzRaw.trim().length > 0 &&
-              tzRaw.trim().length < 64
-                ? tzRaw.trim()
-                : undefined;
-            return buildCurrentTimeUserContext({ timezone });
-          } catch {
-            return buildCurrentTimeUserContext();
-          }
-        })();
-
-      // `empty` (no navigation yet) stays silent; a timeout or a throw adds a
-      // note, because the model would otherwise read it as an app with no page.
-      const screenStatuses: Record<
-        "screen" | "url" | "selection",
-        ContextStatus
-      > = { screen: "empty", url: "empty", selection: "empty" };
-      // Once a cap fires the model has the fallback note, so a read that
-      // resolves late must not change what the trace says it saw.
-      const noteScreenStatus = (
-        source: keyof typeof screenStatuses,
-        status: ContextStatus,
-      ) => {
-        if (screenStatuses[source] !== "timed_out") {
-          screenStatuses[source] = status;
-        }
-      };
-      const screenUnavailableNote = screenContextUnavailableNote(
-        Boolean(surfacedRequestActions["view-screen"]),
-      );
-      const screenContextThunk = (): Promise<string> =>
-        (async (): Promise<string> => {
-          const screenStart = Date.now();
-          try {
-            const viewScreenAction = surfacedRequestActions["view-screen"];
-            if (viewScreenAction) {
-              const result = await viewScreenAction.run(
-                {},
-                {
-                  userEmail: getRequestUserEmail(),
-                  orgId: getRequestOrgId() ?? null,
-                  caller: "tool",
-                },
-              );
-              if (result && result !== "(no output)") {
-                const screenText =
-                  typeof result === "string"
-                    ? result
-                    : JSON.stringify(result, null, 2);
-                noteScreenStatus("screen", "ok");
-                return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
-              }
-            } else {
-              const navigation = await readAppStateForBrowserTab(
-                "navigation",
-                requestBrowserTabId,
-              );
-              if (navigation) {
-                noteScreenStatus("screen", "ok");
-                return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
-              }
-            }
-          } catch (error) {
-            if (!hasAppStateIdentity()) return "";
-            noteScreenStatus("screen", "failed");
-            console.warn(
-              "[agent-chat] current-screen context unavailable:",
-              error instanceof Error ? error.message : String(error),
-            );
-            return screenUnavailableNote;
-          } finally {
-            setupMarks.screenMs = Date.now() - screenStart;
-          }
-          return "";
-        })();
-
-      const urlContextThunk = (): Promise<string> =>
-        (async (): Promise<string> => {
-          try {
-            const url = (await readAppStateForBrowserTab(
-              "__url__",
-              requestBrowserTabId,
-            )) as {
-              pathname?: string;
-              search?: string;
-              hash?: string;
-              searchParams?: Record<string, string>;
-            } | null;
-            if (url && (url.pathname || url.search || url.hash)) {
-              const lines: string[] = [];
-              if (url.pathname) lines.push(`pathname: ${url.pathname}`);
-              const extensionId = url.pathname
-                ? extensionIdFromPathname(url.pathname)
-                : null;
-              if (extensionId) lines.push(`extensionId: ${extensionId}`);
-              if (url.search) lines.push(`search: ${url.search}`);
-              // A tab on an older bundle still stores the hash unscrubbed.
-              if (url.hash) lines.push(`hash: ${scrubLocationHash(url.hash)}`);
-              if (
-                url.searchParams &&
-                Object.keys(url.searchParams).length > 0
-              ) {
-                lines.push("searchParams:");
-                for (const [k, v] of Object.entries(url.searchParams)) {
-                  lines.push(`  ${k}: ${v}`);
-                }
-              }
-              // The Settings shell names the page it resolved, which a legacy
-              // or mounted pathname doesn't say directly.
-              if (url.pathname?.includes("/settings")) {
-                const settingsPage = describeSettingsViewForAgent(
-                  await readAppStateForBrowserTab(
-                    SETTINGS_VIEW_STATE_KEY,
-                    requestBrowserTabId,
-                  ),
-                );
-                if (settingsPage) lines.push(settingsPage);
-              }
-              noteScreenStatus("url", "ok");
-              return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
-            }
-          } catch (error) {
-            if (!hasAppStateIdentity()) return "";
-            noteScreenStatus("url", "failed");
-            console.warn(
-              "[agent-chat] current-url context unavailable:",
-              error instanceof Error ? error.message : String(error),
-            );
-            return screenUnavailableNote;
-          }
-          return "";
-        })();
-
-      const SELECTION_TTL_MS = 5 * 60 * 1000;
-      const selectionContextThunk = (): Promise<string> =>
-        (async (): Promise<string> => {
-          if (requestSkipPendingSelectionContext === true) return "";
-          try {
-            const sel = (await readAppState("pending-selection-context")) as {
-              text?: string;
-              capturedAt?: number;
-            } | null;
-            if (!sel?.text) return "";
-            const capturedAt =
-              typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
-            if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
-            noteScreenStatus("selection", "ok");
-            return (
-              `\n\nThe user has selected the following text and pressed Cmd I to focus the agent. ` +
-              `Treat this as the immediate context to act on:\n` +
-              `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
-            );
-          } catch (error) {
-            if (!hasAppStateIdentity()) return "";
-            noteScreenStatus("selection", "failed");
-            console.warn(
-              "[agent-chat] selection context unavailable:",
-              error instanceof Error ? error.message : String(error),
-            );
-            return SELECTION_CONTEXT_UNAVAILABLE_NOTE;
-          }
-          return "";
-        })();
-
-      const filesContextThunk = (): Promise<string> =>
-        (async (): Promise<string> => {
-          let filesContext = "";
-          if (options.skipFilesContext || requestedHostedHarness) {
-            return filesContext;
-          }
-          if (requestHistory.length === 0) {
-            try {
-              const {
-                resourceListAccessible,
-                SHARED_OWNER,
-                isWorkspaceResourceOwner,
-                resourceGet,
-              } = await import("../resources/store.js");
-              const {
-                getResourceKind,
-                parseCustomAgentProfile,
-                parseRemoteAgentManifest,
-                parseSkillMetadata,
-              } = await import("../resources/metadata.js");
-              const ownerEmail = getRequestUserEmail();
-              const orgId = getRequestOrgId();
-              if (!ownerEmail) throw new Error("no authenticated user");
-              const allResources = await resourceListAccessible(
-                ownerEmail,
-                undefined,
-                { userEmail: ownerEmail, orgId },
-              );
-
-              if (allResources.length > 0) {
-                const fileLines: string[] = [];
-                const skillLines: string[] = [];
-                const agentLines: string[] = [];
-                const jobLines: string[] = [];
-                const detailResources = allResources.filter((r) => {
-                  const kind = getResourceKind(r.path);
-                  return (
-                    kind === "skill" ||
-                    kind === "agent" ||
-                    kind === "remote-agent"
-                  );
-                });
-                const fullById = new Map<
-                  string,
-                  Awaited<ReturnType<typeof resourceGet>>
-                >();
-                if (detailResources.length > 0) {
-                  const fetched = await Promise.all(
-                    detailResources.map(async (r) => ({
-                      id: r.id,
-                      full: await resourceGet(r.id, {
-                        userEmail: ownerEmail,
-                        orgId,
-                      }),
-                    })),
-                  );
-                  for (const entry of fetched) {
-                    fullById.set(entry.id, entry.full);
-                  }
-                }
-                for (const r of allResources) {
-                  const scope = isWorkspaceResourceOwner(r.owner)
-                    ? "workspace"
-                    : r.owner === SHARED_OWNER
-                      ? "shared"
-                      : "personal";
-                  const kind = getResourceKind(r.path);
-                  if (kind === "file") {
-                    fileLines.push(`  ${r.path} (${scope})`);
-                    continue;
-                  }
-
-                  if (kind === "job") {
-                    jobLines.push(`  ${r.path} (${scope})`);
-                    continue;
-                  }
-
-                  if (
-                    kind === "skill" ||
-                    kind === "agent" ||
-                    kind === "remote-agent"
-                  ) {
-                    const full = fullById.get(r.id);
-                    if (!full) continue;
-                    if (kind === "skill") {
-                      const skill = parseSkillMetadata(full.content, r.path);
-                      skillLines.push(
-                        `  ${skill?.name || r.path} — ${compactInventoryDescription(skill?.description || r.path)} (${scope}, ${r.path})`,
-                      );
-                    } else if (kind === "agent") {
-                      const agent = parseCustomAgentProfile(
-                        full.content,
-                        r.path,
-                      );
-                      agentLines.push(
-                        `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Custom workspace agent")} (${scope}, ${r.path}${agent?.model ? `, model: ${agent.model}` : ""})`,
-                      );
-                    } else {
-                      const agent = parseRemoteAgentManifest(
-                        full.content,
-                        r.path,
-                      );
-                      agentLines.push(
-                        `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Connected A2A agent")} (${scope}, remote via ${r.path})`,
-                      );
-                    }
-                  }
-                }
-                const blocks: string[] = [];
-                if (fileLines.length > 0) {
-                  const lines = limitInventoryLines(fileLines, "files");
-                  blocks.push(
-                    `<available-files>\nFiles in the workspace:\n${lines.join("\n")}\n\nTo read a resource file's contents, use the resources tool with action "read" and the file path.\n</available-files>`,
-                  );
-                }
-                if (skillLines.length > 0) {
-                  const lines = limitInventoryLines(skillLines, "skills");
-                  blocks.push(
-                    `<available-skills>\nSkills in the workspace:\n${lines.join("\n")}\n\nBefore using a matching workspace skill, read its path with the resources tool using action "read"; slash-selected skills are inlined automatically when available.\n</available-skills>`,
-                  );
-                }
-                if (agentLines.length > 0) {
-                  const lines = limitInventoryLines(agentLines, "agents");
-                  blocks.push(
-                    `<available-agents>\nCustom and connected agents in the workspace:\n${lines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via agent-teams (action: "spawn") with the agent parameter.\n</available-agents>`,
-                  );
-                }
-                if (jobLines.length > 0) {
-                  const lines = limitInventoryLines(jobLines, "jobs");
-                  blocks.push(
-                    `<available-jobs>\nScheduled tasks in the workspace:\n${lines.join("\n")}\n</available-jobs>`,
-                  );
-                }
-                filesContext =
-                  blocks.length > 0 ? `\n\n${blocks.join("\n\n")}` : "";
-              }
-            } catch {
-              // Resources not available — skip silently
-            }
-          }
-          return filesContext;
-        })();
-
-      const presendCap = <T>(
-        label: string,
-        thunk: () => Promise<T>,
-        fallback: T,
-        ms: number,
-        onTimeout?: () => void,
-      ): Promise<T> => {
-        return resolvePresendWithCap({
-          enabled: isBackgroundWorker,
-          thunk,
-          fallback,
-          timeoutMs: ms,
-          onTimeout: () => {
-            onTimeout?.();
-            workerStep(`presend_timeout:${label}`);
-          },
-        });
-      };
-      const fallbackLoopSettings: AgentLoopSettings = {
-        maxIterations: getDefaultMaxIterations(),
-        defaultMaxIterations: getDefaultMaxIterations(),
-        minMaxIterations: MIN_AGENT_MAX_ITERATIONS,
-        maxMaxIterations: MAX_AGENT_MAX_ITERATIONS,
-        maxRunInputTokens: getDefaultMaxRunInputTokens(),
-        defaultMaxRunInputTokens: getDefaultMaxRunInputTokens(),
-        scope: "default",
-        source: "default",
-      };
-      const systemPromptTimeoutError = new Error(
-        "system prompt preparation timed out before the agent could start",
-      );
-      let [
-        systemPrompt,
-        timeBlock,
-        screenBlock,
-        urlBlock,
-        selectionBlock,
-        filesContext,
-        loopSettings,
-        enrichedMessage,
-        jevContextCredentials,
-        priorConnection,
-      ] = await Promise.all([
-        presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
-          // An empty configured prompt is valid, but an empty timeout fallback
-          // is not: required app instructions must either finish or fail before
-          // the model is called. Set the error synchronously with the cap so a
-          // late rejection/success cannot race the check below.
-          systemPromptError ??= systemPromptTimeoutError;
-        }),
-        presendCap("time", timeContextThunk, "", 9000),
-        presendCap(
-          "screen",
-          screenContextThunk,
-          screenUnavailableNote,
-          9000,
-          () => {
-            screenStatuses.screen = "timed_out";
-          },
-        ),
-        presendCap("url", urlContextThunk, screenUnavailableNote, 9000, () => {
-          screenStatuses.url = "timed_out";
-        }),
-        presendCap(
-          "selection",
-          selectionContextThunk,
-          SELECTION_CONTEXT_UNAVAILABLE_NOTE,
-          9000,
-          () => {
-            screenStatuses.selection = "timed_out";
-          },
-        ),
-        presendCap("files", filesContextThunk, "", 12000),
-        presendCap(
-          "loopSettings",
-          loopSettingsThunk,
-          fallbackLoopSettings,
-          9000,
-        ),
-        presendCap(
-          "enrichedMessage",
-          enrichedMessageThunk,
-          integrationMessage,
-          9000,
-        ),
-        presendCap(
-          "jevContextCredentials",
-          () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
-          { apiKey: undefined, personalApiKey: undefined, builderAuth: null },
-          9000,
-        ),
-        presendCap(
-          "priorConnection",
-          // The foreground of a dispatched run never prompts the model; the
-          // worker re-reads, so reading here would pay for it twice.
-          (): Promise<PriorConnectionNote> =>
-            threadId && !dispatchToBackground
-              ? resolvePriorConnectionNote({
-                  threadId,
-                  orgId: getRequestOrgId() ?? null,
-                  appId: options.appId,
-                  excludeRunId: backgroundRunMarker?.runId,
-                })
-              : Promise.resolve({ status: "none" }),
-          { status: "unreadable", error: "timed out" },
-          9000,
-        ),
-      ]);
-      setupMark("ctxAll");
-      workerStep("context_all");
-
-      if (systemPromptError) {
-        return { ok: false as const, error: systemPromptError as Error };
-      }
-      // Screen and URL share one note; the same failure needn't be told twice.
-      if (urlBlock === screenBlock) urlBlock = "";
-      const screenContext = timeBlock + screenBlock + urlBlock + selectionBlock;
-      // Referenced agents don't share this run's tools, so a note telling the
-      // model to call view-screen would send them looking for a tool they lack.
-      const withoutUnavailableNote = (block: string) =>
-        block === screenUnavailableNote ||
-        block === SELECTION_CONTEXT_UNAVAILABLE_NOTE
-          ? ""
-          : block;
-      const referencedAgentContext =
-        timeBlock +
-        withoutUnavailableNote(screenBlock) +
-        withoutUnavailableNote(urlBlock) +
-        withoutUnavailableNote(selectionBlock);
-      const workspaceAppRequest = buildWorkspaceAppRequestContext({
-        request: requestMessage,
-        history: requestHistory,
-        structuredHistory: requestStructuredHistory,
-        selectedObjectContext: withoutUnavailableNote(selectionBlock),
-      });
-      const screenStatus = worstContextStatus(...Object.values(screenStatuses));
-      const surfacedActionRegistry =
-        requestMode === "plan"
-          ? createPlanModeActionRegistry(surfacedRequestActions)
-          : surfacedRequestActions;
-      const requestActions = await filterActionsForAgentDiscovery(
-        surfacedActionRegistry,
-        {
-          caller: "tool",
-          userEmail: ownerEmail ?? undefined,
-          orgId: getRequestOrgId() ?? null,
-          appId: options.appId,
-        },
-      );
-      const availableRequestTools = getEngineTools(requestActions);
-      const initialRequestTools = shouldFilterInitialRequestTools
-        ? filterInitialEngineTools(
-            availableRequestTools,
-            options.initialToolNames,
-          )
-        : availableRequestTools;
-      const curatedRequestTools =
-        requestMode === "plan"
-          ? preloadPlanModeEngineTools({
-              request: requestMessage,
-              registry: requestActions,
-              initialTools: initialRequestTools,
-              availableTools: availableRequestTools,
-            })
-          : initialRequestTools;
-      const jevContextMaxChars = options.jevContextCompact
-        ? Math.max(
-            0,
-            COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS - systemPrompt.length - 2,
-          )
-        : undefined;
-      const [requestTools, jevPreload] = await Promise.all([
-        preloadJevTools({
-          request: jevRequestContext,
-          skip: Boolean(internalContinuation || effectiveDispatchToBackground),
-          deadlineAt: effectivePrefetchDeadlineAt,
-          apiKey: jevContextCredentials.apiKey,
-          personalApiKey: jevContextCredentials.personalApiKey,
-          directApiKey: jevContextCredentials.directApiKey,
-          builderAuth: jevContextCredentials.builderAuth,
-          registry: requestActions,
-          initialTools: curatedRequestTools,
-          availableTools: availableRequestTools,
-          readOnlyOnly: requestMode === "plan",
-        }),
-        preloadJevContextWithStatus({
-          request: jevRequestContext,
-          appRequest: workspaceAppRequest,
-          appId: options.appId,
-          selfAppId: options.appId,
-          workspaceAppsEnabled: Boolean(requestActions["call-agent"]),
-          owner: ownerEmail ?? undefined,
-          orgId: getRequestOrgId() ?? null,
-          apiKey: jevContextCredentials.apiKey,
-          personalApiKey: jevContextCredentials.personalApiKey,
-          directApiKey: jevContextCredentials.directApiKey,
-          builderAuth: jevContextCredentials.builderAuth,
-          compact: options.jevContextCompact,
-          maxChars: jevContextMaxChars,
-          contextPrefetchDeadlineAt: effectivePrefetchDeadlineAt,
-          dispatchToBackground: effectiveDispatchToBackground,
-          internalContinuation: Boolean(internalContinuation),
-          candidates: jevPromptCandidates,
-          fallbackCandidateIds: jevFallbackCandidateIds,
-        }),
-      ]);
-      const jevContext = jevPreload.context;
-      if (jevContext) systemPrompt = `${systemPrompt}\n\n${jevContext}`;
-      if (jevPreload.relevantAppsContext) {
-        systemPrompt = `${systemPrompt}\n\n${jevPreload.relevantAppsContext}`;
-      }
-      if (runContext && jevPreload.appSelection) {
-        runContext.appDiscoverySelection = jevPreload.appSelection;
-      }
-      const prefetchStatus = worstContextStatus(
-        jevPreload.status,
-        preparedReferenceStatus,
-      );
-      if (runContext) {
-        runContext.contextStatus = {
-          prefetch: prefetchStatus,
-          screen: screenStatus,
-        };
-      }
-      // Per-turn, so the stable system prompt prefix keeps caching.
-      const prefetchNote =
-        prefetchStatus && isContextDegraded(prefetchStatus)
-          ? preloadedContextUnavailableNote(prefetchStatus, {
-              // The other source delivered, so only part of the context is missing.
-              partial:
-                jevPreload.status === "ok" || preparedReferenceStatus === "ok",
-            })
-          : "";
-      const contextXraySystemSections = [
-        ...readContextXraySystemSections(event),
-        ...(jevContext
-          ? await buildSystemManifestSections([
-              {
-                label: "Jev-prefetched context",
-                provenance: "runtime-context",
-                governance: "inherited",
-                content: jevContext,
-                sourceRef: { scope: "jev" },
-              },
-            ])
-          : []),
-        ...(jevPreload.relevantAppsContext
-          ? await buildSystemManifestSections([
-              {
-                label: "Relevant workspace apps",
-                provenance: "runtime-context",
-                governance: "inherited",
-                content: jevPreload.relevantAppsContext,
-                sourceRef: { scope: "workspace-apps" },
-              },
-            ])
-          : []),
-        ...(requestTools.length > 0
-          ? await buildSystemManifestSections([
-              {
-                label: "Action and MCP tool schemas",
-                provenance: "tools",
-                governance: "required",
-                content: requestTools
-                  .map((tool) =>
-                    JSON.stringify({
-                      name: tool.name,
-                      description: tool.description,
-                      parameters: tool.inputSchema,
-                    }),
-                  )
-                  .join("\n"),
-                sourceRef: { scope: "tools" },
-              },
-            ])
-          : []),
-      ];
-      setupMark("actions");
-      workerStep("action_tool_setup");
-      const requestSystemPrompt =
-        requestMode === "plan"
-          ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
-          : systemPrompt;
-
-      const agentRefs = requestReferences.filter((r) => r.type === "agent");
-      const customAgentRefs = requestReferences.filter(
-        (r) => r.type === "custom-agent",
-      );
-      const planModeAgentNote =
-        requestMode === "plan" && agentRefs.length > 0
-          ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
-          : "";
-
-      const userContent = buildUserContentWithAttachments({
-        text:
-          enrichedMessage +
-          screenContext +
-          prefetchNote +
-          priorConnectionContextNote(priorConnection) +
-          filesContext +
-          planModeAgentNote +
-          (requestContextAttachments.length > 0
-            ? "\n\n<prior-chat-image-context>Images attached in earlier turns of this chat are included after the current text, in chronological order. Use them as prior references when relevant.</prior-chat-image-context>"
-            : "") +
-          (requestContextNote ? `\n\n${requestContextNote}` : ""),
-        attachments: [...requestContextAttachments, ...requestAttachments],
-        vision: modelSupportsVision,
-        textAttachmentStorage,
-      });
-
-      const historyMessages =
-        structuredHistoryToEngineMessages(
-          requestStructuredHistory,
-          resolvedHistoryImages,
-        ) ??
-        requestHistory
-          .filter((m) => m.content.trim())
-          .map(
-            (m): EngineMessage => ({
-              role: m.role as "user" | "assistant",
-              content: [{ type: "text" as const, text: m.content }],
-            }),
-          );
-
-      const messages: EngineMessage[] = [
-        ...historyMessages,
-        { role: "user" as const, content: userContent },
-      ];
-      // The durable approval row is the authorization boundary. Do not require
-      // the client to reproduce the original structured history exactly: the UI
-      // may truncate tool arguments and intentionally assigns fresh replay ids.
-      // The loop still consumes only a matching server-created grant for the
-      // current owner/org/thread/turn/tool/input tuple.
-      const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
-        isFirstRequest: requestHistory.length === 0,
-        systemPrompt: requestSystemPrompt,
-        messages,
-        tools: requestTools,
-        availableToolCount: availableRequestTools.length,
-      });
-      return {
-        ok: true as const,
-        value: {
-          resolvedHistoryImages,
-          loopSettings,
-          enrichedMessage,
-          referencedAgentContext,
-          prefetchStatus,
-          screenStatus,
-          priorConnection,
-          requestActions,
-          availableRequestTools,
-          requestTools,
-          contextXraySystemSections,
-          requestSystemPrompt,
-          agentRefs,
-          customAgentRefs,
-          historyMessages,
-          messages,
-          firstRequestPayloadDetail,
-        },
-      };
-    };
-
-    const createSystemPromptErrorResponse = (err: Error) => {
-      setResponseHeader(event, "Content-Type", "text/event-stream");
-      setResponseHeader(event, "Cache-Control", "no-cache");
-      const encoder = new TextEncoder();
-      return new ReadableStream({
-        start(controller) {
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ type: "error", error: `Failed to load system prompt: ${err.message}` })}\n\n`,
-            ),
-          );
-          controller.close();
-        },
-      });
-    };
-
-    type PreparedExecutionContext = Extract<
-      Awaited<ReturnType<typeof prepareExecutionContext>>,
-      { ok: true }
-    >["value"];
-    let executionContext: PreparedExecutionContext | null = null;
-    if (!deferExecutionContext) {
-      const prepared = await prepareExecutionContext();
-      if (!prepared.ok) {
-        if (isBackgroundWorker) throw prepared.error;
-        return createSystemPromptErrorResponse(prepared.error);
-      }
-      executionContext = prepared.value;
-    }
-
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
     const effectiveTurnId =
@@ -17320,8 +16518,6 @@ export function createProductionAgentHandler(
           (typeof requestTurnId === "string" && requestTurnId.trim()
             ? requestTurnId.trim()
             : runId));
-    // Only a fresh turn the owner is driving from the page right now hands its
-    // foreground standing to the durable run; continuations never mint one.
     if (dispatchToBackground && getAppConfig().agent.interactiveChatTurns) {
       const grant = mintDurableTurnGrant({
         runId,
@@ -17346,7 +16542,6 @@ export function createProductionAgentHandler(
             ? { attachments: requestAttachments }
             : {}),
         } as unknown as Record<string, unknown>;
-        // This one-time claim authorizes only the request that consumes it.
         delete dispatchBody.queuedMessageClaimId;
         durableDispatchPayload = serializeDurableDispatchPayload(dispatchBody);
       } catch (error) {
@@ -17367,18 +16562,804 @@ export function createProductionAgentHandler(
       typeof threadId === "string" &&
       threadId.trim().length > 0 &&
       isAgentChatForegroundSelfChainEnabled();
-    let foregroundRunRowInserted = false;
+    const runRowState = {
+      foregroundInserted: false,
+      durableInserted: false,
+    };
     let setupResumeClaim:
       | Awaited<ReturnType<typeof claimSetupResume>>
       | undefined;
+    const messageToPersist =
+      typeof requestDisplayMessage === "string" &&
+      requestDisplayMessage.trim().length > 0
+        ? requestDisplayMessage
+        : requestMessage;
 
-    if (threadId && !isBackgroundWorker) {
+    const deferExecutionContext =
+      dispatchToBackground && !shouldRecoverCompletedExecutionSteps;
+    let backgroundDispatchAttempted = false;
+    if (deferExecutionContext) {
+      backgroundDispatchAttempted = true;
+      const slotResult = await claimForegroundRunSlot();
+      if (slotResult.earlyResponse !== null) {
+        return slotResult.earlyResponse;
+      }
+      const preparedResult = await runOnRunPreparedHook();
+      if (preparedResult.earlyResponse !== null) {
+        return preparedResult.earlyResponse;
+      }
+      const dispatchResult = await dispatchDurableBackgroundRun();
+      if (dispatchResult.earlyResponse !== null) {
+        return dispatchResult.earlyResponse;
+      }
+      contextPrefetchDeadlineAt = Date.now() + 1_300;
+    }
+
+    attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
+    const resolvedHistoryImages = await hydrateStructuredHistoryImageReferences(
+      requestStructuredHistory,
+      { vision: modelSupportsVision, budget: attachmentHydrationBudget },
+    );
+    const modelPreparedContext = await preparedRequest?.prepareAfterModel?.({
+      model: effectiveModel,
+      vision: modelSupportsVision,
+      hydrationBudget: attachmentHydrationBudget,
+      historyImageUrls: attemptedStructuredHistoryImageUrls(
+        requestStructuredHistory,
+        resolvedHistoryImages,
+        modelSupportsVision,
+      ),
+    });
+    if (modelPreparedContext) {
+      if (Array.isArray(modelPreparedContext.contextAttachments)) {
+        requestContextAttachments = [
+          ...requestContextAttachments,
+          ...(await downscaleOversizedInlineImages(
+            modelPreparedContext.contextAttachments,
+          )),
+        ];
+      }
+      if (typeof modelPreparedContext.contextNote === "string") {
+        requestContextNote = [
+          requestContextNote,
+          modelPreparedContext.contextNote,
+        ]
+          .filter(Boolean)
+          .join("\n");
+      }
+    }
+
+    setupMark("prepDone");
+    workerStep("env_config");
+    const integrationMessage = [...integrationIntents, requestMessage].join(
+      "\n\n",
+    );
+    const enrichedMessageThunk = () =>
+      enrichMessage(integrationMessage, requestReferences);
+    const loopSettingsThunk = () =>
+      readAgentLoopSettings({
+        userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
+        orgId: getRequestOrgId() ?? null,
+      }).catch(() => readAgentLoopSettings({}));
+
+    let systemPromptError: Error | null = null;
+    const systemPromptThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        const sysPromptStart = Date.now();
+        try {
+          const built =
+            typeof options.systemPrompt === "function"
+              ? await options.systemPrompt(event)
+              : options.systemPrompt;
+          const treatmentInstructions = treatmentInstructionsForQuestionIntake(
+            questionIntakeConfig,
+            questionIntakeAssignment,
+          );
+          return treatmentInstructions
+            ? [built, treatmentInstructions].filter(Boolean).join("\n\n")
+            : built;
+        } catch (error) {
+          systemPromptError =
+            error instanceof Error
+              ? error
+              : new Error(
+                  typeof error === "string" && error.trim()
+                    ? error
+                    : "system prompt preparation failed",
+                );
+          return "";
+        } finally {
+          setupMarks.sysPromptMs = Date.now() - sysPromptStart;
+        }
+      })();
+
+    const timeContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        try {
+          const tzRaw = getHeader(event, "x-user-timezone");
+          const timezone =
+            typeof tzRaw === "string" &&
+            tzRaw.trim().length > 0 &&
+            tzRaw.trim().length < 64
+              ? tzRaw.trim()
+              : undefined;
+          return buildCurrentTimeUserContext({ timezone });
+        } catch {
+          return buildCurrentTimeUserContext();
+        }
+      })();
+
+    // `empty` (no navigation yet) stays silent; a timeout or a throw adds a
+    // note, because the model would otherwise read it as an app with no page.
+    const screenStatuses: Record<
+      "screen" | "url" | "selection",
+      ContextStatus
+    > = { screen: "empty", url: "empty", selection: "empty" };
+    // Once a cap fires the model has the fallback note, so a read that
+    // resolves late must not change what the trace says it saw.
+    const noteScreenStatus = (
+      source: keyof typeof screenStatuses,
+      status: ContextStatus,
+    ) => {
+      if (screenStatuses[source] !== "timed_out") {
+        screenStatuses[source] = status;
+      }
+    };
+    const screenUnavailableNote = screenContextUnavailableNote(
+      Boolean(surfacedRequestActions["view-screen"]),
+    );
+    const screenContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        const screenStart = Date.now();
+        try {
+          const viewScreenAction = surfacedRequestActions["view-screen"];
+          if (viewScreenAction) {
+            const result = await viewScreenAction.run(
+              {},
+              {
+                userEmail: getRequestUserEmail(),
+                orgId: getRequestOrgId() ?? null,
+                caller: "tool",
+              },
+            );
+            if (result && result !== "(no output)") {
+              const screenText =
+                typeof result === "string"
+                  ? result
+                  : JSON.stringify(result, null, 2);
+              noteScreenStatus("screen", "ok");
+              return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
+            }
+          } else {
+            const navigation = await readAppStateForBrowserTab(
+              "navigation",
+              requestBrowserTabId,
+            );
+            if (navigation) {
+              noteScreenStatus("screen", "ok");
+              return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
+            }
+          }
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          noteScreenStatus("screen", "failed");
+          console.warn(
+            "[agent-chat] current-screen context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return screenUnavailableNote;
+        } finally {
+          setupMarks.screenMs = Date.now() - screenStart;
+        }
+        return "";
+      })();
+
+    const urlContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        try {
+          const url = (await readAppStateForBrowserTab(
+            "__url__",
+            requestBrowserTabId,
+          )) as {
+            pathname?: string;
+            search?: string;
+            hash?: string;
+            searchParams?: Record<string, string>;
+          } | null;
+          if (url && (url.pathname || url.search || url.hash)) {
+            const lines: string[] = [];
+            if (url.pathname) lines.push(`pathname: ${url.pathname}`);
+            const extensionId = url.pathname
+              ? extensionIdFromPathname(url.pathname)
+              : null;
+            if (extensionId) lines.push(`extensionId: ${extensionId}`);
+            if (url.search) lines.push(`search: ${url.search}`);
+            // A tab on an older bundle still stores the hash unscrubbed.
+            if (url.hash) lines.push(`hash: ${scrubLocationHash(url.hash)}`);
+            if (url.searchParams && Object.keys(url.searchParams).length > 0) {
+              lines.push("searchParams:");
+              for (const [k, v] of Object.entries(url.searchParams)) {
+                lines.push(`  ${k}: ${v}`);
+              }
+            }
+            // The Settings shell names the page it resolved, which a legacy
+            // or mounted pathname doesn't say directly.
+            if (url.pathname?.includes("/settings")) {
+              const settingsPage = describeSettingsViewForAgent(
+                await readAppStateForBrowserTab(
+                  SETTINGS_VIEW_STATE_KEY,
+                  requestBrowserTabId,
+                ),
+              );
+              if (settingsPage) lines.push(settingsPage);
+            }
+            noteScreenStatus("url", "ok");
+            return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
+          }
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          noteScreenStatus("url", "failed");
+          console.warn(
+            "[agent-chat] current-url context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return screenUnavailableNote;
+        }
+        return "";
+      })();
+
+    const SELECTION_TTL_MS = 5 * 60 * 1000;
+    const selectionContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        if (requestSkipPendingSelectionContext === true) return "";
+        try {
+          const sel = (await readAppState("pending-selection-context")) as {
+            text?: string;
+            capturedAt?: number;
+          } | null;
+          if (!sel?.text) return "";
+          const capturedAt =
+            typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
+          if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
+          noteScreenStatus("selection", "ok");
+          return (
+            `\n\nThe user has selected the following text and pressed Cmd I to focus the agent. ` +
+            `Treat this as the immediate context to act on:\n` +
+            `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
+          );
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          noteScreenStatus("selection", "failed");
+          console.warn(
+            "[agent-chat] selection context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return SELECTION_CONTEXT_UNAVAILABLE_NOTE;
+        }
+        return "";
+      })();
+
+    const filesContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        let filesContext = "";
+        if (options.skipFilesContext || requestedHostedHarness) {
+          return filesContext;
+        }
+        if (requestHistory.length === 0) {
+          try {
+            const {
+              resourceListAccessible,
+              SHARED_OWNER,
+              isWorkspaceResourceOwner,
+              resourceGet,
+            } = await import("../resources/store.js");
+            const {
+              getResourceKind,
+              parseCustomAgentProfile,
+              parseRemoteAgentManifest,
+              parseSkillMetadata,
+            } = await import("../resources/metadata.js");
+            const ownerEmail = getRequestUserEmail();
+            const orgId = getRequestOrgId();
+            if (!ownerEmail) throw new Error("no authenticated user");
+            const allResources = await resourceListAccessible(
+              ownerEmail,
+              undefined,
+              { userEmail: ownerEmail, orgId },
+            );
+
+            if (allResources.length > 0) {
+              const fileLines: string[] = [];
+              const skillLines: string[] = [];
+              const agentLines: string[] = [];
+              const jobLines: string[] = [];
+              const detailResources = allResources.filter((r) => {
+                const kind = getResourceKind(r.path);
+                return (
+                  kind === "skill" ||
+                  kind === "agent" ||
+                  kind === "remote-agent"
+                );
+              });
+              const fullById = new Map<
+                string,
+                Awaited<ReturnType<typeof resourceGet>>
+              >();
+              if (detailResources.length > 0) {
+                const resourceOpts = {
+                  userEmail: ownerEmail,
+                  ...(orgId !== undefined ? { orgId } : {}),
+                };
+                const fetched = await Promise.all(
+                  detailResources.map(async (r) => ({
+                    id: r.id,
+                    full: await resourceGet(r.id, resourceOpts),
+                  })),
+                );
+                for (const entry of fetched) {
+                  fullById.set(entry.id, entry.full);
+                }
+              }
+              for (const r of allResources) {
+                const scope = isWorkspaceResourceOwner(r.owner)
+                  ? "workspace"
+                  : r.owner === SHARED_OWNER
+                    ? "shared"
+                    : "personal";
+                const kind = getResourceKind(r.path);
+                if (kind === "file") {
+                  fileLines.push(`  ${r.path} (${scope})`);
+                  continue;
+                }
+
+                if (kind === "job") {
+                  jobLines.push(`  ${r.path} (${scope})`);
+                  continue;
+                }
+
+                if (
+                  kind === "skill" ||
+                  kind === "agent" ||
+                  kind === "remote-agent"
+                ) {
+                  const full = fullById.get(r.id);
+                  if (!full) continue;
+                  if (kind === "skill") {
+                    const skill = parseSkillMetadata(full.content, r.path);
+                    skillLines.push(
+                      `  ${skill?.name || r.path} — ${compactInventoryDescription(skill?.description || r.path)} (${scope}, ${r.path})`,
+                    );
+                  } else if (kind === "agent") {
+                    const agent = parseCustomAgentProfile(full.content, r.path);
+                    agentLines.push(
+                      `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Custom workspace agent")} (${scope}, ${r.path}${agent?.model ? `, model: ${agent.model}` : ""})`,
+                    );
+                  } else {
+                    const agent = parseRemoteAgentManifest(
+                      full.content,
+                      r.path,
+                    );
+                    agentLines.push(
+                      `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Connected A2A agent")} (${scope}, remote via ${r.path})`,
+                    );
+                  }
+                }
+              }
+              const blocks: string[] = [];
+              if (fileLines.length > 0) {
+                const lines = limitInventoryLines(fileLines, "files");
+                blocks.push(
+                  `<available-files>\nFiles in the workspace:\n${lines.join("\n")}\n\nTo read a resource file's contents, use the resources tool with action "read" and the file path.\n</available-files>`,
+                );
+              }
+              if (skillLines.length > 0) {
+                const lines = limitInventoryLines(skillLines, "skills");
+                blocks.push(
+                  `<available-skills>\nSkills in the workspace:\n${lines.join("\n")}\n\nBefore using a matching workspace skill, read its path with the resources tool using action "read"; slash-selected skills are inlined automatically when available.\n</available-skills>`,
+                );
+              }
+              if (agentLines.length > 0) {
+                const lines = limitInventoryLines(agentLines, "agents");
+                blocks.push(
+                  `<available-agents>\nCustom and connected agents in the workspace:\n${lines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via agent-teams (action: "spawn") with the agent parameter.\n</available-agents>`,
+                );
+              }
+              if (jobLines.length > 0) {
+                const lines = limitInventoryLines(jobLines, "jobs");
+                blocks.push(
+                  `<available-jobs>\nScheduled tasks in the workspace:\n${lines.join("\n")}\n</available-jobs>`,
+                );
+              }
+              filesContext =
+                blocks.length > 0 ? `\n\n${blocks.join("\n\n")}` : "";
+            }
+          } catch {
+            // Resources not available — skip silently
+          }
+        }
+        return filesContext;
+      })();
+
+    const presendCap = <T>(
+      label: string,
+      thunk: () => Promise<T>,
+      fallback: T,
+      ms: number,
+      onTimeout?: () => void,
+    ): Promise<T> => {
+      return resolvePresendWithCap({
+        enabled: isBackgroundWorker,
+        thunk,
+        fallback,
+        timeoutMs: ms,
+        onTimeout: () => {
+          onTimeout?.();
+          workerStep(`presend_timeout:${label}`);
+        },
+      });
+    };
+    const fallbackLoopSettings: AgentLoopSettings = {
+      maxIterations: getDefaultMaxIterations(),
+      defaultMaxIterations: getDefaultMaxIterations(),
+      minMaxIterations: MIN_AGENT_MAX_ITERATIONS,
+      maxMaxIterations: MAX_AGENT_MAX_ITERATIONS,
+      maxRunInputTokens: getDefaultMaxRunInputTokens(),
+      defaultMaxRunInputTokens: getDefaultMaxRunInputTokens(),
+      scope: "default",
+      source: "default",
+    };
+    const systemPromptTimeoutError = new Error(
+      "system prompt preparation timed out before the agent could start",
+    );
+    let [
+      systemPrompt,
+      timeBlock,
+      screenBlock,
+      urlBlock,
+      selectionBlock,
+      filesContext,
+      loopSettings,
+      enrichedMessage,
+      jevContextCredentials,
+      priorConnection,
+    ] = await Promise.all([
+      presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
+        // An empty configured prompt is valid, but an empty timeout fallback
+        // is not: required app instructions must either finish or fail before
+        // the model is called. Set the error synchronously with the cap so a
+        // late rejection/success cannot race the check below.
+        systemPromptError ??= systemPromptTimeoutError;
+      }),
+      presendCap("time", timeContextThunk, "", 9000),
+      presendCap(
+        "screen",
+        screenContextThunk,
+        screenUnavailableNote,
+        9000,
+        () => {
+          screenStatuses.screen = "timed_out";
+        },
+      ),
+      presendCap("url", urlContextThunk, screenUnavailableNote, 9000, () => {
+        screenStatuses.url = "timed_out";
+      }),
+      presendCap(
+        "selection",
+        selectionContextThunk,
+        SELECTION_CONTEXT_UNAVAILABLE_NOTE,
+        9000,
+        () => {
+          screenStatuses.selection = "timed_out";
+        },
+      ),
+      presendCap("files", filesContextThunk, "", 12000),
+      presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
+      presendCap(
+        "enrichedMessage",
+        enrichedMessageThunk,
+        integrationMessage,
+        9000,
+      ),
+      presendCap(
+        "jevContextCredentials",
+        () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
+        { apiKey: undefined, personalApiKey: undefined, builderAuth: null },
+        9000,
+      ),
+      presendCap(
+        "priorConnection",
+        // The foreground of a dispatched run never prompts the model; the
+        // worker re-reads, so reading here would pay for it twice.
+        (): Promise<PriorConnectionNote> =>
+          threadId && !dispatchToBackground
+            ? resolvePriorConnectionNote({
+                threadId,
+                orgId: getRequestOrgId() ?? null,
+                appId: options.appId,
+                excludeRunId: backgroundRunMarker?.runId,
+              })
+            : Promise.resolve({ status: "none" }),
+        { status: "unreadable", error: "timed out" },
+        9000,
+      ),
+    ]);
+    setupMark("ctxAll");
+    workerStep("context_all");
+
+    if (systemPromptError) {
+      const err = systemPromptError as Error;
+      if (runRowState.foregroundInserted || runRowState.durableInserted) {
+        try {
+          const terminalized = await updateRunStatusIfRunning(runId, "errored");
+          if (terminalized) {
+            await setRunTerminalReason(runId, "system_prompt_failed");
+            await setRunError(runId, "system_prompt_failed", err.message);
+          }
+        } catch (cleanupErr) {
+          console.warn(
+            "[agent-chat] failed to mark run errored after system prompt failure:",
+            cleanupErr,
+          );
+        }
+      }
+      await setupResumeClaim?.release();
+      if (isBackgroundWorker) throw err;
+      setResponseHeader(event, "Content-Type", "text/event-stream");
+      setResponseHeader(event, "Cache-Control", "no-cache");
+      const encoder = new TextEncoder();
+      return new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "error", error: `Failed to load system prompt: ${err.message}` })}\n\n`,
+            ),
+          );
+          controller.close();
+        },
+      });
+    }
+    // Screen and URL share one note; the same failure needn't be told twice.
+    if (urlBlock === screenBlock) urlBlock = "";
+    const screenContext = timeBlock + screenBlock + urlBlock + selectionBlock;
+    // Referenced agents don't share this run's tools, so a note telling the
+    // model to call view-screen would send them looking for a tool they lack.
+    const withoutUnavailableNote = (block: string) =>
+      block === screenUnavailableNote ||
+      block === SELECTION_CONTEXT_UNAVAILABLE_NOTE
+        ? ""
+        : block;
+    const referencedAgentContext =
+      timeBlock +
+      withoutUnavailableNote(screenBlock) +
+      withoutUnavailableNote(urlBlock) +
+      withoutUnavailableNote(selectionBlock);
+    const workspaceAppRequest = buildWorkspaceAppRequestContext({
+      request: requestMessage,
+      history: requestHistory,
+      structuredHistory: requestStructuredHistory,
+      selectedObjectContext: withoutUnavailableNote(selectionBlock),
+    });
+    const screenStatus = worstContextStatus(...Object.values(screenStatuses));
+    const surfacedActionRegistry =
+      requestMode === "plan"
+        ? createPlanModeActionRegistry(surfacedRequestActions)
+        : surfacedRequestActions;
+    const requestActions = await filterActionsForAgentDiscovery(
+      surfacedActionRegistry,
+      {
+        caller: "tool",
+        userEmail: ownerEmail ?? undefined,
+        orgId: getRequestOrgId() ?? null,
+        appId: options.appId,
+      },
+    );
+    const availableRequestTools = getEngineTools(requestActions);
+    const initialRequestTools = shouldFilterInitialRequestTools
+      ? filterInitialEngineTools(
+          availableRequestTools,
+          options.initialToolNames,
+        )
+      : availableRequestTools;
+    const curatedRequestTools =
+      requestMode === "plan"
+        ? preloadPlanModeEngineTools({
+            request: requestMessage,
+            registry: requestActions,
+            initialTools: initialRequestTools,
+            availableTools: availableRequestTools,
+          })
+        : initialRequestTools;
+    const jevContextMaxChars = options.jevContextCompact
+      ? Math.max(
+          0,
+          COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS - systemPrompt.length - 2,
+        )
+      : undefined;
+    const effectiveDispatchToBackground = backgroundDispatchAttempted
+      ? false
+      : dispatchToBackground;
+    const [requestTools, jevPreload] = await Promise.all([
+      preloadJevTools({
+        request: jevRequestContext,
+        skip: Boolean(internalContinuation || effectiveDispatchToBackground),
+        deadlineAt: contextPrefetchDeadlineAt,
+        apiKey: jevContextCredentials.apiKey,
+        personalApiKey: jevContextCredentials.personalApiKey,
+        directApiKey: jevContextCredentials.directApiKey,
+        builderAuth: jevContextCredentials.builderAuth,
+        registry: requestActions,
+        initialTools: curatedRequestTools,
+        availableTools: availableRequestTools,
+        readOnlyOnly: requestMode === "plan",
+      }),
+      preloadJevContextWithStatus({
+        request: jevRequestContext,
+        appRequest: workspaceAppRequest,
+        appId: options.appId,
+        selfAppId: options.appId,
+        workspaceAppsEnabled: Boolean(requestActions["call-agent"]),
+        owner: ownerEmail ?? undefined,
+        orgId: getRequestOrgId() ?? null,
+        apiKey: jevContextCredentials.apiKey,
+        personalApiKey: jevContextCredentials.personalApiKey,
+        directApiKey: jevContextCredentials.directApiKey,
+        builderAuth: jevContextCredentials.builderAuth,
+        compact: options.jevContextCompact,
+        maxChars: jevContextMaxChars,
+        contextPrefetchDeadlineAt,
+        dispatchToBackground: effectiveDispatchToBackground,
+        internalContinuation: Boolean(internalContinuation),
+        candidates: jevPromptCandidates,
+        fallbackCandidateIds: jevFallbackCandidateIds,
+      }),
+    ]);
+    const jevContext = jevPreload.context;
+    if (jevContext) systemPrompt = `${systemPrompt}\n\n${jevContext}`;
+    if (jevPreload.relevantAppsContext) {
+      systemPrompt = `${systemPrompt}\n\n${jevPreload.relevantAppsContext}`;
+    }
+    if (runContext && jevPreload.appSelection) {
+      runContext.appDiscoverySelection = jevPreload.appSelection;
+    }
+    const prefetchStatus = worstContextStatus(
+      jevPreload.status,
+      preparedReferenceStatus,
+    );
+    if (runContext) {
+      runContext.contextStatus = {
+        prefetch: prefetchStatus,
+        screen: screenStatus,
+      };
+    }
+    // Per-turn, so the stable system prompt prefix keeps caching.
+    const prefetchNote =
+      prefetchStatus && isContextDegraded(prefetchStatus)
+        ? preloadedContextUnavailableNote(prefetchStatus, {
+            // The other source delivered, so only part of the context is missing.
+            partial:
+              jevPreload.status === "ok" || preparedReferenceStatus === "ok",
+          })
+        : "";
+    const contextXraySystemSections = [
+      ...readContextXraySystemSections(event),
+      ...(jevContext
+        ? await buildSystemManifestSections([
+            {
+              label: "Jev-prefetched context",
+              provenance: "runtime-context",
+              governance: "inherited",
+              content: jevContext,
+              sourceRef: { scope: "jev" },
+            },
+          ])
+        : []),
+      ...(jevPreload.relevantAppsContext
+        ? await buildSystemManifestSections([
+            {
+              label: "Relevant workspace apps",
+              provenance: "runtime-context",
+              governance: "inherited",
+              content: jevPreload.relevantAppsContext,
+              sourceRef: { scope: "workspace-apps" },
+            },
+          ])
+        : []),
+      ...(requestTools.length > 0
+        ? await buildSystemManifestSections([
+            {
+              label: "Action and MCP tool schemas",
+              provenance: "tools",
+              governance: "required",
+              content: requestTools
+                .map((tool) =>
+                  JSON.stringify({
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.inputSchema,
+                  }),
+                )
+                .join("\n"),
+              sourceRef: { scope: "tools" },
+            },
+          ])
+        : []),
+    ];
+    setupMark("actions");
+    workerStep("action_tool_setup");
+    const requestSystemPrompt =
+      requestMode === "plan"
+        ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
+        : systemPrompt;
+
+    const agentRefs = requestReferences.filter((r) => r.type === "agent");
+    const customAgentRefs = requestReferences.filter(
+      (r) => r.type === "custom-agent",
+    );
+    const planModeAgentNote =
+      requestMode === "plan" && agentRefs.length > 0
+        ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
+        : "";
+
+    const userContent = buildUserContentWithAttachments({
+      text:
+        enrichedMessage +
+        screenContext +
+        prefetchNote +
+        priorConnectionContextNote(priorConnection) +
+        filesContext +
+        planModeAgentNote +
+        (requestContextAttachments.length > 0
+          ? "\n\n<prior-chat-image-context>Images attached in earlier turns of this chat are included after the current text, in chronological order. Use them as prior references when relevant.</prior-chat-image-context>"
+          : "") +
+        (requestContextNote ? `\n\n${requestContextNote}` : ""),
+      attachments: [...requestContextAttachments, ...requestAttachments],
+      vision: modelSupportsVision,
+      textAttachmentStorage,
+    });
+
+    const historyMessages =
+      structuredHistoryToEngineMessages(
+        requestStructuredHistory,
+        resolvedHistoryImages,
+      ) ??
+      requestHistory
+        .filter((m) => m.content.trim())
+        .map(
+          (m): EngineMessage => ({
+            role: m.role as "user" | "assistant",
+            content: [{ type: "text" as const, text: m.content }],
+          }),
+        );
+
+    const messages: EngineMessage[] = [
+      ...historyMessages,
+      { role: "user" as const, content: userContent },
+    ];
+    // The durable approval row is the authorization boundary. Do not require
+    // the client to reproduce the original structured history exactly: the UI
+    // may truncate tool arguments and intentionally assigns fresh replay ids.
+    // The loop still consumes only a matching server-created grant for the
+    // current owner/org/thread/turn/tool/input tuple.
+    const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
+      isFirstRequest: requestHistory.length === 0,
+      systemPrompt: requestSystemPrompt,
+      messages,
+      tools: requestTools,
+      availableToolCount: availableRequestTools.length,
+    });
+
+    async function claimForegroundRunSlot(): Promise<
+      { earlyResponse: unknown } | { earlyResponse: null }
+    > {
+      if (!threadId || isBackgroundWorker) {
+        return { earlyResponse: null };
+      }
       if (
         typeof requestTurnId === "string" &&
         requestTurnId &&
         (await isTurnAborted(threadId, requestTurnId))
       ) {
-        return { ok: true, stopped: true };
+        return { earlyResponse: { ok: true, stopped: true } };
       }
       const setupResumeOfRunId = setupResumeRefusedRunId(body);
       setupResumeClaim =
@@ -17391,8 +17372,9 @@ export function createProductionAgentHandler(
             })
           : undefined;
       if (setupResumeOfRunId && ownerEmail && !setupResumeClaim) {
-        // Another tab already sent this refused prompt again.
-        return { ok: true, stopped: true, resumeAlreadySent: true };
+        return {
+          earlyResponse: { ok: true, stopped: true, resumeAlreadySent: true },
+        };
       }
       let slot;
       try {
@@ -17409,7 +17391,6 @@ export function createProductionAgentHandler(
         if (ownerEmail && !isAuthorizedApprovalContinuation) {
           await ensureAgentToolApprovalTable();
         }
-        // The inbox read runs under the slot lock, but its schema must be ready first.
         await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
@@ -17426,7 +17407,7 @@ export function createProductionAgentHandler(
             : foregroundSelfChainEligible
               ? "foreground-self-chain"
               : "foreground",
-          ...(dispatchToBackground
+          ...(dispatchToBackground && durableDispatchPayload !== undefined
             ? { dispatchPayload: durableDispatchPayload }
             : {}),
           ...(continueOf ? { continueOf } : {}),
@@ -17455,47 +17436,59 @@ export function createProductionAgentHandler(
           error instanceof AgentTurnInitiatorUnavailableError
         ) {
           setResponseStatus(event, 409);
-          return { error: "This agent turn cannot resume for this initiator" };
+          return {
+            earlyResponse: {
+              error: "This agent turn cannot resume for this initiator",
+            },
+          };
         }
         throw error;
       }
       if (slot.turnAborted) {
         await setupResumeClaim?.release();
-        return { ok: true, stopped: true };
+        return { earlyResponse: { ok: true, stopped: true } };
       }
       if (slot.continueRefused) {
         await setupResumeClaim?.release();
         setResponseStatus(event, 409);
-        return continueRefusal(slot.continueRefused);
+        return { earlyResponse: continueRefusal(slot.continueRefused) };
       }
       if (slot.completedRunId) {
         const stream = await replayCompletedTurn(threadId, effectiveTurnId);
         if (!stream) {
           setResponseStatus(event, 500);
-          return { error: "Failed to replay completed agent run" };
+          return {
+            earlyResponse: { error: "Failed to replay completed agent run" },
+          };
         }
         setResponseHeader(event, "Content-Type", "text/event-stream");
         setResponseHeader(event, "Cache-Control", "no-cache");
         setResponseHeader(event, "Connection", "keep-alive");
         setResponseHeader(event, "X-Run-Id", slot.completedRunId);
-        // The client leaves a replay's turn out unless named here, and this
-        // replay was found by its turn, so the stored turn is known.
         setRunTurnIdHeader(event, effectiveTurnId);
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
-        return stream;
+        return { earlyResponse: stream };
       }
       if (!slot.claimed) {
         await setupResumeClaim?.release();
         if (slot.queuedSubmissionPending) {
           const queued = await tryAdmitBusySubmission();
-          if (queued !== null) return queued;
-          return runSlotBusy(event, null);
+          if (queued !== null) return { earlyResponse: queued };
+          return { earlyResponse: runSlotBusy(event, null) };
         }
         const queued = await tryAdmitBusySubmission();
-        if (queued !== null) return queued;
-        return runSlotBusy(event, slot.activeRunId);
+        if (queued !== null) return { earlyResponse: queued };
+        return { earlyResponse: runSlotBusy(event, slot.activeRunId) };
       }
-      foregroundRunRowInserted = true;
+      runRowState.foregroundInserted = true;
+      return { earlyResponse: null };
+    }
+
+    if (!backgroundDispatchAttempted) {
+      const slotResult = await claimForegroundRunSlot();
+      if (slotResult.earlyResponse !== null) {
+        return slotResult.earlyResponse;
+      }
     }
 
     const approvalStoreBinding = (
@@ -17544,11 +17537,6 @@ export function createProductionAgentHandler(
       await markRunAborted(runId, "user").catch(() => {});
       return { ok: true, stopped: true };
     }
-    const messageToPersist =
-      typeof requestDisplayMessage === "string" &&
-      requestDisplayMessage.trim().length > 0
-        ? requestDisplayMessage
-        : requestMessage;
     const priorTurnInputTokensFromBody = Number(
       (body as unknown as Record<string, unknown>)[
         AGENT_CHAT_TURN_INPUT_TOKENS_FIELD
@@ -17578,10 +17566,7 @@ export function createProductionAgentHandler(
             : (await getThread(effectiveThreadId))?.threadData;
         const { messages: resumed, foundTurnPrompt } =
           isReaperSuccessor && !continueOf
-            ? {
-                messages: [...executionContext!.messages],
-                foundTurnPrompt: true,
-              }
+            ? { messages: [...messages], foundTurnPrompt: true }
             : resumeThreadHistoryForRequest(threadData);
         // A continuation always follows a stopped run, so a thread without
         // that turn's prompt means its history was lost, not that there was
@@ -17670,8 +17655,8 @@ export function createProductionAgentHandler(
               ? { journalNote: context.journalNote }
               : {}),
           });
-          executionContext!.messages.length = 0;
-          executionContext!.messages.push(...context.messages);
+          messages.length = 0;
+          messages.push(...context.messages);
         }
       } catch (error) {
         if (continueOf || isReaperSuccessor || isClientTurnContinuation) {
@@ -17697,67 +17682,59 @@ export function createProductionAgentHandler(
         // Keep the body-derived messages — never drop the run.
       }
     }
-
-    const applyThreadHistoryAndPreviousTurnNote = async (
-      targetMessages: EngineMessage[],
-      targetHistoryMessages: EngineMessage[],
-    ) => {
-      if (
-        !isBackgroundWorker &&
-        !internalContinuation &&
-        threadId &&
-        targetHistoryMessages.length === 0
-      ) {
-        try {
-          const { getThread } = await import("../chat-threads/store.js");
-          const { recoverThreadHistoryForRequest } =
-            await import("./thread-data-builder.js");
-          const recovered = recoverThreadHistoryForRequest(
-            (await getThread(threadId))?.threadData,
-          );
-          if (recovered.length > 0) targetMessages.unshift(...recovered);
-        } catch (err) {
-          console.warn(
-            `[agent-chat] history recovery failed for thread ${threadId}; continuing with no prior context:`,
-            err,
-          );
-        }
+    if (
+      !isBackgroundWorker &&
+      !internalContinuation &&
+      threadId &&
+      historyMessages.length === 0
+    ) {
+      try {
+        const { getThread } = await import("../chat-threads/store.js");
+        const { recoverThreadHistoryForRequest } =
+          await import("./thread-data-builder.js");
+        const recovered = recoverThreadHistoryForRequest(
+          (await getThread(threadId))?.threadData,
+        );
+        if (recovered.length > 0) messages.unshift(...recovered);
+      } catch (err) {
+        console.warn(
+          `[agent-chat] history recovery failed for thread ${threadId}; continuing with no prior context:`,
+          err,
+        );
       }
-      if (
-        !internalContinuation &&
-        !isChainedBackgroundContinuation &&
-        threadId
-      ) {
-        try {
-          const { loadStoppedPreviousTurnNote } =
-            await import("./previous-turn-note.js");
-          const note = await loadStoppedPreviousTurnNote(
-            threadId,
-            effectiveTurnId,
-          );
-          const prompt = targetMessages.at(-1);
-          if (note && prompt?.role === "user") {
-            prompt.content = [{ type: "text", text: note }, ...prompt.content];
-          }
-        } catch (err) {
-          captureError(err, {
-            tags: { source: "agent-chat", failureClass: "previous-turn-note" },
-            extra: { threadId, turnId: effectiveTurnId },
-          });
+    }
+    if (!internalContinuation && !isChainedBackgroundContinuation && threadId) {
+      try {
+        const { loadStoppedPreviousTurnNote } =
+          await import("./previous-turn-note.js");
+        const note = await loadStoppedPreviousTurnNote(
+          threadId,
+          effectiveTurnId,
+        );
+        const prompt = messages.at(-1);
+        if (note && prompt?.role === "user") {
+          prompt.content = [{ type: "text", text: note }, ...prompt.content];
         }
+      } catch (err) {
+        captureError(err, {
+          tags: { source: "agent-chat", failureClass: "previous-turn-note" },
+          extra: { threadId, turnId: effectiveTurnId },
+        });
       }
-    };
-
-    if (executionContext) {
-      await applyThreadHistoryAndPreviousTurnNote(
-        executionContext.messages,
-        executionContext.historyMessages,
-      );
     }
     setupMark("depsThread");
     workerStep("owner_thread");
 
-    if (options.onRunPrepared && !internalContinuation && !isBackgroundWorker) {
+    async function runOnRunPreparedHook(): Promise<
+      { earlyResponse: unknown } | { earlyResponse: null }
+    > {
+      if (
+        !options.onRunPrepared ||
+        internalContinuation ||
+        isBackgroundWorker
+      ) {
+        return { earlyResponse: null };
+      }
       try {
         const prepared = await options.onRunPrepared({
           runId,
@@ -17783,7 +17760,7 @@ export function createProductionAgentHandler(
             ? prepared.duplicateRunId.trim()
             : undefined;
         if (duplicateRunId) {
-          if (foregroundRunRowInserted) {
+          if (runRowState.foregroundInserted) {
             await markRunAborted(runId, "duplicate_submission");
           }
           await setupResumeClaim?.release();
@@ -17791,9 +17768,11 @@ export function createProductionAgentHandler(
           if (!stream) {
             setResponseStatus(event, 503);
             return {
-              error: "The accepted submission run is no longer replayable",
-              code: "queued_message_run_unavailable",
-              retryable: true,
+              earlyResponse: {
+                error: "The accepted submission run is no longer replayable",
+                code: "queued_message_run_unavailable",
+                retryable: true,
+              },
             };
           }
           setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -17802,10 +17781,10 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "X-Run-Id", duplicateRunId);
           setRunTurnIdHeader(event, getRun(duplicateRunId)?.turnId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
-          return stream;
+          return { earlyResponse: stream };
         }
       } catch (error) {
-        if (foregroundRunRowInserted) {
+        if (runRowState.foregroundInserted) {
           const terminalized = await updateRunStatusIfRunning(runId, "errored");
           if (terminalized) {
             await setRunTerminalReason(runId, "run_preparation_failed");
@@ -17818,16 +17797,23 @@ export function createProductionAgentHandler(
         }
         throw error;
       }
+      return { earlyResponse: null };
     }
 
-    let durableRunRowInserted = false;
-    if (dispatchToBackground) {
-      let backgroundRowInserted = foregroundRunRowInserted;
+    async function dispatchDurableBackgroundRun(): Promise<
+      { earlyResponse: unknown } | { earlyResponse: null }
+    > {
+      if (!dispatchToBackground) {
+        return { earlyResponse: null };
+      }
+      let backgroundRowInserted = runRowState.foregroundInserted;
       if (!backgroundRowInserted) {
         try {
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
             dispatchMode: "background",
-            dispatchPayload: durableDispatchPayload!,
+            ...(durableDispatchPayload !== undefined
+              ? { dispatchPayload: durableDispatchPayload }
+              : {}),
             ...(turnInitiator ? { turnInitiator } : {}),
           });
           backgroundRowInserted = true;
@@ -17839,14 +17825,14 @@ export function createProductionAgentHandler(
           );
         }
       }
-      durableRunRowInserted = backgroundRowInserted;
+      runRowState.durableInserted = backgroundRowInserted;
 
       if (
         backgroundRowInserted &&
         (await isTurnAborted(effectiveThreadId, effectiveTurnId))
       ) {
         await markRunAborted(runId, "user");
-        return { ok: true, stopped: true };
+        return { earlyResponse: { ok: true, stopped: true } };
       }
 
       let dispatched = false;
@@ -17856,16 +17842,6 @@ export function createProductionAgentHandler(
       try {
         await fireInternalDispatch({
           event,
-          // On hosted Netlify this resolves to the background function's DEFAULT
-          // url (/.netlify/functions/<name>, or per-app <app>-agent-background for
-          // workspaces) — the function declares NO custom config.path, so it keeps
-          // its default url, and `background: true` makes that url async (202,
-          // 15-min budget). The `server` /* catch-all already excludes /.netlify/*
-          // so it never shadows it. Off-Netlify this resolves to the framework
-          // `_process-run` route and the same in-process catch-all handles it
-          // inline. `fireInternalDispatch` strips the app base path for
-          // /.netlify/* targets so the request reaches the host-root function url;
-          // the Authorization Bearer HMAC is preserved either way.
           path: backgroundDispatchPath,
           taskId: runId,
           ...(expectsNetlifyBackgroundFunction
@@ -17925,94 +17901,79 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "X-Run-Id", runId);
           setRunTurnIdHeader(event, effectiveTurnId);
           setResponseHeader(event, "X-Dispatch-Mode", "background");
-          return stream;
+          return { earlyResponse: stream };
         }
         const terminalReason =
           backgroundOutcome.action === "stream"
             ? "background_subscribe_failed"
             : "background_dispatch_failed";
-        const statusUpdated = await updateRunStatusIfRunning(
-          runId,
-          "errored",
-        ).catch(() => false);
-        if (statusUpdated) {
-          await setRunTerminalReason(runId, terminalReason).catch(() => {});
+        try {
+          const statusUpdated = await updateRunStatusIfRunning(
+            runId,
+            "errored",
+          );
+          if (statusUpdated) {
+            await setRunTerminalReason(runId, terminalReason);
+          }
+        } catch (cleanupErr) {
+          console.warn(
+            "[agent-chat] failed to mark background run errored after subscribe failure:",
+            cleanupErr,
+          );
         }
         setResponseStatus(event, 500);
         return {
-          error:
-            backgroundOutcome.action === "stream"
-              ? "Failed to subscribe to background run"
-              : "Failed to dispatch background run",
+          earlyResponse: {
+            error:
+              backgroundOutcome.action === "stream"
+                ? "Failed to subscribe to background run"
+                : "Failed to dispatch background run",
+          },
         };
       }
 
       if (backgroundOutcome.reason === "worker-never-claimed") {
-        const priorClaim = await readBackgroundRunClaim(runId).catch(
-          () => null,
-        );
-        const priorDiag = priorClaim?.diagStage ?? "none";
+        let priorDiag = "none";
+        try {
+          const priorClaim = await readBackgroundRunClaim(runId);
+          priorDiag = priorClaim?.diagStage ?? "none";
+        } catch (diagErr) {
+          console.warn(
+            "[agent-chat] failed to read prior background claim diagnostic:",
+            diagErr,
+          );
+        }
         console.error(
           "[agent-chat] background worker did not claim the 202-dispatched run " +
             `within grace; recovering inline. bgFnPriorDiag=${priorDiag}`,
           runId,
         );
-        await recordRunDiagnostic(
-          runId,
-          RUN_DIAG_STAGE.foregroundInlineRecovery,
-          `202 dispatched but no worker claimed within grace; bgFnPriorDiag=${priorDiag}`,
-        ).catch(() => {});
+        try {
+          await recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.foregroundInlineRecovery,
+            `202 dispatched but no worker claimed within grace; bgFnPriorDiag=${priorDiag}`,
+          );
+        } catch (diagErr) {
+          console.warn(
+            "[agent-chat] failed to record foreground inline recovery diagnostic:",
+            diagErr,
+          );
+        }
       }
-      // Fall through to the inline `startRun` path below.
+      return { earlyResponse: null };
     }
 
-    if (!executionContext) {
-      const prepared = await prepareExecutionContext();
-      if (!prepared.ok) {
-        if (foregroundRunRowInserted || durableRunRowInserted) {
-          const terminalized = await updateRunStatusIfRunning(
-            runId,
-            "errored",
-          ).catch(() => false);
-          if (terminalized) {
-            await setRunTerminalReason(runId, "system_prompt_failed").catch(
-              () => {},
-            );
-            await setRunError(
-              runId,
-              "system_prompt_failed",
-              prepared.error.message,
-            ).catch(() => {});
-          }
-        }
-        await setupResumeClaim?.release().catch(() => {});
-        if (isBackgroundWorker) throw prepared.error;
-        return createSystemPromptErrorResponse(prepared.error);
+    if (!backgroundDispatchAttempted) {
+      const preparedResult = await runOnRunPreparedHook();
+      if (preparedResult.earlyResponse !== null) {
+        return preparedResult.earlyResponse;
       }
-      executionContext = prepared.value;
-      await applyThreadHistoryAndPreviousTurnNote(
-        executionContext.messages,
-        executionContext.historyMessages,
-      );
+      const dispatchResult = await dispatchDurableBackgroundRun();
+      if (dispatchResult.earlyResponse !== null) {
+        return dispatchResult.earlyResponse;
+      }
     }
-    const {
-      resolvedHistoryImages,
-      loopSettings,
-      enrichedMessage,
-      referencedAgentContext,
-      prefetchStatus,
-      screenStatus,
-      priorConnection,
-      requestActions,
-      availableRequestTools,
-      requestTools,
-      contextXraySystemSections,
-      requestSystemPrompt,
-      agentRefs,
-      customAgentRefs,
-      messages,
-      firstRequestPayloadDetail,
-    } = executionContext;
 
     const trackedProgressOwner =
       trackInRunsTray === true && ownerEmail ? ownerEmail : null;
@@ -19148,7 +19109,7 @@ export function createProductionAgentHandler(
           : foregroundSelfChainEligible
             ? "foreground-self-chain"
             : "foreground",
-        runRowAlreadyInserted: foregroundRunRowInserted,
+        runRowAlreadyInserted: runRowState.foregroundInserted,
         executionLease: true,
         // An anonymous run is not a user; `run_started` does not name one either.
         userId: turnInitiator?.anonymous

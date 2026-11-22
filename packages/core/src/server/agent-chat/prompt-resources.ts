@@ -2227,7 +2227,7 @@ export async function loadResourcesForPrompt(
     loadPromptContextProviderBlocks({
       owner,
       compact,
-      selfAppId,
+      ...(selfAppId !== undefined ? { selfAppId } : {}),
       orgId,
     }),
   ]);

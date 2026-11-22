@@ -10091,6 +10091,10 @@ describe("createProductionAgentHandler", () => {
     ];
     let inFlight = 0;
     let maxInFlight = 0;
+    let releaseBarrier: (() => void) | undefined;
+    const barrier = new Promise<void>((resolve) => {
+      releaseBarrier = resolve;
+    });
     const listSpy = vi
       .spyOn(resourceStore, "resourceListAccessible")
       .mockResolvedValue(resources);
@@ -10099,9 +10103,15 @@ describe("createProductionAgentHandler", () => {
       .mockImplementation(async (id: string) => {
         inFlight += 1;
         maxInFlight = Math.max(maxInFlight, inFlight);
-        await new Promise((resolve) => setTimeout(resolve, 25));
+        if (inFlight === resources.length) {
+          releaseBarrier?.();
+        }
+        await barrier;
         inFlight -= 1;
-        const meta = resources.find((entry) => entry.id === id)!;
+        const meta = resources.find((entry) => entry.id === id);
+        if (!meta) {
+          throw new Error(`Unexpected resource id: ${id}`);
+        }
         const content =
           id === "skill-1"
             ? "---\nname: alpha\ndescription: First skill\n---\nBody"
@@ -10130,9 +10140,7 @@ describe("createProductionAgentHandler", () => {
             .flatMap((m) =>
               typeof m.content === "string"
                 ? [m.content]
-                : m.content
-                    .filter((p) => p.type === "text")
-                    .map((p) => (p.type === "text" ? p.text : "")),
+                : m.content.flatMap((p) => (p.type === "text" ? [p.text] : [])),
             )
             .join("\n");
         }
