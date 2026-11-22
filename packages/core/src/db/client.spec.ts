@@ -2514,7 +2514,7 @@ describe("db/client postgres-js request pool recovery", () => {
     }
 
     expect(statements.slice(1)).toEqual([
-      "SELECT set_config('statement_timeout', $1, true) [520ms]",
+      "SELECT set_config('statement_timeout', $1, true) [470ms]",
       "SELECT 1",
       "SELECT set_config('statement_timeout', $1, true) [0]",
     ]);
@@ -2522,11 +2522,11 @@ describe("db/client postgres-js request pool recovery", () => {
 
   it.each([
     [0, 0, 0, [3_750], true, 3_750, 4_000],
-    [0, 249, 0, [3_750, 3_252], true, 3_252, 3_751],
-    [0, 250, 0, [3_750, 3_250], true, 3_250, 3_750],
-    [0, 300, 300, [3_750, 3_150], true, 3_150, 3_400],
-    [3_725, 300, 300, [3_725, 3_150], true, 3_150, 3_400],
-    [3_650, 300, 300, [3_650, 3_150], true, 3_150, 3_400],
+    [0, 249, 0, [3_750, 3_189], true, 3_189, 3_751],
+    [0, 250, 0, [3_750, 3_187], true, 3_187, 3_750],
+    [0, 300, 300, [3_750, 3_075], true, 3_075, 3_400],
+    [3_725, 300, 300, [3_725, 3_075], true, 3_075, 3_400],
+    [3_650, 300, 300, [3_650, 3_075], true, 3_075, 3_400],
     [3_450, 300, 0, [3_450], true, 3_450, 3_700],
     [2_000, 300, 0, [2_000], true, 2_000, 3_700],
     [0, 1_875, 0, [3_750, 1_062], true, 1_062, 2_125],
@@ -2539,12 +2539,14 @@ describe("db/client postgres-js request pool recovery", () => {
     [0, 2_100, 949, [3_750, 950], false, null, null],
     [0, 2_100, 950, [3_750, 950], false, null, null],
     [3_725, 2_100, 950, [3_725, 950], false, null, null],
-    [0, 300, 301, [3_750, 3_150], false, null, null],
-    [0, 300, 549, [3_750, 3_150], false, null, null],
-    [0, 300, 550, [3_750, 3_150], false, null, null],
-    [0, 300, 1_000, [3_750, 3_150], false, null, null],
-    [3_725, 300, 1_000, [3_725, 3_150], false, null, null],
-    [0, 300, 3_700, [3_750, 3_150], false, null, null],
+    [0, 300, 301, [3_750, 3_075], true, 3_075, 3_399],
+    [0, 300, 375, [3_750, 3_075], true, 3_075, 3_325],
+    [0, 300, 376, [3_750, 3_075], false, null, null],
+    [0, 300, 549, [3_750, 3_075], false, null, null],
+    [0, 300, 550, [3_750, 3_075], false, null, null],
+    [0, 300, 1_000, [3_750, 3_075], false, null, null],
+    [3_725, 300, 1_000, [3_725, 3_075], false, null, null],
+    [0, 300, 3_700, [3_750, 3_075], false, null, null],
     [0, 3_999, 0, [3_750], false, null, null],
     [0, 4_000, 0, [3_750], false, null, null],
   ] as const)(

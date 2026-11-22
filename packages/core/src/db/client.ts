@@ -1127,7 +1127,7 @@ async function withTransactionStatementTimeout<T>(
       serverCap,
       Math.max(
         Math.floor(afterFirstSetupMs / 2),
-        serverCap - firstSetupElapsedMs,
+        serverCap - Math.ceil(firstSetupElapsedMs * 1.25),
       ),
     );
     await runSetting(
