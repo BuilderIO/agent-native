@@ -291,6 +291,44 @@ describe("SettingsShell", () => {
     ).toBe(false);
   });
 
+  it("renders a page entry's status icon with its label", async () => {
+    const StatusIcon = ({ className }: { className?: string }) => (
+      <svg data-testid="status-icon" className={className} />
+    );
+    await render({
+      appSettingsPages: [
+        appPage("account-alpha", "Account Alpha", 25, AppSettingsPage),
+      ],
+      appNavigationSections: [
+        {
+          id: "accounts",
+          label: "Accounts",
+          items: [
+            {
+              id: "account-alpha",
+              type: "page",
+              pageId: "account-alpha",
+              status: {
+                icon: StatusIcon,
+                label: "Account requires reconnecting",
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const status = container.querySelector(
+      '[data-settings-nav-item="account-alpha"] [data-settings-nav-status]',
+    );
+    expect(status?.getAttribute("role")).toBe("img");
+    expect(status?.getAttribute("aria-label")).toBe(
+      "Account requires reconnecting",
+    );
+    expect(status?.getAttribute("title")).toBe("Account requires reconnecting");
+    expect(status?.querySelector('[data-testid="status-icon"]')).not.toBeNull();
+  });
+
   it("renders ordered app sections with page, link, and action entries", async () => {
     const onAddWorkspace = vi.fn();
     const customPage = {
@@ -619,8 +657,8 @@ describe("SettingsShell", () => {
       shells[1]?.querySelector('[data-settings-page="first-settings"]'),
     ).toBeNull();
 
-    const inputs = shells.map(
-      (shell) => shell.querySelector<HTMLInputElement>('input[type="search"]')!,
+    const inputs = shells.map((shell) =>
+      shell.querySelector<HTMLInputElement>('input[type="search"]')!,
     );
     const setValue = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
