@@ -9835,6 +9835,351 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it("defers prompt, screen, files, and model-context setup when dispatching to background", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+
+    const resourceStore = await import("../resources/store.js");
+    const listAccessibleSpy = vi
+      .spyOn(resourceStore, "resourceListAccessible")
+      .mockResolvedValue([]);
+    const getThreadSpy = vi
+      .spyOn(chatThreadStore, "getThread")
+      .mockResolvedValue(null);
+    const readClaimSpy = vi
+      .spyOn(runStore, "readBackgroundRunClaim")
+      .mockResolvedValue({
+        dispatchMode: "background-claimed",
+        status: "running",
+        diagStage: "claimed",
+        workerStage: "streaming",
+        lastLivenessAt: Date.now(),
+      });
+    const subscribeSpy = vi.spyOn(runManager, "subscribeToRun").mockReturnValue(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close();
+        },
+      }),
+    );
+    mockTryClaimRunSlot.mockClear();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: true,
+      activeRunId: null,
+    });
+    mockFireInternalDispatch.mockClear();
+
+    const systemPrompt = vi.fn(async () => "Heavy system prompt");
+    const viewScreen = vi.fn(async () => '{"screen":"note"}');
+    const prepareAfterModel = vi.fn(async () => ({
+      contextNote: "after-model note",
+    }));
+    let ownerSeenInOnRunPrepared: string | undefined;
+    const onRunPrepared = vi.fn(async () => {
+      ownerSeenInOnRunPrepared = getRequestRunContext()?.owner;
+      return {};
+    });
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt,
+      engine,
+      actions: {
+        "view-screen": {
+          ...actionEntry({ readOnly: true }),
+          run: viewScreen,
+        },
+      },
+      prepareRequest: async () => ({ prepareAfterModel }),
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Summarize my meeting notes",
+          threadId: "thread-bg-ttfb",
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      expect(response).toBeInstanceOf(ReadableStream);
+      expect(event.res.headers.get("X-Dispatch-Mode")).toBe("background");
+      expect(mockFireInternalDispatch).toHaveBeenCalledOnce();
+      expect(onRunPrepared).toHaveBeenCalledOnce();
+      expect(ownerSeenInOnRunPrepared).toBe("alice@example.com");
+      expect(systemPrompt).not.toHaveBeenCalled();
+      expect(viewScreen).not.toHaveBeenCalled();
+      expect(prepareAfterModel).not.toHaveBeenCalled();
+      expect(listAccessibleSpy).not.toHaveBeenCalled();
+      expect(getThreadSpy).not.toHaveBeenCalled();
+    } finally {
+      listAccessibleSpy.mockRestore();
+      getThreadSpy.mockRestore();
+      readClaimSpy.mockRestore();
+      subscribeSpy.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("runs deferred setup on inline fallback and marks the claimed run errored when systemPrompt fails", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+
+    mockTryClaimRunSlot.mockClear();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: true,
+      activeRunId: null,
+    });
+    mockFireInternalDispatch.mockClear();
+    mockFireInternalDispatch.mockRejectedValueOnce(
+      new Error("fixture dispatch failure"),
+    );
+    const readClaimSpy = vi
+      .spyOn(runStore, "readBackgroundRunClaim")
+      .mockResolvedValue(null);
+    const claimRunSpy = vi
+      .spyOn(runStore, "claimBackgroundRun")
+      .mockResolvedValue(true);
+    const updateStatusSpy = vi
+      .spyOn(runStore, "updateRunStatusIfRunning")
+      .mockResolvedValue(true);
+    const setReasonSpy = vi
+      .spyOn(runStore, "setRunTerminalReason")
+      .mockResolvedValue(undefined);
+    const setErrorSpy = vi
+      .spyOn(runStore, "setRunError")
+      .mockResolvedValue(undefined);
+
+    const systemPrompt = vi.fn(async () => {
+      throw new Error("memory instructions unreadable");
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt,
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Hello",
+          threadId: "thread-bg-fallback-err",
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      expect(response).toBeInstanceOf(ReadableStream);
+      const chunks: string[] = [];
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        const decoder = new TextDecoder();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(decoder.decode(value));
+        }
+      }
+      expect(systemPrompt).toHaveBeenCalledOnce();
+      expect(chunks.join("")).toContain(
+        "Failed to load system prompt: memory instructions unreadable",
+      );
+      expect(updateStatusSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        "errored",
+      );
+      expect(setReasonSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        "system_prompt_failed",
+      );
+      expect(setErrorSpy).toHaveBeenCalled();
+    } finally {
+      readClaimSpy.mockRestore();
+      claimRunSpy.mockRestore();
+      updateStatusSpy.mockRestore();
+      setReasonSpy.mockRestore();
+      setErrorSpy.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("loads workspace skills and agents concurrently on the first message", async () => {
+    const resourceStore = await import("../resources/store.js");
+    const resources: ResourceMeta[] = [
+      {
+        id: "skill-1",
+        owner: "alice@example.com",
+        path: "skills/alpha/SKILL.md",
+        mimeType: "text/markdown",
+        size: 32,
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+      {
+        id: "skill-2",
+        owner: "alice@example.com",
+        path: "skills/beta/SKILL.md",
+        mimeType: "text/markdown",
+        size: 32,
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+      {
+        id: "agent-1",
+        owner: "alice@example.com",
+        path: "agents/reviewer.md",
+        mimeType: "text/markdown",
+        size: 32,
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    ];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const listSpy = vi
+      .spyOn(resourceStore, "resourceListAccessible")
+      .mockResolvedValue(resources);
+    const getSpy = vi
+      .spyOn(resourceStore, "resourceGet")
+      .mockImplementation(async (id: string) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        inFlight -= 1;
+        const meta = resources.find((entry) => entry.id === id)!;
+        const content =
+          id === "skill-1"
+            ? "---\nname: alpha\ndescription: First skill\n---\nBody"
+            : id === "skill-2"
+              ? "---\nname: beta\ndescription: Second skill\n---\nBody"
+              : "---\nname: reviewer\ndescription: Code reviewer\n---\nBody";
+        return { ...meta, content } as Resource;
+      });
+
+    let seenPrompt = "";
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream({ messages }): AsyncIterable<EngineEvent> {
+        if (!seenPrompt) {
+          seenPrompt = messages
+            .flatMap((m) =>
+              typeof m.content === "string"
+                ? [m.content]
+                : m.content
+                    .filter((p) => p.type === "text")
+                    .map((p) => (p.type === "text" ? p.text : "")),
+            )
+            .join("\n");
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Hello",
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+      expect(maxInFlight).toBe(3);
+      expect(seenPrompt).toContain("alpha");
+      expect(seenPrompt).toContain("beta");
+      expect(seenPrompt.indexOf("beta")).toBeGreaterThan(
+        seenPrompt.indexOf("alpha"),
+      );
+      expect(seenPrompt).toContain("reviewer");
+    } finally {
+      listSpy.mockRestore();
+      getSpy.mockRestore();
+    }
+  });
+
   it("refuses an unqueueable busy attachment before pre-upload", async () => {
     mockGetSlotHoldingRunId.mockResolvedValueOnce("run-active");
     const preUpload = vi

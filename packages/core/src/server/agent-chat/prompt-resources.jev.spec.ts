@@ -3016,4 +3016,65 @@ description: My renamed voice.
       ).rejects.toBe(failure);
     },
   );
+
+  it("loads independent prompt resources concurrently while preserving section order", async () => {
+    const targetOrgId = "org_parallel_prompt";
+    const workspaceOwner = `__workspace__:__organization__:${targetOrgId}`;
+    const orgOwner = `__organization__:${targetOrgId}`;
+    const userOwner = "user@example.test";
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const byKey = new Map<string, string>([
+      [`${workspaceOwner}::AGENTS.md`, "WORKSPACE_AGENTS_BODY"],
+      [`__shared__::AGENTS.md`, "APP_DEFAULT_AGENTS_BODY"],
+      [`${orgOwner}::AGENTS.md`, "ORG_AGENTS_BODY"],
+      [`${userOwner}::AGENTS.md`, "PERSONAL_AGENTS_BODY"],
+      [`${userOwner}::memory/INSTRUCTIONS.md`, "PERSONAL_MEMORY_INSTRUCTIONS"],
+      [`${orgOwner}::LEARNINGS.md`, "ORG_LEARNINGS_BODY"],
+      [`${userOwner}::memory/MEMORY.md`, "PERSONAL_MEMORY_INDEX_BODY"],
+    ]);
+
+    mocks.resourceGetByPath.mockImplementation(
+      async (owner: string, resourcePath: string) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        inFlight -= 1;
+        const content = byKey.get(`${owner}::${resourcePath}`);
+        if (!content) return null;
+        return {
+          id: `${owner}:${resourcePath}`,
+          owner,
+          path: resourcePath,
+          content,
+          mimeType: "text/markdown",
+        };
+      },
+    );
+
+    const prompt = await loadResourcesForPrompt(
+      userOwner,
+      false,
+      undefined,
+      targetOrgId,
+    );
+
+    expect(maxInFlight).toBeGreaterThanOrEqual(4);
+    const orderedMarkers = [
+      "WORKSPACE_AGENTS_BODY",
+      "APP_DEFAULT_AGENTS_BODY",
+      "ORG_AGENTS_BODY",
+      "PERSONAL_AGENTS_BODY",
+      "PERSONAL_MEMORY_INSTRUCTIONS",
+      "ORG_LEARNINGS_BODY",
+      "PERSONAL_MEMORY_INDEX_BODY",
+    ];
+    let lastIndex = -1;
+    for (const marker of orderedMarkers) {
+      const idx = prompt.indexOf(marker);
+      expect(idx, `expected ${marker} in prompt`).toBeGreaterThan(lastIndex);
+      lastIndex = idx;
+    }
+  });
 });
