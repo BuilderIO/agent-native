@@ -21,6 +21,7 @@ import {
   injectedAgentNativeAppId,
   injectedAgentNativeConfig,
 } from "./app-config.js";
+import { ACTION_SELF_REFRESHING_META_KEY } from "./action-query-scope.js";
 import { readClientAppState } from "./application-state.js";
 import { useActionMutation, useActionQuery } from "./use-action.js";
 import { useChangeVersion } from "./use-change-version.js";
@@ -416,7 +417,13 @@ export function useThemeFamily(): ThemeFamilyHook {
   const query = useActionQuery<ThemeFamilyPreference>(
     "get-theme-family" as never,
     undefined,
-    { retry: false, queryKeyScope: ["theme-family", runtimeAppId] },
+    {
+      retry: false,
+      queryKeyScope: ["theme-family", runtimeAppId],
+      // Kept current by its own app-state subscription and refetch below, so a
+      // data write must not refetch (and then cancel) it.
+      meta: { [ACTION_SELF_REFRESHING_META_KEY]: true },
+    },
   );
   const queryData = query.data;
   const refetchThemeFamily = query.refetch;
