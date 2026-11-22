@@ -2514,11 +2514,119 @@ describe("db/client postgres-js request pool recovery", () => {
     }
 
     expect(statements.slice(1)).toEqual([
-      "SELECT set_config('statement_timeout', $1, true) [720ms]",
+      "SELECT set_config('statement_timeout', $1, true) [520ms]",
       "SELECT 1",
       "SELECT set_config('statement_timeout', $1, true) [0]",
     ]);
   });
+
+  it.each([
+    { previousMs: 0, firstRtt: 300, secondRtt: 300, succeeds: true },
+    { previousMs: 3_725, firstRtt: 300, secondRtt: 300, succeeds: true },
+    { previousMs: 2_000, firstRtt: 300, secondRtt: 0, succeeds: true },
+    { previousMs: 0, firstRtt: 2_100, secondRtt: 300, succeeds: true },
+    { previousMs: 0, firstRtt: 300, secondRtt: 1_000, succeeds: false },
+    { previousMs: 3_725, firstRtt: 300, secondRtt: 1_000, succeeds: false },
+    { previousMs: 0, firstRtt: 300, secondRtt: 3_700, succeeds: false },
+    { previousMs: 0, firstRtt: 3_999, secondRtt: 0, succeeds: false },
+    { previousMs: 0, firstRtt: 4_000, secondRtt: 0, succeeds: false },
+  ])(
+    "keeps a 4s statement budget safe across setup RTTs ($previousMs, $firstRtt, $secondRtt)",
+    async ({ previousMs, firstRtt, secondRtt, succeeds }) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
+      vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+      vi.stubEnv("NETLIFY_DATABASE_URL", "");
+      vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+      vi.stubGlobal("__env__", {});
+      const previous = `${previousMs}ms`;
+      let serverCap = previousMs;
+      const setupCaps: number[] = [];
+      let statementCap: number | undefined;
+      let statementRemaining: number | undefined;
+      const startedAt = Date.now();
+      const txSql = {
+        unsafe: vi.fn((query: string, args?: unknown[]) => {
+          if (query.includes("current_setting")) {
+            const requested = Number(args?.[0]);
+            serverCap =
+              previousMs > 0 ? Math.min(previousMs, requested) : requested;
+            setupCaps.push(serverCap);
+            vi.advanceTimersByTime(firstRtt);
+            return Promise.resolve(
+              Object.assign([{ previous, previous_ms: String(previousMs) }], {
+                count: 1,
+              }),
+            );
+          }
+          if (query.includes("set_config")) {
+            serverCap = Number.parseInt(String(args?.[0]), 10);
+            if (args?.[0] !== previous) {
+              setupCaps.push(serverCap);
+              vi.advanceTimersByTime(secondRtt);
+            }
+          } else if (query === "SELECT 1") {
+            statementCap = serverCap;
+            statementRemaining = 4_000 - (Date.now() - startedAt);
+          }
+          return Promise.resolve(Object.assign([], { count: 1 }));
+        }),
+      };
+      const postgres = vi.fn(() =>
+        Object.assign(() => undefined, {
+          unsafe: vi.fn(),
+          begin: vi.fn(async (fn: (tx: typeof txSql) => Promise<unknown>) =>
+            fn(txSql),
+          ),
+          end: vi.fn(async () => {}),
+        }),
+      );
+      vi.doMock("postgres", () => ({ default: postgres }));
+      const [{ getDbExec }, { runWithRequestDbPoolScope }] = await Promise.all([
+        import("./client.js"),
+        import("./request-pool-context.js"),
+      ]);
+
+      try {
+        await runWithRequestDbPoolScope(true, undefined, () => {
+          const transaction = getDbExec().transaction;
+          if (!transaction) throw new Error("Transactions are unavailable");
+          return transaction(async (tx) => {
+            const result = tx.execute({
+              sql: "SELECT 1",
+              timeoutMs: 4_000,
+              maxAttempts: 1,
+            });
+            if (succeeds) {
+              await expect(result).resolves.toBeDefined();
+            } else {
+              await expect(result).rejects.toMatchObject({
+                code: "STATEMENT_BUDGET_EXHAUSTED",
+              });
+            }
+            expect(serverCap).toBe(previousMs);
+            await tx.execute({ sql: "SELECT 2" });
+          });
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(setupCaps.length).toBeGreaterThan(0);
+      for (const cap of setupCaps) {
+        expect(cap).toBeGreaterThan(0);
+        if (previousMs > 0) expect(cap).toBeLessThanOrEqual(previousMs);
+      }
+      if (succeeds) {
+        expect(statementCap).toBeGreaterThan(0);
+        expect(statementCap).toBeLessThan(statementRemaining ?? 0);
+        if (previousMs > 0)
+          expect(statementCap).toBeLessThanOrEqual(previousMs);
+      } else {
+        expect(statementCap).toBeUndefined();
+      }
+      expect(txSql.unsafe).toHaveBeenCalledWith("SELECT 2", []);
+    },
+  );
 
   it("never starts a statement whose budget the tightening round trip spent", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -2531,7 +2639,8 @@ describe("db/client postgres-js request pool recovery", () => {
     const txSql = {
       unsafe: vi.fn((query: string, args?: unknown[]) => {
         statements.push(args?.length ? `${query} [${args.join(", ")}]` : query);
-        if (query.includes("set_config")) vi.advanceTimersByTime(300);
+        if (query.includes("current_setting")) vi.advanceTimersByTime(300);
+        else if (query.includes("set_config")) vi.advanceTimersByTime(500);
         return Promise.resolve(
           Object.assign(
             query.includes("current_setting")

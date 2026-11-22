@@ -1097,12 +1097,11 @@ async function withTransactionStatementTimeout<T>(
   statement: (remainingMs: number) => Promise<T>,
 ): Promise<T> {
   const startedAt = Date.now();
-  const remainingMs = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
-  const serverTimeout = () => postgresStatementTimeoutMs(remainingMs());
-  const applied = serverTimeout();
+  const remainingMs = () => timeoutMs - (Date.now() - startedAt);
+  const applied = postgresStatementTimeoutMs(timeoutMs);
   const bound = await runSetting(
     { sql: BOUND_STATEMENT_TIMEOUT_SQL, args: [applied, `${applied}ms`] },
-    remainingMs(),
+    Math.max(1, remainingMs()),
   );
   const row = bound[0] as
     | { previous?: unknown; previous_ms?: unknown }
@@ -1116,31 +1115,38 @@ async function withTransactionStatementTimeout<T>(
   }
   let installed =
     previousMs > 0 && previousMs <= applied ? previousMs : applied;
-  // A slow round trip above leaves less of the budget than the server was
-  // given, so the statement could outlive its caller holding its locks.
-  // Tightening is itself a round trip, so a budget it also outruns is spent:
-  // the statement never starts.
-  if (installed >= remainingMs()) {
-    installed = serverTimeout();
+  const firstSetupElapsedMs = Date.now() - startedAt;
+  const afterFirstSetupMs = timeoutMs - firstSetupElapsedMs;
+  // The tightening round trip needs its own headroom; use the first trip as
+  // an estimate, then still check the actual budget before the statement.
+  if (installed >= afterFirstSetupMs && afterFirstSetupMs > 1) {
+    installed = Math.min(
+      installed,
+      Math.max(
+        1,
+        postgresStatementTimeoutMs(afterFirstSetupMs) - firstSetupElapsedMs,
+      ),
+    );
     await runSetting(
       { sql: SET_STATEMENT_TIMEOUT_SQL, args: [`${installed}ms`] },
-      remainingMs(),
+      afterFirstSetupMs,
     );
-    if (installed >= remainingMs()) {
-      // A caller may catch this and keep using the transaction.
-      await runSetting(
-        { sql: SET_STATEMENT_TIMEOUT_SQL, args: [previous] },
-        POSTGRES_STATEMENT_TIMEOUT_RESET_MS,
-      );
-      throw Object.assign(
-        new Error(
-          `The ${timeoutMs}ms statement budget ran out while setting its server timeout`,
-        ),
-        { code: "STATEMENT_BUDGET_EXHAUSTED" },
-      );
-    }
   }
-  const result = await statement(remainingMs());
+  const remaining = remainingMs();
+  if (remaining <= 0 || installed >= remaining) {
+    // A caller may catch this and keep using the transaction.
+    await runSetting(
+      { sql: SET_STATEMENT_TIMEOUT_SQL, args: [previous] },
+      POSTGRES_STATEMENT_TIMEOUT_RESET_MS,
+    );
+    throw Object.assign(
+      new Error(
+        `The ${timeoutMs}ms statement budget ran out while setting its server timeout`,
+      ),
+      { code: "STATEMENT_BUDGET_EXHAUSTED" },
+    );
+  }
+  const result = await statement(remaining);
   await runSetting(
     { sql: SET_STATEMENT_TIMEOUT_SQL, args: [previous] },
     POSTGRES_STATEMENT_TIMEOUT_RESET_MS,
