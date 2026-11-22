@@ -1117,9 +1117,10 @@ async function withTransactionStatementTimeout<T>(
     previousMs > 0 && previousMs <= applied ? previousMs : applied;
   const firstSetupElapsedMs = Date.now() - startedAt;
   const afterFirstSetupMs = timeoutMs - firstSetupElapsedMs;
-  // The tightening round trip needs its own headroom; use the first trip as
-  // an estimate, then still check the actual budget before the statement.
-  if (afterFirstSetupMs > 1 && installed >= afterFirstSetupMs) {
+  if (
+    afterFirstSetupMs > 1 &&
+    installed > postgresStatementTimeoutMs(afterFirstSetupMs)
+  ) {
     const serverCap = postgresStatementTimeoutMs(afterFirstSetupMs);
     installed = Math.min(
       installed,
@@ -1135,8 +1136,11 @@ async function withTransactionStatementTimeout<T>(
     );
   }
   const remaining = remainingMs();
-  if (remaining <= 1 || installed <= 0 || installed >= remaining) {
-    // A caller may catch this and keep using the transaction.
+  if (
+    remaining <= 1 ||
+    installed <= 0 ||
+    installed > postgresStatementTimeoutMs(remaining)
+  ) {
     await runSetting(
       { sql: SET_STATEMENT_TIMEOUT_SQL, args: [previous] },
       POSTGRES_STATEMENT_TIMEOUT_RESET_MS,

@@ -2521,35 +2521,43 @@ describe("db/client postgres-js request pool recovery", () => {
   });
 
   it.each([
-    { previousMs: 0, firstRtt: 0, secondRtt: 0, succeeds: true },
-    { previousMs: 0, firstRtt: 249, secondRtt: 0, succeeds: true },
-    { previousMs: 0, firstRtt: 250, secondRtt: 0, succeeds: true },
-    { previousMs: 0, firstRtt: 300, secondRtt: 300, succeeds: true },
-    { previousMs: 3_725, firstRtt: 300, secondRtt: 300, succeeds: true },
-    { previousMs: 3_650, firstRtt: 300, secondRtt: 300, succeeds: true },
-    { previousMs: 3_450, firstRtt: 300, secondRtt: 0, succeeds: true },
-    { previousMs: 2_000, firstRtt: 300, secondRtt: 0, succeeds: true },
-    { previousMs: 0, firstRtt: 1_875, secondRtt: 0, succeeds: true },
-    { previousMs: 0, firstRtt: 1_894, secondRtt: 0, succeeds: true },
-    { previousMs: 0, firstRtt: 1_900, secondRtt: 0, succeeds: true },
-    { previousMs: 0, firstRtt: 2_100, secondRtt: 0, succeeds: true },
-    { previousMs: 0, firstRtt: 2_100, secondRtt: 300, succeeds: true },
-    { previousMs: 3_725, firstRtt: 2_100, secondRtt: 0, succeeds: true },
-    { previousMs: 1_000, firstRtt: 2_100, secondRtt: 0, succeeds: true },
-    { previousMs: 0, firstRtt: 2_100, secondRtt: 949, succeeds: true },
-    { previousMs: 0, firstRtt: 2_100, secondRtt: 950, succeeds: false },
-    { previousMs: 3_725, firstRtt: 2_100, secondRtt: 950, succeeds: false },
-    { previousMs: 0, firstRtt: 300, secondRtt: 301, succeeds: true },
-    { previousMs: 0, firstRtt: 300, secondRtt: 549, succeeds: true },
-    { previousMs: 0, firstRtt: 300, secondRtt: 550, succeeds: false },
-    { previousMs: 0, firstRtt: 300, secondRtt: 1_000, succeeds: false },
-    { previousMs: 3_725, firstRtt: 300, secondRtt: 1_000, succeeds: false },
-    { previousMs: 0, firstRtt: 300, secondRtt: 3_700, succeeds: false },
-    { previousMs: 0, firstRtt: 3_999, secondRtt: 0, succeeds: false },
-    { previousMs: 0, firstRtt: 4_000, secondRtt: 0, succeeds: false },
-  ])(
-    "bounds a 4s statement timeout across setup RTTs ($previousMs, $firstRtt, $secondRtt)",
-    async ({ previousMs, firstRtt, secondRtt, succeeds }) => {
+    [0, 0, 0, [3_750], true, 3_750, 4_000],
+    [0, 249, 0, [3_750, 3_252], true, 3_252, 3_751],
+    [0, 250, 0, [3_750, 3_250], true, 3_250, 3_750],
+    [0, 300, 300, [3_750, 3_150], true, 3_150, 3_400],
+    [3_725, 300, 300, [3_725, 3_150], true, 3_150, 3_400],
+    [3_650, 300, 300, [3_650, 3_150], true, 3_150, 3_400],
+    [3_450, 300, 0, [3_450], true, 3_450, 3_700],
+    [2_000, 300, 0, [2_000], true, 2_000, 3_700],
+    [0, 1_875, 0, [3_750, 1_062], true, 1_062, 2_125],
+    [0, 1_894, 0, [3_750, 1_053], true, 1_053, 2_106],
+    [0, 1_900, 0, [3_750, 1_050], true, 1_050, 2_100],
+    [0, 2_100, 0, [3_750, 950], true, 950, 1_900],
+    [0, 2_100, 300, [3_750, 950], true, 950, 1_600],
+    [3_725, 2_100, 0, [3_725, 950], true, 950, 1_900],
+    [1_000, 2_100, 0, [1_000], true, 1_000, 1_900],
+    [0, 2_100, 949, [3_750, 950], false, null, null],
+    [0, 2_100, 950, [3_750, 950], false, null, null],
+    [3_725, 2_100, 950, [3_725, 950], false, null, null],
+    [0, 300, 301, [3_750, 3_150], false, null, null],
+    [0, 300, 549, [3_750, 3_150], false, null, null],
+    [0, 300, 550, [3_750, 3_150], false, null, null],
+    [0, 300, 1_000, [3_750, 3_150], false, null, null],
+    [3_725, 300, 1_000, [3_725, 3_150], false, null, null],
+    [0, 300, 3_700, [3_750, 3_150], false, null, null],
+    [0, 3_999, 0, [3_750], false, null, null],
+    [0, 4_000, 0, [3_750], false, null, null],
+  ] as const)(
+    "bounds a 4s statement timeout across setup RTTs (%i, %i, %i)",
+    async (
+      previousMs,
+      firstRtt,
+      secondRtt,
+      expectedCaps,
+      succeeds,
+      expectedCap,
+      expectedRemaining,
+    ) => {
       vi.useFakeTimers({ toFake: ["Date"] });
       vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
       vi.stubEnv("DATABASE_URL_UNPOOLED", "");
@@ -2559,9 +2567,14 @@ describe("db/client postgres-js request pool recovery", () => {
       const previous = `${previousMs}ms`;
       let serverCap = previousMs;
       const setupCaps: number[] = [];
-      let statementCap: number | undefined;
-      let statementRemaining: number | undefined;
-      const startedAt = Date.now();
+      const statementObservation: {
+        cap: number | null;
+        remaining: number | null;
+      } = {
+        cap: null,
+        remaining: null,
+      };
+      let elapsedMs = 0;
       const txSql = {
         unsafe: vi.fn((query: string, args?: unknown[]) => {
           if (query.includes("current_setting")) {
@@ -2570,6 +2583,7 @@ describe("db/client postgres-js request pool recovery", () => {
               previousMs > 0 ? Math.min(previousMs, requested) : requested;
             setupCaps.push(serverCap);
             vi.advanceTimersByTime(firstRtt);
+            elapsedMs += firstRtt;
             return Promise.resolve(
               Object.assign([{ previous, previous_ms: String(previousMs) }], {
                 count: 1,
@@ -2581,10 +2595,11 @@ describe("db/client postgres-js request pool recovery", () => {
             if (args?.[0] !== previous) {
               setupCaps.push(serverCap);
               vi.advanceTimersByTime(secondRtt);
+              elapsedMs += secondRtt;
             }
           } else if (query === "SELECT 1") {
-            statementCap = serverCap;
-            statementRemaining = 4_000 - (Date.now() - startedAt);
+            statementObservation.cap = serverCap;
+            statementObservation.remaining = 4_000 - elapsedMs;
           }
           return Promise.resolve(Object.assign([], { count: 1 }));
         }),
@@ -2614,13 +2629,13 @@ describe("db/client postgres-js request pool recovery", () => {
               timeoutMs: 4_000,
               maxAttempts: 1,
             });
-            if (succeeds) {
-              await expect(result).resolves.toBeDefined();
-            } else {
-              await expect(result).rejects.toMatchObject({
-                code: "STATEMENT_BUDGET_EXHAUSTED",
-              });
-            }
+            const outcome = await result.then(
+              () => ({ code: null }),
+              (error: unknown) => ({ code: (error as { code?: string }).code }),
+            );
+            expect(outcome).toEqual({
+              code: succeeds ? null : "STATEMENT_BUDGET_EXHAUSTED",
+            });
             expect(serverCap).toBe(previousMs);
             await tx.execute({ sql: "SELECT 2" });
           });
@@ -2628,52 +2643,22 @@ describe("db/client postgres-js request pool recovery", () => {
       } finally {
         vi.useRealTimers();
       }
-      expect(setupCaps.length).toBeGreaterThan(0);
-      for (const cap of setupCaps) {
-        expect(cap).toBeGreaterThan(0);
-        if (previousMs > 0) expect(cap).toBeLessThanOrEqual(previousMs);
-      }
-      if (succeeds) {
-        expect(statementCap).toBeGreaterThan(0);
-        expect(statementRemaining).toBeGreaterThan(1);
-        // oracle-change: relative server timeouts retain best-effort headroom, not a guaranteed margin.
-        expect(statementCap).toBeLessThan(statementRemaining ?? 0);
-        if (previousMs > 0)
-          expect(statementCap).toBeLessThanOrEqual(previousMs);
-        if (firstRtt === 249) {
-          expect(statementRemaining).toBe(3_751);
-          expect(statementCap).toBe(3_750);
-          expect(setupCaps).toEqual([3_750]);
-        }
-        if (firstRtt === 250) expect(statementCap).toBe(3_250);
-        if (firstRtt === 300 && secondRtt === 300 && previousMs !== 3_650) {
-          expect(statementRemaining).toBe(3_400);
-          expect(statementCap).toBe(3_150);
-        }
-        if (previousMs === 3_650) {
-          expect(statementRemaining).toBe(3_700);
-          expect(setupCaps).toEqual([3_650]);
-        }
-        if (firstRtt === 300 && secondRtt === 549) {
-          expect(statementRemaining).toBe(3_151);
-          expect(statementCap).toBe(3_150);
-        }
-        if (previousMs === 3_450) expect(setupCaps).toEqual([3_450]);
-        if (firstRtt === 1_875) expect(statementCap).toBe(1_062);
-        if (firstRtt === 1_894) {
-          expect(statementRemaining).toBe(2_106);
-          expect(statementCap).toBe(1_053);
-        }
-        if (firstRtt === 2_100 && secondRtt === 0 && previousMs !== 1_000) {
-          expect(statementRemaining).toBe(1_900);
-          expect(statementCap).toBe(950);
-        }
-      } else {
-        expect(statementCap).toBeUndefined();
-        if (firstRtt === 2_100 && secondRtt === 950) {
-          expect(setupCaps.at(-1)).toBe(950);
-        }
-      }
+      expect(setupCaps).toEqual(expectedCaps);
+      expect(setupCaps.every((cap) => cap > 0)).toBe(true);
+      expect(
+        setupCaps.every((cap) => previousMs === 0 || cap <= previousMs),
+      ).toBe(true);
+      expect(statementObservation).toEqual({
+        cap: expectedCap,
+        remaining: expectedRemaining,
+      });
+      expect(
+        statementObservation.cap === null ||
+          (statementObservation.remaining !== null &&
+            statementObservation.remaining > 1 &&
+            statementObservation.cap > 0 &&
+            statementObservation.cap < statementObservation.remaining),
+      ).toBe(true);
       expect(txSql.unsafe).toHaveBeenCalledWith("SELECT 2", []);
     },
   );
