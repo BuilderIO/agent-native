@@ -306,8 +306,10 @@ export class BigQueryMetadataError extends Error {
 export async function bigQueryGet<T>(
   url: string,
   signal?: AbortSignal,
+  frozenToken?: string,
 ): Promise<T> {
-  const token = await getBigQueryAccessToken({ signal });
+  const token =
+    frozenToken ?? (await getBigQueryAccessToken(signal ? { signal } : {}));
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -427,14 +429,17 @@ const tableMetadataCache = new Map<
 export async function getBigQueryTableMetadata(
   ref: { projectId: string; datasetId: string; tableId: string },
   signal?: AbortSignal,
-  { fresh = false }: { fresh?: boolean } = {},
+  { fresh = false, token }: { fresh?: boolean; token?: string } = {},
 ): Promise<BigQueryTableMetadata> {
   const key = `${cacheScopeForContext(requireRequestCredentialContext("BIGQUERY_PROJECT_ID"))}\n${ref.projectId}.${ref.datasetId}.${ref.tableId}`;
   const hit = tableMetadataCache.get(key);
-  if (!fresh && hit && hit.expiresAt > Date.now()) return hit.metadata;
+  if (!fresh && token === undefined && hit && hit.expiresAt > Date.now()) {
+    return hit.metadata;
+  }
   const metadata = await bigQueryGet<BigQueryTableMetadata>(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(ref.projectId)}/datasets/${encodeURIComponent(ref.datasetId)}/tables/${encodeURIComponent(ref.tableId)}`,
     signal,
+    token,
   );
   tableMetadataCache.delete(key);
   if (tableMetadataCache.size >= MAX_TABLE_METADATA_ENTRIES) {
@@ -1564,7 +1569,6 @@ function rowsToObjects(
 export interface DryRunQueryOptions {
   signal?: AbortSignal;
   wrapPreparationErrors?: boolean;
-  exactSql?: boolean;
 }
 
 export class BigQueryDryRunPreparationError extends Error {
@@ -1593,6 +1597,13 @@ export interface DryRunQueryResult {
   exactBytesProcessed?: number | "malformed";
   statementType?: string;
   referencedTables?: BigQueryReferencedTable[] | "malformed";
+  referencedRoutines?: BigQueryReferencedRoutine[] | "malformed";
+}
+
+export interface BigQueryReferencedRoutine {
+  projectId: string;
+  datasetId: string;
+  routineId: string;
 }
 
 export interface BigQueryReferencedTable {
@@ -1632,6 +1643,29 @@ function referencedTablesFrom(
   return tables;
 }
 
+function referencedRoutinesFrom(
+  value: unknown,
+): BigQueryReferencedRoutine[] | "malformed" | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) return "malformed";
+  const routines: BigQueryReferencedRoutine[] = [];
+  for (const entry of value as Array<Record<string, unknown> | null>) {
+    if (
+      typeof entry?.projectId !== "string" ||
+      typeof entry.datasetId !== "string" ||
+      typeof entry.routineId !== "string"
+    ) {
+      return "malformed";
+    }
+    routines.push({
+      projectId: entry.projectId,
+      datasetId: entry.datasetId,
+      routineId: entry.routineId,
+    });
+  }
+  return routines;
+}
+
 async function readDryRunStatistics(
   res: Response,
 ): Promise<
@@ -1642,6 +1676,7 @@ async function readDryRunStatistics(
     | "exactBytesProcessed"
     | "statementType"
     | "referencedTables"
+    | "referencedRoutines"
   >
 > {
   let job: {
@@ -1651,6 +1686,7 @@ async function readDryRunStatistics(
         totalBytesProcessed?: string | number;
         statementType?: unknown;
         referencedTables?: unknown;
+        referencedRoutines?: unknown;
         schema?: { fields?: { name?: unknown; type?: unknown }[] };
       };
     };
@@ -1668,6 +1704,9 @@ async function readDryRunStatistics(
   const bytes = Number(rawBytes);
   const exactBytes = exactByteCount(rawBytes);
   const referencedTables = referencedTablesFrom(stats?.query?.referencedTables);
+  const referencedRoutines = referencedRoutinesFrom(
+    stats?.query?.referencedRoutines,
+  );
   return {
     ...(Array.isArray(fields)
       ? {
@@ -1684,6 +1723,7 @@ async function readDryRunStatistics(
       ? { statementType: stats.query.statementType }
       : {}),
     ...(referencedTables !== undefined ? { referencedTables } : {}),
+    ...(referencedRoutines !== undefined ? { referencedRoutines } : {}),
   };
 }
 
@@ -1715,19 +1755,14 @@ export async function dryRunQuerySchema(
   let resolvedSql: string;
   let token: string;
   try {
-    if (options.exactSql) {
-      ({ projectId } = await getProjectContext(options.signal));
-      resolvedSql = sql;
-    } else {
-      const info = await getProjectInfo(options.signal);
-      projectId = info.projectId;
-      resolvedSql = await resolveTablePlaceholder(
-        sql,
-        projectId,
-        info.appEventsTable,
-        options.signal,
-      );
-    }
+    const info = await getProjectInfo(options.signal);
+    projectId = info.projectId;
+    resolvedSql = await resolveTablePlaceholder(
+      sql,
+      projectId,
+      info.appEventsTable,
+      options.signal,
+    );
     token = await getBigQueryAccessToken({ signal: options.signal });
   } catch (error) {
     if (
@@ -1745,11 +1780,40 @@ export async function dryRunQuerySchema(
     }
     throw error;
   }
+  return sendDryRun(
+    { projectId, location: null, token },
+    resolvedSql,
+    options.signal,
+  );
+}
+
+export async function dryRunFrozenQuery(
+  access: FrozenBigQueryAccess,
+  sql: string,
+  signal: AbortSignal,
+): Promise<DryRunQueryResult> {
+  if (signal.aborted) {
+    throw new Error("BigQuery validation was cancelled before it started");
+  }
+  return sendDryRun(access, sql, signal);
+}
+
+export interface FrozenBigQueryAccess {
+  projectId: string;
+  location: string | null;
+  token: string;
+}
+
+async function sendDryRun(
+  { projectId, location, token }: FrozenBigQueryAccess,
+  resolvedSql: string,
+  signal: AbortSignal | undefined,
+): Promise<DryRunQueryResult> {
   const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
 
   const controller = new AbortController();
   const abortFromCaller = () => controller.abort();
-  options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  signal?.addEventListener("abort", abortFromCaller, { once: true });
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutMessage = `BigQuery validation timed out after ${Math.round(DASHBOARD_SQL_VALIDATION_TIMEOUT_MS / 1000)} seconds`;
@@ -1768,6 +1832,7 @@ export async function dryRunQuerySchema(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        ...(location ? { jobReference: { projectId, location } } : {}),
         configuration: {
           dryRun: true,
           query: { query: resolvedSql, useLegacySql: false },
@@ -1798,7 +1863,7 @@ export async function dryRunQuerySchema(
     if (timedOut) return { error: timeoutMessage, timedOut: true };
     throw error;
   } finally {
-    options.signal?.removeEventListener("abort", abortFromCaller);
+    signal?.removeEventListener("abort", abortFromCaller);
     if (timer !== undefined) clearTimeout(timer);
   }
 }
@@ -2432,6 +2497,7 @@ export type BoundedBigQueryJobOutcome =
       truncation: "rows" | "bytes" | null;
       location: string | undefined;
       providerCacheHit: boolean | null;
+      bytesProcessed: number | null;
     }
   | {
       status: "rejected";
@@ -2475,6 +2541,7 @@ function failureCode(
 export async function runBoundedBigQueryJob(input: {
   projectId: string;
   jobId: string;
+  location?: string | null;
   sql: string;
   maximumBytesBilled: number;
   token: string;
@@ -2482,13 +2549,14 @@ export async function runBoundedBigQueryJob(input: {
   maxRows: number;
   maxResultBytes: number;
   submitBy: number;
+  labels?: Record<string, string>;
 }): Promise<BoundedBigQueryJobOutcome> {
   const { projectId, jobId, token, signal } = input;
   const headers = {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
-  let location: string | undefined;
+  let location: string | undefined = input.location ?? undefined;
   let cancelRequested = false;
   const uncertain = async (
     reason: "timeout" | "submission_unknown" | "poll_unreadable",
@@ -2530,7 +2598,11 @@ export async function runBoundedBigQueryJob(input: {
         signal,
         headers,
         body: JSON.stringify({
-          jobReference: { projectId, jobId },
+          jobReference: {
+            projectId,
+            jobId,
+            ...(input.location ? { location: input.location } : {}),
+          },
           configuration: {
             query: {
               query: input.sql,
@@ -2538,6 +2610,7 @@ export async function runBoundedBigQueryJob(input: {
               maximumBytesBilled: String(input.maximumBytesBilled),
             },
             jobTimeoutMs: String(BOUNDED_JOB_SERVER_TIMEOUT_MS),
+            ...(input.labels ? { labels: input.labels } : {}),
           },
         }),
       },
@@ -2573,7 +2646,7 @@ export async function runBoundedBigQueryJob(input: {
       ) {
         return uncertain("submission_unknown");
       }
-      location = inserted.jobReference?.location;
+      location = inserted.jobReference?.location ?? location;
       break;
     }
     const text = await res.text();
@@ -2680,6 +2753,7 @@ export async function runBoundedBigQueryJob(input: {
   }
 
   const fields = data.schema?.fields ?? [];
+  const processed = exactByteCount(data.totalBytesProcessed);
   return {
     status: "completed",
     rows,
@@ -2687,5 +2761,6 @@ export async function runBoundedBigQueryJob(input: {
     truncation,
     location,
     providerCacheHit: typeof data.cacheHit === "boolean" ? data.cacheHit : null,
+    bytesProcessed: typeof processed === "number" ? processed : null,
   };
 }

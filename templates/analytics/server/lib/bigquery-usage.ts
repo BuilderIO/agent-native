@@ -17,7 +17,8 @@ export type BigQueryUsageAttribution = {
     | "dashboard-panel"
     | "dashboard-report"
     | "panel-verification"
-    | "alert";
+    | "alert"
+    | "outside-agent-query";
   dashboardId?: string;
   panelId?: string;
 };

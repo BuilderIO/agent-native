@@ -139,14 +139,46 @@ describe("BigQuery outside-agent SQL policy", () => {
     ["multiple statements", "SELECT 1; SELECT 2"],
     ["a script", "DECLARE x INT64 DEFAULT 1; SELECT x"],
     ["a temporary function", "CREATE TEMP FUNCTION f() AS (1); SELECT f()"],
+    [
+      "MERGE",
+      "MERGE `builder-3b0a2.dbt_mart.users` T USING (SELECT 1 AS id) S ON T.id = S.id WHEN MATCHED THEN DELETE",
+    ],
+    [
+      "a trailing second statement",
+      "SELECT 1;\nDROP TABLE `builder-3b0a2.dbt_mart.users`",
+    ],
+    ["BEGIN", "BEGIN SELECT 1; END"],
   ])("refuses a non-SELECT or multi-statement query: %s", (_name, sql) => {
-    expect(refused(sql).code).toBe("query_feature_not_allowed");
+    expect(refused(sql).code).toBe("query_statement_not_allowed");
+  });
+
+  it("accepts one SELECT with a trailing semicolon and a parenthesized SELECT", () => {
+    expect(
+      checkBigQueryAgentSql(
+        "SELECT id FROM `builder-3b0a2.dbt_mart.users`;",
+        PROJECT,
+      ).tables,
+    ).toHaveLength(1);
+    expect(
+      checkBigQueryAgentSql(
+        "(SELECT id FROM `builder-3b0a2.dbt_mart.users`)",
+        PROJECT,
+      ).tables,
+    ).toHaveLength(1);
   });
 
   it("refuses a table outside the dataset allowlist and names the allowed datasets", () => {
     const error = refused("SELECT * FROM `builder-3b0a2.raw_pii.users`");
     expect(error.code).toBe("query_table_not_allowed");
     expect(error.message).toContain("dbt_mart");
+  });
+
+  it("refuses cloud billing data, which is left off the allowlist", () => {
+    const error = refused(
+      "SELECT cost FROM `builder-3b0a2.billing_export.gcp_billing_export_v1_0123`",
+    );
+    expect(error.code).toBe("query_table_not_allowed");
+    expect(error.message).not.toContain("billing_export:");
   });
 
   it("refuses a table in a project with no allowlist", () => {
@@ -179,7 +211,6 @@ describe("BigQuery outside-agent SQL policy", () => {
     expect(BIGQUERY_AGENT_DATASET_ALLOWLIST).toEqual({
       "builder-3b0a2": [
         "amplitude",
-        "billing_export",
         "dbt_analytics",
         "dbt_mart",
         "dbt_staging_bigquery",
@@ -232,11 +263,73 @@ describe("BigQuery outside-agent SQL policy", () => {
     it.each([
       ["a script", { statementType: "SCRIPT", referencedTables: [users] }],
       ["DML", { statementType: "INSERT", referencedTables: [users] }],
+      [
+        "DDL",
+        { statementType: "CREATE_TABLE_AS_SELECT", referencedTables: [users] },
+      ],
       ["no statement type", { referencedTables: [users] }],
     ])("refuses a dry run that reports %s", (_name, dryRun) => {
       expect(
         refusal(() => crossCheckBigQueryAgentDryRun(checked, dryRun)).code,
+      ).toBe("query_statement_not_allowed");
+    });
+
+    it("refuses a dry run that reads a routine, and one whose routine list is unreadable", () => {
+      expect(
+        refusal(() =>
+          crossCheckBigQueryAgentDryRun(checked, {
+            statementType: "SELECT",
+            referencedTables: [users],
+            referencedRoutines: [
+              { projectId: PROJECT, datasetId: "dbt_mart", routineId: "f" },
+            ],
+          }),
+        ).code,
       ).toBe("query_feature_not_allowed");
+      expect(
+        refusal(() =>
+          crossCheckBigQueryAgentDryRun(checked, {
+            statementType: "SELECT",
+            referencedTables: [users],
+            referencedRoutines: "malformed",
+          }),
+        ).code,
+      ).toBe("query_feature_not_allowed");
+    });
+
+    it("refuses a missing table list when the SQL names a table", () => {
+      expect(
+        refusal(() =>
+          crossCheckBigQueryAgentDryRun(checked, { statementType: "SELECT" }),
+        ).code,
+      ).toBe("query_table_not_allowed");
+    });
+
+    it("refuses a dry-run table outside the allowlist even when the SQL names it", () => {
+      const outside = checkBigQueryAgentSql(
+        "SELECT id FROM `builder-3b0a2.dbt_mart.users`",
+        PROJECT,
+      );
+      outside.tables.push({
+        projectId: PROJECT,
+        datasetId: "billing_export",
+        tableId: "costs",
+      });
+      expect(
+        refusal(() =>
+          crossCheckBigQueryAgentDryRun(outside, {
+            statementType: "SELECT",
+            referencedTables: [
+              users,
+              {
+                projectId: PROJECT,
+                datasetId: "billing_export",
+                tableId: "costs",
+              },
+            ],
+          }),
+        ).code,
+      ).toBe("query_table_not_allowed");
     });
 
     it("refuses a table the SQL does not name, even inside the allowlist", () => {

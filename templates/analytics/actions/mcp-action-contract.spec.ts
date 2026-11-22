@@ -27,7 +27,7 @@ type ActionDefinition = {
   mcpTool?: boolean;
   readOnly?: boolean;
   needsApproval?: unknown;
-  publicAgent?: { expose?: boolean };
+  publicAgent?: { expose?: boolean; allowRawQueryInput?: boolean };
   tool: {
     description: string;
     parameters?: { properties?: Record<string, unknown> };
@@ -79,8 +79,10 @@ const DIRECT_MCP_READS = [
   "list-session-recordings",
   "list-sql-dashboards",
   "match-error-issues",
+  "query-warehouse",
   "search-analytics-query-catalog",
   "search-dashboard-references",
+  "search-warehouse-schema",
 ];
 
 // Each takes expectedUpdatedAt and idempotencyKey; archive and hide are the
@@ -293,6 +295,27 @@ describe("Analytics direct MCP tools", () => {
     expect(terse).toEqual([]);
   });
 
+  it("opts only query-warehouse and mutate-dashboard into raw SQL input", () => {
+    const optedIn = Object.entries(actions)
+      .filter(([, action]) => action.publicAgent?.allowRawQueryInput === true)
+      .map(([name]) => name)
+      .sort();
+    expect(optedIn).toEqual(["mutate-dashboard", "query-warehouse"]);
+  });
+
+  it("tells outside agents to try saved definitions and dashboards before one aggregate warehouse query", () => {
+    const order = [
+      "find-data",
+      "list-sql-dashboards",
+      "search-warehouse-schema",
+      "query-warehouse",
+    ].map((name) => ANALYTICS_MCP.instructions.indexOf(name));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(ANALYTICS_MCP.instructions).toMatch(/aggregate/i);
+    expect(ANALYTICS_MCP.instructions).not.toMatch(/not warehouse row queries/);
+  });
+
   it("names only tools a read-scoped token receives in keyToolNames and instructions", () => {
     const mentioned = Object.keys(actions).filter((name) =>
       new RegExp(`(?<![\\w-])${name}(?![\\w-])`).test(
@@ -330,6 +353,20 @@ describe("Analytics MCP tools/list", () => {
     );
     for (const name of [...VETOED, "estimate-query-cost"]) {
       expect(served, name).not.toContain(name);
+    }
+  }, 60_000);
+
+  it("serves the bounded query tool to a read token and keeps every other raw-SQL read off", async () => {
+    const served = await listAppTools(["mcp:read"]);
+    expect(served).toContain("query-warehouse");
+    expect(served).toContain("search-warehouse-schema");
+    for (const name of [
+      "bigquery",
+      "estimate-query-cost",
+      "query-agent-native-analytics",
+      "search-bigquery-schema",
+    ]) {
+      expect(served).not.toContain(name);
     }
   }, 60_000);
 });

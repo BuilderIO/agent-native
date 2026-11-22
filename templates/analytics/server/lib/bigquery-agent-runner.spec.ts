@@ -79,21 +79,41 @@ vi.mock("./credentials", () => ({
   resolveCredential: async (key: string) =>
     key === "BIGQUERY_PROJECT_ID" ? "builder-3b0a2" : null,
 }));
+const access = vi.hoisted(() => ({
+  calls: [] as Array<{ projectId: string | undefined }>,
+  stall: false,
+}));
 vi.mock("./gcloud", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./gcloud")>()),
-  getBigQueryAccessToken: async () => "test-token",
-  getBigQueryAccess: async () => ({
-    token: "test-token",
-    principal:
-      "sa:runner@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b",
-  }),
+  getBigQueryAccessToken: async () => "unfrozen-token",
+  getBigQueryAccess: async (options: {
+    projectId?: string;
+    signal?: AbortSignal;
+  }) => {
+    access.calls.push({ projectId: options.projectId });
+    if (access.stall) {
+      await new Promise((_resolve, reject) =>
+        options.signal?.addEventListener("abort", () =>
+          reject(new DOMException("aborted", "AbortError")),
+        ),
+      );
+    }
+    return {
+      token: "test-token",
+      principal:
+        "sa:runner@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b",
+    };
+  },
 }));
 
 const {
+  approveBigQueryAgentDailyAllowance,
   BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
   BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
+  BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION_SQL,
   OUTSIDE_AGENT_JOB_CAP_BYTES,
 } = await import("./bigquery-agent-budget");
+const { BIGQUERY_USAGE_MIGRATION_SQL } = await import("./bigquery-usage");
 const { reservationForEstimate } = await import("./bigquery-agent-context");
 const { runBigQueryAgentQuery, BIGQUERY_AGENT_MAX_ROWS } =
   await import("./bigquery-agent-runner");
@@ -126,8 +146,14 @@ interface JobInsert {
   configuration: { query: { query: string; maximumBytesBilled: string } };
 }
 
+interface DryRunBody {
+  jobReference?: { projectId: string; location?: string };
+  configuration: { query: { query: string } };
+}
+
 interface Scenario {
   dryRunStatistics: Record<string, unknown>;
+  dryRun?: (signal?: AbortSignal | null) => Response | Promise<Response>;
   submit: (body: JobInsert, signal?: AbortSignal | null) => Promise<Response>;
   poll: (url: URL, signal?: AbortSignal | null) => Promise<Response>;
   jobsGet: (jobId: string) => Response | Promise<Response>;
@@ -138,8 +164,11 @@ let scenario: Scenario;
 const calls = {
   submissions: [] as JobInsert[],
   dryRuns: 0,
+  dryRunBodies: [] as DryRunBody[],
   cancels: 0,
+  cancelUrls: [] as URL[],
   polls: [] as URL[],
+  authorizations: [] as string[],
 };
 
 function rowsOf(count: number, value = "x") {
@@ -168,13 +197,20 @@ beforeEach(async () => {
   for (const statement of [
     ...BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
     ...BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
+    ...BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION_SQL,
+    BIGQUERY_USAGE_MIGRATION_SQL,
   ]) {
     await database.client.exec(statement);
   }
   calls.submissions = [];
   calls.dryRuns = 0;
+  calls.dryRunBodies = [];
   calls.cancels = 0;
+  calls.cancelUrls = [];
   calls.polls = [];
+  calls.authorizations = [];
+  access.calls = [];
+  access.stall = false;
   scenario = {
     dryRunStatistics: {
       totalBytesProcessed: String(GIB),
@@ -183,7 +219,7 @@ beforeEach(async () => {
     submit: async (body) =>
       json({ jobReference: { ...body.jobReference, location: "US" } }),
     poll: async () => completedPoll(rowsOf(3)),
-    table: () => json({ type: "TABLE" }),
+    table: () => json({ type: "TABLE", location: "US" }),
     jobsGet: (jobId) =>
       json({
         jobReference: { projectId: "builder-3b0a2", jobId, location: "US" },
@@ -202,17 +238,26 @@ beforeEach(async () => {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       const method = init?.method ?? "GET";
+      calls.authorizations.push(
+        String(
+          (init?.headers as Record<string, string> | undefined)
+            ?.Authorization ?? "",
+        ),
+      );
       if (url.pathname.includes("/tables/")) {
         return scenario.table();
       }
       if (method === "POST" && url.pathname.endsWith("/cancel")) {
         calls.cancels++;
+        calls.cancelUrls.push(url);
         return json({});
       }
       if (method === "POST" && url.pathname.endsWith("/jobs")) {
         const body = JSON.parse(String(init?.body));
         if (body.configuration?.dryRun) {
           calls.dryRuns++;
+          calls.dryRunBodies.push(body);
+          if (scenario.dryRun) return scenario.dryRun(init?.signal);
           return json({ statistics: scenario.dryRunStatistics });
         }
         calls.submissions.push(body);
@@ -258,6 +303,22 @@ async function executions() {
     "SELECT status, code, job_id, estimated_bytes::text AS estimated, billed_bytes::text AS billed, truncated, cancelled, query_hash, policy_version FROM analytics_bigquery_agent_executions",
   );
   return rows as Array<Record<string, unknown>>;
+}
+
+async function seedPersonUsage(reservedBytes: number) {
+  const now = new Date();
+  await must(database.client).query(
+    `INSERT INTO analytics_bigquery_agent_jobs (request_id, project_id, job_id, owner_email, org_id, org_key,
+       credential_scope, source, utc_day, reserved_bytes, state, submission_state, created_at, lease_expires_at)
+     VALUES ('seed', 'builder-3b0a2', 'seed', 'alice@example.com', 'org-1', 'org:org-1', 'default', 'test',
+       $1, $2, 'pending', 'accepted', $3, $4)`,
+    [
+      now.toISOString().slice(0, 10),
+      reservedBytes,
+      now.toISOString(),
+      new Date(now.getTime() + 3_600_000).toISOString(),
+    ],
+  );
 }
 
 describe("runBigQueryAgentQuery", () => {
@@ -411,17 +472,7 @@ describe("runBigQueryAgentQuery", () => {
   });
 
   it("starts no job when the budget refuses it", async () => {
-    await must(database.client).query(
-      `INSERT INTO analytics_bigquery_agent_jobs (request_id, project_id, job_id, owner_email, org_id, org_key,
-         credential_scope, source, utc_day, reserved_bytes, state, submission_state, created_at, lease_expires_at)
-       VALUES ('seed', 'builder-3b0a2', 'seed', 'alice@example.com', 'org-1', 'org:org-1', 'default', 'test',
-         $1, 175000000000, 'pending', 'accepted', $2, $3)`,
-      [
-        new Date().toISOString().slice(0, 10),
-        new Date().toISOString(),
-        new Date(Date.now() + 3_600_000).toISOString(),
-      ],
-    );
+    await seedPersonUsage(879_000_000_000);
     const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
     expect(result).toMatchObject({
       status: "refused",
@@ -602,8 +653,15 @@ describe("runBigQueryAgentQuery", () => {
     expect(result).toMatchObject({
       status: "ready",
       code: "ready",
+      executedSql: SQL,
+      referencedTables: ["builder-3b0a2.dbt_mart.users"],
+      bytesProcessed: GIB,
       cost: { estimatedBytes: GIB },
-      budget: { person: { noAskAllowanceUsd: 1 }, org: { limitUsd: 50 } },
+      budgetCheck: null,
+      report: {
+        thisCall: { jobsAdmitted: 0 },
+        today: { person: { noAskAllowanceUsd: 1 }, org: { limitUsd: 50 } },
+      },
     });
     expect(calls.submissions).toHaveLength(0);
     expect(await admissions()).toEqual([]);
@@ -755,5 +813,374 @@ describe("runBigQueryAgentQuery", () => {
     expect(await admissions()).toEqual([
       expect.objectContaining({ state: "settled" }),
     ]);
+  });
+});
+
+describe("runBigQueryAgentQuery: one frozen query", () => {
+  it("resolves the credential once and sends metadata, dry run, job, polls and cancel with that token, project and location", async () => {
+    scenario.poll = (_url, signal) => untilAborted(signal);
+    const result = await runBigQueryAgentQuery({
+      sql: "SELECT id FROM @project.dbt_mart.users",
+      source: "test",
+      deadlineMs: 400,
+    });
+    expect(result).toMatchObject({
+      status: "uncertain",
+      code: "query_timeout",
+    });
+    expect(access.calls).toEqual([{ projectId: "builder-3b0a2" }]);
+    expect(new Set(calls.authorizations)).toEqual(
+      new Set(["Bearer test-token"]),
+    );
+    const dryRun = must(calls.dryRunBodies[0]);
+    const job = must(calls.submissions[0]) as JobInsert & {
+      jobReference: { projectId: string; location?: string };
+    };
+    expect(dryRun.jobReference).toEqual({
+      projectId: "builder-3b0a2",
+      location: "US",
+    });
+    expect(job.jobReference).toMatchObject({
+      projectId: "builder-3b0a2",
+      location: "US",
+    });
+    expect(dryRun.configuration.query.query).toBe(
+      job.configuration.query.query,
+    );
+    expect(job.configuration.query.query).toBe(
+      "SELECT id FROM `builder-3b0a2`.dbt_mart.users",
+    );
+    expect(
+      calls.polls.every((url) => url.searchParams.get("location") === "US"),
+    ).toBe(true);
+    expect(calls.cancels).toBe(1);
+    expect(must(calls.cancelUrls[0]).searchParams.get("location")).toBe("US");
+  });
+
+  it("returns the SQL it ran, the tables it read and BigQuery's bytes processed", async () => {
+    scenario.poll = async () =>
+      completedPoll(rowsOf(2), { totalBytesProcessed: String(GIB) });
+    const result = await runBigQueryAgentQuery({
+      sql: "SELECT id, name FROM @project.dbt_mart.users",
+      source: "test",
+    });
+    expect(result).toMatchObject({
+      status: "completed",
+      executedSql: "SELECT id, name FROM `builder-3b0a2`.dbt_mart.users",
+      referencedTables: ["builder-3b0a2.dbt_mart.users"],
+      bytesProcessed: GIB,
+      location: "US",
+      rowCount: 2,
+    });
+    expect(must(calls.submissions[0]).configuration.query.query).toBe(
+      "SELECT id, name FROM `builder-3b0a2`.dbt_mart.users",
+    );
+  });
+
+  it("reports a query that returned no rows as completed with zero rows", async () => {
+    scenario.poll = async () => completedPoll([]);
+    const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
+    expect(result).toMatchObject({
+      status: "completed",
+      rowCount: 0,
+      rows: [],
+      truncated: false,
+    });
+  });
+
+  it("stops at its deadline while the credential is still resolving, and sends nothing", async () => {
+    access.stall = true;
+    const result = await runBigQueryAgentQuery({
+      sql: SQL,
+      source: "test",
+      deadlineMs: 200,
+    });
+    expect(result).toMatchObject({ status: "refused", code: "query_timeout" });
+    expect(calls.dryRuns).toBe(0);
+    expect(calls.submissions).toHaveLength(0);
+    expect(await admissions()).toEqual([]);
+  });
+
+  it("stops at its deadline during a stalled dry run, and sends no job", async () => {
+    scenario.dryRun = (signal) => untilAborted(signal);
+    const result = await runBigQueryAgentQuery({
+      sql: SQL,
+      source: "test",
+      deadlineMs: 200,
+    });
+    expect(result).toMatchObject({ status: "refused", code: "query_timeout" });
+    expect(calls.submissions).toHaveLength(0);
+  });
+
+  it("refuses tables that live in different locations before any dry run", async () => {
+    let call = 0;
+    scenario.table = () =>
+      json({ type: "TABLE", location: call++ === 0 ? "US" : "EU" });
+    const result = await runBigQueryAgentQuery({
+      sql: "SELECT u.id FROM `builder-3b0a2.dbt_mart.users` u JOIN `builder-3b0a2.hubspot.companies` c ON c.id = u.id",
+      source: "test",
+    });
+    expect(result).toMatchObject({ status: "refused", code: "query_invalid" });
+    expect(calls.dryRuns).toBe(0);
+  });
+
+  it("fails closed when table metadata gives no location", async () => {
+    scenario.table = () => json({ type: "TABLE" });
+    const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
+    expect(result).toMatchObject({
+      status: "refused",
+      code: "query_table_not_allowed",
+    });
+    expect(calls.dryRuns).toBe(0);
+  });
+});
+
+describe("runBigQueryAgentQuery: the dry run must agree with the policy", () => {
+  it.each([
+    [
+      "a missing statement type",
+      {
+        totalBytesProcessed: String(GIB),
+        query: { referencedTables: [USERS] },
+      },
+      "query_statement_not_allowed",
+    ],
+    [
+      "a script",
+      {
+        totalBytesProcessed: String(GIB),
+        query: { statementType: "SCRIPT", referencedTables: [USERS] },
+      },
+      "query_statement_not_allowed",
+    ],
+    [
+      "a missing table list",
+      { totalBytesProcessed: String(GIB), query: { statementType: "SELECT" } },
+      "query_table_not_allowed",
+    ],
+    [
+      "an unreadable table list",
+      {
+        totalBytesProcessed: String(GIB),
+        query: { statementType: "SELECT", referencedTables: [{ tableId: 1 }] },
+      },
+      "query_table_not_allowed",
+    ],
+    [
+      "a table the SQL does not name",
+      {
+        totalBytesProcessed: String(GIB),
+        query: {
+          statementType: "SELECT",
+          referencedTables: [
+            USERS,
+            { projectId: "builder-3b0a2", datasetId: "raw", tableId: "pii" },
+          ],
+        },
+      },
+      "query_table_not_allowed",
+    ],
+    [
+      "a routine",
+      {
+        totalBytesProcessed: String(GIB),
+        query: {
+          statementType: "SELECT",
+          referencedTables: [USERS],
+          referencedRoutines: [
+            {
+              projectId: "builder-3b0a2",
+              datasetId: "dbt_mart",
+              routineId: "remote_fn",
+            },
+          ],
+        },
+      },
+      "query_feature_not_allowed",
+    ],
+  ])(
+    "refuses a dry run with %s and starts no job",
+    async (_name, statistics, code) => {
+      scenario.dryRunStatistics = statistics;
+      const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
+      expect(result).toMatchObject({ status: "refused", code });
+      expect(calls.submissions).toHaveLength(0);
+      expect(await admissions()).toEqual([]);
+    },
+  );
+
+  it("fails closed on a truncated dry-run response body", async () => {
+    scenario.dryRun = () =>
+      new Response('{"statistics":{"totalBytesProcessed":"10', {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
+    expect(result).toMatchObject({
+      status: "refused",
+      code: "query_statement_not_allowed",
+    });
+    expect(calls.submissions).toHaveLength(0);
+  });
+
+  it("refuses a statement the lexer reads as more than one SELECT without a dry run", async () => {
+    // raw-sql-ok: a fixed two-statement probe the policy must refuse before anything runs.
+    const result = await runBigQueryAgentQuery({
+      sql: `${SQL}; DELETE FROM \`builder-3b0a2.dbt_mart.users\` WHERE TRUE`,
+      source: "test",
+    });
+    expect(result).toMatchObject({
+      status: "refused",
+      code: "query_statement_not_allowed",
+    });
+    expect(calls.dryRuns).toBe(0);
+  });
+});
+
+describe("runBigQueryAgentQuery: spend past the no-ask allowance", () => {
+  it("asks through query-warehouse instead of running past $1", async () => {
+    await seedPersonUsage(175_000_000_000);
+    const result = await runBigQueryAgentQuery({
+      sql: SQL,
+      source: "query-warehouse",
+      askVia: "query-warehouse",
+    });
+    expect(result).toMatchObject({
+      status: "refused",
+      code: "approval_required",
+      report: { refusal: { code: "approval_required" } },
+    });
+    expect(result.status === "refused" && result.message).toMatch(
+      /Calling query-warehouse with the same arguments asks you once/,
+    );
+    expect(calls.submissions).toHaveLength(0);
+  });
+
+  it("over A2A, where nothing can ask, says the approval is needed and does not run", async () => {
+    await seedPersonUsage(175_000_000_000);
+    const result = await runBigQueryAgentQuery({
+      sql: SQL,
+      source: "query-warehouse",
+      caller: "a2a",
+    });
+    expect(result).toMatchObject({
+      status: "refused",
+      code: "approval_required",
+    });
+    expect(result.status === "refused" && result.message).toMatch(
+      /query-warehouse/,
+    );
+    expect(calls.submissions).toHaveLength(0);
+  });
+
+  it("runs once the person has allowed more today", async () => {
+    await seedPersonUsage(175_000_000_000);
+    await approveBigQueryAgentDailyAllowance(
+      { ownerEmail: "alice@example.com", orgId: "org-1" },
+      "mcp-review-page",
+    );
+    const result = await runBigQueryAgentQuery({
+      sql: SQL,
+      source: "query-warehouse",
+      askVia: "query-warehouse",
+    });
+    expect(result).toMatchObject({
+      status: "completed",
+      report: {
+        thisCall: { jobsAdmitted: 1 },
+        today: { person: { approvedToday: true } },
+      },
+    });
+    expect(calls.submissions).toHaveLength(1);
+  });
+
+  it("names, in an estimate, the refusal a run would get", async () => {
+    await seedPersonUsage(175_000_000_000);
+    const result = await runBigQueryAgentQuery({
+      sql: SQL,
+      source: "query-warehouse",
+      estimateOnly: true,
+    });
+    expect(result).toMatchObject({
+      status: "ready",
+      budgetCheck: { code: "approval_required", scope: "person" },
+    });
+    expect(calls.submissions).toHaveLength(0);
+  });
+});
+
+describe("runBigQueryAgentQuery: what it records", () => {
+  async function executionRows() {
+    const { rows } = await must(database.client).query(
+      "SELECT * FROM analytics_bigquery_agent_executions",
+    );
+    return rows as Array<Record<string, unknown>>;
+  }
+
+  it("records the caller, actor, org, job identity and bytes, and never the SQL or a row", async () => {
+    scenario.poll = async () =>
+      completedPoll(rowsOf(2, "secret-cell"), {
+        totalBytesProcessed: String(GIB),
+      });
+    const result = await runBigQueryAgentQuery({
+      sql: SQL,
+      source: "query-warehouse",
+      caller: "a2a",
+    });
+    if (result.status !== "completed") throw new Error("expected rows");
+    const [row] = await executionRows();
+    expect(row).toMatchObject({
+      owner_email: "alice@example.com",
+      org_id: "org-1",
+      caller: "a2a",
+      source: "query-warehouse",
+      project_id: "builder-3b0a2",
+      job_id: result.jobId,
+      location: "US",
+      status: "completed",
+      row_count: 2,
+      truncated: false,
+      cancelled: false,
+    });
+    expect(Number(must(row).bytes_processed)).toBe(GIB);
+    expect(must(row).query_hash).toMatch(/^[0-9a-f]{64}$/);
+    const stored = JSON.stringify(row);
+    expect(stored).not.toContain("SELECT");
+    expect(stored).not.toContain("secret-cell");
+  });
+
+  it("records each submitted job in the per-job BigQuery usage records", async () => {
+    const result = await runBigQueryAgentQuery({
+      sql: SQL,
+      source: "query-warehouse",
+    });
+    if (result.status !== "completed") throw new Error("expected rows");
+    const { rows } = await must(database.client).query(
+      "SELECT project_id, job_id, owner_email, org_id, workload FROM analytics_bigquery_usage",
+    );
+    expect(rows).toEqual([
+      {
+        project_id: "builder-3b0a2",
+        job_id: result.jobId,
+        owner_email: "alice@example.com",
+        org_id: "org-1",
+        workload: "outside-agent-query",
+      },
+    ]);
+  });
+
+  it("caps the job at the per-job limit even when the estimate is just under it", async () => {
+    scenario.dryRunStatistics = {
+      totalBytesProcessed: String(49_900_000_000),
+      query: { statementType: "SELECT", referencedTables: [USERS] },
+    };
+    await approveBigQueryAgentDailyAllowance(
+      { ownerEmail: "alice@example.com", orgId: "org-1" },
+      "mcp-review-page",
+    );
+    await runBigQueryAgentQuery({ sql: SQL, source: "test" });
+    expect(
+      must(calls.submissions[0]).configuration.query.maximumBytesBilled,
+    ).toBe(String(OUTSIDE_AGENT_JOB_CAP_BYTES));
   });
 });

@@ -96,6 +96,11 @@ export const BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL = [
   `ALTER TABLE analytics_bigquery_agent_jobs ADD COLUMN IF NOT EXISTS credential_fingerprint TEXT`,
 ];
 
+export const BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION_SQL = [
+  `ALTER TABLE analytics_bigquery_agent_executions ADD COLUMN IF NOT EXISTS location TEXT`,
+  `ALTER TABLE analytics_bigquery_agent_executions ADD COLUMN IF NOT EXISTS bytes_processed BIGINT`,
+];
+
 export interface OutsideAgentIdentity {
   ownerEmail: string;
   orgId: string | null;
@@ -897,8 +902,10 @@ export interface BigQueryAgentExecutionRecord {
   queryHash: string;
   projectId: string | null;
   jobId: string | null;
+  location: string | null;
   status: string;
   code: string | null;
+  bytesProcessed: number | null;
   estimatedBytes: number | null;
   reservedBytes: number | null;
   billedBytes: number | null;
@@ -917,8 +924,8 @@ export async function writeBigQueryAgentExecutionRecord(
     sql: `INSERT INTO analytics_bigquery_agent_executions (
         id, owner_email, org_id, caller, source, policy_version, query_hash, project_id, job_id,
         status, code, estimated_bytes, reserved_bytes, billed_bytes, provider_cache_hit,
-        row_count, truncated, cancelled, started_at, duration_ms
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+        row_count, truncated, cancelled, started_at, duration_ms, location, bytes_processed
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
     args: [
       record.id,
       record.ownerEmail,
@@ -940,6 +947,8 @@ export async function writeBigQueryAgentExecutionRecord(
       record.cancelled,
       record.startedAt,
       record.durationMs,
+      record.location,
+      record.bytesProcessed,
     ],
   });
 }

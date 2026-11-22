@@ -86,7 +86,7 @@ function approvalRequiredMessage(input: RefusalInput, job: string): string {
   const ceiling = formatUsd(budget?.person.ceilingBytes ?? 0);
   return input.askVia
     ? `${past} Calling ${input.askVia} with the same arguments asks you once to allow up to ${ceiling} of BigQuery today, until 00:00 UTC.`
-    : `${past} Allowing up to ${ceiling} today needs your approval on Analytics' review page, which this call can't ask for. Analytics asks once over MCP, when a get-onboarding-journey or get-first-party-analytics-health call needs more, and that approval covers all your outside agents until 00:00 UTC; an Analytics organization admin can also raise your daily allowance. Until then, do not retry this call today.${untilReset(budget)}`;
+    : `${past} Allowing up to ${ceiling} today needs your approval on Analytics' review page, which this call can't ask for. Analytics asks once over MCP, when a get-onboarding-journey, get-first-party-analytics-health or query-warehouse call needs more, and that approval covers all your outside agents until 00:00 UTC; an Analytics organization admin can also raise your daily allowance. Until then, do not retry this call today.${untilReset(budget)}`;
 }
 
 export function refusalMessage(input: RefusalInput): string {
