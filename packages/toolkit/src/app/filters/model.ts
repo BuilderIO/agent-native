@@ -927,7 +927,7 @@ function cellValues(value: FilterCellValue): string[] {
   return value.filter((entry) => entry.trim() !== "");
 }
 
-function cellInstant(value: FilterCellValue) {
+function cellInstant(value: FilterCellValue, timeZone: string | undefined) {
   if (value instanceof Date || typeof value === "number") {
     const time = new Date(value).getTime();
     return Number.isNaN(time) ? null : time;
@@ -936,7 +936,7 @@ function cellInstant(value: FilterCellValue) {
   const trimmed = value.trim();
   if (trimmed === "" || DAY_PATTERN.test(trimmed)) return null;
   const time = filterDateValueHasTime(trimmed)
-    ? filterDateInstant(trimmed, "UTC")
+    ? filterDateInstant(trimmed, timeZone)
     : new Date(trimmed).getTime();
   return Number.isNaN(time) ? null : time;
 }
@@ -1070,6 +1070,24 @@ function filterRuleDateBounds(
     : [end, start];
 }
 
+const ruleDateBounds = new WeakMap<
+  FilterRule,
+  { key: string; bounds: FilterDateBound[] | null }
+>();
+
+function cachedRuleDateBounds(
+  rule: FilterRule,
+  field: Pick<FilterField<never>, "times">,
+  context: FilterMatchContext,
+) {
+  const key = `${field.times === true}|${context.timeZone ?? ""}|${context.today}`;
+  const cached = ruleDateBounds.get(rule);
+  if (cached?.key === key) return cached.bounds;
+  const bounds = filterRuleDateBounds(rule, field, context);
+  ruleDateBounds.set(rule, { key, bounds });
+  return bounds;
+}
+
 function compareCellToBound(
   day: string,
   instant: number | null,
@@ -1088,12 +1106,12 @@ function matchesDate(
   field: Pick<FilterField<never>, "times">,
   context: FilterMatchContext,
 ) {
-  const instant = cellInstant(raw);
+  const instant = cellInstant(raw, field.times ? context.timeZone : "UTC");
   const day = cellDay(raw, instant, context.timeZone);
   if (rule.operator === "is_empty") return day === null;
   if (rule.operator === "is_not_empty") return day !== null;
   if (day === null) return rule.operator === "does_not_equal";
-  const bounds = filterRuleDateBounds(rule, field, context);
+  const bounds = cachedRuleDateBounds(rule, field, context);
   if (!bounds) return true;
   const compare = (bound: FilterDateBound) =>
     compareCellToBound(day, instant, bound, context.timeZone);

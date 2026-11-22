@@ -561,6 +561,26 @@ describe("FilterBar", () => {
     expect(hasButtonNamed("Starred: Yes")).toBe(true);
   });
 
+  it("offers only the yes-or-no answers a field takes", () => {
+    const starredField: FilterField = {
+      id: "starred",
+      label: "Starred",
+      type: "boolean",
+      operators: ["is_checked"],
+    };
+    const withStarred = [...fields, starredField];
+    render(
+      <Bar initial={createFilterState(withStarred)} barFields={withStarred} />,
+    );
+    click(buttonNamed("Filter"));
+    click(optionNamed("Starred"));
+    const answers = Array.from(
+      document.querySelectorAll('[role="option"]'),
+      (option) => option.textContent.trim(),
+    );
+    expect(answers).toEqual(["Yes"]);
+  });
+
   it("keeps a group open while its last rule is being changed", () => {
     render(
       <Bar

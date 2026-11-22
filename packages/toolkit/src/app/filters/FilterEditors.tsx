@@ -196,7 +196,9 @@ export function FilterBooleanPicker({
   onDone: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const listed = filterOperatorsFor(field);
   const items: FilterListboxItem[] = (["is_checked", "is_unchecked"] as const)
+    .filter((operator) => listed.includes(operator))
     .map((operator) => ({
       key: operator,
       label: text.booleanLabel(field, operator === "is_checked"),
