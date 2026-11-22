@@ -41,6 +41,10 @@ import {
   UnusableSchemaError,
   usableInputSchema,
 } from "../json-schema/unusable-schema.js";
+import {
+  APP_CAPABILITIES_META_KEY,
+  projectAppManifest,
+} from "../manifest/index.js";
 import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   assertServicePrincipalMayCall,
@@ -3699,8 +3703,9 @@ export async function createMCPServerForRequest(
     ? {}
     : Object.fromEntries(
         Object.entries(visibleActions).filter(
-          ([, entry]) =>
+          ([name, entry]) =>
             entry.mcpTool === "search" &&
+            !Object.hasOwn(advertisedActionsBeforeToolSearchScope, name) &&
             (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
         ),
       );
@@ -4201,7 +4206,6 @@ export async function createMCPServerForRequest(
   async function grantedResourceActions(
     actionName: string,
   ): Promise<typeof advertisedActions> {
-    // Only an action with a widget has a resource, so only those convert.
     return Object.fromEntries(
       Object.entries(await grantedServedActions(actionName)).filter(
         ([name, entry]) => entry.mcpApp?.resource && isAdvertisable(name),
@@ -4422,7 +4426,23 @@ export async function createMCPServerForRequest(
       }
 
       tools.sort((a, b) => compareMcpCatalogValues(a.name, b.name));
-      return { tools: tools.filter((tool) => !deniedToolNames.has(tool.name)) };
+      const grantedTools = tools.filter(
+        (tool) => !deniedToolNames.has(tool.name),
+      );
+      const capabilities = directoryCatalog
+        ? undefined
+        : projectAppManifest(
+            getAppConfig().manifest,
+            grantedTools.filter((tool) =>
+              Object.hasOwn(baseActions, tool.name),
+            ),
+          );
+      return {
+        tools: grantedTools,
+        ...(capabilities && {
+          _meta: { [APP_CAPABILITIES_META_KEY]: capabilities },
+        }),
+      };
     });
     trackMcpToolsList(analyticsContext(request, ctx), {
       toolNames: result.tools.map((tool) => tool.name),

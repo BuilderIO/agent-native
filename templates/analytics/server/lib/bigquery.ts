@@ -2049,6 +2049,9 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
           body: JSON.stringify({
             jobReference: { projectId, jobId },
             configuration: {
+              ...(usage.workload === "alert"
+                ? { labels: { agent_native_workload: "alert" } }
+                : {}),
               query: {
                 query: cacheableSql,
                 useLegacySql: false,

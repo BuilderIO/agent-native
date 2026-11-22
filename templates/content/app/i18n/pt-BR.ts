@@ -770,6 +770,20 @@ const editor = {
     lockedSuggesting:
       "Sugestões não podem adicionar nem remover este tipo de bloco.",
     lockedPage: "Esta página não permite essa alteração.",
+    lockedCollection: "Uma coleção fica na página a que pertence.",
+    lockedUploadedClip:
+      "Um Clip enviado para esta página fica nela, porque é a página que define quem pode assisti-lo.",
+    moveTo: "Mover para",
+    moveToTitle: "Mover bloco para",
+    movingTo: "Movendo para {{title}}…",
+    movedTo: "Movido para {{title}}",
+    copiedTo:
+      "Copiado para {{title}}. O bloco mudou enquanto era movido, então também continua aqui.",
+    copiedPageClosed:
+      "Copiado para {{title}}. A página de origem foi fechada antes de o movimento terminar, então o bloco também continua lá.",
+    moveChanged: "O bloco mudou antes de ser movido, então nada foi movido.",
+    moveFailed: "Não foi possível mover o bloco para {{title}}",
+    openPage: "Abrir",
   },
   noDocumentSelected: "Nenhum documento selecionado",
   registryBlockLoadError:
@@ -831,8 +845,9 @@ const editor = {
     addImage: "Adicione uma imagem",
     addVideo: "Adicionar um vídeo",
     altText: "Texto alternativo",
-    altTextGenerationFailed:
-      "Não foi possível iniciar a geração de texto alternativo.",
+    altTextAdded: "Texto alternativo adicionado.",
+    altTextGenerationFailed: "Não foi possível escrever o texto alternativo.",
+    altTextNeedsAiSetup: "Configure a IA para escrever texto alternativo.",
     assets: "Ativos",
     assetsCopyFailed:
       "Não foi possível copiar esta imagem dos ativos. Tente novamente ou envie o arquivo.",
@@ -865,10 +880,12 @@ const editor = {
     currentDocumentMissing: "Não foi possível encontrar o documento atual.",
     delete: "Excluir",
     describeThisImage: "Descreva esta imagem",
+    dismissAltTextStatus: "Dispensar",
     download: "Baixar",
     downloadAudio: "Baixar áudio",
     downloadImage: "Baixar imagem",
     downloadVideo: "Baixar vídeo",
+    editAltTextInChat: "Editar no chat",
     embedAudio: "Incorporar áudio",
     embedImage: "Incorporar imagem",
     embedVideo: "Incorporar vídeo",
@@ -877,7 +894,7 @@ const editor = {
     expandImage: "Expandir imagem",
     expandVideo: "Expandir vídeo",
     generateAltText: "Gerar texto alternativo",
-    generatingAltText: "Gerando texto alternativo...",
+    generatingAltText: "Escrevendo texto alternativo…",
     image: "Imagem",
     imageAdded: "Imagem adicionada",
     imagesAdded: "Imagens adicionadas",
@@ -891,12 +908,14 @@ const editor = {
     imageUploadsFailed:
       "Não foi possível enviar {{failed}} de {{total}} imagens.",
     imageView: "Visualização de imagem",
+    keptYourAltText: "Seu texto alternativo foi mantido.",
     link: "Ligação",
     loadingAssetsPicker: "Carregando seletor de ativos",
     more: "Mais",
     moreAudioActions: "Mais ações de áudio",
     moreImageActions: "Mais ações de imagem",
     moreVideoActions: "Mais ações de vídeo",
+    openChat: "Abrir chat",
     openedAudioInNewTab: "Áudio aberto em uma nova guia.",
     openedImageInNewTab: "Imagem aberta em uma nova aba.",
     openedVideoInNewTab: "Vídeo aberto em uma nova guia.",
@@ -925,6 +944,7 @@ const editor = {
     transcriptBlockFailed:
       "Não foi possível adicionar um bloco de transcrição.",
     transcriptionStarted: "A transcrição foi iniciada.",
+    tryAgain: "Tentar novamente",
     upload: "Carregar",
     uploadFile: "Carregar arquivo",
     uploadingAudio: "Carregando áudio...",

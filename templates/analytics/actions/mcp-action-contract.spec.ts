@@ -3,7 +3,10 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createMCPServerForRequest } from "@agent-native/core/mcp";
-import { loadActionsFromStaticRegistry } from "@agent-native/core/server";
+import {
+  attachToolSearch,
+  loadActionsFromStaticRegistry,
+} from "@agent-native/core/server";
 import { generateActionRegistryForProject } from "@agent-native/core/vite";
 import { describe, expect, it } from "vitest";
 
@@ -172,7 +175,9 @@ async function listAppTools(
   oauthScopes: string[],
   requestMeta: { fullCatalog?: boolean } = {},
 ): Promise<string[]> {
-  const registry = loadActionsFromStaticRegistry(actionsRegistry);
+  const registry = attachToolSearch(
+    loadActionsFromStaticRegistry(actionsRegistry),
+  );
   const config = {
     name: "Analytics",
     appId: "analytics",

@@ -1,7 +1,7 @@
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, isOutsideAgentCall } from "../../action.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { assertAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
@@ -46,6 +46,9 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  needsApproval: (_args, ctx) =>
+    isOutsideAgentCall(ctx) && !ctx?.mcpDirectoryWidgetWrite,
+  mcpTool: "search",
   run: async (args, ctx) => {
     assertWidgetShareWriteGrant(ctx, "unshare-resource", args);
     const reg = requireShareableResource(args.resourceType);

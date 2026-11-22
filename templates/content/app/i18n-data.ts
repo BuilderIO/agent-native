@@ -5,6 +5,7 @@ import { commentAttributionMessagesByLocale } from "../shared/comment-attributio
 import { analyticsChartMessagesByLocale } from "./analytics-chart-messages";
 import { builderAutosaveMessagesByLocale } from "./builder-autosave-messages";
 import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
+import { designScreenMessagesByLocale } from "./design-screen-messages";
 import {
   discussionMessages,
   discussionMessagesByLocale,
@@ -977,7 +978,9 @@ const editorMediaMessages = {
   addImage: "Add an image",
   addVideo: "Add a video",
   altText: "Alt text",
-  altTextGenerationFailed: "Could not start alt text generation.",
+  altTextAdded: "Alt text added.",
+  altTextGenerationFailed: "Couldn't write alt text.",
+  altTextNeedsAiSetup: "Set up AI to write alt text.",
   assets: "Assets",
   assetsCopyFailed:
     "Couldn't copy this image from Assets. Try again, or upload the file instead.",
@@ -1010,10 +1013,12 @@ const editorMediaMessages = {
   currentDocumentMissing: "Could not find the current document.",
   delete: "Delete",
   describeThisImage: "Describe this image",
+  dismissAltTextStatus: "Dismiss",
   download: "Download",
   downloadAudio: "Download audio",
   downloadImage: "Download image",
   downloadVideo: "Download video",
+  editAltTextInChat: "Edit in chat",
   embedAudio: "Embed audio",
   embedImage: "Embed image",
   embedVideo: "Embed video",
@@ -1022,7 +1027,7 @@ const editorMediaMessages = {
   expandImage: "Expand image",
   expandVideo: "Expand video",
   generateAltText: "Generate alt text",
-  generatingAltText: "Generating alt text...",
+  generatingAltText: "Writing alt text…",
   image: "Image",
   imageAdded: "Image added",
   imagesAdded: "Images added",
@@ -1035,12 +1040,14 @@ const editorMediaMessages = {
   imageUploadFailed: "Couldn’t upload this image",
   imageUploadsFailed: "{{failed}} of {{total}} image uploads failed.",
   imageView: "Image view",
+  keptYourAltText: "Kept your alt text.",
   link: "Link",
   loadingAssetsPicker: "Loading Assets picker",
   more: "More",
   moreAudioActions: "More audio actions",
   moreImageActions: "More image actions",
   moreVideoActions: "More video actions",
+  openChat: "Open chat",
   openedAudioInNewTab: "Opened audio in a new tab.",
   openedImageInNewTab: "Opened image in a new tab.",
   openedVideoInNewTab: "Opened video in a new tab.",
@@ -1068,6 +1075,7 @@ const editorMediaMessages = {
   transcript: "Transcript",
   transcriptBlockFailed: "Could not add a transcript block.",
   transcriptionStarted: "Transcription started.",
+  tryAgain: "Try again",
   upload: "Upload",
   uploadFile: "Upload file",
   uploadingAudio: "Uploading audio...",
@@ -1665,6 +1673,20 @@ const enUS = {
         "Components from the source file can’t be duplicated or deleted here.",
       lockedSuggesting: "Suggestions can’t add or remove this kind of block.",
       lockedPage: "This page doesn’t allow that change.",
+      lockedCollection: "A collection stays on the page it belongs to.",
+      lockedUploadedClip:
+        "A Clip uploaded to this page stays on it, since the page decides who can watch it.",
+      moveTo: "Move to",
+      moveToTitle: "Move block to",
+      movingTo: "Moving to {{title}}…",
+      movedTo: "Moved to {{title}}",
+      copiedTo:
+        "Copied to {{title}}. The block changed while it moved, so it’s still here too.",
+      copiedPageClosed:
+        "Copied to {{title}}. The page it came from closed before the move finished, so the block is still there too.",
+      moveChanged: "The block changed before it could move, so nothing moved.",
+      moveFailed: "Couldn’t move the block to {{title}}",
+      openPage: "Open",
     },
     heading1: "Heading 1",
     heading2: "Heading 2",
@@ -2355,6 +2377,7 @@ const enUS = {
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
   analyticsChart: analyticsChartMessagesByLocale["en-US"],
+  designScreen: designScreenMessagesByLocale["en-US"],
   builderAutosave: builderAutosaveMessagesByLocale["en-US"],
 };
 
@@ -2421,6 +2444,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
     analyticsChart: enUS.analyticsChart,
+    designScreen: enUS.designScreen,
     builderAutosave: enUS.builderAutosave,
     creativeContext: {
       ...enUS.creativeContext,
@@ -2944,6 +2968,7 @@ function mergeMessagesForLocale(
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
     analyticsChart: analyticsChartMessagesByLocale[locale],
+    designScreen: designScreenMessagesByLocale[locale],
     builderAutosave: builderAutosaveMessagesByLocale[locale],
   };
 }

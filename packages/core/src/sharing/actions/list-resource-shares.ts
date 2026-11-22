@@ -219,6 +219,7 @@ export default defineAction({
     resourceId: z.string(),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args, context) => {
     assertWidgetShareReadGrant(context, args);
     const reg = requireShareableResource(args.resourceType);

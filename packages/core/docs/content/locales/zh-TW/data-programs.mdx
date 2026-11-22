@@ -173,6 +173,8 @@ await appAction("save-data-program", {
 
 截斷永遠是明確的（結果中的 `truncated: true`）——絕不會靜默捨棄。
 
+在正式環境和背景執行中，沙箱最多保留一次執行約 4.5 MiB 的列印輸出，包括 `emit()` 那一行和你的日誌。超出此長度的結果無法截斷，因此會以 `result_too_large` 失敗：請減少提交的資料列或減少日誌。
+
 ## Params 與 dashboard 面板綁定 {#params-and-panel-binding}
 
 程式可宣告一個選用的 `paramsSchema`（描述所接受 params 的 JSON Schema）以及 `defaultParams`。dashboard 採用 `"program"` 面板來源的方式，是在面板的查詢欄位中放入一個小型 JSON 描述符，而非查詢字串：

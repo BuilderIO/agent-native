@@ -1,4 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
@@ -58,6 +57,7 @@ import { imageDisplaySrc } from "../private-media-src";
 import { storedBodyImageFailed } from "../stored-body-images";
 import { useEditorEditable } from "../useEditorEditable";
 import type { ContentImageOptions } from "./ImageNode";
+import { useQuietAltText } from "./use-quiet-alt-text";
 
 type ImageSourceTab = "upload" | "assets" | "link";
 type ResizeDirection = "left" | "right";
@@ -510,6 +510,8 @@ export function ImageBlock({
   const src = node.attrs.src as string;
   const displaySrc = imageDisplaySrc(src);
   const alt = (node.attrs.alt as string) || "";
+  const quietAlt = useQuietAltText({ currentAlt: alt });
+  const altRunBusy = isGeneratingAlt || quietAlt.state.phase === "running";
   const isUploading = String(node.attrs.uploadId ?? "").startsWith(
     "image-upload-",
   );
@@ -633,61 +635,124 @@ export function ImageBlock({
 
   function updateAltText(nextAlt: string) {
     if (!canMutateMediaNow()) return;
+    if (quietAlt.state.phase === "running") quietAlt.keepTypedAlt();
     setAltDraft(nextAlt);
     updateAttributes({ alt: nextAlt });
   }
 
   async function handleGenerateAltText() {
-    if (!canMutateMediaNow()) return;
+    if (!canMutateMediaNow() || altRunBusy) return;
     const documentId = options.documentId;
     if (!documentId) {
       toast.error(t("editor.media.currentDocumentMissing"));
       return;
     }
 
-    const toastId = toast.loading(t("editor.media.generatingAltText"));
     setIsGeneratingAlt(true);
-
+    let imageDataUrl: string | null;
     try {
-      const imageDataUrl = await imageDataUrlForAgent(displaySrc);
-      if (editor.isDestroyed || !canMutateMediaNow()) {
-        toast.error(t("empty.genericError"), { id: toastId });
-        return;
-      }
-      const imageOccurrence = imageOccurrenceIndex({ editor, getPos, src });
-      const articleContext = buildAltTextArticleContext({
-        editor,
-        getPos,
-        src,
-      });
-      sendToAgentChat({
-        message: t("editor.media.generateAltTextPrompt"),
-        context: [
-          "The user clicked the alt text generator for an image block in Content.",
-          `Document ID: ${documentId}`,
-          `Image URL: ${src}`,
-          `Image occurrence for this URL: ${imageOccurrence}`,
-          `Current alt text: ${alt.trim() || "(empty)"}`,
-          articleContext
-            ? `Article context around this image, in markdown. The target image is marked with IMAGE TO DESCRIBE comments. Use up to this context to understand the image's purpose in the article, but do not invent details that are not visible in the image:\n\n${articleContext}`
-            : "Article context could not be serialized from the editor.",
-          imageDataUrl
-            ? "The image contents are attached to this message."
-            : "The browser could not attach the image contents, so use the image URL and surrounding document context.",
-          "Generate concise, useful alt text for accessibility. Use the attached image as the source of truth and the article context only for disambiguation. Then call set-image-alt-text with documentId, imageUrl, altText, and imageOccurrence so the generated text is applied to this exact image. Keep the alt text factual and avoid phrases like 'image of' unless needed for clarity.",
-          "After the action succeeds, do not repeat the alt text in chat. Give one short confirmation that the image alt text was updated.",
-        ].join("\n"),
-        images: imageDataUrl ? [imageDataUrl] : undefined,
-        submit: true,
-      });
-      toast.success(t("editor.media.generatingAltText"), { id: toastId });
-    } catch {
-      toast.error(t("editor.media.altTextGenerationFailed"), {
-        id: toastId,
-      });
+      imageDataUrl = await imageDataUrlForAgent(displaySrc);
     } finally {
       setIsGeneratingAlt(false);
     }
+    if (editor.isDestroyed || !canMutateMediaNow()) return;
+    const imageOccurrence = imageOccurrenceIndex({ editor, getPos, src });
+    const articleContext = buildAltTextArticleContext({
+      editor,
+      getPos,
+      src,
+    });
+    await quietAlt.start({
+      documentId,
+      message: t("editor.media.generateAltTextPrompt"),
+      instructions: [
+        "The user clicked the alt text generator for an image block in Content. This runs quietly: the user is not watching this chat, so do the work without asking questions.",
+        `Document ID: ${documentId}`,
+        `Image URL: ${src}`,
+        `Image occurrence for this URL: ${imageOccurrence}`,
+        `Current alt text, as a JSON string: ${JSON.stringify(alt)}`,
+        articleContext
+          ? `Article context around this image, in markdown. The target image is marked with IMAGE TO DESCRIBE comments. Use up to this context to understand the image's purpose in the article, but do not invent details that are not visible in the image:\n\n${articleContext}`
+          : "Article context could not be serialized from the editor.",
+        imageDataUrl
+          ? "The image contents are attached to this message."
+          : "The browser could not attach the image contents, so use the image URL and surrounding document context.",
+        "Generate concise, useful alt text for accessibility. Use the attached image as the source of truth and the article context only for disambiguation. Then call set-image-alt-text with documentId, imageUrl, altText, imageOccurrence, and expectedAltText set to the current alt text above, so the generated text is applied to this exact image and alt text the user typed in the meantime is kept. Keep the alt text factual and avoid phrases like 'image of' unless needed for clarity.",
+        "If the user asks for changes later in this chat, call set-image-alt-text again for the same image, without expectedAltText.",
+        "After the action succeeds, do not repeat the alt text in chat. Give one short confirmation that the image alt text was updated.",
+      ].join("\n"),
+      imageDataUrl,
+      imageUrl: src,
+      imageOccurrence,
+      altAtStart: alt,
+    });
+  }
+
+  function renderAltTextStatus() {
+    const { state } = quietAlt;
+    const message = altRunBusy
+      ? t("editor.media.generatingAltText")
+      : state.phase === "done"
+        ? t("editor.media.altTextAdded")
+        : state.phase === "kept"
+          ? t("editor.media.keptYourAltText")
+          : state.phase === "failed"
+            ? state.reason === "setup"
+              ? t("editor.media.altTextNeedsAiSetup")
+              : t("editor.media.altTextGenerationFailed")
+            : "";
+    const actionButton = (label: string, onClick: () => void) => (
+      <button
+        type="button"
+        className="media-block__alt-status-action"
+        onClick={onClick}
+      >
+        {label}
+      </button>
+    );
+    return (
+      <>
+        <span className="sr-only" role="status" aria-live="polite">
+          {message}
+        </span>
+        {message ? (
+          <div className="media-block__alt-status" data-phase={state.phase}>
+            {altRunBusy ? (
+              <IconLoader2 size={14} className="animate-spin" aria-hidden />
+            ) : null}
+            <span className="media-block__alt-status-text" aria-hidden>
+              {message}
+            </span>
+            {state.phase === "done"
+              ? actionButton(t("editor.media.editAltTextInChat"), () =>
+                  quietAlt.openChat(),
+                )
+              : null}
+            {state.phase === "failed" ? (
+              <>
+                {actionButton(
+                  t("editor.media.tryAgain"),
+                  () => void handleGenerateAltText(),
+                )}
+                {actionButton(t("editor.media.openChat"), () =>
+                  quietAlt.openChat(),
+                )}
+              </>
+            ) : null}
+            {altRunBusy ? null : (
+              <button
+                type="button"
+                className="media-block__alt-status-dismiss"
+                aria-label={t("editor.media.dismissAltTextStatus")}
+                onClick={() => quietAlt.dismiss()}
+              >
+                <IconX size={14} />
+              </button>
+            )}
+          </div>
+        ) : null}
+      </>
+    );
   }
 
   // A block that goes away mid-copy drops the copy without an error.
@@ -1382,11 +1447,19 @@ export function ImageBlock({
                       type="button"
                       className="media-block__alt-generate"
                       aria-label={t("editor.media.generateAltText")}
-                      aria-busy={isGeneratingAlt}
-                      disabled={isGeneratingAlt}
+                      aria-busy={altRunBusy}
+                      aria-disabled={altRunBusy}
                       onClick={() => void handleGenerateAltText()}
                     >
-                      <IconHierarchy2 size={18} />
+                      {altRunBusy ? (
+                        <IconLoader2
+                          size={18}
+                          className="animate-spin"
+                          aria-hidden
+                        />
+                      ) : (
+                        <IconHierarchy2 size={18} />
+                      )}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -1397,6 +1470,8 @@ export function ImageBlock({
             </PopoverContent>
           </Popover>
         ) : null}
+
+        {isEditable ? renderAltTextStatus() : null}
 
         {isEditable && (
           <>

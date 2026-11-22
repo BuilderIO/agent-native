@@ -41,6 +41,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const status = args.status ?? "resolved";
     const actionCtx = ctx as ReviewResourceContext | undefined;

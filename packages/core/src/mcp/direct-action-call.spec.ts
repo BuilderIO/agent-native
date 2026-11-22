@@ -2974,9 +2974,7 @@ describe("direct tools/call after the action has run", () => {
       result = await call({ run: async () => ({ id: "written" }) });
     });
     expect(result.isError).toBeUndefined();
-    expect(lines.join("\n")).toContain(
-      "Could not write the action-change marker",
-    );
+    expect(lines.join("\n")).toContain("action_change_marker_failed");
     expect(lines.join("\n")).not.toContain(ticket);
   });
 

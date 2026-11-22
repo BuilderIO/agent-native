@@ -1,3 +1,4 @@
+// oracle-change: The standalone manifest tool and resource are removed from the protocol.
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -10684,9 +10685,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     expect(out.result.isError).not.toBe(true);
-    expect(warning).toHaveBeenCalledWith(
-      "Could not write the action-change marker after an MCP tool call: Error: refresh unavailable",
-    );
+    expect(warning).toHaveBeenCalledWith({
+      event: "action_change_marker_failed",
+      transport: "mcp",
+      action: "update-thing",
+      errorType: "Error",
+    });
     warning.mockRestore();
   });
 

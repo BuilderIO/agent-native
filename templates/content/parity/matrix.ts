@@ -285,6 +285,7 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/DocumentDatabase.tsx",
       "app/components/editor/extensions/ImageBlock.tsx",
       "app/components/editor/SlashCommandMenu.tsx",
+      "app/components/editor/BlockActionsMenu.tsx",
     ],
     durableEffect:
       "Document content, title, icon, image metadata, and text replacements are saved to the same document source.",
@@ -293,6 +294,7 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "adopt-document-snapshot",
+      "append-to-document",
       "convert-page-to-live-copy-if-due",
       "edit-document",
       "get-document-save-attempt",
@@ -307,7 +309,7 @@ export const parityMatrix: ParityRow[] = [
       "update-document",
     ],
     exception:
-      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open are browser-only editor support actions hidden from agent tools with agentTool: false.",
+      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open, and the block menu's Move to, which adds a block to the end of another page before the editor removes it, are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -315,6 +317,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/content-database-lifecycle.db.test.ts",
       "actions/update-document.db.test.ts",
+      "actions/append-to-document.db.test.ts",
       "actions/_local-file-documents.test.ts",
       "actions/record-editor-merge.test.ts",
       "actions/record-editor-mount.test.ts",
@@ -506,6 +509,42 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/analytics-chart/AnalyticsChartBlock.test.tsx",
       "app/components/editor/analytics-chart/analytics-chart-paste.test.ts",
       "app/components/editor/analytics-chart/analytics-chart-share.test.ts",
+    ],
+  },
+  {
+    id: "editor.design-screens",
+    surface: "editor",
+    label:
+      "Turn a pasted Design screen link into a pinned picture of the screen, refresh it, and see when the screen changed or has open comments",
+    uiEntrypoints: [
+      "app/components/editor/design-screen/design-screen-paste.ts",
+      "app/components/editor/design-screen/DesignScreenBlock.tsx",
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/routes/p.$id.tsx",
+    ],
+    durableEffect:
+      "The page body stores a DesignScreen tag naming the design and screen, the width and fingerprint it was captured at, the design's sharing at that moment, and who pinned it when. The picture Design rendered for that editor is kept as one of the page's private images, so it loads only for people who can open the page.",
+    uiImplementation:
+      "Pasting a screen link reads where Design lives through get-design-links, then capture-design-screen checks edit access, has Design render the screen as the editor, and keeps the picture with the page's private images; the editor confirms first when more people can open the page than the design, and a public page only takes screens from public designs. Refresh calls capture-design-screen again at the same width and replaces the block's data. get-design-screen-status reads the design's sharing, each screen's fingerprint and its open comments for signed-in readers who can open the design. Sharing a page with screens from narrower designs asks first; making it public also weighs the screens in the sub-pages that go public with it, read through list-sub-page-design-screens. Agents call capture-design-screen and write the returned tag with edit-document.",
+    status: "action-backed",
+    actions: [
+      "get-design-links",
+      "capture-design-screen",
+      "get-design-screen-status",
+      "list-sub-page-design-screens",
+    ],
+    exception:
+      "get-design-links, get-design-screen-status and list-sub-page-design-screens are hidden with agentTool: false because they serve the editor's paste handler, the block's changed and comments marks and the share dialog; agents read the screen from the DesignScreen tag with get-document and refresh it with capture-design-screen.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/design-screen-actions.test.ts",
+      "server/lib/design-peer.test.ts",
+      "app/components/editor/design-screen/DesignScreenBlock.test.tsx",
+      "app/components/editor/design-screen/design-screen-paste.test.ts",
+      "app/components/editor/design-screen/design-screen-share.test.ts",
     ],
   },
   {

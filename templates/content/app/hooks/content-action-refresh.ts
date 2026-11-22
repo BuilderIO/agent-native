@@ -29,6 +29,7 @@ const COMMENT_COUNT_MUTATIONS = new Set([
 
 const DOCUMENT_MUTATIONS = new Set([
   "add-github-pull-requests",
+  "append-to-document",
   "create-and-link-notion-page",
   "decide-resource-suggestion",
   "decide-resource-suggestion-proposal",

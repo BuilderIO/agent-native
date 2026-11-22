@@ -58,6 +58,13 @@ vi.mock("../server/lib/workspace-resources-store.js", () => ({
 
 import viewScreen from "./view-screen.js";
 
+describe("view-screen MCP exposure", () => {
+  it("is a read kept in the app, since it summarizes run debugging, the vault and audit screens that Dispatch's MCP catalog leaves out", () => {
+    expect(viewScreen.mcpTool).toBe(false);
+    expect(viewScreen.readOnly).toBe(true);
+  });
+});
+
 describe("view-screen Thread Debug summary", () => {
   beforeEach(() => {
     mocks.navigation = { view: "thread-debug" };

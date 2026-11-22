@@ -14,6 +14,7 @@ export default defineAction({
     payload: z.record(z.string(), z.unknown()).optional(),
   }),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: (args) =>
     proposeCreativeContextSuggestion({ ...args, kind: "canonical-logo" }),
 });
