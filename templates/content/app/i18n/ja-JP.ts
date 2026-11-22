@@ -741,6 +741,7 @@ const editor = {
     insertBelow: "下にブロックを挿入",
     insertAbove: "上にブロックを挿入",
     turnIntoCollection: "コレクションに変換",
+    turnIntoTable: "テーブルに変換",
     askAgent: "エージェントに聞く",
     columns: "列",
     syncedBlock: "同期ブロック",
@@ -827,6 +828,15 @@ const editor = {
     "コレクションに変換できるのは、500 行・50 列までのテーブルです。",
   tableTextTooLongForCollection:
     "コレクションでは、行の名前（テーブルの最初の列）は 500 文字まで、その他のセルは 20,000 文字までです。長いセルを短くしてから、もう一度お試しください。",
+  turningIntoTable: "コレクションをテーブルに変換しています...",
+  turnedIntoTable: "コレクションをテーブルに変換しました",
+  failedToTurnIntoTable: "コレクションをテーブルに変換できませんでした",
+  collectionChangedWhileTurning:
+    "変換中にコレクションが変更されたため、コレクションはそのままにしました。もう一度お試しください。",
+  collectionTooBigForTable:
+    "テーブルに変換できるのは、500 行・50 列までのビューです。ビューを絞り込むか、一部のプロパティを非表示にしてから、もう一度お試しください。",
+  collectionStillLoading:
+    "コレクションはまだ読み込み中です。少ししてからもう一度お試しください。",
   generateWithAi: "AIで生成",
   untitledDatabase: "無題のコレクション",
   media: {

@@ -260,12 +260,11 @@ export function contentDatabaseItemsContainingDocumentFilter(
         | ContentDatabaseItemsPageResponse
         | ContentDatabaseNavigationPageResponse
         | undefined;
-      return (
-        data?.items.some((item) =>
-          "document" in item
-            ? item.document.id === documentId
-            : item.documentId === documentId,
-        ) === true
+      if (!data || isContentDatabaseUnavailable(data)) return false;
+      return data.items.some((item) =>
+        "document" in item
+          ? item.document.id === documentId
+          : item.documentId === documentId,
       );
     },
   };
