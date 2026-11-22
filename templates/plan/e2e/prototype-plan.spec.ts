@@ -654,7 +654,7 @@ test("comments work in prototype mode: a UI pin on a live screen persists with t
     .click({ position: { x: 100, y: 100 } });
 
   await expect(
-    page.getByText("Add a comment...", { exact: false }),
+    page.getByRole("textbox", { name: "Add a comment..." }),
     "clicking the live prototype in comment mode opens the inline composer",
   ).toBeVisible({ timeout: 10000 });
 

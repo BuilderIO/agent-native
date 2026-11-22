@@ -435,7 +435,7 @@ test("canvas comment pins preserve zoom and follow later pan", async ({
     frame!.top + frame!.height * 0.52,
   );
   await expect(
-    page.getByText("Add a comment...", { exact: false }),
+    page.getByRole("textbox", { name: "Add a comment..." }),
     "clicking a canvas frame in comment mode should open the composer",
   ).toBeVisible({ timeout: 10_000 });
   await page.keyboard.type("Canvas pin must stay anchored while panning.");
