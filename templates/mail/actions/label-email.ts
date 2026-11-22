@@ -20,6 +20,7 @@ export default defineAction({
     label: z.string().optional().describe("Label name or ID to add"),
   }),
   outputSchema: emailLabelChangeOutputSchema,
+  mcpTool: "search",
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: false,

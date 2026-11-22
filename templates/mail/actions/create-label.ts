@@ -52,6 +52,7 @@ export default defineAction({
       ),
   }),
   outputSchema: createLabelOutputSchema,
+  mcpTool: "search",
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: false,
