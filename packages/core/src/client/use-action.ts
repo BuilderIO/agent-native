@@ -468,7 +468,7 @@ function waitForUiCapabilityMint(
     const onAbort = () => reject(signal?.reason);
     if (signal?.aborted) return onAbort();
     signal?.addEventListener("abort", onAbort, { once: true });
-    request
+    void request
       .then(
         () => undefined,
         () => undefined,
@@ -484,8 +484,7 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
   if (hasFreshUiCapability()) return Promise.resolve();
   const identity = currentSessionIdentity();
   // A pending mint was sent with the cookies of the session that started it.
-  // Another identity sharing it would act under that session's capability, so
-  // it waits for the mint to settle and then mints its own.
+  // Another identity waiting on it would act under that session's capability.
   if (uiCapabilityRequest && uiCapabilityRequestIdentity !== identity) {
     return waitForUiCapabilityMint(uiCapabilityRequest, signal).then(() =>
       ensureUiActionCapability(signal),
