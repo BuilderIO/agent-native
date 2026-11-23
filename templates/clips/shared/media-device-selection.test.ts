@@ -73,6 +73,52 @@ describe("media device selection", () => {
     });
   });
 
+  it("tells apart phone mics whose names differ only in non-ASCII letters", () => {
+    expect(
+      chooseFallbackAudioInput(
+        [
+          audio("li", "李四的 iPhone"),
+          audio("zhang", "张三的 iPhone"),
+          audio("built-in", "MacBook Pro Microphone"),
+        ],
+        { savedLabel: "张三的 iPhone", avoidDeviceIds: ["zhang-old"] },
+      ),
+    ).toEqual({
+      deviceId: "zhang",
+      label: "张三的 iPhone",
+      reason: "saved-label",
+    });
+    expect(
+      chooseFallbackAudioInput(
+        [
+          audio("li", "李四的 iPhone"),
+          audio("built-in", "MacBook Pro Microphone"),
+        ],
+        { savedLabel: "张三的 iPhone" },
+      ),
+    ).toEqual({
+      deviceId: "built-in",
+      label: "MacBook Pro Microphone",
+      reason: "best-concrete",
+    });
+  });
+
+  it("never matches a saved phone mic name loosely to another mic", () => {
+    expect(
+      chooseFallbackAudioInput(
+        [
+          audio("generic", "Microphone"),
+          audio("built-in", "MacBook Pro Microphone"),
+        ],
+        { savedLabel: "Steve's iPhone Microphone" },
+      ),
+    ).toEqual({
+      deviceId: "built-in",
+      label: "MacBook Pro Microphone",
+      reason: "best-concrete",
+    });
+  });
+
   it("skips pseudo and phone microphones when choosing a concrete fallback", () => {
     expect(
       chooseFallbackAudioInput([

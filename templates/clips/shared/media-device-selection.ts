@@ -62,9 +62,6 @@ export function isLikelyPhoneMicLabel(
   return PHONE_MIC_LABEL_RE.test(label ?? "");
 }
 
-// Every concrete input belongs in the picker, phone-like ones included: a user
-// may want an iPhone, an iPad or a virtual mic named after one. Only automatic
-// choices skip them (see isAutomaticAudioInputCandidate).
 export function isSelectableAudioInputDevice(
   device: AudioInputCandidate,
 ): boolean {
@@ -73,13 +70,20 @@ export function isSelectableAudioInputDevice(
   );
 }
 
-// Inputs Clips may pick on its own when the user's choice is unavailable. A
-// phone-like mic never qualifies, so macOS's Continuity iPhone mic can't
-// quietly replace the Mac mic.
 function isAutomaticAudioInputCandidate(device: AudioInputCandidate): boolean {
   return (
     isSelectableAudioInputDevice(device) && !isLikelyPhoneMicLabel(device.label)
   );
+}
+
+function matchesSavedLabel(
+  label: string | null | undefined,
+  savedLabel: string,
+): boolean {
+  if (isLikelyPhoneMicLabel(label) || isLikelyPhoneMicLabel(savedLabel)) {
+    return (label ?? "").trim() === savedLabel;
+  }
+  return labelsMatch(label, savedLabel);
 }
 
 function isBuiltInMicLabel(label: string | null | undefined): boolean {
@@ -109,14 +113,10 @@ export function findAudioInputBySavedLabel(
       isSelectableAudioInputDevice(device) && !avoid.has(device.deviceId),
   );
 
-  const savedLabel = normalizedLabel(options.savedLabel);
+  const savedLabel = options.savedLabel?.trim() ?? "";
   if (savedLabel) {
-    // A phone-like mic comes back only under the exact name the user picked,
-    // never through a loose match on some other saved mic's name.
     const labelMatch = candidates.find((device) =>
-      isLikelyPhoneMicLabel(device.label)
-        ? normalizedLabel(device.label) === savedLabel
-        : labelsMatch(device.label, savedLabel),
+      matchesSavedLabel(device.label, savedLabel),
     );
     if (labelMatch) {
       return {
