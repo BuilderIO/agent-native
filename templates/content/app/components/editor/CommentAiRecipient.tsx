@@ -3,6 +3,7 @@ import type { EngineModelGroup } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { AgentMark } from "@agent-native/toolkit/app/shared";
 import { IconCheck, IconChevronDown } from "@tabler/icons-react";
+import { useRef } from "react";
 
 import {
   DropdownMenu,
@@ -154,6 +155,7 @@ export function CommentAiSendControl({
   suggestOnly = false,
   onModeChange,
   onSubmit,
+  returnFocus,
 }: {
   mode: CommentAiMode;
   disabled: boolean;
@@ -161,8 +163,10 @@ export function CommentAiSendControl({
   suggestOnly?: boolean;
   onModeChange: (mode: CommentAiMode) => void;
   onSubmit: () => void;
+  returnFocus: () => void;
 }) {
   const t = useT();
+  const escaped = useRef(false);
   const modes: Array<[CommentAiMode, string]> = [
     ["auto", t("comments.aiAuto")],
     ["reply", t("comments.aiReplyInThread")],
@@ -184,7 +188,7 @@ export function CommentAiSendControl({
   };
   const modeLabel = modes.find(([value]) => value === mode)?.[1];
   const segment =
-    "inline-flex h-7 items-center bg-foreground text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-35";
+    "inline-flex h-7 items-center bg-foreground text-background transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-background disabled:pointer-events-none disabled:opacity-35";
   return (
     <div className="flex shrink-0 items-center" data-comment-ai-send-control>
       <button
@@ -219,7 +223,21 @@ export function CommentAiSendControl({
             <IconChevronDown size={14} aria-hidden />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuContent
+          align="end"
+          className="w-60"
+          onEscapeKeyDown={() => {
+            escaped.current = true;
+          }}
+          onCloseAutoFocus={(event) => {
+            if (escaped.current) {
+              escaped.current = false;
+              return;
+            }
+            event.preventDefault();
+            returnFocus();
+          }}
+        >
           <DropdownMenuLabel>{t("comments.aiResponseMode")}</DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={mode}

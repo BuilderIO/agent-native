@@ -466,6 +466,89 @@ describe("CommentComposer rich recipient", () => {
     );
   });
 
+  it("returns focus to the text after a response is picked, and to the chevron on Escape", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="response-menu-focus"
+          initialValue="Ask @GPT-5.6 Luna"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "auto",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const chevron = container.querySelector<HTMLButtonElement>(
+      '[data-comment-ai-send-control] button[aria-haspopup="menu"]',
+    );
+    if (!chevron) throw new Error("Expected the response menu's chevron.");
+    const settle = (ms = 0) =>
+      act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
+    const items = () =>
+      document.querySelectorAll<HTMLElement>('[role="menuitemradio"]');
+    const fade = document.createElement("style");
+    fade.textContent =
+      '[role="menu"][data-state="open"] { animation-name: menu-in; }' +
+      '[role="menu"][data-state="closed"] { animation-name: menu-out; }';
+    document.head.append(fade);
+
+    try {
+      editor().focus();
+      await act(async () => {
+        chevron.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(items()).toHaveLength(4);
+      const menu = document.querySelector('[role="menu"]');
+      await act(async () => items()[1]?.click());
+      await settle(20);
+      expect(onAiDraftChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ mode: "reply" }),
+      );
+      await act(async () => {
+        menu?.dispatchEvent(
+          new AnimationEvent("animationend", { animationName: "menu-out" }),
+        );
+      });
+      await settle();
+      expect(items()).toHaveLength(0);
+      expect(document.activeElement).toBe(editor());
+    } finally {
+      fade.remove();
+    }
+
+    chevron.focus();
+    await act(async () => {
+      chevron.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(items()).toHaveLength(4);
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await settle();
+    expect(items()).toHaveLength(0);
+    expect(document.activeElement).toBe(chevron);
+  });
+
   it("restores a saved AI draft's chip past an @model in inline code", async () => {
     await act(async () =>
       root.render(

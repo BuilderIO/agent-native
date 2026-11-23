@@ -5340,16 +5340,19 @@ function bringEntryStartIntoView(
   body: HTMLElement,
   entryId: string,
   behavior: "smooth" | "instant",
+  whole = false,
 ) {
   if (body.scrollHeight <= body.clientHeight) return;
   const entry = body.querySelector<HTMLElement>(
     `[data-comment-entry="${cssEscape(entryId)}"]`,
   );
   if (!entry) return;
-  const entryTop =
-    entry.getBoundingClientRect().top - body.getBoundingClientRect().top;
-  if (entryTop >= 0 && entryTop <= body.clientHeight - NEW_ENTRY_MIN_VISIBLE)
-    return;
+  const entryBox = entry.getBoundingClientRect();
+  const entryTop = entryBox.top - body.getBoundingClientRect().top;
+  const shown = whole
+    ? Math.min(entryBox.height, body.clientHeight)
+    : NEW_ENTRY_MIN_VISIBLE;
+  if (entryTop >= 0 && entryTop <= body.clientHeight - shown) return;
   const padding = Number.parseFloat(getComputedStyle(body).paddingTop) || 0;
   const top = body.scrollTop + entryTop - padding;
   if (behavior === "instant") body.scrollTop = top;
@@ -5375,6 +5378,7 @@ function revealLastPendingSuggestionGroup(body: HTMLElement) {
 function useRevealThreadArrivals({
   bodyRef,
   open,
+  replyOpen,
   revealsPendingGroup,
   room,
   entryCount,
@@ -5383,6 +5387,7 @@ function useRevealThreadArrivals({
 }: {
   bodyRef: RefObject<HTMLDivElement | null>;
   open: boolean;
+  replyOpen: boolean;
   revealsPendingGroup: boolean;
   room: number | null;
   entryCount: number;
@@ -5390,8 +5395,10 @@ function useRevealThreadArrivals({
   pendingSuggestionGroups: string;
 }) {
   const readerTookOver = useRef(false);
-  const seen = useRef({ entryCount, open });
+  const seen = useRef({ entryCount, open, replyOpen: false });
   const arrivedEntryId = useRef<string | null>(null);
+  const pinsNewestEntry = replyOpen && !revealsPendingGroup;
+  const pinnedEntryId = useRef<string | null>(null);
   useEffect(() => {
     const body = bodyRef.current;
     if (!body) return;
@@ -5407,17 +5414,37 @@ function useRevealThreadArrivals({
       }
     };
   }, [bodyRef]);
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!pinsNewestEntry || !body || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      const entryId = pinnedEntryId.current;
+      if (entryId && !readerTookOver.current)
+        bringEntryStartIntoView(body, entryId, "instant", true);
+    });
+    observer.observe(body);
+    for (const entry of body.querySelectorAll("[data-comment-entry]")) {
+      observer.observe(entry);
+    }
+    return () => observer.disconnect();
+  }, [bodyRef, entryCount, pinsNewestEntry]);
   useLayoutEffect(() => {
     const entryArrived = entryCount > seen.current.entryCount;
     const opened = open && !seen.current.open;
-    seen.current = { entryCount, open };
-    if (entryArrived || opened) {
+    const replyOpened = replyOpen && !seen.current.replyOpen;
+    seen.current = { entryCount, open, replyOpen };
+    if (entryArrived || opened || replyOpened) {
       readerTookOver.current = false;
       arrivedEntryId.current = entryArrived ? (latestEntryId ?? null) : null;
     }
+    if (entryArrived || !pinsNewestEntry) pinnedEntryId.current = null;
+    else if (replyOpened) pinnedEntryId.current = latestEntryId ?? null;
     const body = bodyRef.current;
     if (!body || readerTookOver.current) {
       arrivedEntryId.current = null;
+      pinnedEntryId.current = null;
       return;
     }
     if (revealsPendingGroup && room === null) return;
@@ -5429,12 +5456,16 @@ function useRevealThreadArrivals({
         entryId,
         revealsPendingGroup ? "instant" : "smooth",
       );
+    else if (pinnedEntryId.current)
+      bringEntryStartIntoView(body, pinnedEntryId.current, "instant", true);
     if (revealsPendingGroup) revealLastPendingSuggestionGroup(body);
   }, [
     bodyRef,
     entryCount,
     latestEntryId,
     open,
+    pinsNewestEntry,
+    replyOpen,
     revealsPendingGroup,
     room,
     pendingSuggestionGroups,
@@ -5622,9 +5653,11 @@ function ThreadView({
     cardRef,
     bodyRef,
   );
+  const replyBoxShown = isExpanded && canComment && !resolved;
   useRevealThreadArrivals({
     bodyRef,
     open: isExpanded || isActive,
+    replyOpen: replyBoxShown,
     revealsPendingGroup: railBodyFitsSuggestionReview,
     room: railBodyRoom,
     entryCount: thread.comments.length,
@@ -5634,7 +5667,6 @@ function ThreadView({
 
   // A reply box opening low in Discussion comes fully into view, its Send
   // included; one already in view stays where it is.
-  const replyBoxShown = isExpanded && canComment && !resolved;
   useEffect(() => {
     if (!isPanel || !replyBoxShown) return;
     const box = replyBoxRef.current;
