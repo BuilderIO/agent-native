@@ -319,7 +319,8 @@ describe("events for resource types this app never registered", () => {
         type: "change",
         visibility: "public",
       });
-      recordedEvent = state.getChangesSince(0).events[0]!;
+      recordedEvent = state.getChangesSince(0).events[0];
+      expect(recordedEvent).toBeDefined();
       const result = await state.getCombinedChangesSinceForUser(
         1,
         "a@x.test",
