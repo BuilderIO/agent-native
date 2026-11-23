@@ -1937,7 +1937,7 @@ export async function getContentDatabaseNavigationPage(args: {
         revisionOfRows(pageRows),
       ]),
       configHash: (inGroup ? groupConfigHash : null) ?? configHash,
-      group: inGroup?.id,
+      ...(inGroup ? { group: inGroup.id } : {}),
     } as const;
     return {
       items: [
