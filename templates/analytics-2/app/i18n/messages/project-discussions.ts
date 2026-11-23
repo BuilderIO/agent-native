@@ -1,0 +1,36 @@
+export const projectDiscussionMessages = {
+  projectDiscussions: {
+    entry: "Comments",
+    title: "Project discussions",
+    audience: "Visible to project editors only. No notifications are sent.",
+    start: "Start a discussion",
+    reply: "Reply",
+    postComment: "Post comment",
+    postReply: "Post reply",
+    saving: "Saving…",
+    saveFailed:
+      "Could not save your comment. Your text is retained; try again.",
+    updateFailed:
+      "Could not update this discussion. Refresh discussions and try again.",
+    open: "Open",
+    resolved: "Resolved",
+    resolve: "Resolve discussion",
+    reopen: "Reopen discussion",
+    byAuthor: "Discussion by {{author}}",
+    loading: "Loading discussions…",
+    loadFailed: "Could not load discussions.",
+    retry: "Retry",
+    refresh: "Refresh discussions",
+    empty: "No discussions yet.",
+    uncertain:
+      "A save may have completed. Check saved comments before starting a new draft.",
+    checkSaved: "Check saved comments",
+    newDraft: "Start a new draft",
+    olderThreads: "Load older discussions",
+    olderReplies: "Load older replies",
+    loadingReplies: "Loading replies…",
+    replyLoadFailed: "Could not load replies.",
+    retryUpdate: "Retry update",
+    retryReplies: "Retry replies",
+  },
+};

@@ -1,0 +1,507 @@
+{
+  "name": "notebook-agent-files",
+  "rows": [
+    "shell.notebook",
+    "sidebar.notebook.tools",
+    "sidebar.notebook.find",
+    "sidebar.notebook.data-browser",
+    "sidebar.notebook.table-of-contents",
+    "sidebar.notebook.help",
+    "sidebar.notebook.history"
+  ],
+  "inputs": {
+    "agentOpen": true,
+    "activeTool": "files"
+  },
+  "root": {
+    "html": {
+      "data-locale": "en-US",
+      "dir": "ltr",
+      "lang": "en-US"
+    },
+    "body": {},
+    "inlineCustomProperties": [],
+    "colorScheme": "light",
+    "tokens": {
+      "--ws-accent": "#473982",
+      "--ws-active-bg": "rgba(71, 57, 130, 0.08)",
+      "--ws-active-fg": "#473982",
+      "--ws-bg": "#ffffff",
+      "--ws-border": "#dadde6",
+      "--ws-border-muted": "#ecedf2",
+      "--ws-brand": "#473982",
+      "--ws-card-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 1px 3px rgba(11, 14, 22, 0.04),\n    0 2px 3px rgba(11, 14, 22, 0.03)",
+      "--ws-danger": "#b42318",
+      "--ws-fg": "#01011b",
+      "--ws-hover": "rgba(207, 211, 222, 0.15)",
+      "--ws-icon": "#6a738e",
+      "--ws-mono": "ui-monospace, monospace",
+      "--ws-muted": "#5f6880",
+      "--ws-overlay": "rgba(248, 250, 251, 0.8)",
+      "--ws-placeholder": "#9ca3b4",
+      "--ws-popover-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 4px 12px rgba(11, 14, 22, 0.12)",
+      "--ws-scroll-thumb": "rgba(106, 115, 142, 0.4)",
+      "--ws-search-border": "rgba(0, 0, 0, 0.08)",
+      "--ws-search-muted": "#6b7280",
+      "--ws-sidebar-bg": "#fafafa",
+      "--ws-success": "#29a07c",
+      "--ws-surface": "#ffffff",
+      "--ws-warning": "#b5820a"
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "media": {
+      "drawer": false,
+      "fullWidthDrawer": false,
+      "dark": false
+    },
+    "route": "/project/project-a/latest",
+    "hosts": [],
+    "storage": {
+      "local": {
+        "agent-native:locale-preference": null
+      },
+      "session": {
+        "agent-native:locale-preference": null
+      }
+    },
+    "storageEvents": [
+      {
+        "area": "local",
+        "operation": "getItem",
+        "key": "agent-native:locale-preference"
+      }
+    ],
+    "time": "2026-11-12T08:00:00.000Z",
+    "environment": "happy-dom; no layout engine",
+    "experience": "unused reskin remains off"
+  },
+  "markup": "<div data-test-host=\"\"><div class=\"nb-root\" data-notebook-view=\"notebook\"><header class=\"nb-header\"><div class=\"nb-header-left\"><a class=\"nb-brand-mark\" aria-label=\"Home\" title=\"Home\" href=\"/home\" data-discover=\"true\"><svg data-agent-native-icon=\"true\" xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 114 66\" fill=\"none\"><path d=\"M24.5537 65.7695H0L15.0859 39.4619L37.708 0L60.4912 39.4619H39.6396L24.5537 65.7695Z\" fill=\"currentColor\"></path><path d=\"M89.446 0H114L76.2921 65.7704H51.7383L89.446 0Z\" fill=\"currentColor\"></path></svg></a><button type=\"button\" class=\"nb-project-title\" title=\"Test project\">Test project</button><span class=\"sr-only\" aria-live=\"polite\"></span><button type=\"button\" class=\"nb-icon-button nb-title-menu-trigger\" aria-label=\"Project options\" aria-haspopup=\"menu\" id=\"generated-1\" aria-expanded=\"false\" data-state=\"closed\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-chevron-down \" aria-hidden=\"true\"><path d=\"M6 9l6 6l6 -6\"></path></svg></button></div><nav class=\"nb-view-tabs nb-header-center\" aria-label=\"Project views\"><button type=\"button\" class=\"nb-view-tab\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-message-circle \" aria-hidden=\"true\"><path d=\"M3 20l1.3 -3.9c-2.324 -3.437 -1.426 -7.872 2.1 -10.374c3.526 -2.501 8.59 -2.296 11.845 .48c3.255 2.777 3.695 7.266 1.029 10.501c-2.666 3.235 -7.615 4.215 -11.574 2.293l-4.7 1\"></path></svg>Agent</button><button type=\"button\" class=\"nb-view-tab is-active\" aria-current=\"page\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-notebook \" aria-hidden=\"true\"><path d=\"M6 4h11a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-11a1 1 0 0 1 -1 -1v-14a1 1 0 0 1 1 -1m3 0v18\"></path><path d=\"M13 8l2 0\"></path><path d=\"M13 12l2 0\"></path></svg>Notebook</button></nav><div class=\"nb-header-right\"></div></header><div class=\"nb-workbench\"><div class=\"nb-main-card\"><nav class=\"nb-tool-rail\" aria-label=\"Workspace tools\"><button type=\"button\" class=\"nb-tool-rail-button\" aria-label=\"Variables\" title=\"Variables\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-variable \" aria-hidden=\"true\"><path d=\"M5 4c-2.5 5 -2.5 10 0 16m14 -16c2.5 5 2.5 10 0 16m-10 -11h1c1 0 1 1 2.016 3.527c.984 2.473 .984 3.473 1.984 3.473h1\"></path><path d=\"M8 16c1.5 0 3 -2 4 -3.5s2.5 -3.5 4 -3.5\"></path></svg></button><button type=\"button\" class=\"nb-tool-rail-button\" aria-label=\"Components\" title=\"Components\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-box \" aria-hidden=\"true\"><path d=\"M12 3l8 4.5l0 9l-8 4.5l-8 -4.5l0 -9l8 -4.5\"></path><path d=\"M12 12l8 -4.5\"></path><path d=\"M12 12l0 9\"></path><path d=\"M12 12l-8 -4.5\"></path></svg></button><button type=\"button\" class=\"nb-tool-rail-button\" aria-label=\"Environment\" title=\"Environment\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-package \" aria-hidden=\"true\"><path d=\"M12 3l8 4.5l0 9l-8 4.5l-8 -4.5l0 -9l8 -4.5\"></path><path d=\"M12 12l8 -4.5\"></path><path d=\"M12 12l0 9\"></path><path d=\"M12 12l-8 -4.5\"></path><path d=\"M16 5.25l-8 4.5\"></path></svg></button><button type=\"button\" class=\"nb-tool-rail-button\" aria-label=\"Files\" title=\"Files\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-file-text \" aria-hidden=\"true\"><path d=\"M14 3v4a1 1 0 0 0 1 1h4\"></path><path d=\"M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2\"></path><path d=\"M9 9l1 0\"></path><path d=\"M9 13l6 0\"></path><path d=\"M9 17l6 0\"></path></svg></button><button type=\"button\" class=\"nb-tool-rail-button\" aria-label=\"Find\" title=\"Find\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-search \" aria-hidden=\"true\"><path d=\"M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\"></path><path d=\"M21 21l-6 -6\"></path></svg></button><button type=\"button\" class=\"nb-tool-rail-button\" aria-label=\"Data browser\" title=\"Data browser\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \" aria-hidden=\"true\"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg></button><button type=\"button\" class=\"nb-tool-rail-button\" aria-label=\"Table of contents\" title=\"Table of contents\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-list \" aria-hidden=\"true\"><path d=\"M9 6l11 0\"></path><path d=\"M9 12l11 0\"></path><path d=\"M9 18l11 0\"></path><path d=\"M5 6l0 .01\"></path><path d=\"M5 12l0 .01\"></path><path d=\"M5 18l0 .01\"></path></svg></button><button type=\"button\" class=\"nb-tool-rail-button\" aria-label=\"Help &amp; support\" title=\"Help &amp; support\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-help \" aria-hidden=\"true\"><path d=\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\"></path><path d=\"M12 17l0 .01\"></path><path d=\"M12 13.5a1.5 1.5 0 0 1 1 -1.5a2.6 2.6 0 1 0 -3 -4\"></path></svg></button><button type=\"button\" class=\"nb-tool-rail-button\" aria-label=\"History &amp; versions\" title=\"History &amp; versions\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-history \" aria-hidden=\"true\"><path d=\"M12 8l0 4l2 2\"></path><path d=\"M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5\"></path></svg></button></nav><aside class=\"nb-side-panel\" aria-label=\"Files\"><header class=\"nb-side-panel-header\"><h2 class=\"nb-side-panel-title\">Files</h2><button type=\"button\" class=\"nb-side-panel-close\" aria-label=\"Close Files\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-x \"><path d=\"M18 6l-12 12\"></path><path d=\"M6 6l12 12\"></path></svg></button></header><section tabindex=\"-1\" class=\"px-3 py-2 outline-none\"><h3 class=\"text-sm font-medium text-foreground\">Imported files</h3><div class=\"mt-2 flex flex-col gap-2\"><input accept=\".csv,text/csv\" hidden=\"\" aria-label=\"Import CSV for querying\" type=\"file\"><button data-slot=\"button\" class=\"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform,scale] duration-150 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5\" type=\"button\">Import CSV for querying</button><input multiple=\"\" hidden=\"\" aria-label=\"Upload files\" type=\"file\"><button data-slot=\"button\" class=\"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform,scale] duration-150 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5\" type=\"button\">Upload files</button></div></section></aside><div class=\"nb-main-scroll\"><div class=\"nb-body\"><div class=\"nb-notebook-heading\"><div class=\"nb-project-metadata\"><div class=\"nb-empty-meta\"><button type=\"button\" class=\"nb-empty-meta-button\" id=\"generated-2\" aria-haspopup=\"menu\" aria-expanded=\"false\" data-state=\"closed\">Add status<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-chevron-down \" aria-hidden=\"true\"><path d=\"M6 9l6 6l6 -6\"></path></svg></button><button type=\"button\" class=\"nb-empty-meta-button\" id=\"generated-3\" aria-haspopup=\"menu\" aria-expanded=\"false\" data-state=\"closed\">Add categories<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-chevron-down \" aria-hidden=\"true\"><path d=\"M6 9l6 6l6 -6\"></path></svg></button></div><h1 class=\"nb-empty-title\"><button type=\"button\" title=\"Test project\">Test project</button></h1></div></div><div class=\"nb-empty-project\"><div class=\"nb-empty-content\"><form class=\"nb-empty-prompt\" aria-busy=\"false\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-sparkles \" aria-hidden=\"true\"><path d=\"M16 18a2 2 0 0 1 2 2a2 2 0 0 1 2 -2a2 2 0 0 1 -2 -2a2 2 0 0 1 -2 2m0 -12a2 2 0 0 1 2 2a2 2 0 0 1 2 -2a2 2 0 0 1 -2 -2a2 2 0 0 1 -2 2m-7 12a6 6 0 0 1 6 -6a6 6 0 0 1 -6 -6a6 6 0 0 1 -6 6a6 6 0 0 1 6 6\"></path></svg><input placeholder=\"What would you like to know?\" aria-label=\"What would you like to know?\" disabled=\"\" value=\"\"><button type=\"button\" class=\"nb-empty-connection\" disabled=\"\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \" aria-hidden=\"true\"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg>No data connection</button></form><div class=\"nb-empty-lists\"><section class=\"nb-empty-list\" aria-label=\"Recently used\"><h2>Recently Used</h2><p class=\"nb-empty-list-empty\">No recently used tables</p></section><section class=\"nb-empty-list\" aria-label=\"Favorites\"><h2>Favorites</h2><p class=\"nb-empty-list-empty\">No favorited data</p></section><section class=\"nb-empty-list\" aria-label=\"More data actions\"><h2>MORE</h2><button type=\"button\" class=\"nb-empty-list-item\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-folder \" aria-hidden=\"true\"><path d=\"M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2\"></path></svg>Browse all data</button><button type=\"button\" class=\"nb-empty-list-item\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-search \" aria-hidden=\"true\"><path d=\"M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\"></path><path d=\"M21 21l-6 -6\"></path></svg>Search for data</button><button type=\"button\" class=\"nb-empty-list-item\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-upload \" aria-hidden=\"true\"><path d=\"M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2\"></path><path d=\"M7 9l5 -5l5 5\"></path><path d=\"M12 4l0 12\"></path></svg>Upload a CSV</button></section></div></div></div><input accept=\".csv,text/csv\" hidden=\"\" aria-label=\"Import CSV for querying\" type=\"file\"><div class=\"nb-add-wrap\"><div class=\"nb-add-surface\" role=\"group\" aria-label=\"Add code cell\"><button type=\"button\" class=\"nb-add-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-sql \" aria-hidden=\"true\"><path d=\"M12 8a2 2 0 0 1 2 2v4a2 2 0 1 1 -4 0v-4a2 2 0 0 1 2 -2\"></path><path d=\"M17 8v8h4\"></path><path d=\"M13 15l1 1\"></path><path d=\"M3 15a1 1 0 0 0 1 1h2a1 1 0 0 0 1 -1v-2a1 1 0 0 0 -1 -1h-2a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1\"></path></svg><span>Query</span></button><button type=\"button\" class=\"nb-add-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-brand-python \" aria-hidden=\"true\"><path d=\"M12 9h-7a2 2 0 0 0 -2 2v4a2 2 0 0 0 2 2h3\"></path><path d=\"M12 15h7a2 2 0 0 0 2 -2v-4a2 2 0 0 0 -2 -2h-3\"></path><path d=\"M8 9v-4a2 2 0 0 1 2 -2h4a2 2 0 0 1 2 2v5a2 2 0 0 1 -2 2h-4a2 2 0 0 0 -2 2v5a2 2 0 0 0 2 2h4a2 2 0 0 0 2 -2v-4\"></path><path d=\"M11 6l0 .01\"></path><path d=\"M13 18l0 .01\"></path></svg><span>Python</span></button><div class=\"nb-add-split\"><button type=\"button\" class=\"nb-add-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-typography \" aria-hidden=\"true\"><path d=\"M4 20l3 0\"></path><path d=\"M14 20l7 0\"></path><path d=\"M6.9 15l6.9 0\"></path><path d=\"M10.2 6.3l5.8 13.7\"></path><path d=\"M5 20l6 -16l2 0l7 16\"></path></svg><span>Text</span></button><button type=\"button\" class=\"nb-icon-button nb-add-split-trigger\" aria-label=\"Text options\" id=\"generated-4\" aria-haspopup=\"menu\" aria-expanded=\"false\" data-state=\"closed\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-chevron-down \" aria-hidden=\"true\"><path d=\"M6 9l6 6l6 -6\"></path></svg></button></div><button type=\"button\" class=\"nb-add-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-chart-bar \" aria-hidden=\"true\"><path d=\"M3 13a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -6\"></path><path d=\"M15 9a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -10\"></path><path d=\"M9 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -14\"></path><path d=\"M4 20h14\"></path></svg><span>Chart</span></button><button type=\"button\" class=\"nb-add-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-table-options \" aria-hidden=\"true\"><path d=\"M12 21h-7a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v7\"></path><path d=\"M3 10h18\"></path><path d=\"M10 3v18\"></path><path d=\"M17.001 19a2 2 0 1 0 4 0a2 2 0 1 0 -4 0\"></path><path d=\"M19.001 15.5v1.5\"></path><path d=\"M19.001 21v1.5\"></path><path d=\"M22.032 17.25l-1.299 .75\"></path><path d=\"M17.27 20l-1.3 .75\"></path><path d=\"M15.97 17.25l1.3 .75\"></path><path d=\"M20.733 20l1.3 .75\"></path></svg><span>Pivot</span></button><button type=\"button\" class=\"nb-add-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-hash \" aria-hidden=\"true\"><path d=\"M5 9l14 0\"></path><path d=\"M5 15l14 0\"></path><path d=\"M11 4l-4 16\"></path><path d=\"M17 4l-4 16\"></path></svg><span>Single value</span></button><button type=\"button\" class=\"nb-add-button\" id=\"generated-5\" aria-haspopup=\"menu\" aria-expanded=\"false\" data-state=\"closed\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-forms \" aria-hidden=\"true\"><path d=\"M12 3a3 3 0 0 0 -3 3v12a3 3 0 0 0 3 3\"></path><path d=\"M6 3a3 3 0 0 1 3 3v12a3 3 0 0 1 -3 3\"></path><path d=\"M13 7h7a1 1 0 0 1 1 1v8a1 1 0 0 1 -1 1h-7\"></path><path d=\"M5 7h-1a1 1 0 0 0 -1 1v8a1 1 0 0 0 1 1h1\"></path><path d=\"M17 12h.01\"></path><path d=\"M13 12h.01\"></path></svg><span>Inputs</span><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-chevron-down nb-add-chevron\" aria-hidden=\"true\"><path d=\"M6 9l6 6l6 -6\"></path></svg></button><button type=\"button\" class=\"nb-add-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \" aria-hidden=\"true\"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg><span>Data</span></button><button type=\"button\" class=\"nb-add-button\" id=\"generated-6\" aria-haspopup=\"menu\" aria-expanded=\"false\" data-state=\"closed\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-dots \" aria-hidden=\"true\"><path d=\"M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"></path><path d=\"M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"></path><path d=\"M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"></path></svg><span>More</span></button></div></div></div></div></div><aside class=\"nb-agent-pane\" aria-label=\"Agent\"><div class=\"nb-agent-thread-column\"><div class=\"nb-agent-slot\"><div data-domain-agent=\"\"></div></div><div class=\"nb-agent-composer\"><div class=\"nb-agent-suggestion\"><span>Get better answers in &lt; 5 minutes</span></div><form class=\"nb-agent-composer-frame\"><textarea placeholder=\"Ask a data question...\" aria-label=\"Ask a data question\"></textarea><div class=\"nb-agent-composer-footer\"><div class=\"nb-agent-composer-actions\"><button type=\"submit\" class=\"nb-agent-ask-button\" disabled=\"\">Ask</button><span class=\"nb-agent-model-label\">Default</span></div></div></form></div></div></aside></div></div></div>",
+  "controls": [
+    {
+      "tag": "a",
+      "attributes": {
+        "aria-label": "Home",
+        "class": "nb-brand-mark",
+        "data-discover": "true",
+        "href": "/home",
+        "title": "Home"
+      },
+      "text": "",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-project-title",
+        "title": "Test project",
+        "type": "button"
+      },
+      "text": "Test project",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-expanded": "false",
+        "aria-haspopup": "menu",
+        "aria-label": "Project options",
+        "class": "nb-icon-button nb-title-menu-trigger",
+        "data-state": "closed",
+        "id": "generated-1",
+        "type": "button"
+      },
+      "text": "",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-view-tab",
+        "type": "button"
+      },
+      "text": "Agent",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-current": "page",
+        "class": "nb-view-tab is-active",
+        "type": "button"
+      },
+      "text": "Notebook",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-label": "Variables",
+        "class": "nb-tool-rail-button",
+        "title": "Variables",
+        "type": "button"
+      },
+      "text": "",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-label": "Components",
+        "class": "nb-tool-rail-button",
+        "title": "Components",
+        "type": "button"
+      },
+      "text": "",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-label": "Environment",
+        "class": "nb-tool-rail-button",
+        "title": "Environment",
+        "type": "button"
+      },
+      "text": "",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-label": "Files",
+        "class": "nb-tool-rail-button",
+        "title": "Files",
+        "type": "button"
+      },
+      "text": "",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-label": "Find",
+        "class": "nb-tool-rail-button",
+        "title": "Find",
+        "type": "button"
+      },
+      "text": "",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-label": "Data browser",
+        "class": "nb-tool-rail-button",
+        "title": "Data browser",
+        "type": "button"
+      },
+      "text": "",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-label": "Table of contents",
+        "class": "nb-tool-rail-button",
+        "title": "Table of contents",
+        "type": "button"
+      },
+      "text": "",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-label": "Help & support",
+        "class": "nb-tool-rail-button",
+        "title": "Help & support",
+        "type": "button"
+      },
+      "text": "",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-label": "History & versions",
+        "class": "nb-tool-rail-button",
+        "title": "History & versions",
+        "type": "button"
+      },
+      "text": "",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-label": "Close Files",
+        "class": "nb-side-panel-close",
+        "type": "button"
+      },
+      "text": "",
+      "value": null
+    },
+    {
+      "tag": "input",
+      "attributes": {
+        "accept": ".csv,text/csv",
+        "aria-label": "Import CSV for querying",
+        "hidden": "",
+        "type": "file"
+      },
+      "text": "",
+      "value": ""
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform,scale] duration-150 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
+        "data-slot": "button",
+        "type": "button"
+      },
+      "text": "Import CSV for querying",
+      "value": null
+    },
+    {
+      "tag": "input",
+      "attributes": {
+        "aria-label": "Upload files",
+        "hidden": "",
+        "multiple": "",
+        "type": "file"
+      },
+      "text": "",
+      "value": ""
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform,scale] duration-150 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
+        "data-slot": "button",
+        "type": "button"
+      },
+      "text": "Upload files",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-expanded": "false",
+        "aria-haspopup": "menu",
+        "class": "nb-empty-meta-button",
+        "data-state": "closed",
+        "id": "generated-2",
+        "type": "button"
+      },
+      "text": "Add status",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-expanded": "false",
+        "aria-haspopup": "menu",
+        "class": "nb-empty-meta-button",
+        "data-state": "closed",
+        "id": "generated-3",
+        "type": "button"
+      },
+      "text": "Add categories",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "title": "Test project",
+        "type": "button"
+      },
+      "text": "Test project",
+      "value": null
+    },
+    {
+      "tag": "input",
+      "attributes": {
+        "aria-label": "What would you like to know?",
+        "disabled": "",
+        "placeholder": "What would you like to know?",
+        "value": ""
+      },
+      "text": "",
+      "value": ""
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-empty-connection",
+        "disabled": "",
+        "type": "button"
+      },
+      "text": "No data connection",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-empty-list-item",
+        "type": "button"
+      },
+      "text": "Browse all data",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-empty-list-item",
+        "type": "button"
+      },
+      "text": "Search for data",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-empty-list-item",
+        "type": "button"
+      },
+      "text": "Upload a CSV",
+      "value": null
+    },
+    {
+      "tag": "input",
+      "attributes": {
+        "accept": ".csv,text/csv",
+        "aria-label": "Import CSV for querying",
+        "hidden": "",
+        "type": "file"
+      },
+      "text": "",
+      "value": ""
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-add-button",
+        "type": "button"
+      },
+      "text": "Query",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-add-button",
+        "type": "button"
+      },
+      "text": "Python",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-add-button",
+        "type": "button"
+      },
+      "text": "Text",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-expanded": "false",
+        "aria-haspopup": "menu",
+        "aria-label": "Text options",
+        "class": "nb-icon-button nb-add-split-trigger",
+        "data-state": "closed",
+        "id": "generated-4",
+        "type": "button"
+      },
+      "text": "",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-add-button",
+        "type": "button"
+      },
+      "text": "Chart",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-add-button",
+        "type": "button"
+      },
+      "text": "Pivot",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-add-button",
+        "type": "button"
+      },
+      "text": "Single value",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-expanded": "false",
+        "aria-haspopup": "menu",
+        "class": "nb-add-button",
+        "data-state": "closed",
+        "id": "generated-5",
+        "type": "button"
+      },
+      "text": "Inputs",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-add-button",
+        "type": "button"
+      },
+      "text": "Data",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-expanded": "false",
+        "aria-haspopup": "menu",
+        "class": "nb-add-button",
+        "data-state": "closed",
+        "id": "generated-6",
+        "type": "button"
+      },
+      "text": "More",
+      "value": null
+    },
+    {
+      "tag": "textarea",
+      "attributes": {
+        "aria-label": "Ask a data question",
+        "placeholder": "Ask a data question..."
+      },
+      "text": "",
+      "value": ""
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "nb-agent-ask-button",
+        "disabled": "",
+        "type": "submit"
+      },
+      "text": "Ask",
+      "value": null
+    }
+  ],
+  "extra": null
+}

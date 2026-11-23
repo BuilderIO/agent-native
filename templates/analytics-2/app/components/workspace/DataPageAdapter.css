@@ -1,0 +1,32 @@
+.data-page-resource-facts {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 20px 24px;
+}
+
+.data-page-resource-facts > div {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.data-page-resource-facts dt {
+  color: var(--ws-muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.data-page-resource-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.data-page-readonly-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}

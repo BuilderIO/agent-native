@@ -1,0 +1,89 @@
+<div class="space-y-8">
+<section class="scroll-mt-16">
+<header class="mb-2.5">
+<h2 class="text-sm font-semibold text-foreground">Agent personalization</h2>
+</header>
+<div class="text-card-foreground overflow-hidden rounded-xl border border-border/70 bg-card">
+<div class="divide-y divide-border/60">
+<section class="space-y-3 px-5 py-4" aria-label="Personal preferences">
+<h3 class="text-sm font-medium">Personal preferences</h3>
+<p class="text-sm text-muted-foreground">Your personal preferences inform, but are not a guarantee for your interactions with the agent. <a class="underline" href="https://www.agent-native.com/docs" target="_blank" rel="noreferrer">Learn more</a>
+</p>
+<div class="rounded-sm border">
+<div class="flex justify-end border-b bg-muted px-3 py-2">
+<button data-slot="button" class="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform,scale] duration-150 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5">Save</button>
+</div>
+<textarea class="flex w-full rounded-md border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-32 border-0" aria-label="Personal preferences">Prefer numbered steps.</textarea>
+</div>
+<p class="text-sm text-destructive" role="alert">Preferences changed. Reload before saving.</p>
+</section>
+</div>
+</div>
+</section>
+<section class="scroll-mt-16">
+<header class="mb-2.5">
+<h2 class="text-sm font-semibold text-foreground">Behavior</h2>
+</header>
+<div class="text-card-foreground overflow-hidden rounded-xl border border-border/70 bg-card">
+<div class="divide-y divide-border/60">
+<div class="agent-native-settings-row scroll-mt-16 px-5 py-4 sm:px-6">
+<div class="agent-native-settings-row__layout flex flex-col gap-3">
+<div class="agent-native-settings-row__main flex min-w-0 flex-1 gap-3">
+<div class="min-w-0">
+<div class="flex flex-wrap items-center gap-2">
+<span class="text-sm font-medium text-foreground">Full width Notebook cells</span>
+</div>
+</div>
+</div>
+<div class="agent-native-settings-row__control max-w-full shrink-0">
+<label class="flex items-start gap-2">
+<button type="button" role="switch" aria-checked="false" data-state="unchecked" value="on" data-slot="switch" data-size="default" class="peer group/switch relative inline-flex shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors after:absolute after:-inset-x-px after:top-1/2 after:h-6 after:-translate-y-1/2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 aria-checked:bg-primary aria-[checked=false]:bg-input h-[1.15rem] w-8" aria-label="Full width Notebook cells">
+<span data-state="unchecked" data-slot="switch-thumb" class="pointer-events-none block rounded-full bg-background shadow-sm ring-0 transition-transform group-data-[size=default]/switch:size-4 group-data-[size=sm]/switch:size-3 data-[state=checked]:translate-x-[calc(100%-2px)] data-[state=unchecked]:translate-x-0">
+</span>
+</button>
+</label>
+</div>
+</div>
+</div>
+<div class="agent-native-settings-row scroll-mt-16 px-5 py-4 sm:px-6">
+<div class="agent-native-settings-row__layout flex flex-col gap-3">
+<div class="agent-native-settings-row__main flex min-w-0 flex-1 gap-3">
+<div class="min-w-0">
+<div class="flex flex-wrap items-center gap-2">
+<span class="text-sm font-medium text-foreground">Line numbers</span>
+</div>
+</div>
+</div>
+<div class="agent-native-settings-row__control max-w-full shrink-0">
+<label class="flex items-start gap-2">
+<button type="button" role="switch" aria-checked="false" data-state="unchecked" value="on" data-slot="switch" data-size="default" class="peer group/switch relative inline-flex shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors after:absolute after:-inset-x-px after:top-1/2 after:h-6 after:-translate-y-1/2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 aria-checked:bg-primary aria-[checked=false]:bg-input h-[1.15rem] w-8" aria-label="Line numbers">
+<span data-state="unchecked" data-slot="switch-thumb" class="pointer-events-none block rounded-full bg-background shadow-sm ring-0 transition-transform group-data-[size=default]/switch:size-4 group-data-[size=sm]/switch:size-3 data-[state=checked]:translate-x-[calc(100%-2px)] data-[state=unchecked]:translate-x-0">
+</span>
+</button>
+</label>
+</div>
+</div>
+</div>
+<div class="agent-native-settings-row scroll-mt-16 px-5 py-4 sm:px-6">
+<div class="agent-native-settings-row__layout flex flex-col gap-3">
+<div class="agent-native-settings-row__main flex min-w-0 flex-1 gap-3">
+<div class="min-w-0">
+<div class="flex flex-wrap items-center gap-2">
+<span class="text-sm font-medium text-foreground">Vim key bindings</span>
+</div>
+</div>
+</div>
+<div class="agent-native-settings-row__control max-w-full shrink-0">
+<label class="flex items-start gap-2">
+<button type="button" role="switch" aria-checked="false" data-state="unchecked" value="on" data-slot="switch" data-size="default" class="peer group/switch relative inline-flex shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors after:absolute after:-inset-x-px after:top-1/2 after:h-6 after:-translate-y-1/2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 aria-checked:bg-primary aria-[checked=false]:bg-input h-[1.15rem] w-8" aria-label="Vim key bindings">
+<span data-state="unchecked" data-slot="switch-thumb" class="pointer-events-none block rounded-full bg-background shadow-sm ring-0 transition-transform group-data-[size=default]/switch:size-4 group-data-[size=sm]/switch:size-3 data-[state=checked]:translate-x-[calc(100%-2px)] data-[state=unchecked]:translate-x-0">
+</span>
+</button>
+</label>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>

@@ -1,0 +1,89 @@
+.app-snapshot-grid {
+  --app-snapshot-gap: 12px;
+  container-type: inline-size;
+  display: grid;
+  gap: var(--app-snapshot-gap);
+}
+
+.app-snapshot-row {
+  display: grid;
+  grid-template-columns: repeat(120, minmax(0, 1fr));
+  align-items: start;
+  margin-inline: calc(var(--app-snapshot-gap) / -2);
+}
+
+.app-snapshot-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-snapshot-gap);
+  min-width: 0;
+  padding-inline: calc(var(--app-snapshot-gap) / 2);
+}
+
+.app-snapshot-element {
+  overflow-wrap: anywhere;
+}
+
+.app-snapshot-element > .nb-input-cell {
+  padding: 0;
+}
+
+.app-snapshot-element pre {
+  white-space: pre-wrap;
+}
+
+.app-snapshot-element[data-app-label="false"] .nb-input-cell > .nb-input-label {
+  position: absolute;
+  clip-path: inset(50%);
+}
+
+@container (max-width: 430px) {
+  .app-snapshot-row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--app-snapshot-gap);
+  }
+}
+
+.app-snapshot-tabs {
+  overscroll-behavior-inline: contain;
+}
+
+.app-session-page .app-snapshot-tabs {
+  position: sticky;
+  top: var(--app-session-tabs-offset);
+  z-index: 1;
+  width: 100%;
+  background-color: var(--color-background);
+}
+
+.app-session-progress {
+  height: 2px;
+  background: var(--color-primary);
+  animation: app-session-progress 1.4s ease-in-out infinite alternate;
+  transform-origin: left;
+}
+
+.app-session-progress:dir(rtl) {
+  transform-origin: right;
+}
+
+@keyframes app-session-progress {
+  from {
+    transform: scaleX(0.25);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-session-progress {
+    animation: none;
+  }
+}
+
+.app-snapshot-element:empty {
+  display: none;
+}

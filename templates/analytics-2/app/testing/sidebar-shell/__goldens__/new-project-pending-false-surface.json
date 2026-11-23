@@ -1,0 +1,68 @@
+{
+  "name": "new-project-pending-false",
+  "rows": [],
+  "inputs": {
+    "pending": false,
+    "error": "Synthetic form error",
+    "host": "NewProjectDialog"
+  },
+  "root": {
+    "html": {
+      "lang": "en"
+    },
+    "body": {
+      "data-scroll-locked": "1",
+      "style": "pointer-events: none;"
+    },
+    "inlineCustomProperties": [],
+    "colorScheme": "light",
+    "tokens": {
+      "--ws-accent": "#473982",
+      "--ws-active-bg": "rgba(71, 57, 130, 0.08)",
+      "--ws-active-fg": "#473982",
+      "--ws-bg": "#ffffff",
+      "--ws-border": "#dadde6",
+      "--ws-border-muted": "#ecedf2",
+      "--ws-brand": "#473982",
+      "--ws-card-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 1px 3px rgba(11, 14, 22, 0.04),\n    0 2px 3px rgba(11, 14, 22, 0.03)",
+      "--ws-danger": "#b42318",
+      "--ws-fg": "#01011b",
+      "--ws-hover": "rgba(207, 211, 222, 0.15)",
+      "--ws-icon": "#6a738e",
+      "--ws-mono": "ui-monospace, monospace",
+      "--ws-muted": "#5f6880",
+      "--ws-overlay": "rgba(248, 250, 251, 0.8)",
+      "--ws-placeholder": "#9ca3b4",
+      "--ws-popover-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 4px 12px rgba(11, 14, 22, 0.12)",
+      "--ws-scroll-thumb": "rgba(106, 115, 142, 0.4)",
+      "--ws-search-border": "rgba(0, 0, 0, 0.08)",
+      "--ws-search-muted": "#6b7280",
+      "--ws-sidebar-bg": "#fafafa",
+      "--ws-success": "#29a07c",
+      "--ws-surface": "#ffffff",
+      "--ws-warning": "#b5820a"
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "media": {
+      "drawer": false,
+      "fullWidthDrawer": false,
+      "dark": false
+    },
+    "route": "/home",
+    "hosts": [],
+    "storage": {
+      "local": {},
+      "session": {}
+    },
+    "storageEvents": [],
+    "time": "2026-11-12T08:00:00.000Z",
+    "environment": "happy-dom; no layout engine",
+    "experience": "unused reskin remains off"
+  },
+  "markup": "<span data-radix-focus-guard=\"\" tabindex=\"0\" style=\"opacity: 0; position: fixed; pointer-events: none; outline-color: none; outline-style: none; outline-width: initial;\" data-aria-hidden=\"true\" aria-hidden=\"true\"></span><div data-test-host=\"\" data-aria-hidden=\"true\" aria-hidden=\"true\"></div><div data-state=\"open\" class=\"fixed inset-0 z-[270] bg-background/45 backdrop-blur-[1px] transition-[backdrop-filter] duration-[1000ms] ease-[var(--ease-out-strong)] starting:[backdrop-filter:blur(0px)] motion-reduce:transition-none ws-projects-import-backdrop\" style=\"pointer-events: auto;\" data-aria-hidden=\"true\" aria-hidden=\"true\"></div><div role=\"dialog\" id=\"generated-1\" aria-labelledby=\"generated-2\" data-state=\"open\" class=\"fixed left-1/2 top-1/2 z-[280] grid max-h-[min(760px,calc(100vh-32px))] w-[calc(100vw-24px)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-background p-6 text-foreground shadow-lg outline-none ws-projects-import-dialog\" tabindex=\"-1\" style=\"pointer-events: auto;\"><form><h2 id=\"generated-2\" class=\"text-lg font-semibold leading-none tracking-tight text-foreground\">New project</h2><label class=\"ws-projects-transfer-label\" for=\"generated-3-name\">Name</label><input id=\"generated-3-name\" class=\"ws-projects-transfer-input\" maxlength=\"500\" type=\"text\" value=\"\"><label class=\"ws-projects-transfer-label\" for=\"generated-3-description\">Description</label><textarea id=\"generated-3-description\" class=\"ws-projects-transfer-input ws-new-project-description\" maxlength=\"1000\" placeholder=\"Add description...\"></textarea><p class=\"ws-field-error\" role=\"alert\">Synthetic form error</p><div class=\"ws-projects-import-actions\"><button type=\"button\" class=\"ws-projects-secondary\">Cancel</button><button type=\"submit\" class=\"ws-projects-primary\" disabled=\"\" aria-busy=\"false\">Create project</button></div></form></div><span data-radix-focus-guard=\"\" tabindex=\"0\" style=\"opacity: 0; position: fixed; pointer-events: none; outline-color: none; outline-style: none; outline-width: initial;\" data-aria-hidden=\"true\" aria-hidden=\"true\"></span>",
+  "hiddenCopies": [],
+  "layoutInputs": null
+}

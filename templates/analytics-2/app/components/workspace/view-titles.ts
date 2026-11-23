@@ -1,0 +1,16 @@
+export const VIEW_TITLE_KEYS: Record<string, string> = {
+  home: "analytics.shell.home",
+  all: "analytics.shell.projects",
+  you: "analytics.shell.projects",
+  sharedWithYou: "analytics.shell.projects",
+  sharedWithOrg: "analytics.shell.projects",
+  collections: "analytics.shell.collections",
+  threads: "analytics.shell.threads",
+  tasks: "analytics.shell.tasks",
+  archive: "analytics.shell.archivedTitle",
+  trash: "analytics.shell.trash",
+  data: "dataBrowser.title",
+  explorations: "analytics.navigation.explorations",
+  components: "analytics.catalog.components",
+  library: "analytics.catalog.library",
+};

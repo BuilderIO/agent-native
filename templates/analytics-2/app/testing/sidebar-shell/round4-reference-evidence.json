@@ -1,0 +1,174 @@
+{
+  "canonicalAccountingUpdated": false,
+  "reason": "The canonical ledger is immutable under the new-files-only testing scope. The separate proposal joins prior evidence without granting mounted or strict credit.",
+  "modelFixtures": ["app/testing/sidebar-shell/models/scoped-workspace.tsx"],
+  "phaseWitnesses": [
+    {
+      "fixture": "app-inline-boot-absent",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/app-inline-boot-absent.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "app-inline-boot-light",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/app-inline-boot-light.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "app-inline-boot-dark",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/app-inline-boot-dark.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "app-inline-boot-system",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/app-inline-boot-system.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "app-inline-boot-malformed",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/app-inline-boot-malformed.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    }
+  ],
+  "envelopeWitnesses": [
+    {
+      "fixture": "desktop-default",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/desktop-default.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "workspace-menu",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/workspace-menu.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "workspace-search-empty",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/workspace-search-empty.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "workspace-search-match",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/workspace-search-match.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "workspace-preferences",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/workspace-preferences.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "account-help",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/account-help.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "account-theme-system",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/account-theme-system.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "account-theme-dark",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/account-theme-dark.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "account-theme-light",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/account-theme-light.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "account-theme-system-selected",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/account-theme-system-selected.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "account-theme-system-dark",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/account-theme-system-dark.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "notifications-unbound",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/notifications-unbound.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "notifications-filter",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/notifications-filter.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "notifications-unread",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/notifications-unread.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "create-menu",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/create-menu.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "more-manager",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/more-manager.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "mobile-light-account",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-light-account.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "mobile-light-more",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-light-more.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "mobile-light-create",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-light-create.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "mobile-dark-account",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-dark-account.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "mobile-dark-more",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-dark-more.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "mobile-dark-create",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-dark-create.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "mobile-system-account",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-system-account.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "mobile-system-more",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-system-more.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "fixture": "mobile-system-create",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-system-create.json",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    }
+  ],
+  "journeys": [
+    {
+      "name": "desktop-submenu-remount",
+      "oracle": "WorkspaceShell",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    },
+    {
+      "name": "mobile-workspace-submenu-remount",
+      "oracle": "WorkspaceShell",
+      "spec": "app/skins/reference/sidebar-shell/ThemeOwnership.spec.tsx"
+    }
+  ],
+  "resolvedDifferences": [
+    "D2: scoped theme controllers preserve closed-menu and submenu owner lifecycles; the historical fixture is unchanged."
+  ]
+}

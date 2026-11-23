@@ -1,0 +1,178 @@
+/* Agent entry geometry and presentation. */
+
+.ws-agent.ws-agent-home {
+  background: transparent;
+}
+
+.ws-agent-home-content {
+  width: 100%;
+  max-width: 726px;
+  margin-inline: auto;
+}
+
+.ws-agent.ws-agent-notebook {
+  height: 100%;
+  min-height: 0;
+}
+
+.ws-agent-notebook-tip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 2px 8px;
+  color: var(--ws-muted, #6b7280);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.ws-agent-notebook-tip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-agent-notebook-tip > a {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--ws-border, rgba(120, 120, 120, 0.35));
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+}
+
+.ws-agent.ws-agent-thread {
+  height: 100%;
+  min-height: 0;
+}
+
+.ws-agent-home .agent-composer-root:focus-within {
+  border-color: var(--agent-kit-composer-border-color);
+}
+
+.ws-agent [data-agent-composer-slot="editor-input"]:focus-visible {
+  outline: none;
+}
+
+/* Composer controls in the notebook agent pane and full-page thread view. */
+.nb-agent-pane,
+.ws-agent-thread {
+  --agentkit-composer-radius: 8px;
+  --agentkit-composer-toolbar-control-font-weight: 400;
+  --agentkit-user-bubble-padding-block: 8px;
+  --agentkit-user-bubble-padding-inline: 10px;
+}
+
+:is(.nb-agent-pane, .ws-agent-thread)
+  .agentkit-message[data-role="user"]
+  .agentkit-message-content {
+  border-radius: 12px;
+}
+
+:is(.nb-agent-pane, .ws-agent-thread) .agentkit-message-toolbar,
+:is(.nb-agent-pane, .ws-agent-thread) .agentkit-message-toolbar button {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+:is(.nb-agent-pane, .ws-agent-thread) .agentkit-message-toolbar button {
+  padding: 4px 8px;
+}
+
+:is(.nb-agent-pane, .ws-agent-thread) form.agent-composer-root {
+  padding: 6px;
+  border-radius: 8px;
+}
+
+:is(.nb-agent-pane, .ws-agent-thread)
+  form.agent-composer-root
+  button.agent-composer-send-button {
+  padding-inline: 6px;
+  border-radius: 3px;
+  background: transparent;
+  color: rgb(71, 57, 130);
+}
+
+:is(.nb-agent-pane, .ws-agent-thread)
+  form.agent-composer-root
+  button.shrink-0:not(.agent-composer-send-button) {
+  padding: 4px 8px;
+  color: var(--ws-brand);
+}
+
+.nb-agent-pane
+  form.agent-composer-root
+  button.shrink-0:not(.agent-composer-send-button) {
+  color: var(--ws-muted);
+}
+
+:is(.nb-agent-pane, .ws-agent-thread)
+  form.agent-composer-root
+  :is([aria-haspopup="menu"], [aria-haspopup="dialog"]) {
+  padding: 4px 8px;
+  color: var(--ws-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.nb-agent-pane .ws-agent-thread-picker button[aria-haspopup="menu"] {
+  padding: 4px 8px;
+  color: var(--ws-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.nb-agent-pane .ws-agent-thread-picker .ws-agent-thread-new {
+  padding: 5px 9px;
+  font-weight: 400;
+}
+
+.nb-agent-pane .agentkit-host-composer {
+  border-radius: 11px 11px 8px 8px;
+}
+
+.nb-agent-pane .ws-agent-notebook-tip {
+  padding-bottom: 0;
+  border-radius: 8px;
+  color: var(--ws-fg);
+  font-size: 14px;
+}
+
+.nb-agent-pane .ws-agent-notebook-tip > span {
+  padding-block: 3px;
+  color: var(--ws-fg);
+  font-size: 14px;
+}
+
+.nb-agent-pane h2 {
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.nb-agent-pane a.underline {
+  color: hsl(var(--notebook-agent-link));
+}
+
+.ws-agent-thread .agentkit-transcript {
+  background-color: var(--ws-bg);
+}
+
+.ws-agent-thread .agentkit-message[data-role="assistant"] p {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.ws-agent-thread .agentkit-message[data-role="assistant"] code {
+  font-size: 14px;
+  padding-left: 0;
+  padding-right: 0;
+  border-radius: 0;
+  background-color: transparent;
+}

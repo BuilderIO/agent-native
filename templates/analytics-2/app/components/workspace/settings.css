@@ -1,0 +1,304 @@
+.analytics-skills-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.analytics-skills-header h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.settings-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  color: var(--ws-fg, inherit);
+}
+
+.settings-topbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--ws-border, rgba(120, 120, 130, 0.25));
+}
+
+.settings-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 16px;
+  font-weight: 500;
+  color: inherit;
+  text-decoration: none;
+}
+
+.settings-back:hover {
+  text-decoration: underline;
+}
+
+.settings-split {
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.settings-nav {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 252px;
+  padding: 30px 20px 50px;
+  overflow: auto;
+  border-right: 1px solid var(--ws-border, rgba(120, 120, 130, 0.25));
+}
+
+.settings-nav-group {
+  margin-top: 15px;
+}
+
+.settings-nav-group:first-child {
+  margin-top: 0;
+}
+
+.settings-nav-title {
+  margin: 0 0 4px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.settings-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 3px;
+  color: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  text-decoration: none;
+}
+
+.settings-nav-link:hover {
+  background: var(--ws-hover, rgba(160, 160, 175, 0.1));
+}
+
+.settings-nav-link[aria-current="page"] {
+  /* --ws-active is not declared, so this row's rose pair was a fallback literal,
+     not the theme's selection colour (row 489). */
+  background: var(--ws-active-bg);
+  color: var(--ws-active-fg);
+}
+
+.settings-scroll {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+  padding: 40px;
+  overflow: auto;
+}
+
+.settings-inner {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 30px;
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+/* Workspace label catalogues: asset statuses and asset categories. */
+.ws-labels-section {
+  max-width: 720px;
+}
+
+.ws-labels-title {
+  margin: 0 0 4px;
+  color: var(--ws-fg);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ws-labels-description {
+  margin: 0 0 12px;
+  color: var(--ws-muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.ws-label-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.ws-label-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 4px;
+  color: var(--ws-fg);
+  font-size: 13px;
+}
+
+.ws-label-item:hover {
+  background: var(--ws-hover);
+}
+
+.ws-label-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.ws-label-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-label-remove {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--ws-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ws-label-remove:hover {
+  background: var(--ws-hover);
+  color: var(--ws-fg);
+}
+
+.ws-label-empty {
+  margin: 0 0 12px;
+  color: var(--ws-muted);
+  font-size: 12px;
+}
+
+.ws-label-create {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--ws-border-muted);
+  padding-top: 10px;
+}
+
+.ws-label-create-label {
+  color: var(--ws-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ws-label-create-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ws-label-create-input {
+  width: 220px;
+  border: 1px solid var(--ws-border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  color: var(--ws-fg);
+  background: var(--ws-bg);
+  font: inherit;
+  font-size: 13px;
+}
+
+.ws-label-swatches {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.ws-label-swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--ws-border);
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.ws-label-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--ws-brand);
+  outline-offset: 1px;
+}
+
+.ws-label-create-submit {
+  border: 1px solid var(--ws-border);
+  border-radius: 4px;
+  padding: 4px 12px;
+  background: var(--ws-brand, #2f6fed);
+  color: hsl(var(--primary-foreground, 0 0% 100%));
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ws-label-create-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@media (max-width: 700px) {
+  .settings-split {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .settings-nav {
+    width: 100%;
+    max-height: 180px;
+    padding: 12px 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--ws-border);
+  }
+
+  .settings-nav-link {
+    min-height: 40px;
+  }
+
+  .settings-scroll {
+    flex: 1 0 auto;
+    min-width: 0;
+    padding: 20px 16px;
+    overflow: visible;
+  }
+}

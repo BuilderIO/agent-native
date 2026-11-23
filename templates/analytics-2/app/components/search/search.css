@@ -1,0 +1,937 @@
+.ws-search-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20vh 20px 20px;
+  background: var(--ws-overlay);
+  overflow-y: auto;
+}
+
+.ws-search-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 760px;
+  /* The reference palette is 432 tall open, with room for the Recents rows and the
+     footer; ours grew from the input and read as a stub (fable-screens-1110/B). */
+  height: 432px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(80vh - 20px);
+  color: var(--ws-fg);
+  font-family:
+    "IBM Plex Sans",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 14px;
+  line-height: 18px;
+  background: var(--ws-bg);
+  border-radius: 2px;
+  box-shadow:
+    0 0 0 1px rgba(207, 211, 222, 0.1),
+    0 4px 8px rgba(11, 14, 22, 0.4),
+    0 18px 46px 6px rgba(11, 14, 22, 0.6);
+}
+
+:root.light .ws-search-dialog {
+  box-shadow:
+    0 0 0 1px rgba(11, 14, 22, 0.06),
+    0 4px 8px rgba(11, 14, 22, 0.08),
+    0 18px 46px 6px rgba(11, 14, 22, 0.16);
+}
+
+.ws-search-input-group {
+  position: relative;
+  flex: none;
+  height: 48px;
+}
+
+.ws-search-input-icon {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  color: var(--ws-muted);
+  pointer-events: none;
+}
+
+.ws-search-input {
+  width: 100%;
+  height: 48px;
+  padding: 0 8px 0 48px;
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+  line-height: 40px;
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+
+/* The search field's own text: a placeholder is body text, so it needs 4.5:1 in
+   both themes. --ws-placeholder is #9ca3b4 (2.5:1 on white); the muted ink is
+   4.7:1 on white and 6.5:1 on the dark surface. */
+.ws-search-input::placeholder {
+  color: var(--ws-muted);
+}
+
+.ws-search-divider {
+  flex: none;
+  height: 1px;
+  background: var(--ws-border-muted);
+}
+
+.ws-search-filters {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 10px;
+  white-space: nowrap;
+}
+
+.ws-search-filter {
+  position: relative;
+  flex: none;
+}
+
+.ws-search-filter-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 4px 8px;
+  color: var(--ws-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ws-search-filter-button:hover,
+.ws-search-filter-button[aria-expanded="true"] {
+  background: var(--ws-hover);
+}
+
+.ws-search-filter-button[data-active="true"] {
+  color: var(--ws-brand);
+}
+
+.ws-search-filter-icon {
+  display: flex;
+  align-items: center;
+}
+
+.ws-search-chevron {
+  flex: none;
+}
+
+.ws-search-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 30;
+  min-width: 200px;
+  max-width: 320px;
+  max-height: 320px;
+  padding: 5px;
+  overflow-y: auto;
+  background: var(--ws-bg);
+  border: 1px solid var(--ws-border);
+  border-radius: 3px;
+  box-shadow: var(--ws-popover-shadow);
+}
+
+.ws-search-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 6px 10px;
+  color: var(--ws-fg);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ws-search-menu-item:hover {
+  background: var(--ws-hover);
+}
+
+.ws-search-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ws-search-check {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--ws-bg);
+  border: 1px solid var(--ws-border);
+  border-radius: 2px;
+}
+
+.ws-search-check[data-checked="true"] {
+  background: var(--ws-brand);
+  border-color: var(--ws-brand);
+}
+
+.ws-search-radio {
+  box-sizing: border-box;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--ws-border);
+  border-radius: 50%;
+}
+
+.ws-search-radio[data-checked="true"] {
+  background: var(--ws-brand);
+  border-color: var(--ws-brand);
+  box-shadow: inset 0 0 0 3px var(--ws-bg);
+}
+
+.ws-search-menu-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--ws-border-muted);
+}
+
+.ws-search-menu-reset {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  color: var(--ws-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ws-search-menu-reset:hover {
+  background: var(--ws-hover);
+  color: var(--ws-fg);
+}
+
+.ws-search-filters > .ws-search-menu-reset {
+  width: auto;
+  flex: none;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* The filter row is nowrap, and the menu clips horizontally at its max width, so
+   an unstyled range block ran off the menu's right edge: Apply was drawn in the
+   clipped area, a pointer press there landed outside the filters and closed the
+   menu before the click, and only keyboard Enter could apply a range. */
+.ws-search-range {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 8px 6px;
+  white-space: normal;
+}
+
+.ws-search-range-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ws-muted);
+  font-size: 12px;
+}
+
+.ws-search-range-field input {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 180px;
+  height: 26px;
+  padding: 2px 6px;
+  color: var(--ws-fg);
+  font: inherit;
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid var(--ws-border);
+  border-radius: 3px;
+}
+
+.ws-search-range-apply {
+  align-self: flex-end;
+  height: 24px;
+  padding: 0 10px;
+  color: var(--ws-fg);
+  font: inherit;
+  font-size: 12px;
+  background: var(--ws-hover);
+  border: 1px solid var(--ws-border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ws-search-range-apply:hover {
+  border-color: var(--ws-brand);
+}
+
+.ws-search-range-error {
+  margin: 0;
+  color: var(--ws-danger);
+  font-size: 12px;
+}
+
+.ws-search-menu-empty {
+  margin: 0;
+  padding: 6px 8px;
+  color: var(--ws-muted);
+  font-size: 12px;
+  white-space: normal;
+}
+
+.ws-search-archive-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 4px;
+  color: var(--ws-muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.ws-search-switch {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 28px;
+  height: 16px;
+  background: var(--ws-border);
+  border-radius: 8px;
+  transition: background 120ms ease;
+}
+
+.ws-search-switch[data-checked="true"] {
+  background: var(--ws-brand);
+}
+
+.ws-search-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: var(--ws-bg);
+  border-radius: 50%;
+  transition: transform 120ms ease;
+}
+
+.ws-search-switch[data-checked="true"] .ws-search-switch-thumb {
+  transform: translateX(12px);
+}
+
+.ws-search-filter-clear {
+  flex: none;
+  height: 24px;
+  margin-left: auto;
+  padding: 0 4px;
+  color: var(--ws-muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.ws-search-filter-clear:hover {
+  color: var(--ws-fg);
+}
+
+.ws-search-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 440px;
+  padding: 5px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--ws-scroll-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+.ws-search-section {
+  margin-top: 15px;
+}
+
+.ws-search-section:first-child {
+  margin-top: 0;
+}
+
+.ws-search-section h3 {
+  margin: 4px 0;
+  padding: 0 7px 0 6px;
+  color: var(--ws-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 13px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.ws-search-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 28px;
+  padding: 7px 10px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ws-search-row:hover,
+.ws-search-row[data-active="true"] {
+  background: var(--ws-hover);
+}
+
+.ws-search-row:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.ws-search-row-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-top: 5px;
+  margin-right: 10px;
+  color: color-mix(in srgb, var(--ws-muted) 72%, var(--ws-bg));
+  background: color-mix(in srgb, var(--ws-brand) 10%, transparent);
+  border-radius: 50%;
+}
+
+.ws-search-row-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ws-search-row-title {
+  display: block;
+  min-height: 20px;
+  overflow: hidden;
+  color: var(--ws-fg);
+  font-size: 14px;
+  line-height: 20px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ws-search-row-description {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--ws-muted);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ws-search-row-description[data-error="true"] {
+  color: hsl(var(--destructive));
+}
+
+.ws-search-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--ws-muted);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.ws-search-cell-matches {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 3px 0;
+  min-width: 0;
+}
+
+.ws-search-cell-match {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ws-search-cell-tag {
+  flex: none;
+  padding: 0 4px;
+  color: var(--ws-muted);
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border: 1px solid var(--ws-border-muted);
+  border-radius: 2px;
+}
+
+.ws-search-cell-snippet {
+  overflow: hidden;
+  color: var(--ws-muted);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ws-search-mark {
+  /* Measured 3.75:1 light and 4.27:1 dark against the mark's own background.
+     These two values clear 4.5:1 on those backgrounds (4.86 and 5.82). */
+  color: #5b6478;
+  background: color-mix(in srgb, var(--ws-brand) 22%, transparent);
+  border-radius: 2px;
+}
+
+.dark .ws-search-mark {
+  color: #d0d4dd;
+}
+
+.ws-search-archived {
+  margin-inline-start: 6px;
+  padding: 0 4px;
+  color: var(--ws-muted);
+  font-size: 10px;
+  line-height: 16px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border: 1px solid var(--ws-border);
+  border-radius: 2px;
+}
+
+.ws-search-view-app {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  margin-left: 10px;
+  padding: 3px 8px;
+  color: var(--ws-fg);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  background: transparent;
+  border: 1px solid var(--ws-border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ws-search-view-app:hover {
+  background: var(--ws-hover);
+}
+
+.ws-search-loading {
+  display: grid;
+  place-items: center;
+  padding: 30px 0;
+  color: var(--ws-muted);
+}
+
+.ws-search-spinner {
+  animation: ws-search-spin 1s linear infinite;
+}
+
+@keyframes ws-search-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ws-search-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 30px 16px;
+  color: var(--ws-muted);
+  text-align: center;
+}
+
+.ws-search-state-title {
+  margin: 4px 0 0;
+  color: var(--ws-fg);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ws-search-state-body {
+  max-width: 340px;
+  max-height: 120px;
+  margin: 0;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.ws-search-retry {
+  min-height: 28px;
+  margin-top: 6px;
+  padding: 3px 10px;
+  color: var(--ws-fg);
+  font: inherit;
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid var(--ws-border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ws-search-retry:hover {
+  background: var(--ws-hover);
+}
+
+.ws-search-footer {
+  display: flex;
+  flex: none;
+  gap: 20px;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 6px;
+  color: var(--ws-muted);
+  font-size: 12px;
+  line-height: 16px;
+  box-shadow: inset 0 1px 0 var(--ws-border-muted);
+}
+
+.ws-search-footer-hint,
+.ws-search-footer-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ws-search-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  color: var(--ws-muted);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  text-transform: uppercase;
+  background: var(--ws-bg);
+  border: 1px solid var(--ws-border);
+  border-radius: 3px;
+}
+
+.ws-search-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ws-search-filter-button:focus-visible,
+.ws-search-menu-item:focus-visible,
+.ws-search-menu-reset:focus-visible,
+.ws-search-archive-toggle:focus-visible,
+.ws-search-filter-clear:focus-visible,
+.ws-search-row:focus-visible,
+.ws-search-view-app:focus-visible,
+.ws-search-retry:focus-visible {
+  outline: 2px solid var(--ws-brand);
+  outline-offset: -2px;
+}
+
+@media (max-width: 820px) {
+  .ws-search-overlay {
+    padding: 10vh 16px 16px;
+  }
+
+  .ws-search-dialog {
+    max-width: 100%;
+    max-height: calc(90vh - 10vh);
+  }
+
+  .ws-search-filters {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .ws-search-footer,
+  .ws-search-footer-hint,
+  .ws-search-footer-note {
+    display: none;
+  }
+}
+
+/* A failed refresh keeps the last results and says so quietly; blanking the
+   list for a transient request failure is what read as "Something went wrong". */
+.ws-search-refresh-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--ws-search-border, rgba(0, 0, 0, 0.08));
+  color: var(--ws-search-muted, #6b7280);
+  font-size: 12px;
+}
+
+/* The date filter's own popover: the field and mode dropdowns, Reset, and the
+   calendar the reference draws instead of a preset list. */
+.ws-search-date-menu {
+  width: max-content;
+  max-width: min(580px, calc(100vw - 32px));
+  max-height: min(440px, calc(100vh - 120px));
+  overflow: auto;
+}
+
+@media (max-width: 640px) {
+  .ws-calendar-months {
+    flex-direction: column;
+  }
+}
+
+.ws-search-date-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 1px 1px 1px 3px;
+}
+
+.ws-search-date-selects {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ws-search-select {
+  position: relative;
+  display: flex;
+}
+
+.ws-search-select-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  color: var(--ws-fg);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ws-search-select-button:hover {
+  background: var(--ws-hover);
+}
+
+.ws-search-submenu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 40;
+  min-width: 148px;
+  padding: 5px;
+  background: var(--ws-bg);
+  border: 1px solid var(--ws-border);
+  border-radius: 3px;
+  box-shadow: var(--ws-popover-shadow);
+}
+
+.ws-search-date-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  color: var(--ws-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ws-search-date-reset:hover {
+  color: var(--ws-fg);
+  background: var(--ws-hover);
+}
+
+.ws-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ws-calendar-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.ws-calendar-months {
+  display: flex;
+  gap: 12px;
+}
+
+.ws-calendar-month {
+  min-width: 196px;
+}
+
+.ws-calendar-title {
+  padding: 2px 0 6px;
+  color: var(--ws-fg);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+.ws-calendar-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--ws-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ws-calendar-nav:hover {
+  color: var(--ws-fg);
+  background: var(--ws-hover);
+}
+
+.ws-calendar-weekdays,
+.ws-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+}
+
+.ws-calendar-weekdays {
+  grid-auto-flow: column;
+}
+
+.ws-calendar-weekday {
+  padding: 2px 0;
+  color: var(--ws-muted);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.ws-calendar-day {
+  height: 26px;
+  color: var(--ws-fg);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ws-calendar-day:hover {
+  background: var(--ws-hover);
+}
+
+.ws-calendar-day[data-in-month="false"] {
+  color: var(--ws-muted);
+}
+
+.ws-calendar-day[data-state="selected"],
+.ws-calendar-day[data-state="range-start"],
+.ws-calendar-day[data-state="range-end"] {
+  color: var(--ws-bg);
+  background: var(--ws-brand);
+}
+
+.ws-calendar-day[data-state="in-range"] {
+  background: color-mix(in srgb, var(--ws-brand) 18%, transparent);
+}
+
+.ws-calendar-quick {
+  display: flex;
+  gap: 4px;
+  padding: 2px 3px 0;
+}
+
+.ws-calendar-quick-day {
+  padding: 4px 8px;
+  color: var(--ws-fg);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ws-calendar-quick-day:hover {
+  background: var(--ws-hover);
+}

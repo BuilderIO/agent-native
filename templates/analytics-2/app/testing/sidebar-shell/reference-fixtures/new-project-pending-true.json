@@ -1,0 +1,121 @@
+{
+  "name": "new-project-pending-true",
+  "rows": [
+    "shell.create.new-project"
+  ],
+  "inputs": {
+    "pending": true,
+    "error": null,
+    "host": "NewProjectDialog"
+  },
+  "root": {
+    "html": {
+      "lang": "en"
+    },
+    "body": {},
+    "inlineCustomProperties": [],
+    "colorScheme": "light",
+    "tokens": {
+      "--ws-active-bg": "rgba(71, 57, 130, 0.08)",
+      "--ws-active-fg": "#473982",
+      "--ws-bg": "#ffffff",
+      "--ws-border": "#dadde6",
+      "--ws-border-muted": "#ecedf2",
+      "--ws-brand": "#473982",
+      "--ws-card-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 1px 3px rgba(11, 14, 22, 0.04),\n    0 2px 3px rgba(11, 14, 22, 0.03)",
+      "--ws-danger": "#b42318",
+      "--ws-fg": "#01011b",
+      "--ws-hover": "rgba(207, 211, 222, 0.15)",
+      "--ws-icon": "#6a738e",
+      "--ws-muted": "#6a738e",
+      "--ws-overlay": "rgba(248, 250, 251, 0.8)",
+      "--ws-placeholder": "#9ca3b4",
+      "--ws-popover-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 4px 12px rgba(11, 14, 22, 0.12)",
+      "--ws-scroll-thumb": "rgba(106, 115, 142, 0.4)",
+      "--ws-search-border": "rgba(0, 0, 0, 0.08)",
+      "--ws-search-muted": "#6b7280",
+      "--ws-sidebar-bg": "#fafafa",
+      "--ws-success": "#29a07c",
+      "--ws-warning": "#b5820a"
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "media": {
+      "drawer": false,
+      "fullWidthDrawer": false,
+      "dark": false
+    },
+    "route": "/home",
+    "hosts": [],
+    "storage": {
+      "local": {},
+      "session": {}
+    },
+    "storageEvents": [],
+    "time": "2026-11-12T08:00:00.000Z",
+    "environment": "happy-dom; no layout engine",
+    "experience": "unused reskin remains off"
+  },
+  "markup": "<div data-test-host=\"\"><div class=\"ws-projects-import-backdrop\" role=\"presentation\"><form class=\"ws-projects-import-dialog\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"generated-1-title\"><h2 id=\"generated-1-title\">New project</h2><label class=\"ws-projects-transfer-label\" for=\"generated-1-name\">Name</label><input id=\"generated-1-name\" class=\"ws-projects-transfer-input\" maxlength=\"500\" disabled=\"\" type=\"text\" value=\"\"><label class=\"ws-projects-transfer-label\" for=\"generated-1-description\">Description</label><textarea id=\"generated-1-description\" class=\"ws-projects-transfer-input ws-new-project-description\" maxlength=\"1000\" placeholder=\"Add description...\" disabled=\"\"></textarea><div class=\"ws-projects-import-actions\"><button type=\"button\" class=\"ws-projects-secondary\">Cancel</button><button type=\"submit\" class=\"ws-projects-primary\" disabled=\"\" aria-busy=\"true\">Create project</button></div></form></div></div>",
+  "controls": [
+    {
+      "tag": "form",
+      "attributes": {
+        "aria-labelledby": "_r_1n_-title",
+        "aria-modal": "true",
+        "class": "ws-projects-import-dialog",
+        "role": "dialog"
+      },
+      "text": "New projectNameDescriptionCancelCreate project",
+      "value": null
+    },
+    {
+      "tag": "input",
+      "attributes": {
+        "class": "ws-projects-transfer-input",
+        "disabled": "",
+        "id": "_r_1n_-name",
+        "maxlength": "500",
+        "type": "text",
+        "value": ""
+      },
+      "text": "",
+      "value": ""
+    },
+    {
+      "tag": "textarea",
+      "attributes": {
+        "class": "ws-projects-transfer-input ws-new-project-description",
+        "disabled": "",
+        "id": "_r_1n_-description",
+        "maxlength": "1000",
+        "placeholder": "Add description..."
+      },
+      "text": "",
+      "value": ""
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "ws-projects-secondary",
+        "type": "button"
+      },
+      "text": "Cancel",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-busy": "true",
+        "class": "ws-projects-primary",
+        "disabled": "",
+        "type": "submit"
+      },
+      "text": "Create project",
+      "value": null
+    }
+  ],
+  "extra": null
+}

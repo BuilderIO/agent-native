@@ -1,0 +1,1352 @@
+[
+  {
+    "id": "shell.nav",
+    "scope": "swap",
+    "states": "sidebarOpen; mediumOrSmaller; pathname",
+    "behavior": "setSidebarOpen; route change closes on narrow; persistence: transient; no desktop collapse/resize",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:224-414",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.header",
+    "scope": "swap",
+    "states": "workspace; viewport; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "none; persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:230-251",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.workspace.open",
+    "scope": "swap",
+    "states": "workspace.name; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "open menu; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceMenu.tsx:71-78",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:202-206;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:232-236;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.workspace.preferences",
+    "scope": "swap",
+    "states": "open; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "submenu open; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceMenu.tsx:88-99",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:202-206;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:232-236;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.workspace.preferences.all",
+    "scope": "swap",
+    "states": "none; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /settings/preferences; close menu/drawer; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceMenu.tsx:94-98;templates/analytics-2/app/components/shell/primitives.tsx:91-101",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:202-206;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:232-236;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.workspace.switch.item",
+    "scope": "swap",
+    "states": "workspaces; current workspace; needsLogin; no onSwitchWorkspace/onLogin supplied; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "current closes; others disabled; persistence: server get-workspace-shell supplies list; no switching write",
+    "family_members": "entries[*]/id: current; authenticated alternate; needsLogin; SSO required; subtitle present/absent; search shown above three entries; unbound alternate disabled",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceMenu.tsx:151-205",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:202-206;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:232-236;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.workspace.search",
+    "scope": "swap",
+    "states": "search; entries; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "setSearch; lowercased substring; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceMenu.tsx:123-129",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:202-206;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:232-236;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.workspace.add",
+    "scope": "swap",
+    "states": "canAddWorkspace/handler absent; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "none (disabled; not connected title); persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceMenu.tsx:210-227;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:202-206;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:232-236;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.workspace.log-out",
+    "scope": "swap",
+    "states": "authedCount; handler absent; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "none (disabled); persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceMenu.tsx:230-243;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:202-206;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:232-236;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.workspace.log-out-all",
+    "scope": "swap",
+    "states": "authedCount; handler absent; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "none (disabled); persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceMenu.tsx:245-258;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:202-206;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:232-236;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.theme.system",
+    "scope": "swap",
+    "states": "preference; systemTheme; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "useThemePreference.setPreference(system); html class/data-theme/colorScheme; persistence: localStorage theme; system media",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/ThemeMenuItems.tsx:23-29;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/ThemeMenuItems.tsx:14-14;templates/analytics-2/app/components/shell/WorkspaceMenu.tsx:88-99;templates/analytics-2/app/components/shell/AccountMenu.tsx:90-95;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.theme.light",
+    "scope": "swap",
+    "states": "preference; systemTheme; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "useThemePreference.setPreference(light); html class/data-theme/colorScheme; persistence: localStorage theme; system media",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/ThemeMenuItems.tsx:23-29;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/ThemeMenuItems.tsx:15-15;templates/analytics-2/app/components/shell/WorkspaceMenu.tsx:88-99;templates/analytics-2/app/components/shell/AccountMenu.tsx:90-95;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.theme.dark",
+    "scope": "swap",
+    "states": "preference; systemTheme; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "useThemePreference.setPreference(dark); html class/data-theme/colorScheme; persistence: localStorage theme; system media",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/ThemeMenuItems.tsx:23-29;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/ThemeMenuItems.tsx:16-16;templates/analytics-2/app/components/shell/WorkspaceMenu.tsx:88-99;templates/analytics-2/app/components/shell/AccountMenu.tsx:90-95;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.notifications.open",
+    "scope": "swap",
+    "states": "notifications undefined -> unbound; unreadCount=0; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "popover open; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/NotificationsMenu.tsx:99-116;templates/analytics-2/app/components/shell/NotificationsMenu.tsx:120-120",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:239-239;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.notifications.empty",
+    "scope": "swap",
+    "states": "status=unbound; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "none; persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/NotificationsMenu.tsx:190-194;templates/analytics-2/app/components/shell/NotificationsMenu.tsx:196-203;templates/analytics-2/app/components/shell/NotificationsMenu.tsx:205-220;templates/analytics-2/app/components/shell/NotificationsMenu.tsx:227-230;templates/analytics-2/app/components/shell/NotificationsMenu.tsx:232-238",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:239-239;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.notifications.filter",
+    "scope": "swap",
+    "states": "filter; filterOpen; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "setFilterOpen; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/NotificationsMenu.tsx:123-132",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:239-239;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.notifications.filter.all",
+    "scope": "swap",
+    "states": "filter; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "setFilter(all); close filter; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/NotificationsMenu.tsx:135-150",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:239-239;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.notifications.filter.unread",
+    "scope": "swap",
+    "states": "filter; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "setFilter(unread); close filter; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/NotificationsMenu.tsx:151-166",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:239-239;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.notifications.mark-all-read",
+    "scope": "swap",
+    "states": "canMarkAllRead=false; unbound; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "none (disabled); persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/NotificationsMenu.tsx:170-186",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:239-239;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.create.project",
+    "scope": "swap",
+    "states": "features.canCreateProject; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "onCreateProject when enabled; server feature/permission gate; persistence: server create action; transient dialog for project",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/QuickCreate.tsx:38-48",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:252-257;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.create.thread",
+    "scope": "swap",
+    "states": "features.canCreateThread; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "onCreateThread when enabled; server feature/permission gate; persistence: server create action; transient dialog for project",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/QuickCreate.tsx:49-59",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:252-257;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.create.open",
+    "scope": "swap",
+    "states": "open; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "menu open; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/QuickCreate.tsx:65-73",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:252-257;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.create.menu.project",
+    "scope": "swap",
+    "states": "features; quickCreate.onImportProject; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "onCreateProject -> NewProjectDialog; persistence: server after submit",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/QuickCreate.tsx:83-88;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:252-257;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.create.menu.thread",
+    "scope": "swap",
+    "states": "features; quickCreate.onImportProject; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "onCreateThread -> create-thread; persistence: server after submit",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/QuickCreate.tsx:89-94;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:252-257;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.create.menu.upload-project",
+    "scope": "swap",
+    "states": "features; quickCreate.onImportProject; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "onImportProject -> ImportProjectDialog; persistence: server after submit",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/QuickCreate.tsx:125-129;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:252-257;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.nav.search",
+    "scope": "swap",
+    "states": "onOpenSearch; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "setSearchOpen(true); persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:209-219;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:259-271",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.nav.home",
+    "scope": "swap",
+    "states": "pathname hand checks; features; tasks-2 additionally hasRoutePage; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home; closeOnNavigate; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:274-280;templates/analytics-2/app/components/shell/primitives.tsx:23-37",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.nav.data",
+    "scope": "swap",
+    "states": "pathname hand checks; features; tasks-2 additionally hasRoutePage; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home/data; closeOnNavigate; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:281-287;templates/analytics-2/app/components/shell/primitives.tsx:23-37",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.nav.folders",
+    "scope": "swap",
+    "states": "pathname hand checks; features; tasks-2 additionally hasRoutePage; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home/folders; closeOnNavigate; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:312-318;templates/analytics-2/app/components/shell/primitives.tsx:23-37",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.nav.drafts",
+    "scope": "swap",
+    "states": "pathname hand checks; features; tasks-2 additionally hasRoutePage; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home/drafts; closeOnNavigate; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:319-325;templates/analytics-2/app/components/shell/primitives.tsx:23-37",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.nav.projects",
+    "scope": "swap",
+    "states": "pathname hand checks; features; tasks-2 additionally hasRoutePage; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home/all; closeOnNavigate; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:328-334;templates/analytics-2/app/components/shell/primitives.tsx:23-37",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.nav.collections",
+    "scope": "swap",
+    "states": "pathname hand checks; features; tasks-2 additionally hasRoutePage; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home/collections; closeOnNavigate; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:335-341;templates/analytics-2/app/components/shell/primitives.tsx:23-37",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.nav.threads",
+    "scope": "swap",
+    "states": "pathname hand checks; features; tasks-2 additionally hasRoutePage; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home/threads; closeOnNavigate; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:343-349;templates/analytics-2/app/components/shell/primitives.tsx:23-37",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.nav.tasks",
+    "scope": "swap",
+    "states": "pathname hand checks; features; tasks-2 additionally hasRoutePage; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home/tasks; closeOnNavigate; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:352-358;templates/analytics-2/app/components/shell/primitives.tsx:23-37",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.nav.archive",
+    "scope": "swap",
+    "states": "pathname hand checks; features; tasks-2 additionally hasRoutePage; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home/archive; closeOnNavigate; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:381-387;templates/analytics-2/app/components/shell/primitives.tsx:23-37",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.nav.trash",
+    "scope": "swap",
+    "states": "pathname hand checks; features; tasks-2 additionally hasRoutePage; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home/trash; closeOnNavigate; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:388-394;templates/analytics-2/app/components/shell/primitives.tsx:23-37",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.nav.context",
+    "scope": "swap",
+    "states": "contextStudio && contextStudioEntryAvailable; direct: manager && !contextSetup; setup-card header: manager && contextSetup; More: !manager; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /context-studio/setup; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:298-304;templates/analytics-2/app/components/shell/MoreMenu.tsx:82-87;templates/analytics-2/app/components/shell/ContextSetupCard.tsx:80-87;templates/analytics-2/app/components/shell/primitives.tsx:23-37;templates/analytics-2/app/components/shell/primitives.tsx:91-101",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:288-306;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:360-363;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401;templates/analytics-2/app/components/shell/MoreMenu.tsx:79-88",
+    "presentation_witnesses": "manager direct row; non-manager More row; manager setup-card header; same destination /context-studio/setup"
+  },
+  {
+    "id": "sidebar.context-setup",
+    "scope": "custom",
+    "states": "contextSetup progress/completedSteps; manager/feature gate",
+    "behavior": "none; persistence: server shell read",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/ContextSetupCard.tsx:70-146",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:292-296;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context-setup.connect",
+    "scope": "swap",
+    "states": "completedSteps; firstIncomplete; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /context-studio/setup; close drawer; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/ContextSetupCard.tsx:115-142",
+    "host_binding": "templates/analytics-2/app/components/shell/ContextSetupCard.tsx:111-144;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:292-296;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401;templates/analytics-2/app/components/shell/ContextSetupCard.tsx:21-25",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context-setup.endorse",
+    "scope": "swap",
+    "states": "completedSteps; firstIncomplete; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /context-studio/setup; close drawer; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/ContextSetupCard.tsx:115-142",
+    "host_binding": "templates/analytics-2/app/components/shell/ContextSetupCard.tsx:111-144;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:292-296;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401;templates/analytics-2/app/components/shell/ContextSetupCard.tsx:26-30",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context-setup.improve",
+    "scope": "swap",
+    "states": "completedSteps; firstIncomplete; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /context-studio/setup; close drawer; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/ContextSetupCard.tsx:115-142",
+    "host_binding": "templates/analytics-2/app/components/shell/ContextSetupCard.tsx:111-144;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:292-296;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401;templates/analytics-2/app/components/shell/ContextSetupCard.tsx:31-35",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context-setup.reference",
+    "scope": "swap",
+    "states": "completedSteps; firstIncomplete; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /context-studio/setup; close drawer; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/ContextSetupCard.tsx:115-142",
+    "host_binding": "templates/analytics-2/app/components/shell/ContextSetupCard.tsx:111-144;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:292-296;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401;templates/analytics-2/app/components/shell/ContextSetupCard.tsx:36-40",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context-setup.extend",
+    "scope": "swap",
+    "states": "completedSteps; firstIncomplete; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /context-studio/setup; close drawer; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/ContextSetupCard.tsx:115-142",
+    "host_binding": "templates/analytics-2/app/components/shell/ContextSetupCard.tsx:111-144;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:292-296;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401;templates/analytics-2/app/components/shell/ContextSetupCard.tsx:41-45",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context-setup.govern",
+    "scope": "swap",
+    "states": "completedSteps; firstIncomplete; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /context-studio/setup; close drawer; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/ContextSetupCard.tsx:115-142",
+    "host_binding": "templates/analytics-2/app/components/shell/ContextSetupCard.tsx:111-144;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:292-296;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401;templates/analytics-2/app/components/shell/ContextSetupCard.tsx:46-50",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.more.open",
+    "scope": "swap",
+    "states": "MORE_PATHS exact match; features; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "menu open; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/MoreMenu.tsx:40-49",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:360-363;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.more.components",
+    "scope": "swap",
+    "states": "features; context non-manager rule; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home/components; several targets have no registered page; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/MoreMenu.tsx:59-64;templates/analytics-2/app/components/shell/primitives.tsx:91-101",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:360-363;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.more.library",
+    "scope": "swap",
+    "states": "features; context non-manager rule; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home/library; several targets have no registered page; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/MoreMenu.tsx:66-71;templates/analytics-2/app/components/shell/primitives.tsx:91-101",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:360-363;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.more.explorations",
+    "scope": "swap",
+    "states": "features; context non-manager rule; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home/explorations; several targets have no registered page; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/MoreMenu.tsx:73-78;templates/analytics-2/app/components/shell/primitives.tsx:91-101",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:360-363;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.more.agent-dev-tools",
+    "scope": "swap",
+    "states": "features; context non-manager rule; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /home/agent-dev-tools; several targets have no registered page; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/MoreMenu.tsx:90-95;templates/analytics-2/app/components/shell/primitives.tsx:91-101",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:360-363;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.recents",
+    "scope": "swap",
+    "states": "server rows; open default true; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "toggle open; persistence: transient expansion; server list",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/primitives.tsx:136-177",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:366-370;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.recents.item",
+    "scope": "swap",
+    "states": "row.id/title/href/kind; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate row.href; close drawer; persistence: server list; route",
+    "family_members": "toSectionRows(recents)[*]/id: project; thread; collection; data; navigation href by kind; no item active state",
+    "render_site": "templates/analytics-2/app/components/shell/primitives.tsx:164-173",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:366-370;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.favorite-projects",
+    "scope": "swap",
+    "states": "server rows; open default true; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "toggle open; persistence: transient expansion; server list",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/primitives.tsx:136-177",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:372-377;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:95-95;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:183-188",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.favorite-projects.item",
+    "scope": "swap",
+    "states": "row.id/title/href/kind; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate row.href; close drawer; persistence: server list; route",
+    "family_members": "favorites filtered kind=project then toSectionRows[*]/id; every favorite project; same source order; no active state",
+    "render_site": "templates/analytics-2/app/components/shell/primitives.tsx:164-173",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:372-377;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:95-95;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:183-188",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.favorite-collections",
+    "scope": "swap",
+    "states": "server rows; open default true; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "toggle open; persistence: transient expansion; server list",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/primitives.tsx:136-177",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:372-377;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:96-96;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:183-188",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.favorite-collections.item",
+    "scope": "swap",
+    "states": "row.id/title/href/kind; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate row.href; close drawer; persistence: server list; route",
+    "family_members": "favorites filtered kind=collection then toSectionRows[*]/id; every favorite collection; same source order; no active state",
+    "render_site": "templates/analytics-2/app/components/shell/primitives.tsx:164-173",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:372-377;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:96-96;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:183-188",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.favorite-data",
+    "scope": "swap",
+    "states": "server rows; open default true; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "toggle open; persistence: transient expansion; server list",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/primitives.tsx:136-177",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:372-377;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:97-97;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:183-188",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.favorite-data.item",
+    "scope": "swap",
+    "states": "row.id/title/href/kind; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate row.href; close drawer; persistence: server list; route",
+    "family_members": "favorites filtered kind=data then toSectionRows[*]/id; every favorite data entry; same source order; no active state",
+    "render_site": "templates/analytics-2/app/components/shell/primitives.tsx:164-173",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:372-377;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:97-97;templates/analytics-2/app/components/shell/WorkspaceShell.tsx:183-188",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.footer",
+    "scope": "swap",
+    "states": "user; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "none; persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:397-412",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.account.open",
+    "scope": "swap",
+    "states": "user identity/avatar; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "menu open; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/AccountMenu.tsx:73-86",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:400-400;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.account.theme",
+    "scope": "swap",
+    "states": "preference; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "submenu open; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/AccountMenu.tsx:90-95;templates/analytics-2/app/components/shell/ThemeMenuItems.tsx:21-21",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:400-400;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.account.help",
+    "scope": "swap",
+    "states": "none; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "none; persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/AccountMenu.tsx:96-96",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:400-400;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.account.documentation",
+    "scope": "swap",
+    "states": "accountMenu handlers absent; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "none (disabled with not-connected title); persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/AccountMenu.tsx:97-103;templates/analytics-2/app/components/shell/AccountMenu.tsx:42-53;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:400-400;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.account.changelog",
+    "scope": "swap",
+    "states": "accountMenu handlers absent; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "none (disabled with not-connected title); persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/AccountMenu.tsx:104-110;templates/analytics-2/app/components/shell/AccountMenu.tsx:42-53;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:400-400;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.account.service-status",
+    "scope": "swap",
+    "states": "accountMenu handlers absent; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "none (disabled with not-connected title); persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/AccountMenu.tsx:111-117;templates/analytics-2/app/components/shell/AccountMenu.tsx:42-53;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:400-400;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.account.email-support",
+    "scope": "swap",
+    "states": "accountMenu handlers absent; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "none (disabled with not-connected title); persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/AccountMenu.tsx:119-125;templates/analytics-2/app/components/shell/AccountMenu.tsx:42-53;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:400-400;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.account.copy-debug-info",
+    "scope": "swap",
+    "states": "accountMenu handlers absent; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "none (disabled with not-connected title); persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/AccountMenu.tsx:126-131;templates/analytics-2/app/components/shell/AccountMenu.tsx:42-53;templates/analytics-2/app/components/shell/primitives.tsx:61-73",
+    "host_binding": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:400-400;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.nav.settings",
+    "scope": "swap",
+    "states": "none; host: desktop or <=1050px drawer; theme light/dark/system",
+    "behavior": "navigate /settings; close drawer; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:401-409",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.header.mobile",
+    "scope": "swap",
+    "states": "mediumOrSmaller (<=1050); workspace",
+    "behavior": "none; persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:192-221",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.nav.open",
+    "scope": "swap",
+    "states": "sidebarOpen",
+    "behavior": "setSidebarOpen(true); persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:194-201",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.nav.close",
+    "scope": "swap",
+    "states": "mediumOrSmaller",
+    "behavior": "setSidebarOpen(false); persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:241-248",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.nav.dismiss",
+    "scope": "swap",
+    "states": "mediumOrSmaller && sidebarOpen",
+    "behavior": "setSidebarOpen(false); persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:416-421",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.main",
+    "scope": "swap",
+    "states": "children",
+    "behavior": "none; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:423-423",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.shortcuts",
+    "scope": "swap",
+    "states": "editable target; meta/ctrl; slash",
+    "behavior": "onOpenSearch; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/shell/WorkspaceShell.tsx:133-160",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.frame",
+    "scope": "swap",
+    "states": "resolveRoute; shellQuery; PUBLIC_FRAMES; EMPTY_FRAME_FRAMES",
+    "behavior": "renderFrame/renderPage; route; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:318-320;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:325-335;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:351-351;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:356-358;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:363-373;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:380-401",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:447-450;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:465-483",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.loading",
+    "scope": "swap",
+    "states": "shellQuery isPending/data/error",
+    "behavior": "refetchShell; persistence: query",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:66-87",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:303-305;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:318-320;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:325-335;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:356-358;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:363-373",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.write-error",
+    "scope": "swap",
+    "states": "writeError.action/message",
+    "behavior": "retryWrite(create-project/create-thread); dismiss; persistence: transient; successful writes server",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:101-127",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:394-398",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.search",
+    "scope": "out",
+    "states": "searchOpen; searchFilterOptions",
+    "behavior": "search-workspace; onNavigate close; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:473-482",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:465-483",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.settings.header",
+    "scope": "swap",
+    "states": "activeTab; permissions",
+    "behavior": "navigate /home; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:141-146",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.settings",
+    "scope": "swap",
+    "states": "NAV_GROUPS; role; resolveRoutePage",
+    "behavior": "none; persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:148-170",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.settings.account",
+    "scope": "swap",
+    "states": "role; filter empty groups after has page",
+    "behavior": "none; persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:150-168",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/SettingsShell.tsx:49-61",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.settings.workspace",
+    "scope": "swap",
+    "states": "role; filter empty groups after has page",
+    "behavior": "none; persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:150-168",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/SettingsShell.tsx:62-73",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.settings.access-security",
+    "scope": "swap",
+    "states": "role; filter empty groups after has page",
+    "behavior": "none; persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:150-168",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/SettingsShell.tsx:94-105",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.profile",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/profile; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:52-52;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.preferences",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/preferences; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:53-53;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.notifications",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/notifications; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:54-54;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.connected-apps",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/connected-apps; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:55-55;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.api-keys",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/api-keys; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:56-56;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.skills",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/skills; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:59-59;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.general",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/general; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:66-66;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.organization",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/organization; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:67-67;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.asset-statuses",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/asset-statuses; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:68-68;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.asset-categories",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/asset-categories; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:69-69;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.data-sources",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/data-sources; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:71-71;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.secrets",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/secrets; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:87-87;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.users",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/users; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:98-98;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.groups",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/groups; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:99-99;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.directory-sync",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/directory-sync; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:100-100;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "settings.nav.sso",
+    "scope": "swap",
+    "states": "role; activeTab; resolveRoutePage",
+    "behavior": "navigate /settings/sso; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:155-164",
+    "host_binding": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:102-102;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.settings.projects",
+    "scope": "swap",
+    "states": "canManageWorkspace; Secrets page exists",
+    "behavior": "none; persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:150-168",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138;templates/analytics-2/app/components/workspace/SettingsShell.tsx:83-93",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.settings.main",
+    "scope": "swap",
+    "states": "children",
+    "behavior": "none; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/workspace/SettingsShell.tsx:171-173",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:339-344;templates/analytics-2/app/components/workspace/SettingsShell.tsx:124-138",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.context",
+    "scope": "swap",
+    "states": "header; rail; children",
+    "behavior": "none; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/context/ContextArea.tsx:21-27",
+    "host_binding": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:131-168",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context.header",
+    "scope": "swap",
+    "states": "brand label",
+    "behavior": "none; persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:133-136",
+    "host_binding": "templates/analytics-2/app/components/context/ContextArea.tsx:22-25",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context.observability",
+    "scope": "swap",
+    "states": "translated heading",
+    "behavior": "none; persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:141-152",
+    "host_binding": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:40-47;templates/analytics-2/app/components/context/ContextStudioPage.tsx:140-153;templates/analytics-2/app/components/context/ContextArea.tsx:22-25",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context.management",
+    "scope": "swap",
+    "states": "translated heading",
+    "behavior": "none; persistence: none",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:141-152",
+    "host_binding": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:48-57;templates/analytics-2/app/components/context/ContextStudioPage.tsx:140-153;templates/analytics-2/app/components/context/ContextArea.tsx:22-25",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context.overview",
+    "scope": "swap",
+    "states": "pathname equals destination or starts destination + /; selected display view can independently fall back",
+    "behavior": "navigate /context-studio/overview; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:113-120",
+    "host_binding": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:43-43;templates/analytics-2/app/components/context/ContextStudioPage.tsx:144-150;templates/analytics-2/app/components/context/ContextArea.tsx:22-25",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context.suggestions",
+    "scope": "swap",
+    "states": "pathname equals destination or starts destination + /; selected display view can independently fall back",
+    "behavior": "navigate /context-studio/suggestions; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:113-120",
+    "host_binding": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:44-44;templates/analytics-2/app/components/context/ContextStudioPage.tsx:144-150;templates/analytics-2/app/components/context/ContextArea.tsx:22-25",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context.evals",
+    "scope": "swap",
+    "states": "pathname equals destination or starts destination + /; selected display view can independently fall back",
+    "behavior": "navigate /context-studio/evals; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:113-120",
+    "host_binding": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:45-45;templates/analytics-2/app/components/context/ContextStudioPage.tsx:144-150;templates/analytics-2/app/components/context/ContextArea.tsx:22-25",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context.endorsements",
+    "scope": "swap",
+    "states": "pathname equals destination or starts destination + /; selected display view can independently fall back",
+    "behavior": "navigate /context-studio/endorsements; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:113-120",
+    "host_binding": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:51-51;templates/analytics-2/app/components/context/ContextStudioPage.tsx:144-150;templates/analytics-2/app/components/context/ContextArea.tsx:22-25",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context.guides",
+    "scope": "swap",
+    "states": "pathname equals destination or starts destination + /; selected display view can independently fall back",
+    "behavior": "navigate /context-studio/guides; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:113-120",
+    "host_binding": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:52-52;templates/analytics-2/app/components/context/ContextStudioPage.tsx:144-150;templates/analytics-2/app/components/context/ContextArea.tsx:22-25",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context.models",
+    "scope": "swap",
+    "states": "pathname equals destination or starts destination + /; selected display view can independently fall back",
+    "behavior": "navigate /context-studio/models; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:113-120",
+    "host_binding": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:53-53;templates/analytics-2/app/components/context/ContextStudioPage.tsx:144-150;templates/analytics-2/app/components/context/ContextArea.tsx:22-25",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context.repositories",
+    "scope": "swap",
+    "states": "pathname equals destination or starts destination + /; selected display view can independently fall back",
+    "behavior": "navigate /context-studio/repositories; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:113-120",
+    "host_binding": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:54-54;templates/analytics-2/app/components/context/ContextStudioPage.tsx:144-150;templates/analytics-2/app/components/context/ContextArea.tsx:22-25",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.notebook.tools",
+    "scope": "re-token",
+    "states": "ITEMS.filter(backed)",
+    "behavior": "onSelect(item.id); persistence: transient; re-token depth",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/notebook/ToolRail.tsx:92-105",
+    "host_binding": "templates/analytics-2/app/components/notebook/ProjectEditor.tsx:609-621",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.notebook.find",
+    "scope": "re-token",
+    "states": "backed=true; title/aria-label; no active indicator",
+    "behavior": "toggle adjacent panel (same id closes); persistence: transient; re-token depth",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/notebook/ToolRail.tsx:94-103",
+    "host_binding": "templates/analytics-2/app/components/notebook/ToolRail.tsx:54-59;templates/analytics-2/app/components/notebook/ProjectEditor.tsx:609-621",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.notebook.data-browser",
+    "scope": "re-token",
+    "states": "backed=true; title/aria-label; no active indicator",
+    "behavior": "toggle adjacent panel (same id closes); persistence: transient; re-token depth",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/notebook/ToolRail.tsx:94-103",
+    "host_binding": "templates/analytics-2/app/components/notebook/ToolRail.tsx:60-65;templates/analytics-2/app/components/notebook/ProjectEditor.tsx:609-621",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.notebook.table-of-contents",
+    "scope": "re-token",
+    "states": "backed=true; title/aria-label; no active indicator",
+    "behavior": "toggle adjacent panel (same id closes); persistence: transient; re-token depth",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/notebook/ToolRail.tsx:94-103",
+    "host_binding": "templates/analytics-2/app/components/notebook/ToolRail.tsx:66-71;templates/analytics-2/app/components/notebook/ProjectEditor.tsx:609-621",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.notebook.help",
+    "scope": "re-token",
+    "states": "backed=true; title/aria-label; no active indicator",
+    "behavior": "toggle adjacent panel (same id closes); persistence: transient; re-token depth",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/notebook/ToolRail.tsx:94-103",
+    "host_binding": "templates/analytics-2/app/components/notebook/ToolRail.tsx:72-77;templates/analytics-2/app/components/notebook/ProjectEditor.tsx:609-621",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.notebook.history",
+    "scope": "re-token",
+    "states": "backed=true; title/aria-label; no active indicator",
+    "behavior": "toggle adjacent panel (same id closes); persistence: transient; re-token depth",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/notebook/ToolRail.tsx:94-103",
+    "host_binding": "templates/analytics-2/app/components/notebook/ToolRail.tsx:78-83;templates/analytics-2/app/components/notebook/ProjectEditor.tsx:609-621",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.notebook",
+    "scope": "re-token",
+    "states": "activeTool; agent pane; route",
+    "behavior": "setActiveTool; agent close; persistence: transient",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/notebook/ProjectEditor.tsx:555-992",
+    "host_binding": "templates/analytics-2/app/components/workspace/NotebookPage.tsx:337-387",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.data.back",
+    "scope": "re-token",
+    "states": "connection; tab",
+    "behavior": "onNavigate({tab}); persistence: route; re-token depth",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:1005-1012",
+    "host_binding": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:272-302;templates/analytics-2/app/components/data/DataBrowserPage.tsx:466-499;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:680-744;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:769-769",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.data.connection.item",
+    "scope": "re-token",
+    "states": "ordered connections filtered by available schema types; selected id",
+    "behavior": "navigate to data-connection target; persistence: route; re-token depth",
+    "family_members": "orderConnections filtered to available schema types[*]/id: default/non-default; demo/real; description present/absent; selected/unselected; provider type label",
+    "render_site": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:661-699",
+    "host_binding": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:272-302;templates/analytics-2/app/components/data/DataBrowserPage.tsx:466-499;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:680-744;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:769-769",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.data.connections.status",
+    "scope": "re-token",
+    "states": "error; loading",
+    "behavior": "none; persistence: query; re-token depth",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:633-640;templates/analytics-2/app/components/data/DataBrowserPage.tsx:645-649",
+    "host_binding": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:272-302;templates/analytics-2/app/components/data/DataBrowserPage.tsx:466-499;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:680-744;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:769-769",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.data.connection.add",
+    "scope": "re-token",
+    "states": "canAddConnection",
+    "behavior": "onAdd opens existing connection dialog; persistence: transient; saved connection server",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:704-711",
+    "host_binding": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:272-302;templates/analytics-2/app/components/data/DataBrowserPage.tsx:466-499;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:680-744;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:769-769",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.data.connection.body",
+    "scope": "re-token",
+    "states": "selected template; dialog open",
+    "behavior": "existing connection form actions; persistence: server connection",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/data/AddDataConnectionDialog.tsx:126-167",
+    "host_binding": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:355-369;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:680-744;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:769-769;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:770-789",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.data.refresh",
+    "scope": "re-token",
+    "states": "refresh access allowed/denied/unresolved; refreshing; last-refreshed time",
+    "behavior": "onRefreshCatalog; disabled while unresolved/denied/refreshing; unresolved omits tooltip; permission-read error exposes Retry through ConnectionTreePane; persistence: server catalog",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:1013-1026;templates/analytics-2/app/components/data/DataBrowserPage.tsx:1038-1047;templates/analytics-2/app/components/data/DataBrowserPage.tsx:855-873;templates/analytics-2/app/components/data/DataBrowserPage.tsx:880-890",
+    "host_binding": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:272-302;templates/analytics-2/app/components/data/DataBrowserPage.tsx:466-499;templates/analytics-2/app/components/data/DataBrowserPage.tsx:956-972;templates/analytics-2/app/components/data/DataBrowserPage.tsx:1019-1025;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:680-744;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:769-769",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.data.search",
+    "scope": "re-token",
+    "states": "searchInput; connection.id",
+    "behavior": "setSearchInput -> setSearch; persistence: transient; server-filtered reads; re-token",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:1027-1035",
+    "host_binding": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:272-302;templates/analytics-2/app/components/data/DataBrowserPage.tsx:466-499;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:680-744;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:769-769",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.data.item",
+    "scope": "re-token",
+    "states": "connection; parent; open; selectedNodeId; search; sourceFamily",
+    "behavior": "expand; loadPage; onNavigate; persistence: open transient; selection route; re-token",
+    "family_members": "DatasetTreeItem[*]/id: database; schema; table; selected/unselected; expandable/non-expandable; opened/closed; root/recursive child levels; sourceFamily schemas/databases",
+    "render_site": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:1411-1466",
+    "host_binding": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:272-302;templates/analytics-2/app/components/data/DataBrowserPage.tsx:466-499;templates/analytics-2/app/components/data/DataBrowserPage.tsx:1333-1346;templates/analytics-2/app/components/data/DataBrowserPage.tsx:1454-1466;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:680-744;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:769-769",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.data.item.expand",
+    "scope": "re-token",
+    "states": "expandable; open",
+    "behavior": "setOpen; persistence: transient; no arrow traversal or roving tabindex",
+    "family_members": "every expandable database/schema (and source hasChildren rule); root/recursive child; open/closed; table leaves have spacer instead",
+    "render_site": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:1418-1429",
+    "host_binding": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:272-302;templates/analytics-2/app/components/data/DataBrowserPage.tsx:466-499;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:680-744;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:769-769",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.data.status",
+    "scope": "re-token",
+    "states": "cursor status; rows; moreError",
+    "behavior": "retry / loadMore; abort + generation guard; persistence: query state",
+    "family_members": "every tree level: initial loading; initial error+retry; empty; loading-more; append error+retry; root/recursive child; generation/abort reset",
+    "render_site": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:1310-1314;templates/analytics-2/app/components/data/DataBrowserPage.tsx:1319-1324;templates/analytics-2/app/components/data/DataBrowserPage.tsx:1348-1350;templates/analytics-2/app/components/data/DataBrowserPage.tsx:1353-1355;templates/analytics-2/app/components/data/DataBrowserPage.tsx:1358-1363",
+    "host_binding": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:272-302;templates/analytics-2/app/components/data/DataBrowserPage.tsx:466-499;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:680-744;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:769-769",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.data.more",
+    "scope": "re-token",
+    "states": "hasNextPage; loadingMore; endCursor",
+    "behavior": "loadMore; batch size by source/parent kind; persistence: transient cursor pages",
+    "family_members": "every root/recursive level with hasNextPage and not loadingMore; sourceFamily/parentKind batch policy; Load more; append retry remains status member",
+    "render_site": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:1367-1373",
+    "host_binding": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:272-302;templates/analytics-2/app/components/data/DataBrowserPage.tsx:466-499;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:680-744;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:769-769",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.context.connections",
+    "scope": "swap",
+    "states": "pathname equals /context-studio/connections or child path; lazy connection-page loading",
+    "behavior": "navigate /context-studio/connections; opens lazy DataConnectionsView; persistence: route",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:113-120",
+    "host_binding": "templates/analytics-2/app/components/context/ContextStudioPage.tsx:55-55;templates/analytics-2/app/components/context/ContextStudioPage.tsx:144-150;templates/analytics-2/app/components/context/ContextArea.tsx:22-25",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.create.new-project",
+    "scope": "custom",
+    "states": "importOpen; newProjectOpen; pending/error",
+    "behavior": "import-project; create-project; optional update-project; persistence: server",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/projects/NewProjectDialog.tsx:29-97",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:403-408",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.create.import-project",
+    "scope": "custom",
+    "states": "importOpen; newProjectOpen; pending/error",
+    "behavior": "import-project; create-project; optional update-project; persistence: server",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/projects/ImportProjectDialog.tsx:71-119",
+    "host_binding": "templates/analytics-2/app/components/workspace/WorkspaceApplication.tsx:468-471",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.error",
+    "scope": "swap",
+    "states": "404; other HTTP status; generic error; development error details/stack",
+    "behavior": "Go home recovery; existing report actions; no new recovery behavior",
+    "family_members": "404 route response; other HTTP route response; generic runtime error; non-production Error details and stack; Go home and existing error-report actions",
+    "render_site": "templates/analytics-2/app/root.tsx:324-356",
+    "host_binding": "templates/analytics-2/app/root.tsx:296-321",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "shell.boot.loading",
+    "scope": "toolkit-rendered",
+    "states": "provider readiness",
+    "behavior": "AppProviders skeletonLayout=welcome",
+    "family_members": "-",
+    "render_site": "packages/toolkit/src/app/providers/AppProviders.tsx:638-638",
+    "host_binding": "templates/analytics-2/app/root.tsx:257-274",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  },
+  {
+    "id": "sidebar.data",
+    "scope": "re-token",
+    "states": "no selection; selected connection; loading; read failure",
+    "behavior": "Chooses ConnectionList or SelectedConnectionTreePane; no separate controller",
+    "family_members": "-",
+    "render_site": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:467-499",
+    "host_binding": "templates/analytics-2/app/components/data/DataBrowserPage.tsx:272-302;templates/analytics-2/app/components/data/DataBrowserPage.tsx:466-499;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:680-744;templates/analytics-2/app/components/workspace/DataPageAdapter.tsx:769-769",
+    "presentation_witnesses": "desktop/mobile drawer in home frame; other route-frame gates from cited host"
+  }
+]

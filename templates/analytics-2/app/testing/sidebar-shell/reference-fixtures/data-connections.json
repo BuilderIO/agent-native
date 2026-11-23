@@ -1,0 +1,203 @@
+{
+  "name": "data-connections",
+  "rows": [
+    "sidebar.data",
+    "sidebar.data.connection.item",
+    "sidebar.data.connection.add"
+  ],
+  "inputs": {
+    "host": "DataBrowserPage",
+    "connections": [
+      {
+        "id": "connection-a",
+        "name": "Default connection",
+        "type": "postgresql",
+        "isDefault": true,
+        "description": "Test description"
+      },
+      {
+        "id": "connection-b",
+        "name": "Demo connection",
+        "type": "postgresql",
+        "isDemo": true
+      },
+      {
+        "id": "connection-c",
+        "name": "Other connection",
+        "type": "postgresql"
+      },
+      {
+        "id": "connection-hidden",
+        "name": "Filtered connection",
+        "type": "unavailable"
+      }
+    ],
+    "schemas": [
+      {
+        "type": "postgresql",
+        "name": "PostgreSQL",
+        "supported": true,
+        "sections": [
+          {
+            "id": "basic",
+            "group": "Basic",
+            "fields": [
+              {
+                "id": "name",
+                "label": "Name",
+                "type": "text",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "root": {
+    "html": {
+      "lang": "en"
+    },
+    "body": {},
+    "inlineCustomProperties": [],
+    "colorScheme": "light",
+    "tokens": {
+      "--ws-active-bg": "rgba(71, 57, 130, 0.08)",
+      "--ws-active-fg": "#473982",
+      "--ws-bg": "#ffffff",
+      "--ws-border": "#dadde6",
+      "--ws-border-muted": "#ecedf2",
+      "--ws-brand": "#473982",
+      "--ws-card-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 1px 3px rgba(11, 14, 22, 0.04),\n    0 2px 3px rgba(11, 14, 22, 0.03)",
+      "--ws-danger": "#b42318",
+      "--ws-fg": "#01011b",
+      "--ws-hover": "rgba(207, 211, 222, 0.15)",
+      "--ws-icon": "#6a738e",
+      "--ws-muted": "#6a738e",
+      "--ws-overlay": "rgba(248, 250, 251, 0.8)",
+      "--ws-placeholder": "#9ca3b4",
+      "--ws-popover-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 4px 12px rgba(11, 14, 22, 0.12)",
+      "--ws-scroll-thumb": "rgba(106, 115, 142, 0.4)",
+      "--ws-search-border": "rgba(0, 0, 0, 0.08)",
+      "--ws-search-muted": "#6b7280",
+      "--ws-sidebar-bg": "#fafafa",
+      "--ws-success": "#29a07c",
+      "--ws-warning": "#b5820a"
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "media": {
+      "drawer": false,
+      "fullWidthDrawer": false,
+      "dark": false
+    },
+    "route": "/home/data/all",
+    "hosts": [],
+    "storage": {
+      "local": {},
+      "session": {}
+    },
+    "storageEvents": [],
+    "time": "2026-11-12T08:00:00.000Z",
+    "environment": "happy-dom; no layout engine",
+    "experience": "unused reskin remains off"
+  },
+  "markup": "<div data-test-host=\"\"><div class=\"data-page\"><header class=\"data-page-title\"><span class=\"data-page-title-icon\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg></span><h1>Data browser</h1></header><div class=\"data-page-tabs\" role=\"tablist\" aria-label=\"Data browser\"><button type=\"button\" role=\"tab\" id=\"data-page-tab-recommended\" aria-selected=\"false\" aria-controls=\"data-page-panel-recommended\" class=\"data-page-tab\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-home \" aria-hidden=\"true\"><path d=\"M5 12l-2 0l9 -9l9 9l-2 0\"></path><path d=\"M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7\"></path><path d=\"M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6\"></path></svg><span>Recommended</span></button><button type=\"button\" role=\"tab\" id=\"data-page-tab-all\" aria-selected=\"true\" aria-controls=\"data-page-panel-all\" class=\"data-page-tab is-selected\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \" aria-hidden=\"true\"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg><span>Warehouse</span></button><button type=\"button\" role=\"tab\" id=\"data-page-tab-semantic-layer\" aria-selected=\"false\" aria-controls=\"data-page-panel-semantic-layer\" class=\"data-page-tab\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-sitemap \" aria-hidden=\"true\"><path d=\"M3 17a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2l0 -2\"></path><path d=\"M15 17a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2l0 -2\"></path><path d=\"M9 5a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2l0 -2\"></path><path d=\"M6 15v-1a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v1\"></path><path d=\"M12 9l0 3\"></path></svg><span>Data models</span></button><button type=\"button\" role=\"tab\" id=\"data-page-tab-curation\" aria-selected=\"false\" aria-controls=\"data-page-panel-curation\" class=\"data-page-tab\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-bulb \" aria-hidden=\"true\"><path d=\"M3 12h1m8 -9v1m8 8h1m-15.4 -6.4l.7 .7m12.1 -.7l-.7 .7\"></path><path d=\"M9 16a5 5 0 1 1 6 0a3.5 3.5 0 0 0 -1 3a2 2 0 0 1 -4 0a3.5 3.5 0 0 0 -1 -3\"></path><path d=\"M9.7 17l4.6 0\"></path></svg><span>Curation</span></button></div><div class=\"data-page-panel\" role=\"tabpanel\" id=\"data-page-panel-all\" aria-labelledby=\"data-page-tab-all\" tabindex=\"-1\"><div class=\"data-page-split\"><aside class=\"data-page-rail\" aria-label=\"Data sources\"><div class=\"data-page-connection-list\"><button type=\"button\" data-test=\"workspace-source-item\" class=\"data-page-connection-row\"><span class=\"data-page-connection-name\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \" aria-hidden=\"true\"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg><span>Default connection</span><span class=\"data-page-default-icon\" title=\"This is the default data connection for your workspace\" aria-label=\"This is the default data connection for your workspace\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-rosette-discount-check \"><path d=\"M5 7.2a2.2 2.2 0 0 1 2.2 -2.2h1a2.2 2.2 0 0 0 1.55 -.64l.7 -.7a2.2 2.2 0 0 1 3.12 0l.7 .7c.412 .41 .97 .64 1.55 .64h1a2.2 2.2 0 0 1 2.2 2.2v1c0 .58 .23 1.138 .64 1.55l.7 .7a2.2 2.2 0 0 1 0 3.12l-.7 .7a2.2 2.2 0 0 0 -.64 1.55v1a2.2 2.2 0 0 1 -2.2 2.2h-1a2.2 2.2 0 0 0 -1.55 .64l-.7 .7a2.2 2.2 0 0 1 -3.12 0l-.7 -.7a2.2 2.2 0 0 0 -1.55 -.64h-1a2.2 2.2 0 0 1 -2.2 -2.2v-1a2.2 2.2 0 0 0 -.64 -1.55l-.7 -.7a2.2 2.2 0 0 1 0 -3.12l.7 -.7a2.2 2.2 0 0 0 .64 -1.55v-1\"></path><path d=\"M9 12l2 2l4 -4\"></path></svg></span></span><span class=\"data-page-connection-description\">Test description</span><span class=\"data-page-connection-meta\">PostgreSQL</span></button><button type=\"button\" data-test=\"workspace-source-item\" class=\"data-page-connection-row\"><span class=\"data-page-connection-name\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \" aria-hidden=\"true\"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg><span>Other connection</span></span><span class=\"data-page-connection-meta\">PostgreSQL</span></button><button type=\"button\" data-test=\"workspace-source-item\" class=\"data-page-connection-row\"><span class=\"data-page-connection-name\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \" aria-hidden=\"true\"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg><span>Demo connection</span></span><span class=\"data-page-connection-meta\">Demo <span aria-hidden=\"true\">|</span> PostgreSQL</span></button><div class=\"data-page-add-connection\"><button type=\"button\" data-test=\"workspace-source-add\" class=\"data-page-button data-page-add-button\">Add data connection</button></div></div></aside><main class=\"data-page-main\"><div class=\"data-page-no-data\"><span class=\"data-page-empty-art\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"52\" height=\"52\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-table \"><path d=\"M3 5a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14\"></path><path d=\"M3 10h18\"></path><path d=\"M10 3v18\"></path></svg></span><h2>No data selected</h2><p>Select a data connection to get started</p></div></main></div></div></div></div>",
+  "controls": [
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-controls": "data-page-panel-recommended",
+        "aria-selected": "false",
+        "class": "data-page-tab",
+        "id": "data-page-tab-recommended",
+        "role": "tab",
+        "type": "button"
+      },
+      "text": "Recommended",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-controls": "data-page-panel-all",
+        "aria-selected": "true",
+        "class": "data-page-tab is-selected",
+        "id": "data-page-tab-all",
+        "role": "tab",
+        "type": "button"
+      },
+      "text": "Warehouse",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-controls": "data-page-panel-semantic-layer",
+        "aria-selected": "false",
+        "class": "data-page-tab",
+        "id": "data-page-tab-semantic-layer",
+        "role": "tab",
+        "type": "button"
+      },
+      "text": "Data models",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "aria-controls": "data-page-panel-curation",
+        "aria-selected": "false",
+        "class": "data-page-tab",
+        "id": "data-page-tab-curation",
+        "role": "tab",
+        "type": "button"
+      },
+      "text": "Curation",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "data-page-connection-row",
+        "data-test": "workspace-source-item",
+        "type": "button"
+      },
+      "text": "Default connectionTest descriptionPostgreSQL",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "data-page-connection-row",
+        "data-test": "workspace-source-item",
+        "type": "button"
+      },
+      "text": "Other connectionPostgreSQL",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "data-page-connection-row",
+        "data-test": "workspace-source-item",
+        "type": "button"
+      },
+      "text": "Demo connectionDemo | PostgreSQL",
+      "value": null
+    },
+    {
+      "tag": "button",
+      "attributes": {
+        "class": "data-page-button data-page-add-button",
+        "data-test": "workspace-source-add",
+        "type": "button"
+      },
+      "text": "Add data connection",
+      "value": null
+    }
+  ],
+  "extra": null
+}

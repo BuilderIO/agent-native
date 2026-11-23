@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "onboarding": {
+    "firstRun": "app"
+  },
+  "doctor": {
+    "failOnBuild": true,
+    "dbToolScopingDenylist": {
+      "analytics2_project_versions": "Child rows are accessed only after checking the parent project owner and active organization; generic SQL tools give tables without tenant columns a WHERE 1=0 view. Reviewed against the parent-access DB regressions.",
+      "analytics2_cells": "Child rows are accessed only after checking the parent project owner and active organization; generic SQL tools give tables without tenant columns a WHERE 1=0 view. Reviewed against the parent-access DB regressions.",
+      "analytics2_project_collections": "Child rows are accessed only after checking the parent project owner and active organization; generic SQL tools give tables without tenant columns a WHERE 1=0 view. Reviewed against the parent-access DB regressions.",
+      "analytics2_project_categories": "Child rows are accessed only after checking the parent project owner and active organization; generic SQL tools give tables without tenant columns a WHERE 1=0 view. Reviewed against the parent-access DB regressions.",
+      "analytics2_runs": "Child rows are accessed only after checking the parent project owner and active organization; generic SQL tools give tables without tenant columns a WHERE 1=0 view. Reviewed against the parent-access DB regressions.",
+      "analytics2_cell_outputs": "Child rows are accessed only after checking the parent project owner and active organization; generic SQL tools give tables without tenant columns a WHERE 1=0 view. Reviewed against the parent-access DB regressions.",
+      "analytics2_cell_output_generations": "Internal cell output generation rows are accessed only after checking the parent project owner and active organization; generic SQL tools expose no unscoped child rows.",
+      "analytics2_kernel_operations": "Kernel control receipts require the parent namespace principal and organization. Generic SQL tools expose no unscoped child rows.",
+      "analytics2_notebook_creation_receipts": "Creation receipts can contain private draft cells and are read only through the authorized project creation actions.",
+      "analytics2_published_cell_outputs": "Published result rows are read only after authorizing the parent project and selected version in the active organization, then rechecking current connection access; generic SQL tools expose no unscoped child rows.",
+      "analytics2_publish_previews": "Private preview snapshots require the recording actor and current project edit access.",
+      "analytics2_publish_preview_cancels": "Cancellation receipts are private to the actor under the project.",
+      "analytics2_project_releases": "Immutable release rows require parent project access and role-specific source projection.",
+      "analytics2_release_manifest_outputs": "Release manifest rows are scoped through their parent release. Actions authorize the pinned release and recheck source grants before artifact access.",
+      "analytics2_published_app_sessions": "Private app sessions require access to the session principal and pinned release.",
+      "analytics2_published_app_session_receipts": "Private session receipts require access to the parent session and release.",
+      "analytics2_published_app_default_caches": "Default cache generations require access to the pinned release and its result sources.",
+      "analytics2_published_app_saved_views": "Saved view overrides require the recorded principal and access to the pinned release.",
+      "analytics2_published_app_grants": "App-only grants require access to the project and workspace member.",
+      "analytics2_published_app_share_receipts": "Sharing receipts require the recording actor and current project sharing authority.",
+      "analytics2_published_app_schedules": "Schedule definitions require the project and effective schedule authority.",
+      "analytics2_published_app_schedule_recipients": "Subscriptions require an authorized schedule and recipient.",
+      "analytics2_published_app_schedule_ticks": "Ticks and pinned release state require current project schedule authority.",
+      "analytics2_published_app_schedule_deliveries": "Delivery rows require access to their parent schedule and run.",
+      "analytics2_published_app_schedule_receipts": "Schedule receipts require the recording actor and current project schedule authority.",
+      "analytics2_thread_turns": "Ask turns require parent conversation and producing-source access.",
+      "analytics2_thread_grants": "Conversation access grants require current owner or member authority.",
+      "analytics2_thread_receipts": "Conversation mutation receipts require owner authority."
+    }
+  }
+}

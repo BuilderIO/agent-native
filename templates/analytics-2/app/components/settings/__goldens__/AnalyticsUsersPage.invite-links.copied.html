@@ -1,0 +1,53 @@
+<div class="grid gap-8">
+<div>
+<section class="scroll-mt-16">
+<div class="text-card-foreground overflow-hidden rounded-xl border border-border/70 bg-card">
+<div class="divide-y divide-border/60">
+<div class="agent-native-settings-row scroll-mt-16 px-5 py-4 sm:px-6">
+<div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+<span class="flex min-w-0 flex-1 gap-3">
+<span class="grid min-w-0 gap-1 text-start">
+<span class="text-sm font-medium text-foreground">Allowed email domain</span>
+</span>
+</span>
+<div class="max-w-full shrink-0">
+<span class="flex items-center gap-2">
+<span class="contents">
+<label for=":id:" class="grid gap-1.5">
+<div class="flex items-center gap-2">
+<input data-slot="input" data-size="default" class="flex w-full rounded-md border border-input bg-background px-3 py-1 text-base ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive md:text-sm h-9" id=":id:" aria-label="Allowed email domain" placeholder="example.com" value="">
+</div>
+</label>
+</span>
+</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</div>
+<section aria-labelledby="invite-link-heading" class="space-y-3">
+<div>
+<h2 class="text-sm font-semibold text-foreground" id="invite-link-heading">Invite link</h2>
+<p class="mt-1 text-sm text-muted-foreground">Share a link that opens the workspace invitation for the person you invited.</p>
+</div>
+<ul class="divide-y divide-border rounded-lg border border-border">
+<li class="flex items-center gap-3 p-3" data-invite-link="invite-1">
+<div class="min-w-0 flex-1">
+<p class="truncate text-sm font-medium text-foreground">invited@example.test</p>
+<p class="truncate font-mono text-xs text-muted-foreground">http://localhost:3000/join/invite-1</p>
+</div>
+<button data-slot="button" class="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform,scale] duration-150 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5" type="button">
+<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-link " aria-hidden="true">
+<path d="M9 15l6 -6">
+</path>
+<path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464">
+</path>
+<path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463">
+</path>
+</svg>Copy link</button>
+</li>
+</ul>
+</section>

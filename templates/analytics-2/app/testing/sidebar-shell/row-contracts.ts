@@ -1,0 +1,170 @@
+const link = (href: string) => `a[href="${href}"]`;
+const text = (value: string) => ({ text: value });
+export type Presence = string | { text: string };
+export const presence: Record<string, Presence> = {
+  "shell.nav": ".ws-sidebar",
+  "sidebar.header": ".ws-sidebar-header",
+  "sidebar.workspace.open": ".ws-workspace-trigger",
+  "sidebar.workspace.preferences": text("Preferences"),
+  "sidebar.workspace.preferences.all": link("/settings/preferences"),
+  "sidebar.workspace.switch.item": ".ws-workspace-row",
+  "sidebar.workspace.search": ".ws-workspace-search input",
+  "sidebar.workspace.add": text("Add a new workspace"),
+  "sidebar.workspace.log-out": text("Log out"),
+  "sidebar.workspace.log-out-all": text("Log out of all workspaces"),
+  "sidebar.theme.system": text("System ("),
+  "sidebar.theme.light": text("Light"),
+  "sidebar.theme.dark": text("Dark"),
+  "sidebar.notifications.open": ".ws-bell-button",
+  "sidebar.notifications.empty": ".ws-notifications-empty",
+  "sidebar.notifications.filter": ".ws-filter-button",
+  "sidebar.notifications.filter.all": ".ws-filter-menu button:first-child",
+  "sidebar.notifications.filter.unread": ".ws-filter-menu button:last-child",
+  "sidebar.notifications.mark-all-read": ".ws-notifications-mark",
+  "sidebar.create.project": ".ws-quick-create > button:first-child",
+  "sidebar.create.thread": ".ws-quick-create > button:nth-child(2)",
+  "sidebar.create.open": ".ws-quick-plus",
+  "sidebar.create.menu.project": text("New project"),
+  "sidebar.create.menu.thread": text("New thread"),
+  "sidebar.create.menu.upload-project": text("Upload project"),
+  "sidebar.nav.search": ".ws-search-button",
+  "sidebar.nav.home": link("/home"),
+  "sidebar.nav.data": link("/home/data"),
+  "sidebar.nav.folders": link("/home/folders"),
+  "sidebar.nav.drafts": link("/home/drafts"),
+  "sidebar.nav.projects": link("/home/all"),
+  "sidebar.nav.collections": link("/home/collections"),
+  "sidebar.nav.threads": link("/home/threads"),
+  "sidebar.nav.tasks": link("/home/tasks"),
+  "sidebar.nav.archive": link("/home/archive"),
+  "sidebar.nav.trash": link("/home/trash"),
+  "sidebar.nav.context": link("/context-studio/setup"),
+  "sidebar.context-setup": ".ws-context-card",
+  "sidebar.more.open": text("More"),
+  "sidebar.more.components": link("/home/components"),
+  "sidebar.more.library": link("/home/library"),
+  "sidebar.more.explorations": link("/home/explorations"),
+  "sidebar.more.agent-dev-tools": link("/home/agent-dev-tools"),
+  "sidebar.recents": text("RECENTS"),
+  "sidebar.recents.item": ".ws-section-list .ws-section-row",
+  "sidebar.favorite-projects": text("Favorite projects"),
+  "sidebar.favorite-projects.item": link("/project/project-b/latest"),
+  "sidebar.favorite-collections": text("Favorite collections"),
+  "sidebar.favorite-collections.item": link("/home/collections/collection-b"),
+  "sidebar.favorite-data": text("Favorite data"),
+  "sidebar.favorite-data.item": link("/home/data/data-b"),
+  "sidebar.footer": ".ws-footer",
+  "sidebar.account.open": ".ws-account-button",
+  "sidebar.account.theme": text("Theme"),
+  "sidebar.account.help": text("Help"),
+  "sidebar.account.documentation": text("Documentation"),
+  "sidebar.account.changelog": text("Changelog"),
+  "sidebar.account.service-status": text("Service status"),
+  "sidebar.account.email-support": text("Email support"),
+  "sidebar.account.copy-debug-info": text("Copy debug info..."),
+  "sidebar.nav.settings": link("/settings"),
+  "shell.header.mobile": ".ws-mobile-nav",
+  "shell.nav.open": "button[aria-label='Open navigation']",
+  "shell.nav.close": ".ws-sidebar button[aria-label='Close navigation']",
+  "shell.nav.dismiss": ".ws-overlay",
+  "shell.main": ".ws-content",
+  "shell.shortcuts": ".ws-root",
+  "shell.frame":
+    "[data-domain-content], [data-route-frame], [data-published-app], .ws-root, .context-area, [role='alert'], [role='status']",
+  "shell.loading": "[role='status'],[role='alert']",
+  "shell.write-error": "[data-workspace-write-error]",
+  "shell.settings.header": ".settings-topbar",
+  "sidebar.settings": ".settings-nav",
+  "sidebar.settings.account": text("Account"),
+  "sidebar.settings.workspace": text("Workspace"),
+  "sidebar.settings.access-security": text("Access & Security"),
+  "sidebar.settings.projects": text("Projects"),
+  "shell.settings.main": ".settings-inner",
+  "shell.context": ".context-area",
+  "sidebar.context.header": ".context-studio-brand",
+  "sidebar.context.observability": ".context-rail-group:first-child",
+  "sidebar.context.management": ".context-rail-group:last-child",
+  "shell.notebook": ".nb-root",
+  "sidebar.notebook.tools": ".nb-tool-rail",
+  "sidebar.notebook.find": ".nb-tool-rail-button[aria-label='Find']",
+  "sidebar.notebook.data-browser":
+    ".nb-tool-rail-button[aria-label='Data browser']",
+  "sidebar.notebook.table-of-contents":
+    ".nb-tool-rail-button[aria-label='Table of contents']",
+  "sidebar.notebook.help": ".nb-tool-rail-button[aria-label='Help & support']",
+  "sidebar.notebook.history":
+    ".nb-tool-rail-button[aria-label='History & versions']",
+  "sidebar.data": ".data-page-rail",
+  "sidebar.data.back": ".data-page-all-sources",
+  "sidebar.data.connection.item": ".data-page-connection-row",
+  "sidebar.data.connections.status":
+    ".data-page-rail [role='status'],.data-page-rail [role='alert']",
+  "sidebar.data.connection.add": ".data-page-add-connection button",
+  "sidebar.data.connection.body": ".data-modal",
+  "sidebar.data.refresh": ".data-page-refresh",
+  "sidebar.data.search": ".data-page-search input",
+  "sidebar.data.item": ".data-page-tree-label",
+  "sidebar.data.item.expand": ".data-page-tree-caret",
+  "sidebar.data.status":
+    ".data-page-tree-pane [role='status'],.data-page-tree-pane [role='alert'],.data-page-tree-status",
+  "sidebar.data.more": ".data-page-load-more",
+  "shell.create.new-project": "form[role='dialog']",
+  "shell.create.import-project": "div.ws-projects-import-dialog[role='dialog']",
+  "shell.error": "main h1",
+  "shell.boot.loading": "[data-agent-native-app-skeleton]",
+};
+for (const step of [
+  "connect",
+  "endorse",
+  "improve",
+  "reference",
+  "extend",
+  "govern",
+]) {
+  presence[`sidebar.context-setup.${step}`] = text(
+    step.charAt(0).toUpperCase() + step.slice(1),
+  );
+}
+for (const tab of [
+  "profile",
+  "preferences",
+  "notifications",
+  "connected-apps",
+  "api-keys",
+  "skills",
+  "general",
+  "organization",
+  "asset-statuses",
+  "asset-categories",
+  "data-sources",
+  "secrets",
+  "users",
+  "groups",
+  "directory-sync",
+  "sso",
+]) {
+  presence[`settings.nav.${tab}`] = link(`/settings/${tab}`);
+}
+for (const view of [
+  "overview",
+  "suggestions",
+  "evals",
+  "endorsements",
+  "guides",
+  "models",
+  "repositories",
+  "connections",
+]) {
+  presence[`sidebar.context.${view}`] = link(`/context-studio/${view}`);
+}
+export function isPresent(root: ParentNode, id: string) {
+  const contract = presence[id];
+  if (!contract) throw new Error(`Missing observation selector ${id}`);
+  return typeof contract === "string"
+    ? root.querySelector(contract) !== null
+    : [
+        ...root.querySelectorAll(
+          "button,a,h2,.ws-menu-heading,.ws-section-title",
+        ),
+      ].some((el) => el.textContent?.trim().includes(contract.text));
+}

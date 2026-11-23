@@ -1,0 +1,998 @@
+/* Projects list. Geometry and control row follow the recovered Projects tab. */
+
+.ws-projects {
+  --ws-projects-line: var(--ws-border);
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 100%;
+  color: var(--ws-fg);
+  background: var(--ws-bg);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+/* ---------- Title row ---------- */
+
+.ws-projects-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 32px 55px 14px 28px;
+}
+
+.ws-projects-heading {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ws-projects-heading-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.ws-projects-heading-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ws-fg) 8%, transparent);
+  color: var(--ws-muted);
+}
+
+.ws-projects-title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--ws-fg);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ws-projects-header-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.ws-projects-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--ws-success) 34%, var(--ws-bg));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ws-success) 8%, var(--ws-bg));
+  color: var(--ws-success);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ws-projects-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ws-success) 13%, var(--ws-bg));
+}
+
+.ws-projects-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ws-projects-split-button {
+  display: inline-flex;
+  align-items: center;
+}
+
+.ws-projects-split-button > .ws-projects-primary:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.ws-projects-split-trigger {
+  padding: 0 6px;
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.ws-projects-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--ws-danger) 34%, var(--ws-bg));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ws-danger) 8%, var(--ws-bg));
+  color: var(--ws-danger);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ws-projects-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ws-danger, #b42318) 13%, var(--ws-bg));
+}
+
+.ws-projects-danger:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ---------- Controls ---------- */
+
+.ws-projects-controls {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 55px 19px 28px;
+}
+
+.ws-projects-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ws-projects-filter-button {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  gap: 2px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ws-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.ws-projects-filter-button:hover {
+  background: var(--ws-hover);
+  color: var(--ws-fg);
+}
+
+.ws-projects-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  gap: 3px;
+  padding: 0 8px;
+  border: 1px solid var(--ws-border);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ws-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ws-projects-chip:hover,
+.ws-projects-chip[aria-pressed="true"] {
+  border-color: var(--ws-border);
+  background: var(--ws-hover);
+  color: var(--ws-fg);
+}
+
+.ws-projects-filter-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.ws-projects-search-filter {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--ws-border);
+  border-radius: 2px;
+  color: var(--ws-muted);
+  font-size: 12px;
+}
+
+.ws-projects-search-label {
+  flex: none;
+  cursor: text;
+}
+
+.ws-projects-search-filter input {
+  width: 148px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ws-fg);
+  font: inherit;
+  font-size: 12px;
+}
+
+.ws-projects-search-filter input::placeholder {
+  color: var(--ws-placeholder);
+}
+
+.ws-projects-reset {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ws-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ws-projects-reset:hover {
+  background: var(--ws-hover);
+  color: var(--ws-fg);
+}
+
+.ws-projects-icon-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ws-muted);
+  cursor: pointer;
+}
+
+.ws-projects-icon-button:hover:not(:disabled) {
+  background: var(--ws-hover);
+  color: var(--ws-fg);
+}
+
+.ws-projects-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.ws-projects-icon-button.is-active {
+  color: var(--ws-fg);
+}
+
+.ws-projects-control-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ws-projects-sort,
+.ws-projects-display-wrap,
+.ws-projects-more-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.ws-projects-sort-button {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  gap: 4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ws-fg);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ws-projects-sort-button:hover {
+  background: var(--ws-hover);
+}
+
+.ws-projects-layout-toggle {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---------- Popovers ---------- */
+
+.ws-projects-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 184px;
+  max-height: min(70vh, 520px);
+  padding: 5px;
+  overflow-y: auto;
+  border-radius: 3px;
+  background: var(--ws-bg);
+  color: var(--ws-fg);
+  box-shadow: var(--ws-popover-shadow);
+}
+
+.ws-projects-sort-menu {
+  left: 0;
+  right: auto;
+}
+
+.ws-projects-more-menu {
+  left: 0;
+  right: auto;
+}
+
+.ws-projects-display-menu {
+  width: 268px;
+}
+
+.ws-projects-menu-heading {
+  margin: 0;
+  padding: 6px 8px 4px;
+  color: var(--ws-muted);
+  font-size: 10px;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.ws-projects-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 28px;
+  gap: 7px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ws-fg);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ws-projects-menu-item:hover:not(:disabled) {
+  background: var(--ws-hover);
+}
+
+.ws-projects-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.ws-projects-menu-item.is-active {
+  background: var(--ws-active-bg);
+  color: var(--ws-active-fg);
+}
+
+.ws-projects-favorite-mark {
+  flex: none;
+  color: var(--ws-warning, #b5820a);
+}
+
+.ws-projects-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ws-projects-menu-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--ws-border-muted);
+}
+
+.ws-projects-menu-note {
+  margin: 0;
+  padding: 6px 8px 8px;
+  color: var(--ws-muted);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.ws-projects-column-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  color: var(--ws-fg);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.ws-projects-column-option:hover {
+  background: var(--ws-hover);
+}
+
+.ws-projects-column-option input {
+  flex: none;
+  margin: 0;
+  accent-color: var(--ws-brand);
+}
+
+/* ---------- Table ---------- */
+
+.ws-projects-table-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-left: 36px;
+  overflow: auto;
+}
+
+.ws-projects-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  min-width: 100%;
+  font-size: 14px;
+}
+
+.ws-projects-table thead th,
+.ws-projects-table tbody td {
+  border-right: 1px solid var(--ws-projects-line);
+}
+
+.ws-projects-table thead th:last-child,
+.ws-projects-table tbody td:last-child {
+  border-right: 0;
+}
+
+.ws-projects-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--ws-projects-line);
+  background: var(--ws-bg);
+  color: var(--ws-muted);
+  font-size: 14px;
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ws-projects-header-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ws-projects-header-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ws-projects-header-button:hover {
+  color: var(--ws-fg);
+}
+
+.ws-projects-table tbody td {
+  box-sizing: border-box;
+  height: 44px;
+  max-width: 0;
+  padding: 0 12px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--ws-border-muted);
+  color: var(--ws-fg);
+  vertical-align: middle;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ws-projects-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--ws-fg) 3%, transparent);
+}
+
+.ws-projects-title-cell {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  gap: 8px;
+  color: var(--ws-muted);
+}
+
+.ws-projects-title-link {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ws-fg);
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ws-projects-title-link:hover {
+  text-decoration: underline;
+}
+
+.ws-projects-row-actions,
+.ws-projects-row-favorite,
+.ws-projects-add-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ws-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.ws-projects-row-actions {
+  margin-inline-start: auto;
+}
+
+.ws-projects-add-status {
+  gap: 5px;
+  padding: 0 4px;
+  font: inherit;
+  opacity: 1;
+}
+
+.ws-projects-table tbody tr:hover .ws-projects-row-actions,
+.ws-projects-table tbody tr:hover .ws-projects-row-favorite,
+.ws-projects-table tbody tr:hover .ws-projects-add-status,
+.ws-projects-card:hover .ws-projects-row-favorite,
+.ws-projects-row-actions:focus-visible,
+.ws-projects-row-actions[aria-expanded="true"],
+.ws-projects-row-favorite:focus-visible,
+.ws-projects-row-favorite[aria-pressed="true"],
+.ws-projects-add-status:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none), (pointer: coarse), (max-width: 767px) {
+  .ws-projects-row-actions,
+  .ws-projects-row-favorite,
+  .ws-projects-add-status {
+    opacity: 1;
+  }
+}
+
+.ws-projects-row-actions:hover,
+.ws-projects-row-favorite:hover,
+.ws-projects-add-status:hover {
+  background: var(--ws-hover);
+  color: var(--ws-fg);
+}
+
+.ws-projects-row-favorite[aria-pressed="true"] {
+  color: var(--ws-warning);
+}
+
+.ws-projects-owner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ws-projects-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ws-fg) 12%, transparent);
+  color: var(--ws-fg);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.ws-projects-cell-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ws-projects-gap {
+  color: var(--ws-placeholder);
+  cursor: help;
+}
+
+/* ---------- Loading / error / empty ---------- */
+
+.ws-projects-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 260px;
+  padding: 40px 24px 64px;
+  color: var(--ws-muted);
+  text-align: center;
+}
+
+.ws-projects-state-icon {
+  color: var(--ws-muted);
+}
+
+.ws-projects-state-title {
+  margin: 0;
+  color: var(--ws-fg);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.ws-projects-state-description {
+  max-width: 440px;
+  margin: 0;
+  color: var(--ws-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.ws-projects-state-detail {
+  max-width: 520px;
+  margin: 0;
+  color: var(--ws-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.ws-projects-spinner {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border: 2px solid color-mix(in srgb, var(--ws-border) 70%, transparent);
+  border-top-color: var(--ws-brand);
+  border-radius: 50%;
+  animation: ws-projects-spin 0.8s linear infinite;
+}
+
+@keyframes ws-projects-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- Card layout ---------- */
+
+.ws-projects-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  padding: 16px 28px 32px;
+}
+
+.ws-projects-card {
+  display: flex;
+  min-height: 132px;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--ws-border);
+  border-radius: 6px;
+  padding: 16px;
+  background: var(--ws-bg);
+  transition: border-color 120ms ease;
+}
+
+.ws-projects-card:hover {
+  border-color: color-mix(in srgb, var(--ws-border) 55%, var(--ws-fg));
+}
+
+.ws-projects-card-description {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ws-muted);
+  font-size: 13px;
+  line-height: 18px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.ws-projects-card-meta {
+  margin-top: auto;
+  color: var(--ws-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/* ---------- Import project dialog ---------- */
+
+.ws-projects-import-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.ws-projects-import-dialog {
+  width: min(440px, calc(100vw - 32px));
+  border: 1px solid var(--ws-border);
+  border-radius: 6px;
+  padding: 20px;
+  color: var(--ws-fg);
+  background: var(--ws-bg);
+  box-shadow: 0 18px 60px rgb(0 0 0 / 0.25);
+}
+
+.ws-projects-import-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.ws-projects-import-dialog p {
+  margin: 0 0 12px;
+  color: var(--ws-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.ws-projects-import-file,
+.ws-projects-import-summary {
+  color: var(--ws-fg) !important;
+}
+
+.ws-projects-import-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.ws-projects-transfer-label {
+  display: block;
+  margin: 4px 0 6px;
+  color: var(--ws-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ws-projects-transfer-input {
+  width: 100%;
+  border: 1px solid var(--ws-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: var(--ws-fg);
+  background: var(--ws-bg);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.ws-projects-transfer-input:focus {
+  border-color: var(--ws-brand);
+  outline: 2px solid color-mix(in srgb, var(--ws-brand) 24%, transparent);
+  outline-offset: 1px;
+}
+
+/* Project categories: the organisation catalogue, applied per project. */
+.ws-projects-category-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ws-projects-date-chip {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: rgba(220, 38, 38, 0.14);
+  color: #dc2626;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.ws-projects-category-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 140px;
+  border: 1px solid var(--ws-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  color: var(--ws-muted);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-projects-category-dot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.ws-projects-category-options {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.ws-projects-category-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 2px;
+  color: var(--ws-fg);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ws-projects-category-create {
+  margin-top: 12px;
+  border-top: 1px solid var(--ws-border);
+  padding-top: 8px;
+}
+
+.ws-projects-category-create-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ws-projects-category-swatches {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.ws-projects-category-swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--ws-border);
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.ws-projects-category-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--ws-brand);
+  outline-offset: 1px;
+}
+
+/* The new-project dialog's description field. */
+.ws-new-project-description {
+  min-height: 84px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+/* Character count for a length-limited field. */
+.ws-char-count {
+  display: inline-block;
+  margin-top: 2px;
+  color: var(--ws-muted);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.ws-char-count.is-warning {
+  color: var(--ws-warning, #9a6700);
+}
+
+.ws-char-count.is-over {
+  color: var(--ws-danger, #b42318);
+}
+
+/* Checkmark column in the projects filter menu. */
+.ws-projects-menu-check {
+  display: inline-block;
+  width: 12px;
+  color: var(--ws-brand);
+  font-size: 11px;
+}
+
+.ws-projects-subtitle {
+  margin: 12px 0 0 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: hsl(var(--muted-foreground));
+}
+
+.ws-projects-subtitle a {
+  margin-inline-start: 4px;
+  color: var(--ws-brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+@media (max-width: 945px) {
+  .ws-projects[data-list-view="archive"] .ws-projects-header,
+  .ws-projects[data-list-view="trash"] .ws-projects-header {
+    padding: 16px;
+  }
+
+  .ws-projects[data-list-view="archive"] .ws-projects-controls,
+  .ws-projects[data-list-view="trash"] .ws-projects-controls {
+    padding: 0 16px 16px 16px;
+  }
+}
+
+.ws-projects-status-chip {
+  background: transparent;
+  cursor: pointer;
+}
+
+.ws-projects-status-chip:hover {
+  background: var(--ws-hover);
+}
+
+.ws-projects-select-cell {
+  padding: 0 12px;
+  text-align: center;
+}
+
+.ws-projects-selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--ws-projects-line);
+  font-size: 14px;
+}

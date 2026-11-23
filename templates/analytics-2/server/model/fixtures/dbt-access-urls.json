@@ -1,0 +1,275 @@
+[
+  {
+    "input": "cloud.getdbt.com",
+    "expected": {
+      "admin": "https://cloud.getdbt.com",
+      "metadata": "https://metadata.cloud.getdbt.com/graphql"
+    }
+  },
+  {
+    "input": "metadata.cloud.getdbt.com",
+    "expected": {
+      "admin": "https://cloud.getdbt.com",
+      "metadata": "https://metadata.cloud.getdbt.com/graphql"
+    }
+  },
+  {
+    "input": "semantic-layer.cloud.getdbt.com",
+    "expected": {
+      "admin": "https://cloud.getdbt.com",
+      "metadata": "https://metadata.cloud.getdbt.com/graphql"
+    }
+  },
+  {
+    "input": "emea.dbt.com",
+    "expected": {
+      "admin": "https://emea.dbt.com",
+      "metadata": "https://metadata.emea.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "metadata.emea.dbt.com",
+    "expected": {
+      "admin": "https://emea.dbt.com",
+      "metadata": "https://metadata.emea.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "semantic-layer.emea.dbt.com",
+    "expected": {
+      "admin": "https://emea.dbt.com",
+      "metadata": "https://metadata.emea.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "au.dbt.com",
+    "expected": {
+      "admin": "https://au.dbt.com",
+      "metadata": "https://metadata.au.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "metadata.au.dbt.com",
+    "expected": {
+      "admin": "https://au.dbt.com",
+      "metadata": "https://metadata.au.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "semantic-layer.au.dbt.com",
+    "expected": {
+      "admin": "https://au.dbt.com",
+      "metadata": "https://metadata.au.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "cloud.qa-tenant.getdbt.com",
+    "expected": {
+      "admin": "https://cloud.qa-tenant.getdbt.com",
+      "metadata": "https://metadata.cloud.qa-tenant.getdbt.com/graphql"
+    }
+  },
+  {
+    "input": "metadata.cloud.qa-tenant.getdbt.com",
+    "expected": {
+      "admin": "https://cloud.qa-tenant.getdbt.com",
+      "metadata": "https://metadata.cloud.qa-tenant.getdbt.com/graphql"
+    }
+  },
+  {
+    "input": "semantic-layer.cloud.qa-tenant.getdbt.com",
+    "expected": {
+      "admin": "https://cloud.qa-tenant.getdbt.com",
+      "metadata": "https://metadata.cloud.qa-tenant.getdbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.us1.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.us1.dbt.com",
+      "metadata": "https://qa-account.metadata.us1.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.metadata.us1.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.us1.dbt.com",
+      "metadata": "https://qa-account.metadata.us1.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.semantic-layer.us1.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.us1.dbt.com",
+      "metadata": "https://qa-account.metadata.us1.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.us2.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.us2.dbt.com",
+      "metadata": "https://qa-account.metadata.us2.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.metadata.us2.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.us2.dbt.com",
+      "metadata": "https://qa-account.metadata.us2.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.semantic-layer.us2.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.us2.dbt.com",
+      "metadata": "https://qa-account.metadata.us2.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.us3.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.us3.dbt.com",
+      "metadata": "https://qa-account.metadata.us3.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.metadata.us3.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.us3.dbt.com",
+      "metadata": "https://qa-account.metadata.us3.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.semantic-layer.us3.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.us3.dbt.com",
+      "metadata": "https://qa-account.metadata.us3.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.eu1.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.eu1.dbt.com",
+      "metadata": "https://qa-account.metadata.eu1.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.metadata.eu1.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.eu1.dbt.com",
+      "metadata": "https://qa-account.metadata.eu1.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.semantic-layer.eu1.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.eu1.dbt.com",
+      "metadata": "https://qa-account.metadata.eu1.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.eu2.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.eu2.dbt.com",
+      "metadata": "https://qa-account.metadata.eu2.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.metadata.eu2.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.eu2.dbt.com",
+      "metadata": "https://qa-account.metadata.eu2.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.semantic-layer.eu2.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.eu2.dbt.com",
+      "metadata": "https://qa-account.metadata.eu2.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.eu3.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.eu3.dbt.com",
+      "metadata": "https://qa-account.metadata.eu3.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.metadata.eu3.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.eu3.dbt.com",
+      "metadata": "https://qa-account.metadata.eu3.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.semantic-layer.eu3.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.eu3.dbt.com",
+      "metadata": "https://qa-account.metadata.eu3.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.eu4.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.eu4.dbt.com",
+      "metadata": "https://qa-account.metadata.eu4.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.metadata.eu4.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.eu4.dbt.com",
+      "metadata": "https://qa-account.metadata.eu4.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.semantic-layer.eu4.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.eu4.dbt.com",
+      "metadata": "https://qa-account.metadata.eu4.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.au1.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.au1.dbt.com",
+      "metadata": "https://qa-account.metadata.au1.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.metadata.au1.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.au1.dbt.com",
+      "metadata": "https://qa-account.metadata.au1.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.semantic-layer.au1.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.au1.dbt.com",
+      "metadata": "https://qa-account.metadata.au1.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.jp1.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.jp1.dbt.com",
+      "metadata": "https://qa-account.metadata.jp1.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.metadata.jp1.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.jp1.dbt.com",
+      "metadata": "https://qa-account.metadata.jp1.dbt.com/graphql"
+    }
+  },
+  {
+    "input": "qa-account.semantic-layer.jp1.dbt.com",
+    "expected": {
+      "admin": "https://qa-account.jp1.dbt.com",
+      "metadata": "https://qa-account.metadata.jp1.dbt.com/graphql"
+    }
+  }
+]

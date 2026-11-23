@@ -1,0 +1,179 @@
+:root[data-analytics-native="true"] {
+  --font-sans: "Inter Variable", Inter, sans-serif;
+  --background: 0 0% 98%;
+  --foreground: 240 6% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: var(--foreground);
+  --primary: 240 6% 10%;
+  --primary-foreground: 0 0% 98%;
+  --accent: 240 5% 94%;
+  --accent-foreground: var(--foreground);
+  --muted: 240 5% 96%;
+  --muted-foreground: 240 4% 46%;
+  --border: 240 6% 90%;
+  --ring: 240 5% 65%;
+  --sidebar-background: 240 5% 97%;
+  --sidebar-foreground: 240 5% 30%;
+  --sidebar-accent: 240 5% 91%;
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+  --radius: 0.5rem;
+}
+:root.dark[data-analytics-native="true"] {
+  --background: 240 6% 7%;
+  --foreground: 0 0% 94%;
+  --card: 240 5% 10%;
+  --primary: 0 0% 94%;
+  --primary-foreground: 240 6% 10%;
+  --accent: 240 4% 17%;
+  --muted: 240 4% 13%;
+  --muted-foreground: 240 4% 62%;
+  --border: 240 4% 20%;
+  --sidebar-background: 240 6% 7%;
+  --sidebar-foreground: 240 4% 76%;
+  --sidebar-accent: 240 4% 16%;
+}
+:root[data-analytics-native="true"] {
+  --chart-1: 217 91% 60%;
+  --chart-2: 160 84% 39%;
+  --chart-3: 38 92% 50%;
+  --chart-4: 262 83% 58%;
+  --chart-5: 346 77% 50%;
+}
+:root[data-analytics-native="true"] body {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+:root[data-analytics-native="true"] .analytics-native-shell {
+  padding: 12px 12px 12px 0;
+  background: hsl(var(--sidebar-background));
+}
+:root[data-analytics-native="true"] .analytics-native-shell > main {
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  background: hsl(var(--card));
+}
+:root[data-analytics-native="true"] .analytics-workspace-sidebar {
+  --analytics-sidebar-active-hsl: var(--foreground);
+  --analytics-sidebar-divider: var(--border);
+  --analytics-context-line: var(--border);
+  --analytics-context-success: 160 84% 39%;
+  background: hsl(var(--sidebar-background));
+  border: 0;
+  font-family: ui-sans-serif, system-ui, sans-serif !important;
+}
+:root[data-analytics-native="true"]
+  .analytics-workspace-sidebar:not([data-collapsed="true"]) {
+  width: 244px;
+}
+:root[data-analytics-native="true"]
+  .analytics-workspace-sidebar[data-collapsed="true"] {
+  width: 56px;
+}
+:root[data-analytics-native="true"] .analytics-sidebar-workspace-button {
+  height: 36px;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+:root[data-analytics-native="true"] .analytics-sidebar-create-row {
+  gap: 6px;
+}
+:root[data-analytics-native="true"] .analytics-sidebar-create-button {
+  border-radius: 7px;
+  box-shadow: none;
+}
+:root[data-analytics-native="true"] .analytics-2-home-heading {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+:root[data-analytics-native="true"] .analytics-2-ask-home {
+  background: hsl(var(--card));
+}
+:root[data-analytics-native="true"] .analytics-project-list > header {
+  min-height: 56px;
+  padding-inline: 24px;
+}
+:root[data-analytics-native="true"] .analytics-project-list > div {
+  padding: 24px;
+}
+:root[data-analytics-native="true"] .analytics-project-list [data-slot="card"],
+:root[data-analytics-native="true"] .analytics-project-list .bg-card {
+  border-radius: 10px;
+  box-shadow: none;
+}
+@media (max-width: 767px) {
+  :root[data-analytics-native="true"] .analytics-native-shell {
+    padding: 0;
+  }
+  :root[data-analytics-native="true"] .analytics-native-shell > main {
+    border: 0;
+    border-radius: 0;
+  }
+}
+:root[data-analytics-native="true"] .analytics-context-illustration {
+  display: none;
+}
+:root[data-analytics-native="true"] .analytics-sidebar-context-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+:root[data-analytics-native="true"] .analytics-sidebar-context-card {
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+:root[data-analytics-native="true"] .analytics-sidebar-context-steps {
+  width: 100%;
+}
+:root[data-analytics-native="true"] .analytics-sidebar-context-card > .grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+:root[data-analytics-native="true"] [data-analytics-notebook] {
+  --background: inherit;
+  --foreground: inherit;
+  --card: inherit;
+  --muted: inherit;
+  --muted-foreground: inherit;
+  --border: inherit;
+  --input: inherit;
+  --primary: inherit;
+  --chart-1: inherit;
+  --chart-2: inherit;
+  --chart-3: inherit;
+  --notebook-agent-link: 217 91% 60%;
+  --notebook-bar-mark-1: 217 91% 60%;
+  --notebook-bar-mark-2: 38 92% 50%;
+  --notebook-bar-mark-3: 160 84% 39%;
+  --notebook-output-foreground: 160 84% 39%;
+  --notebook-output-background: 160 84% 39% / 10%;
+  --notebook-sql-keyword: 217 91% 60%;
+  --notebook-syntax-string: 346 77% 50%;
+  --notebook-syntax-number: 160 84% 39%;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+:root[data-analytics-native="true"] .notebook-project-metadata > h2 {
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+:root[data-analytics-native="true"] .notebook-cell-list {
+  gap: 24px;
+}
+:root[data-analytics-native="true"] .notebook-cell {
+  border-radius: 9px;
+}
+:root[data-analytics-native="true"] [data-analytics-workspace-mode-header] {
+  min-height: 52px;
+  background: hsl(var(--card));
+}
+:root[data-analytics-native="true"] {
+  --input: var(--border);
+  --secondary: var(--muted);
+  --secondary-foreground: var(--foreground);
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+}

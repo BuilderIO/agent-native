@@ -1,0 +1,35 @@
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { ensureAnalytics2Database } from "../server/db/index.js";
+import { dashboardListAccessSummaries } from "./_dashboard-list-access-summary.js";
+
+export default defineAction({
+  description:
+    "Read effective access and sharing counts for up to 100 requested accessible projects. Omitted IDs are unavailable. Page or chunk larger browser lists; no principal identifiers or account details are returned.",
+  schema: z.object({
+    ids: z.array(z.string().trim().min(1).max(512)).min(1).max(100),
+  }),
+  outputSchema: z.object({
+    summaries: z.array(
+      z.object({
+        id: z.string(),
+        role: z.enum(["owner", "admin", "editor", "commenter", "viewer"]),
+        userCount: z.number().int().nonnegative(),
+        groupCount: z.number().int().nonnegative(),
+        collectionCount: z.number().int().nonnegative(),
+        workspaceShared: z.boolean(),
+        ownerOnly: z.boolean(),
+      }),
+    ),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ ids }) => {
+    await ensureAnalytics2Database();
+    const summaries = await dashboardListAccessSummaries(ids);
+    return {
+      summaries: [...summaries].map(([id, summary]) => ({ id, ...summary })),
+    };
+  },
+});

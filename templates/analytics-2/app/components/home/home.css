@@ -1,0 +1,975 @@
+/* Home section layout. */
+
+.ws-home {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 100%;
+  color: var(--ws-fg);
+  background: var(--ws-bg);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+/* ---------- Prompt / hero ---------- */
+
+.ws-home-prompt {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+}
+
+.ws-home-prompt-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      1200px 640px at 50% 132%,
+      color-mix(in srgb, var(--ws-brand) 24%, transparent),
+      transparent 68%
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--ws-bg) 94%, var(--ws-brand)) -30%,
+      var(--ws-bg) 44%,
+      color-mix(in srgb, var(--ws-bg) 92%, var(--ws-brand)) 150%
+    );
+}
+
+.ws-home-prompt-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.6;
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in srgb, var(--ws-border) 42%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--ws-border) 42%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 32px 32px;
+  -webkit-mask-image: radial-gradient(
+    circle at 50% 118%,
+    #000 0,
+    #000 44%,
+    transparent 78%
+  );
+  mask-image: radial-gradient(
+    circle at 50% 118%,
+    #000 0,
+    #000 44%,
+    transparent 78%
+  );
+}
+
+.ws-home-prompt-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 45.375rem;
+  margin: 0 auto;
+  padding: 102px 20px 56px;
+}
+
+/* The reference puts the prompt actions under the composer as separate buttons. We
+   rendered "Ask" and "Analyze in a notebook" with no layout rule at all, so they
+   touched and read as one label ("AskAnalyze") - flagged as fix 2 in the screen
+   review (lead/fable-screens-1110/B). Styled from the app's own tokens so both
+   themes inherit their colours. */
+.ws-home-prompt-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ws-home-prompt-action {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  /* The reference skin's dark muted token (#b1b6c4) is what these labels
+     inherited in the light theme, at 2.03:1 on white. The action labels are an
+     addition, so they carry explicit colours that clear 4.5:1 in each theme
+     (5.93:1 on white, 8.05:1 on the #1f1f29 card). */
+  color: #5b6478;
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.dark .ws-home-prompt-action {
+  color: #b1b6c4;
+}
+
+.ws-home-prompt-action:hover {
+  background-color: hsl(var(--muted) / 60%);
+  color: hsl(var(--foreground));
+}
+
+.ws-home-prompt-action:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.ws-home-prompt-action.is-active {
+  background-color: hsl(var(--muted) / 80%);
+  color: hsl(var(--foreground));
+  font-weight: 500;
+}
+
+.ws-home-prompt-tooltip {
+  max-width: 240px;
+  padding: 8px 10px;
+}
+
+.ws-home-prompt-tooltip-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  line-height: 1.35;
+}
+
+.ws-home-prompt-tooltip-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ws-home-prompt-tooltip-body {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.ws-home-title,
+.ws-home-welcome {
+  margin: 0 0 22px;
+  color: var(--ws-brand);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  text-align: center;
+}
+
+.ws-home-welcome {
+  margin-top: 39px;
+}
+
+.ws-home-composer {
+  width: 100%;
+}
+
+.ws-home-curate-slot {
+  width: 100%;
+  margin-top: 31px;
+}
+
+/* ---------- Curate your context banner ---------- */
+
+.ws-home-curate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--ws-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ws-bg) 96%, var(--ws-brand));
+  color: var(--ws-muted);
+  font-size: 12px;
+  text-align: left;
+}
+
+.ws-home-curate-progress {
+  position: relative;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--ws-brand) var(--ws-home-progress, 0%),
+    color-mix(in srgb, var(--ws-border) 70%, transparent) 0
+  );
+}
+
+.ws-home-curate-progress::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ws-bg) 96%, var(--ws-brand));
+}
+
+.ws-home-curate-progress-center {
+  position: absolute;
+  inset: 8px;
+  z-index: 1;
+  border-radius: 1px;
+  background: var(--ws-brand);
+}
+
+.ws-home-curate-copy {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ws-home-curate-title {
+  color: var(--ws-fg);
+  font-size: 14px;
+}
+
+.ws-home-curate-subtitle {
+  color: var(--ws-muted);
+  font-size: 12px;
+}
+
+.ws-home-curate-steps {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ws-home-curate-steps::-webkit-scrollbar {
+  display: none;
+}
+
+.ws-home-curate-step-wrap {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.ws-home-curate-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px dashed var(--ws-border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ws-muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ws-home-curate-step:hover:not(:disabled) {
+  background: var(--ws-hover);
+  color: var(--ws-fg);
+}
+
+.ws-home-curate-step.is-complete {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.ws-home-curate-step.is-current {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--ws-brand) 60%, transparent);
+  color: var(--ws-fg);
+  background: color-mix(in srgb, var(--ws-brand) 8%, transparent);
+}
+
+.ws-home-curate-step:disabled {
+  cursor: default;
+}
+
+.ws-home-curate-arrow {
+  flex: none;
+  color: var(--ws-muted);
+  opacity: 0.7;
+}
+
+.ws-home-curate-dismiss {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ws-muted);
+  cursor: pointer;
+}
+
+.ws-home-curate-dismiss:hover:not(:disabled) {
+  background: var(--ws-hover);
+  color: var(--ws-fg);
+}
+
+.ws-home-curate-dismiss:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ---------- Sections ---------- */
+
+.ws-home-section {
+  position: relative;
+  flex: none;
+  padding: 0 32px;
+  border-top: 1px solid color-mix(in srgb, var(--ws-brand) 14%, transparent);
+}
+
+.ws-home-section--a {
+  background-color: color-mix(in srgb, var(--ws-bg) 98%, var(--ws-brand));
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    color-mix(in srgb, var(--ws-brand) 7%, transparent) 4px,
+    color-mix(in srgb, var(--ws-brand) 7%, transparent) 5px
+  );
+}
+
+.ws-home-section--b {
+  background-color: color-mix(in srgb, var(--ws-bg) 99%, var(--ws-brand));
+  background-size: 4px 4px;
+  background-image: conic-gradient(
+    color-mix(in srgb, var(--ws-brand) 6%, transparent),
+    color-mix(in srgb, var(--ws-brand) 6%, transparent) 25%,
+    transparent 25%,
+    transparent 50%,
+    color-mix(in srgb, var(--ws-brand) 6%, transparent) 50%,
+    color-mix(in srgb, var(--ws-brand) 6%, transparent) 75%,
+    transparent 75%,
+    transparent 100%
+  );
+}
+
+.ws-home-section.is-full-height {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.ws-home-section-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  row-gap: 24px;
+  padding: 30px 48px 48px;
+  border-right: 1px solid color-mix(in srgb, var(--ws-brand) 11%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--ws-brand) 11%, transparent);
+  background-image: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--ws-bg) 96%, #000) -20%,
+    var(--ws-bg) 0%,
+    color-mix(in srgb, var(--ws-bg) 96%, var(--ws-brand)) 100%
+  );
+}
+
+.ws-home-section.is-full-height .ws-home-section-inner {
+  flex: 1 1 auto;
+  height: 100%;
+}
+
+.ws-home-section.is-recents .ws-home-section-inner {
+  min-height: 364px;
+}
+
+.ws-home-section-title {
+  position: absolute;
+  top: -7px;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  pointer-events: none;
+  font-weight: inherit;
+}
+
+.ws-home-section-title-text {
+  position: relative;
+  padding: 0 17px;
+  background: var(--ws-bg);
+  color: color-mix(in srgb, var(--ws-brand) 80%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.ws-home-section--context-management .ws-home-section-title-text {
+  font-size: 12px;
+}
+
+.ws-home-section-title-text::before,
+.ws-home-section-title-text::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  width: 1px;
+  height: 9px;
+  background: var(--ws-brand);
+}
+
+.ws-home-section-title-text::before {
+  left: 4px;
+}
+
+.ws-home-section-title-text::after {
+  right: 4px;
+}
+
+/* ---------- Recents ---------- */
+
+.ws-home-recents {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ws-home-recents-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0 14px 12px;
+  box-shadow: inset 0 -1px 0 var(--ws-border-muted);
+}
+
+.ws-home-recents-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.ws-home-recents-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ws-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ws-home-recents-tab:hover {
+  color: var(--ws-fg);
+}
+
+.ws-home-recents-tab.is-active {
+  color: var(--ws-fg);
+  border-bottom-color: var(--ws-brand);
+}
+
+.ws-home-recents-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-height: 0;
+}
+
+.ws-home-recents-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  padding: 0 8px;
+}
+
+.ws-home-recent-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 5px 6px;
+  border-radius: 3px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.ws-home-recent-row:hover,
+.ws-home-recent-row:focus-within {
+  background: var(--ws-hover);
+}
+
+.ws-home-recent-name {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+}
+
+.ws-home-recent-link {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.ws-home-recent-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.ws-home-recent-row > button,
+.ws-home-recent-star {
+  position: relative;
+  z-index: 1;
+}
+
+.ws-home-recent-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ws-icon);
+  cursor: pointer;
+}
+
+.ws-home-recent-star[aria-pressed="false"],
+.ws-home-recent-notebook {
+  opacity: 0;
+}
+
+.ws-home-recent-row:hover .ws-home-recent-star,
+.ws-home-recent-row:focus-within .ws-home-recent-star,
+.ws-home-recent-row:hover .ws-home-recent-notebook,
+.ws-home-recent-row:focus-within .ws-home-recent-notebook {
+  opacity: 1;
+}
+
+.ws-home-recent-star:disabled {
+  cursor: wait;
+}
+
+.ws-home-recent-star:focus-visible,
+.ws-home-recent-link:focus-visible {
+  outline: 2px solid var(--ws-icon);
+  outline-offset: 2px;
+}
+
+@media (hover: none) {
+  .ws-home-recent-star[aria-pressed="false"],
+  .ws-home-recent-notebook {
+    opacity: 1;
+  }
+}
+
+.ws-home-recent-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--ws-icon);
+}
+
+.ws-home-recent-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-home-recent-source {
+  flex: none;
+  color: var(--ws-muted);
+  font-size: 12px;
+}
+
+.ws-home-recent-owner {
+  flex: none;
+  min-width: 64px;
+  text-align: right;
+}
+
+.ws-home-recent-meta {
+  flex: none;
+  min-width: 62px;
+  color: var(--ws-muted);
+  text-align: right;
+}
+
+/* ---------- Cards / groups ---------- */
+
+.ws-home-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 12px;
+}
+
+.ws-home-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--ws-border-muted);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ws-bg) 97%, var(--ws-brand));
+  color: inherit;
+  text-decoration: none;
+}
+
+.ws-home-card.is-interactive {
+  transition: background-color 0.15s ease;
+}
+
+.ws-home-card.is-interactive:hover {
+  background: var(--ws-hover);
+}
+
+.ws-home-card-title {
+  overflow: hidden;
+  color: var(--ws-fg);
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+a.ws-home-card-title:hover {
+  text-decoration: underline;
+}
+
+.ws-home-card-description {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--ws-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.ws-home-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  color: var(--ws-muted);
+  font-size: 12px;
+}
+
+.ws-home-card-views {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ws-home-card-edit {
+  margin-left: auto;
+  color: var(--ws-muted);
+  text-decoration: none;
+}
+
+.ws-home-card-edit:hover {
+  color: var(--ws-fg);
+  text-decoration: underline;
+}
+
+.ws-home-favorites {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.ws-home-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.ws-home-group-title {
+  margin: 0 0 12px;
+  padding-left: 4px;
+  color: var(--ws-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ws-home-group-heading .ws-home-group-title {
+  margin-bottom: 12px;
+}
+
+/* ---------- Buttons ---------- */
+
+.ws-home-viewall {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  align-self: flex-start;
+  margin: 6px 0 0 6px;
+  padding: 0 8px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ws-muted);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ws-home-viewall:hover:not(:disabled) {
+  background: var(--ws-hover);
+  color: var(--ws-fg);
+}
+
+.ws-home-viewall:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.ws-home-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--ws-border);
+  border-radius: 3px;
+  background: var(--ws-bg);
+  color: var(--ws-fg);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ws-home-button:hover:not(:disabled) {
+  background: var(--ws-hover);
+}
+
+.ws-home-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* ---------- Loading / non-ideal ---------- */
+
+.ws-home-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 140px;
+}
+
+.ws-home-loading-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid color-mix(in srgb, var(--ws-border) 70%, transparent);
+  border-top-color: var(--ws-brand);
+  border-radius: 50%;
+  animation: ws-home-spin 0.8s linear infinite;
+}
+
+@keyframes ws-home-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ws-home-nonideal {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 140px;
+  padding: 24px;
+  color: var(--ws-muted);
+  text-align: center;
+}
+
+.ws-home-nonideal-icon {
+  display: inline-flex;
+  color: var(--ws-icon);
+}
+
+.ws-home-nonideal-title {
+  color: var(--ws-fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ws-home-nonideal-description {
+  max-width: 520px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ws-home-nonideal-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-height: 1000px) {
+  .ws-home-prompt-inner {
+    padding-top: 75px;
+    padding-bottom: 48px;
+  }
+
+  .ws-home-title {
+    font-size: 24px;
+    line-height: 30.8594px;
+  }
+}
+
+@media (max-width: 900px) {
+  .ws-home-card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .ws-home-section {
+    padding: 0 16px;
+  }
+
+  .ws-home-section-inner {
+    padding: 20px;
+  }
+
+  .ws-home-section.is-recents .ws-home-section-inner {
+    min-height: 0;
+  }
+
+  .ws-home-prompt-inner {
+    padding-top: 49px;
+  }
+
+  .ws-home-title {
+    font-size: 22px;
+  }
+
+  .ws-home-curate {
+    flex-wrap: wrap;
+  }
+
+  .ws-home-recent-owner {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-home-loading-spinner {
+    animation: none;
+  }
+}
+
+.ws-home-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ws-home-checklist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--ws-muted);
+  font-size: 12px;
+}
+
+.ws-home-checklist-bar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--ws-border-muted);
+}
+
+.ws-home-checklist-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--ws-brand);
+}
+
+.ws-home-checklist-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ws-home-checklist-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ws-muted);
+}
+
+.ws-home-checklist-step.is-current {
+  color: var(--ws-fg);
+  font-weight: 600;
+}
+
+.ws-home-checklist-step.is-complete {
+  color: var(--ws-muted);
+  text-decoration: line-through;
+}
+
+.ws-home-checklist-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: inherit;
+  cursor: pointer;
+}
+
+.ws-home-checklist-link:hover {
+  color: var(--ws-fg);
+  text-decoration: underline;
+}

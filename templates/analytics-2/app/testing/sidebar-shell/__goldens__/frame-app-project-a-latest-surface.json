@@ -1,0 +1,84 @@
+{
+  "name": "frame-app-project-a-latest",
+  "rows": [
+    "shell.frame"
+  ],
+  "inputs": {
+    "path": "/app/project-a/latest",
+    "frame": "published-app",
+    "query": "ready",
+    "content": "published project fixture"
+  },
+  "root": {
+    "html": {
+      "lang": "en"
+    },
+    "body": {},
+    "inlineCustomProperties": [],
+    "colorScheme": "light",
+    "tokens": {
+      "--ws-accent": "#473982",
+      "--ws-active-bg": "rgba(71, 57, 130, 0.08)",
+      "--ws-active-fg": "#473982",
+      "--ws-bg": "#ffffff",
+      "--ws-border": "#dadde6",
+      "--ws-border-muted": "#ecedf2",
+      "--ws-brand": "#473982",
+      "--ws-card-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 1px 3px rgba(11, 14, 22, 0.04),\n    0 2px 3px rgba(11, 14, 22, 0.03)",
+      "--ws-danger": "#b42318",
+      "--ws-fg": "#01011b",
+      "--ws-hover": "rgba(207, 211, 222, 0.15)",
+      "--ws-icon": "#6a738e",
+      "--ws-mono": "ui-monospace, monospace",
+      "--ws-muted": "#5f6880",
+      "--ws-overlay": "rgba(248, 250, 251, 0.8)",
+      "--ws-placeholder": "#9ca3b4",
+      "--ws-popover-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 4px 12px rgba(11, 14, 22, 0.12)",
+      "--ws-scroll-thumb": "rgba(106, 115, 142, 0.4)",
+      "--ws-search-border": "rgba(0, 0, 0, 0.08)",
+      "--ws-search-muted": "#6b7280",
+      "--ws-sidebar-bg": "#fafafa",
+      "--ws-success": "#29a07c",
+      "--ws-surface": "#ffffff",
+      "--ws-warning": "#b5820a"
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "media": {
+      "drawer": false,
+      "fullWidthDrawer": false,
+      "dark": false
+    },
+    "route": "/app/project-a/latest",
+    "hosts": [],
+    "storage": {
+      "local": {
+        "analytics2:published-open-id:project-a:latest": null
+      },
+      "session": {
+        "analytics2:published-open-id:project-a:latest": "11111111-1111-4111-8111-111111111111"
+      }
+    },
+    "storageEvents": [
+      {
+        "area": "session",
+        "operation": "getItem",
+        "key": "analytics2:published-open-id:project-a:latest"
+      },
+      {
+        "area": "session",
+        "operation": "setItem",
+        "key": "analytics2:published-open-id:project-a:latest",
+        "value": "11111111-1111-4111-8111-111111111111"
+      }
+    ],
+    "time": "2026-11-12T08:00:00.000Z",
+    "environment": "happy-dom; no layout engine",
+    "experience": "unused reskin remains off"
+  },
+  "markup": "<div data-test-host=\"\"><main data-published-app=\"true\" tabindex=\"0\" class=\"app-session-page\" style=\"--app-session-tabs-offset: 0px;\"><header class=\"app-session-header border-b bg-background\"><div class=\"flex min-h-14 flex-wrap items-center justify-between gap-x-2 gap-y-1 px-4 py-1\"><div class=\"flex min-w-0 flex-1 basis-40 items-center gap-0.5\"><h1 class=\"min-w-0 truncate px-1 text-sm font-medium\">Synthetic page content</h1></div><div class=\"flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1\"><button data-slot=\"button\" class=\"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform,scale] duration-150 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5 shrink-0 text-muted-foreground\" type=\"button\" aria-label=\"Data refreshed\" aria-haspopup=\"dialog\" aria-expanded=\"false\" data-state=\"closed\">Data refreshed</button><button data-slot=\"button\" class=\"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform,scale] duration-150 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground size-11 sm:size-8\" type=\"button\" aria-label=\"Comments\" aria-pressed=\"false\" data-state=\"closed\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-message \" aria-hidden=\"true\"><path d=\"M8 9h8\"></path><path d=\"M8 13h6\"></path><path d=\"M18 4a3 3 0 0 1 3 3v8a3 3 0 0 1 -3 3h-5l-5 3v-3h-2a3 3 0 0 1 -3 -3v-8a3 3 0 0 1 3 -3h12\"></path></svg></button><button data-slot=\"button\" class=\"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform,scale] duration-150 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground size-11 sm:size-8\" aria-label=\"Scheduled runs &amp; notifications\" type=\"button\" aria-haspopup=\"dialog\" aria-expanded=\"false\" data-state=\"closed\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-calendar-time \" aria-hidden=\"true\"><path d=\"M11.795 21h-6.795a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v4\"></path><path d=\"M14 18a4 4 0 1 0 8 0a4 4 0 1 0 -8 0\"></path><path d=\"M15 3v4\"></path><path d=\"M7 3v4\"></path><path d=\"M3 11h16\"></path><path d=\"M18 16.496v1.504l1 1\"></path></svg></button><button data-slot=\"button\" class=\"items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform,scale] duration-150 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5 hidden sm:inline-flex\" type=\"button\" aria-label=\"Presentation mode\" title=\"Presentation mode\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-presentation \" aria-hidden=\"true\"><path d=\"M3 4l18 0\"></path><path d=\"M4 4v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-10\"></path><path d=\"M12 16l0 4\"></path><path d=\"M9 20l6 0\"></path><path d=\"M8 12l3 -3l2 2l3 -3\"></path></svg></button><button data-slot=\"button\" class=\"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform,scale] duration-150 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5\" type=\"button\" aria-label=\"More\" title=\"More\" id=\"generated-1\" aria-haspopup=\"menu\" aria-expanded=\"false\" data-state=\"closed\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-dots \" aria-hidden=\"true\"><path d=\"M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"></path><path d=\"M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"></path><path d=\"M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"></path></svg></button><button data-slot=\"button\" class=\"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform,scale] duration-150 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground size-11 sm:size-8\" type=\"button\" aria-label=\"Toggle agent\" aria-pressed=\"false\" data-state=\"closed\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-layout-sidebar-right \" aria-hidden=\"true\"><path d=\"M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12\"></path><path d=\"M15 4l0 16\"></path></svg></button></div></div></header><div class=\"flex min-w-0\"><div class=\"min-w-0 flex-1\"><div class=\"mx-auto max-w-[960px] p-4 sm:p-6\"><div class=\"grid justify-items-center gap-3 py-12 text-center\"><span class=\"grid size-16 place-items-center rounded-full border text-muted-foreground\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"28\" height=\"28\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-list-details \" aria-hidden=\"true\"><path d=\"M13 5h8\"></path><path d=\"M13 9h5\"></path><path d=\"M13 15h8\"></path><path d=\"M13 19h5\"></path><path d=\"M3 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path><path d=\"M3 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path></svg></span><p class=\"font-medium\">The App builder is empty</p><p class=\"text-sm text-muted-foreground\">The creator of this project has not added any elements.</p></div></div></div><div class=\"sticky top-[var(--app-session-tabs-offset)] h-[calc(100dvh-var(--app-session-tabs-offset))] shrink-0 self-start empty:hidden\"></div><div class=\"sticky top-[var(--app-session-tabs-offset)] h-[calc(100dvh-var(--app-session-tabs-offset))] shrink-0 self-start empty:hidden\"></div></div></main></div>",
+  "hiddenCopies": [],
+  "layoutInputs": null
+}

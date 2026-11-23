@@ -1,0 +1,118 @@
+{
+  "name": "route-home-threads-child",
+  "rows": [
+    "shell.nav",
+    "sidebar.header",
+    "sidebar.workspace.open",
+    "sidebar.notifications.open",
+    "sidebar.create.project",
+    "sidebar.create.thread",
+    "sidebar.create.open",
+    "sidebar.nav.search",
+    "sidebar.nav.home",
+    "sidebar.nav.data",
+    "sidebar.nav.folders",
+    "sidebar.nav.drafts",
+    "sidebar.nav.projects",
+    "sidebar.nav.collections",
+    "sidebar.nav.threads",
+    "sidebar.nav.archive",
+    "sidebar.nav.trash",
+    "sidebar.more.open",
+    "sidebar.recents",
+    "sidebar.recents.item",
+    "sidebar.favorite-projects",
+    "sidebar.favorite-projects.item",
+    "sidebar.favorite-collections",
+    "sidebar.favorite-collections.item",
+    "sidebar.favorite-data",
+    "sidebar.favorite-data.item",
+    "sidebar.footer",
+    "sidebar.account.open",
+    "sidebar.nav.settings",
+    "shell.main",
+    "shell.shortcuts"
+  ],
+  "inputs": {
+    "host": "WorkspaceShell",
+    "query": "ready",
+    "profile": "existing",
+    "notifications": "unbound",
+    "accountHandlers": "absent",
+    "workspaceHandlers": "absent",
+    "path": "/home/threads/child"
+  },
+  "root": {
+    "html": {
+      "lang": "en"
+    },
+    "body": {},
+    "inlineCustomProperties": [],
+    "colorScheme": "light",
+    "tokens": {
+      "--ws-accent": "#473982",
+      "--ws-active-bg": "rgba(71, 57, 130, 0.08)",
+      "--ws-active-fg": "#473982",
+      "--ws-bg": "#ffffff",
+      "--ws-border": "#dadde6",
+      "--ws-border-muted": "#ecedf2",
+      "--ws-brand": "#473982",
+      "--ws-card-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 1px 3px rgba(11, 14, 22, 0.04),\n    0 2px 3px rgba(11, 14, 22, 0.03)",
+      "--ws-danger": "#b42318",
+      "--ws-fg": "#01011b",
+      "--ws-hover": "rgba(207, 211, 222, 0.15)",
+      "--ws-icon": "#6a738e",
+      "--ws-mono": "ui-monospace, monospace",
+      "--ws-muted": "#5f6880",
+      "--ws-overlay": "rgba(248, 250, 251, 0.8)",
+      "--ws-placeholder": "#9ca3b4",
+      "--ws-popover-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 4px 12px rgba(11, 14, 22, 0.12)",
+      "--ws-scroll-thumb": "rgba(106, 115, 142, 0.4)",
+      "--ws-search-border": "rgba(0, 0, 0, 0.08)",
+      "--ws-search-muted": "#6b7280",
+      "--ws-sidebar-bg": "#fafafa",
+      "--ws-success": "#29a07c",
+      "--ws-surface": "#ffffff",
+      "--ws-warning": "#b5820a"
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "media": {
+      "drawer": false,
+      "fullWidthDrawer": false,
+      "dark": false
+    },
+    "route": "/home/threads/child",
+    "hosts": [
+      {
+        "aria-label": "Workspace",
+        "class": "ws-sidebar",
+        "data-closed": "false"
+      }
+    ],
+    "storage": {
+      "local": {},
+      "session": {}
+    },
+    "storageEvents": [],
+    "time": "2026-11-12T08:00:00.000Z",
+    "environment": "happy-dom; no layout engine",
+    "experience": "unused reskin remains off"
+  },
+  "markup": "<div data-test-host=\"\"><div class=\"ws-root\"><div class=\"ws-body\"><div class=\"ws-main\"><aside class=\"ws-sidebar\" aria-label=\"Workspace\" data-closed=\"false\"><div class=\"ws-sidebar-inner\"><div class=\"ws-sidebar-header\"><div class=\"ws-workspace-slot\"><button type=\"button\" class=\"ws-workspace-trigger\" aria-expanded=\"false\" aria-haspopup=\"menu\" aria-controls=\"\"><span class=\"ws-workspace-name\">Test workspace</span><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-chevron-down \" aria-hidden=\"true\"><path d=\"M6 9l6 6l6 -6\"></path></svg></button></div><div class=\"ws-header-actions\"><button type=\"button\" class=\"ws-icon-button ws-bell-button\" aria-label=\"Notifications\" title=\"Notifications\" aria-expanded=\"false\" aria-haspopup=\"dialog\" aria-controls=\"\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-bell \" aria-hidden=\"true\"><path d=\"M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2 -3v-3a7 7 0 0 1 4 -6\"></path><path d=\"M9 17v1a3 3 0 0 0 6 0v-1\"></path></svg></button></div></div><div class=\"ws-quick-create\"><button type=\"button\" class=\"ws-quick-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-layout-dashboard \" aria-hidden=\"true\"><path d=\"M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\"></path><path d=\"M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\"></path><path d=\"M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\"></path><path d=\"M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\"></path></svg>Project</button><button type=\"button\" class=\"ws-quick-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-message-circle \" aria-hidden=\"true\"><path d=\"M3 20l1.3 -3.9c-2.324 -3.437 -1.426 -7.872 2.1 -10.374c3.526 -2.501 8.59 -2.296 11.845 .48c3.255 2.777 3.695 7.266 1.029 10.501c-2.666 3.235 -7.615 4.215 -11.574 2.293l-4.7 1\"></path></svg>Thread</button><button type=\"button\" class=\"ws-quick-button ws-quick-plus\" aria-label=\"Create new\" title=\"Create new\" aria-expanded=\"false\" aria-haspopup=\"menu\" aria-controls=\"\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-plus \" aria-hidden=\"true\"><path d=\"M12 5l0 14\"></path><path d=\"M5 12l14 0\"></path></svg></button></div><div class=\"ws-search-slot\"><button type=\"button\" class=\"ws-search-button\" data-search-trigger=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-search \" aria-hidden=\"true\"><path d=\"M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\"></path><path d=\"M21 21l-6 -6\"></path></svg><span class=\"ws-search-label\">Search</span><span class=\"ws-keycap\" aria-hidden=\"true\">⌘ K</span></button></div><div class=\"ws-tabs\"><a class=\"ws-nav-row\" href=\"/home\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-home \" aria-hidden=\"true\"><path d=\"M5 12l-2 0l9 -9l9 9l-2 0\"></path><path d=\"M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7\"></path><path d=\"M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6\"></path></svg><span class=\"ws-nav-label\">Home</span></a><a class=\"ws-nav-row\" href=\"/home/data\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \" aria-hidden=\"true\"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg><span class=\"ws-nav-label\">Data</span></a></div><div class=\"ws-scroll\"><div class=\"ws-tabs-scroll\"><a class=\"ws-nav-row\" href=\"/home/folders\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-folder \" aria-hidden=\"true\"><path d=\"M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2\"></path></svg><span class=\"ws-nav-label\">Folders</span></a><a class=\"ws-nav-row\" href=\"/home/drafts\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-file-text \" aria-hidden=\"true\"><path d=\"M14 3v4a1 1 0 0 0 1 1h4\"></path><path d=\"M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2\"></path><path d=\"M9 9l1 0\"></path><path d=\"M9 13l6 0\"></path><path d=\"M9 17l6 0\"></path></svg><span class=\"ws-nav-label\">Drafts</span></a><a class=\"ws-nav-row\" href=\"/home/all\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-layout-dashboard \" aria-hidden=\"true\"><path d=\"M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\"></path><path d=\"M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\"></path><path d=\"M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\"></path><path d=\"M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\"></path></svg><span class=\"ws-nav-label\">Projects</span></a><a class=\"ws-nav-row\" href=\"/home/collections\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-layout-grid \" aria-hidden=\"true\"><path d=\"M4 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path><path d=\"M14 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path><path d=\"M4 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path><path d=\"M14 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path></svg><span class=\"ws-nav-label\">Collections</span></a><a class=\"ws-nav-row is-active\" href=\"/home/threads\" data-discover=\"true\" aria-current=\"page\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-messages \" aria-hidden=\"true\"><path d=\"M21 14l-3 -3h-7a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1h9a1 1 0 0 1 1 1v10\"></path><path d=\"M14 15v2a1 1 0 0 1 -1 1h-7l-3 3v-10a1 1 0 0 1 1 -1h2\"></path></svg><span class=\"ws-nav-label\">Threads</span></a><button type=\"button\" class=\"ws-nav-row is-muted\" aria-expanded=\"false\" aria-haspopup=\"menu\" aria-controls=\"\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-dots \" aria-hidden=\"true\"><path d=\"M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"></path><path d=\"M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"></path><path d=\"M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"></path></svg><span class=\"ws-nav-label\">More</span></button><div class=\"ws-spacer\"></div><div class=\"ws-sections\"><section class=\"ws-section\" aria-label=\"RECENTS\"><button type=\"button\" class=\"ws-section-header\" aria-expanded=\"true\"><span>RECENTS</span><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" style=\"transform: rotate(90deg);\"><path d=\"M9 6l6 6l-6 6\"></path></svg></button><div class=\"ws-section-list\"><a class=\"ws-section-row\" title=\"Recent project\" href=\"/project/project-a/latest\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-file-text \"><path d=\"M14 3v4a1 1 0 0 0 1 1h4\"></path><path d=\"M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2\"></path><path d=\"M9 9l1 0\"></path><path d=\"M9 13l6 0\"></path><path d=\"M9 17l6 0\"></path></svg><span class=\"ws-nav-label\">Recent project</span></a><a class=\"ws-section-row\" title=\"Recent thread\" href=\"/threads/thread-a\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-message-circle \"><path d=\"M3 20l1.3 -3.9c-2.324 -3.437 -1.426 -7.872 2.1 -10.374c3.526 -2.501 8.59 -2.296 11.845 .48c3.255 2.777 3.695 7.266 1.029 10.501c-2.666 3.235 -7.615 4.215 -11.574 2.293l-4.7 1\"></path></svg><span class=\"ws-nav-label\">Recent thread</span></a><a class=\"ws-section-row\" title=\"Recent collection\" href=\"/home/collections/collection-a\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-folder \"><path d=\"M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2\"></path></svg><span class=\"ws-nav-label\">Recent collection</span></a><a class=\"ws-section-row\" title=\"Recent data\" href=\"/home/data/data-a\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg><span class=\"ws-nav-label\">Recent data</span></a></div></section><section class=\"ws-section\" aria-label=\"Favorite projects\"><button type=\"button\" class=\"ws-section-header\" aria-expanded=\"true\"><span>Favorite projects</span><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" style=\"transform: rotate(90deg);\"><path d=\"M9 6l6 6l-6 6\"></path></svg></button><div class=\"ws-section-list\"><a class=\"ws-section-row\" title=\"Favorite project\" href=\"/project/project-b/latest\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-file-text \"><path d=\"M14 3v4a1 1 0 0 0 1 1h4\"></path><path d=\"M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2\"></path><path d=\"M9 9l1 0\"></path><path d=\"M9 13l6 0\"></path><path d=\"M9 17l6 0\"></path></svg><span class=\"ws-nav-label\">Favorite project</span></a></div></section><section class=\"ws-section\" aria-label=\"Favorite collections\"><button type=\"button\" class=\"ws-section-header\" aria-expanded=\"true\"><span>Favorite collections</span><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" style=\"transform: rotate(90deg);\"><path d=\"M9 6l6 6l-6 6\"></path></svg></button><div class=\"ws-section-list\"><a class=\"ws-section-row\" title=\"Favorite collection\" href=\"/home/collections/collection-b\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-folder \"><path d=\"M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2\"></path></svg><span class=\"ws-nav-label\">Favorite collection</span></a></div></section><section class=\"ws-section\" aria-label=\"Favorite data\"><button type=\"button\" class=\"ws-section-header\" aria-expanded=\"true\"><span>Favorite data</span><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" style=\"transform: rotate(90deg);\"><path d=\"M9 6l6 6l-6 6\"></path></svg></button><div class=\"ws-section-list\"><a class=\"ws-section-row\" title=\"Favorite data\" href=\"/home/data/data-b\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg><span class=\"ws-nav-label\">Favorite data</span></a></div></section></div><div class=\"ws-spacer\"></div><a class=\"ws-nav-row\" href=\"/home/archive\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-archive \" aria-hidden=\"true\"><path d=\"M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2\"></path><path d=\"M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-10\"></path><path d=\"M10 12l4 0\"></path></svg><span class=\"ws-nav-label\">Archive</span></a><a class=\"ws-nav-row\" href=\"/home/trash\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-trash \" aria-hidden=\"true\"><path d=\"M4 7l16 0\"></path><path d=\"M10 11l0 6\"></path><path d=\"M14 11l0 6\"></path><path d=\"M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12\"></path><path d=\"M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3\"></path></svg><span class=\"ws-nav-label\">Trash</span></a></div></div><div class=\"ws-footer\"><div class=\"ws-footer-surface\"><div class=\"ws-footer-row\"><button type=\"button\" class=\"ws-account-button\" aria-label=\"Test Person account menu\" aria-expanded=\"false\" aria-haspopup=\"menu\" aria-controls=\"\"><span class=\"ws-avatar\" aria-hidden=\"true\">T</span><span class=\"ws-account-name\">Test Person</span><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-dots \" aria-hidden=\"true\"><path d=\"M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"></path><path d=\"M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"></path><path d=\"M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"></path></svg></button><a class=\"ws-icon-button\" aria-label=\"Settings\" title=\"Go to settings\" href=\"/settings\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-settings \" aria-hidden=\"true\"><path d=\"M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065\"></path><path d=\"M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0\"></path></svg></a></div></div></div></div></aside><main class=\"ws-content\"></main></div></div></div></div>",
+  "hiddenCopies": [
+    "<div class=\"ws-mobile-nav\"><div class=\"ws-mobile-nav-left\"><button type=\"button\" class=\"ws-icon-button\" aria-label=\"Open navigation\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-menu-2 \" aria-hidden=\"true\"><path d=\"M4 6l16 0\"></path><path d=\"M4 12l16 0\"></path><path d=\"M4 18l16 0\"></path></svg></button><button type=\"button\" class=\"ws-workspace-trigger\" aria-expanded=\"false\" aria-haspopup=\"menu\" aria-controls=\"\"><span class=\"ws-workspace-name\">Test workspace</span><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-chevron-down \" aria-hidden=\"true\"><path d=\"M6 9l6 6l6 -6\"></path></svg></button></div><div class=\"ws-mobile-nav-right\"><button type=\"button\" class=\"ws-icon-button\" aria-label=\"Search\" title=\"Search\" data-search-trigger=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-search \" aria-hidden=\"true\"><path d=\"M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\"></path><path d=\"M21 21l-6 -6\"></path></svg></button></div></div>"
+  ],
+  "layoutInputs": {
+    "attributes": {
+      "aria-label": "Workspace",
+      "class": "ws-sidebar",
+      "data-closed": "false"
+    },
+    "cssWidth": "265px",
+    "inlineStyle": null,
+    "computedWidthIsNotLayout": true
+  }
+}

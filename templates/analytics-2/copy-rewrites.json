@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "slots": [
+    {
+      "slot": "warehouse connection onboarding body",
+      "replacement": "Connect a database to browse and query your workspace data.",
+      "reason": "Independent introductory copy for connecting workspace data."
+    },
+    {
+      "slot": "warehouse demo onboarding body",
+      "replacement": "Explore sample data before connecting a database.",
+      "reason": "Independent introductory copy for the sample data action."
+    },
+    {
+      "slot": "include data for AI confirmation",
+      "replacement": "Including this {resource} for AI usage will also include all of its {children}. Are you sure you want to include this {resource}?",
+      "reason": "Uses a neutral name for the assistant; the functional confirmation and scope are retained."
+    },
+    {
+      "slot": "exclude data from AI confirmation",
+      "replacement": "Excluding this {resource} from AI usage will also exclude all of its {children}. Are you sure you want to exclude this {resource}?",
+      "reason": "Uses a neutral name for the assistant; the functional confirmation and scope are retained."
+    },
+    {
+      "slot": "curation panel empty body",
+      "replacement": "Review and organize descriptions, statuses, and categories for workspace data.",
+      "reason": "Creative body copy exception: independent benefit-free description; the source benefit sentence is not reused. The title, Learn more control and all functional copy are unchanged."
+    },
+    {
+      "slot": "semantic projects empty definition",
+      "replacement": "Define shared calculations and relationships in a semantic project.",
+      "reason": "Creative body copy exception: independent feature definition; the source definition sentence is not reused. The title, Learn more control, admin actions and non-admin contact line are unchanged."
+    },
+    {
+      "slot": "add data connection footer support contact",
+      "replacement": "support@builder.io",
+      "reason": "Mandatory neutral-brand contact mapping. The help sentence, support label position and mailto behaviour are retained."
+    },
+    {
+      "slot": "add data connection footer security and documentation destinations",
+      "replacement": "security page -> https://www.agent-native.com/docs/security/ ; documentation -> https://www.agent-native.com/docs/",
+      "reason": "Both destinations point at our own verified product documentation; the original documentation host is not shipped. The two link labels are unchanged."
+    },
+    {
+      "slot": "endorsed data empty body",
+      "replacement": "Ask your admins to endorse trusted data sources.",
+      "reason": "Creative body copy exception: the functional instruction clause is kept verbatim; only the benefit tail is removed and not reused."
+    },
+    {
+      "slot": "semantic models description",
+      "replacement": "Semantic views and models can be utilized by the Analytics Agent to answer questions and provide analysis.",
+      "reason": "Product name rewritten to this app's own name (root.tsx:340 appName=\"Analytics\"); the rest of the sentence is functional copy and stays exact."
+    }
+  ]
+}

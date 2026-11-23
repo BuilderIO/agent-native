@@ -1,0 +1,812 @@
+{
+  "canonicalAccountingUpdated": false,
+  "reason": "The new-files-only testing rule preserves the canonical ledger and previous evidence. These are unapplied additions, not mounted or strict coverage.",
+  "changes": [
+    {
+      "id": "sidebar.nav.context",
+      "status": "rendered-matched",
+      "renderer": {
+        "file": "app/skins/reference/sidebar-shell/Sidebar.tsx",
+        "export": "Sidebar"
+      },
+      "modelFixtures": [
+        "app/testing/sidebar-shell/models/workspace.tsx",
+        "app/testing/sidebar-shell/models/setup.ts"
+      ],
+      "witnesses": [
+        {
+          "fixture": "desktop-default",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/desktop-default.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "sections-closed",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/sections-closed.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-root",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-root.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-data",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-data.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-data-child",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-data-child.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-folders-child",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-folders-child.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-drafts-child",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-drafts-child.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-all-child",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-all-child.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-collections-child",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-collections-child.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-threads-child",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-threads-child.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-tasks-child",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-tasks-child.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-archive-child",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-archive-child.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-trash-child",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-trash-child.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-database",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-database.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-components",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-components.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-components-child",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-components-child.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-library",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-library.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-explorations",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-explorations.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-home-agent-dev-tools",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-home-agent-dev-tools.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-context-studio-setup",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-context-studio-setup.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "route-context-studio-models-nested",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/route-context-studio-models-nested.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "viewport-1050-open",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-1050-open.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "viewport-701-open",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-701-open.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "viewport-700-open",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-700-open.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "viewport-420-open",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-420-open.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "viewport-1280-settled",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-1280-settled.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "viewport-1051-settled",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-1051-settled.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "workspace-menu",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/workspace-menu.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "account-help",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/account-help.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "notifications-unbound",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/notifications-unbound.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "create-menu",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/create-menu.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "more-manager",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/more-manager.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "more-member",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/more-member.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "mobile-light-account",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-light-account.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "mobile-light-more",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-light-more.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "mobile-light-create",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-light-create.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "mobile-dark-account",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-dark-account.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "mobile-dark-more",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-dark-more.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "mobile-dark-create",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-dark-create.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "mobile-system-account",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-system-account.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "mobile-system-more",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-system-more.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "mobile-system-create",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/mobile-system-create.json",
+          "spec": "app/skins/reference/sidebar-shell/Sidebar.spec.tsx"
+        },
+        {
+          "fixture": "setup-0",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/setup-0.json",
+          "spec": "app/skins/reference/sidebar-shell/ContextSetupEntries.spec.tsx"
+        },
+        {
+          "fixture": "setup-1",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/setup-1.json",
+          "spec": "app/skins/reference/sidebar-shell/ContextSetupEntries.spec.tsx"
+        },
+        {
+          "fixture": "setup-2",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/setup-2.json",
+          "spec": "app/skins/reference/sidebar-shell/ContextSetupEntries.spec.tsx"
+        },
+        {
+          "fixture": "setup-3",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/setup-3.json",
+          "spec": "app/skins/reference/sidebar-shell/ContextSetupEntries.spec.tsx"
+        },
+        {
+          "fixture": "setup-4",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/setup-4.json",
+          "spec": "app/skins/reference/sidebar-shell/ContextSetupEntries.spec.tsx"
+        },
+        {
+          "fixture": "setup-5",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/setup-5.json",
+          "spec": "app/skins/reference/sidebar-shell/ContextSetupEntries.spec.tsx"
+        },
+        {
+          "fixture": "setup-6",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/setup-6.json",
+          "spec": "app/skins/reference/sidebar-shell/ContextSetupEntries.spec.tsx"
+        }
+      ],
+      "additionalRenderers": [
+        {
+          "file": "app/skins/reference/sidebar-shell/ContextSetupEntries.tsx",
+          "export": "ContextSetupEntry"
+        }
+      ],
+      "proofBoundary": "Direct, More and setup-header presentations compared separately. The setup parent remains a custom slot; no host mount credit."
+    },
+    {
+      "id": "shell.frame",
+      "status": "rendered-matched",
+      "renderer": {
+        "file": "app/skins/reference/sidebar-shell/AppShell.tsx",
+        "export": "AppShell"
+      },
+      "modelFixtures": [
+        "app/testing/sidebar-shell/models/shell.ts",
+        "app/testing/sidebar-shell/models/rails.ts",
+        "app/testing/sidebar-shell/models/owners.ts"
+      ],
+      "witnesses": [
+        {
+          "fixture": "frame-home",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-home.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-home-loading",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-home-loading.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-home-unavailable",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-home-unavailable.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-settings-loading",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-settings-loading.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-settings-unavailable",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-settings-unavailable.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-settings-profile",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-settings-profile.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-context-studio-overview",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-context-studio-overview.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-project-project-a-latest",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-project-project-a-latest.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-explore-project-a",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-explore-project-a.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-login",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-login.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-onboarding",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-onboarding.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-bigquery-oauth-success",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-bigquery-oauth-success.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-auth-space-a-azure",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-auth-space-a-azure.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-app-icon-space-a",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-app-icon-space-a.json",
+          "spec": "app/skins/reference/sidebar-shell/AppShell.spec.tsx"
+        },
+        {
+          "fixture": "frame-app-project-a-latest",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/frame-app-project-a-latest.json",
+          "spec": "app/skins/reference/sidebar-shell/ContentOwners.spec.tsx"
+        }
+      ],
+      "proofBoundary": "Frame chrome and page delegation only; no page, project reader or custom body credit."
+    },
+    {
+      "id": "shell.shortcuts",
+      "status": "rendered-matched",
+      "renderer": {
+        "file": "app/skins/reference/sidebar-shell/AppShell.tsx",
+        "export": "AppShell"
+      },
+      "modelFixtures": [
+        "app/testing/sidebar-shell/models/lifecycle.ts",
+        "app/testing/sidebar-shell/models/workspace.tsx",
+        "app/testing/sidebar-shell/models/owners.ts"
+      ],
+      "witnesses": [
+        {
+          "fixture": "shortcut-owner",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/shortcut-owner.json",
+          "spec": "app/skins/reference/sidebar-shell/ShortcutOwner.spec.tsx"
+        },
+        {
+          "fixture": "shortcut-existing-guards",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/shortcut-existing-guards.json",
+          "spec": "app/skins/reference/sidebar-shell/ShortcutOwner.spec.tsx"
+        }
+      ],
+      "proofBoundary": "Shared hook called by fixture above skin selection, delegated once per event identity, no installed renderer listener. Hosts are untouched."
+    },
+    {
+      "id": "shell.error",
+      "status": "rendered-differs",
+      "renderer": {
+        "file": "app/skins/reference/sidebar-shell/RouteError.tsx",
+        "export": "RouteError"
+      },
+      "modelFixtures": ["app/testing/sidebar-shell/models/errors.ts"],
+      "witnesses": [
+        {
+          "fixture": "error-404",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/error-404.json",
+          "spec": "app/skins/reference/sidebar-shell/RouteError.spec.tsx"
+        },
+        {
+          "fixture": "error-503",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/error-503.json",
+          "spec": "app/skins/reference/sidebar-shell/RouteError.spec.tsx"
+        },
+        {
+          "fixture": "error-generic",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/error-generic.json",
+          "spec": "app/skins/reference/sidebar-shell/RouteError.spec.tsx"
+        },
+        {
+          "fixture": "error-development",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/error-development.json",
+          "spec": "app/skins/reference/sidebar-shell/RouteError.spec.tsx"
+        }
+      ],
+      "reason": "Error status/title/details/Go home/stack match exactly. The existing toolkit report controls are an explicit empty kit owner; full row is not an exact markup match and no report behavior is credited. Root/session effects from that kit body are not reproduced."
+    },
+    {
+      "id": "shell.create.new-project",
+      "status": "slot",
+      "renderer": {
+        "file": "app/skins/reference/sidebar-shell/AppShell.tsx",
+        "export": "AppShell"
+      },
+      "modelFixtures": [
+        "app/testing/sidebar-shell/models/owners.ts",
+        "app/testing/sidebar-shell/models/shell.ts"
+      ],
+      "witnesses": [
+        {
+          "fixture": "new-project-dialog",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/new-project-dialog.json",
+          "spec": "app/skins/reference/sidebar-shell/ContentOwners.spec.tsx"
+        },
+        {
+          "fixture": "new-project-error",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/new-project-error.json",
+          "spec": "app/skins/reference/sidebar-shell/ContentOwners.spec.tsx"
+        },
+        {
+          "fixture": "new-project-pending-true",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/new-project-pending-true.json",
+          "spec": "app/skins/reference/sidebar-shell/ContentOwners.spec.tsx"
+        },
+        {
+          "fixture": "new-project-pending-false",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/new-project-pending-false.json",
+          "spec": "app/skins/reference/sidebar-shell/ContentOwners.spec.tsx"
+        }
+      ],
+      "reason": "Named custom owner only. Existing dialog forms and their pending, validation, error and submission bodies stay outside this renderer; no body markup or behavior credit."
+    },
+    {
+      "id": "shell.create.import-project",
+      "status": "slot",
+      "renderer": {
+        "file": "app/skins/reference/sidebar-shell/AppShell.tsx",
+        "export": "AppShell"
+      },
+      "modelFixtures": [
+        "app/testing/sidebar-shell/models/owners.ts",
+        "app/testing/sidebar-shell/models/shell.ts"
+      ],
+      "witnesses": [
+        {
+          "fixture": "import-project-empty",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/import-project-empty.json",
+          "spec": "app/skins/reference/sidebar-shell/ContentOwners.spec.tsx"
+        },
+        {
+          "fixture": "import-parse-error",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/import-parse-error.json",
+          "spec": "app/skins/reference/sidebar-shell/ContentOwners.spec.tsx"
+        },
+        {
+          "fixture": "import-selected",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/import-selected.json",
+          "spec": "app/skins/reference/sidebar-shell/ContentOwners.spec.tsx"
+        },
+        {
+          "fixture": "import-pending",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/import-pending.json",
+          "spec": "app/skins/reference/sidebar-shell/ContentOwners.spec.tsx"
+        },
+        {
+          "fixture": "import-failed",
+          "baseline": "app/testing/sidebar-shell/reference-fixtures/import-failed.json",
+          "spec": "app/skins/reference/sidebar-shell/ContentOwners.spec.tsx"
+        }
+      ],
+      "reason": "Named custom owner only. Existing dialog forms and their pending, validation, error and submission bodies stay outside this renderer; no body markup or behavior credit."
+    }
+  ],
+  "phaseWitnesses": [
+    {
+      "fixture": "boot-theme-absent-light-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-absent-light-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-absent-light-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-absent-light-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-absent-light-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-absent-light-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-absent-dark-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-absent-dark-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-absent-dark-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-absent-dark-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-absent-dark-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-absent-dark-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-light-light-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-light-light-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-light-light-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-light-light-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-light-light-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-light-light-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-light-dark-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-light-dark-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-light-dark-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-light-dark-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-light-dark-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-light-dark-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-dark-light-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-dark-light-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-dark-light-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-dark-light-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-dark-light-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-dark-light-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-dark-dark-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-dark-dark-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-dark-dark-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-dark-dark-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-dark-dark-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-dark-dark-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-system-light-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-system-light-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-system-light-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-system-light-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-system-light-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-system-light-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-system-dark-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-system-dark-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-system-dark-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-system-dark-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-system-dark-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-system-dark-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-auto-light-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-auto-light-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-auto-light-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-auto-light-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-auto-light-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-auto-light-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-auto-dark-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-auto-dark-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-auto-dark-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-auto-dark-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-auto-dark-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-auto-dark-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-malformed-light-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-malformed-light-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-malformed-light-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-malformed-light-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-malformed-light-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-malformed-light-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-malformed-dark-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-malformed-dark-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-malformed-dark-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-malformed-dark-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-malformed-dark-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-malformed-dark-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-0-light-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-0-light-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-0-light-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-0-light-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-0-light-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-0-light-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-0-dark-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-0-dark-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-0-dark-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-0-dark-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-0-dark-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-0-dark-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-1-light-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-1-light-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-1-light-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-1-light-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-1-light-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-1-light-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-1-dark-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-1-dark-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-1-dark-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-1-dark-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-1-dark-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-1-dark-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-true-light-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-true-light-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-true-light-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-true-light-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-true-light-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-true-light-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-true-dark-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-true-dark-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-true-dark-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-true-dark-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-true-dark-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-true-dark-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-false-light-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-false-light-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-false-light-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-false-light-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-false-light-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-false-light-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-false-dark-1280",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-false-dark-1280.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-false-dark-1280-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "boot-theme-false-dark-1050",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-false-dark-1050.json",
+      "mountedBaseline": "app/testing/sidebar-shell/reference-fixtures/boot-theme-false-dark-1050-mounted.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    }
+  ],
+  "additionalRegionComparisons": [
+    {
+      "fixture": "theme-explicit-over-media",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/theme-explicit-over-media.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "viewport-1050-navigated",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-1050-navigated.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "viewport-1050-resized",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-1050-resized.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "viewport-701-navigated",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-701-navigated.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "viewport-701-resized",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-701-resized.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "viewport-700-navigated",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-700-navigated.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "viewport-700-resized",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-700-resized.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "viewport-420-navigated",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-420-navigated.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "viewport-420-resized",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/viewport-420-resized.json",
+      "spec": "app/skins/reference/sidebar-shell/Lifecycle.spec.tsx"
+    },
+    {
+      "fixture": "advertised-targets",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/advertised-targets.json",
+      "spec": "app/skins/reference/sidebar-shell/NavigationJourneys.spec.tsx"
+    },
+    {
+      "fixture": "context-page-unavailable",
+      "baseline": "app/testing/sidebar-shell/reference-fixtures/context-page-unavailable.json",
+      "spec": "app/skins/reference/sidebar-shell/NavigationJourneys.spec.tsx"
+    }
+  ],
+  "unrenderedRows": [
+    {
+      "id": "sidebar.footer",
+      "status": "not-rendered",
+      "reason": "Initial/email/empty identity states match. Image identity has no typed image source in the published icon contract; that state is deliberately not rendered."
+    },
+    {
+      "id": "sidebar.account.open",
+      "status": "not-rendered",
+      "reason": "Initial/email/empty identity states match. Image identity has no typed image source in the published icon contract; that state is deliberately not rendered."
+    }
+  ]
+}

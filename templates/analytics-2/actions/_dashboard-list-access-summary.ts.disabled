@@ -1,0 +1,145 @@
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { accessFilter, type ShareRole } from "@agent-native/core/sharing";
+import { and, eq, gt, inArray, or, sql } from "drizzle-orm";
+
+import {
+  dashboardFolderShares,
+  dashboardFolders,
+  dashboardShares,
+  dashboards,
+} from "../server/db/dashboard-schema.js";
+import { getDb } from "../server/db/index.js";
+import {
+  dashboardAccessFilter,
+  dashboardFolderOwnerScopeMatch,
+} from "./_dashboard-access.js";
+
+export interface DashboardListAccessSummary {
+  role: ShareRole | "owner";
+  userCount: number;
+  groupCount: number;
+  collectionCount: number;
+  workspaceShared: boolean;
+  ownerOnly: boolean;
+}
+
+export async function dashboardListAccessSummaries(ids: readonly string[]) {
+  const result = new Map<string, DashboardListAccessSummary>();
+  if (ids.length === 0) return result;
+  const userEmail = getRequestUserEmail()?.trim().toLowerCase();
+  const ownership = userEmail
+    ? sql<boolean>`lower(${dashboards.ownerEmail}) = ${userEmail}`
+    : sql<boolean>`false`;
+  const inherited = (minRole: ShareRole) => sql<boolean>`(
+    ${dashboards.publishedRevision} > 0 AND EXISTS (
+      SELECT 1 FROM ${dashboardFolders}
+      WHERE ${dashboardFolderOwnerScopeMatch()}
+        AND ${accessFilter(dashboardFolders, dashboardFolderShares, undefined, minRole)}
+    )
+  )`;
+  const role = sql<DashboardListAccessSummary["role"]>`CASE
+    WHEN ${ownership} THEN 'owner'
+    WHEN ${accessFilter(dashboards, dashboardShares, undefined, "admin")} THEN 'admin'
+    WHEN ${accessFilter(dashboards, dashboardShares, undefined, "editor")} OR ${inherited("editor")} THEN 'editor'
+    WHEN ${accessFilter(dashboards, dashboardShares, undefined, "commenter")} OR ${inherited("commenter")} THEN 'commenter'
+    ELSE 'viewer'
+  END`;
+  const db = getDb();
+  const resources = await db
+    .select({
+      id: dashboards.id,
+      orgId: dashboards.orgId,
+      visibility: dashboards.visibility,
+      role,
+    })
+    .from(dashboards)
+    .where(
+      and(
+        inArray(dashboards.id, [...ids]),
+        dashboardAccessFilter(),
+        or(gt(dashboards.publishedRevision, 0), ownership),
+      ),
+    );
+  const allowedIds = resources.map((row) => row.id);
+  if (allowedIds.length === 0) return result;
+  const [direct, inheritedGrants] = await Promise.all([
+    db
+      .select({
+        resourceId: dashboardShares.resourceId,
+        principalType: dashboardShares.principalType,
+        principalId: dashboardShares.principalId,
+      })
+      .from(dashboardShares)
+      .where(inArray(dashboardShares.resourceId, allowedIds)),
+    db
+      .select({
+        resourceId: dashboards.id,
+        visibility: dashboardFolders.visibility,
+        shareId: dashboardFolderShares.id,
+        principalType: dashboardFolderShares.principalType,
+        principalId: dashboardFolderShares.principalId,
+      })
+      .from(dashboards)
+      .innerJoin(dashboardFolders, dashboardFolderOwnerScopeMatch())
+      .leftJoin(
+        dashboardFolderShares,
+        eq(dashboardFolderShares.resourceId, dashboardFolders.id),
+      )
+      .where(
+        and(
+          inArray(dashboards.id, allowedIds),
+          gt(dashboards.publishedRevision, 0),
+        ),
+      ),
+  ]);
+  const directByResource = new Map<string, typeof direct>();
+  for (const grant of direct) {
+    const grants = directByResource.get(grant.resourceId) ?? [];
+    grants.push(grant);
+    directByResource.set(grant.resourceId, grants);
+  }
+  const inheritedByResource = new Map<string, typeof inheritedGrants>();
+  for (const grant of inheritedGrants) {
+    const grants = inheritedByResource.get(grant.resourceId) ?? [];
+    grants.push(grant);
+    inheritedByResource.set(grant.resourceId, grants);
+  }
+  for (const resource of resources) {
+    const grants = directByResource.get(resource.id) ?? [];
+    const folderGrants = inheritedByResource.get(resource.id) ?? [];
+    const users = new Set(
+      grants
+        .filter((grant) => grant.principalType === "user")
+        .map((grant) => grant.principalId.trim().toLowerCase()),
+    );
+    const groups = new Set(
+      grants
+        .filter((grant) => grant.principalType === "group")
+        .map((grant) => grant.principalId),
+    );
+    const workspaceShared =
+      resource.visibility === "org" ||
+      folderGrants.some((grant) => grant.visibility === "org") ||
+      [...grants, ...folderGrants].some(
+        (grant) =>
+          grant.principalType === "org" && grant.principalId === resource.orgId,
+      );
+    const collectionCount = folderGrants.some((grant) => grant.shareId !== null)
+      ? 1
+      : 0;
+    result.set(resource.id, {
+      role: resource.role,
+      userCount: users.size,
+      groupCount: groups.size,
+      collectionCount,
+      workspaceShared,
+      ownerOnly:
+        resource.role === "owner" &&
+        !workspaceShared &&
+        groups.size === 0 &&
+        collectionCount === 0 &&
+        (users.size === 0 || (users.size === 1 && users.has(userEmail ?? ""))),
+    });
+  }
+  return result;
+}

@@ -1,0 +1,362 @@
+{
+  "stored": "false",
+  "systemDark": true,
+  "viewport": 1280,
+  "phases": [
+    {
+      "phase": "boot",
+      "root": {
+        "html": {
+          "class": "dark",
+          "data-theme": "dark",
+          "data-theme-family": "original",
+          "data-theme-family-status": "awaiting-app-setting",
+          "lang": "en",
+          "style": "color-scheme: dark;"
+        },
+        "body": {},
+        "inlineCustomProperties": [],
+        "colorScheme": "dark",
+        "tokens": {
+          "--ws-active-bg": "rgba(245, 192, 192, 0.08)",
+          "--ws-active-fg": "#f5c0c0",
+          "--ws-bg": "#1f1f29",
+          "--ws-border": "#45454c",
+          "--ws-border-muted": "#37373e",
+          "--ws-brand": "#f5c0c0",
+          "--ws-card-shadow": "0 0 0 1px rgba(69, 69, 76, 0.8), 0 0 2px rgba(11, 14, 22, 0.8),\n    0 2px 4px rgba(11, 14, 22, 0.5)",
+          "--ws-danger": "#f07d7d",
+          "--ws-fg": "#e4e6ec",
+          "--ws-hover": "rgba(63, 66, 87, 0.2)",
+          "--ws-icon": "#b1b6c4",
+          "--ws-muted": "#b1b6c4",
+          "--ws-overlay": "rgba(23, 23, 31, 0.8)",
+          "--ws-placeholder": "#9ca3b4",
+          "--ws-popover-shadow": "0 0 0 2px hsl(0 0% 0% / 0.28), 0 0 0 1px #37373e,\n    0 4px 12px rgba(11, 14, 22, 0.45)",
+          "--ws-scroll-thumb": "rgba(177, 182, 196, 0.4)",
+          "--ws-search-border": "rgba(255, 255, 255, 0.12)",
+          "--ws-search-muted": "#b1b6c4",
+          "--ws-sidebar-bg": "#1a1a22",
+          "--ws-success": "#43d59d",
+          "--ws-warning": "#e3b341"
+        },
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "media": {
+          "drawer": false,
+          "fullWidthDrawer": false,
+          "dark": true
+        },
+        "route": "/home",
+        "hosts": [],
+        "storage": {
+          "local": {
+            "__an_storage_probe__": null,
+            "appearance": null,
+            "theme": null,
+            "theme-family:__no_app_id__": null
+          },
+          "session": {
+            "__an_storage_probe__": null,
+            "appearance": null,
+            "theme": null,
+            "theme-family:__no_app_id__": null
+          }
+        },
+        "storageEvents": [
+          {
+            "area": "local",
+            "operation": "getItem",
+            "key": "theme-family:__no_app_id__"
+          },
+          {
+            "area": "local",
+            "operation": "setItem",
+            "key": "__an_storage_probe__",
+            "value": "1"
+          },
+          {
+            "area": "local",
+            "operation": "removeItem",
+            "key": "__an_storage_probe__"
+          },
+          {
+            "area": "session",
+            "operation": "setItem",
+            "key": "__an_storage_probe__",
+            "value": "1"
+          },
+          {
+            "area": "session",
+            "operation": "removeItem",
+            "key": "__an_storage_probe__"
+          },
+          {
+            "area": "local",
+            "operation": "getItem",
+            "key": "theme"
+          },
+          {
+            "area": "local",
+            "operation": "removeItem",
+            "key": "theme"
+          },
+          {
+            "area": "local",
+            "operation": "getItem",
+            "key": "appearance"
+          }
+        ],
+        "time": "2026-11-12T08:00:00.000Z",
+        "environment": "happy-dom; no layout engine",
+        "experience": "unused reskin remains off"
+      }
+    },
+    {
+      "phase": "ready",
+      "root": {
+        "html": {
+          "class": "dark",
+          "data-theme": "dark",
+          "data-theme-family": "original",
+          "data-theme-family-status": "awaiting-app-setting",
+          "lang": "en",
+          "style": "color-scheme: dark;"
+        },
+        "body": {},
+        "inlineCustomProperties": [],
+        "colorScheme": "dark",
+        "tokens": {
+          "--ws-active-bg": "rgba(245, 192, 192, 0.08)",
+          "--ws-active-fg": "#f5c0c0",
+          "--ws-bg": "#1f1f29",
+          "--ws-border": "#45454c",
+          "--ws-border-muted": "#37373e",
+          "--ws-brand": "#f5c0c0",
+          "--ws-card-shadow": "0 0 0 1px rgba(69, 69, 76, 0.8), 0 0 2px rgba(11, 14, 22, 0.8),\n    0 2px 4px rgba(11, 14, 22, 0.5)",
+          "--ws-danger": "#f07d7d",
+          "--ws-fg": "#e4e6ec",
+          "--ws-hover": "rgba(63, 66, 87, 0.2)",
+          "--ws-icon": "#b1b6c4",
+          "--ws-muted": "#b1b6c4",
+          "--ws-overlay": "rgba(23, 23, 31, 0.8)",
+          "--ws-placeholder": "#9ca3b4",
+          "--ws-popover-shadow": "0 0 0 2px hsl(0 0% 0% / 0.28), 0 0 0 1px #37373e,\n    0 4px 12px rgba(11, 14, 22, 0.45)",
+          "--ws-scroll-thumb": "rgba(177, 182, 196, 0.4)",
+          "--ws-search-border": "rgba(255, 255, 255, 0.12)",
+          "--ws-search-muted": "#b1b6c4",
+          "--ws-sidebar-bg": "#1a1a22",
+          "--ws-success": "#43d59d",
+          "--ws-warning": "#e3b341"
+        },
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "media": {
+          "drawer": false,
+          "fullWidthDrawer": false,
+          "dark": true
+        },
+        "route": "/home",
+        "hosts": [
+          {
+            "aria-label": "Workspace",
+            "class": "ws-sidebar",
+            "data-closed": "false"
+          }
+        ],
+        "storage": {
+          "local": {
+            "__an_storage_probe__": null,
+            "appearance": null,
+            "theme": null,
+            "theme-family:__no_app_id__": null
+          },
+          "session": {
+            "__an_storage_probe__": null,
+            "appearance": null,
+            "theme": null,
+            "theme-family:__no_app_id__": null
+          }
+        },
+        "storageEvents": [
+          {
+            "area": "local",
+            "operation": "getItem",
+            "key": "theme-family:__no_app_id__"
+          },
+          {
+            "area": "local",
+            "operation": "setItem",
+            "key": "__an_storage_probe__",
+            "value": "1"
+          },
+          {
+            "area": "local",
+            "operation": "removeItem",
+            "key": "__an_storage_probe__"
+          },
+          {
+            "area": "session",
+            "operation": "setItem",
+            "key": "__an_storage_probe__",
+            "value": "1"
+          },
+          {
+            "area": "session",
+            "operation": "removeItem",
+            "key": "__an_storage_probe__"
+          },
+          {
+            "area": "local",
+            "operation": "getItem",
+            "key": "theme"
+          },
+          {
+            "area": "local",
+            "operation": "removeItem",
+            "key": "theme"
+          },
+          {
+            "area": "local",
+            "operation": "getItem",
+            "key": "appearance"
+          },
+          {
+            "area": "local",
+            "operation": "getItem",
+            "key": "theme"
+          }
+        ],
+        "time": "2026-11-12T08:00:00.000Z",
+        "environment": "happy-dom; no layout engine",
+        "experience": "unused reskin remains off"
+      }
+    },
+    {
+      "phase": "settled",
+      "root": {
+        "html": {
+          "class": "dark",
+          "data-theme": "dark",
+          "data-theme-family": "original",
+          "data-theme-family-status": "awaiting-app-setting",
+          "lang": "en",
+          "style": "color-scheme: dark;"
+        },
+        "body": {},
+        "inlineCustomProperties": [],
+        "colorScheme": "dark",
+        "tokens": {
+          "--ws-active-bg": "rgba(245, 192, 192, 0.08)",
+          "--ws-active-fg": "#f5c0c0",
+          "--ws-bg": "#1f1f29",
+          "--ws-border": "#45454c",
+          "--ws-border-muted": "#37373e",
+          "--ws-brand": "#f5c0c0",
+          "--ws-card-shadow": "0 0 0 1px rgba(69, 69, 76, 0.8), 0 0 2px rgba(11, 14, 22, 0.8),\n    0 2px 4px rgba(11, 14, 22, 0.5)",
+          "--ws-danger": "#f07d7d",
+          "--ws-fg": "#e4e6ec",
+          "--ws-hover": "rgba(63, 66, 87, 0.2)",
+          "--ws-icon": "#b1b6c4",
+          "--ws-muted": "#b1b6c4",
+          "--ws-overlay": "rgba(23, 23, 31, 0.8)",
+          "--ws-placeholder": "#9ca3b4",
+          "--ws-popover-shadow": "0 0 0 2px hsl(0 0% 0% / 0.28), 0 0 0 1px #37373e,\n    0 4px 12px rgba(11, 14, 22, 0.45)",
+          "--ws-scroll-thumb": "rgba(177, 182, 196, 0.4)",
+          "--ws-search-border": "rgba(255, 255, 255, 0.12)",
+          "--ws-search-muted": "#b1b6c4",
+          "--ws-sidebar-bg": "#1a1a22",
+          "--ws-success": "#43d59d",
+          "--ws-warning": "#e3b341"
+        },
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "media": {
+          "drawer": false,
+          "fullWidthDrawer": false,
+          "dark": true
+        },
+        "route": "/home",
+        "hosts": [
+          {
+            "aria-label": "Workspace",
+            "class": "ws-sidebar",
+            "data-closed": "false"
+          }
+        ],
+        "storage": {
+          "local": {
+            "__an_storage_probe__": null,
+            "appearance": null,
+            "theme": null,
+            "theme-family:__no_app_id__": null
+          },
+          "session": {
+            "__an_storage_probe__": null,
+            "appearance": null,
+            "theme": null,
+            "theme-family:__no_app_id__": null
+          }
+        },
+        "storageEvents": [
+          {
+            "area": "local",
+            "operation": "getItem",
+            "key": "theme-family:__no_app_id__"
+          },
+          {
+            "area": "local",
+            "operation": "setItem",
+            "key": "__an_storage_probe__",
+            "value": "1"
+          },
+          {
+            "area": "local",
+            "operation": "removeItem",
+            "key": "__an_storage_probe__"
+          },
+          {
+            "area": "session",
+            "operation": "setItem",
+            "key": "__an_storage_probe__",
+            "value": "1"
+          },
+          {
+            "area": "session",
+            "operation": "removeItem",
+            "key": "__an_storage_probe__"
+          },
+          {
+            "area": "local",
+            "operation": "getItem",
+            "key": "theme"
+          },
+          {
+            "area": "local",
+            "operation": "removeItem",
+            "key": "theme"
+          },
+          {
+            "area": "local",
+            "operation": "getItem",
+            "key": "appearance"
+          },
+          {
+            "area": "local",
+            "operation": "getItem",
+            "key": "theme"
+          }
+        ],
+        "time": "2026-11-12T08:00:00.000Z",
+        "environment": "happy-dom; no layout engine",
+        "experience": "unused reskin remains off"
+      }
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+/* The doubled class outranks the dialog primitive's default width, height and padding. */
+.nb-data-browser-dialog.nb-data-browser-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 90vw;
+  height: 80vh;
+  max-width: none;
+  max-height: none;
+  min-height: 625px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 3px;
+}
+
+.nb-data-browser-title {
+  flex: none;
+  height: 40px;
+  padding: 0 15px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--ws-border-muted);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.nb-data-browser-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.nb-data-browser-tree {
+  flex: none;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--ws-border-muted);
+  background: var(--ws-sidebar-bg);
+}
+
+.nb-data-browser-tree-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.nb-data-browser-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 12px 16px;
+}
+
+.nb-data-browser-detail-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.nb-data-browser-detail-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.nb-data-browser-detail-empty-title {
+  margin: 0;
+  font-weight: 500;
+}
+
+.nb-data-browser-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 8px 0;
+}
+
+.nb-data-browser-tabs [role="tab"][aria-selected="true"] {
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+@media (max-width: 700px) {
+  .nb-data-browser-dialog.nb-data-browser-dialog {
+    min-height: min(625px, 80dvh);
+  }
+
+  .nb-data-browser-body {
+    flex-direction: column;
+  }
+
+  .nb-data-browser-tree {
+    width: 100%;
+    max-height: 45%;
+    border-right: 0;
+    border-bottom: 1px solid var(--ws-border-muted);
+  }
+}

@@ -1,0 +1,55 @@
+<div class="space-y-8">
+<p class="text-sm text-muted-foreground">Manage users in your workspace.</p>
+<div class="grid gap-8">
+<div>
+<section class="scroll-mt-16">
+<div class="text-card-foreground overflow-hidden rounded-xl border border-border/70 bg-card">
+<div class="divide-y divide-border/60">
+<div class="agent-native-settings-row scroll-mt-16 px-5 py-4 sm:px-6">
+<div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+<span class="flex min-w-0 flex-1 gap-3">
+<span class="grid min-w-0 gap-1 text-start">
+<span class="text-sm font-medium text-foreground">Allowed email domain</span>
+</span>
+</span>
+<div class="max-w-full shrink-0">
+<span class="flex items-center gap-2">
+<span class="contents">
+<label for=":id:" class="grid gap-1.5">
+<div class="flex items-center gap-2">
+<input data-slot="input" data-size="default" class="flex w-full rounded-md border border-input bg-background px-3 py-1 text-base ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive md:text-sm h-9" id=":id:" aria-label="Allowed email domain" placeholder="example.com" value="">
+</div>
+</label>
+</span>
+</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</div>
+<section aria-labelledby="invite-link-heading" class="space-y-3">
+<div>
+<h2 class="text-sm font-semibold text-foreground" id="invite-link-heading">Invite link</h2>
+<p class="mt-1 text-sm text-muted-foreground">Share a link that opens the workspace invitation for the person you invited.</p>
+</div>
+<p class="text-sm text-muted-foreground">No pending invitations. Invite someone to get a link.</p>
+</section>
+<section aria-label="Role requests" class="space-y-3">
+<h2 class="text-sm font-semibold text-foreground">Role requests</h2>
+<p class="text-sm text-muted-foreground">No open role requests.</p>
+</section>
+<section aria-labelledby="member-details-heading" class="space-y-3" data-member-details="">
+<h2 id="member-details-heading" class="text-sm font-semibold text-foreground">Member details</h2>
+<div class="flex flex-wrap items-center gap-2" data-member-role-counts="">
+<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 text-foreground" data-role-count="owner">0 Owners</div>
+<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 text-foreground" data-role-count="admin">0 Admins</div>
+<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 text-foreground" data-role-count="member">0 Members</div>
+</div>
+<p class="text-sm text-muted-foreground">No workspace members yet.</p>
+</section>
+<div data-members-page="">
+</div>
+</div>

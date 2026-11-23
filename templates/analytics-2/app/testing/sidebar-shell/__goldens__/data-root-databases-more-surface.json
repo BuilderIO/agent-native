@@ -1,0 +1,72 @@
+{
+  "name": "data-root-databases-more",
+  "rows": [
+    "sidebar.data",
+    "sidebar.data.back",
+    "sidebar.data.refresh",
+    "sidebar.data.search",
+    "sidebar.data.item",
+    "sidebar.data.more"
+  ],
+  "inputs": {
+    "host": "DataBrowserPage",
+    "family": "databases",
+    "hasNextPage": true
+  },
+  "root": {
+    "html": {
+      "lang": "en"
+    },
+    "body": {},
+    "inlineCustomProperties": [],
+    "colorScheme": "light",
+    "tokens": {
+      "--ws-accent": "#473982",
+      "--ws-active-bg": "rgba(71, 57, 130, 0.08)",
+      "--ws-active-fg": "#473982",
+      "--ws-bg": "#ffffff",
+      "--ws-border": "#dadde6",
+      "--ws-border-muted": "#ecedf2",
+      "--ws-brand": "#473982",
+      "--ws-card-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 1px 3px rgba(11, 14, 22, 0.04),\n    0 2px 3px rgba(11, 14, 22, 0.03)",
+      "--ws-danger": "#b42318",
+      "--ws-fg": "#01011b",
+      "--ws-hover": "rgba(207, 211, 222, 0.15)",
+      "--ws-icon": "#6a738e",
+      "--ws-mono": "ui-monospace, monospace",
+      "--ws-muted": "#5f6880",
+      "--ws-overlay": "rgba(248, 250, 251, 0.8)",
+      "--ws-placeholder": "#9ca3b4",
+      "--ws-popover-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 4px 12px rgba(11, 14, 22, 0.12)",
+      "--ws-scroll-thumb": "rgba(106, 115, 142, 0.4)",
+      "--ws-search-border": "rgba(0, 0, 0, 0.08)",
+      "--ws-search-muted": "#6b7280",
+      "--ws-sidebar-bg": "#fafafa",
+      "--ws-success": "#29a07c",
+      "--ws-surface": "#ffffff",
+      "--ws-warning": "#b5820a"
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "media": {
+      "drawer": false,
+      "fullWidthDrawer": false,
+      "dark": false
+    },
+    "route": "/home/data/all",
+    "hosts": [],
+    "storage": {
+      "local": {},
+      "session": {}
+    },
+    "storageEvents": [],
+    "time": "2026-11-12T08:00:00.000Z",
+    "environment": "happy-dom; no layout engine",
+    "experience": "unused reskin remains off"
+  },
+  "markup": "<div data-test-host=\"\"><div class=\"data-page\"><header class=\"data-page-title\"><span class=\"data-page-title-icon\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg></span><h1>Data browser</h1></header><div class=\"data-page-tabs\" role=\"tablist\" aria-label=\"Data browser\"><button type=\"button\" role=\"tab\" id=\"data-page-tab-recommended\" aria-selected=\"false\" aria-controls=\"data-page-panel-recommended\" class=\"data-page-tab\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-home \" aria-hidden=\"true\"><path d=\"M5 12l-2 0l9 -9l9 9l-2 0\"></path><path d=\"M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7\"></path><path d=\"M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6\"></path></svg><span>Recommended</span></button><button type=\"button\" role=\"tab\" id=\"data-page-tab-all\" aria-selected=\"true\" aria-controls=\"data-page-panel-all\" class=\"data-page-tab is-selected\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \" aria-hidden=\"true\"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg><span>Warehouse</span></button><button type=\"button\" role=\"tab\" id=\"data-page-tab-semantic-layer\" aria-selected=\"false\" aria-controls=\"data-page-panel-semantic-layer\" class=\"data-page-tab\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-sitemap \" aria-hidden=\"true\"><path d=\"M3 17a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2l0 -2\"></path><path d=\"M15 17a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2l0 -2\"></path><path d=\"M9 5a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2l0 -2\"></path><path d=\"M6 15v-1a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v1\"></path><path d=\"M12 9l0 3\"></path></svg><span>Semantic models</span></button></div><div class=\"data-page-panel\" role=\"tabpanel\" id=\"data-page-panel-all\" aria-labelledby=\"data-page-tab-all\" tabindex=\"-1\"><div class=\"data-page-split\"><aside class=\"data-page-rail\" aria-label=\"Data sources\"><div class=\"data-page-rail-collapse-bar\"><button type=\"button\" data-testid=\"data-browser-collapse-panel\" class=\"data-page-rail-collapse-btn\" aria-label=\"Collapse list\" title=\"Collapse list\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-layout-sidebar-left-collapse \" aria-hidden=\"true\"><path d=\"M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12\"></path><path d=\"M9 4v16\"></path><path d=\"M15 10l-2 2l2 2\"></path></svg></button></div><div class=\"data-page-tree-pane\"><header class=\"data-page-rail-header\"><button type=\"button\" class=\"data-page-all-sources\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-chevron-left \" aria-hidden=\"true\"><path d=\"M15 6l-6 6l6 6\"></path></svg>All sources</button><div class=\"data-page-selected-connection\"><span class=\"data-page-provider-logo\" data-provider-logo=\"postgresql\" data-provider-kind=\"postgres\" aria-hidden=\"true\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 18 18\" fill=\"none\" aria-hidden=\"true\"><path d=\"M9 2.5C5.7 2.5 3.5 4.4 3.5 7.2C3.5 9.5 4.8 11.1 6.7 11.7V14.2C6.7 14.9 7.3 15.5 8 15.5H8.8C9.4 15.5 9.8 15.1 9.8 14.5V12.2C10.5 12.2 11.2 12 11.8 11.7C13.4 10.9 14.5 9.2 14.5 7.2C14.5 4.4 12.3 2.5 9 2.5Z\" stroke=\"#336791\" stroke-width=\"1.5\" stroke-linejoin=\"round\"></path><circle cx=\"7.2\" cy=\"7.1\" r=\"0.9\" fill=\"#336791\"></circle><path d=\"M11.6 6.2C12.7 6.8 13.1 8.1 12.6 9.5\" stroke=\"#336791\" stroke-width=\"1.35\" stroke-linecap=\"round\"></path></svg></span><span>Default connection</span><span class=\"data-page-selected-provider\">PostgreSQL</span><span class=\"data-tooltip-trigger data-page-refresh-trigger\" tabindex=\"-1\" data-state=\"closed\"><button type=\"button\" class=\"data-page-refresh\" aria-label=\"Refresh schema\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-refresh \" aria-hidden=\"true\"><path d=\"M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4\"></path><path d=\"M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4\"></path></svg></button></span></div><div class=\"data-page-tree-search-row\"><label class=\"data-page-search\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-search \" aria-hidden=\"true\"><path d=\"M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\"></path><path d=\"M21 21l-6 -6\"></path></svg><input aria-label=\"Search\" placeholder=\"Search...\" value=\"\"></label></div></header><div class=\"data-page-tree-scroll\"><ul class=\"data-page-tree-level\" role=\"tree\" aria-label=\"Schemas\"><li role=\"treeitem\" aria-selected=\"false\"><div class=\"data-page-tree-row\"><span class=\"data-page-tree-spacer\" aria-hidden=\"true\"></span><button type=\"button\" class=\"data-page-tree-label\" title=\"Leaf A\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-table \" aria-hidden=\"true\"><path d=\"M3 5a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14\"></path><path d=\"M3 10h18\"></path><path d=\"M10 3v18\"></path></svg><span>Leaf A</span></button></div></li><li role=\"none\" class=\"data-page-load-more-row\"><button type=\"button\" class=\"data-page-link data-page-load-more\">Load more...</button></li></ul></div></div></aside><main class=\"data-page-main\"><div class=\"data-page-source\"><header class=\"data-page-source-header\"><div class=\"data-page-source-title-row\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-database \" aria-hidden=\"true\"><path d=\"M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0\"></path><path d=\"M4 6v6a8 3 0 0 0 16 0v-6\"></path><path d=\"M4 12v6a8 3 0 0 0 16 0v-6\"></path></svg><h2>Default connection</h2></div><p class=\"data-page-readonly-description\">Test description</p></header><div class=\"data-page-no-table\"><span class=\"data-page-empty-art\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"52\" height=\"52\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-table \"><path d=\"M3 5a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14\"></path><path d=\"M3 10h18\"></path><path d=\"M10 3v18\"></path></svg></span><h2>No table selected</h2><p>Select a table on the left to view details</p></div></div></main></div></div></div></div>",
+  "hiddenCopies": [],
+  "layoutInputs": null
+}

@@ -1,0 +1,2 @@
+export const GONG_ACCESS_KEY = "GONG_ACCESS_KEY";
+export const GONG_ACCESS_SECRET = "GONG_ACCESS_SECRET";

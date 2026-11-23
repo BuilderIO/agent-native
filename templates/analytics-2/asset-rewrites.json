@@ -1,0 +1,12 @@
+{
+  "entries": [
+    {
+      "surface": "warehouse connection and demo onboarding cards",
+      "decision": "Open Tabler database and table icons in our own CSS arrangement. No supplied application artwork or font file is included."
+    },
+    {
+      "surface": "data discovery, curation and semantic model empty states",
+      "decision": "Independent geometric SVG illustrations made from rectangles, circles and lines; open Tabler icons for controls. No supplied artwork, icon path data or font file is used."
+    }
+  ]
+}

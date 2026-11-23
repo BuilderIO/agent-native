@@ -1,0 +1,237 @@
+.context-area {
+  display: flex;
+  min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
+  background: var(--ws-bg, #fff);
+  color: var(--ws-fg, #111);
+}
+
+.context-area-rail {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 240px;
+  min-height: 0;
+  border-right: 1px solid var(--ws-border, #e5e5e5);
+  background: var(--ws-sidebar-bg, #fafafa);
+}
+
+.context-area-rail-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--ws-border, #e5e5e5);
+}
+
+.context-area-rail-sections:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.context-area-rail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+/* The rail's bottom group stays put while the groups above it scroll, the way
+   the original's sidebar footer does. */
+.context-area-rail-footer {
+  flex: 0 0 auto;
+  padding: 12px;
+  border-top: 1px solid var(--ws-border, #e5e5e5);
+}
+
+.context-area-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.context-area.is-mobile {
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.context-area.is-mobile .context-area-rail {
+  flex: 0 0 auto;
+  border-right: 0;
+}
+
+.context-area.is-mobile .context-area-rail-body {
+  gap: 8px;
+  overflow: visible;
+}
+
+.context-area.is-mobile :is(.context-rail-group, .context-rail-footer) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.context-area.is-mobile .context-rail-heading {
+  grid-column: 1 / -1;
+}
+
+.context-area.is-mobile .context-area-content {
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.context-area.is-mobile .context-area-rail-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.context-area-rail-toggle {
+  margin-inline-start: auto;
+}
+
+.context-area.is-mobile .context-studio-content {
+  padding: 16px;
+}
+
+.context-studio-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.context-rail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.context-rail-heading {
+  padding: 6px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ws-muted, #737373);
+}
+
+.context-rail-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--ws-muted, #525252);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.context-rail-link:hover {
+  background: var(--ws-hover, #f0f0f0);
+  color: var(--ws-fg, #111);
+}
+
+.context-area {
+  --context-rail-active-bg: rgba(15, 118, 110, 0.1);
+  --context-rail-active-fg: #0f766e;
+}
+
+:is(.dark, [data-theme="dark"]) .context-area {
+  --context-rail-active-bg: rgba(94, 234, 212, 0.1);
+  --context-rail-active-fg: #5eead4;
+}
+
+.context-rail-link.is-active {
+  /* --ws-active is not declared anywhere, so this row painted its literal
+     fallback in both themes: in the dark theme the rail stayed #fafafa under
+     light text (1.94:1). The theme's own pair is --ws-active-bg/-fg (row 487). */
+  background: var(--context-rail-active-bg);
+  color: var(--context-rail-active-fg);
+  /* The original's selected rail row reads font-weight 400 (measured live:
+     squads/analytics-2-fix/original-rail-1109/RAIL-READ.md); 500 made the
+     selected label heavier than the reference. */
+  font-weight: 400;
+}
+
+.context-studio-content {
+  max-width: 1200px;
+  padding: 32px;
+}
+
+.context-studio-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* The description the source puts under a studio page's title. */
+.context-studio-description {
+  margin: 6px 0 0;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+/* A studio list with no records: the source's empty-list title, centred. */
+.context-studio-empty {
+  margin-top: 48px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+/* Context Studio > Setup: one section per stepper step, in the source's order. */
+.context-setup-status {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+
+.context-setup-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.context-setup-section {
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  padding: 14px 16px;
+  scroll-margin-top: 16px;
+}
+
+.context-setup-heading {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.context-setup-action {
+  font-weight: 700;
+}
+
+.context-setup-description {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+}
+
+.context-setup-state {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.context-setup-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: underline;
+}

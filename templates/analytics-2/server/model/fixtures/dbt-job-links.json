@@ -1,0 +1,1000 @@
+{
+  "cases": [
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": {
+        "docsUrl": "https://cloud.getdbt.com/accounts/7/runs/70/docs/#!/model/model.qa.customers",
+        "runUrl": "https://cloud.getdbt.com/deploy/7/projects/11/runs/70"
+      }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": {
+        "docsUrl": "https://cloud.getdbt.com/accounts/7/runs/70/docs/#!/model/model.qa.customers",
+        "runUrl": "https://cloud.getdbt.com/deploy/7/projects/11/runs/70"
+      }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": {
+        "docsUrl": "https://cloud.getdbt.com/accounts/7/runs/70/docs/#!/source/source.qa.customers",
+        "runUrl": "https://cloud.getdbt.com/deploy/7/projects/11/runs/70"
+      }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "cloud.getdbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": {
+        "docsUrl": "https://cloud.getdbt.com/accounts/7/runs/70/docs/#!/source/source.qa.customers",
+        "runUrl": "https://cloud.getdbt.com/deploy/7/projects/11/runs/70"
+      }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": {
+        "docsUrl": "https://emea.dbt.com/accounts/7/runs/70/docs/#!/model/model.qa.customers",
+        "runUrl": "https://emea.dbt.com/deploy/7/projects/11/runs/70"
+      }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": {
+        "docsUrl": "https://emea.dbt.com/accounts/7/runs/70/docs/#!/model/model.qa.customers",
+        "runUrl": "https://emea.dbt.com/deploy/7/projects/11/runs/70"
+      }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": {
+        "docsUrl": "https://emea.dbt.com/accounts/7/runs/70/docs/#!/source/source.qa.customers",
+        "runUrl": "https://emea.dbt.com/deploy/7/projects/11/runs/70"
+      }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "emea.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": {
+        "docsUrl": "https://emea.dbt.com/accounts/7/runs/70/docs/#!/source/source.qa.customers",
+        "runUrl": "https://emea.dbt.com/deploy/7/projects/11/runs/70"
+      }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": {
+        "docsUrl": "https://qa.us1.dbt.com/accounts/7/runs/70/docs/#!/model/model.qa.customers",
+        "runUrl": "https://qa.us1.dbt.com/deploy/7/projects/11/runs/70"
+      }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "model",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "model.qa.customers",
+      "expected": {
+        "docsUrl": "https://qa.us1.dbt.com/accounts/7/runs/70/docs/#!/model/model.qa.customers",
+        "runUrl": "https://qa.us1.dbt.com/deploy/7/projects/11/runs/70"
+      }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "current",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": {
+        "docsUrl": "https://qa.us1.dbt.com/accounts/7/runs/70/docs/#!/source/source.qa.customers",
+        "runUrl": "https://qa.us1.dbt.com/deploy/7/projects/11/runs/70"
+      }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": null,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": null,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": null,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": { "docsUrl": null, "runUrl": null }
+    },
+    {
+      "version": "legacy",
+      "resourceType": "source",
+      "accessUrl": "qa.us1.dbt.com",
+      "accountId": 7,
+      "projectId": 11,
+      "runId": 70,
+      "uniqueId": "source.qa.customers",
+      "expected": {
+        "docsUrl": "https://qa.us1.dbt.com/accounts/7/runs/70/docs/#!/source/source.qa.customers",
+        "runUrl": "https://qa.us1.dbt.com/deploy/7/projects/11/runs/70"
+      }
+    }
+  ]
+}

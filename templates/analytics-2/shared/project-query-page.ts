@@ -1,0 +1,1 @@
+export const PROJECT_QUERY_PAGE_SIZE = 50;

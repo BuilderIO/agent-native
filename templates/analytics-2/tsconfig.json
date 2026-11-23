@@ -1,0 +1,23 @@
+{
+  "extends": "@agent-native/core/tsconfig.base.json",
+  "include": [
+    "app/**/*",
+    "server/**/*",
+    "shared/**/*",
+    "scripts/**/*",
+    "vite.config.ts",
+    "react-router.config.ts",
+    ".react-router/types/**/*",
+    ".generated/**/*"
+  ],
+  "compilerOptions": {
+    "typeRoots": ["./node_modules/@types", "./node_modules"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "rootDirs": [".", "./.react-router/types"],
+    "paths": {
+      "*": ["./*"],
+      "@/*": ["./app/*"],
+      "@shared/*": ["./shared/*"]
+    }
+  }
+}

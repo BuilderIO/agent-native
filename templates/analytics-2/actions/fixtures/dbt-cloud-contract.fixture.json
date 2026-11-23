@@ -1,0 +1,780 @@
+{
+  "accessUrl": "cloud.getdbt.com",
+  "accountId": "42",
+  "current": {
+    "tableCalls": {
+      "models:model.jaffle_shop.orders": {
+        "method": "POST",
+        "operation": "TableMetadata",
+        "response": {
+          "data": {
+            "environment": {
+              "applied": {
+                "models": {
+                  "edges": [
+                    {
+                      "node": {
+                        "accountId": "42",
+                        "alias": "orders",
+                        "catalog": {
+                          "columns": [
+                            {
+                              "description": "This is a unique identifier for an order",
+                              "name": "order_id",
+                              "type": "INTEGER"
+                            },
+                            {
+                              "description": "Foreign key to the customers table",
+                              "name": "customer_id",
+                              "type": "INTEGER"
+                            },
+                            {
+                              "description": "Date (UTC) that the order was placed",
+                              "name": "order_date",
+                              "type": "DATE"
+                            },
+                            {
+                              "description": "Orders can be one of the following statuses:\n\n| status         | description                                                                                                            |\n|----------------|------------------------------------------------------------------------------------------------------------------------|\n| placed         | The order has been placed but has not yet left the warehouse                                                           |\n| shipped        | The order has ben shipped to the customer and is currently in transit                                                  |\n| completed      | The order has been received by the customer                                                                            |\n| return_pending | The customer has indicated that they would like to return the order, but it has not yet been received at the warehouse |\n| returned       | The order has been returned by the customer and received at the warehouse                                              |",
+                              "name": "status",
+                              "type": "VARCHAR"
+                            },
+                            {
+                              "description": "Amount of the order (AUD) paid for by credit card",
+                              "name": "credit_card_amount",
+                              "type": "DOUBLE"
+                            },
+                            {
+                              "description": "Amount of the order (AUD) paid for by coupon",
+                              "name": "coupon_amount",
+                              "type": "DOUBLE"
+                            },
+                            {
+                              "description": "Amount of the order (AUD) paid for by bank transfer",
+                              "name": "bank_transfer_amount",
+                              "type": "DOUBLE"
+                            },
+                            {
+                              "description": "Amount of the order (AUD) paid for by gift card",
+                              "name": "gift_card_amount",
+                              "type": "DOUBLE"
+                            },
+                            {
+                              "description": "Total amount (AUD) of the order",
+                              "name": "amount",
+                              "type": "DOUBLE"
+                            }
+                          ],
+                          "runGeneratedAt": "2026-11-06T20:32:34.398712Z",
+                          "runId": "9001"
+                        },
+                        "database": "qa-dbt-sample",
+                        "description": "This table has basic information about orders, as well as some derived facts based on payments",
+                        "executionInfo": {
+                          "executeCompletedAt": "2026-11-06T20:32:34.344477Z",
+                          "lastSuccessRunId": "9001"
+                        },
+                        "name": "orders",
+                        "parents": [
+                          {
+                            "name": "stg_orders",
+                            "resourceType": "model",
+                            "uniqueId": "model.jaffle_shop.stg_orders"
+                          },
+                          {
+                            "name": "stg_payments",
+                            "resourceType": "model",
+                            "uniqueId": "model.jaffle_shop.stg_payments"
+                          }
+                        ],
+                        "projectId": "77",
+                        "schema": "main",
+                        "tests": [
+                          {
+                            "columnName": "status",
+                            "name": "accepted_values_orders_status__placed__shipped__completed__return_pending__returned",
+                            "status": "pass"
+                          },
+                          {
+                            "columnName": "amount",
+                            "name": "not_null_orders_amount",
+                            "status": "pass"
+                          },
+                          {
+                            "columnName": "bank_transfer_amount",
+                            "name": "not_null_orders_bank_transfer_amount",
+                            "status": "pass"
+                          },
+                          {
+                            "columnName": "coupon_amount",
+                            "name": "not_null_orders_coupon_amount",
+                            "status": "pass"
+                          },
+                          {
+                            "columnName": "credit_card_amount",
+                            "name": "not_null_orders_credit_card_amount",
+                            "status": "pass"
+                          },
+                          {
+                            "columnName": "customer_id",
+                            "name": "not_null_orders_customer_id",
+                            "status": "pass"
+                          },
+                          {
+                            "columnName": "gift_card_amount",
+                            "name": "not_null_orders_gift_card_amount",
+                            "status": "pass"
+                          },
+                          {
+                            "columnName": "order_id",
+                            "name": "not_null_orders_order_id",
+                            "status": "pass"
+                          },
+                          {
+                            "columnName": "customer_id",
+                            "name": "relationships_orders_customer_id__customer_id__ref_customers_",
+                            "status": "pass"
+                          },
+                          {
+                            "columnName": "order_id",
+                            "name": "unique_orders_order_id",
+                            "status": "pass"
+                          }
+                        ],
+                        "uniqueId": "model.jaffle_shop.orders"
+                      }
+                    }
+                  ],
+                  "pageInfo": {
+                    "endCursor": null,
+                    "hasNextPage": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "url": "https://metadata.cloud.getdbt.com/graphql",
+        "variables": {
+          "after": null,
+          "database": "qa-dbt-sample",
+          "environmentId": "9",
+          "identifier": "orders",
+          "schema": "main"
+        },
+        "query": "query TableMetadata(\n  $environmentId: BigInt!\n  $database: String!\n  $schema: String!\n  $identifier: String!\n  $after: String\n) {\n  environment(id: $environmentId) {\n    applied {\n      models(first: 100, after: $after, filter: { database: $database, schema: $schema, identifier: $identifier }) {\n        edges {\n          node {\n            uniqueId\n            name\n            description\n            database\n            schema\n            accountId\n            projectId\n            alias\n            catalog { runId runGeneratedAt columns { name description type } }\n            tests { name columnName executionInfo { lastRunStatus } }\n            executionInfo { executeCompletedAt lastSuccessRunId }\n            parents { uniqueId name resourceType }\n          }\n        }\n        pageInfo { hasNextPage endCursor }\n      }\n    }\n  }\n}"
+      },
+      "models:source.jaffle_shop.jaffle_raw.raw_orders": {
+        "method": "POST",
+        "operation": "TableMetadata",
+        "response": {
+          "data": {
+            "environment": {
+              "applied": {
+                "models": {
+                  "edges": [],
+                  "pageInfo": {
+                    "endCursor": null,
+                    "hasNextPage": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "url": "https://metadata.cloud.getdbt.com/graphql",
+        "variables": {
+          "after": null,
+          "database": "qa-dbt-sample",
+          "environmentId": "9",
+          "identifier": "raw_orders",
+          "schema": "main"
+        },
+        "query": "query TableMetadata(\n  $environmentId: BigInt!\n  $database: String!\n  $schema: String!\n  $identifier: String!\n  $after: String\n) {\n  environment(id: $environmentId) {\n    applied {\n      models(first: 100, after: $after, filter: { database: $database, schema: $schema, identifier: $identifier }) {\n        edges {\n          node {\n            uniqueId\n            name\n            description\n            database\n            schema\n            accountId\n            projectId\n            alias\n            catalog { runId runGeneratedAt columns { name description type } }\n            tests { name columnName executionInfo { lastRunStatus } }\n            executionInfo { executeCompletedAt lastSuccessRunId }\n            parents { uniqueId name resourceType }\n          }\n        }\n        pageInfo { hasNextPage endCursor }\n      }\n    }\n  }\n}"
+      },
+      "sources:model.jaffle_shop.orders": {
+        "method": "POST",
+        "operation": "TableMetadata",
+        "response": {
+          "data": {
+            "environment": {
+              "applied": {
+                "sources": {
+                  "edges": [],
+                  "pageInfo": {
+                    "endCursor": null,
+                    "hasNextPage": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "url": "https://metadata.cloud.getdbt.com/graphql",
+        "variables": {
+          "after": null,
+          "database": "qa-dbt-sample",
+          "environmentId": "9",
+          "identifier": "orders",
+          "schema": "main"
+        },
+        "query": "query TableMetadata(\n  $environmentId: BigInt!\n  $database: String!\n  $schema: String!\n  $identifier: String!\n  $after: String\n) {\n  environment(id: $environmentId) {\n    applied {\n      sources(first: 100, after: $after, filter: { database: $database, schema: $schema, identifier: $identifier }) {\n        edges {\n          node {\n            uniqueId\n            name\n            description\n            database\n            schema\n            accountId\n            projectId\n            identifier\n            catalog { runId runGeneratedAt columns { name description type } }\n            tests { name columnName executionInfo { lastRunStatus } }\n            freshness { freshnessStatus maxLoadedAt freshnessRunId }\n          }\n        }\n        pageInfo { hasNextPage endCursor }\n      }\n    }\n  }\n}",
+        "queryWithFreshnessCriteria": "query TableMetadata(\n  $environmentId: BigInt!\n  $database: String!\n  $schema: String!\n  $identifier: String!\n  $after: String\n) {\n  environment(id: $environmentId) {\n    applied {\n      sources(first: 100, after: $after, filter: { database: $database, schema: $schema, identifier: $identifier }) {\n        edges {\n          node {\n            uniqueId\n            name\n            description\n            database\n            schema\n            accountId\n            projectId\n            identifier\n            catalog { runId runGeneratedAt columns { name description type } }\n            tests { name columnName executionInfo { lastRunStatus } }\n            freshness { freshnessStatus maxLoadedAt freshnessRunId criteria { warnAfter { count period } errorAfter { count period } } }\n          }\n        }\n        pageInfo { hasNextPage endCursor }\n      }\n    }\n  }\n}"
+      },
+      "sources:source.jaffle_shop.jaffle_raw.raw_orders": {
+        "method": "POST",
+        "operation": "TableMetadata",
+        "response": {
+          "data": {
+            "environment": {
+              "applied": {
+                "sources": {
+                  "edges": [
+                    {
+                      "node": {
+                        "accountId": "42",
+                        "catalog": {
+                          "columns": [
+                            {
+                              "description": "Order primary key.",
+                              "name": "id",
+                              "type": "INTEGER"
+                            },
+                            {
+                              "description": "Customer who placed the order.",
+                              "name": "user_id",
+                              "type": "INTEGER"
+                            },
+                            {
+                              "description": "Date the order was placed.",
+                              "name": "order_date",
+                              "type": "DATE"
+                            },
+                            {
+                              "description": "Order lifecycle status.",
+                              "name": "status",
+                              "type": "VARCHAR"
+                            }
+                          ],
+                          "runGeneratedAt": "2026-11-06T20:32:34.398712Z",
+                          "runId": "9001"
+                        },
+                        "database": "qa-dbt-sample",
+                        "description": "One row per order as captured by the storefront.",
+                        "freshness": {
+                          "freshnessRunId": "9001",
+                          "freshnessStatus": "warn",
+                          "maxLoadedAt": "2018-04-09T00:00:00+00:00",
+                          "criteria": {
+                            "warnAfter": {
+                              "count": 2,
+                              "period": "hour"
+                            },
+                            "errorAfter": {
+                              "count": 24,
+                              "period": "hour"
+                            }
+                          }
+                        },
+                        "identifier": "raw_orders",
+                        "name": "raw_orders",
+                        "projectId": "77",
+                        "schema": "main",
+                        "tests": [],
+                        "uniqueId": "source.jaffle_shop.jaffle_raw.raw_orders"
+                      }
+                    }
+                  ],
+                  "pageInfo": {
+                    "endCursor": null,
+                    "hasNextPage": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "url": "https://metadata.cloud.getdbt.com/graphql",
+        "variables": {
+          "after": null,
+          "database": "qa-dbt-sample",
+          "environmentId": "9",
+          "identifier": "raw_orders",
+          "schema": "main"
+        },
+        "query": "query TableMetadata(\n  $environmentId: BigInt!\n  $database: String!\n  $schema: String!\n  $identifier: String!\n  $after: String\n) {\n  environment(id: $environmentId) {\n    applied {\n      sources(first: 100, after: $after, filter: { database: $database, schema: $schema, identifier: $identifier }) {\n        edges {\n          node {\n            uniqueId\n            name\n            description\n            database\n            schema\n            accountId\n            projectId\n            identifier\n            catalog { runId runGeneratedAt columns { name description type } }\n            tests { name columnName executionInfo { lastRunStatus } }\n            freshness { freshnessStatus maxLoadedAt freshnessRunId }\n          }\n        }\n        pageInfo { hasNextPage endCursor }\n      }\n    }\n  }\n}",
+        "queryWithFreshnessCriteria": "query TableMetadata(\n  $environmentId: BigInt!\n  $database: String!\n  $schema: String!\n  $identifier: String!\n  $after: String\n) {\n  environment(id: $environmentId) {\n    applied {\n      sources(first: 100, after: $after, filter: { database: $database, schema: $schema, identifier: $identifier }) {\n        edges {\n          node {\n            uniqueId\n            name\n            description\n            database\n            schema\n            accountId\n            projectId\n            identifier\n            catalog { runId runGeneratedAt columns { name description type } }\n            tests { name columnName executionInfo { lastRunStatus } }\n            freshness { freshnessStatus maxLoadedAt freshnessRunId criteria { warnAfter { count period } errorAfter { count period } } }\n          }\n        }\n        pageInfo { hasNextPage endCursor }\n      }\n    }\n  }\n}"
+      }
+    },
+    "validateEnvironment": {
+      "method": "POST",
+      "operation": "ValidateEnvironment",
+      "response": {
+        "data": {
+          "environment": {
+            "applied": {
+              "models": {
+                "edges": [
+                  {
+                    "node": {
+                      "uniqueId": "model.jaffle_shop.customers"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "url": "https://metadata.cloud.getdbt.com/graphql",
+      "variables": {
+        "environmentId": "9"
+      },
+      "query": "query ValidateEnvironment($environmentId: BigInt!) {\n  environment(id: $environmentId) {\n    applied {\n      models(first: 1) {\n        edges { node { uniqueId } }\n      }\n    }\n  }\n}"
+    }
+  },
+  "datasetId": "main",
+  "dbtMarker": "plain-dbt-marker",
+  "environmentId": "9",
+  "expected": {
+    "orders": {
+      "columns": [
+        {
+          "description": "This is a unique identifier for an order",
+          "name": "order_id",
+          "type": "INTEGER"
+        },
+        {
+          "description": "Foreign key to the customers table",
+          "name": "customer_id",
+          "type": "INTEGER"
+        },
+        {
+          "description": "Date (UTC) that the order was placed",
+          "name": "order_date",
+          "type": "DATE"
+        },
+        {
+          "description": "Orders can be one of the following statuses:\n\n| status         | description                                                                                                            |\n|----------------|------------------------------------------------------------------------------------------------------------------------|\n| placed         | The order has been placed but has not yet left the warehouse                                                           |\n| shipped        | The order has ben shipped to the customer and is currently in transit                                                  |\n| completed      | The order has been received by the customer                                                                            |\n| return_pending | The customer has indicated that they would like to return the order, but it has not yet been received at the warehouse |\n| returned       | The order has been returned by the customer and received at the warehouse                                              |",
+          "name": "status",
+          "type": "VARCHAR"
+        },
+        {
+          "description": "Amount of the order (AUD) paid for by credit card",
+          "name": "credit_card_amount",
+          "type": "DOUBLE"
+        },
+        {
+          "description": "Amount of the order (AUD) paid for by coupon",
+          "name": "coupon_amount",
+          "type": "DOUBLE"
+        },
+        {
+          "description": "Amount of the order (AUD) paid for by bank transfer",
+          "name": "bank_transfer_amount",
+          "type": "DOUBLE"
+        },
+        {
+          "description": "Amount of the order (AUD) paid for by gift card",
+          "name": "gift_card_amount",
+          "type": "DOUBLE"
+        },
+        {
+          "description": "Total amount (AUD) of the order",
+          "name": "amount",
+          "type": "DOUBLE"
+        }
+      ],
+      "description": "This table has basic information about orders, as well as some derived facts based on payments",
+      "docsUrl": "https://cloud.getdbt.com/accounts/42/runs/9001/docs/#!/model/model.jaffle_shop.orders",
+      "freshness": null,
+      "lastRefreshed": "2026-11-06T20:32:34.344477Z",
+      "name": "orders",
+      "resourceType": "model",
+      "tests": [
+        {
+          "columnName": "status",
+          "name": "accepted_values_orders_status__placed__shipped__completed__return_pending__returned",
+          "status": "pass"
+        },
+        {
+          "columnName": "amount",
+          "name": "not_null_orders_amount",
+          "status": "pass"
+        },
+        {
+          "columnName": "bank_transfer_amount",
+          "name": "not_null_orders_bank_transfer_amount",
+          "status": "pass"
+        },
+        {
+          "columnName": "coupon_amount",
+          "name": "not_null_orders_coupon_amount",
+          "status": "pass"
+        },
+        {
+          "columnName": "credit_card_amount",
+          "name": "not_null_orders_credit_card_amount",
+          "status": "pass"
+        },
+        {
+          "columnName": "customer_id",
+          "name": "not_null_orders_customer_id",
+          "status": "pass"
+        },
+        {
+          "columnName": "gift_card_amount",
+          "name": "not_null_orders_gift_card_amount",
+          "status": "pass"
+        },
+        {
+          "columnName": "order_id",
+          "name": "not_null_orders_order_id",
+          "status": "pass"
+        },
+        {
+          "columnName": "customer_id",
+          "name": "relationships_orders_customer_id__customer_id__ref_customers_",
+          "status": "pass"
+        },
+        {
+          "columnName": "order_id",
+          "name": "unique_orders_order_id",
+          "status": "pass"
+        }
+      ],
+      "uniqueId": "model.jaffle_shop.orders"
+    },
+    "raw_orders": {
+      "columns": [
+        {
+          "description": "Order primary key.",
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "description": "Customer who placed the order.",
+          "name": "user_id",
+          "type": "INTEGER"
+        },
+        {
+          "description": "Date the order was placed.",
+          "name": "order_date",
+          "type": "DATE"
+        },
+        {
+          "description": "Order lifecycle status.",
+          "name": "status",
+          "type": "VARCHAR"
+        }
+      ],
+      "description": "One row per order as captured by the storefront.",
+      "docsUrl": "https://cloud.getdbt.com/accounts/42/runs/9001/docs/#!/source/source.jaffle_shop.jaffle_raw.raw_orders",
+      "freshness": "warn",
+      "lastRefreshed": "2018-04-09T00:00:00+00:00",
+      "name": "raw_orders",
+      "resourceType": "source",
+      "tests": [],
+      "uniqueId": "source.jaffle_shop.jaffle_raw.raw_orders"
+    }
+  },
+  "legacy": {
+    "listJobs": {
+      "method": "GET",
+      "response": {
+        "data": [
+          {
+            "environment_id": 9,
+            "generate_docs": true,
+            "id": 5,
+            "project_id": 77
+          }
+        ],
+        "status": {
+          "is_success": true
+        }
+      },
+      "url": "https://cloud.getdbt.com/api/v2/accounts/42/jobs/?project_id=77&limit=100&offset=0&environment_id=9"
+    },
+    "tableCalls": {
+      "models:model.jaffle_shop.orders": {
+        "method": "POST",
+        "operation": "JobTableMetadata",
+        "response": {
+          "data": {
+            "job": {
+              "models": [
+                {
+                  "accountId": "42",
+                  "alias": "orders",
+                  "columns": [
+                    {
+                      "description": "This is a unique identifier for an order",
+                      "name": "order_id",
+                      "type": "INTEGER"
+                    },
+                    {
+                      "description": "Foreign key to the customers table",
+                      "name": "customer_id",
+                      "type": "INTEGER"
+                    },
+                    {
+                      "description": "Date (UTC) that the order was placed",
+                      "name": "order_date",
+                      "type": "DATE"
+                    },
+                    {
+                      "description": "Orders can be one of the following statuses:\n\n| status         | description                                                                                                            |\n|----------------|------------------------------------------------------------------------------------------------------------------------|\n| placed         | The order has been placed but has not yet left the warehouse                                                           |\n| shipped        | The order has ben shipped to the customer and is currently in transit                                                  |\n| completed      | The order has been received by the customer                                                                            |\n| return_pending | The customer has indicated that they would like to return the order, but it has not yet been received at the warehouse |\n| returned       | The order has been returned by the customer and received at the warehouse                                              |",
+                      "name": "status",
+                      "type": "VARCHAR"
+                    },
+                    {
+                      "description": "Amount of the order (AUD) paid for by credit card",
+                      "name": "credit_card_amount",
+                      "type": "DOUBLE"
+                    },
+                    {
+                      "description": "Amount of the order (AUD) paid for by coupon",
+                      "name": "coupon_amount",
+                      "type": "DOUBLE"
+                    },
+                    {
+                      "description": "Amount of the order (AUD) paid for by bank transfer",
+                      "name": "bank_transfer_amount",
+                      "type": "DOUBLE"
+                    },
+                    {
+                      "description": "Amount of the order (AUD) paid for by gift card",
+                      "name": "gift_card_amount",
+                      "type": "DOUBLE"
+                    },
+                    {
+                      "description": "Total amount (AUD) of the order",
+                      "name": "amount",
+                      "type": "DOUBLE"
+                    }
+                  ],
+                  "database": "qa-dbt-sample",
+                  "description": "This table has basic information about orders, as well as some derived facts based on payments",
+                  "executeCompletedAt": "2026-11-06T20:32:34.344477Z",
+                  "name": "orders",
+                  "parentsModels": [
+                    {
+                      "name": "stg_orders",
+                      "resourceType": "model",
+                      "uniqueId": "model.jaffle_shop.stg_orders"
+                    },
+                    {
+                      "name": "stg_payments",
+                      "resourceType": "model",
+                      "uniqueId": "model.jaffle_shop.stg_payments"
+                    }
+                  ],
+                  "parentsSources": [],
+                  "projectId": "77",
+                  "runGeneratedAt": "2026-11-06T20:32:34.398712Z",
+                  "runId": "9001",
+                  "schema": "main",
+                  "tests": [
+                    {
+                      "columnName": "status",
+                      "name": "accepted_values_orders_status__placed__shipped__completed__return_pending__returned",
+                      "status": "pass"
+                    },
+                    {
+                      "columnName": "amount",
+                      "name": "not_null_orders_amount",
+                      "status": "pass"
+                    },
+                    {
+                      "columnName": "bank_transfer_amount",
+                      "name": "not_null_orders_bank_transfer_amount",
+                      "status": "pass"
+                    },
+                    {
+                      "columnName": "coupon_amount",
+                      "name": "not_null_orders_coupon_amount",
+                      "status": "pass"
+                    },
+                    {
+                      "columnName": "credit_card_amount",
+                      "name": "not_null_orders_credit_card_amount",
+                      "status": "pass"
+                    },
+                    {
+                      "columnName": "customer_id",
+                      "name": "not_null_orders_customer_id",
+                      "status": "pass"
+                    },
+                    {
+                      "columnName": "gift_card_amount",
+                      "name": "not_null_orders_gift_card_amount",
+                      "status": "pass"
+                    },
+                    {
+                      "columnName": "order_id",
+                      "name": "not_null_orders_order_id",
+                      "status": "pass"
+                    },
+                    {
+                      "columnName": "customer_id",
+                      "name": "relationships_orders_customer_id__customer_id__ref_customers_",
+                      "status": "pass"
+                    },
+                    {
+                      "columnName": "order_id",
+                      "name": "unique_orders_order_id",
+                      "status": "pass"
+                    }
+                  ],
+                  "uniqueId": "model.jaffle_shop.orders"
+                }
+              ]
+            }
+          }
+        },
+        "url": "https://metadata.cloud.getdbt.com/graphql",
+        "variables": {
+          "after": null,
+          "database": "qa-dbt-sample",
+          "identifier": "orders",
+          "jobId": "5",
+          "schema": "main"
+        },
+        "query": "query JobTableMetadata(\n  $jobId: BigInt!\n  $database: String!\n  $schema: String!\n  $identifier: String!\n  $after: String\n) {\n  job(id: $jobId) {\n    models(first: 100, after: $after, database: $database, schema: $schema, identifier: $identifier) {\n      uniqueId\n      name\n      description\n      database\n      schema\n      accountId\n      projectId\n      alias\n      runId\n      runGeneratedAt\n      columns { name description type }\n      executeCompletedAt\n      tests { name status columnName }\n      parentsModels { uniqueId name resourceType }\n      parentsSources { uniqueId name resourceType }\n      paginationCursor\n    }\n  }\n}"
+      },
+      "models:source.jaffle_shop.jaffle_raw.raw_orders": {
+        "method": "POST",
+        "operation": "JobTableMetadata",
+        "response": {
+          "data": {
+            "job": {
+              "models": []
+            }
+          }
+        },
+        "url": "https://metadata.cloud.getdbt.com/graphql",
+        "variables": {
+          "after": null,
+          "database": "qa-dbt-sample",
+          "identifier": "raw_orders",
+          "jobId": "5",
+          "schema": "main"
+        },
+        "query": "query JobTableMetadata(\n  $jobId: BigInt!\n  $database: String!\n  $schema: String!\n  $identifier: String!\n  $after: String\n) {\n  job(id: $jobId) {\n    models(first: 100, after: $after, database: $database, schema: $schema, identifier: $identifier) {\n      uniqueId\n      name\n      description\n      database\n      schema\n      accountId\n      projectId\n      alias\n      runId\n      runGeneratedAt\n      columns { name description type }\n      executeCompletedAt\n      tests { name status columnName }\n      parentsModels { uniqueId name resourceType }\n      parentsSources { uniqueId name resourceType }\n      paginationCursor\n    }\n  }\n}"
+      },
+      "sources:model.jaffle_shop.orders": {
+        "method": "POST",
+        "operation": "JobTableMetadata",
+        "response": {
+          "data": {
+            "job": {
+              "sources": []
+            }
+          }
+        },
+        "url": "https://metadata.cloud.getdbt.com/graphql",
+        "variables": {
+          "after": null,
+          "database": "qa-dbt-sample",
+          "identifier": "orders",
+          "jobId": "5",
+          "schema": "main"
+        },
+        "query": "query JobTableMetadata(\n  $jobId: BigInt!\n  $database: String!\n  $schema: String!\n  $identifier: String!\n  $after: String\n) {\n  job(id: $jobId) {\n    sources(first: 100, after: $after, database: $database, schema: $schema, identifier: $identifier) {\n      uniqueId\n      name\n      description\n      database\n      schema\n      accountId\n      projectId\n      identifier\n      runId\n      runGeneratedAt\n      columns { name description type }\n      maxLoadedAt\n      state\n      tests { name status columnName }\n      paginationCursor\n    }\n  }\n}",
+        "queryWithFreshnessCriteria": "query JobTableMetadata(\n  $jobId: BigInt!\n  $database: String!\n  $schema: String!\n  $identifier: String!\n  $after: String\n) {\n  job(id: $jobId) {\n    sources(first: 100, after: $after, database: $database, schema: $schema, identifier: $identifier) {\n      uniqueId\n      name\n      description\n      database\n      schema\n      accountId\n      projectId\n      identifier\n      runId\n      runGeneratedAt\n      columns { name description type }\n      maxLoadedAt\n      state\n      criteria { warnAfter { count period } errorAfter { count period } }\n      tests { name status columnName }\n      paginationCursor\n    }\n  }\n}"
+      },
+      "sources:source.jaffle_shop.jaffle_raw.raw_orders": {
+        "method": "POST",
+        "operation": "JobTableMetadata",
+        "response": {
+          "data": {
+            "job": {
+              "sources": [
+                {
+                  "accountId": "42",
+                  "columns": [
+                    {
+                      "description": "Order primary key.",
+                      "name": "id",
+                      "type": "INTEGER"
+                    },
+                    {
+                      "description": "Customer who placed the order.",
+                      "name": "user_id",
+                      "type": "INTEGER"
+                    },
+                    {
+                      "description": "Date the order was placed.",
+                      "name": "order_date",
+                      "type": "DATE"
+                    },
+                    {
+                      "description": "Order lifecycle status.",
+                      "name": "status",
+                      "type": "VARCHAR"
+                    }
+                  ],
+                  "database": "qa-dbt-sample",
+                  "description": "One row per order as captured by the storefront.",
+                  "identifier": "raw_orders",
+                  "maxLoadedAt": "2018-04-09T00:00:00+00:00",
+                  "name": "raw_orders",
+                  "projectId": "77",
+                  "runGeneratedAt": "2026-11-06T20:32:34.398712Z",
+                  "runId": "9001",
+                  "schema": "main",
+                  "state": "warn",
+                  "tests": [],
+                  "uniqueId": "source.jaffle_shop.jaffle_raw.raw_orders",
+                  "criteria": {
+                    "warnAfter": {
+                      "count": 2,
+                      "period": "hour"
+                    },
+                    "errorAfter": {
+                      "count": 24,
+                      "period": "hour"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "url": "https://metadata.cloud.getdbt.com/graphql",
+        "variables": {
+          "after": null,
+          "database": "qa-dbt-sample",
+          "identifier": "raw_orders",
+          "jobId": "5",
+          "schema": "main"
+        },
+        "query": "query JobTableMetadata(\n  $jobId: BigInt!\n  $database: String!\n  $schema: String!\n  $identifier: String!\n  $after: String\n) {\n  job(id: $jobId) {\n    sources(first: 100, after: $after, database: $database, schema: $schema, identifier: $identifier) {\n      uniqueId\n      name\n      description\n      database\n      schema\n      accountId\n      projectId\n      identifier\n      runId\n      runGeneratedAt\n      columns { name description type }\n      maxLoadedAt\n      state\n      tests { name status columnName }\n      paginationCursor\n    }\n  }\n}",
+        "queryWithFreshnessCriteria": "query JobTableMetadata(\n  $jobId: BigInt!\n  $database: String!\n  $schema: String!\n  $identifier: String!\n  $after: String\n) {\n  job(id: $jobId) {\n    sources(first: 100, after: $after, database: $database, schema: $schema, identifier: $identifier) {\n      uniqueId\n      name\n      description\n      database\n      schema\n      accountId\n      projectId\n      identifier\n      runId\n      runGeneratedAt\n      columns { name description type }\n      maxLoadedAt\n      state\n      criteria { warnAfter { count period } errorAfter { count period } }\n      tests { name status columnName }\n      paginationCursor\n    }\n  }\n}"
+      }
+    },
+    "validateJob": {
+      "method": "POST",
+      "operation": "ValidateJob",
+      "response": {
+        "data": {
+          "job": {
+            "models": [
+              {
+                "uniqueId": "model.jaffle_shop.customers"
+              }
+            ]
+          }
+        }
+      },
+      "url": "https://metadata.cloud.getdbt.com/graphql",
+      "variables": {
+        "jobId": "5"
+      },
+      "query": "query ValidateJob($jobId: BigInt!) {\n  job(id: $jobId) {\n    models(first: 1) { uniqueId }\n  }\n}"
+    }
+  },
+  "notice": "Expected dbt metadata derived from the public jaffle_shop sample (github.com/dbt-labs/jaffle_shop_duckdb, Apache-2.0). Only mapped expected data is kept; no SQL, manifest paths, credentials or sample files. Artifact database 'jaffle_shop' is mapped to QA provider project 'qa-dbt-sample' because the artifact name is not a valid GCP project id; dbt unique ids, descriptions, columns, tests and lineage are unchanged. Cloud account/project/environment/job/run ids are synthetic.",
+  "providerProject": "qa-dbt-sample",
+  "serviceAccountMarker": "plain-service-marker"
+}

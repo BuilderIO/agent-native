@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Evidence runner write fixture</title>
+  </head>
+  <body>
+    <label>Project title <input id="title" value="Phase 1 fixture" /></label>
+    <button id="save" type="button">Save</button>
+    <output id="status" role="status"></output>
+    <script>
+      const title = document.getElementById("title");
+      const status = document.getElementById("status");
+      document.getElementById("save").onclick = async () => {
+        if (new URLSearchParams(location.search).has("omitTransition")) return;
+        status.textContent = "Saved";
+        await fetch("/_agent-native/actions/fixture-write", {
+          method: "POST",
+          body: JSON.stringify({ title: title.value }),
+        });
+      };
+    </script>
+  </body>
+</html>

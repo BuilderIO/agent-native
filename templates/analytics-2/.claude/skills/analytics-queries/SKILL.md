@@ -1,0 +1,1 @@
+../../../.agents/skills/analytics-queries/SKILL.md

@@ -1,0 +1,52 @@
+{
+  "case": "cell-menu-close-and-reopen-stability",
+  "journey": "chart cell -> More actions menu -> close -> reopen",
+  "frozen_by": "analytics-2 rebuild lane, before any menu or chart fix",
+  "property_not_literal": "This case freezes BEHAVIOUR, not today's item list. It must keep passing when the menu's contents are corrected: the check compares the menu's own two observations (before close, after reopen), so adding, removing or renaming items is allowed as long as the set is stable across a close and a re-open.",
+  "identity": {
+    "app": "analytics-2",
+    "surface": "/project/<seeded project>/latest",
+    "cell": "a cell whose kind is Chart",
+    "viewport": "2304x1994 device pixels, default zoom",
+    "mode": "notebook page"
+  },
+  "checks": [
+    {
+      "id": "chart-cell-renders-a-chart",
+      "expect": "the cell output contains a chart surface",
+      "why": "the app's own cell vocabulary defines this kind as a Chart; a Chart that renders only a table contradicts its own contract"
+    },
+    {
+      "id": "menu-opens-on-its-trigger",
+      "expect": "menu open, focus on the first item"
+    },
+    {
+      "id": "menu-anchors-to-the-trigger",
+      "expect": "menu end edge within 4px of the trigger end edge"
+    },
+    {
+      "id": "trigger-click-closes-the-menu",
+      "expect": "menu closed after the trigger is clicked again",
+      "requires": "trusted input; NOT_ESTABLISHED when the collector has none"
+    },
+    {
+      "id": "close-returns-focus-to-trigger",
+      "expect": "focus back on the trigger after close",
+      "requires": "trusted input; NOT_ESTABLISHED when the collector has none"
+    },
+    {
+      "id": "reopen-keeps-the-same-items",
+      "expect": "identical item list, same order, on the second open"
+    },
+    {
+      "id": "menu-has-no-empty-separator",
+      "expect": "dividers <= items - 1"
+    }
+  ],
+  "controls": "e2e/postclick/selftest.mjs runs one clean observation and five mutants offline: a chart that renders only a table, a menu that never closes, a re-open that drops an item, a re-open that reorders items, and focus lost on close. Each mutant must FAIL exactly the check it breaks; a check that cannot fail is not a check.",
+  "not_claimed": [
+    "any comparison against another product's rendered screen (no reference capture exists for this journey)",
+    "escape-key or outside-click dismissal (no trusted-input driver on a background tab)",
+    "that today's menu items are correct: the item list is a candidate finding, and the stability check is written to survive its repair"
+  ]
+}

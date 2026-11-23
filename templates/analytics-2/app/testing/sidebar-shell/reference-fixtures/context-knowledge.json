@@ -1,0 +1,186 @@
+{
+  "name": "context-knowledge",
+  "rows": [
+    "shell.context",
+    "sidebar.context.header",
+    "sidebar.context.observability",
+    "sidebar.context.management",
+    "sidebar.context.overview",
+    "sidebar.context.suggestions",
+    "sidebar.context.evals",
+    "sidebar.context.endorsements",
+    "sidebar.context.guides",
+    "sidebar.context.models",
+    "sidebar.context.repositories",
+    "sidebar.context.connections"
+  ],
+  "inputs": {
+    "view": "knowledge",
+    "path": "/context-studio/knowledge",
+    "viewFallback": "guides"
+  },
+  "root": {
+    "html": {
+      "lang": "en"
+    },
+    "body": {},
+    "inlineCustomProperties": [],
+    "colorScheme": "light",
+    "tokens": {
+      "--ws-active-bg": "rgba(71, 57, 130, 0.08)",
+      "--ws-active-fg": "#473982",
+      "--ws-bg": "#ffffff",
+      "--ws-border": "#dadde6",
+      "--ws-border-muted": "#ecedf2",
+      "--ws-brand": "#473982",
+      "--ws-card-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 1px 3px rgba(11, 14, 22, 0.04),\n    0 2px 3px rgba(11, 14, 22, 0.03)",
+      "--ws-danger": "#b42318",
+      "--ws-fg": "#01011b",
+      "--ws-hover": "rgba(207, 211, 222, 0.15)",
+      "--ws-icon": "#6a738e",
+      "--ws-muted": "#6a738e",
+      "--ws-overlay": "rgba(248, 250, 251, 0.8)",
+      "--ws-placeholder": "#9ca3b4",
+      "--ws-popover-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 4px 12px rgba(11, 14, 22, 0.12)",
+      "--ws-scroll-thumb": "rgba(106, 115, 142, 0.4)",
+      "--ws-search-border": "rgba(0, 0, 0, 0.08)",
+      "--ws-search-muted": "#6b7280",
+      "--ws-sidebar-bg": "#fafafa",
+      "--ws-success": "#29a07c",
+      "--ws-warning": "#b5820a"
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "media": {
+      "drawer": false,
+      "fullWidthDrawer": false,
+      "dark": false
+    },
+    "route": "/context-studio/knowledge",
+    "hosts": [],
+    "storage": {
+      "local": {},
+      "session": {}
+    },
+    "storageEvents": [],
+    "time": "2026-11-12T08:00:00.000Z",
+    "environment": "happy-dom; no layout engine",
+    "experience": "unused reskin remains off"
+  },
+  "markup": "<div data-test-host=\"\"><div class=\"context-area\"><nav class=\"context-area-rail\" aria-label=\"Context Studio\"><div class=\"context-area-rail-header\"><div class=\"context-studio-brand\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-stack-2 \" aria-hidden=\"true\"><path d=\"M12 4l-8 4l8 4l8 -4l-8 -4\"></path><path d=\"M4 12l8 4l8 -4\"></path><path d=\"M4 16l8 4l8 -4\"></path></svg><span>Context Studio</span></div></div><div class=\"context-area-rail-body\"><div class=\"context-rail-group\"><a class=\"context-rail-link\" href=\"/context-studio/setup\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-layout-grid \" aria-hidden=\"true\"><path d=\"M4 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path><path d=\"M14 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path><path d=\"M4 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path><path d=\"M14 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path></svg><span>Setup</span></a></div><div class=\"context-rail-group\"><div class=\"context-rail-heading\">Observability</div><a class=\"context-rail-link\" href=\"/context-studio/overview\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-chart-line \" aria-hidden=\"true\"><path d=\"M4 19l16 0\"></path><path d=\"M4 15l4 -6l4 2l4 -5l4 4\"></path></svg><span>Overview</span></a><a class=\"context-rail-link\" href=\"/context-studio/suggestions\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-bulb \" aria-hidden=\"true\"><path d=\"M3 12h1m8 -9v1m8 8h1m-15.4 -6.4l.7 .7m12.1 -.7l-.7 .7\"></path><path d=\"M9 16a5 5 0 1 1 6 0a3.5 3.5 0 0 0 -1 3a2 2 0 0 1 -4 0a3.5 3.5 0 0 0 -1 -3\"></path><path d=\"M9.7 17l4.6 0\"></path></svg><span>Suggestions</span></a><a class=\"context-rail-link\" href=\"/context-studio/evals\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-flask \" aria-hidden=\"true\"><path d=\"M9 3l6 0\"></path><path d=\"M10 9l4 0\"></path><path d=\"M10 3v6l-4 11a.7 .7 0 0 0 .5 1h11a.7 .7 0 0 0 .5 -1l-4 -11v-6\"></path></svg><span>Evals</span></a></div><div class=\"context-rail-group\"><div class=\"context-rail-heading\">Management</div><a class=\"context-rail-link\" href=\"/context-studio/endorsements\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-rosette \" aria-hidden=\"true\"><path d=\"M5 7.2a2.2 2.2 0 0 1 2.2 -2.2h1a2.2 2.2 0 0 0 1.55 -.64l.7 -.7a2.2 2.2 0 0 1 3.12 0l.7 .7c.412 .41 .97 .64 1.55 .64h1a2.2 2.2 0 0 1 2.2 2.2v1c0 .58 .23 1.138 .64 1.55l.7 .7a2.2 2.2 0 0 1 0 3.12l-.7 .7a2.2 2.2 0 0 0 -.64 1.55v1a2.2 2.2 0 0 1 -2.2 2.2h-1a2.2 2.2 0 0 0 -1.55 .64l-.7 .7a2.2 2.2 0 0 1 -3.12 0l-.7 -.7a2.2 2.2 0 0 0 -1.55 -.64h-1a2.2 2.2 0 0 1 -2.2 -2.2v-1a2.2 2.2 0 0 0 -.64 -1.55l-.7 -.7a2.2 2.2 0 0 1 0 -3.12l.7 -.7a2.2 2.2 0 0 0 .64 -1.55v-1\"></path></svg><span>Endorsements</span></a><a class=\"context-rail-link\" href=\"/context-studio/guides\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-certificate \" aria-hidden=\"true\"><path d=\"M12 15a3 3 0 1 0 6 0a3 3 0 1 0 -6 0\"></path><path d=\"M13 17.5v4.5l2 -1.5l2 1.5v-4.5\"></path><path d=\"M10 19h-5a2 2 0 0 1 -2 -2v-10c0 -1.1 .9 -2 2 -2h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -1 1.73\"></path><path d=\"M6 9l12 0\"></path><path d=\"M6 12l3 0\"></path><path d=\"M6 15l2 0\"></path></svg><span>Guides</span></a><a class=\"context-rail-link\" href=\"/context-studio/models\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-share-3 \" aria-hidden=\"true\"><path d=\"M13 4v4c-6.575 1.028 -9.02 6.788 -10 12c-.037 .206 5.384 -5.962 10 -6v4l8 -7l-8 -7\"></path></svg><span>Semantic models</span></a><a class=\"context-rail-link\" href=\"/context-studio/repositories\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-stack-2 \" aria-hidden=\"true\"><path d=\"M12 4l-8 4l8 4l8 -4l-8 -4\"></path><path d=\"M4 12l8 4l8 -4\"></path><path d=\"M4 16l8 4l8 -4\"></path></svg><span>Repositories</span></a><a class=\"context-rail-link\" href=\"/context-studio/connections\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-link \" aria-hidden=\"true\"><path d=\"M9 15l6 -6\"></path><path d=\"M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464\"></path><path d=\"M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463\"></path></svg><span>Connections</span></a></div></div><div class=\"context-area-rail-footer\"><div class=\"context-rail-footer\"><div class=\"context-rail-heading\">Related settings</div><a class=\"context-rail-link\" href=\"/home/data\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-layout-grid \" aria-hidden=\"true\"><path d=\"M4 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path><path d=\"M14 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path><path d=\"M4 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path><path d=\"M14 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\"></path></svg><span>Data sources</span></a><a class=\"context-rail-link\" href=\"/settings\" data-discover=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-link \" aria-hidden=\"true\"><path d=\"M9 15l6 -6\"></path><path d=\"M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464\"></path><path d=\"M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463\"></path></svg><span>Settings</span></a></div></div></nav><div class=\"context-area-content\"><div class=\"context-studio-content\"><h1 class=\"context-studio-title\">Guides</h1></div></div></div></div>",
+  "controls": [
+    {
+      "tag": "a",
+      "attributes": {
+        "class": "context-rail-link",
+        "data-discover": "true",
+        "href": "/context-studio/setup"
+      },
+      "text": "Setup",
+      "value": null
+    },
+    {
+      "tag": "a",
+      "attributes": {
+        "class": "context-rail-link",
+        "data-discover": "true",
+        "href": "/context-studio/overview"
+      },
+      "text": "Overview",
+      "value": null
+    },
+    {
+      "tag": "a",
+      "attributes": {
+        "class": "context-rail-link",
+        "data-discover": "true",
+        "href": "/context-studio/suggestions"
+      },
+      "text": "Suggestions",
+      "value": null
+    },
+    {
+      "tag": "a",
+      "attributes": {
+        "class": "context-rail-link",
+        "data-discover": "true",
+        "href": "/context-studio/evals"
+      },
+      "text": "Evals",
+      "value": null
+    },
+    {
+      "tag": "a",
+      "attributes": {
+        "class": "context-rail-link",
+        "data-discover": "true",
+        "href": "/context-studio/endorsements"
+      },
+      "text": "Endorsements",
+      "value": null
+    },
+    {
+      "tag": "a",
+      "attributes": {
+        "class": "context-rail-link",
+        "data-discover": "true",
+        "href": "/context-studio/guides"
+      },
+      "text": "Guides",
+      "value": null
+    },
+    {
+      "tag": "a",
+      "attributes": {
+        "class": "context-rail-link",
+        "data-discover": "true",
+        "href": "/context-studio/models"
+      },
+      "text": "Semantic models",
+      "value": null
+    },
+    {
+      "tag": "a",
+      "attributes": {
+        "class": "context-rail-link",
+        "data-discover": "true",
+        "href": "/context-studio/repositories"
+      },
+      "text": "Repositories",
+      "value": null
+    },
+    {
+      "tag": "a",
+      "attributes": {
+        "class": "context-rail-link",
+        "data-discover": "true",
+        "href": "/context-studio/connections"
+      },
+      "text": "Connections",
+      "value": null
+    },
+    {
+      "tag": "a",
+      "attributes": {
+        "class": "context-rail-link",
+        "data-discover": "true",
+        "href": "/home/data"
+      },
+      "text": "Data sources",
+      "value": null
+    },
+    {
+      "tag": "a",
+      "attributes": {
+        "class": "context-rail-link",
+        "data-discover": "true",
+        "href": "/settings"
+      },
+      "text": "Settings",
+      "value": null
+    }
+  ],
+  "extra": null
+}

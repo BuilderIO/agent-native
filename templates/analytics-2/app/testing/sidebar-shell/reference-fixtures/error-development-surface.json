@@ -1,0 +1,96 @@
+{
+  "name": "error-development",
+  "rows": [
+    "shell.error"
+  ],
+  "inputs": {
+    "kind": "development",
+    "host": "ErrorBoundary",
+    "providers": "not mounted"
+  },
+  "root": {
+    "html": {
+      "lang": "en"
+    },
+    "body": {},
+    "inlineCustomProperties": [],
+    "colorScheme": "light",
+    "tokens": {
+      "--ws-active-bg": "rgba(71, 57, 130, 0.08)",
+      "--ws-active-fg": "#473982",
+      "--ws-bg": "#ffffff",
+      "--ws-border": "#dadde6",
+      "--ws-border-muted": "#ecedf2",
+      "--ws-brand": "#473982",
+      "--ws-card-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 1px 3px rgba(11, 14, 22, 0.04),\n    0 2px 3px rgba(11, 14, 22, 0.03)",
+      "--ws-danger": "#b42318",
+      "--ws-fg": "#01011b",
+      "--ws-hover": "rgba(207, 211, 222, 0.15)",
+      "--ws-icon": "#6a738e",
+      "--ws-muted": "#6a738e",
+      "--ws-overlay": "rgba(248, 250, 251, 0.8)",
+      "--ws-placeholder": "#9ca3b4",
+      "--ws-popover-shadow": "0 0 0 1px rgba(11, 14, 22, 0.06), 0 4px 12px rgba(11, 14, 22, 0.12)",
+      "--ws-scroll-thumb": "rgba(106, 115, 142, 0.4)",
+      "--ws-search-border": "rgba(0, 0, 0, 0.08)",
+      "--ws-search-muted": "#6b7280",
+      "--ws-sidebar-bg": "#fafafa",
+      "--ws-success": "#29a07c",
+      "--ws-warning": "#b5820a"
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "media": {
+      "drawer": false,
+      "fullWidthDrawer": false,
+      "dark": false
+    },
+    "route": "/missing",
+    "hosts": [],
+    "storage": {
+      "local": {
+        "agent-chat-active-run": null,
+        "theme": null
+      },
+      "session": {
+        "agent-chat-active-run": null,
+        "theme": null
+      }
+    },
+    "storageEvents": [
+      {
+        "area": "session",
+        "operation": "getItem",
+        "key": "agent-chat-active-run"
+      },
+      {
+        "area": "session",
+        "operation": "getItem",
+        "key": "agent-chat-active-run"
+      },
+      {
+        "area": "session",
+        "operation": "getItem",
+        "key": "agent-chat-active-run"
+      },
+      {
+        "area": "session",
+        "operation": "getItem",
+        "key": "agent-chat-active-run"
+      },
+      {
+        "area": "local",
+        "operation": "getItem",
+        "key": "theme"
+      }
+    ],
+    "time": "2026-11-12T08:00:00.000Z",
+    "environment": "happy-dom; no layout engine",
+    "experience": "unused reskin remains off"
+  },
+  "markup": "<div data-test-host=\"\"><main class=\"flex items-center justify-center min-h-screen p-4 bg-background text-foreground\"><div class=\"flex flex-col items-center text-center max-w-md\"><h1 class=\"mt-3 text-2xl font-semibold\">Something went wrong</h1><p class=\"mt-2 text-muted-foreground text-sm\">Synthetic runtime error</p><a class=\"mt-6 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer\" href=\"/home\" data-discover=\"true\">Go home</a><div class=\"flex flex-col items-center gap-2 mt-4\"><button type=\"button\" aria-label=\"Send feedback\" class=\"flex items-center gap-2 rounded-md border border-border bg-transparent px-3 text-muted-foreground transition hover:border-foreground/40 hover:text-foreground h-8 text-xs\" aria-haspopup=\"dialog\" aria-expanded=\"false\" data-state=\"closed\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-message-circle \"><path d=\"M3 20l1.3 -3.9c-2.324 -3.437 -1.426 -7.872 2.1 -10.374c3.526 -2.501 8.59 -2.296 11.845 .48c3.255 2.777 3.695 7.266 1.029 10.501c-2.666 3.235 -7.615 4.215 -11.574 2.293l-4.7 1\"></path></svg><span>Send feedback</span></button><a href=\"https://github.com/BuilderIO/agent-native/issues/new?title=Error+screen%3A+Something+went+wrong&amp;body=Describe+your+issue+here%3A%0A%0A%0A---%0ADebug+info%3A%0AApp%3A+Analytics%0AScreen%3A+Something+went+wrong%0AError%3A+Synthetic+runtime+error%0APage%3A+http%3A%2F%2Flocalhost%3A3000%2F%0ASource%3A+web%0ABuild%3A+agent-native-client%40development%0ATime%3A+2026-11-12T08%3A00%3A00.000Z\" target=\"_blank\" rel=\"noreferrer\" class=\"inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground underline-offset-4 hover:bg-muted/60 hover:text-foreground hover:underline\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"tabler-icon tabler-icon-brand-github size-3.5\"><path d=\"M9 19c-4.3 1.4 -4.3 -2.5 -6 -3m12 5v-3.5c0 -1 .1 -1.4 -.5 -2c2.8 -.3 5.5 -1.4 5.5 -6a4.6 4.6 0 0 0 -1.3 -3.2a4.2 4.2 0 0 0 -.1 -3.2s-1.1 -.3 -3.5 1.3a12.3 12.3 0 0 0 -6.2 0c-2.4 -1.6 -3.5 -1.3 -3.5 -1.3a4.2 4.2 0 0 0 -.1 3.2a4.6 4.6 0 0 0 -1.3 3.2c0 4.6 2.7 5.7 5.5 6c-.6 .6 -.6 1.2 -.5 2v3.5\"></path></svg>Open GitHub issue</a></div><pre class=\"mt-6 w-full text-left text-xs overflow-auto p-4 bg-muted rounded\"><code>Error: Synthetic runtime error\n    at synthetic-frame</code></pre></div></main></div>",
+  "hiddenCopies": [],
+  "layoutInputs": null
+}

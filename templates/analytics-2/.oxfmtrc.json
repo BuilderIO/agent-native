@@ -1,0 +1,9 @@
+{
+  "tabWidth": 2,
+  "useTabs": false,
+  "printWidth": 80,
+  "trailingComma": "all",
+  "proseWrap": "preserve",
+  "sortImports": true,
+  "ignorePatterns": ["**/__goldens__/**", "**/reference-fixtures/**"]
+}
