@@ -13,7 +13,10 @@ import {
   getClientsWithErrors,
   isConnected,
 } from "../server/lib/google-auth.js";
-import { addCachedGmailLabel } from "../server/lib/inbox-store.js";
+import {
+  addCachedGmailLabel,
+  type CachedGmailLabel,
+} from "../server/lib/inbox-store.js";
 import type { Label } from "../shared/types.js";
 
 const accountResultSchema = z.object({
@@ -35,6 +38,45 @@ const createLabelOutputSchema = z.object({
 
 type CreateLabelAccountResult = z.infer<typeof accountResultSchema>;
 export type CreateLabelResult = z.infer<typeof createLabelOutputSchema>;
+
+async function findOrCreateGmailLabel(
+  accessToken: string,
+  name: string,
+  key: string,
+): Promise<{ status: "created" | "existing"; label: CachedGmailLabel }> {
+  // coercion-ok: Gmail omits an empty labels array, and a failed request throws
+  const existing = ((await gmailListLabels(accessToken)).labels ?? []) as {
+    id?: string;
+    name?: string;
+    type?: string;
+  }[];
+  const match = existing.find(
+    (entry) => entry.name && normalizeLabel(entry.name) === key,
+  );
+  if (match?.id && match.name) {
+    return {
+      status: "existing",
+      label: { id: match.id, name: match.name, type: match.type ?? "user" },
+    };
+  }
+  const created = (await gmailCreateLabel(accessToken, name)) as {
+    id: string;
+    name: string;
+    type?: string;
+  };
+  return {
+    status: "created",
+    label: {
+      id: created.id,
+      name: created.name,
+      type: created.type ?? "user",
+      messagesTotal: 0,
+      messagesUnread: 0,
+      threadsTotal: 0,
+      threadsUnread: 0,
+    },
+  };
+}
 
 function labelViewId(name: string): string {
   return name.toLowerCase().replace(/_/g, " ");
@@ -136,50 +178,28 @@ export default defineAction({
 
     let labelName = name;
     for (const { email, accessToken } of clients) {
+      let saved: { status: "created" | "existing"; label: CachedGmailLabel };
       try {
-        const existing = ((await gmailListLabels(accessToken)).labels ??
-          []) as {
-          id?: string;
-          name?: string;
-          type?: string;
-        }[];
-        const match = existing.find(
-          (entry) => entry.name && normalizeLabel(entry.name) === key,
-        );
-        if (match?.id && match.name) {
-          labelName = match.name;
-          await addCachedGmailLabel(ownerEmail, email, {
-            id: match.id,
-            name: match.name,
-            type: match.type ?? "user",
-            messagesTotal: 0,
-            messagesUnread: 0,
-            threadsTotal: 0,
-            threadsUnread: 0,
-          });
-          results.push({ accountEmail: email, status: "existing" });
-          continue;
-        }
-        const created = (await gmailCreateLabel(accessToken, name)) as {
-          id: string;
-          name: string;
-          type?: string;
-        };
-        await addCachedGmailLabel(ownerEmail, email, {
-          id: created.id,
-          name: created.name,
-          type: created.type ?? "user",
-          messagesTotal: 0,
-          messagesUnread: 0,
-          threadsTotal: 0,
-          threadsUnread: 0,
-        });
-        results.push({ accountEmail: email, status: "created" });
+        saved = await findOrCreateGmailLabel(accessToken, name, key);
       } catch (err) {
         results.push({
           accountEmail: email,
           status: "failed",
           error: err instanceof Error ? err.message : "Gmail API error",
+        });
+        continue;
+      }
+      if (saved.status === "existing") labelName = saved.label.name;
+      try {
+        await addCachedGmailLabel(ownerEmail, email, saved.label);
+        results.push({ accountEmail: email, status: saved.status });
+      } catch (err) {
+        results.push({
+          accountEmail: email,
+          status: saved.status,
+          error: `Saved in Gmail, but Mail's label cache did not update: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
         });
       }
     }

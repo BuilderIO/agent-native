@@ -87,6 +87,42 @@ describe("create-label action", () => {
       "missing@example.com",
       expect.objectContaining({ id: "Label_9", name: "receipts" }),
     );
+    expect(mocks.addCachedGmailLabel).toHaveBeenCalledWith(
+      "owner@example.com",
+      "has@example.com",
+      { id: "Label_7", name: "Receipts", type: "user" },
+    );
+  });
+
+  it("reports a label Gmail saved as created when the label cache write fails", async () => {
+    mocks.isConnected.mockResolvedValue(true);
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [{ email: "new@example.com", accessToken: "new-token" }],
+      errors: [],
+    });
+    mocks.gmailListLabels.mockResolvedValue({ labels: [] });
+    mocks.gmailCreateLabel.mockResolvedValue({
+      id: "Label_3",
+      name: "Harbor",
+      type: "user",
+    });
+    mocks.addCachedGmailLabel.mockRejectedValue(new Error("db offline"));
+
+    const result = await action.run({ name: "Harbor" });
+
+    expect(result).toEqual({
+      status: "complete",
+      backend: "gmail",
+      label: { id: "harbor", name: "Harbor", type: "user" },
+      accounts: [
+        {
+          accountEmail: "new@example.com",
+          status: "created",
+          error:
+            "Saved in Gmail, but Mail's label cache did not update: db offline",
+        },
+      ],
+    });
   });
 
   it("adds a local label once without a connected Gmail account", async () => {
