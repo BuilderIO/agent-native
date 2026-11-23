@@ -331,7 +331,7 @@ export const AppSidebarNavItem = forwardRef<
           <button
             type="button"
             onClick={onClick}
-            className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-xs text-primary"
+            className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-start text-xs text-primary"
           >
             {innerContent}
           </button>

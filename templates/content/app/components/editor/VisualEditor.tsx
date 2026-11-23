@@ -282,6 +282,7 @@ import {
 } from "./suggestions/read-only-blocks";
 import { ContentTableView, contentTableColumnSizing } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
+import { useTurnCollectionIntoTable } from "./use-turn-collection-into-table";
 import { useTurnTableIntoCollection } from "./use-turn-table-into-collection";
 import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
@@ -4942,6 +4943,7 @@ export function VisualEditor({
         }),
       ).then(isEditorDraftSaveAccepted),
   });
+  const turnCollectionIntoTable = useTurnCollectionIntoTable(editor);
   const appliedContentResetKeyRef = useRef(contentResetKey);
   useLayoutEffect(() => {
     if (!editor || appliedContentResetKeyRef.current === contentResetKey)
@@ -6349,6 +6351,11 @@ export function VisualEditor({
           onTurnTableIntoCollection={
             documentId && !directoryWidgetEditing
               ? turnTableIntoCollection
+              : undefined
+          }
+          onTurnCollectionIntoTable={
+            documentId && !directoryWidgetEditing
+              ? turnCollectionIntoTable
               : undefined
           }
           suggesting={suggesting}

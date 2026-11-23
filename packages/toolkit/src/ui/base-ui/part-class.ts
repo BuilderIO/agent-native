@@ -9,7 +9,10 @@ export function partClassName<State>(
   className: string | ((state: State) => string | undefined) | undefined,
 ): string | ((state: State) => string) {
   if (typeof className === "function") {
-    return (state: State) => cn(part, className(state));
+    return (state: State) => {
+      const extra = className(state);
+      return extra ? cn(part, extra) : part;
+    };
   }
-  return cn(part, className);
+  return className ? cn(part, className) : part;
 }

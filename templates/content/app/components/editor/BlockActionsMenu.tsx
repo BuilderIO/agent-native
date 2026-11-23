@@ -128,6 +128,13 @@ function opensAsSheet() {
   );
 }
 
+function isInlineCollection(node: BlockAt["node"]) {
+  return (
+    node.type.name === "registryBlock" &&
+    node.attrs.blockType === "inline-database"
+  );
+}
+
 /**
  * The drag handle's `openMenu`: the editor's mounted BlockActionsMenu opens
  * in place of the handle's built-in menu.
@@ -180,6 +187,7 @@ export function BlockActionsMenu({
   suggesting,
   onComment,
   onTurnTableIntoCollection,
+  onTurnCollectionIntoTable,
   onCopyLink,
   documentId,
 }: {
@@ -188,6 +196,7 @@ export function BlockActionsMenu({
   suggesting: boolean;
   onComment?: BubbleToolbarProps["onComment"];
   onTurnTableIntoCollection?: (table: BlockAt) => void;
+  onTurnCollectionIntoTable?: (collection: BlockAt) => void;
   onCopyLink?: (block: BlockAt) => void;
   /** The page, named to the agent a block is attached to. */
   documentId?: string | null;
@@ -399,6 +408,13 @@ export function BlockActionsMenu({
     }
   };
 
+  const turnIntoTable = () => {
+    const latest = request.getBlock();
+    if (latest && isInlineCollection(latest.node)) {
+      onTurnCollectionIntoTable?.(latest);
+    }
+  };
+
   const comment = () => {
     const latest = request.getBlock();
     const range = latest && blockCommentRange(latest.node, latest.pos);
@@ -583,6 +599,15 @@ export function BlockActionsMenu({
         id: "turn-into-collection",
         label: t("editor.blockMenu.turnIntoCollection"),
         onSelect: turnIntoCollection,
+        lock: locks.remove,
+      },
+    !suggesting &&
+      !!onTurnCollectionIntoTable &&
+      !!node &&
+      isInlineCollection(node) && {
+        id: "turn-into-table",
+        label: t("editor.blockMenu.turnIntoTable"),
+        onSelect: turnIntoTable,
         lock: locks.remove,
       },
   ]);

@@ -6,8 +6,10 @@ import {
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { IconCheck, IconChevronRight, IconCircle } from "@tabler/icons-react";
 import * as React from "react";
+import { createPortal } from "react-dom";
 
 import { cn } from "../../utils.js";
+import { scopePortal } from "./overlay-scope.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
@@ -48,6 +50,8 @@ const MenuAttributesContext = React.createContext<
   Record<string, string | undefined>
 >({});
 
+const InsideMenuGroup = React.createContext(false);
+
 const MenuPopupFrame = React.forwardRef<
   HTMLDivElement,
   MenuSubmenuPopupProps & {
@@ -76,7 +80,7 @@ const MenuPopupFrame = React.forwardRef<
     },
     ref,
   ) => (
-    <BaseMenu.Portal container={container} keepMounted={keepMounted}>
+    <MenuPortal container={container} keepMounted={keepMounted}>
       <BaseMenu.Positioner
         className="menu-positioner"
         side={side}
@@ -92,14 +96,16 @@ const MenuPopupFrame = React.forwardRef<
         positionMethod={positionMethod}
         disableAnchorTracking={disableAnchorTracking}
       >
-        <BaseMenu.Popup
-          ref={ref}
-          {...props}
-          {...attributes}
-          className={partClassName("menu-popup", className)}
-        />
+        <InsideMenuGroup.Provider value={false}>
+          <BaseMenu.Popup
+            ref={ref}
+            {...props}
+            {...attributes}
+            className={partClassName("menu-popup", className)}
+          />
+        </InsideMenuGroup.Provider>
       </BaseMenu.Positioner>
-    </BaseMenu.Portal>
+    </MenuPortal>
   ),
 );
 MenuPopupFrame.displayName = "MenuPopupFrame";
@@ -129,13 +135,32 @@ export function createMenuPopup(defs: MenuPopupDefs, displayName: string) {
 const MenuSubmenuPopup = React.forwardRef<
   HTMLDivElement,
   MenuSubmenuPopupProps
->((props, ref) => (
-  <MenuPopupFrame
-    ref={ref}
-    attributes={React.useContext(MenuAttributesContext)}
-    {...props}
-  />
-));
+>((props, ref) => {
+  const attributes = React.useContext(MenuAttributesContext);
+  const marker = React.useRef<HTMLTemplateElement>(null);
+  const [host, setHost] = React.useState<HTMLDivElement | null>();
+  React.useLayoutEffect(() => {
+    const source = marker.current;
+    const menu =
+      source?.closest(".menu-popup") ?? source?.closest('[role="menu"]');
+    if (!menu) {
+      setHost(null);
+      return;
+    }
+    const node = menu.ownerDocument.createElement("div");
+    node.style.display = "contents";
+    menu.after(node);
+    setHost(node);
+    return () => node.remove();
+  }, []);
+  const popup = <MenuPopupFrame ref={ref} attributes={attributes} {...props} />;
+  return (
+    <>
+      <template ref={marker} />
+      {host ? createPortal(popup, host) : host === null ? popup : null}
+    </>
+  );
+});
 MenuSubmenuPopup.displayName = "MenuSubmenuPopup";
 
 /**
@@ -160,21 +185,36 @@ export const MenuTrigger = BaseMenu.Trigger;
  *
  * @import import { MenuPortal } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-export const MenuPortal = BaseMenu.Portal;
+export const MenuPortal = scopePortal(BaseMenu.Portal);
 
 /**
- * Groups related items, labelled by a `BaseMenu.GroupLabel` inside it.
+ * Groups related items under a MenuGroupLabel.
  *
  * @import import { MenuGroup } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-export const MenuGroup = BaseMenu.Group;
+export const MenuGroup = React.forwardRef<HTMLDivElement, BaseMenu.Group.Props>(
+  (props, ref) => (
+    <InsideMenuGroup.Provider value>
+      <BaseMenu.Group {...props} ref={ref} />
+    </InsideMenuGroup.Provider>
+  ),
+);
+MenuGroup.displayName = "MenuGroup";
 
 /**
  * Holds radio items of which only one is chosen, and owns their value.
  *
  * @import import { MenuRadioGroup } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-export const MenuRadioGroup = BaseMenu.RadioGroup;
+export const MenuRadioGroup = React.forwardRef<
+  HTMLDivElement,
+  BaseMenu.RadioGroup.Props
+>((props, ref) => (
+  <InsideMenuGroup.Provider value>
+    <BaseMenu.RadioGroup {...props} ref={ref} />
+  </InsideMenuGroup.Provider>
+));
+MenuRadioGroup.displayName = "MenuRadioGroup";
 
 /**
  * A submenu: wraps a MenuSubmenuTrigger and the MenuSubmenuPopup it
@@ -254,6 +294,36 @@ export function createMenuItem(defs: MenuItemDefs, displayName: string) {
  */
 const MenuItem = createMenuItem(menuItemProps, "MenuItem");
 
+export interface MenuLinkItemProps
+  extends
+    Omit<BaseMenu.LinkItem.Props, "color">,
+    MenuItemSlots,
+    PropsOf<MenuItemDefs> {}
+
+/** A menu row that navigates to its href. Use render for a router link.
+ * @import import { MenuLinkItem } from "@agent-native/toolkit/ui/base-ui/menu";
+ */
+export const MenuLinkItem = React.forwardRef<
+  HTMLAnchorElement,
+  MenuLinkItemProps
+>((props, ref) => {
+  const [attributes, { leading, trailing, className, children, ...rest }] =
+    splitProps(menuItemProps, props);
+  return (
+    <BaseMenu.LinkItem
+      ref={ref}
+      {...rest}
+      {...attributes}
+      className={partClassName("menu-item", className)}
+    >
+      <MenuItemSlot slot="leading">{leading}</MenuItemSlot>
+      {children}
+      <MenuItemSlot slot="trailing">{trailing}</MenuItemSlot>
+    </BaseMenu.LinkItem>
+  );
+});
+MenuLinkItem.displayName = "MenuLinkItem";
+
 export interface MenuCheckboxItemProps
   extends BaseMenu.CheckboxItem.Props, Pick<MenuItemSlots, "trailing"> {}
 
@@ -317,15 +387,23 @@ MenuRadioItem.displayName = "MenuRadioItem";
 export type MenuGroupLabelProps = React.ComponentPropsWithRef<"div">;
 
 /**
- * A heading between items. It is a plain element, so it goes anywhere in the
- * menu; to label a group, use `BaseMenu.GroupLabel` inside it.
+ * Labels its enclosing MenuGroup or MenuRadioGroup. Outside a group it renders a standalone heading.
  *
  * @import import { MenuGroupLabel } from "@agent-native/toolkit/ui/base-ui/menu";
  */
 const MenuGroupLabel = React.forwardRef<HTMLDivElement, MenuGroupLabelProps>(
-  ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("menu-group-label", className)} {...props} />
-  ),
+  ({ className, ...props }, ref) => {
+    const Label = React.useContext(InsideMenuGroup)
+      ? BaseMenu.GroupLabel
+      : "div";
+    return (
+      <Label
+        ref={ref}
+        className={cn("menu-group-label", className)}
+        {...props}
+      />
+    );
+  },
 );
 MenuGroupLabel.displayName = "MenuGroupLabel";
 

@@ -64,6 +64,7 @@ export default defineAction({
         "Per-id account emails, comma-separated and positionally matched to id for bulk restores",
       ),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const ids = args.id
       .split(",")

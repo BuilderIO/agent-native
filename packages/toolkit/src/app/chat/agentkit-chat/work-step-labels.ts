@@ -57,6 +57,45 @@ export function agentKitWorkStepLabels(
     workStepEditing: t("agentChat.workSteps.editing"),
     workStepRunningCommands: t("agentChat.workSteps.runningCommands"),
     workStepRunningActions: t("agentChat.workSteps.runningActions"),
+    workStepSourcesUsed: t("agentChat.workSteps.sourcesUsed", {
+      sources: "{{sources}}",
+    }),
+    workStepSourcesSeparator: t("agentChat.workSteps.sourcesSeparator"),
+    workStepSourcesDocumentsOne: t("agentChat.workSteps.sourcesDocumentsOne"),
+    workStepSourcesDocumentsOther: t(
+      "agentChat.workSteps.sourcesDocumentsOther",
+      count,
+    ),
+    workStepSourcesWebOne: t("agentChat.workSteps.sourcesWebOne"),
+    workStepSourcesWebOther: t("agentChat.workSteps.sourcesWebOther", count),
+    workStepSourcesFilesOne: t("agentChat.workSteps.sourcesFilesOne"),
+    workStepSourcesFilesOther: t(
+      "agentChat.workSteps.sourcesFilesOther",
+      count,
+    ),
+    workStepSourcesSearchesOne: t("agentChat.workSteps.sourcesSearchesOne"),
+    workStepSourcesSearchesOther: t(
+      "agentChat.workSteps.sourcesSearchesOther",
+      count,
+    ),
+    workStepSourceRead: t("agentChat.workSteps.sourceRead"),
+    workStepSourceOpened: t("agentChat.workSteps.sourceOpened"),
+    workStepSourceSearched: t("agentChat.workSteps.sourceSearched"),
+    workStepSourceFailedRead: t("agentChat.workSteps.sourceFailedRead", {
+      name: "{{name}}",
+    }),
+    workStepSourceFailedOpen: t("agentChat.workSteps.sourceFailedOpen", {
+      name: "{{name}}",
+    }),
+    workStepSourceFailedSearch: t("agentChat.workSteps.sourceFailedSearch", {
+      name: "{{name}}",
+    }),
+    workStepSourceFailedPage: t("agentChat.workSteps.sourceFailedPage"),
+    workStepSourceFailedFile: t("agentChat.workSteps.sourceFailedFile"),
+    workStepSourceFailedWeb: t("agentChat.workSteps.sourceFailedWeb"),
+    workStepSourceFailedSearchAny: t(
+      "agentChat.workSteps.sourceFailedSearchAny",
+    ),
   };
 }
 

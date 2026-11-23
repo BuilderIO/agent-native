@@ -3014,6 +3014,31 @@ export function trackLifecycleEvent(
   trackEvent(name, params);
 }
 
-export function trackSessionStatus(signedIn: boolean): void {
-  trackEvent("session status", { signed_in: signedIn });
+/**
+ * What made the tab read the session: its first read in the page (`"load"`,
+ * which the page's first answer always says, even when it comes on a retry, a
+ * later return to the tab, or a read a sign-in change or 401 started), a
+ * return to the tab, by focus or by becoming visible, once the answer was
+ * stale (`"focus"`), a component mounting after the answer expired
+ * (`"expired"`), a sign-in, sign-out, or account or organization switch in
+ * this tab or another (`"auth_change"`), a request answered 401
+ * (`"unauthorized"`), or requests moving to another transport, such as an
+ * embed's token arriving (`"transport_change"`). Only `"load"` is a page load.
+ */
+export type SessionStatusTrigger =
+  | "load"
+  | "focus"
+  | "expired"
+  | "auth_change"
+  | "unauthorized"
+  | "transport_change";
+
+export function trackSessionStatus(
+  signedIn: boolean,
+  trigger?: SessionStatusTrigger,
+): void {
+  trackEvent("session status", {
+    signed_in: signedIn,
+    ...(trigger !== undefined ? { trigger } : {}),
+  });
 }

@@ -19,6 +19,7 @@ export default defineAction({
       .optional()
       .describe("Specific connected account to use"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     if (!args.threadId) throw new Error("--threadId is required");
     const isRead = args.unread !== true;

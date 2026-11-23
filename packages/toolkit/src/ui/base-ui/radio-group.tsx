@@ -42,7 +42,21 @@ const RadioGroup = React.forwardRef<HTMLDivElement, RadioGroupProps>(
 );
 RadioGroup.displayName = "RadioGroup";
 
-export type RadioProps = Omit<BaseRadio.Root.Props, "color">;
+export type RadioIndicatorProps = BaseRadio.Indicator.Props;
+
+const RadioIndicator = React.forwardRef<HTMLSpanElement, RadioIndicatorProps>(
+  ({ className, ...props }, ref) => (
+    <BaseRadio.Indicator
+      {...props}
+      ref={ref}
+      className={partClassName("radio-group-indicator", className)}
+    />
+  ),
+);
+RadioIndicator.displayName = "RadioIndicator";
+
+export interface RadioProps
+  extends Omit<BaseRadio.Root.Props, "color">, RadioGroupOwnProps {}
 
 /**
  * One option in a RadioGroup, paired with a label. Wrap the two in a Field to
@@ -50,24 +64,22 @@ export type RadioProps = Omit<BaseRadio.Root.Props, "color">;
  *
  * @import import { Radio } from "@agent-native/toolkit/ui/base-ui/radio-group";
  */
-const Radio = React.forwardRef<HTMLElement, RadioProps>(
-  ({ className, ...props }, ref) => {
-    const [attributes] = splitProps(
-      radioGroupProps,
-      radioProps.useGroupProps({}),
-    );
-    return (
-      <BaseRadio.Root
-        ref={ref}
-        {...props}
-        {...attributes}
-        className={partClassName("radio-group-radio", className)}
-      >
-        <BaseRadio.Indicator className="radio-group-indicator" />
-      </BaseRadio.Root>
-    );
-  },
-);
+const Radio = React.forwardRef<HTMLElement, RadioProps>((props, ref) => {
+  const [attributes, { className, children, ...rest }] = splitProps(
+    radioGroupProps,
+    radioProps.useGroupProps(props),
+  );
+  return (
+    <BaseRadio.Root
+      ref={ref}
+      {...rest}
+      {...attributes}
+      className={partClassName("radio-group-radio", className)}
+    >
+      {children === undefined ? <RadioIndicator /> : children}
+    </BaseRadio.Root>
+  );
+});
 Radio.displayName = "Radio";
 
-export { RadioGroup, Radio };
+export { RadioGroup, Radio, RadioIndicator };

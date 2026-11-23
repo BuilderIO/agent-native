@@ -126,12 +126,12 @@ describe("window agent-native:tool-done in-place action query refetch", () => {
     const observed: Array<{ source?: string; key?: string }> = [];
 
     function ListenerOnly() {
-      useDbSync({ onEvent: (evt) => observed.push(evt) });
+      useDbSync({ realtime: false, onEvent: (evt) => observed.push(evt) });
       return null;
     }
 
     function QuerySynced() {
-      useDbSync({ queryClient });
+      useDbSync({ queryClient, realtime: false });
       const query = useActionQuery<{ version: number }>(
         "list-tasks",
         {},
@@ -195,6 +195,7 @@ describe("window agent-native:tool-done in-place action query refetch", () => {
 
     function NarrowedSync() {
       useDbSync({
+        realtime: false,
         queryClient,
         actionInvalidatePredicate: (_query, events) => {
           predicateCalls += 1;
@@ -346,6 +347,7 @@ describe("window agent-native:tool-done in-place action query refetch", () => {
 
     function NarrowedFirst() {
       useDbSync({
+        realtime: false,
         queryClient,
         actionInvalidatePredicate: (query) =>
           query.queryKey[1] === "list-events",
@@ -363,6 +365,7 @@ describe("window agent-native:tool-done in-place action query refetch", () => {
 
     function NarrowedSecond() {
       useDbSync({
+        realtime: false,
         queryClient,
         actionInvalidatePredicate: (query) =>
           query.queryKey[1] === "list-tasks",
@@ -449,6 +452,7 @@ describe("window agent-native:tool-done in-place action query refetch", () => {
 
     function SyncOwner({ queryClient: qc }: { queryClient: QueryClient }) {
       useDbSync({
+        realtime: false,
         queryClient: qc,
         actionInvalidatePredicate: () => false,
       });

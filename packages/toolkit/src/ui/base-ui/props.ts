@@ -14,8 +14,8 @@ export function splitProps<D extends PropDefs, P extends PropsOf<D>>(
   props: P,
 ): [Record<string, string | undefined>, Omit<P, keyof D>] {
   const rest: Record<string, unknown> = {};
-  for (const [name, value] of Object.entries(props)) {
-    if (!(name in defs)) rest[name] = value;
+  for (const name in props) {
+    if (Object.hasOwn(props, name) && !(name in defs)) rest[name] = props[name];
   }
   return [propAttributes(defs, props), rest as Omit<P, keyof D>];
 }

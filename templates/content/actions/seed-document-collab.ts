@@ -14,6 +14,7 @@ export default defineAction({
     "Initialize a Content page's live editor from its saved body exactly once.",
   agentTool: false,
   deferLoading: false,
+  automatic: true,
   schema: z.object({
     id: z.string().min(1),
     seedUpdateBase64: z.string().min(1).max(16_000_000),

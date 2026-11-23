@@ -1,16 +1,22 @@
 import { checkboxProps, COLORS } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { IconStarFilled } from "@tabler/icons-react";
+import { expect } from "storybook/test";
 
-import { Checkbox } from "../../../src/ui/base-ui/checkbox.js";
+import {
+  Checkbox,
+  CheckboxIndicator,
+} from "../../../src/ui/base-ui/checkbox.js";
 import { Field, FieldLabel } from "../../../src/ui/base-ui/field.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./checkbox.docs.md?raw";
 
 const controls = propControls(checkboxProps);
 
 const meta = {
   title: "Components/Checkbox",
   component: Checkbox,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, defaultChecked: true, disabled: false },
   argTypes: controls.argTypes,
 } satisfies Meta<typeof Checkbox>;
@@ -102,4 +108,32 @@ export const States: Story = {
       </Field>
     </div>
   ),
+};
+
+/** A custom selection mark with the same label and keyboard behavior. */
+export const CustomIndicator: Story = {
+  render: (args) => (
+    <Field>
+      <FieldLabel>
+        <Checkbox {...args} defaultChecked={false}>
+          <CheckboxIndicator>
+            <IconStarFilled aria-hidden />
+          </CheckboxIndicator>
+        </Checkbox>
+        Favorite
+      </FieldLabel>
+    </Field>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const checkbox = canvas.getByRole("checkbox", { name: "Favorite" });
+    await userEvent.tab();
+    await expect(checkbox).toHaveFocus();
+    await userEvent.keyboard(" ");
+    await expect(checkbox).toBeChecked();
+    await expect(
+      checkbox.querySelector(".checkbox-indicator svg"),
+    ).toBeVisible();
+    await userEvent.click(canvas.getByText("Favorite"));
+    await expect(checkbox).not.toBeChecked();
+  },
 };

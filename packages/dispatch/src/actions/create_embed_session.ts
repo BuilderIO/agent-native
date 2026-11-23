@@ -27,5 +27,11 @@ export default defineAction({
   readOnly: false,
   parallelSafe: true,
   mcpApp: { visibility: ["app"] },
-  run: async (args) => createGrantedDispatchMcpEmbedSession(args),
+  run: async (args, context) =>
+    createGrantedDispatchMcpEmbedSession(
+      args,
+      context?.caller === "http" && args.chrome === "minimal"
+        ? { bindBrowserTab: true }
+        : undefined,
+    ),
 });

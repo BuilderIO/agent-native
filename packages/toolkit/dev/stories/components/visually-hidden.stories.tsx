@@ -3,11 +3,12 @@ import { IconTrash } from "@tabler/icons-react";
 
 import { IconButton } from "../../../src/ui/base-ui/button.js";
 import { VisuallyHidden } from "../../../src/ui/base-ui/visually-hidden.js";
+import guide from "./visually-hidden.docs.md?raw";
 
 const meta = {
   title: "Components/Visually Hidden",
   component: VisuallyHidden,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
 } satisfies Meta<typeof VisuallyHidden>;
 
 export default meta;

@@ -681,6 +681,8 @@ export type SuggestionFormattingSlicePart =
 const EMPTY_BLOCK = "<empty-block/>";
 // The syntax that opens a line's block: a heading, list item, task, or quote.
 const BLOCK_MARKER = /^(?:#{1,6} |(?:> )+|[-*+] (?:\[[ xX]\] )?|\d+[.)] )/;
+const WHOLE_LINE_BLOCK =
+  /^(?:(?:-{3,}|\*{3,}|_{3,})[ \t]*|`{3,}[^\r\n`]*|~{3,}[^\r\n]*)(?=\r\n|\r|\n|$)/;
 
 // `blocks` admits block syntax and empty paragraphs. Without it a gap holds
 // only line breaks and indentation, which is what places a zero-width
@@ -736,6 +738,12 @@ function structuralGapParts(
     ) {
       parts.push({ type: "block", text: "¶" });
       offset = lineEnd;
+      continue;
+    }
+    const line = WHOLE_LINE_BLOCK.exec(source.slice(offset));
+    if (line && offset + line[0].length <= to) {
+      parts.push({ type: "block", text: line[0] });
+      offset += line[0].length;
       continue;
     }
     const marker = BLOCK_MARKER.exec(source.slice(offset, to));

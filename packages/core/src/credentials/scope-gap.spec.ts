@@ -51,18 +51,43 @@ describe("describeCredentialScopeGap", () => {
     resolveOrgIdForEmailResult = null;
   });
 
-  it("names the scope found and the scope the run needed", async () => {
-    execute = async () => ({ rows: [{ 1: 1 }] });
+  it.each([
+    ["a person's own chat", {}, {}],
+    ["an integration delivery", { isIntegrationCaller: true }, {}],
+    ["an org-level A2A caller", { a2aIdentityAssurance: "organization" }, {}],
+    [
+      "a verified service token",
+      {
+        verifiedServiceIdentity: {
+          userEmail: "owner@example.com",
+          orgId: "org-1",
+        },
+      },
+      {},
+    ],
+    ["a shared-keys-only lookup", {}, { credentialScope: "org" }],
+  ] as const)(
+    "gives %s the cause and fix that hold for every reader",
+    async (_label, requestContext, lookup) => {
+      execute = async () => ({ rows: [{ 1: 1 }] });
 
-    const message = await describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
-      userEmail: "owner@example.com",
-      orgId: "org-1",
-    });
+      const message = await runWithRequestContext(requestContext, () =>
+        describeCredentialScopeGap(["GITHUB_TOKEN"], {
+          userEmail: "owner@example.com",
+          orgId: "org-1",
+          ...lookup,
+        }),
+      );
 
-    expect(message).toContain("SLACK_BOT_TOKEN");
-    expect(message).toContain("Personal scope");
-    expect(message).toContain("Workspace or Organization scope");
-  });
+      expect(message).toBe(
+        'Ask an organization owner or admin to save "GITHUB_TOKEN" with ' +
+          "Workspace or Organization scope. This workspace has it only as " +
+          "a Personal key, which works only for the member who saved it.",
+      );
+      expect(message).not.toContain("integration");
+      expect(message).not.toContain("Save your own");
+    },
+  );
 
   it("never reveals the secret value or the account holding it", async () => {
     execute = async () => ({ rows: [{ 1: 1 }] });
@@ -116,7 +141,7 @@ describe("describeCredentialScopeGap", () => {
       userEmail: "owner@example.com",
     });
 
-    expect(message).toContain("Personal scope");
+    expect(message).toContain("Personal key");
   });
 
   it("stays quiet when the key is missing everywhere in the org", async () => {
@@ -213,7 +238,7 @@ describe("describeCredentialScopeGap across organizations", () => {
       orgId: "org-1",
     });
 
-    expect(message).toContain("Personal scope");
+    expect(message).toContain("Personal key");
     expect(execCalls).toHaveLength(1);
   });
 

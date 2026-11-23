@@ -48,6 +48,11 @@ import { toast } from "sonner";
 
 import type { ComposePaletteCommands } from "@/components/email/ComposeModal";
 import { DraftConflictPrompt } from "@/components/email/DraftConflictPrompt";
+import {
+  LabelPicker,
+  useApplyLabel,
+  type LabelChoice,
+} from "@/components/email/LabelPicker";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
@@ -1059,6 +1064,17 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     );
   }, [threadId, targetEmail, muteThread, dismissEmail, t]);
 
+  const applyLabel = useApplyLabel();
+  const [newLabelOpen, setNewLabelOpen] = useState(false);
+  const createSidebarLabel = useCallback(
+    async (choice: LabelChoice) => {
+      const label = await applyLabel("create", choice, []);
+      if (label && !pinnedLabels.includes(label.id))
+        updateSettings.mutate({ pinnedLabels: [...pinnedLabels, label.id] });
+    },
+    [applyLabel, pinnedLabels, updateSettings],
+  );
+
   const togglePinned = useCallback(
     (id: string) => {
       const current = pinnedLabels;
@@ -1438,6 +1454,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           labels={sidebarLabels}
           inboxUnreadCount={inboxSidebarUnreadCount}
           queuedDraftCount={queuedDrafts.count}
+          onNewLabel={() => setNewLabelOpen(true)}
           mobileOpen={mobileSidebarOpen}
           onMobileOpenChange={setMobileSidebarOpen}
           className="row-span-2"
@@ -2053,6 +2070,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           </Suspense>
         );
       })()}
+      <LabelPicker
+        request={newLabelOpen ? { action: "create" } : null}
+        labels={labels}
+        onClose={() => setNewLabelOpen(false)}
+        onPick={(choice) => void createSidebarLabel(choice)}
+      />
       <CommandPalette
         open={paletteOpen}
         onOpenChange={handlePaletteOpenChange}

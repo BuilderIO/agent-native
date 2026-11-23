@@ -27,7 +27,11 @@ import type {
   UpdateDatabaseItemsRequest,
   UpdateDatabaseItemsResponse,
 } from "@shared/api";
-import type { BlocksFieldFreezeRule } from "@shared/properties";
+import {
+  addablePropertyTypes,
+  type BlocksFieldFreezeRule,
+  type DocumentPropertyType,
+} from "@shared/properties";
 import {
   useInfiniteQuery,
   useQueryClient,
@@ -55,6 +59,7 @@ import {
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseQueryKey,
   invalidateContentDatabaseNavigationQueries,
+  isContentDatabaseUnavailable,
   removeDocumentPropertyFromDatabaseResponse,
 } from "./use-content-database";
 import {
@@ -444,22 +449,24 @@ export function documentPropertiesPlaceholder(
   };
 }
 
-// A system collection such as Files refuses new properties. A view has read
-// its collection before it draws an Add property button, so the cached read
-// answers here.
-export function useCollectionRefusesNewProperties(
+export function useCollectionAddablePropertyTypes(
   databaseDocumentId: string,
   databaseId: string,
-) {
+  known?: readonly DocumentPropertyType[],
+): readonly DocumentPropertyType[] {
   const queryClient = useQueryClient();
-  return queryClient
-    .getQueriesData<ContentDatabaseResponse>(
-      contentDatabaseQueryFilter(databaseDocumentId),
+  if (known) return known;
+  for (const [, value] of queryClient.getQueriesData<ContentDatabaseResponse>(
+    contentDatabaseQueryFilter(databaseDocumentId),
+  )) {
+    if (
+      value &&
+      !isContentDatabaseUnavailable(value) &&
+      value.database.id === databaseId
     )
-    .some(
-      ([, value]) =>
-        value?.database.id === databaseId && value.database.systemRole != null,
-    );
+      return addablePropertyTypes(value.database.systemRole);
+  }
+  return addablePropertyTypes(null);
 }
 
 export function useConfigureDocumentProperty(
@@ -474,7 +481,12 @@ export function useConfigureDocumentProperty(
         contentDatabaseQueryFilter(databaseDocumentId),
       )
       .map(([, value]) => value)
-      .find((value) => value?.database.id === databaseId);
+      .find(
+        (value) =>
+          !!value &&
+          !isContentDatabaseUnavailable(value) &&
+          value.database.id === databaseId,
+      );
   const mutation = useActionMutation<
     ConfigureDocumentPropertyResponse | GuardedConfigurePropertyResult,
     ConfigureDocumentPropertyRequest | GuardedConfigurePropertyInput
@@ -485,7 +497,12 @@ export function useConfigureDocumentProperty(
         queryClient.setQueriesData<ContentDatabaseResponse>(
           contentDatabaseQueryFilter(databaseDocumentId),
           (current) => {
-            if (!current || current.database.id !== databaseId) return current;
+            if (
+              !current ||
+              isContentDatabaseUnavailable(current) ||
+              current.database.id !== databaseId
+            )
+              return current;
             const existing = current.properties.find(
               (property) => property.definition.id === data.value.id,
             );
@@ -727,6 +744,9 @@ export function useSetDocumentProperty(
           { documentId: databaseDocumentId },
         ],
       });
+      if (savedProperty?.definition.type !== "blocks") {
+        invalidateContentDatabaseNavigationQueries(queryClient, { databaseId });
+      }
     },
   });
   const scoped = withDatabaseScope(mutation, databaseId);
@@ -799,7 +819,7 @@ export function useUpdateDatabaseItems(databaseDocumentId: string) {
     UpdateDatabaseItemsRequest
   >("update-database-items", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => {
+    onSuccess: (data) => {
       const databaseQueries = contentDatabaseQueryFilter(databaseDocumentId);
       const constrainedQueries =
         contentDatabaseConstrainedQueryFilter(databaseDocumentId);
@@ -811,6 +831,9 @@ export function useUpdateDatabaseItems(databaseDocumentId: string) {
       });
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
+      });
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        databaseId: data.databaseId,
       });
     },
   });

@@ -76,6 +76,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  mcpTool: false,
   run: async (args, ctx) => {
     const manager = await requireFeatureFlagManager(ctx, args.scope);
     if (!getFeatureFlagDefinition(args.key)) {

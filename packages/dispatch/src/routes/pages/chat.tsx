@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
+import { ChatActionSuggestions } from "../../components/chat-action-suggestions";
 import { DispatchChatHomeApps } from "../../components/chat-home-apps";
 import { useDispatchExtensions } from "../../components/layout/Layout";
 import { Skeleton } from "../../components/ui/skeleton";
@@ -372,6 +373,11 @@ export default function ChatRoute() {
                 })}
               </h1>
             </div>
+          ) : null
+        }
+        threadFooterSlot={({ threadId }) =>
+          threadId ? (
+            <ChatActionSuggestions key={threadId} threadId={threadId} />
           ) : null
         }
         afterComposerSlot={

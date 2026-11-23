@@ -1032,6 +1032,96 @@ describe("when something fails part way", () => {
     expect(await pendingIds()).toEqual([]);
   });
 
+  it("holds pages back when the provider refuses its credentials, the ones it was sent longest, so a page refused alone holds back no others", async () => {
+    const { EmbeddingProviderError } = await import("../embeddings/index.js");
+    const ids = ["refused-1", "refused-2", "refused-3"];
+    for (const id of ids) {
+      await insertPage(id, "Refused tablet", `Gadget ${id}.`);
+    }
+    await settle();
+    await run(
+      `UPDATE app_resource_changes SET attempts = 600
+       WHERE consumer = 'search-embeddings' AND resource_id = 'refused-3'`,
+    );
+    const embed = family.embed;
+    let refusing = "Gadget";
+    let refused = 0;
+    family.embed = async (inputs, purpose, options) => {
+      if (inputs.some((input) => input.text?.includes(refusing))) {
+        refused += 1;
+        throw new EmbeddingProviderError(
+          "Embedding provider fake failed with status 403.",
+          403,
+        );
+      }
+      return embed(inputs, purpose, options);
+    };
+    const waits = async () => {
+      const { rows } = await run(
+        `SELECT resource_id, attempts,
+                available_at > now() + interval '3500 seconds' AS hour,
+                available_at > now() + interval '7100 seconds' AS two_hours
+         FROM app_resource_changes
+         WHERE consumer = 'search-embeddings' AND resource_id LIKE 'refused-%'
+         ORDER BY resource_id`,
+      );
+      return rows;
+    };
+    const passHour = () =>
+      run(
+        `UPDATE app_resource_changes SET available_at = available_at - interval '1 hour'
+         WHERE consumer = 'search-embeddings' AND resource_id LIKE 'refused-%'`,
+      );
+    const embedded = () => ids.filter((id) => keysFor(id).length > 0);
+    try {
+      await drain();
+      expect(refused).toBe(1);
+      expect(await waits()).toEqual([
+        { resource_id: "refused-1", attempts: 1, hour: true, two_hours: true },
+        { resource_id: "refused-2", attempts: 1, hour: true, two_hours: true },
+        {
+          resource_id: "refused-3",
+          attempts: 600,
+          hour: true,
+          two_hours: false,
+        },
+      ]);
+
+      refusing = "Gadget refused-1";
+      await passHour();
+      await drain();
+      expect(embedded()).toEqual(["refused-3"]);
+
+      await passHour();
+      await drain();
+      expect(refused).toBe(2);
+      expect(embedded()).toEqual(["refused-3"]);
+      expect(await waits()).toEqual([
+        { resource_id: "refused-1", attempts: 2, hour: true, two_hours: true },
+        { resource_id: "refused-2", attempts: 1, hour: true, two_hours: false },
+      ]);
+
+      await passHour();
+      await drain();
+      expect(refused).toBe(2);
+      expect(embedded()).toEqual(["refused-2", "refused-3"]);
+      expect(await waits()).toEqual([
+        {
+          resource_id: "refused-1",
+          attempts: 2,
+          hour: true,
+          two_hours: false,
+        },
+      ]);
+    } finally {
+      family.embed = embed;
+      await run(`DELETE FROM pages WHERE id LIKE 'refused-%'`);
+      await settle();
+      await drain();
+    }
+    expect(await pendingIds()).toEqual([]);
+  });
+
   it("keeps the pages it embedded before a rate limit, and finishes over later windows", async () => {
     const { EmbeddingProviderError } = await import("../embeddings/index.js");
     // Twelve chunks each, so a call takes two pages and eight take four calls.
@@ -1973,6 +2063,37 @@ describe("with an indexing budget every server shares", () => {
       expect(embedded(["held-1", "held-2"])).toEqual(["held-1", "held-2"]);
     } finally {
       await cleanUp("held-");
+    }
+  });
+
+  it("holds indexing back on every server for an hour when the provider refuses its credentials", async () => {
+    const { EmbeddingProviderError } = await import("../embeddings/index.js");
+    await insertPage("turned-away-1", "Turned away tablet", "Gadget one.");
+    await settle();
+    let calls = 0;
+    const refusing = budgeted(async () => {
+      calls += 1;
+      throw new EmbeddingProviderError(
+        "Embedding provider fake failed with status 401.",
+        401,
+      );
+    });
+    resolveTo(() => refusing);
+    try {
+      await drain();
+      expect(calls).toBe(1);
+      expect(await waiting("turned-away-", 3500)).toEqual(["turned-away-1"]);
+
+      await insertPage("turned-away-2", "Turned away tablet", "Gadget two.");
+      await settle();
+      await drain();
+      expect(calls).toBe(1);
+      expect(await waiting("turned-away-", 3000)).toEqual([
+        "turned-away-1",
+        "turned-away-2",
+      ]);
+    } finally {
+      await cleanUp("turned-away-");
     }
   });
 

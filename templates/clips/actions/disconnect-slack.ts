@@ -12,6 +12,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("slack_installations.id"),
   }),
+  mcpTool: false,
   run: async (args) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("Not authenticated.");

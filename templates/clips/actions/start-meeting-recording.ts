@@ -30,6 +30,7 @@ export default defineAction({
     hasCamera: z.boolean().optional().default(false),
     hasAudio: z.boolean().optional().default(true),
   }),
+  mcpTool: false,
   run: async (args, actionContext) => {
     let meetingId = args.meetingId;
     if (parseCalendarMeetingId(args.meetingId)) {
