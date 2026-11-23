@@ -673,6 +673,7 @@ export function LibraryGrid({
           key: `search:${searchQuery}`,
           label: `"${searchQuery}"`,
           active: true,
+          removeLabel: t("searchBar.clear"),
           onRemove: () =>
             setSearchParams(
               (prev) => {
