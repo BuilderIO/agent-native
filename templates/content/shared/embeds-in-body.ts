@@ -7,7 +7,6 @@ function walk(node: PMNode | undefined, visit: (node: PMNode) => void) {
   for (const child of node.content ?? []) walk(child, visit);
 }
 
-/** The raw tags of one kind of embed block in a page body, code blocks aside. */
 export function embedTagsInBody(content: string, blockType: string): string[] {
   const raws: string[] = [];
   walk(nfmToDoc(content), (node) => {
