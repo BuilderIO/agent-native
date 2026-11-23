@@ -367,6 +367,12 @@ export interface AgentChatRequest {
   trackInRunsTray?: boolean;
   approvedToolCalls?: string[];
   approvedToolCallAskIds?: string[];
+  /**
+   * True when the client's approval continuation carries a prompt the
+   * approver wrote; the server keeps that prompt beside its own note that
+   * the approved action already ran instead of replacing it.
+   */
+  approvedContinuationPrompt?: boolean;
   skipPendingSelectionContext?: boolean;
 }
 

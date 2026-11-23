@@ -86,7 +86,10 @@ import {
   approvalKeyForHistory,
   approvalKeyWithArguments,
 } from "./approval-key.js";
-import { APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT } from "./auto-continue.js";
+import {
+  APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+  APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT,
+} from "./auto-continue.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
@@ -8754,6 +8757,488 @@ describe("createProductionAgentHandler", () => {
     } finally {
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
+      isTurnAborted.mockRestore();
+    }
+  });
+
+  it("keeps approver instructions beside the already-ran note on an approval continuation", async () => {
+    authorizePublicThreadHistory();
+    const approvalId = "ask-approval-instructions";
+    const input = { to: "a@b.com" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const callerPrompt = "Approved — also CC legal on the summary.";
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-stored");
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    const runAction = vi.fn(async () => "sent");
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Email sent." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const outerStream = vi.spyOn(engine, "stream");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+    });
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: callerPrompt,
+                  threadId: "thread-approval-instructions",
+                  turnId: "turn-client-continuation",
+                  approvedToolCalls: [approvalKey],
+                  approvedToolCallAskIds: [approvalId],
+                  approvedContinuationPrompt: true,
+                  structuredHistory: [
+                    {
+                      role: "assistant",
+                      content: [
+                        {
+                          type: "tool-call",
+                          id: "call-approval-instructions",
+                          name: "send-email",
+                          input,
+                          approvalKey,
+                          approvalAskId: approvalId,
+                        },
+                      ],
+                    },
+                    {
+                      role: "user",
+                      content: [
+                        {
+                          type: "tool-result",
+                          toolCallId: "call-approval-instructions",
+                          toolName: "send-email",
+                          toolInput: JSON.stringify(input),
+                          content: "Awaiting human approval.",
+                          approvalPause: true,
+                          approvalAskId: approvalId,
+                        },
+                      ],
+                    },
+                  ],
+                }),
+              }),
+            ),
+          ),
+      );
+
+      expect(response).toBeInstanceOf(ReadableStream);
+      if (response instanceof ReadableStream) {
+        await new Response(response).text();
+      }
+
+      expect(runAction).toHaveBeenCalledOnce();
+      expect(consumeApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          turnId: "turn-stored",
+          approvalId,
+        }),
+      );
+      const streamedPrompt = JSON.stringify(outerStream.mock.calls);
+      expect(streamedPrompt).toContain("also CC legal on the summary.");
+      expect(streamedPrompt).toContain(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT);
+      expect(
+        streamedPrompt.indexOf("also CC legal on the summary."),
+      ).toBeLessThan(
+        streamedPrompt.lastIndexOf(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT),
+      );
+    } finally {
+      resolveApproval.mockRestore();
+      consumeApproval.mockRestore();
+      isTurnAborted.mockRestore();
+    }
+  });
+
+  it("stops an approval continuation when the resolved stored turn was aborted", async () => {
+    authorizePublicThreadHistory();
+    const approvalId = "ask-approval-stopped-turn";
+    const input = { to: "a@b.com" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-stored");
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockImplementation(
+        async (_threadId: string, turnId: string) => turnId === "turn-stored",
+      );
+    const runAction = vi.fn(async () => "sent");
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const outerStream = vi.spyOn(engine, "stream");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+    });
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: "Approved. Go ahead and run the requested action.",
+                  threadId: "thread-approval-stopped-turn",
+                  turnId: "turn-client-continuation",
+                  approvedToolCalls: [approvalKey],
+                  approvedToolCallAskIds: [approvalId],
+                  structuredHistory: [
+                    {
+                      role: "assistant",
+                      content: [
+                        {
+                          type: "tool-call",
+                          id: "call-approval-stopped-turn",
+                          name: "send-email",
+                          input,
+                          approvalKey,
+                          approvalAskId: approvalId,
+                        },
+                      ],
+                    },
+                    {
+                      role: "user",
+                      content: [
+                        {
+                          type: "tool-result",
+                          toolCallId: "call-approval-stopped-turn",
+                          toolName: "send-email",
+                          toolInput: JSON.stringify(input),
+                          content: "Awaiting human approval.",
+                          approvalPause: true,
+                          approvalAskId: approvalId,
+                        },
+                      ],
+                    },
+                  ],
+                }),
+              }),
+            ),
+          ),
+      );
+
+      expect(response).toEqual({ ok: true, stopped: true });
+      expect(isTurnAborted).toHaveBeenCalledWith(
+        "thread-approval-stopped-turn",
+        "turn-stored",
+      );
+      expect(runAction).not.toHaveBeenCalled();
+      expect(consumeApproval).not.toHaveBeenCalled();
+      expect(outerStream).not.toHaveBeenCalled();
+    } finally {
+      resolveApproval.mockRestore();
+      consumeApproval.mockRestore();
+      isTurnAborted.mockRestore();
+    }
+  });
+
+  it("stops an approval continuation when a client-turn stop races with admission", async () => {
+    authorizePublicThreadHistory();
+    const approvalId = "ask-approval-stop-race";
+    const input = { to: "a@b.com" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-stored");
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    const runAction = vi.fn(async () => "sent");
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const outerStream = vi.spyOn(engine, "stream");
+    mockTryClaimRunSlot.mockReset();
+    mockTryClaimRunSlot.mockImplementation(
+      async (
+        _threadId,
+        _runId,
+        _maxStaleMs,
+        options?: {
+          turnId?: string;
+          alsoAbortedTurnIds?: readonly string[];
+        },
+      ) => {
+        const abortIds = [
+          options?.turnId,
+          ...(options?.alsoAbortedTurnIds ?? []),
+        ];
+        if (abortIds.includes("turn-client-continuation")) {
+          return { claimed: false, activeRunId: null, turnAborted: true };
+        }
+        return { claimed: true, activeRunId: null };
+      },
+    );
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+    });
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: "Approved. Go ahead and run the requested action.",
+                  threadId: "thread-approval-stop-race",
+                  turnId: "turn-client-continuation",
+                  approvedToolCalls: [approvalKey],
+                  approvedToolCallAskIds: [approvalId],
+                  structuredHistory: [
+                    {
+                      role: "assistant",
+                      content: [
+                        {
+                          type: "tool-call",
+                          id: "call-approval-stop-race",
+                          name: "send-email",
+                          input,
+                          approvalKey,
+                          approvalAskId: approvalId,
+                        },
+                      ],
+                    },
+                    {
+                      role: "user",
+                      content: [
+                        {
+                          type: "tool-result",
+                          toolCallId: "call-approval-stop-race",
+                          toolName: "send-email",
+                          toolInput: JSON.stringify(input),
+                          content: "Awaiting human approval.",
+                          approvalPause: true,
+                          approvalAskId: approvalId,
+                        },
+                      ],
+                    },
+                  ],
+                }),
+              }),
+            ),
+          ),
+      );
+
+      expect(response).toEqual({ ok: true, stopped: true });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledWith(
+        "thread-approval-stop-race",
+        expect.any(String),
+        undefined,
+        expect.objectContaining({
+          turnId: "turn-stored",
+          alsoAbortedTurnIds: ["turn-client-continuation"],
+        }),
+      );
+      expect(runAction).not.toHaveBeenCalled();
+      expect(consumeApproval).not.toHaveBeenCalled();
+      expect(outerStream).not.toHaveBeenCalled();
+    } finally {
+      resolveApproval.mockRestore();
+      consumeApproval.mockRestore();
+      isTurnAborted.mockRestore();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+    }
+  });
+
+  it("does not tell the model an approved action already ran when consumeApproval re-pauses", async () => {
+    authorizePublicThreadHistory();
+    const approvalId = "ask-approval-did-not-run";
+    const input = { to: "a@b.com" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-stored");
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(false);
+    const createApproval = vi
+      .spyOn(toolApprovalStore, "createAgentToolApproval")
+      .mockResolvedValue("ask-approval-re-pause");
+    const alwaysAllowed = vi
+      .spyOn(toolApprovalStore, "isAgentToolAlwaysAllowed")
+      .mockResolvedValue(false);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    const runAction = vi.fn(async () => "sent");
+    const modelMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        modelMessages.push(options.messages);
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The email already went out." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const outerStream = vi.spyOn(engine, "stream");
+    const onRunComplete = vi.fn();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+      onRunComplete,
+    });
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+                  threadId: "thread-approval-did-not-run",
+                  turnId: "turn-client-continuation",
+                  approvedToolCalls: [approvalKey],
+                  approvedToolCallAskIds: [approvalId],
+                  structuredHistory: [
+                    {
+                      role: "assistant",
+                      content: [
+                        {
+                          type: "tool-call",
+                          id: "call-approval-did-not-run",
+                          name: "send-email",
+                          input,
+                          approvalKey,
+                          approvalAskId: approvalId,
+                        },
+                      ],
+                    },
+                    {
+                      role: "user",
+                      content: [
+                        {
+                          type: "tool-result",
+                          toolCallId: "call-approval-did-not-run",
+                          toolName: "send-email",
+                          toolInput: JSON.stringify(input),
+                          content: "Awaiting human approval.",
+                          approvalPause: true,
+                          approvalAskId: approvalId,
+                        },
+                      ],
+                    },
+                  ],
+                }),
+              }),
+            ),
+          ),
+      );
+
+      expect(response).toBeInstanceOf(ReadableStream);
+      if (response instanceof ReadableStream) {
+        await new Response(response).text();
+      }
+      await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledOnce());
+
+      expect(runAction).not.toHaveBeenCalled();
+      expect(consumeApproval).toHaveBeenCalledOnce();
+      expect(createApproval).toHaveBeenCalledOnce();
+      expect(onRunComplete.mock.calls[0]?.[0]).toMatchObject({
+        events: expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({ type: "approval_required" }),
+          }),
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "tool_done",
+              result: expect.stringContaining("did NOT execute"),
+            }),
+          }),
+        ]),
+      });
+      expect(JSON.stringify(modelMessages)).not.toContain(
+        APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+      );
+      expect(JSON.stringify(outerStream.mock.calls)).not.toContain(
+        APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+      );
+      expect(JSON.stringify(modelMessages)).not.toContain(
+        APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT,
+      );
+    } finally {
+      resolveApproval.mockRestore();
+      consumeApproval.mockRestore();
+      createApproval.mockRestore();
+      alwaysAllowed.mockRestore();
       isTurnAborted.mockRestore();
     }
   });

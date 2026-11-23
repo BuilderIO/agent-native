@@ -6815,6 +6815,7 @@ describe("createAgentNativeChatRuntime", () => {
     );
     expect(approvalRequest.message).toBe(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT);
     expect(approvalRequest.message).not.toContain("Go ahead and run");
+    expect(approvalRequest).not.toHaveProperty("approvedContinuationPrompt");
 
     const completedMessage = continuationEvents.find(
       (event) => event.type === "message-done",
@@ -6938,6 +6939,91 @@ describe("createAgentNativeChatRuntime", () => {
     expect(resultAt).toBeGreaterThanOrEqual(0);
     expect(waitingAt).toBeLessThan(resultAt);
     if (doneAt >= 0) expect(waitingAt).toBeLessThan(doneAt);
+  });
+
+  it("sends approver instructions with the already-ran note on an approval continuation", async () => {
+    const approvedInput = { path: "docs/api.md" };
+    const approvalKey = `resources:${JSON.stringify(approvedInput)}`;
+    const approvalAskId = "agent-tool-approval-ask-instructions";
+    const callerPrompt =
+      "Also mention the breaking change in the release summary.";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "text",
+            text: "Waiting for your approval to run resources.",
+          },
+          {
+            type: "tool_start",
+            id: "call-write",
+            tool: "resources",
+            input: approvedInput,
+          },
+          {
+            type: "approval_required",
+            tool: "resources",
+            input: approvedInput,
+            approvalKey,
+            askId: approvalAskId,
+            toolCallId: "call-write",
+          },
+          {
+            type: "tool_done",
+            id: "call-write",
+            tool: "resources",
+            result: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "text", text: "Done — the release summary mentions it." },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-approved-instructions",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-approved-instructions",
+      threadId: "thread-approved-instructions",
+    });
+    const first = await session.startTurn({ prompt: "Document the API" });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: { id: approvalAskId, approved: true },
+      prompt: callerPrompt,
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    const approvalRequest = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(approvalRequest.message).toBe(callerPrompt);
+    expect(approvalRequest.approvedContinuationPrompt).toBe(true);
+    expect(approvalRequest.approvedToolCalls).toEqual([approvalKey]);
+    expect(approvalRequest.approvedToolCallAskIds).toEqual([approvalAskId]);
+
+    const laterContinuation = await session.continueTurn?.({
+      prompt: "Continue",
+    });
+    expect(laterContinuation).toBeDefined();
+    await drain(laterContinuation!.events);
+    const laterRequest = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(laterRequest.message).toBe("Continue");
+    expect(laterRequest).not.toHaveProperty("approvedContinuationPrompt");
+    expect(laterRequest).not.toHaveProperty("approvedToolCalls");
+    expect(laterRequest).not.toHaveProperty("approvedToolCallAskIds");
   });
 
   it("attaches a renewed approval ask to the exact resumed paused call", async () => {
