@@ -157,6 +157,20 @@
 
   --b-hero-ocean-opacity: 0.32;
 
+  --b-hero-ribbon-edge: var(--c-blue-100);
+  --b-hero-ribbon-light: var(--c-blue-200);
+  --b-hero-ribbon-primary: var(--c-blue-500);
+  --b-hero-ribbon-secondary: var(--c-violet-400);
+  --b-hero-ribbon-accent: var(--c-pink-400);
+  --b-hero-ribbon-deep: var(--c-blue-600);
+  --b-hero-ribbon-speed: 1;
+  --b-hero-ribbon-displace: -7.821;
+  --b-hero-ribbon-twist: 1;
+  --b-hero-ribbon-glow: 1.98;
+  --b-hero-ribbon-blur: 0.02;
+  --b-hero-ribbon-grain: 1.1;
+  --b-hero-ribbon-opacity: 1;
+
   --b-hero-title-size: clamp(32px, 8vw, 56px);
   --b-hero-body-size: clamp(16px, calc(14px + 0.5vw), 18px);
   --b-hero-gap: clamp(24px, 6vw, 48px);

@@ -3,28 +3,14 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HeroBackground } from "./hero-background";
 
-const { waveMount } = vi.hoisted(() => ({ waveMount: vi.fn() }));
-
-vi.mock("@agent-native/toolkit/app/shared", () => ({
-  WaveBackground: ({ className }: { className?: string }) => {
-    waveMount();
-    return <div className={className} data-testid="shared-wave" />;
-  },
-}));
-
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
-  Object.defineProperty(navigator, "gpu", {
-    configurable: true,
-    value: undefined,
-  });
-  waveMount.mockClear();
+  vi.restoreAllMocks();
 });
 
 describe("HeroBackground", () => {
@@ -45,21 +31,23 @@ describe("HeroBackground", () => {
     );
   });
 
-  it("renders the shared Toolkit wave on the homepage", () => {
-    const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
-    Object.defineProperty(navigator, "gpu", {
-      configurable: true,
-      value: { requestAdapter },
-    });
+  it("puts the ribbon canvas behind the hero copy and leaves it blank without WebGL2", () => {
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(null);
 
-    render(<HeroBackground />);
+    const { container } = render(<HeroBackground />);
 
-    const wave = screen.getByTestId("shared-wave");
-    expect(wave.className).toContain("absolute");
-    expect(wave.className).toContain("inset-0");
-    expect(wave.className).toContain("z-[-1]");
-    expect(wave.className).not.toContain("fixed");
-    expect(requestAdapter).not.toHaveBeenCalled();
-    expect(waveMount).toHaveBeenCalledOnce();
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.getAttribute("aria-hidden")).toBe("true");
+    expect(root.className).toContain("absolute");
+    expect(root.className).toContain("inset-0");
+    expect(root.className).toContain("z-[-1]");
+    expect(root.className).toContain("pointer-events-none");
+
+    const canvas = root.querySelector("canvas");
+    expect(canvas).not.toBeNull();
+    expect(getContext).toHaveBeenCalledWith("webgl2", expect.any(Object));
+    expect(canvas?.dataset.drawn).toBeUndefined();
   });
 });
