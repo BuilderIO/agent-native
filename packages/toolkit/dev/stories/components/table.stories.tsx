@@ -15,6 +15,7 @@ import {
   TableRowHeaderCell,
 } from "../../../src/ui/base-ui/table.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./table.docs.md?raw";
 
 const controls = propControls(tableProps);
 
@@ -58,7 +59,7 @@ function RunRows() {
 const meta = {
   title: "Components/Table",
   component: Table,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, children: <RunRows /> },
   argTypes: controls.argTypes,
   decorators: [

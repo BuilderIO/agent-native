@@ -52,6 +52,7 @@ import {
   type ContentDatabaseDateFilterBound,
 } from "../shared/database-query.js";
 import {
+  FILES_PROPERTY_TYPES,
   parsePropertyOptions,
   parsePropertyValue,
 } from "../shared/properties.js";
@@ -222,20 +223,9 @@ function dateFilterSql(
   return and(sql`${value} <> ''`, compare(check.op, check.bound));
 }
 
-const STORED_VALUE_FILTER_TYPES: ReadonlySet<string> = new Set([
-  "text",
-  "url",
-  "email",
-  "phone",
-  "place",
-  "number",
-  "checkbox",
-  "select",
-  "status",
-  "multi_select",
-  "person",
-  "date",
-]);
+const STORED_VALUE_FILTER_TYPES: ReadonlySet<string> = new Set(
+  FILES_PROPERTY_TYPES,
+);
 
 const NUMBER_FILTER_OPERATORS: Partial<
   Record<ContentDatabaseFilterOperator, ">" | "<" | ">=" | "<=">

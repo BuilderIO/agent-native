@@ -1,5 +1,6 @@
-import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
 import * as React from "react";
+
+import { Tooltip, TooltipTrigger, TooltipPopup } from "./tooltip.js";
 
 const IconOnlyContext = React.createContext(false);
 
@@ -29,19 +30,11 @@ export function IconOnlyTooltip({
   children: React.ReactNode;
 }) {
   return (
-    <BaseTooltip.Root>
-      <BaseTooltip.Trigger render={trigger} />
-      <BaseTooltip.Portal>
-        <BaseTooltip.Positioner
-          className="tooltip-positioner"
-          side="right"
-          sideOffset={8}
-        >
-          <BaseTooltip.Popup className="tooltip-popup">
-            {children}
-          </BaseTooltip.Popup>
-        </BaseTooltip.Positioner>
-      </BaseTooltip.Portal>
-    </BaseTooltip.Root>
+    <Tooltip>
+      <TooltipTrigger render={trigger} />
+      <TooltipPopup side="inline-end" sideOffset={8}>
+        {children}
+      </TooltipPopup>
+    </Tooltip>
   );
 }

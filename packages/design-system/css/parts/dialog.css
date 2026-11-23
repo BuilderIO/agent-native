@@ -26,12 +26,15 @@
     backdrop-filter: blur(1px);
   }
 
+  .dialog-popup:where(:not([hidden])) {
+    display: grid;
+  }
+
   .dialog-popup {
     position: fixed;
     left: 50%;
     top: 50%;
     z-index: var(--layer-dialog);
-    display: grid;
     gap: var(--space-4);
     box-sizing: border-box;
     width: calc(100vw - var(--space-3) * 2);
@@ -79,6 +82,17 @@
     transition-duration: var(--duration-2);
   }
 
+  /* An open child popup uses the anchor's viewport width for its own layout. */
+  @media (prefers-reduced-motion: no-preference) {
+    .dialog-popup[data-motion="default"]:has(
+        [role="combobox"],
+        [data-popup-open]
+      ) {
+      scale: none;
+      transition-property: opacity;
+    }
+  }
+
   /* ---- motion: instant ---- */
 
   .dialog-backdrop[data-motion="instant"] {
@@ -93,8 +107,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .dialog-backdrop,
-    .dialog-popup {
+    .dialog-backdrop[data-motion],
+    .dialog-popup[data-motion] {
       transition-property: none;
     }
   }
@@ -110,7 +124,8 @@
 
   .dialog-footer {
     display: flex;
-    flex-direction: column-reverse;
+    flex-direction: column;
+    min-inline-size: 0;
     gap: var(--space-2);
   }
 
@@ -121,8 +136,14 @@
 
     .dialog-footer {
       flex-direction: row;
+      flex-wrap: wrap;
       justify-content: flex-end;
     }
+  }
+
+  .dialog-title,
+  .dialog-description {
+    overflow-wrap: anywhere;
   }
 
   .dialog-title {
@@ -145,9 +166,82 @@
 
   /* ---- close button: a gray ghost icon button ---- */
 
-  .dialog-close {
+  .dialog-popup .dialog-close {
     position: absolute;
     top: var(--space-3);
     inset-inline-end: var(--space-3);
+  }
+  :where(.dialog-media) {
+    aspect-ratio: 2 / 1;
+  }
+
+  .dialog-media {
+    overflow: hidden;
+    background: var(--surface-sunken);
+  }
+
+  :is(img, video, picture).dialog-media {
+    display: block;
+    inline-size: 100%;
+    block-size: auto;
+    object-fit: cover;
+  }
+
+  .dialog-media > :is(img, video, picture),
+  .dialog-media > picture > img {
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: cover;
+  }
+
+  video.dialog-media,
+  .dialog-media > video {
+    object-fit: contain;
+  }
+
+  .dialog-popup:has(> .dialog-body) {
+    grid-auto-rows: max-content;
+    max-inline-size: 35rem;
+    max-block-size: calc(100dvh - var(--space-6));
+    gap: 0;
+    padding: 0;
+  }
+
+  .dialog-body {
+    display: grid;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+    gap: var(--space-3);
+    padding: clamp(var(--space-4), 5vw, var(--space-7));
+  }
+
+  .dialog-popup:has(> .dialog-close) {
+    & > .dialog-title:first-child,
+    & > .dialog-header:first-child > .dialog-title:first-child,
+    & > .dialog-body:first-child > .dialog-title:first-child,
+    &
+      > .dialog-body:first-child
+      > .dialog-header:first-child
+      > .dialog-title:first-child {
+      padding-inline-end: var(--control-height-3);
+    }
+  }
+
+  .dialog-body > .dialog-footer {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-block-start: var(--space-3);
+  }
+
+  .dialog-body > .dialog-footer > * {
+    flex: 1 1 10rem;
+    min-block-size: var(--control-height-4);
+    min-inline-size: 0;
+  }
+  @media (forced-colors: active) {
+    .dialog-popup {
+      outline: 1px solid CanvasText;
+    }
   }
 }

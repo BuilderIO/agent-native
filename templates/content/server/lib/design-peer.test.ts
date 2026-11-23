@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +11,14 @@ vi.mock("@agent-native/core/a2a", () => ({
   invokeAgentAction: mocks.invokeAgentAction,
 }));
 
+vi.mock("@agent-native/core/server/agent-discovery", () => ({
+  getBuiltinAgents: () => [
+    { id: "design", url: "https://design.agent-native.com" },
+  ],
+}));
+
+import { resetAppConfigForTests } from "@agent-native/core/server";
+
 import { requestDesign } from "./design-peer.js";
 
 const schema = z.object({ value: z.number() });
@@ -18,6 +26,11 @@ const schema = z.object({ value: z.number() });
 function answer(status: "completed" | "failed", output: string) {
   return { result: { action: "capture-design-screen", status, output } };
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  resetAppConfigForTests();
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -113,5 +126,19 @@ describe("requestDesign", () => {
     await expect(
       requestDesign("capture-design-screen", {}, schema, 58_000, null),
     ).resolves.toMatchObject({ ok: false, code: "design_invalid_response" });
+  });
+
+  it("asks beta Design when Content is served from beta", async () => {
+    vi.stubEnv("APP_URL", "https://beta.content.agent-native.com");
+    resetAppConfigForTests();
+    mocks.invokeAgentAction.mockResolvedValue(
+      answer("completed", JSON.stringify({ value: 3 })),
+    );
+    await requestDesign("capture-design-screen", {}, schema, 58_000, null);
+    expect(mocks.invokeAgentAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: "https://beta.design.agent-native.com",
+      }),
+    );
   });
 });

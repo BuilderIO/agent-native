@@ -612,6 +612,32 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
   },
   {
+    id: "editor.inline-table-structure",
+    surface: "editor",
+    label:
+      "Change an inline table's rows, columns, cells, headers, page width and colours",
+    uiEntrypoints: [
+      "app/components/editor/TableHoverControls.tsx",
+      "app/components/editor/BlockActionsMenu.tsx",
+      "app/components/editor/table-commands.ts",
+    ],
+    durableEffect:
+      "The page body's table changes: rows and columns inserted, deleted, moved, duplicated or cleared, cell text, the header row and column, fit to page width, and row, column and cell colours.",
+    uiImplementation:
+      "The row, column and block menus and the drag handles change the table in the editor transaction, which the document save row persists; agents call edit-table, which changes only that table's lines through the revisioned edit-document mutation.",
+    status: "action-backed",
+    actions: ["edit-table"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "shared/table-edits.spec.ts",
+      "actions/edit-table.db.test.ts",
+    ],
+  },
+  {
     id: "editor.agent-assist-prompts",
     surface: "editor",
     label: "Ask AI from slash generation or comment context",

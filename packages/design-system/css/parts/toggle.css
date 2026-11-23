@@ -133,6 +133,19 @@
     background-color: var(--accent-a3);
   }
 
+  .toggle[aria-pressed="mixed"] {
+    position: relative;
+  }
+
+  .toggle[aria-pressed="mixed"]::after {
+    position: absolute;
+    inset-block-end: 1px;
+    inline-size: var(--space-2);
+    border-block-end: 2px dashed currentColor;
+    content: "";
+    pointer-events: none;
+  }
+
   .toggle:active {
     scale: 0.98;
   }
@@ -173,5 +186,10 @@
 
   .toggle:is(:disabled, [data-disabled])[data-pressed] {
     background-color: var(--gray-a4);
+  }
+  @media (forced-colors: active) {
+    .toggle[data-pressed] {
+      border-block-end: 2px solid Highlight;
+    }
   }
 }

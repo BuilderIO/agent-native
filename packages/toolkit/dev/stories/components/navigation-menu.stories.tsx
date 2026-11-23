@@ -13,10 +13,12 @@ import {
   NavigationMenuLink,
   NavigationMenuList,
 } from "../../../src/ui/base-ui/navigation-menu.js";
+import guide from "./navigation-menu.docs.md?raw";
 
 const meta = {
   title: "Components/Navigation Menu",
-  parameters: { layout: "padded" },
+  component: NavigationMenu,
+  parameters: { docs: { description: { component: guide } }, layout: "padded" },
 } satisfies Meta;
 
 export default meta;
