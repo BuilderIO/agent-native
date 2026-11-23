@@ -131,8 +131,13 @@ not a single app that clones every provider integration.
 
 ## Don't
 
-- Do not clone Mail, Calendar, Analytics, Brain, Assets, or another first-party
-  app just to reuse its data. Delegate or link to the existing app.
+- Do not clone Mail, Calendar, Analytics, Brain, Assets, Content, or another
+  first-party app just to reuse its data. Delegate or link to the existing app.
+- Do not ask for a Content token, or keep one in an environment variable, to
+  save pages or Collection rows. Ask Content to do it as the signed-in person:
+  `call-agent` to `content` from the agent, or
+  `invokeAgentAction({ target: "content", ... })` with `resolveA2ACallerAuth()`
+  from server code.
 - Do not hide a multi-provider workflow inside a giant "misc tools" app.
 - Do not add one-off provider endpoints when `provider-api-request` can express
   the upstream API safely.
