@@ -35,6 +35,7 @@ export default defineAction({
     /** The engine the user picked in the chat composer, if they picked one. */
     engine: z.string().optional(),
   }),
+  mcpTool: false,
   run: async ({ orgId, engine: chosenEngine }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     const activeOrgId = getRequestOrgId() ?? null;

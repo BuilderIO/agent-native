@@ -274,6 +274,13 @@ vi.mock("../server/lib/s3-upload-provider.js", () => ({
 vi.mock("./make-recording-private-for-rewind.js", () => ({
   assertNoDirectRecordingShares: vi.fn(),
 }));
+const mirrored = vi.hoisted(() => [] as unknown[][]);
+vi.mock("../server/lib/recording-comment-mirror.js", () => ({
+  prepareRecordingCommentMirror: async () => {},
+  mirrorRecordingComments: async (...args: unknown[]) => {
+    mirrored.push(args);
+  },
+}));
 
 import action from "./apply-rewind-extension";
 import { assertNoDirectRecordingShares } from "./make-recording-private-for-rewind";
@@ -318,6 +325,7 @@ beforeEach(() => {
   mockDispatch.mockReset();
   stored.changedBeforeWrite = [];
   written.length = 0;
+  mirrored.length = 0;
 });
 
 describe("apply-rewind-extension", () => {
@@ -342,6 +350,7 @@ describe("apply-rewind-extension", () => {
       written.filter((w) => w.table === schema.recordingComments),
     ).toHaveLength(1);
     expect(written.filter((w) => "trashedAt" in w.patch)).toHaveLength(1);
+    expect(mirrored).toEqual([[expect.anything(), "rec_1", "all"]]);
   });
 
   it("shifts cuts saved after it read", async () => {

@@ -227,7 +227,7 @@ export function SuggestionReviewCard({
                 >
                   <ThreadSuggestionBody
                     suggestions={group}
-                    defaultExpanded
+                    listsEveryEdit
                     canDecide={canDecide}
                     busy={() => deciding}
                     conflict={(suggestion) =>
@@ -258,14 +258,6 @@ export function SuggestionReviewCard({
                 </section>
               );
             })}
-            {!canDecide &&
-            groups.some((group) =>
-              group.some((suggestion) => suggestion.status === "pending"),
-            ) ? (
-              <p className="text-xs text-muted-foreground">
-                {t("comments.suggestionReviewReadOnly")}
-              </p>
-            ) : null}
           </>
         )}
       </div>

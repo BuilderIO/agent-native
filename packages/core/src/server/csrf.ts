@@ -74,6 +74,11 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
  */
 const CSRF_PROTECTED_PREFIXES = [
   "/auth/logout-all",
+  "/auth/two-factor/",
+  "/integrations/scopes",
+  "/integrations/budgets",
+  "/integrations/memory",
+  "/integrations/installations",
   // Remote-device relay. The device's own routes (poll/result/heartbeat)
   // authenticate with a bearer token and send no cookies, so they never reach
   // the check; the sibling routes (register, enqueue, computer/approvals,
@@ -144,6 +149,9 @@ function isOnAllowlist(pathname: string, frameworkPrefix: string): boolean {
   const sub = pathname.slice(frameworkPrefix.length);
   for (const protectedPrefix of CSRF_PROTECTED_PREFIXES) {
     if (sub.startsWith(protectedPrefix)) return false;
+  }
+  if (/^\/integrations\/[^/]+\/(?:enable|disable|setup)\/?$/.test(sub)) {
+    return false;
   }
   const webhookToken = sub.match(/^\/automations\/webhook\/([^/]+)$/)?.[1];
   if (webhookToken && isAutomationWebhookToken(webhookToken)) return true;

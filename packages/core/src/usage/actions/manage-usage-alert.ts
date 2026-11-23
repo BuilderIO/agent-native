@@ -32,6 +32,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpTool: false,
   run: async (
     { operation, scope, ruleId, appId, unit, period, limit, channels, enabled },
     ctx,

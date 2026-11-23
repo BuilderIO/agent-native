@@ -7,6 +7,7 @@ import {
   requireCommentAiRequest,
   serializeCommentAiRequest,
 } from "../server/lib/comment-ai.js";
+import { commentAiChangeResource } from "../server/lib/document-change-resource.js";
 import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "../server/lib/suggested-edits.js";
 import { CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER } from "../shared/blocks-field-suggestions.js";
 
@@ -105,4 +106,5 @@ export default defineAction({
         attempt.payloadJson === null ? null : JSON.parse(attempt.payloadJson),
     };
   },
+  changeResource: commentAiChangeResource,
 });

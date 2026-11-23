@@ -41,6 +41,10 @@ import {
   UnusableSchemaError,
   usableInputSchema,
 } from "../json-schema/unusable-schema.js";
+import {
+  APP_CAPABILITIES_META_KEY,
+  projectAppManifest,
+} from "../manifest/index.js";
 import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   assertServicePrincipalMayCall,
@@ -128,7 +132,10 @@ import {
   type TurnGrantAdmission,
 } from "./turn-grant-store.js";
 export { isAutoReadExcludedActionName } from "./action-eligibility.js";
-import { isMcpAppsInlineEnabled } from "./app-cards-lab.js";
+import {
+  isMcpAppsInlineEnabled,
+  warnIfRetiredInlineEnvSet,
+} from "./app-cards.js";
 import {
   createBrowserTabTargetSlot,
   withBrowserTabTargetNote,
@@ -441,8 +448,16 @@ export function actionApprovalError(message: string): CallToolResult {
   };
 }
 
-/** Where a call's approval stands when the review page has to decide it. */
-export type McpApprovalReviewReason = "unprompted" | "declined" | "opened";
+/**
+ * Where a call's approval stands when the review page has to decide it.
+ * `review-page`: the action takes approval only there, and the client can't
+ * open the page itself.
+ */
+export type McpApprovalReviewReason =
+  | "unprompted"
+  | "review-page"
+  | "declined"
+  | "opened";
 
 function priorRunNote(review: McpApprovalReview): string {
   if (!review.priorRun) return "";
@@ -472,15 +487,18 @@ export async function actionApprovalReviewResult(
   const status =
     reason === "unprompted"
       ? `${name} needs the user's approval before it runs, and this client cannot show an approval prompt. Ask the user to review it here: ${url}`
-      : reason === "declined"
-        ? `${name} was not approved. If the user did not see an approval prompt, they can review it here: ${url}`
-        : `${name} is waiting for the user's decision on its review page: ${url}`;
+      : reason === "review-page"
+        ? `${name} needs the user's approval on its review page before it runs. Ask the user to review it here: ${url}`
+        : reason === "declined"
+          ? `${name} was not approved. If the user did not see an approval prompt, they can review it here: ${url}`
+          : `${name} is waiting for the user's decision on its review page: ${url}`;
+  const notice = review.notice ? `\n\n${review.notice}` : "";
   return {
     content: [
       {
         type: "text" as const,
         text:
-          `${status}
+          `${status}${notice}
 
 After they approve, call ${name} again with exactly the same arguments before ${new Date(review.expiresAt).toISOString()}. It runs once; different arguments need a new approval.` +
           priorRunNote(review) +
@@ -574,6 +592,31 @@ function withoutToolSearch(
 
 const CALL_TOOL_NAME = "call-tool";
 
+const ASK_APP_TOOL_NAME = "ask_app";
+const MAX_NOT_SERVED_MATCHES = 3;
+const NOT_SERVED_MESSAGE =
+  "These match your search, but this connection can't call them. The app's own agent can: describe the task to ask_app. When a tool in results does the job, call it instead.";
+
+async function settledBy<T>(
+  work: Promise<T>,
+  deadline: number,
+): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work.catch(() => undefined),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(
+          () => resolve(undefined),
+          Math.max(0, deadline - Date.now()),
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function scopeToolSearchToAdvertised(
   advertised: Record<string, ActionEntry>,
   unlisted: Record<string, ActionEntry>,
@@ -587,6 +630,9 @@ function scopeToolSearchToAdvertised(
     signal: AbortSignal,
   ) => Promise<import("../agent/tool-search-task.js").Ranking>,
   taskCandidateProvider?: MCPConfig["taskCandidates"],
+  notServed?: (
+    callable: Record<string, ActionEntry>,
+  ) => Promise<Record<string, ActionEntry>>,
 ): Record<string, ActionEntry> {
   const entry = advertised[TOOL_SEARCH_TOOL_NAME];
   if (!entry) return advertised;
@@ -597,8 +643,11 @@ function scopeToolSearchToAdvertised(
       run: async (args: Record<string, unknown>, context) => {
         const task = typeof args.task === "string" ? args.task.trim() : "";
         const taskDeadline = Date.now() + 1300;
-        const { searchToolRegistryForRequest } =
-          await import("../agent/tool-search.js");
+        const {
+          closestToolMatches,
+          namesUnservedTools,
+          searchToolRegistryForRequest,
+        } = await import("../agent/tool-search.js");
         let permitted: Record<string, ActionEntry>;
         if (task) {
           let timer: ReturnType<typeof setTimeout> | undefined;
@@ -630,8 +679,9 @@ function scopeToolSearchToAdvertised(
         } else {
           permitted = await granted();
         }
+        const callable = advertisable(permitted);
         const found = await searchToolRegistryForRequest(
-          advertisable(permitted),
+          callable,
           args ?? {},
           { taskRank, taskDeadline, taskCandidateProvider },
           context,
@@ -640,6 +690,15 @@ function scopeToolSearchToAdvertised(
           Object.hasOwn(unlisted, item.name)
             ? { ...item, callWith: CALL_TOOL_NAME }
             : item;
+        const unserved =
+          notServed &&
+          namesUnservedTools(args) &&
+          Object.hasOwn(callable, ASK_APP_TOOL_NAME)
+            ? await settledBy(notServed(callable), taskDeadline)
+            : undefined;
+        const closest = unserved
+          ? closestToolMatches(unserved, args, MAX_NOT_SERVED_MATCHES)
+          : [];
         return {
           ...found,
           results: found.results.map(marked),
@@ -649,6 +708,9 @@ function scopeToolSearchToAdvertised(
                   item.kind === "tool" ? marked(item) : item,
                 ),
               }
+            : {}),
+          ...(closest.length > 0
+            ? { notServed: { message: NOT_SERVED_MESSAGE, tools: closest } }
             : {}),
         };
       },
@@ -1197,7 +1259,10 @@ async function filterActionsAvailableForDiscovery(
   for (const entry of Object.values(actions)) {
     const predicate = entry.agentDiscoveryAvailable;
     if (predicate && !availability.has(predicate)) {
-      availability.set(predicate, Promise.resolve(predicate(context)));
+      availability.set(
+        predicate,
+        Promise.resolve().then(() => predicate(context)),
+      );
     }
   }
 
@@ -3439,13 +3504,14 @@ export async function createMCPServerForRequest(
       ? { userEmail: ownerFromEnv, orgDomain: undefined }
       : undefined);
 
+  warnIfRetiredInlineEnvSet();
   requestMeta = {
     ...(requestMeta ?? {}),
     inlineMcpApps:
       config.catalogMode === "directory" ||
       requestMeta?.inlineMcpApps === true ||
       (requestMeta?.inlineMcpApps === undefined &&
-        (await isMcpAppsInlineEnabled(effectiveIdentity))),
+        isMcpAppsInlineEnabled(effectiveIdentity)),
   };
 
   const analyticsBase: McpAnalyticsContext = {
@@ -3648,8 +3714,9 @@ export async function createMCPServerForRequest(
     ? {}
     : Object.fromEntries(
         Object.entries(visibleActions).filter(
-          ([, entry]) =>
+          ([name, entry]) =>
             entry.mcpTool === "search" &&
+            !Object.hasOwn(advertisedActionsBeforeToolSearchScope, name) &&
             (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
         ),
       );
@@ -3662,6 +3729,33 @@ export async function createMCPServerForRequest(
     deniedToolNames.has(CALL_TOOL_NAME) ||
     Object.hasOwn(actions, CALL_TOOL_NAME);
   const unlistedActions = listsSearchServed ? {} : searchServedActions;
+  const notServedActions = hasVerifiedMcpUserIdentity(effectiveIdentity)
+    ? (callable: Record<string, ActionEntry>) =>
+        withCallerContext(async () =>
+          filterActionsAvailableForDiscovery(
+            Object.fromEntries(
+              Object.entries(mergedActions).filter(
+                ([name, entry]) =>
+                  !Object.hasOwn(callable, name) &&
+                  !deniedToolNames.has(name) &&
+                  !isFrameworkMcpTool(entry) &&
+                  entry.agentTool !== false &&
+                  entry.endsTurn !== true &&
+                  isMcpActionNameEligible(name, entry) &&
+                  isActionVisibleForOAuthScope(
+                    entry,
+                    effectiveIdentity.oauthScopes,
+                  ),
+              ),
+            ),
+            {
+              caller: "mcp",
+              userEmail: effectiveIdentity.userEmail,
+              orgId: orgId ?? null,
+            },
+          ),
+        )
+    : undefined;
   const advertisedActions = scopeToolSearchToAdvertised(
     listsSearchServed
       ? { ...advertisedActionsBeforeToolSearchScope, ...searchServedActions }
@@ -3776,13 +3870,16 @@ export async function createMCPServerForRequest(
           return [...hostCandidates, ...memoryCandidates, ...skillCandidates];
         }
       : undefined,
+    notServedActions,
   );
   if (fullCatalogRequested) {
     warnFullCatalogServed(Object.keys(advertisedActions).length);
   }
   const hasApprovalActions = Object.values(actions).some(
     (entry) =>
-      entry.needsApproval !== undefined || actionUserTurn(entry) === "approval",
+      entry.needsApproval !== undefined ||
+      entry.mcpNeedsApproval !== undefined ||
+      actionUserTurn(entry) === "approval",
   );
   const approvalOrgId = hasApprovalActions ? await orgIdPromise : undefined;
   const approvalAppId = mcpApprovalAppId(config);
@@ -3997,8 +4094,10 @@ export async function createMCPServerForRequest(
         ? envelope[CLIENT_CAPABILITIES_META_KEY]
         : server.getClientCapabilities()
     )?.elicitation;
+    const reviewPageProof = actions[name]?.approvalProof === "review-page";
     // A bare `elicitation: {}` declares form mode.
     const offersForm =
+      !reviewPageProof &&
       elicitation !== undefined &&
       (elicitation.form !== undefined || elicitation.url === undefined);
     const reviewUrl = mcpApprovalReviewUrl(review.nonce, requestMeta);
@@ -4027,7 +4126,7 @@ export async function createMCPServerForRequest(
       }
       return actionApprovalReviewResult(
         review,
-        "unprompted",
+        reviewPageProof ? "review-page" : "unprompted",
         requestMeta,
         effectiveIdentity?.userEmail,
       );
@@ -4122,7 +4221,6 @@ export async function createMCPServerForRequest(
   async function grantedResourceActions(
     actionName: string,
   ): Promise<typeof advertisedActions> {
-    // Only an action with a widget has a resource, so only those convert.
     return Object.fromEntries(
       Object.entries(await grantedServedActions(actionName)).filter(
         ([name, entry]) => entry.mcpApp?.resource && isAdvertisable(name),
@@ -4343,7 +4441,23 @@ export async function createMCPServerForRequest(
       }
 
       tools.sort((a, b) => compareMcpCatalogValues(a.name, b.name));
-      return { tools: tools.filter((tool) => !deniedToolNames.has(tool.name)) };
+      const grantedTools = tools.filter(
+        (tool) => !deniedToolNames.has(tool.name),
+      );
+      const capabilities = directoryCatalog
+        ? undefined
+        : projectAppManifest(
+            getAppConfig().manifest,
+            grantedTools.filter((tool) =>
+              Object.hasOwn(baseActions, tool.name),
+            ),
+          );
+      return {
+        tools: grantedTools,
+        ...(capabilities && {
+          _meta: { [APP_CAPABILITIES_META_KEY]: capabilities },
+        }),
+      };
     });
     trackMcpToolsList(analyticsContext(request, ctx), {
       toolNames: result.tools.map((tool) => tool.name),
@@ -4976,8 +5090,6 @@ export async function createMCPServerForRequest(
               actionName: string;
               resource: ResolvedMcpAppResource;
             } | null = null;
-            // Reads follow the same cards decision as resources/list, so a
-            // caller without the lab can't fetch a card by its known URI.
             const resourceActions =
               requestMeta.inlineMcpApps &&
               mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)

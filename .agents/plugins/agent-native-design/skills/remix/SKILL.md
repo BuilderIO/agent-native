@@ -196,7 +196,7 @@ before concluding there is no effect. Before extracting:
 The user can also pick a hidden layer by hand: right-click the spot and use
 **Select layer**.
 
-## Two-Step Clean-Room Extraction (Both Modes)
+## Two-Step Design Extraction (Both Modes)
 
 ### 1. Study And Write A Behavior Spec
 

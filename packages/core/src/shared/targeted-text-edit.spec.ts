@@ -2,9 +2,170 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyTargetedReplace,
+  describeCandidateKinds,
+  editRemovedTextMessage,
+  findEditThatRemovedText,
   findTargetedMatches,
   type TargetedCandidate,
 } from "./targeted-text-edit.js";
+
+describe("escaped find text", () => {
+  it("reports the stored text when the find has \\n where the content has a line break, and never applies it", () => {
+    const content = `<script type="module">\nimport * as THREE from 'three';\n</script>`;
+    const find = `<script type="module">\\nimport * as THREE from 'three';`;
+
+    expect(applyTargetedReplace(content, find, "x")).toMatchObject({
+      ok: false,
+      reason: "not_found",
+    });
+    const result = findTargetedMatches(content, find);
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("expected not_found");
+    expect(result.candidates[0]).toMatchObject({
+      line: 1,
+      escaped: true,
+      text: `<script type="module">\nimport * as THREE from 'three';`,
+    });
+  });
+
+  it("decodes \\r, \\t, quotes, and backslashes", () => {
+    const content = `a\tb "c" 'd' e\\f\r\ng`;
+    const find = `a\\tb \\"c\\" \\'d\\' e\\\\f\\r\\ng`;
+    const result = findTargetedMatches(content, find);
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("expected not_found");
+    expect(result.candidates[0]).toMatchObject({
+      escaped: true,
+      text: content,
+    });
+  });
+
+  it("caps candidates at three and fills no other kinds once escaped hits fill them", () => {
+    const content = Array.from({ length: 4 }, () => "alpha\nbeta").join(" ");
+    const result = findTargetedMatches(content, "alpha\\nbeta");
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("expected not_found");
+    expect(result.candidates).toHaveLength(3);
+    expect(result.candidates.every((c) => c.escaped)).toBe(true);
+  });
+
+  it("shares the three slots between escaped and whitespace-only hits", () => {
+    const content = `x\ny  z | x\\ny z | x\\ny z | x\\ny z`;
+    const result = findTargetedMatches(content, "x\\ny  z");
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("expected not_found");
+    expect(result.candidates.map((c) => Boolean(c.escaped))).toEqual([
+      true,
+      false,
+      false,
+    ]);
+  });
+
+  it("marks an escaped hit longer than a snippet as an excerpt", () => {
+    const long = "word ".repeat(60);
+    const result = findTargetedMatches(`${long}\n${long}`, `${long}\\n${long}`);
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("expected not_found");
+    expect(result.candidates[0]).toMatchObject({
+      escaped: true,
+      excerpt: true,
+    });
+    expect(result.candidates[0]?.text.length).toBeLessThan(200);
+  });
+
+  it("keeps a snippet-length escaped hit whole", () => {
+    const short = "w".repeat(79);
+    const result = findTargetedMatches(
+      `${short}\n${short}`,
+      `${short}\\n${short}`,
+    );
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("expected not_found");
+    expect(result.candidates[0]).toMatchObject({
+      escaped: true,
+      text: `${short}\n${short}`,
+    });
+    expect(result.candidates[0]?.excerpt).toBeUndefined();
+  });
+
+  it("does not flag a find whose backslashes are really in the content", () => {
+    const content = `const s = "a\\nb";`;
+    const result = findTargetedMatches(content, `"a\\nb"`);
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("findEditThatRemovedText", () => {
+  it("names the earlier edit that changed text a later edit searches for", () => {
+    const before = [
+      ":root{--muted:#65746a;--ink:#20382e}",
+      ":root{--muted:#65746a;--ink:#20382e}",
+      ":root{--muted:#58685d;--ink:#20382e}",
+    ];
+    expect(findEditThatRemovedText(before, "--muted:#65746a;--ink")).toBe(1);
+  });
+
+  it("returns null when the text was never in the starting content", () => {
+    expect(findEditThatRemovedText(["abc", "abd"], "zzz")).toBeNull();
+  });
+
+  it("returns null when no edit removed the text", () => {
+    expect(findEditThatRemovedText(["abc", "abcd"], "abc")).toBeNull();
+    expect(findEditThatRemovedText([], "abc")).toBeNull();
+  });
+});
+
+describe("editRemovedTextMessage", () => {
+  it("numbers both edits from 1", () => {
+    const message = editRemovedTextMessage(2, 0);
+    expect(message).toMatch(/^Edit 3: .* edit 1 earlier in this batch/);
+    expect(message).toContain("write edit 3 against the text edit 1 leaves");
+    expect(message).toContain("Nothing was written.");
+  });
+});
+
+describe("describeCandidateKinds", () => {
+  const candidate = (kind: Partial<TargetedCandidate>): TargetedCandidate => ({
+    line: 1,
+    text: "x",
+    similarity: 1,
+    ...kind,
+  });
+
+  it("explains each kind present, escaped first, one per line", () => {
+    const text = describeCandidateKinds([
+      candidate({ whitespaceOnly: true }),
+      candidate({ escaped: true }),
+    ]);
+    const lines = text.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(
+      /^A candidate marked \(escaped\).*real characters/,
+    );
+    expect(lines[1]).toMatch(
+      /^A candidate marked \(whitespace only\).*copy it exactly/,
+    );
+  });
+
+  it("explains a kind when only some candidates have it", () => {
+    const text = describeCandidateKinds([
+      candidate({}),
+      candidate({ escaped: true }),
+    ]);
+    expect(text).toContain("(escaped)");
+    expect(text).not.toContain("(whitespace only)");
+    expect(
+      describeCandidateKinds([
+        candidate({}),
+        candidate({ whitespaceOnly: true }),
+      ]),
+    ).toContain("(whitespace only)");
+  });
+
+  it("is empty when no candidate has a kind", () => {
+    expect(describeCandidateKinds([candidate({})])).toBe("");
+  });
+});
 
 describe("findTargetedMatches", () => {
   it("finds an exact substring match", () => {

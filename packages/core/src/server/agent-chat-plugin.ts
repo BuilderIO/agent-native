@@ -340,6 +340,7 @@ import {
 import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 import type { CliWrapperFlags } from "./cli-wrapper-flags.js";
+import { isWorkspaceRuntime } from "./derived-secret.js";
 import {
   discoveredActionMcpAnnotations,
   importDevActionEntry,
@@ -9505,7 +9506,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // Fetch one extra row so the page can say whether another exists
             // without a count query.
             const readOptions = {
-              ...(scope ? { scope } : {}),
+              ...(scope
+                ? { scope }
+                : { excludeScopeTypes: options?.historyHiddenScopeTypes }),
               ...(orgId === undefined ? {} : { orgId }),
               collapseEdits,
               includeExternal,
@@ -11028,6 +11031,75 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           return processPendingAutomationFailureAlerts();
         };
 
+        const recordNetlifyIdleSweep = async (input: {
+          startedAt: number;
+          jobsChecked: boolean;
+          unclaimedBackgroundRuns: { scanned: number };
+          queuedSubmissionDrain: { scanned: number } | null;
+          automationFailureAlerts: { attempted: number } | null;
+          appSweepHandlers: { skipped?: string };
+        }) => {
+          try {
+            if (!isNetlifyRecurringJobsRuntime() || isWorkspaceRuntime()) {
+              return;
+            }
+            const { recordNetlifySweepOutcome } =
+              await import("../jobs/netlify-wake-marker.js");
+            const foundWork =
+              input.unclaimedBackgroundRuns.scanned > 0 ||
+              (input.queuedSubmissionDrain?.scanned ?? 0) > 0 ||
+              (input.automationFailureAlerts?.attempted ?? 0) > 0 ||
+              input.appSweepHandlers.skipped !== undefined;
+            if (foundWork) {
+              await recordNetlifySweepOutcome({
+                startedAt: input.startedAt,
+                busy: true,
+                nextDueAt: null,
+              });
+              return;
+            }
+            const { hasRunningRuns } = await import("../agent/run-store.js");
+            const { nextQueuedSubmissionDueAt } =
+              await import("../chat-threads/store.js");
+            const { nextAutomationFailureAlertDueAt } =
+              await import("../jobs/run-history.js");
+            const { nextRecurringJobWakeAt } =
+              await import("../jobs/scheduler.js");
+            const { nextStaleWorkDueAt } =
+              await import("../jobs/stale-reaper.js");
+            const { nextRecurringSweepHandlerDueAt } =
+              await import("../jobs/sweep-hooks.js");
+            const { nextAgentHarnessRecoveryDueAt } =
+              await import("../agent/harness/store.js");
+            const { nextStaleAgentTeamRunDueAt } =
+              await import("./agent-teams-run-queue.js");
+            const busy = await hasRunningRuns({ fresh: true });
+            const dueTimes = busy
+              ? []
+              : [
+                  input.jobsChecked
+                    ? await nextRecurringJobWakeAt(schedulerDeps)
+                    : null,
+                  input.jobsChecked ? await nextStaleWorkDueAt() : null,
+                  await nextQueuedSubmissionDueAt(),
+                  await nextAutomationFailureAlertDueAt(),
+                  await nextRecurringSweepHandlerDueAt(),
+                  await nextAgentHarnessRecoveryDueAt(),
+                  await nextStaleAgentTeamRunDueAt(),
+                ].filter((dueAt): dueAt is number => dueAt !== null);
+            await recordNetlifySweepOutcome({
+              startedAt: input.startedAt,
+              busy,
+              nextDueAt: dueTimes.length ? Math.min(...dueTimes) : null,
+            });
+          } catch (error) {
+            console.warn(
+              "[recurring-jobs] Idle check failed; the sweep stays on its minute cadence:",
+              error,
+            );
+          }
+        };
+
         // Every platform trigger lands here: Netlify's scheduled function (via
         // the durable background function), Vercel Cron, and the Cloudflare
         // worker's Cron Trigger. Keeping the sweep behind an authenticated,
@@ -11056,6 +11128,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   "Recurring-job sweep reached the synchronous server instead of the durable background worker.",
               };
             }
+            const sweepStartedAt = Date.now();
             // Stale reaping runs FIRST and site-wide, before the open-ended job
             // sweep can spend the platform wall. It is the durable driver the
             // in-process fast sweep below cannot be on serverless: that timer is
@@ -11223,6 +11296,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (!triggerAvailability.available) {
               if (incompleteSteps.length > 0) {
                 setResponseStatus(event, 500);
+              } else {
+                await recordNetlifyIdleSweep({
+                  startedAt: sweepStartedAt,
+                  jobsChecked: false,
+                  unclaimedBackgroundRuns,
+                  queuedSubmissionDrain,
+                  automationFailureAlerts,
+                  appSweepHandlers,
+                });
               }
               return {
                 ok: incompleteSteps.length === 0,
@@ -11256,6 +11338,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   appSweepHandlers,
                 };
               }
+              await recordNetlifyIdleSweep({
+                startedAt: sweepStartedAt,
+                jobsChecked: true,
+                unclaimedBackgroundRuns,
+                queuedSubmissionDrain,
+                automationFailureAlerts,
+                appSweepHandlers,
+              });
               return {
                 ok: true,
                 staleRunsReaped,

@@ -13,26 +13,29 @@ metadata:
 # Build an App
 
 Done means one useful domain workflow with a designed route, shared UI/agent
-actions, correct access, agent context, and a smoke run that proves its key
-rule. Finish a narrow slice before expanding it.
+actions, correct access, agent context, and the visual and interactive gates
+in `app-quality-bar`. Finish a narrow slice before expanding it.
 
 This skill edits source files. If this session cannot write files (a deployed
 app's runtime agent), say the change needs a code session and stop.
 
-The four-area parity rule from `adding-a-feature` (UI, action, instructions,
+The four-area feature checklist from `adding-a-feature` (UI, action, instructions,
 application state) applies to everything you add. This skill supplies the
 order and decisions; use the edit-point reference for the scaffold you have.
 
 ## 1. Orient
 
-Read `AGENTS.md`, this skill, and only the files you will edit. Skip broad repo
-surveys, `README.md`, and `DESIGN.md`. Use the bundled docs/source commands in
+Read `AGENTS.md`, `DESIGN.md` if present, and `app-quality-bar`. Inspect the
+closest existing screen or action and the files you will edit. Use the bundled docs/source commands in
 `AGENTS.md` only to answer a concrete API question; do not web-research
 framework APIs.
 
 ## 2. Decide
 
-Choose these six things before writing code:
+Choose one or two interaction patterns. Write or update `DESIGN.md` as the
+single required design contract, with the chosen and rejected UX options.
+Register `app.manifest.ts` with real screens, entities, `viewPolicy`, and
+`suggestableCapabilities`. Choose these six things before writing code:
 
 1. **Slice**: the one workflow that proves the app. For a booking app: create a
    booking, reject an overlap, cancel, weekly grid per room. Name what you are
@@ -145,7 +148,7 @@ runtime prompt cuts the file off at 6,000 characters. Cover:
 
 Keep the action table aligned with the scaffold's primary tool list when one
 exists; other actions should remain discoverable through `tool-search`. Leave
-unrelated AGENTS.md sections, README, and DESIGN.md as they are.
+unrelated AGENTS.md sections as they are.
 
 ### Real-time
 
@@ -172,18 +175,18 @@ made from a stale view. See `real-time-sync`.
    message; read back the saved state through the matching list/get action.
    The CLI prints the failure message, not its structured `errorCode`, so also
    verify any code-specific behavior in the action contract or browser.
-4. Run one browser smoke on the domain route:
-   - create a record
-   - trigger the rejection: a toast appears and nothing is written
-   - cancel or undo, repeat the previously rejected write, and confirm it
-     succeeds
+4. Apply the canonical 12-row rubric and automatic fails linked from
+   `app-quality-bar`. Give the screenshots, rubric, and brief to a blind
+   reviewer and use the lower score per row. Fix and recapture until the
+   review passes.
+5. Run the 60-second automated Playwright walkthrough from `app-quality-bar`.
+   Cover empty, populated, split pane at 520 px or narrower, and error
+   recovery. Click every navigation item, create and edit, reload and verify
+   persistence, and test three manifest-driven chat prompts. Fail on
+   `Loading...`, native dialogs, or unexpected full-page reloads.
+6. Stop the dev server and close the tab. Keep readiness pending when a gate
+   could not run or failed.
 
-   Inspect console and network failures. Fix errors from the new route or actions
-   and identify existing scaffold messages separately. The only expected 4xx/5xx
-   is the rejection being tested. Capture the finished workflow.
-5. Stop the dev server and close the tab.
-
-Skip the production build, unrelated test suites, and README or DESIGN rewrites.
 To triage failures, see `references/verification.md`.
 
 ## 5. Report
@@ -194,6 +197,6 @@ check you didn't run.
 
 ## Related
 
-- `adding-a-feature`: the parity checklist for each later feature in this app.
+- `adding-a-feature`: the feature checklist for each later feature in this app.
 - `frontend-design`, `actions`, `sharing`, `real-time-sync`, and `security`:
   go deeper on one area when the references aren't enough.

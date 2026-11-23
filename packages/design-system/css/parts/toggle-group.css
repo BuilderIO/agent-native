@@ -1,0 +1,25 @@
+/*
+ * Part: toggle-group
+ *
+ *   <div class="toggle-group" role="group"          Base UI ToggleGroup
+ *        data-size="sm|md" data-variant="ghost|soft|surface|outline"
+ *        [data-color] [data-high-contrast] [data-radius]
+ *        [data-orientation] [data-multiple] [data-disabled]>
+ *     <button class="toggle" [data-pressed]>        Toggle, one per option
+ *
+ * A row or column of toggles a control gap apart. Its props are the
+ * defaults of the toggles inside it, which draw them; the group itself only
+ * lays them out.
+ */
+
+@layer components {
+  .toggle-group {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--control-gap);
+  }
+
+  .toggle-group[data-orientation="vertical"] {
+    flex-direction: column;
+  }
+}

@@ -23,6 +23,7 @@ export default defineAction({
       ),
   }),
   http: false,
+  mcpTool: false,
   run: async (args) => {
     const { description, files } = args;
 
