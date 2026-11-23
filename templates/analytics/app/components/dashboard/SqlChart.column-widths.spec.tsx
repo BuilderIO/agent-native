@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { personalColumnWidthsKey } from "@/lib/personal-column-widths";
 
 const ROWS = vi.hoisted(() => [
   { name: "Ada", count: 3 },
@@ -103,12 +104,16 @@ describe("SqlChart table column widths", () => {
     });
   }
 
-  async function renderCard(editable: boolean, onSaveColumns: () => void) {
+  async function renderCard(
+    editable: boolean,
+    onSaveColumns: () => void,
+    panel: SqlPanel = TABLE,
+  ) {
     await act(async () => {
       root.render(
         <TooltipProvider>
           <SqlChartCard
-            panel={TABLE}
+            panel={panel}
             dashboardId="d"
             editable={editable}
             eagerLoad
@@ -271,6 +276,22 @@ describe("SqlChart table column widths", () => {
         />,
       );
     });
+    expect(nameWidth()).toBe("260px");
+  });
+
+  it("renders a legacy object-shaped column configuration with personal widths", async () => {
+    localStorage.setItem(
+      personalColumnWidthsKey("d", "p"),
+      JSON.stringify({ name: { width: 260, base: null } }),
+    );
+    const panel: SqlPanel = {
+      ...TABLE,
+      config: { columns: { name: {} } as never },
+    };
+
+    await renderCard(false, vi.fn(), panel);
+
+    expect(nameHeader().textContent).toContain("name");
     expect(nameWidth()).toBe("260px");
   });
 

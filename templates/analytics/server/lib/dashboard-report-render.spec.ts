@@ -497,6 +497,23 @@ describe("fetchReportPanelData", () => {
 });
 
 describe("renderReportEmail", () => {
+  it("renders table data when legacy columns are object-shaped", async () => {
+    const rendered = await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({ id: "legacy", config: { columns: { name: {} } as never } }),
+      ]),
+      panelData: new Map([
+        [
+          "legacy",
+          { status: "rows" as const, rows: [{ name: "Ada" }], schema: [] },
+        ],
+      ]),
+    });
+
+    expect(rendered.degradedPanelIds).toEqual([]);
+    expect(rendered.html).toContain("Ada");
+  });
+
   it("reports no degraded panels for a fully successful report", async () => {
     const panels = [
       panel({ id: "t1" }),

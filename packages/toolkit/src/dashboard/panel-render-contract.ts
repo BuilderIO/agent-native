@@ -474,7 +474,8 @@ export function unknownPanelConfigKeys(
       });
     }
     for (const [key, value] of Object.entries(panel.config)) {
-      if (value == null) continue;
+      if (value === undefined || (value === null && key !== "columns"))
+        continue;
       if (!hasOwn(CONFIG_KEY_INFO, key)) {
         if (changedConfig(key, panel.config)) {
           issues.push(unknownConfigKeyIssue(panel, key));

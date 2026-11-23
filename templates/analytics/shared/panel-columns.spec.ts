@@ -1,6 +1,6 @@
-import { unknownPanelConfigKeys } from "@agent-native/toolkit/dashboard/panel-render-contract";
 import { describe, expect, it } from "vitest";
 
+import { unknownPanelConfigKeys } from "../../../packages/toolkit/src/dashboard/panel-render-contract";
 import { activePersonalColumnWidths } from "../app/lib/personal-column-widths";
 import { isValidPanelColumns, readPanelColumns } from "./panel-columns";
 
@@ -42,6 +42,7 @@ describe("panel columns strictness", () => {
     { columns: [{ key: "a", width: -10, hidden: true }] },
     { columns: [{ key: "rate", formatt: "percent" }] },
     { columns: [{ key: "a", constructor: "unexpected" }] },
+    { columns: null },
   ])("flags malformed columns in the save contract", ({ columns }) => {
     expect(
       unknownPanelConfigKeys({
@@ -57,6 +58,21 @@ describe("panel columns strictness", () => {
       expect.objectContaining({ kind: "invalid-value", key: "columns" }),
     ]);
   });
+  it("allows unchanged invalid legacy columns in the contract", () => {
+    const panel = {
+      id: "p",
+      title: "Table",
+      sql: "SELECT 1",
+      source: "bigquery",
+      chartType: "table",
+      width: 1,
+      config: { columns: null },
+    };
+    expect(
+      unknownPanelConfigKeys({ ...panel, title: "Updated" }, panel),
+    ).toEqual([]);
+  });
+
   it("retains valid settings when malformed optional properties are removed", () => {
     const stored = [
       { key: "visible", label: 4, format: "pct", linkKey: {}, hidden: 0 },

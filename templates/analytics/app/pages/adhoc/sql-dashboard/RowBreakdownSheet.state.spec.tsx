@@ -100,6 +100,32 @@ async function openSheet() {
   });
 }
 
+it("opens a breakdown when legacy columns are object-shaped", async () => {
+  const panel = {
+    ...props.panel,
+    config: { columns: { role: {} } as never },
+  };
+  const currentRoot = root;
+  if (!currentRoot) throw new Error("Expected a mounted root");
+  await act(async () => {
+    currentRoot.render(
+      <RowBreakdownSheet
+        {...props}
+        panel={panel}
+        selection={{
+          row,
+          rows: [row],
+          resultRows: [row],
+          resultTruncated: false,
+          openedAt: 1,
+        }}
+      />,
+    );
+  });
+
+  expect(container.textContent).toContain("Engineer");
+});
+
 it("makes the open breakdown available to the real current-tab reader and clears it on close", async () => {
   await openSheet();
   expect(await readAppStateForCurrentTab("row-breakdown")).toEqual({

@@ -8,10 +8,10 @@ import {
 } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
-import { isValidPanelColumns } from "@agent-native/toolkit/dashboard/panel-columns";
 import {
   panelLabel,
   stableStringify,
+  unknownPanelConfigKeys,
 } from "@agent-native/toolkit/dashboard/panel-render-contract";
 import {
   MAX_PANEL_HEIGHT,
@@ -491,19 +491,13 @@ function collectDashboardConfigIssues(
     const label = panelLabel(p, i);
     const issue = (rule: string, message: string) =>
       issues.push({ rule: `panel_${rule}`, message: `${label} ${message}` });
-    const columns = (p.config as { columns?: unknown } | null)?.columns;
-    const previousColumns = (previous?.config as { columns?: unknown } | null)
-      ?.columns;
-    if (
-      columns !== undefined &&
-      !isValidPanelColumns(columns) &&
-      (!previous ||
-        stableStringify(columns) !== stableStringify(previousColumns))
-    ) {
-      issue(
-        "columns",
-        "config.columns must be an array of valid column objects with unique non-empty keys.",
-      );
+    for (const configIssue of unknownPanelConfigKeys(p, previous)) {
+      if (
+        configIssue.kind === "invalid-value" &&
+        configIssue.key === "columns"
+      ) {
+        issues.push({ rule: "panel_columns", message: configIssue.message });
+      }
     }
     const isSection = p.chartType === "section";
     const isExtension = p.chartType === "extension";
