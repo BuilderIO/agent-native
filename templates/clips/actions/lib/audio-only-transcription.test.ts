@@ -144,8 +144,9 @@ describe("audio-only transcription media", () => {
   });
 
   it("streams a fragmented MP4 in a few requests, not one per fragment", async () => {
-    // Each fragment's video is bigger than ffmpeg's default read-ahead, as in
-    // a real recording, so skipping it would otherwise cost a request apiece.
+    // Each one-second fragment holds about 600 KB of noisy video, past the
+    // point where ffmpeg would otherwise seek instead of reading through
+    // (about 128 KB on Linux, 32 KB on Windows), as in a real recording.
     const input = join(dir, "fragmented.mp4");
     const made = spawnSync(ffmpegPath, [
       "-hide_banner",
@@ -155,17 +156,21 @@ describe("audio-only transcription media", () => {
       "-f",
       "lavfi",
       "-i",
-      "testsrc=s=640x360:r=30:d=30",
+      "testsrc2=s=320x240:r=15:d=10,noise=alls=40:allf=t",
       "-f",
       "lavfi",
       "-i",
-      "sine=frequency=440:duration=30",
+      "sine=frequency=440:duration=10",
       "-c:v",
       "mpeg4",
       "-b:v",
-      "4M",
+      "5M",
+      "-maxrate",
+      "5M",
+      "-bufsize",
+      "5M",
       "-g",
-      "30",
+      "15",
       "-c:a",
       "aac",
       "-movflags",
@@ -205,7 +210,7 @@ describe("audio-only transcription media", () => {
         (total, chunk) => total + chunk.durationMs,
         0,
       );
-      expect(audioMs).toBeGreaterThan(29_000);
+      expect(audioMs).toBeGreaterThan(9_000);
       expect(requests).toBeLessThanOrEqual(3);
     } finally {
       rangeServer.closeAllConnections();
