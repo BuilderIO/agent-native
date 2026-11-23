@@ -405,9 +405,11 @@ export async function resolveCredential(
  *    organization's name has no length limit, so it comes after both fixes,
  *    where a long one is all the cut can drop.
  *
- * Neither message names the key, whose name has no length limit either:
- * both callers' sentence before it already names what's missing, and their
- * "Tried:" list after it names the keys.
+ * Neither message names the key before its fixes, since its name has no
+ * length limit either: both callers' sentence before it already names what's
+ * missing, and their "Tried:" list after it names the keys. When more than
+ * one key was tried, the message ends by naming the one it found, which that
+ * list can't show.
  *
  * SECURITY: both probes are bounded to organizations the caller is a member
  * of, report only the scope kind (and, for the cross-org case, the name of an
@@ -446,11 +448,12 @@ export async function describeCredentialScopeGap(
   const scopedCtx: CredentialContext = { ...ctx, orgId: orgLookup.orgId };
 
   for (const key of keys) {
+    const found = keys.length > 1 ? ` The saved key is ${key}.` : "";
     if (await hasForeignPersonalCredentialInOrg(key, scopedCtx)) {
       return (
         `Ask an organization owner or admin to save it with Workspace or ` +
         `Organization scope. This workspace has it only as a ` +
-        `Personal key, which works only for the member who saved it.`
+        `Personal key, which works only for the member who saved it.${found}`
       );
     }
 
@@ -462,7 +465,7 @@ export async function describeCredentialScopeGap(
       return (
         `Save it in this organization, or switch your active organization ` +
         `to ${target} it's saved. Credentials aren't shared between ` +
-        `organizations.`
+        `organizations.${found}`
       );
     }
   }

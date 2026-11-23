@@ -144,6 +144,23 @@ describe("describeCredentialScopeGap", () => {
     expect(message).toContain("Personal key");
   });
 
+  it("ends by naming the key it found when several were tried", async () => {
+    execute = async ({ args }) =>
+      args?.[0] === "GH_TOKEN" ? { rows: [{ 1: 1 }] } : { rows: [] };
+
+    const message = await describeCredentialScopeGap(
+      ["GITHUB_TOKEN", "GH_TOKEN"],
+      { userEmail: "owner@example.com", orgId: "org-1" },
+    );
+
+    expect(message).toBe(
+      "Ask an organization owner or admin to save it with Workspace or " +
+        "Organization scope. This workspace has it only as a Personal " +
+        "key, which works only for the member who saved it. The saved key " +
+        "is GH_TOKEN.",
+    );
+  });
+
   it("stays quiet when the key is missing everywhere in the org", async () => {
     const message = await describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
       userEmail: "owner@example.com",
@@ -196,6 +213,24 @@ describe("describeCredentialScopeGap across organizations", () => {
       "Save it in this organization, or switch your active organization " +
         "to \"Builder.io\", where it's saved. Credentials aren't shared " +
         "between organizations.",
+    );
+  });
+
+  it("ends by naming the key it found when several were tried", async () => {
+    execute = async ({ sql, args }) =>
+      sql.includes(CROSS_ORG_PROBE) && args?.[1] === "GH_TOKEN"
+        ? { rows: [{ org_name: "Builder.io" }] }
+        : { rows: [] };
+
+    const message = await describeCredentialScopeGap(
+      ["GITHUB_TOKEN", "GH_TOKEN"],
+      { userEmail: "owner@example.com", orgId: "org-1" },
+    );
+
+    expect(message).toBe(
+      "Save it in this organization, or switch your active organization " +
+        "to \"Builder.io\", where it's saved. Credentials aren't shared " +
+        "between organizations. The saved key is GH_TOKEN.",
     );
   });
 
