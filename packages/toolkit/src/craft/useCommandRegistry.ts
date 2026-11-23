@@ -350,15 +350,20 @@ export function useCommandRegistry(
   }, [enabled, enableHelpShortcut, target]);
 
   const shortcuts = React.useMemo<CommandShortcutDescriptor[]>(() => {
-    const entries: CommandShortcutDescriptor[] = commands.map((command) => ({
-      id: command.id,
-      label: command.label,
-      shortcut: command.shortcut,
-      displayShortcut: formatShortcut(command.shortcut),
-      group: command.group ?? "General",
-      description: command.description,
-      enabled: command.enabled !== false,
-    }));
+    const entries: CommandShortcutDescriptor[] = commands.map((command) => {
+      const descriptor: CommandShortcutDescriptor = {
+        id: command.id,
+        label: command.label,
+        shortcut: command.shortcut,
+        displayShortcut: formatShortcut(command.shortcut),
+        group: command.group ?? "General",
+        enabled: command.enabled !== false,
+      };
+      if (command.description !== undefined) {
+        descriptor.description = command.description;
+      }
+      return descriptor;
+    });
 
     if (
       enableHelpShortcut &&
