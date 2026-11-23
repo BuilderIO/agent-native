@@ -8,11 +8,15 @@ import {
   PageHeaderTitle,
 } from "../../../src/ui/base-ui/page-header.js";
 import { Toolbar, ToolbarButton } from "../../../src/ui/base-ui/toolbar.js";
+import guide from "./page-header.docs.md?raw";
 
 const meta = {
   title: "Patterns/Page Header",
   component: PageHeader,
-  parameters: { layout: "fullscreen" },
+  parameters: {
+    docs: { description: { component: guide } },
+    layout: "fullscreen",
+  },
 } satisfies Meta;
 
 export default meta;

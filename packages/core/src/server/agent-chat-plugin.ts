@@ -4846,6 +4846,7 @@ export function createAgentChatPlugin(
         message: string;
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
+        queuedMessageClaimId?: string;
         agentKitMessageId?: string;
         submissionExpiresAt?: unknown;
         retryContext: RefusedTurnRetryContext;

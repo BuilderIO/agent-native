@@ -201,4 +201,13 @@
   .input[data-variant="soft"]:has(.input-control:disabled) {
     background-color: var(--gray-a3);
   }
+  @media (forced-colors: active) {
+    .input {
+      border: 1px solid ButtonText;
+    }
+    .input:focus-within {
+      outline: var(--focus-ring-width) solid Highlight;
+      outline-offset: calc(-1 * var(--focus-ring-width));
+    }
+  }
 }

@@ -12,8 +12,6 @@ import * as React from "react";
 import { cn } from "../../utils.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
-import { Spinner } from "./spinner.js";
-import { VisuallyHidden } from "./visually-hidden.js";
 
 export interface ButtonProps
   extends Omit<BaseButton.Props, "color">, ButtonOwnProps {}
@@ -40,8 +38,10 @@ export type IconButtonLinkProps = ButtonLinkProps;
 function createButton(part: "button" | "icon-button", displayName: string) {
   const component = React.forwardRef<HTMLButtonElement, ButtonProps>(
     (props, ref) => {
-      const [attributes, { className, children, disabled, ...rest }] =
-        splitProps(buttonProps, props);
+      const [attributes, { className, disabled, ...rest }] = splitProps(
+        buttonProps,
+        props,
+      );
       const loading = props.loading === true;
       return (
         <BaseButton
@@ -51,21 +51,7 @@ function createButton(part: "button" | "icon-button", displayName: string) {
           className={partClassName(part, className)}
           disabled={disabled === true || loading}
           aria-busy={loading || rest["aria-busy"]}
-        >
-          {loading ? (
-            <>
-              <span className="button-content" aria-hidden>
-                {children}
-              </span>
-              <VisuallyHidden>{children}</VisuallyHidden>
-              <span className="button-spinner">
-                <Spinner />
-              </span>
-            </>
-          ) : (
-            children
-          )}
-        </BaseButton>
+        />
       );
     },
   );

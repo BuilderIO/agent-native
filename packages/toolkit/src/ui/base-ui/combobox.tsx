@@ -7,14 +7,16 @@ import { Combobox as BaseCombobox } from "@base-ui/react/combobox";
 import { IconCheck, IconChevronDown, IconX } from "@tabler/icons-react";
 import * as React from "react";
 
-import { cn } from "../../utils.js";
-import { IconButton } from "./button.js";
+import { inheritedName, type AccessibleName } from "./accessible-name.js";
 import {
   createListboxList,
+  listboxIconButton,
+  listboxActionName,
   createListboxPopup,
   ListboxRootProvider,
   type ListboxPopupProps,
-  useReportInputSize,
+  useListboxInput,
+  useListboxOpenChange,
 } from "./combobox-parts.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
@@ -22,7 +24,8 @@ import { splitProps } from "./props.js";
 export type ComboboxProps<
   Value,
   Multiple extends boolean | undefined = false,
-> = BaseCombobox.Root.Props<Value, Multiple>;
+  Item = Value,
+> = BaseCombobox.Root.Props<Value, Multiple, Item> & AccessibleName;
 
 /**
  * A select you can type in to filter its options, on Base UI's Combobox. Use it
@@ -31,15 +34,51 @@ export type ComboboxProps<
  *
  * @import import { Combobox, ComboboxInput, ComboboxPopup, ComboboxList, ComboboxItem, ComboboxEmpty } from "@agent-native/toolkit/ui/base-ui/combobox";
  */
-function Combobox<Value, Multiple extends boolean | undefined = false>(
-  props: ComboboxProps<Value, Multiple>,
-) {
+function Combobox<
+  Value,
+  Multiple extends boolean | undefined = false,
+  Item = Value,
+>({
+  "aria-label": label,
+  "aria-labelledby": labelledBy,
+  ...props
+}: ComboboxProps<Value, Multiple, Item>) {
+  const localActions = React.useRef<BaseCombobox.Root.Actions>(null);
+  const actionsRef = props.actionsRef ?? localActions;
+  const { closeRequests, positionerRef, onOpenChange } = useListboxOpenChange(
+    props.onOpenChange,
+    actionsRef,
+  );
   return (
-    <ListboxRootProvider inline={props.inline}>
-      <BaseCombobox.Root<Value, Multiple> {...props} />
+    <ListboxRootProvider
+      aria-label={label}
+      aria-labelledby={labelledBy}
+      inline={props.inline}
+      actionsRef={actionsRef}
+      closeRequests={closeRequests}
+      positionerRef={positionerRef}
+    >
+      <BaseCombobox.Root<Value, Multiple, Item>
+        {...props}
+        actionsRef={actionsRef}
+        onOpenChange={onOpenChange}
+      />
     </ListboxRootProvider>
   );
 }
+
+/** Names a standalone value trigger when the search input lives in the popup. */
+export const ComboboxLabel = React.forwardRef<
+  HTMLDivElement,
+  BaseCombobox.Label.Props
+>(({ className, ...props }, ref) => (
+  <BaseCombobox.Label
+    {...props}
+    ref={ref}
+    className={partClassName("field-label", className)}
+  />
+));
+ComboboxLabel.displayName = "ComboboxLabel";
 
 const ChipsInputContext = React.createContext<React.ReactNode>(null);
 
@@ -47,8 +86,10 @@ export interface ComboboxInputProps
   extends
     Omit<BaseCombobox.Input.Props, "size" | "color" | "className" | "style">,
     ComboboxOwnProps {
-  className?: string;
-  style?: React.CSSProperties;
+  className?: BaseCombobox.InputGroup.Props["className"];
+  style?: BaseCombobox.InputGroup.Props["style"];
+  /** A ComboboxChips part or a component that renders it for a multiple selection. */
+  chips?: React.ReactElement | null;
   /** `InputSlot`s, and in a `multiple` combobox its `ComboboxChips`. */
   children?: React.ReactNode;
 }
@@ -63,33 +104,35 @@ export interface ComboboxInputProps
  */
 const ComboboxInput = React.forwardRef<HTMLInputElement, ComboboxInputProps>(
   (props, ref) => {
-    const [attributes, { className, style, children, ...rest }] = splitProps(
-      comboboxProps,
-      props,
-    );
-    useReportInputSize(attributes["data-size"]);
+    const [attributes, { className, style, children, chips, ...rest }] =
+      splitProps(comboboxProps, props);
+    const name = useListboxInput(attributes["data-size"], rest);
     const input = (
-      <BaseCombobox.Input ref={ref} className="input-control" {...rest} />
+      <BaseCombobox.Input
+        ref={ref}
+        className="input-control"
+        {...rest}
+        {...name}
+      />
     );
     const isChips = (child: React.ReactNode) =>
       React.isValidElement(child) && child.type === ComboboxChips;
-    const parts = React.Children.toArray(children);
-    const chips = parts.find(isChips) ?? null;
-    const slots = parts.filter((child) => !isChips(child));
+    const parts = chips ? undefined : React.Children.toArray(children);
+    const chipGroup = chips ?? parts?.find(isChips);
     return (
       <BaseCombobox.InputGroup
         {...attributes}
-        className={cn("input", className)}
+        className={partClassName("input", className)}
         style={style}
       >
-        {chips === null ? (
+        {chipGroup == null ? (
           input
         ) : (
           <ChipsInputContext.Provider value={input}>
-            {chips}
+            {chipGroup}
           </ChipsInputContext.Provider>
         )}
-        {slots}
+        {parts ? parts.filter((child) => !isChips(child)) : children}
       </BaseCombobox.InputGroup>
     );
   },
@@ -98,9 +141,8 @@ ComboboxInput.displayName = "ComboboxInput";
 
 export interface ComboboxChipsProps<Value> extends Omit<
   BaseCombobox.Chips.Props,
-  "children" | "className"
+  "children"
 > {
-  className?: string;
   /** A `ComboboxChip` for each selected value. */
   children: (value: Value[]) => React.ReactNode;
 }
@@ -119,7 +161,10 @@ function ComboboxChips<Value>({
 }: ComboboxChipsProps<Value>) {
   const input = React.useContext(ChipsInputContext);
   return (
-    <BaseCombobox.Chips className={cn("combobox-chips", className)} {...props}>
+    <BaseCombobox.Chips
+      className={partClassName("combobox-chips", className)}
+      {...props}
+    >
       <BaseCombobox.Value>
         {(value: Value[]) => children(value)}
       </BaseCombobox.Value>
@@ -128,11 +173,7 @@ function ComboboxChips<Value>({
   );
 }
 
-export interface ComboboxChipProps extends Omit<
-  BaseCombobox.Chip.Props,
-  "className"
-> {
-  className?: string;
+export interface ComboboxChipProps extends BaseCombobox.Chip.Props {
   /** The remove button's accessible name; name the value, as "Remove Rust". */
   removeLabel?: string;
 }
@@ -143,21 +184,34 @@ export interface ComboboxChipProps extends Omit<
  * @import import { ComboboxChip } from "@agent-native/toolkit/ui/base-ui/combobox";
  */
 const ComboboxChip = React.forwardRef<HTMLDivElement, ComboboxChipProps>(
-  ({ className, children, removeLabel = "Remove", ...props }, ref) => (
-    <BaseCombobox.Chip
-      ref={ref}
-      className={cn("combobox-chip", className)}
-      {...props}
-    >
-      {children}
-      <BaseCombobox.ChipRemove
-        className="combobox-chip-remove"
-        aria-label={removeLabel}
+  ({ className, children, removeLabel, ...props }, ref) => {
+    const id = React.useId();
+    const labelId = id + "-label";
+    return (
+      <BaseCombobox.Chip
+        ref={ref}
+        role="group"
+        aria-readonly={undefined}
+        className={partClassName("combobox-chip", className)}
+        {...props}
+        {...inheritedName({ "aria-labelledby": labelId }, props)}
       >
-        <IconX aria-hidden />
-      </BaseCombobox.ChipRemove>
-    </BaseCombobox.Chip>
-  ),
+        <span id={labelId} className="combobox-chip-label">
+          {children}
+        </span>
+        <BaseCombobox.ChipRemove
+          id={id}
+          className="combobox-chip-remove"
+          aria-label={removeLabel ?? "Remove"}
+          aria-labelledby={
+            removeLabel === undefined ? id + " " + labelId : undefined
+          }
+        >
+          <IconX aria-hidden />
+        </BaseCombobox.ChipRemove>
+      </BaseCombobox.Chip>
+    );
+  },
 );
 ComboboxChip.displayName = "ComboboxChip";
 
@@ -169,14 +223,14 @@ ComboboxChip.displayName = "ComboboxChip";
 const ComboboxTrigger = React.forwardRef<
   HTMLButtonElement,
   BaseCombobox.Trigger.Props
->(({ className, children, ...props }, ref) => {
+>(({ className, children, render = listboxIconButton, ...props }, ref) => {
   return (
     <BaseCombobox.Trigger
       ref={ref}
-      aria-label="Show options"
+      render={render}
       {...props}
+      {...listboxActionName(children, props, "Show options", render)}
       className={partClassName("combobox-trigger", className)}
-      render={<IconButton size="sm" variant="ghost" color="gray" />}
     >
       {children ?? <IconChevronDown aria-hidden />}
     </BaseCombobox.Trigger>
@@ -192,14 +246,14 @@ ComboboxTrigger.displayName = "ComboboxTrigger";
 const ComboboxClear = React.forwardRef<
   HTMLButtonElement,
   BaseCombobox.Clear.Props
->(({ className, children, ...props }, ref) => {
+>(({ className, children, render = listboxIconButton, ...props }, ref) => {
   return (
     <BaseCombobox.Clear
       ref={ref}
-      aria-label="Clear"
+      render={render}
       {...props}
+      {...listboxActionName(children, props, "Clear", render)}
       className={partClassName("combobox-clear", className)}
-      render={<IconButton size="sm" variant="ghost" color="gray" />}
     >
       {children ?? <IconX aria-hidden />}
     </BaseCombobox.Clear>
@@ -361,6 +415,7 @@ export const ComboboxRow = BaseCombobox.Row;
  * @import import { ComboboxValue } from "@agent-native/toolkit/ui/base-ui/combobox";
  */
 export const ComboboxValue = BaseCombobox.Value;
+export const createComboboxItems = BaseCombobox.createItems;
 const useComboboxFilter = BaseCombobox.useFilter;
 const useComboboxFilteredItems = BaseCombobox.useFilteredItems;
 

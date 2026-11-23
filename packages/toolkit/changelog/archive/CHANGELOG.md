@@ -1,3 +1,9 @@
+## 0.16.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.16.9
 
 ### Patch Changes
