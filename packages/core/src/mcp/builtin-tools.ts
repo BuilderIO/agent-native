@@ -15,6 +15,7 @@ import {
   WORKSPACE_APP_CHAT_TTL_SECONDS,
 } from "../shared/workspace-app-chat-capability.js";
 import {
+  INVALID_ASK_APP_TASK_HANDLE_ERROR,
   signAskAppTaskHandle,
   verifyAskAppTaskHandle,
 } from "./ask-app-task-handle.js";
@@ -1628,7 +1629,7 @@ function askAppStatusTool(
           (suppliedTaskId && suppliedTaskId !== verified.taskId) ||
           (suppliedApp && suppliedApp !== verified.route.app.toLowerCase())
         ) {
-          throw new Error("Invalid or expired ask_app task handle.");
+          throw new Error(INVALID_ASK_APP_TASK_HANDLE_ERROR);
         }
         return fetchAskAppA2ATask(
           verified.route,

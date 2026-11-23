@@ -33,7 +33,7 @@ import {
   resolveCalendarAccessToken,
   type CalendarFetchError,
 } from "../server/lib/calendar-event-meetings.js";
-import { listEvents } from "../server/lib/google-calendar-client.js";
+import { listEnabledCalendarEvents } from "../server/lib/calendar-sources.js";
 import { booleanParam } from "./lib/cli-params.js";
 import {
   AGENT_MEETINGS_PER_CALL,
@@ -59,7 +59,7 @@ function meetingHasContentFilter() {
 
 export default defineAction({
   description:
-    "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle. For meetings that already have notes or a transcript, use view='past' with hasContent=true. Agent calls get at most 25 meetings per call, paged with offset and hasMore, each with summaryPreview, hasNotes and actionItemCount in place of its whole summary, notes, bullets and action items; get-meeting has those and the transcript. Live calendar events are merged into the first 1,000 saved meetings; historyCapped=true means older saved meetings remain past that, reachable with includeLiveCalendar=false and offset, or with search-meetings. calendarCapped=true means a connected calendar held more events in the window than one read returns, so some of its events are missing.",
+    "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle. For meetings that already have notes or a transcript, use view='past' with hasContent=true. Agent calls get at most 25 meetings per call, paged with offset and hasMore, each with summaryPreview, hasNotes and actionItemCount in place of its whole summary, notes, bullets and action items; get-meeting has those and the transcript. Live calendar events are merged into the first 1,000 saved meetings; historyCapped=true means older saved meetings remain past that, reachable with includeLiveCalendar=false and offset, or with search-meetings. calendarCapped=true means a connected calendar held more events in the window than one read returns, so some of its events are missing. Each Google account contributes the calendars turned on for it (list-calendars, set-calendar-enabled); only its main calendar is on until changed.",
   mcpApp: { compactCatalog: true },
   schema: z.object({
     view: z
@@ -319,20 +319,21 @@ export default defineAction({
               : (upcomingWindowMaxIso ??
                 new Date(now.getTime() + THIRTY_DAYS_MS).toISOString());
 
-          const [{ items, nextPageToken }, cachedEvents] = await Promise.all([
-            listEvents({
-              accessToken,
-              calendarId: "primary",
-              timeMin,
-              timeMax,
-              maxResults: Math.min(250, Math.max(windowCount, 50)),
-            }),
-            db
-              .select()
-              .from(schema.calendarEvents)
-              .where(eq(schema.calendarEvents.calendarAccountId, account.id)),
-          ]);
-          if (nextPageToken) calendarCapped = true;
+          const [{ items, capped, error: calendarError }, cachedEvents] =
+            await Promise.all([
+              listEnabledCalendarEvents({
+                account,
+                accessToken,
+                timeMin,
+                timeMax,
+                maxResults: Math.min(250, Math.max(windowCount, 50)),
+              }),
+              db
+                .select()
+                .from(schema.calendarEvents)
+                .where(eq(schema.calendarEvents.calendarAccountId, account.id)),
+            ]);
+          if (capped) calendarCapped = true;
 
           const cachedByExternalId = new Map(
             cachedEvents.map((event) => [event.externalId, event]),
@@ -346,7 +347,7 @@ export default defineAction({
             }
           }
 
-          for (const event of items) {
+          for (const { calendarId, event } of items) {
             if (!event.id || event.status === "cancelled") continue;
             if (!isTimedCalendarEvent(event)) continue;
             const cached = cachedByExternalId.get(event.id);
@@ -405,6 +406,7 @@ export default defineAction({
             const liveMeeting = calendarEventToMeetingView({
               account,
               event,
+              calendarId,
               meeting: persisted,
             });
             if (liveMeeting) {
@@ -418,7 +420,15 @@ export default defineAction({
             }
           }
 
-          await recordCalendarFetchSuccess(account).catch(() => {});
+          if (calendarError) {
+            calendarErrors.push(
+              await recordCalendarFetchError(account, calendarError, {
+                needsReauth: false,
+              }),
+            );
+          } else {
+            await recordCalendarFetchSuccess(account).catch(() => {});
+          }
         } catch (err) {
           calendarErrors.push(await recordCalendarFetchError(account, err));
         }

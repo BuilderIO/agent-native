@@ -4,26 +4,7 @@ import {
   readAnalyticsChartData,
   type AnalyticsChartData,
 } from "./analytics-chart-block.js";
-import { parseRegistryBlockData } from "./nfm-registry.js";
-import { nfmToDoc, type PMNode } from "./nfm.js";
-
-function walk(node: PMNode | undefined, visit: (node: PMNode) => void) {
-  if (!node) return;
-  visit(node);
-  for (const child of node.content ?? []) walk(child, visit);
-}
-
-async function readRaw(raw: string): Promise<AnalyticsChartData | null> {
-  try {
-    const parsed = await parseRegistryBlockData(raw);
-    return parsed?.type === ANALYTICS_CHART_BLOCK_TYPE
-      ? readAnalyticsChartData(parsed.data)
-      : null;
-    // coercion-ok: a tag that doesn't parse is counted as unreadable by the caller
-  } catch {
-    return null;
-  }
-}
+import { embedsInBody } from "./embeds-in-body.js";
 
 /**
  * The Analytics charts a page body holds, wherever they sit (in toggles and
@@ -34,21 +15,10 @@ async function readRaw(raw: string): Promise<AnalyticsChartData | null> {
 export async function analyticsChartsInBody(
   content: string | null | undefined,
 ): Promise<{ charts: AnalyticsChartData[]; unreadable: number }> {
-  if (!content || !content.includes(`<${ANALYTICS_CHART_TAG}`)) {
-    return { charts: [], unreadable: 0 };
-  }
-  const raws: string[] = [];
-  walk(nfmToDoc(content), (node) => {
-    if (
-      node.type === "registryBlock" &&
-      node.attrs?.blockType === ANALYTICS_CHART_BLOCK_TYPE
-    ) {
-      raws.push(typeof node.attrs.__raw === "string" ? node.attrs.__raw : "");
-    }
+  const { found, unreadable } = await embedsInBody(content, {
+    tag: ANALYTICS_CHART_TAG,
+    blockType: ANALYTICS_CHART_BLOCK_TYPE,
+    read: readAnalyticsChartData,
   });
-  const read = await Promise.all(raws.map(readRaw));
-  const charts = read.filter(
-    (chart): chart is AnalyticsChartData => chart !== null,
-  );
-  return { charts, unreadable: read.length - charts.length };
+  return { charts: found, unreadable };
 }

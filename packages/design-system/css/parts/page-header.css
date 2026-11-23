@@ -1,0 +1,45 @@
+/*
+ * Part: page-header
+ *
+ *   <header class="page-header">
+ *     …leading controls (a sidebar toggle, a back button)
+ *     <h1 class="page-header-title">
+ *     <div class="page-header-actions">
+ *
+ * A 48px bar along the top of the canvas: what leads, the title, and the
+ * actions pushed to the end, divided from the page by a hairline.
+ */
+
+@layer components {
+  .page-header {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-2);
+    box-sizing: border-box;
+    min-height: var(--size-6);
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--line-subtle);
+    background-color: var(--surface-canvas);
+  }
+
+  .page-header-title {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    color: var(--fg-default);
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    font-weight: var(--font-weight-semibold);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .page-header-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-2);
+    margin-inline-start: auto;
+  }
+}

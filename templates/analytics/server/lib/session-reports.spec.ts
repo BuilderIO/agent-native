@@ -2,7 +2,16 @@ import { createRequire } from "node:module";
 
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -65,6 +74,7 @@ import {
   listSessionReports,
   updateSessionReport,
 } from "./session-reports";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 const COMMIT = "a".repeat(40);
 const maker = { userEmail: "maker@example.test", orgId: "org-1" };
@@ -87,8 +97,16 @@ describe("session reports", () => {
   type Client = Awaited<ReturnType<typeof PGlite.create>>;
   let client: Client;
 
+  beforeAll(async () => {
+    client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
   beforeEach(async () => {
-    client = await PGlite.create();
+    await resetPublicSchema(client);
     await client.exec(`
       CREATE TABLE session_reports (
         id TEXT PRIMARY KEY, recording_id TEXT NOT NULL, title TEXT NOT NULL,
@@ -159,7 +177,6 @@ describe("session reports", () => {
 
   afterEach(async () => {
     vi.clearAllMocks();
-    await client.close();
   });
 
   it("opens a new report to the maker's organization, with the session's commit", async () => {

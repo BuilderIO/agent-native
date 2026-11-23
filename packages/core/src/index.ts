@@ -56,6 +56,12 @@ export {
   type ActionMcpAppPermissions,
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
+  REVERSIBLE_WRITE_INLINE_APPROVAL_KEY,
+  createReversibleWriteApprovalPolicy,
+  isReversibleWriteInlineApprovalAction,
+  isReversibleWriteNoApprovalsMode,
+  reversibleWriteNeedsApproval,
+  type ReversibleWriteApprovalPredicate,
 } from "./action.js";
 export { isAgentCaller, isOutsideAgentCall } from "./action-caller.js";
 export * from "./user-profile/index.js";
@@ -455,6 +461,7 @@ export * from "./review/index.js";
 export * from "./org-team/index.js";
 export * from "./navigation/index.js";
 export * from "./command-navigation/index.js";
+export * from "./manifest/index.js";
 export * from "./search/index.js";
 export * from "./embeddings/index.js";
 export {

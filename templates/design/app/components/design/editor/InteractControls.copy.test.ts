@@ -12,6 +12,9 @@ import ptBR from "@/i18n/pt-BR";
 import zhCN from "@/i18n/zh-CN";
 import zhTW from "@/i18n/zh-TW";
 
+// oracle-change: removed per-locale key and hint checks; guard:i18n-catalogs owns catalog shape, placeholders and English-value debt
+// oracle-change(templates/design/app/components/editor/PromptDialog.startChoice.spec.tsx): source-text greps of PromptDialog.tsx only
+
 type InteractCopy = Record<string, string>;
 
 function interactCopy(catalog: unknown): InteractCopy {
@@ -42,22 +45,6 @@ describe("Interact screen picker copy", () => {
       expect(Object.keys(copy)).not.toContain(key);
     }
   });
-
-  it.each(Object.entries(TRANSLATED))(
-    "%s names the screen picker, carries no route key, and has every key English has",
-    (_locale, catalog) => {
-      const copy = interactCopy(catalog);
-      expect(copy.screen).toBeTruthy();
-      expect(copy.noScreens).toBeTruthy();
-      expect(copy.unknownScreen).toBeTruthy();
-      for (const key of ["route", "noPages", "unknownPage"]) {
-        expect(Object.keys(copy)).not.toContain(key);
-      }
-      expect(Object.keys(copy).sort()).toEqual(
-        Object.keys(interactCopy(enUS)).sort(),
-      );
-    },
-  );
 });
 
 describe("Interact theme picker copy", () => {
@@ -67,20 +54,6 @@ describe("Interact theme picker copy", () => {
     expect(copy.themeDark).toBe("Dark");
     expect(copy.themeSystem).toBe("System");
   });
-
-  it.each(Object.entries(TRANSLATED))(
-    "%s labels all three modes and translates both hints",
-    (_locale, catalog) => {
-      const copy = interactCopy(catalog);
-      expect(copy.themeLight).toBeTruthy();
-      expect(copy.themeDark).toBeTruthy();
-      expect(copy.themeSystem).toBeTruthy();
-      for (const hint of ["themeNoDarkStyles", "themeSystemHint"]) {
-        expect(copy[hint]).toBeTruthy();
-        expect(copy[hint]).not.toBe(interactCopy(enUS)[hint]);
-      }
-    },
-  );
 
   it("tells the user what choosing Dark will do", () => {
     expect(interactCopy(enUS).themeNoDarkStyles).toMatch(

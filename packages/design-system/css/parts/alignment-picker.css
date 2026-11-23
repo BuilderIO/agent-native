@@ -1,0 +1,363 @@
+/*
+ * Part: alignment-picker
+ *
+ *   <div class="alignment-picker" role="radiogroup"
+ *        data-variant="surface|soft"
+ *        data-direction="row|column" data-justify data-align
+ *        [data-color] [data-radius] [data-disabled]>
+ *     <button class="alignment-picker-cell" role="radio"    one per position
+ *             data-row="1|2|3|all" data-column="1|2|3|all" [data-checked]>
+ *       <span class="alignment-picker-glyph">
+ *         <span class="alignment-picker-mark"> × 3
+ *
+ * A 3×3 matrix of cells the control height of its size, on a 4px gap. An
+ * unselected cell draws its middle mark as a dot; the selected cell draws
+ * all three as bars across the layout's main axis, aligned on the cross
+ * axis as `data-align` says, full length for stretch. Space-between spans
+ * each cell across the main axis and spreads its marks along it, each
+ * centred on the track it covers, the selected bars long, short, long.
+ *
+ * The shell (frame, sizes, variants, hover, the accent ring while in use,
+ * disabled) is defined here once for this part and grid-size-picker, so a
+ * layout inspector swapping the two changes only what is inside.
+ */
+
+@layer components {
+  /* ---- the shell, shared with grid-size-picker ---- */
+
+  :is(.alignment-picker, .grid-size-picker) {
+    --_cell: var(--control-height-1);
+    --_radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    --_square: calc(3 * var(--_cell) + 4 * var(--space-1));
+    box-sizing: border-box;
+    min-width: var(--_square);
+    height: var(--_square);
+    margin: 0;
+    padding: var(--space-1);
+    border: 0;
+    border-radius: var(--_radius);
+    corner-shape: var(--corner-shape, round);
+    color: var(--fg-default);
+    vertical-align: top;
+    transition-property: background-color, box-shadow;
+    transition-duration: var(--duration-1);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  :is(.alignment-picker, .grid-size-picker)[data-variant="surface"] {
+    background-color: var(--fill-field);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+  }
+
+  :is(.alignment-picker, .grid-size-picker)[data-variant="soft"] {
+    background-color: var(--fill-neutral);
+  }
+
+  @media (hover: hover) {
+    :is(.alignment-picker, .grid-size-picker)[data-variant="surface"]:not(
+        [data-disabled],
+        :disabled
+      ):hover {
+      box-shadow: inset 0 0 0 1px var(--gray-a8);
+    }
+
+    :is(.alignment-picker, .grid-size-picker)[data-variant="soft"]:not(
+        [data-disabled],
+        :disabled
+      ):hover {
+      background-color: var(--fill-neutral-hover);
+    }
+  }
+
+  :is(
+      .alignment-picker:focus-within,
+      .grid-size-picker[data-popup-open]
+    )[data-variant]:not([data-disabled], :disabled) {
+    box-shadow: inset 0 0 0 1px var(--accent-text);
+  }
+
+  :is(.alignment-picker, .grid-size-picker):is([data-disabled], :disabled) {
+    color: var(--fg-disabled);
+    cursor: not-allowed;
+  }
+
+  :is(.alignment-picker, .grid-size-picker)[data-variant="surface"]:is(
+      [data-disabled],
+      :disabled
+    ) {
+    background-color: transparent;
+    box-shadow: inset 0 0 0 1px var(--gray-a6);
+  }
+
+  /* ---- alignment-picker ---- */
+
+  .alignment-picker {
+    --_mark: calc(var(--_cell) / 8);
+    --_edge: calc((var(--_cell) - var(--_mark)) / 2);
+    display: inline-grid;
+    grid-template-columns: repeat(3, var(--_cell));
+    grid-template-rows: repeat(3, var(--_cell));
+    gap: var(--space-1);
+  }
+
+  .alignment-picker-cell {
+    display: flex;
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: max(0px, calc(var(--_radius) - var(--space-1)));
+    corner-shape: var(--corner-shape, round);
+    background-color: transparent;
+    color: var(--fg-subtle);
+    font: inherit;
+    cursor: pointer;
+    outline-style: none;
+    transition-property: background-color, color;
+    transition-duration: var(--duration-1);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .alignment-picker-cell[data-row="1"] {
+    grid-row: 1;
+  }
+
+  .alignment-picker-cell[data-row="2"] {
+    grid-row: 2;
+  }
+
+  .alignment-picker-cell[data-row="3"] {
+    grid-row: 3;
+  }
+
+  .alignment-picker-cell[data-row="all"] {
+    grid-row: 1 / -1;
+  }
+
+  .alignment-picker-cell[data-column="1"] {
+    grid-column: 1;
+  }
+
+  .alignment-picker-cell[data-column="2"] {
+    grid-column: 2;
+  }
+
+  .alignment-picker-cell[data-column="3"] {
+    grid-column: 3;
+  }
+
+  .alignment-picker-cell[data-column="all"] {
+    grid-column: 1 / -1;
+  }
+
+  .alignment-picker-glyph {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    gap: var(--_mark);
+    box-sizing: border-box;
+    padding: var(--_mark);
+    pointer-events: none;
+  }
+
+  .alignment-picker-mark {
+    flex: none;
+    width: var(--_mark);
+    height: var(--_mark);
+    border-radius: var(--_mark);
+    background-color: currentColor;
+  }
+
+  /* ---- unselected: dots ---- */
+
+  .alignment-picker-cell:not([data-checked])
+    .alignment-picker-mark:not(:nth-child(2)) {
+    display: none;
+  }
+
+  .alignment-picker-cell[data-column="all"]:not([data-checked])
+    .alignment-picker-glyph {
+    justify-content: space-between;
+    padding: 0 var(--_edge);
+  }
+
+  .alignment-picker-cell[data-row="all"]:not([data-checked])
+    .alignment-picker-glyph {
+    flex-direction: column;
+    justify-content: space-between;
+    padding: var(--_edge) 0;
+  }
+
+  .alignment-picker-cell:is([data-row="all"], [data-column="all"]):not(
+      [data-checked]
+    )
+    .alignment-picker-mark {
+    display: block;
+  }
+
+  /* ---- selected: bars ---- */
+
+  .alignment-picker-cell[data-checked] {
+    color: var(--accent-text);
+  }
+
+  .alignment-picker[data-direction="row"]
+    .alignment-picker-cell[data-checked]
+    .alignment-picker-mark:nth-child(1) {
+    height: 50%;
+  }
+
+  .alignment-picker[data-direction="row"]
+    .alignment-picker-cell[data-checked]
+    .alignment-picker-mark:nth-child(2) {
+    height: 100%;
+  }
+
+  .alignment-picker[data-direction="row"]
+    .alignment-picker-cell[data-checked]
+    .alignment-picker-mark:nth-child(3) {
+    height: 75%;
+  }
+
+  .alignment-picker[data-direction="column"]
+    .alignment-picker-cell[data-checked]
+    .alignment-picker-glyph {
+    flex-direction: column;
+  }
+
+  .alignment-picker[data-direction="column"]
+    .alignment-picker-cell[data-checked]
+    .alignment-picker-mark:nth-child(1) {
+    width: 50%;
+  }
+
+  .alignment-picker[data-direction="column"]
+    .alignment-picker-cell[data-checked]
+    .alignment-picker-mark:nth-child(2) {
+    width: 100%;
+  }
+
+  .alignment-picker[data-direction="column"]
+    .alignment-picker-cell[data-checked]
+    .alignment-picker-mark:nth-child(3) {
+    width: 75%;
+  }
+
+  .alignment-picker[data-align="start"] [data-checked] .alignment-picker-glyph {
+    align-items: flex-start;
+  }
+
+  .alignment-picker:is([data-align="end"], [data-align="baseline"])
+    [data-checked]
+    .alignment-picker-glyph {
+    align-items: flex-end;
+  }
+
+  .alignment-picker[data-align="stretch"]
+    [data-checked]
+    .alignment-picker-glyph {
+    align-items: stretch;
+  }
+
+  .alignment-picker[data-direction="row"][data-align="stretch"]
+    .alignment-picker-cell[data-checked]
+    .alignment-picker-mark:nth-child(n) {
+    height: auto;
+  }
+
+  .alignment-picker[data-direction="column"][data-align="stretch"]
+    .alignment-picker-cell[data-checked]
+    .alignment-picker-mark:nth-child(n) {
+    width: auto;
+  }
+
+  .alignment-picker[data-direction="row"]
+    .alignment-picker-cell[data-column="all"][data-checked]
+    .alignment-picker-glyph {
+    justify-content: space-between;
+    padding-inline: var(--_edge);
+  }
+
+  .alignment-picker[data-direction="column"]
+    .alignment-picker-cell[data-row="all"][data-checked]
+    .alignment-picker-glyph {
+    justify-content: space-between;
+    padding-block: var(--_edge);
+  }
+
+  .alignment-picker[data-direction="row"]
+    .alignment-picker-cell[data-column="all"][data-checked]
+    .alignment-picker-mark:nth-child(n) {
+    height: 100%;
+  }
+
+  .alignment-picker[data-direction="row"]
+    .alignment-picker-cell[data-column="all"][data-checked]
+    .alignment-picker-mark:nth-child(2) {
+    height: 50%;
+  }
+
+  .alignment-picker[data-direction="column"]
+    .alignment-picker-cell[data-row="all"][data-checked]
+    .alignment-picker-mark:nth-child(n) {
+    width: 100%;
+  }
+
+  .alignment-picker[data-direction="column"]
+    .alignment-picker-cell[data-row="all"][data-checked]
+    .alignment-picker-mark:nth-child(2) {
+    width: 50%;
+  }
+
+  .alignment-picker[data-direction="row"][data-align="stretch"]
+    .alignment-picker-cell[data-column="all"][data-checked]
+    .alignment-picker-mark:nth-child(n) {
+    height: auto;
+  }
+
+  .alignment-picker[data-direction="column"][data-align="stretch"]
+    .alignment-picker-cell[data-row="all"][data-checked]
+    .alignment-picker-mark:nth-child(n) {
+    width: auto;
+  }
+
+  /* ---- hover, focus, disabled ---- */
+
+  @media (hover: hover) {
+    .alignment-picker-cell:not([data-checked]):enabled:hover {
+      background-color: var(--accent-a3);
+      color: var(--accent-text);
+    }
+  }
+
+  .alignment-picker-cell:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: 0;
+  }
+
+  .alignment-picker[data-disabled] .alignment-picker-cell {
+    color: var(--fg-disabled);
+    cursor: not-allowed;
+  }
+  @media (forced-colors: active) {
+    :is(.alignment-picker, .grid-size-picker) {
+      border: 1px solid ButtonText;
+    }
+    .alignment-picker-mark {
+      forced-color-adjust: none;
+      background-color: ButtonText;
+    }
+    .alignment-picker-cell[data-checked] {
+      border: 1px solid Highlight;
+    }
+    .alignment-picker-cell[data-checked] .alignment-picker-mark {
+      background-color: Highlight;
+    }
+    .alignment-picker[data-disabled] .alignment-picker-mark {
+      background-color: GrayText;
+    }
+  }
+}

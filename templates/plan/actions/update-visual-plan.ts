@@ -1,5 +1,6 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
 import { agentTouchDocument } from "@agent-native/core/collab";
+import { ensureReviewTables } from "@agent-native/core/review";
 import { countSaveOutcome } from "@agent-native/core/save-conflict/server";
 import {
   getRequestUserEmail,
@@ -25,6 +26,7 @@ import {
   resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import { mirrorPlanComments } from "../server/lib/plan-comment-mirror.js";
 import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import {
   normalizePlanContent,
@@ -51,6 +53,7 @@ import {
   planPath,
   planStatusSchema,
   sectionInputSchema,
+  withFreshIdsForKitHeldComments,
 } from "../server/plans.js";
 import {
   agentPlanIncrementalContentPatchesSchema,
@@ -1031,7 +1034,7 @@ export default defineAction({
       }
     }
 
-    const commentRows = buildUpdatedPlanCommentRows({
+    const builtCommentRows = buildUpdatedPlanCommentRows({
       planId: args.planId,
       comments: pendingCommentInserts,
       existingComments: commentsBeforeInserts,
@@ -1039,6 +1042,7 @@ export default defineAction({
       requestName: requesterName,
       now,
     });
+    const commentRows = await withFreshIdsForKitHeldComments(builtCommentRows);
     const reviewEventPayload = {
       titleChanged: args.title !== undefined,
       briefChanged: args.brief !== undefined,
@@ -1098,6 +1102,12 @@ export default defineAction({
     }
 
     let lostSaveRace = false;
+    const changedCommentIds = [
+      ...existingCommentUpdates.map((comment) => comment.id),
+      ...commentRows.map((row) => row.id),
+      ...args.consumedCommentIds,
+    ];
+    if (changedCommentIds.length > 0) await ensureReviewTables();
     const planWrite = db.transaction(async (tx) => {
       // guard:allow-unscoped -- gated above by editor access, or by public
       // viewer access plus new-open-human-comment / canvas-review-markup validation.
@@ -1265,6 +1275,8 @@ export default defineAction({
             ),
           );
       }
+
+      await mirrorPlanComments(tx, args.planId, changedCommentIds);
 
       if (hasPersistedPlanChanges) {
         await tx.insert(schema.planEvents).values({

@@ -257,6 +257,72 @@ function resumableNativeRuntime(
 
 describe("createAgentNativeAgentKitTransport", () => {
   it.each([
+    { role: "assistant", id: "partial-assistant" },
+    { role: "tool", id: "tool-only" },
+  ])(
+    "loads a stored $role message with missing parts as empty",
+    async (message) => {
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active: false, status: "idle" })
+            : json({
+                id: "thread-legacy",
+                threadData: JSON.stringify({
+                  agentKit: {
+                    messages: [
+                      {
+                        id: "one",
+                        role: "user",
+                        parts: [{ type: "text", text: "Hello" }],
+                      },
+                      { id: "two", role: "assistant", parts: [] },
+                      { id: "three", role: "user", parts: [] },
+                      message,
+                    ],
+                  },
+                }),
+              }),
+        ) as typeof fetch,
+      });
+      const snapshot = await transport.getThreadSnapshot?.({
+        threadId: "thread-legacy",
+      });
+      expect(
+        snapshot?.messages.find((entry) => entry.id === message.id)?.parts,
+      ).toEqual([]);
+      await transport.dispose();
+    },
+  );
+
+  it.each([null, "bad", {}])(
+    "rejects corrupt stored message parts: %s",
+    async (parts) => {
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active: false, status: "idle" })
+            : json({
+                id: "thread-corrupt",
+                threadData: JSON.stringify({
+                  agentKit: {
+                    messages: [{ id: "bad", role: "assistant", parts }],
+                  },
+                }),
+              }),
+        ) as typeof fetch,
+      });
+      await expect(
+        transport.getThreadSnapshot?.({ threadId: "thread-corrupt" }),
+      ).rejects.toMatchObject({
+        name: "AgentProtocolValidationError",
+        path: "threadSnapshot.messages[0].parts",
+      });
+      await transport.dispose();
+    },
+  );
+
+  it.each([
     {
       supported: true,
       response: json({

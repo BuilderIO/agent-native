@@ -23,6 +23,7 @@ export default defineAction({
   }),
   http: { method: "POST" },
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: async ({ accountEmails, force }) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

@@ -209,8 +209,11 @@ hand-build the app in another stack, edit a pinned dependency version to force
 an install, or continue in a half-created directory; a workaround the user
 requests is named in the report.
 
-Then save the brief as `docs/brief.md`, append the domain surface's design to
-`DESIGN.md` (UI direction guide, section 4), and follow
+Then save the brief as `docs/brief.md` and run `app-quality-bar`. Choose one or
+two interaction patterns and write or update `DESIGN.md` as the single required
+design contract, including the chosen and rejected UX options. Register
+`app.manifest.ts` with real screens, entities, `viewPolicy`, and
+`suggestableCapabilities`. Follow
 [the run and deploy guide](references/local-run-and-deploy.md) to set
 `onboarding.firstRun` in `agent-native.json` (the shared setup, never a
 credential form or a hardcoded key) and `AUTH_DISABLED=1` in the ignored
@@ -260,25 +263,16 @@ section 5).
 
 ### 5. Run, look, and refine
 
-Start the dev server as the run and deploy guide says, then follow
-[the review loop](references/review-loop.md):
-
-- Shoot `/` (desktop and phone, light and dark, then the main agent control
-  clicked). It must land on the domain route; a sign-in card or a restarting
-  server is not a pass.
-- Score each rubric row with evidence. An automatic fail (a stepper, `/` off
-  the domain route, an empty or form-only first viewport, scaffold tokens,
-  clipped text, raw markdown, sideways scroll, console errors) overrides the
-  mean.
-- Fix every finding in one batch, reset what the click changed, and shoot
-  again. Stop when the bar is met: two passes by default; a third only when the
-  second still misses the bar and the pace budget allows.
-- Screenshots stay in the app's `.tmp/ui-review/out/`. Installed design skills
-  are optional; the review loop limits them.
+Start the dev server and follow [the review loop](references/review-loop.md).
+Capture the signed-in domain landing screen in light and dark at desktop
+and mobile widths, plus the main agent interaction. Apply the shared
+12-row rubric, automatic fails, and blind review. Fix findings in one batch
+and recapture before marking it ready.
 
 ### 6. Verify, build, and deploy
 
-Exercise the real path, not only the files: `/` opens the domain route with
+Run the 60-second Playwright walkthrough in `app-quality-bar` and use the
+blind final review gate before marking the app ready. Exercise the real path: `/` opens the domain route with
 sample data; every AI-labeled control opens the sidebar with its bounded
 prompt (with a provider, the result lands and persists; without one, the
 object does not stay busy, and say so); actions persist (read the row back);
@@ -302,8 +296,7 @@ Lead with the app, plainly:
 2. How to change it: ask this agent, in this folder (hosted: per mode).
 3. What each control does, what changed from the brief (assumptions, gaps,
    silent choices), and one precise pending step, if any.
-4. One line on what is built in: integrations (Slack, Notion, GitHub, and
-   more), automations, and an MCP server other AI tools can use, in Settings.
+4. One line on what is built in: workspace integrations, automations, and an MCP server other AI tools can use, in Settings.
 
 Under a short **Details** heading: directory; PID and stop command, if running;
 absolute screenshot paths, rubric scores, and open criteria; verification with evidence

@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 const fixture = vi.hoisted(() => ({
   sourceUrl: undefined as string | undefined,
+  capturedAt: undefined as string | undefined,
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   actionErrorMessage: () => "Action failed",
@@ -31,6 +32,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
                     captureTitle: "Launch meeting transcript",
                     quote: "Send the launch notes.",
                     sourceUrl: fixture.sourceUrl,
+                    capturedAt: fixture.capturedAt,
                   },
                 ],
               },
@@ -61,6 +63,7 @@ function render() {
 }
 afterEach(() => {
   fixture.sourceUrl = undefined;
+  fixture.capturedAt = undefined;
 });
 it("a transcript citation without an external URL opens its saved capture", () => {
   const host = render();
@@ -77,6 +80,12 @@ it("a transcript citation without an external URL opens its saved capture", () =
   ).toBeDefined();
   expect(destination?.getAttribute("href")).toBe(
     "/search?captureId=capture-one",
+  );
+});
+it("displays the supplied meeting time on the citation", () => {
+  fixture.capturedAt = "2026-05-20T15:00:00.000Z";
+  expect(render().querySelector("details time")?.getAttribute("datetime")).toBe(
+    fixture.capturedAt,
   );
 });
 it("external HTTP citation retains the exact source destination", () => {

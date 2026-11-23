@@ -58,6 +58,7 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const db = await Promise.resolve(getDb());
     const ownerEmail = getCurrentOwnerEmail();

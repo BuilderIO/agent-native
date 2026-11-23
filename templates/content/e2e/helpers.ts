@@ -46,11 +46,6 @@ export const ACTION_HEADERS = {
 export const EDITOR = ".content-editor.ProseMirror";
 export const ACTIVE_EDITOR = `${EDITOR}:not([hidden] *)`;
 
-/**
- * Idempotent reads retry a connection reset. The preview server can close an
- * idle keep-alive socket just as the poll reuses it; Playwright retries only
- * ECONNRESET, so a real failure status still fails the read.
- */
 const READ_RETRIES = 3;
 
 export async function getActionResponse(
