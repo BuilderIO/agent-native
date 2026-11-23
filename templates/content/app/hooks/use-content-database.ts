@@ -1025,6 +1025,26 @@ export function useContentDatabaseById(
 }
 
 /**
+ * The details sources whose rows matched one row page, read for that row
+ * alone. Undefined until the read answers, or when it can't be read.
+ */
+export function useContentDatabaseRowSourceOverlays(
+  databaseId: string | null,
+  rowDocumentId: string,
+) {
+  const read = useActionQuery<ContentDatabaseItemsPageResponse>(
+    "query-content-database-items",
+    databaseId ? { databaseId, rowDocumentId, limit: 1 } : undefined,
+    { enabled: !!databaseId, retry: false },
+  );
+  if (!read.data || isContentDatabaseUnavailable(read.data)) return undefined;
+  const row = read.data.items.find(
+    (item) => item.document.id === rowDocumentId,
+  );
+  return row?.sourceOverlays ?? [];
+}
+
+/**
  * The view a row's full page was opened from, named in the page's address. It
  * needs only the collection's metadata; what the collection already read shows
  * it at once. A view that can't be read leaves the page's own layout.

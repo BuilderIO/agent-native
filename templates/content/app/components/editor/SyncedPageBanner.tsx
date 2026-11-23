@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import {
   isContentDatabaseUnavailable,
   useContentDatabaseById,
+  useContentDatabaseRowSourceOverlays,
 } from "@/hooks/use-content-database";
 
 import { builderSourceWriteMode } from "./database/builder-source-progress";
@@ -79,6 +80,20 @@ function useRowPageSources(document: Document): RowPageSources {
 export function SyncedPageBanner({ document }: { document: Document }) {
   const t = useT();
   const rowPage = useRowPageSources(document);
+  const sources = rowPage.state === "read" ? rowPage.sources : [];
+  const notionSources = sources.filter(
+    (source) =>
+      source.sourceType === "notion-database" &&
+      source.metadata.federation?.role === "secondary",
+  );
+  // Notion adds details only to the rows it matched, so the line waits on
+  // this page's row.
+  const overlays = useContentDatabaseRowSourceOverlays(
+    notionSources.length > 0
+      ? (document.databaseMembership?.databaseId ?? null)
+      : null,
+    document.id,
+  );
 
   if (document.source?.mode === "github") {
     return (
@@ -112,8 +127,6 @@ export function SyncedPageBanner({ document }: { document: Document }) {
       </SyncedPageLine>
     );
   }
-  const sources = rowPage.state === "read" ? rowPage.sources : [];
-
   const membershipSourceId = document.databaseMembership?.sourceId ?? null;
   const builder = sources.find(
     (source) =>
@@ -131,10 +144,8 @@ export function SyncedPageBanner({ document }: { document: Document }) {
     );
   }
 
-  const notion = sources.find(
-    (source) =>
-      source.sourceType === "notion-database" &&
-      source.metadata.federation?.role === "secondary",
+  const notion = notionSources.find((source) =>
+    overlays?.some((overlay) => overlay.sourceId === source.id),
   );
   if (notion) {
     return (

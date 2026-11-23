@@ -7,6 +7,7 @@ import { renderUi } from "@/test-utils/render-ui";
 
 const collection = vi.hoisted(() => ({
   read: vi.fn(),
+  rowOverlays: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
@@ -27,6 +28,10 @@ vi.mock("@/hooks/use-content-database", () => ({
   isContentDatabaseUnavailable: () => false,
   useContentDatabaseById: (databaseId: string | null) =>
     collection.read(databaseId),
+  useContentDatabaseRowSourceOverlays: (
+    databaseId: string | null,
+    rowDocumentId: string,
+  ) => collection.rowOverlays(databaseId, rowDocumentId),
 }));
 
 import { SyncedPageBanner } from "./SyncedPageBanner";
@@ -77,6 +82,8 @@ describe("Synced page banner", () => {
   beforeEach(() => {
     collection.read.mockReset();
     collection.read.mockReturnValue({ data: undefined });
+    collection.rowOverlays.mockReset();
+    collection.rowOverlays.mockReturnValue(undefined);
   });
 
   it("says a GitHub page is view only, with Open in GitHub, without reading its collection", () => {
@@ -121,8 +128,9 @@ describe("Synced page banner", () => {
     },
   );
 
-  it("says which Notion database adds details", () => {
+  it("says which Notion database adds details to a page it matched", () => {
     collection.read.mockReturnValue({ data: { sources: [notionSource] } });
+    collection.rowOverlays.mockReturnValue([{ sourceId: "notion-1" }]);
     renderUi(
       <SyncedPageBanner
         document={rowPage({
@@ -130,10 +138,35 @@ describe("Synced page banner", () => {
         })}
       />,
     );
+    expect(collection.rowOverlays).toHaveBeenCalledWith("database-1", "page-1");
     expect(banner()?.dataset.syncedPageBanner).toBe("notion");
     expect(banner()?.textContent).toContain(
       "Some details on this page come from the Roadmap database in Notion",
     );
+  });
+
+  it.each([
+    ["Notion matched no row for it", []],
+    ["its row hasn't been read yet", undefined],
+  ])("says nothing of Notion on a page when %s", (_, overlays) => {
+    collection.read.mockReturnValue({ data: { sources: [notionSource] } });
+    collection.rowOverlays.mockReturnValue(overlays);
+    renderUi(
+      <SyncedPageBanner
+        document={rowPage({
+          databaseMembership: { ...membership, sourceId: null },
+        })}
+      />,
+    );
+    expect(banner()).toBe(null);
+  });
+
+  it("reads no row when no Notion database adds details", () => {
+    collection.read.mockReturnValue({
+      data: { sources: [builderSource({ writeMode: "read_only" })] },
+    });
+    renderUi(<SyncedPageBanner document={rowPage()} />);
+    expect(collection.rowOverlays).toHaveBeenCalledWith(null, "page-1");
   });
 
   it("shows nothing on a page no source fills", () => {
