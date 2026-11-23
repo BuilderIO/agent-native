@@ -162,7 +162,7 @@ const database = {
   sourcePanelDetailsFromNotionDatabase:
     "Details kommen aus der Datenbank {{name}} und werden hier zu passenden Seiten hinzugefügt.",
   sourceUpToDate: "Aktuell · geprüft {{time}}",
-  sourceNothingComingIn: "Noch kommt nichts an.",
+  sourceNoDetailsChosen: "Noch keine Details ausgewählt.",
   sourceLoadingPageContent:
     "Seiteninhalte werden geladen: {{done}} von {{total}}",
   sourceEditingGitHub:

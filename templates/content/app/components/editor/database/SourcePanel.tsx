@@ -62,7 +62,7 @@ export function SourcePanelStatus({
       ) : (
         <p className="break-words text-muted-foreground">
           {empty
-            ? dbText("sourceNothingComingIn")
+            ? dbText("sourceNoDetailsChosen")
             : !checkedAt
               ? dbText("sourceNotUpdatedYet")
               : upToDate

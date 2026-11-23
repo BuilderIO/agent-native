@@ -1463,7 +1463,7 @@ const overrides = {
     sourcePanelDetailsFromNotionDatabase:
       "詳細資料來自 {{name}} 資料庫，會加入到這裡相符的頁面。",
     sourceUpToDate: "已是最新 · {{time}}檢查",
-    sourceNothingComingIn: "還沒有任何內容傳入。",
+    sourceNoDetailsChosen: "尚未選擇詳細資料。",
     sourceLoadingPageContent: "正在載入頁面內容：{{done}}/{{total}}",
     sourceEditingGitHub: "無法在這裡編輯這些頁面。請在 GitHub 中編輯。",
     sourceEditingNotion:

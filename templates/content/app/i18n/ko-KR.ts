@@ -160,7 +160,7 @@ const database = {
   sourcePanelDetailsFromNotionDatabase:
     "세부 정보는 {{name}} 데이터베이스에서 가져와 여기의 일치하는 페이지에 추가됩니다.",
   sourceUpToDate: "최신 상태 · {{time}} 확인",
-  sourceNothingComingIn: "아직 들어오는 내용이 없습니다.",
+  sourceNoDetailsChosen: "아직 선택한 세부 정보가 없습니다.",
   sourceLoadingPageContent:
     "페이지 내용 불러오는 중: {{total}}개 중 {{done}}개",
   sourceEditingGitHub:

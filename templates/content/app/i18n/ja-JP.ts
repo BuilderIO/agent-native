@@ -163,7 +163,7 @@ const database = {
   sourcePanelDetailsFromNotionDatabase:
     "詳細は {{name}} データベースから取り込まれ、ここで一致するページに追加されます。",
   sourceUpToDate: "最新 · {{time}}に確認",
-  sourceNothingComingIn: "まだ何も取り込まれていません。",
+  sourceNoDetailsChosen: "まだ詳細が選択されていません。",
   sourceLoadingPageContent:
     "ページの内容を読み込み中: {{total}} 件中 {{done}} 件",
   sourceEditingGitHub:

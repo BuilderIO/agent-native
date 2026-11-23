@@ -359,7 +359,7 @@ describe("Details panels", () => {
     });
   });
 
-  it("says nothing is coming in before any details are chosen", () => {
+  it("says no details are chosen yet before any are chosen", () => {
     renderUi(
       <NotionDetailsSourcePanel
         source={details("notion-database", [
@@ -375,7 +375,7 @@ describe("Details panels", () => {
       />,
     );
     const text = panel("notion").textContent;
-    expect(text).toContain("Nothing is coming in yet.");
+    expect(text).toContain("No details chosen yet.");
     expect(text).not.toContain("Up to date");
   });
 

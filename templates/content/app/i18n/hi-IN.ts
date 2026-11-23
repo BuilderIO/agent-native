@@ -153,7 +153,7 @@ const database = {
   sourcePanelDetailsFromNotionDatabase:
     "विवरण {{name}} डेटाबेस से आते हैं और यहाँ मेल खाने वाले पेजों में जुड़ते हैं।",
   sourceUpToDate: "अप टू डेट · {{time}} जाँचा गया",
-  sourceNothingComingIn: "अभी कुछ नहीं आ रहा है।",
+  sourceNoDetailsChosen: "अभी तक कोई विवरण नहीं चुना गया।",
   sourceLoadingPageContent: "पेज की सामग्री लोड हो रही है: {{total}} में से {{done}}",
   sourceEditingGitHub:
     "आप इन पेजों को यहाँ संपादित नहीं कर सकते। इन्हें GitHub पर संपादित करें।",

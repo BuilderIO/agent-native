@@ -148,7 +148,7 @@ const database = {
   sourcePanelDetailsFromNotionDatabase:
     "详细信息来自 {{name}} 数据库，会添加到这里匹配的页面。",
   sourceUpToDate: "已是最新 · {{time}}检查",
-  sourceNothingComingIn: "还没有任何内容传入。",
+  sourceNoDetailsChosen: "尚未选择详细信息。",
   sourceLoadingPageContent: "正在加载页面内容：{{done}}/{{total}}",
   sourceEditingGitHub: "无法在这里编辑这些页面。请在 GitHub 中编辑。",
   sourceEditingNotion: "无法在这里编辑 Notion 的详细信息。请在 Notion 中编辑。",

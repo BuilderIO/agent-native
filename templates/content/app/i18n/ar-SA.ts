@@ -152,7 +152,7 @@ const database = {
   sourcePanelDetailsFromNotionDatabase:
     "تأتي التفاصيل من قاعدة بيانات {{name}} وتُضاف إلى الصفحات المطابقة هنا.",
   sourceUpToDate: "محدّث · تم التحقق {{time}}",
-  sourceNothingComingIn: "لا يصل أي شيء بعد.",
+  sourceNoDetailsChosen: "لم يتم اختيار أي تفاصيل بعد.",
   sourceLoadingPageContent: "جارٍ تحميل محتوى الصفحات: {{done}} من {{total}}",
   sourceEditingGitHub: "لا يمكنك تعديل هذه الصفحات هنا. عدّلها على GitHub.",
   sourceEditingNotion: "لا يمكنك تعديل تفاصيل Notion هنا. عدّلها في Notion.",

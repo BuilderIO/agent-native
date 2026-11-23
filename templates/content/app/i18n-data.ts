@@ -166,7 +166,7 @@ const databaseMessages = {
   sourcePanelDetailsFromNotionDatabase:
     "Details come from the {{name}} database, added to matching pages here.",
   sourceUpToDate: "Up to date · checked {{time}}",
-  sourceNothingComingIn: "Nothing is coming in yet.",
+  sourceNoDetailsChosen: "No details chosen yet.",
   sourceLoadingPageContent: "Loading page content, {{done}} of {{total}}",
   sourceEditingGitHub: "You can’t edit these pages here. Edit them on GitHub.",
   sourceEditingNotion:
