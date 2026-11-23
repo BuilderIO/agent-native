@@ -5168,8 +5168,13 @@ async function resolveRequiredCredential(options: {
       message: `${options.provider} requires an available workspace connection.`,
     });
   }
+  // Key names have no length limit, so an explanation's key goes last, as in
+  // resolveAnyCredential: a long one can't push the explanation's fixes out
+  // of a chat stop's one-line headline.
   throw new Error(
-    `${options.key} not configured${scopeGap ? `. ${scopeGap}` : ""}`,
+    scopeGap
+      ? `${options.provider} credential not configured. ${scopeGap} Tried: ${options.key}`
+      : `${options.key} not configured`,
   );
 }
 
