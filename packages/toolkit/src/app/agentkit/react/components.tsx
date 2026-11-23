@@ -5313,17 +5313,34 @@ function AgentMentionIcon({ icon }: { icon: string }) {
   }
 }
 
+// A trailing `@[Label|icon]` with nothing but whitespace after it is an
+// auto-attached app routing pill (e.g. a workspace app chip the host
+// injects), not something the sender wrote. Drop it so the bubble carries
+// only the sender's own content.
+function stripTrailingAppPills(text: string): string {
+  let result = text;
+  while (true) {
+    const match = result.match(/\s*@\[[^\]|]+\|[^\]]+\]\s*$/);
+    if (!match || match.index === undefined) break;
+    result = result.slice(0, match.index).replace(/\s+$/, "");
+  }
+  return result;
+}
+
 // Only the composer's serialized `@[label|icon]` form is a mention. A bare
 // "@word" is whatever the user typed — an address, a handle, "@3pm" — and
 // rendering it as a chip claims a reference the message never carried.
 function renderUserMessageText(text: string): ReactNode[] {
-  const richMatches = Array.from(text.matchAll(/@\[([^\]|]+)\|([^\]]+)\]/g));
-  if (!richMatches.length) return [text];
+  const visibleText = stripTrailingAppPills(text);
+  const richMatches = Array.from(
+    visibleText.matchAll(/@\[([^\]|]+)\|([^\]]+)\]/g),
+  );
+  if (!richMatches.length) return [visibleText];
   const parts: ReactNode[] = [];
   let lastIndex = 0;
   richMatches.forEach((match, index) => {
     const start = match.index ?? 0;
-    if (start > lastIndex) parts.push(text.slice(lastIndex, start));
+    if (start > lastIndex) parts.push(visibleText.slice(lastIndex, start));
     const label = match[1] ?? "";
     parts.push(
       <span
@@ -5337,7 +5354,9 @@ function renderUserMessageText(text: string): ReactNode[] {
     );
     lastIndex = start + match[0].length;
   });
-  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  if (lastIndex < visibleText.length) {
+    parts.push(visibleText.slice(lastIndex));
+  }
   return parts;
 }
 

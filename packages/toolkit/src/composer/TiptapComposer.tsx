@@ -5415,6 +5415,78 @@ function TiptapComposerSurface({
       const barrierLock: ComposerSubmitLock = { draftReleased: false };
       submitLocksRef.current.add(barrierLock);
       if (!onBeforeSubmit) reportSubmissionPending(true);
+
+      // Fast-path optimistic bubble: when no preflight, no pending attachment
+      // work, and the draft is a plain non-slash message, show the user's
+      // bubble synchronously — before the barrier await yields the microtask
+      // queue — so Enter → bubble feels instant. The main path below still
+      // runs the barrier for correctness, and its `startOptimisticSubmission`
+      // no-ops because `optimistic.handle` is already set.
+      if (!onBeforeSubmit && !optimistic.handle) {
+        const eagerStart = onSubmitStartRef.current;
+        if (eagerStart) {
+          const hasPendingAttachmentWork =
+            pendingAttachmentAddsRef.current.size > 0 ||
+            staleAttachmentFilesRef.current.size > 0 ||
+            staleAttachmentSnapshotsRef.current.size > 0;
+          if (!hasPendingAttachmentWork) {
+            const eagerState = syncComposerState();
+            const eagerText = textOverride ?? eagerState.text;
+            const eagerTrimmed = eagerText.trim();
+            const eagerReferences = eagerState.references;
+            const eagerAttachments = composerRuntime.getState().attachments;
+            const isSlashCommand =
+              eagerTrimmed.startsWith("/") &&
+              eagerReferences.length === 0 &&
+              allSlashCommands.some(
+                (c) => c.name === normalizeSlashCommandName(eagerTrimmed),
+              );
+            if (
+              !isSlashCommand &&
+              (eagerTrimmed.length > 0 ||
+                eagerReferences.length > 0 ||
+                eagerAttachments.length > 0)
+            ) {
+              const eagerMode = composerMode
+                ? localizedComposerModeConfig(composerMode, t)
+                : undefined;
+              const eagerHandle = eagerStart({
+                text: eagerMode
+                  ? displayableComposerModeMessage({
+                      messagePrefix: eagerMode.messagePrefix,
+                      trimmedText: eagerTrimmed,
+                      attachmentCount: eagerAttachments.length,
+                      attachedContextFallback: t(
+                        "agentChat.composer.useAttachedContext",
+                        { defaultValue: "Use the attached context." },
+                      ),
+                    })
+                  : eagerText,
+                references: eagerReferences,
+                attachments: eagerAttachments.map((attachment) => ({
+                  id: attachment.id,
+                  name: attachment.name,
+                  ...(attachment.contentType
+                    ? { contentType: attachment.contentType }
+                    : {}),
+                  ...(isBlob(attachment.file)
+                    ? { file: attachment.file }
+                    : {}),
+                })),
+                intent: submitIntent,
+              });
+              if (eagerHandle) {
+                optimistic.handle = eagerHandle;
+                if (eagerAttachments.length) {
+                  onOptimisticAttachmentsChangeRef.current?.(
+                    eagerAttachments.map((attachment) => attachment.id),
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
       const attachmentSubmissionBarrier = createAttachmentSubmissionBarrier();
       let attachmentSnapshot: typeof composerAttachments;
       try {
