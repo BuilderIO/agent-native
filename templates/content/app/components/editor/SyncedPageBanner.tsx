@@ -1,6 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { ContentDatabaseSource, Document } from "@shared/api";
-import type { ReactNode } from "react";
+import type {
+  ContentDatabaseResponse,
+  ContentDatabaseSource,
+  Document,
+} from "@shared/api";
+import { useState, type ReactNode } from "react";
 
 import {
   isContentDatabaseUnavailable,
@@ -56,22 +60,34 @@ type RowPageSources =
 
 function useRowPageSources(document: Document): RowPageSources {
   const membership = document.databaseMembership;
-  const read = useContentDatabaseById(
+  const databaseId =
     membership?.databaseId &&
-      !membership.systemRole &&
-      document.source?.mode !== "github"
+    !membership.systemRole &&
+    document.source?.mode !== "github"
       ? membership.databaseId
-      : null,
-    { limit: 0 },
-  );
-  if (read.data) {
-    const data = isContentDatabaseUnavailable(read.data) ? null : read.data;
+      : null;
+  const read = useContentDatabaseById(databaseId, { limit: 0 });
+  const available =
+    read.data && !isContentDatabaseUnavailable(read.data)
+      ? read.data
+      : undefined;
+  const [lastRead, setLastRead] = useState<{
+    databaseId: string | null;
+    data: ContentDatabaseResponse;
+  } | null>(null);
+  if (available && lastRead?.data !== available) {
+    setLastRead({ databaseId, data: available });
+  }
+  const data =
+    available ??
+    (lastRead?.databaseId === databaseId ? lastRead.data : undefined);
+  if (data) {
     return {
       state: "read",
-      sources: data?.sources ?? (data?.source ? [data.source] : []),
+      sources: data.sources ?? (data.source ? [data.source] : []),
     };
   }
-  if (read.isError) {
+  if (read.data || read.isError) {
     return { state: "unreadable", retry: () => void read.refetch() };
   }
   return { state: "pending" };

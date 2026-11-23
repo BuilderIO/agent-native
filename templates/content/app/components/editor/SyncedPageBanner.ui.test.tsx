@@ -25,7 +25,8 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   },
 }));
 vi.mock("@/hooks/use-content-database", () => ({
-  isContentDatabaseUnavailable: () => false,
+  isContentDatabaseUnavailable: (data: unknown) =>
+    (data as { available?: unknown } | undefined)?.available === false,
   useContentDatabaseById: (databaseId: string | null) =>
     collection.read(databaseId),
   useContentDatabaseRowSourceOverlays: (
@@ -188,6 +189,36 @@ describe("Synced page banner", () => {
     );
     banner()?.querySelector("button")?.click();
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["not_found", "deleted"] as const)(
+    "says it couldn't check the page's source when its collection reads as %s",
+    (reason) => {
+      const refetch = vi.fn(() => Promise.resolve());
+      collection.read.mockReturnValue({
+        data: { available: false, reason, databaseId: "database-1" },
+        refetch,
+      });
+      renderUi(<SyncedPageBanner document={rowPage()} />);
+      expect(banner()?.textContent).toBe(
+        "Couldn’t check where this page comes from. Try again",
+      );
+      banner()?.querySelector("button")?.click();
+      expect(refetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("keeps the banner from the last read when a later read finds the collection unavailable", () => {
+    collection.read.mockReturnValue({
+      data: { sources: [builderSource({ writeMode: "read_only" })] },
+    });
+    const { rerender } = renderUi(<SyncedPageBanner document={rowPage()} />);
+    collection.read.mockReturnValue({
+      data: { available: false, reason: "deleted", databaseId: "database-1" },
+      refetch: vi.fn(),
+    });
+    rerender(<SyncedPageBanner document={rowPage()} />);
+    expect(banner()?.dataset.syncedPageBanner).toBe("builder");
   });
 
   it("keeps the banner from the last read when a later read fails", () => {
