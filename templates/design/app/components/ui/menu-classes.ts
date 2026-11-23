@@ -1,6 +1,9 @@
 export const designMenuContentClass = "rounded-[6px] p-1";
 
+// A solid brand fill fading in from transparent passes through frames
+// where the white label fails contrast, so the highlight switches instantly.
 const designMenuHighlightClass = [
+  "transition-none",
   "focus:bg-[var(--design-brand)] focus:text-[var(--design-brand-foreground)]",
   "data-[highlighted]:bg-[var(--design-brand)] data-[highlighted]:text-[var(--design-brand-foreground)]",
   "data-[highlighted]:[&_.text-muted-foreground]:text-[var(--design-brand-foreground)]/80",
