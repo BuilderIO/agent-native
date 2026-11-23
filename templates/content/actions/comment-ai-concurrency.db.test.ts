@@ -2,19 +2,18 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  invocationEffect,
+  runActionWithExecutionOutcome,
+  type ActionExecutionOutcome,
+} from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
+import { registerLabs } from "@agent-native/core/labs/registry";
 import { createThread, runWithRequestContext } from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-
-import { knownLossTest } from "../acceptance/known-loss";
-
-const CREATIVE_CONTEXT_LAB_LOSS = {
-  lane: "unowned",
-  reason:
-    "Applying a comment AI change throws Unknown lab: creative-context.library, because nothing in this test registers the Creative Context lab.",
-} as const;
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -37,6 +36,7 @@ let applyRequest: typeof import("./apply-comment-ai-request.js").default;
 let addComment: typeof import("./add-comment.js").default;
 let commentIdForIdempotency: typeof import("./add-comment.js").commentIdForIdempotency;
 let replyRequest: typeof import("./reply-to-comment-ai-request.js").default;
+let getContext: typeof import("./get-comment-ai-context.js").default;
 
 const asUser = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run);
@@ -99,6 +99,7 @@ async function bindTurn(operationId: string) {
 }
 
 beforeAll(async () => {
+  registerLabs([CREATIVE_CONTEXT_LIBRARY_LAB]);
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
@@ -114,6 +115,7 @@ beforeAll(async () => {
   addComment = addCommentModule.default;
   commentIdForIdempotency = addCommentModule.commentIdForIdempotency;
   replyRequest = (await import("./reply-to-comment-ai-request.js")).default;
+  getContext = (await import("./get-comment-ai-context.js")).default;
 }, 60_000);
 
 beforeEach(async () => {
@@ -521,6 +523,198 @@ describe("comment AI durable action binding", () => {
 });
 
 describe("operation-scoped refresh and commits", () => {
+  it("reports a settled exhausted context separately from lost results and committed conflicts", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+    );
+    for (const revision of [1, 2]) {
+      await runOperation(OP_A, started.agentThreadId, async () => {
+        const request = await commentAi.requireCommentAiRequest("reply");
+        await commentAi.beginCommentAiAttempt(request);
+      });
+      await getDb()
+        .update(schema.documents)
+        .set({ content: `Revision ${revision}`, bodyRevision: revision + 1 })
+        .where(eq(schema.documents.id, DOCUMENT_ID));
+    }
+    const beforeRequest = await asUser(() =>
+      commentAi.loadCommentAiRequest(OP_A),
+    );
+    const beforeAttempts = await getDb()
+      .select()
+      .from(schema.commentAiAttempts);
+    const beforeComments = await getDb().select().from(schema.documentComments);
+    const beforeDocuments = await getDb().select().from(schema.documents);
+    const outcome: ActionExecutionOutcome = { refused: false };
+    const error = await runOperation(OP_A, started.agentThreadId, () =>
+      runActionWithExecutionOutcome(
+        getContext.run,
+        {},
+        {
+          caller: "tool",
+          userEmail: OWNER,
+          actionName: "get-comment-ai-context",
+        },
+        outcome,
+        getContext,
+      ),
+    ).then(
+      () => undefined,
+      (thrown: unknown) => thrown,
+    );
+    expect(
+      invocationEffect(getContext, outcome, { failed: { error } }),
+    ).toEqual({
+      effect: "none",
+      changed: false,
+    });
+    expect(error).toMatchObject({
+      code: "refresh_exhausted",
+      errorCode: "refresh_exhausted",
+    });
+    let release!: () => void;
+    let observed!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const reached = new Promise<void>((resolve) => {
+      observed = resolve;
+    });
+    const wrapped = {
+      ...getContext,
+      run: async (
+        args: Parameters<typeof getContext.run>[0],
+        ctx: Parameters<typeof getContext.run>[1],
+      ) => {
+        try {
+          return await getContext.run(args, ctx);
+        } catch (error) {
+          observed();
+          await held;
+          throw error;
+        }
+      },
+    };
+    const lostOutcome: ActionExecutionOutcome = { refused: false };
+    const running = runOperation(OP_A, started.agentThreadId, () =>
+      runActionWithExecutionOutcome(
+        wrapped.run,
+        {},
+        {
+          caller: "tool",
+          userEmail: OWNER,
+          actionName: "get-comment-ai-context",
+        },
+        lostOutcome,
+        wrapped,
+      ),
+    ).then(
+      () => undefined,
+      (thrown: unknown) => thrown,
+    );
+    await reached;
+    expect(
+      invocationEffect(wrapped, lostOutcome, { failed: { lost: true } }),
+    ).toEqual({
+      effect: "unknown",
+      changed: true,
+    });
+    release();
+    const wrappedError = await running;
+    expect(
+      invocationEffect(wrapped, lostOutcome, {
+        failed: { error: wrappedError },
+      }),
+    ).toEqual({
+      effect: "none",
+      changed: false,
+    });
+    expect(await asUser(() => commentAi.loadCommentAiRequest(OP_A))).toEqual(
+      beforeRequest,
+    );
+    expect(await getDb().select().from(schema.commentAiAttempts)).toEqual(
+      beforeAttempts,
+    );
+    expect(await getDb().select().from(schema.documentComments)).toEqual(
+      beforeComments,
+    );
+    expect(await getDb().select().from(schema.documents)).toEqual(
+      beforeDocuments,
+    );
+
+    await getDb()
+      .update(schema.documentComments)
+      .set({ content: "Changed feedback" })
+      .where(eq(schema.documentComments.id, ROOT_A));
+    const conflictOutcome: ActionExecutionOutcome = { refused: false };
+    const conflict = await runOperation(OP_A, started.agentThreadId, () =>
+      runActionWithExecutionOutcome(
+        getContext.run,
+        {},
+        {
+          caller: "tool",
+          userEmail: OWNER,
+          actionName: "get-comment-ai-context",
+        },
+        conflictOutcome,
+        getContext,
+      ),
+    ).then(
+      () => undefined,
+      (thrown: unknown) => thrown,
+    );
+    expect(conflict).toMatchObject({ code: "root_comment_changed" });
+    expect(
+      invocationEffect(getContext, conflictOutcome, {
+        failed: { error: conflict },
+      }),
+    ).toEqual({
+      effect: "unknown",
+      changed: true,
+    });
+    expect(
+      await asUser(() => commentAi.loadCommentAiRequest(OP_A)),
+    ).toMatchObject({
+      status: "needs-review",
+      errorCode: "root_comment_changed",
+      attemptCount: 2,
+    });
+    expect(await getDb().select().from(schema.commentAiAttempts)).toEqual(
+      beforeAttempts,
+    );
+  });
+
+  it("keeps reconciliation and established run metadata when context bookkeeping overlaps", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+    );
+    await bindTurn(OP_A);
+    await Promise.all([
+      runOperation(OP_A, started.agentThreadId, () =>
+        commentAi.requireCommentAiRequest("reply"),
+      ),
+      asUser(() =>
+        commentAi.reconcileCommentAiSession({
+          operationId: OP_A,
+          threadId: started.agentThreadId,
+          turnId: TURN_ID,
+          status: "unavailable",
+          runId: "reconciled-run",
+        }),
+      ),
+    ]);
+    const reviewed = await asUser(() => commentAi.loadCommentAiRequest(OP_A));
+    expect(reviewed).toMatchObject({
+      status: "needs-review",
+      errorCode: "run_unavailable",
+      runId: "reconciled-run",
+    });
+    const retry = await runOperation(OP_A, started.agentThreadId, () =>
+      commentAi.requireCommentAiRequest("reply"),
+    );
+    expect(retry).toEqual(reviewed);
+  });
+
   it("refreshes a reply after a Page edit, then publishes once from the new basis", async () => {
     const started = await asUser(() =>
       commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
@@ -695,137 +889,129 @@ describe("operation-scoped refresh and commits", () => {
     });
   });
 
-  it(
-    "allows disjoint apply operations to commit against the latest Page",
-    knownLossTest(CREATIVE_CONTEXT_LAB_LOSS),
-    async () => {
-      const [startedA, startedB] = await Promise.all([
-        asUser(() =>
-          commentAi.startCommentAiRequest(
-            startArgs(OP_A, ROOT_A, "apply-resolve"),
-          ),
+  it("allows disjoint apply operations to commit against the latest Page", async () => {
+    const [startedA, startedB] = await Promise.all([
+      asUser(() =>
+        commentAi.startCommentAiRequest(
+          startArgs(OP_A, ROOT_A, "apply-resolve"),
         ),
-        asUser(() =>
-          commentAi.startCommentAiRequest(
-            startArgs(OP_B, ROOT_B, "apply-resolve"),
-          ),
+      ),
+      asUser(() =>
+        commentAi.startCommentAiRequest(
+          startArgs(OP_B, ROOT_B, "apply-resolve"),
         ),
-      ]);
-      const [attemptA, attemptB] = await Promise.all([
-        runOperation(OP_A, startedA.agentThreadId, async () => {
-          const request =
-            await commentAi.requireCommentAiRequest("apply-resolve");
-          return commentAi.beginCommentAiAttempt(request);
-        }),
-        runOperation(OP_B, startedB.agentThreadId, async () => {
-          const request =
-            await commentAi.requireCommentAiRequest("apply-resolve");
-          return commentAi.beginCommentAiAttempt(request);
-        }),
-      ]);
+      ),
+    ]);
+    const [attemptA, attemptB] = await Promise.all([
+      runOperation(OP_A, startedA.agentThreadId, async () => {
+        const request =
+          await commentAi.requireCommentAiRequest("apply-resolve");
+        return commentAi.beginCommentAiAttempt(request);
+      }),
+      runOperation(OP_B, startedB.agentThreadId, async () => {
+        const request =
+          await commentAi.requireCommentAiRequest("apply-resolve");
+        return commentAi.beginCommentAiAttempt(request);
+      }),
+    ]);
 
-      const appliedA = await runOperation(OP_A, startedA.agentThreadId, () =>
-        applyRequest.run(
-          {
-            attemptId: attemptA.attempt!.id,
-            edits: [{ find: "Alpha one", replace: "Alpha changed" }],
-            summary: "Changed Alpha",
-          },
-          { caller: "tool", userEmail: OWNER },
+    const appliedA = await runOperation(OP_A, startedA.agentThreadId, () =>
+      applyRequest.run(
+        {
+          attemptId: attemptA.attempt!.id,
+          edits: [{ find: "Alpha one", replace: "Alpha changed" }],
+          summary: "Changed Alpha",
+        },
+        { caller: "tool", userEmail: OWNER },
+      ),
+    );
+    const appliedB = await runOperation(OP_B, startedB.agentThreadId, () =>
+      applyRequest.run(
+        {
+          attemptId: attemptB.attempt!.id,
+          edits: [{ find: "Beta two", replace: "Beta changed" }],
+          summary: "Changed Beta",
+        },
+        { caller: "tool", userEmail: OWNER },
+      ),
+    );
+
+    expect(appliedA.status).toBe("resolved");
+    expect(appliedB.status).toBe("resolved");
+    const [document] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    expect(document.content).toBe("Alpha changed. Beta changed.");
+  });
+
+  it("keeps an overlapping apply open with a typed recoverable conflict", async () => {
+    const [startedA, startedB] = await Promise.all([
+      asUser(() =>
+        commentAi.startCommentAiRequest(
+          startArgs(OP_A, ROOT_A, "apply-resolve"),
         ),
-      );
-      const appliedB = await runOperation(OP_B, startedB.agentThreadId, () =>
+      ),
+      asUser(() =>
+        commentAi.startCommentAiRequest(
+          startArgs(OP_B, ROOT_B, "apply-resolve"),
+        ),
+      ),
+    ]);
+    const [attemptA, attemptB] = await Promise.all([
+      runOperation(OP_A, startedA.agentThreadId, async () => {
+        const request =
+          await commentAi.requireCommentAiRequest("apply-resolve");
+        return commentAi.beginCommentAiAttempt(request);
+      }),
+      runOperation(OP_B, startedB.agentThreadId, async () => {
+        const request =
+          await commentAi.requireCommentAiRequest("apply-resolve");
+        return commentAi.beginCommentAiAttempt(request);
+      }),
+    ]);
+    await runOperation(OP_A, startedA.agentThreadId, () =>
+      applyRequest.run(
+        {
+          attemptId: attemptA.attempt!.id,
+          edits: [{ find: "Alpha one", replace: "Alpha changed" }],
+          summary: "Changed Alpha",
+        },
+        { caller: "tool", userEmail: OWNER },
+      ),
+    );
+
+    await expect(
+      runOperation(OP_B, startedB.agentThreadId, () =>
         applyRequest.run(
           {
             attemptId: attemptB.attempt!.id,
-            edits: [{ find: "Beta two", replace: "Beta changed" }],
-            summary: "Changed Beta",
+            edits: [{ find: "Alpha one", replace: "Another Alpha" }],
+            summary: "Changed Alpha again",
           },
           { caller: "tool", userEmail: OWNER },
         ),
-      );
+      ),
+    ).rejects.toMatchObject({ code: "target_deleted" });
 
-      expect(appliedA.status).toBe("resolved");
-      expect(appliedB.status).toBe("resolved");
-      const [document] = await getDb()
+    const [request, root] = await Promise.all([
+      getDb()
         .select()
-        .from(schema.documents)
-        .where(eq(schema.documents.id, DOCUMENT_ID));
-      expect(document.content).toBe("Alpha changed. Beta changed.");
-    },
-  );
-
-  it(
-    "keeps an overlapping apply open with a typed recoverable conflict",
-    knownLossTest(CREATIVE_CONTEXT_LAB_LOSS),
-    async () => {
-      const [startedA, startedB] = await Promise.all([
-        asUser(() =>
-          commentAi.startCommentAiRequest(
-            startArgs(OP_A, ROOT_A, "apply-resolve"),
-          ),
-        ),
-        asUser(() =>
-          commentAi.startCommentAiRequest(
-            startArgs(OP_B, ROOT_B, "apply-resolve"),
-          ),
-        ),
-      ]);
-      const [attemptA, attemptB] = await Promise.all([
-        runOperation(OP_A, startedA.agentThreadId, async () => {
-          const request =
-            await commentAi.requireCommentAiRequest("apply-resolve");
-          return commentAi.beginCommentAiAttempt(request);
-        }),
-        runOperation(OP_B, startedB.agentThreadId, async () => {
-          const request =
-            await commentAi.requireCommentAiRequest("apply-resolve");
-          return commentAi.beginCommentAiAttempt(request);
-        }),
-      ]);
-      await runOperation(OP_A, startedA.agentThreadId, () =>
-        applyRequest.run(
-          {
-            attemptId: attemptA.attempt!.id,
-            edits: [{ find: "Alpha one", replace: "Alpha changed" }],
-            summary: "Changed Alpha",
-          },
-          { caller: "tool", userEmail: OWNER },
-        ),
-      );
-
-      await expect(
-        runOperation(OP_B, startedB.agentThreadId, () =>
-          applyRequest.run(
-            {
-              attemptId: attemptB.attempt!.id,
-              edits: [{ find: "Alpha one", replace: "Another Alpha" }],
-              summary: "Changed Alpha again",
-            },
-            { caller: "tool", userEmail: OWNER },
-          ),
-        ),
-      ).rejects.toMatchObject({ code: "target_deleted" });
-
-      const [request, root] = await Promise.all([
-        getDb()
-          .select()
-          .from(schema.commentAiRequests)
-          .where(eq(schema.commentAiRequests.id, OP_B))
-          .then((rows) => rows[0]),
-        getDb()
-          .select()
-          .from(schema.documentComments)
-          .where(eq(schema.documentComments.id, ROOT_B))
-          .then((rows) => rows[0]),
-      ]);
-      expect(request).toMatchObject({
-        status: "needs-review",
-        errorCode: "target_deleted",
-      });
-      expect(root?.resolved).toBe(0);
-    },
-  );
+        .from(schema.commentAiRequests)
+        .where(eq(schema.commentAiRequests.id, OP_B))
+        .then((rows) => rows[0]),
+      getDb()
+        .select()
+        .from(schema.documentComments)
+        .where(eq(schema.documentComments.id, ROOT_B))
+        .then((rows) => rows[0]),
+    ]);
+    expect(request).toMatchObject({
+      status: "needs-review",
+      errorCode: "target_deleted",
+    });
+    expect(root?.resolved).toBe(0);
+  });
 
   it("resumes receipt and resolve after a verified edit without spending another reasoning attempt", async () => {
     const started = await asUser(() =>

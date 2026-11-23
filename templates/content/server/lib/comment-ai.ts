@@ -17,6 +17,7 @@ import {
   inArray,
   isNull,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import { z } from "zod";
@@ -1211,22 +1212,33 @@ export async function requireCommentAiRequest(intent?: CommentAiIntent) {
   if (request.fieldId !== "body" && request.intent === "apply-resolve") {
     throw new Error("Ask AI can't apply changes in a Blocks field tab");
   }
-  const now = new Date().toISOString();
+  // Fill missing run metadata once; a retry must not overwrite a newer run or
+  // restore the stale status read before a concurrent reconciliation.
+  const runId = run.runId ?? null;
+  const model = run.model?.trim().slice(0, 120) || null;
+  const engine = run.engine?.name ?? null;
   const [updated] = await getDb()
     .update(schema.commentAiRequests)
     .set({
-      status:
-        request.status === "queued" || request.status === "classified"
-          ? "running"
-          : request.status,
-      runId: run.runId ?? request.runId,
-      model: run.model?.trim().slice(0, 120) || request.model,
-      engine: run.engine?.name ?? request.engine,
-      updatedAt: now,
+      status: sql`CASE WHEN ${schema.commentAiRequests.status} IN ('queued', 'classified') THEN 'running' ELSE ${schema.commentAiRequests.status} END`,
+      runId: sql`COALESCE(${schema.commentAiRequests.runId}, ${runId})`,
+      model: sql`COALESCE(${schema.commentAiRequests.model}, ${model})`,
+      engine: sql`COALESCE(${schema.commentAiRequests.engine}, ${engine})`,
+      updatedAt: new Date().toISOString(),
     })
-    .where(eq(schema.commentAiRequests.id, request.id))
+    .where(
+      and(
+        eq(schema.commentAiRequests.id, request.id),
+        or(
+          inArray(schema.commentAiRequests.status, ["queued", "classified"]),
+          ...(runId ? [isNull(schema.commentAiRequests.runId)] : []),
+          ...(model ? [isNull(schema.commentAiRequests.model)] : []),
+          ...(engine ? [isNull(schema.commentAiRequests.engine)] : []),
+        ),
+      ),
+    )
     .returning();
-  return updated ?? request;
+  return updated ?? (await loadCommentAiRequest(request.id));
 }
 
 export async function getCommentAiAttempt(
