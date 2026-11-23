@@ -159,7 +159,7 @@ describe("events for resource types this app never registered", () => {
     );
   });
 
-  it("counts each unreadable event in the metric by cause", async () => {
+  it("counts each skipped unreadable event in the metric by cause, not query-level casts", async () => {
     vi.mocked(recordUnreadableSyncEvent).mockClear();
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
@@ -168,11 +168,66 @@ describe("events for resource types this app never registered", () => {
           throw new Error("db down");
         },
       });
-      const event = { resourceType: "doc", resourceId: "d1" };
-      state.getChangeVisibilityForUser(event, "a@x.test", "o");
-      await vi.waitFor(() =>
-        expect(recordUnreadableSyncEvent).toHaveBeenCalledWith("threw"),
+      state.recordChange({
+        source: "action",
+        type: "change",
+        resourceType: "doc",
+        resourceId: "d1",
+      });
+      state.recordChange({
+        source: "action",
+        type: "change",
+        resourceType: "doc",
+        resourceId: "d1",
+      });
+      const result = await state.getCombinedChangesSinceForUser(
+        0,
+        "a@x.test",
+        "o",
+        false,
       );
+      expect(result.unreadable).toEqual([{ type: "access-unavailable" }]);
+      expect(recordUnreadableSyncEvent).toHaveBeenCalledTimes(2);
+      expect(recordUnreadableSyncEvent).toHaveBeenNthCalledWith(1, "threw");
+      expect(recordUnreadableSyncEvent).toHaveBeenNthCalledWith(2, "threw");
+
+      vi.mocked(recordUnreadableSyncEvent).mockClear();
+      const fallbackState = new AppSyncState({
+        getDb: () =>
+          ({
+            execute: async (query: { sql?: string }) => {
+              if (query.sql?.includes("event_json::jsonb")) {
+                throw Object.assign(
+                  new Error("invalid input syntax for type json"),
+                  { code: "22P02" },
+                );
+              }
+              if (query.sql?.includes("FROM sync_events")) {
+                return {
+                  rows: [
+                    {
+                      id: "bad-1",
+                      version: 10,
+                      event_json: "{not-json",
+                      resource_type: "doc",
+                      resource_id: "d1",
+                    },
+                  ],
+                  rowsAffected: 0,
+                };
+              }
+              return { rows: [], rowsAffected: 0 };
+            },
+          }) as never,
+      });
+      const durableResult = await fallbackState.getDurableChangesSinceForUser(
+        5,
+        "a@x.test",
+        "o",
+      );
+      expect(durableResult.unreadable).toEqual([{ type: "unknown-scope" }]);
+      expect(recordUnreadableSyncEvent).toHaveBeenCalledTimes(1);
+      expect(recordUnreadableSyncEvent).toHaveBeenCalledWith("missing-event");
     } finally {
       errors.mockRestore();
     }

@@ -523,7 +523,6 @@ function logUnreadable(
     typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(value)
       ? value
       : undefined;
-  recordUnreadableSyncEvent(cause);
   console.error("[agent-native] sync event unreadable", {
     resourceType:
       typeof resourceType === "string" && !resourceType.includes("@")
@@ -575,15 +574,22 @@ export type ChangeReadResult = {
   unreadable?: Array<{ type: "access-unavailable" | "unknown-scope" }>;
 };
 
+type UnreadableCause = "threw" | "timeout" | "missing-event";
 type UnreadableAt = {
   cursor: SyncCursor;
   type: "access-unavailable" | "unknown-scope";
+  cause: UnreadableCause;
 };
 function unreadableSignals(
   entries: UnreadableAt[],
 ): Pick<ChangeReadResult, "unreadable"> {
   const types = [...new Set(entries.map((entry) => entry.type))];
   return types.length ? { unreadable: types.map((type) => ({ type })) } : {};
+}
+function recordUnreadableEntries(entries: readonly UnreadableAt[]): void {
+  for (const entry of entries) {
+    recordUnreadableSyncEvent(entry.cause);
+  }
 }
 
 type AccessRead = {
@@ -805,7 +811,11 @@ export class AppSyncState {
 
   private readonly accessCache = new Map<
     string,
-    { allowed: AccessDecision; checkedAt: number }
+    {
+      allowed: AccessDecision;
+      checkedAt: number;
+      unreadableCause?: "threw" | "timeout";
+    }
   >();
   private readonly accessInFlight = new Map<string, Promise<void>>();
   private readonly accessTimeouts = new Map<string, number>();
@@ -1168,10 +1178,17 @@ export class AppSyncState {
     key: string,
     allowed: AccessDecision,
     now: number,
+    unreadableCause?: "threw" | "timeout",
   ): void {
     this.accessTimeouts.delete(key);
     this.accessCache.delete(key);
-    this.accessCache.set(key, { allowed, checkedAt: now });
+    this.accessCache.set(key, {
+      allowed,
+      checkedAt: now,
+      ...(allowed === "unreadable"
+        ? { unreadableCause: unreadableCause ?? "threw" }
+        : {}),
+    });
     if (this.accessCache.size > ACCESS_CACHE_MAX) {
       const overflow = this.accessCache.size - ACCESS_CACHE_MAX;
       let removed = 0;
@@ -1180,6 +1197,23 @@ export class AppSyncState {
         if (++removed >= overflow) break;
       }
     }
+  }
+
+  private unreadableCauseForEvent(
+    event: ChangeVisibilityTarget,
+    userEmail: string,
+    orgId: string | undefined,
+  ): "threw" | "timeout" {
+    if (event.resourceType && event.resourceId) {
+      const key = accessCacheKey(
+        userEmail.trim().toLowerCase(),
+        orgId,
+        event.resourceType,
+        event.resourceId,
+      );
+      return this.accessCache.get(key)?.unreadableCause ?? "threw";
+    }
+    return "threw";
   }
 
   private scheduleAccessCheck(
@@ -1201,6 +1235,7 @@ export class AppSyncState {
     const work = retainRequestDbPoolScope(
       Promise.resolve().then(async () => {
         let allowed: AccessDecision;
+        let unreadableCause: "threw" | "timeout" | undefined;
         try {
           const result = await this.resolveAccessFn(resourceType, resourceId, {
             userEmail,
@@ -1210,12 +1245,13 @@ export class AppSyncState {
         } catch (error) {
           logUnreadable(resourceType, resourceId, "threw", error);
           allowed = "unreadable";
+          unreadableCause = "threw";
         }
         if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
           return;
         }
         if (this.accessInFlight.get(key) !== check) return;
-        this.setAccessCache(key, allowed, Date.now());
+        this.setAccessCache(key, allowed, Date.now(), unreadableCause);
       }),
     );
     this.countRunningAccessWork(1, work);
@@ -1303,6 +1339,7 @@ export class AppSyncState {
     const cacheUnlessInvalidated = (
       resourceId: string,
       allowed: AccessDecision,
+      unreadableCause?: "threw" | "timeout",
     ) => {
       const key = keys.get(resourceId);
       const epoch =
@@ -1311,7 +1348,7 @@ export class AppSyncState {
         ) ?? 0;
       if (!key || epoch !== epochs.get(resourceId)) return;
       if (this.accessInFlight.get(key) !== check) return;
-      this.setAccessCache(key, allowed, Date.now());
+      this.setAccessCache(key, allowed, Date.now(), unreadableCause);
       this.endAccessCheck(key, check);
     };
     const ids = [...keys.keys()];
@@ -1355,6 +1392,7 @@ export class AppSyncState {
         await Promise.all(
           retried.map(async (id) => {
             let allowed: AccessDecision;
+            let unreadableCause: "threw" | "timeout" | undefined;
             try {
               const result = await resolveMany(resourceType, [id], {
                 userEmail,
@@ -1364,8 +1402,9 @@ export class AppSyncState {
             } catch (error) {
               logUnreadable(resourceType, id, "threw", error);
               allowed = "unreadable";
+              unreadableCause = "threw";
             }
-            cacheUnlessInvalidated(id, allowed);
+            cacheUnlessInvalidated(id, allowed, unreadableCause);
           }),
         );
       }
@@ -1419,7 +1458,7 @@ export class AppSyncState {
     if (missed >= ACCESS_CHECK_TIMEOUTS_MAX) {
       const [, , resourceType, ...resourceId] = key.split("|");
       logUnreadable(resourceType, resourceId.join("|"), "timeout");
-      this.setAccessCache(key, "unreadable", Date.now());
+      this.setAccessCache(key, "unreadable", Date.now(), "timeout");
       return;
     }
     this.accessTimeouts.set(key, missed);
@@ -1858,6 +1897,7 @@ export class AppSyncState {
         const entry: UnreadableAt = {
           cursor: cursorForEvent(event),
           type: "access-unavailable",
+          cause: this.unreadableCauseForEvent(event, userEmail, orgId),
         };
         unreadable.push(entry);
         accessRead?.unreadableCursors.push(entry);
@@ -1873,6 +1913,7 @@ export class AppSyncState {
         const check = this.runningAccessCheck(event, userEmail, orgId);
         if (check) accessRead?.blockedOn.add(check);
         version = Math.max(since, event.version - 1);
+        if (!accessRead) recordUnreadableEntries(unreadable);
         return {
           version,
           events,
@@ -1886,6 +1927,7 @@ export class AppSyncState {
       }
       lastCursor = cursorForEvent(event);
     }
+    if (!accessRead) recordUnreadableEntries(unreadable);
     return {
       version,
       events,
@@ -1989,6 +2031,7 @@ export class AppSyncState {
           const entry: UnreadableAt = {
             cursor: rowCursor ?? { version: rawVersion, id: "" },
             type: "unknown-scope",
+            cause: "missing-event",
           };
           unreadable.push(entry);
           accessRead?.unreadableCursors.push(entry);
@@ -2023,6 +2066,7 @@ export class AppSyncState {
           const entry: UnreadableAt = {
             cursor: rowCursor ?? { version: rawVersion, id: "" },
             type: "access-unavailable",
+            cause: this.unreadableCauseForEvent(event, userEmail, orgId),
           };
           unreadable.push(entry);
           accessRead?.unreadableCursors.push(entry);
@@ -2037,6 +2081,7 @@ export class AppSyncState {
         if (visibility === "pending") {
           const check = this.runningAccessCheck(event, userEmail, orgId);
           if (check) accessRead?.blockedOn.add(check);
+          if (!accessRead) recordUnreadableEntries(unreadable);
           return {
             version: Math.max(since, event.version - 1),
             events,
@@ -2053,6 +2098,7 @@ export class AppSyncState {
 
       if (rows.length >= DURABLE_READ_LIMIT) {
         if (cursor) {
+          if (!accessRead) recordUnreadableEntries(unreadable);
           return {
             version: Math.max(since, lastDurableVersion),
             events,
@@ -2063,17 +2109,18 @@ export class AppSyncState {
         }
         if (overflowVersion === lastDurableVersion) {
           const boundaryVersion = lastDurableVersion;
+          const boundedUnreadable = unreadable.filter(
+            (entry) => entry.cursor.version < boundaryVersion,
+          );
+          if (!accessRead) recordUnreadableEntries(boundedUnreadable);
           return {
             version: Math.max(since, boundaryVersion - 1),
             events: events.filter((event) => event.version < boundaryVersion),
-            ...unreadableSignals(
-              unreadable.filter(
-                (entry) => entry.cursor.version < boundaryVersion,
-              ),
-            ),
+            ...unreadableSignals(boundedUnreadable),
             cursorLimited: true,
           };
         }
+        if (!accessRead) recordUnreadableEntries(unreadable);
         return {
           version: Math.max(since, lastDurableVersion),
           events,
@@ -2082,6 +2129,7 @@ export class AppSyncState {
         };
       }
 
+      if (!accessRead) recordUnreadableEntries(unreadable);
       return {
         version,
         events,
@@ -2124,6 +2172,7 @@ export class AppSyncState {
     // Only an unresolved access check is worth waiting for; a row-limit
     // truncation (also `cursorLimited`) is not blocked on one.
     if (!first.accessPending) {
+      recordUnreadableEntries(accessRead.unreadableCursors);
       const { accessPending: _pending, ...result } = first;
       return result;
     }
@@ -2136,6 +2185,7 @@ export class AppSyncState {
         ACCESS_CHECK_WAIT_MS,
       );
     }
+    accessRead.unreadableCursors = [];
     const { accessPending: _pending, ...result } =
       await this.readCombinedChangesSinceForUser(
         since,
@@ -2145,6 +2195,7 @@ export class AppSyncState {
         cursor,
         accessRead,
       );
+    recordUnreadableEntries(accessRead.unreadableCursors);
     return result;
   }
 
@@ -2178,6 +2229,7 @@ export class AppSyncState {
     );
     if (!useDurableEvents) {
       blockOn(memoryRead);
+      accessRead.unreadableCursors = memoryRead.unreadableCursors;
       return memory;
     }
 
@@ -2235,15 +2287,15 @@ export class AppSyncState {
             ) <= 0,
         );
         for (const { read } of pending) blockOn(read);
+        const boundedUnreadable = unreadable.filter(
+          (entry) => compareSyncCursors(entry.cursor, boundary) <= 0,
+        );
+        accessRead.unreadableCursors = boundedUnreadable;
         return {
           version: boundary.version,
           cursor: encodeSyncCursor(boundary),
           cursorLimited: true,
-          ...unreadableSignals(
-            unreadable.filter(
-              (entry) => compareSyncCursors(entry.cursor, boundary) <= 0,
-            ),
-          ),
+          ...unreadableSignals(boundedUnreadable),
           ...(pending.length > 0 ? { accessPending: true } : {}),
           events: events.filter(
             (event) => compareSyncCursors(cursorForEvent(event), boundary) <= 0,
@@ -2262,6 +2314,7 @@ export class AppSyncState {
             compareSyncCursors(value, maximum) > 0 ? value : maximum,
           cursor,
         );
+      accessRead.unreadableCursors = unreadable;
       return {
         version: Math.max(memory.version, durable.version, since),
         events,
@@ -2279,6 +2332,12 @@ export class AppSyncState {
         result.accessPending && result.version <= Math.min(...limitedVersions),
     );
     for (const { read } of pending) blockOn(read);
+    const boundedUnreadable = unreadable.filter(
+      (entry) =>
+        !limitedVersions.length ||
+        entry.cursor.version <= Math.min(...limitedVersions),
+    );
+    accessRead.unreadableCursors = boundedUnreadable;
     return {
       version:
         limitedVersions.length > 0
@@ -2290,13 +2349,7 @@ export class AppSyncState {
               (event) => event.version <= Math.min(...limitedVersions),
             )
           : events,
-      ...unreadableSignals(
-        unreadable.filter(
-          (entry) =>
-            !limitedVersions.length ||
-            entry.cursor.version <= Math.min(...limitedVersions),
-        ),
-      ),
+      ...unreadableSignals(boundedUnreadable),
       ...(limitedVersions.length > 0 ? { cursorLimited: true } : {}),
       ...(pending.length > 0 ? { accessPending: true } : {}),
     };
