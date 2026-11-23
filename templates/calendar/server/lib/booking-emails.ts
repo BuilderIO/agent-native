@@ -70,12 +70,14 @@ function bookingAttendeeEmails(
 async function sendBestEffort(
   label: string,
   args: Parameters<typeof sendEmail>[0],
-) {
-  if (!(await isEmailConfigured())) return;
+): Promise<boolean> {
+  if (!(await isEmailConfigured())) return false;
   try {
     await sendEmail(args);
+    return true;
   } catch (error) {
     console.warn(`[calendar booking email] failed to send ${label}:`, error);
+    return false;
   }
 }
 
@@ -371,13 +373,14 @@ export async function sendBookingReminderEmails({
   hostEmail: string;
   manageUrl?: string | null | undefined;
   timeZone?: string | undefined;
-}) {
+}): Promise<{ delivered: number; failed: number }> {
   const title = bookingTitle(booking);
   const when = formatBookingWhen(booking.start, booking.end, timeZone);
   const host = stripCrlf(hostEmail);
+  const result = { delivered: 0, failed: 0 };
 
   for (const [index, recipient] of bookingAttendeeEmails(booking).entries()) {
-    await sendBestEffort(
+    const sent = await sendBestEffort(
       index === 0 ? "attendee reminder" : "additional guest reminder",
       {
         to: recipient,
@@ -393,5 +396,8 @@ export async function sendBookingReminderEmails({
         templateId: CALENDAR_BOOKING_REMINDER_EMAIL_ID,
       },
     );
+    if (sent) result.delivered += 1;
+    else result.failed += 1;
   }
+  return result;
 }

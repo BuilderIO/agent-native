@@ -24,6 +24,7 @@ import { getOwnerBookingTimeZone } from "./booking-timezone.js";
 
 const MINUTE_MS = 60_000;
 const DUE_BATCH_LIMIT = 200;
+const RETRY_DELAY_MS = 15 * MINUTE_MS;
 
 export interface BookingReminderTiming {
   start: string;
@@ -81,6 +82,13 @@ function reminderDueFilter(nowMs: number): SQL | undefined {
   );
 }
 
+function reminderReadyFilter(nowMs: number): SQL | undefined {
+  return or(
+    isNull(schema.bookings.reminderNextAttemptAt),
+    lte(schema.bookings.reminderNextAttemptAt, new Date(nowMs).toISOString()),
+  );
+}
+
 async function listDueReminders(nowMs: number) {
   return getDb()
     .select({
@@ -97,27 +105,45 @@ async function listDueReminders(nowMs: number) {
       schema.bookingLinks,
       eq(schema.bookingLinks.slug, reminderLinkSlug),
     )
-    .where(and(pendingReminderFilter(nowMs), reminderDueFilter(nowMs)))
+    .where(
+      and(
+        pendingReminderFilter(nowMs),
+        reminderDueFilter(nowMs),
+        reminderReadyFilter(nowMs),
+      ),
+    )
     .orderBy(asc(schema.bookings.start))
     .limit(DUE_BATCH_LIMIT);
 }
 
 async function claimBookingReminder(
   bookingId: string,
-  handledAt: string,
+  nowMs: number,
+  claim: { reminderHandledAt: string } | { reminderNextAttemptAt: string },
 ): Promise<boolean> {
   const claimed = await getDb()
     .update(schema.bookings)
-    .set({ reminderHandledAt: handledAt })
+    .set(claim)
     .where(
       and(
         eq(schema.bookings.id, bookingId),
         eq(schema.bookings.status, "confirmed"),
         isNull(schema.bookings.reminderHandledAt),
+        reminderReadyFilter(nowMs),
       ),
     )
     .returning({ id: schema.bookings.id });
   return claimed.length > 0;
+}
+
+async function markBookingReminderHandled(
+  bookingId: string,
+  handledAt: string,
+): Promise<void> {
+  await getDb()
+    .update(schema.bookings)
+    .set({ reminderHandledAt: handledAt })
+    .where(eq(schema.bookings.id, bookingId));
 }
 
 function parseGuestEmails(value: string | null): string[] | undefined {
@@ -144,10 +170,11 @@ function manageUrlFor(cancelToken: string | null): string | null {
 export async function runBookingRemindersOnce(
   signal?: AbortSignal,
   nowMs: number = Date.now(),
-): Promise<{ sent: number; skipped: number }> {
-  const result = { sent: 0, skipped: 0 };
+): Promise<{ sent: number; skipped: number; failed: number }> {
+  const result = { sent: 0, skipped: 0, failed: 0 };
   if (!(await isEmailConfigured())) return result;
 
+  const nowIso = new Date(nowMs).toISOString();
   for (const { booking, reminderMinutes, hostEmail } of await listDueReminders(
     nowMs,
   )) {
@@ -157,20 +184,22 @@ export async function runBookingRemindersOnce(
       nowMs,
     );
     if (decision === "wait") continue;
-    const timeZone =
-      decision === "send"
-        ? await getOwnerBookingTimeZone(hostEmail)
-        : undefined;
-    if (
-      !(await claimBookingReminder(booking.id, new Date(nowMs).toISOString()))
-    )
-      continue;
     if (decision === "skip") {
-      result.skipped += 1;
+      if (
+        await claimBookingReminder(booking.id, nowMs, {
+          reminderHandledAt: nowIso,
+        })
+      )
+        result.skipped += 1;
       continue;
     }
+    const timeZone = await getOwnerBookingTimeZone(hostEmail);
+    const claimed = await claimBookingReminder(booking.id, nowMs, {
+      reminderNextAttemptAt: new Date(nowMs + RETRY_DELAY_MS).toISOString(),
+    });
+    if (!claimed) continue;
     const guestEmails = parseGuestEmails(booking.additionalGuestEmails);
-    await sendBookingReminderEmails({
+    const delivery = await sendBookingReminderEmails({
       booking: {
         email: booking.email,
         eventTitle: booking.eventTitle ?? "",
@@ -184,7 +213,13 @@ export async function runBookingRemindersOnce(
       manageUrl: manageUrlFor(booking.cancelToken),
       timeZone,
     });
-    result.sent += 1;
+    if (delivery.delivered === 0 && delivery.failed > 0) {
+      result.failed += 1;
+      continue;
+    }
+    await markBookingReminderHandled(booking.id, nowIso);
+    if (delivery.delivered > 0) result.sent += 1;
+    else result.skipped += 1;
   }
   return result;
 }
@@ -196,7 +231,10 @@ export async function nextBookingReminderDueAt(
   const earliestByOffset = await getDb()
     .select({
       reminderMinutes: schema.bookingLinks.reminderMinutes,
-      start: min(schema.bookings.start),
+      firstStart: sql<
+        string | null
+      >`min(${schema.bookings.start}) filter (where ${schema.bookings.reminderNextAttemptAt} is null)`,
+      retryAt: min(schema.bookings.reminderNextAttemptAt),
     })
     .from(schema.bookings)
     .leftJoin(
@@ -210,11 +248,17 @@ export async function nextBookingReminderDueAt(
     .where(pendingReminderFilter(nowMs))
     .groupBy(schema.bookingLinks.reminderMinutes);
   let earliest: number | null = null;
-  for (const { reminderMinutes, start } of earliestByOffset) {
-    const dueAt =
-      start === null ? null : bookingReminderDueAt({ start, reminderMinutes });
-    if (dueAt === null) continue;
-    earliest = earliest === null ? dueAt : Math.min(earliest, dueAt);
+  for (const { reminderMinutes, firstStart, retryAt } of earliestByOffset) {
+    const dueTimes = [
+      firstStart === null
+        ? null
+        : bookingReminderDueAt({ start: firstStart, reminderMinutes }),
+      retryAt === null ? null : Date.parse(retryAt),
+    ];
+    for (const dueAt of dueTimes) {
+      if (dueAt === null || !Number.isFinite(dueAt)) continue;
+      earliest = earliest === null ? dueAt : Math.min(earliest, dueAt);
+    }
   }
   return earliest === null ? null : Math.max(earliest, nowMs);
 }

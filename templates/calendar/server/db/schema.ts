@@ -33,6 +33,7 @@ export const bookings = table("bookings", {
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   orgId: text("org_id"),
   reminderHandledAt: text("reminder_handled_at"),
+  reminderNextAttemptAt: text("reminder_next_attempt_at"),
 });
 
 export const bookingLinks = table("booking_links", {

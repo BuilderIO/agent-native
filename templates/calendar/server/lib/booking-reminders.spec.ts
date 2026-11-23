@@ -81,7 +81,8 @@ const DDL = `
     created_at TEXT NOT NULL,
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
-    reminder_handled_at TEXT
+    reminder_handled_at TEXT,
+    reminder_next_attempt_at TEXT
   );
   CREATE TABLE booking_links (
     id TEXT PRIMARY KEY,
@@ -240,6 +241,7 @@ describe("booking reminders", () => {
     await expect(runBookingRemindersOnce(undefined, NOW)).resolves.toEqual({
       sent: 1,
       skipped: 0,
+      failed: 0,
     });
     expect(sendEmailMock.mock.calls.map(([args]) => args.to)).toEqual([
       "sam@example.test",
@@ -267,7 +269,7 @@ describe("booking reminders", () => {
     sendEmailMock.mockClear();
     await expect(
       runBookingRemindersOnce(undefined, NOW + 60_000),
-    ).resolves.toEqual({ sent: 0, skipped: 0 });
+    ).resolves.toEqual({ sent: 0, skipped: 0, failed: 0 });
     expect(sendEmailMock).not.toHaveBeenCalled();
   });
 
@@ -314,8 +316,52 @@ describe("booking reminders", () => {
     await expect(runBookingRemindersOnce(undefined, NOW)).resolves.toEqual({
       sent: 0,
       skipped: 1,
+      failed: 0,
     });
     expect(sendEmailMock).not.toHaveBeenCalled();
+    await expect(handledAt("b1")).resolves.toEqual([iso(NOW)]);
+  });
+
+  it("tries again later when nobody received the reminder", async () => {
+    sendEmailMock.mockRejectedValue(new Error("provider down"));
+    await addBooking({ id: "b1", startMs: NOW + 20 * HOUR_MS });
+
+    await expect(runBookingRemindersOnce(undefined, NOW)).resolves.toEqual({
+      sent: 0,
+      skipped: 0,
+      failed: 1,
+    });
+    await expect(handledAt("b1")).resolves.toEqual([null]);
+    await expect(nextBookingReminderDueAt(NOW + 60_000)).resolves.toBe(
+      NOW + 15 * 60_000,
+    );
+
+    sendEmailMock.mockClear();
+    await runBookingRemindersOnce(undefined, NOW + 60_000);
+    expect(sendEmailMock).not.toHaveBeenCalled();
+
+    sendEmailMock.mockResolvedValue(undefined);
+    await expect(
+      runBookingRemindersOnce(undefined, NOW + 15 * 60_000),
+    ).resolves.toEqual({ sent: 1, skipped: 0, failed: 0 });
+    await expect(handledAt("b1")).resolves.toEqual([iso(NOW + 15 * 60_000)]);
+  });
+
+  it("doesn't email the booker twice when only a guest's email fails", async () => {
+    sendEmailMock.mockImplementation(async ({ to }) => {
+      if (to === "pat@example.test") throw new Error("rejected");
+    });
+    await addBooking({
+      id: "b1",
+      startMs: NOW + 20 * HOUR_MS,
+      guests: ["pat@example.test"],
+    });
+
+    await expect(runBookingRemindersOnce(undefined, NOW)).resolves.toEqual({
+      sent: 1,
+      skipped: 0,
+      failed: 0,
+    });
     await expect(handledAt("b1")).resolves.toEqual([iso(NOW)]);
   });
 

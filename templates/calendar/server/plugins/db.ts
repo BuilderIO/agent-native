@@ -242,6 +242,7 @@ CREATE INDEX IF NOT EXISTS idx_bookings_slug_start ON bookings (slug, "start");`
       sql: `
         ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS reminder_minutes INTEGER NOT NULL DEFAULT 1440;
         ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_handled_at TEXT;
+        ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_next_attempt_at TEXT;
         CREATE INDEX IF NOT EXISTS idx_bookings_start ON bookings ("start");
       `,
     },
