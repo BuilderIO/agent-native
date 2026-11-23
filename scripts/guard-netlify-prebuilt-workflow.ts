@@ -285,7 +285,8 @@ function validateCleanupPreflight(
     eligibleSitesJson !== JSON.stringify(previewEligibleSiteNames()) ||
     !checkScript.includes("github.rest.repos.listDeployments") ||
     !checkScript.includes("github.rest.issues.listComments") ||
-    !checkScript.includes("github.rest.actions.listWorkflowRuns")
+    !checkScript.includes("github.rest.actions.listWorkflowRuns") ||
+    !checkScript.includes("created: `>=${recentSince}`")
   ) {
     issues.push(
       `${pullRequestPath} cleanup-preflight must run with read-only permissions and check deployments, comments, and active preview runs for every eligible site`,

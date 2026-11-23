@@ -1105,6 +1105,7 @@ describe("Netlify PR preview workflow guard", () => {
         "needs.cleanup-preflight.result != 'success'",
         "needs.cleanup-preflight.result == 'success'",
       ],
+      ["created: `>=${recentSince}`,", ""],
       ["types: [closed]", "types: [opened]"],
       [
         "      pull-requests: read\n    steps:\n      - name: Confirm the authorized PR head is still current",

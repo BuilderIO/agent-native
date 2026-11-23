@@ -85,6 +85,61 @@ describe("Select", () => {
     expect(trigger.querySelector(".select-icon svg")).not.toBeNull();
   });
 
+  it("shares a visible label with the open list and lets the list supply its own name", async () => {
+    const field = (label: string, popupLabel?: string) => (
+      <>
+        <span id="fruit-label">{label}</span>
+        <Select
+          aria-labelledby="fruit-label"
+          items={ITEMS}
+          defaultValue="apple"
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopup aria-label={popupLabel}>
+            <SelectItem value="apple">Apple</SelectItem>
+          </SelectPopup>
+        </Select>
+      </>
+    );
+    const view = render(field("Fruit"));
+    await act(async () =>
+      press(screen.getByRole("combobox", { name: "Fruit" })),
+    );
+    const list = await screen.findByRole("listbox", { name: "Fruit" });
+    view.rerender(field("Ingredient"));
+    expect(screen.getByRole("listbox", { name: "Ingredient" })).toBe(list);
+    view.rerender(field("Ingredient", "Available ingredients"));
+    expect(screen.getByRole("listbox", { name: "Available ingredients" })).toBe(
+      list,
+    );
+    expect(screen.getByRole("combobox", { name: "Ingredient" })).toBeTruthy();
+  });
+
+  it("keeps option focus when a controlled host keeps the list open after selection", async () => {
+    render(
+      <Select open items={ITEMS} defaultValue="banana">
+        <SelectTrigger aria-label="Fruit">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectPopup>
+          <SelectItem value="apple">Apple</SelectItem>
+        </SelectPopup>
+      </Select>,
+    );
+    const apple = await screen.findByRole("option", { name: "Apple" });
+    await act(async () => {
+      apple.focus();
+      press(apple);
+    });
+    expect(screen.getByRole("combobox").getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+    expect(screen.getByRole("combobox").textContent).toBe("Apple");
+    expect(document.activeElement).toBe(apple);
+  });
+
   it("writes the trigger's variant, color and radius", () => {
     render(
       <Sample trigger={{ variant: "ghost", color: "gray", radius: "full" }} />,

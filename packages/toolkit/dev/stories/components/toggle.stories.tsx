@@ -5,16 +5,19 @@ import {
 } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { IconBold } from "@tabler/icons-react";
+import { useState } from "react";
+import { expect } from "storybook/test";
 
 import { Toggle } from "../../../src/ui/base-ui/toggle.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./toggle.docs.md?raw";
 
 const controls = propControls(toggleProps);
 
 const meta = {
   title: "Components/Toggle",
   component: Toggle,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: {
     ...controls.args,
     children: <IconBold aria-hidden />,
@@ -103,4 +106,30 @@ export const States: Story = {
       />
     </div>
   ),
+};
+
+/** A formatting selection can contain both bold and regular text. */
+export const MixedSelection: Story = {
+  render: function Example(args) {
+    const [pressed, setPressed] = useState<boolean | "mixed">("mixed");
+    return (
+      <Toggle
+        {...args}
+        aria-label="Bold"
+        aria-pressed={pressed}
+        pressed={pressed === true}
+        onPressedChange={setPressed}
+      />
+    );
+  },
+  play: async ({ canvas, userEvent }) => {
+    const toggle = canvas.getByRole("button", { name: "Bold" });
+    await expect(toggle).toHaveAttribute("aria-pressed", "mixed");
+    await userEvent.tab();
+    await expect(toggle).toHaveFocus();
+    await userEvent.keyboard(" ");
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(toggle);
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  },
 };

@@ -74,7 +74,12 @@
   --layer-popup: 360;
   --layer-toast: 400;
   --layer-tooltip: 500;
+  --layer-cursor: 510;
 }
+
+:where(.light) { color-scheme: light; }
+
+:where(.dark) { color-scheme: dark; }
 
 :root,
 .light {
@@ -1156,84 +1161,99 @@
   --control-line-height-4: var(--line-height-1);
 }
 
-[data-radius][data-radius="none"] {
-  --radius-1: calc(2px * var(--radius-factor));
-  --radius-2: calc(4px * var(--radius-factor));
-  --radius-3: calc(6px * var(--radius-factor));
-  --radius-4: calc(8px * var(--radius-factor));
-  --radius-5: calc(12px * var(--radius-factor));
-  --radius-6: calc(16px * var(--radius-factor));
-  --shape-control: var(--radius-3);
-  --shape-popup: var(--radius-4);
-  --shape-card: var(--radius-5);
-  --shape-panel: var(--radius-5);
-  --shape-dialog: var(--radius-6);
-  --shape-pill: var(--radius-full);
-  --radius-factor: 0;
+@scope ([data-radius="none"]) {
+  :scope[data-radius],
+  [data-app-theme][data-app-theme] {
+    --radius-1: calc(2px * var(--radius-factor));
+    --radius-2: calc(4px * var(--radius-factor));
+    --radius-3: calc(6px * var(--radius-factor));
+    --radius-4: calc(8px * var(--radius-factor));
+    --radius-5: calc(12px * var(--radius-factor));
+    --radius-6: calc(16px * var(--radius-factor));
+    --shape-control: var(--radius-3);
+    --shape-popup: var(--radius-4);
+    --shape-card: var(--radius-5);
+    --shape-panel: var(--radius-5);
+    --shape-dialog: var(--radius-6);
+    --shape-pill: var(--radius-full);
+    --radius-factor: 0;
+  }
 }
 
-[data-radius][data-radius="small"] {
-  --radius-1: calc(2px * var(--radius-factor));
-  --radius-2: calc(4px * var(--radius-factor));
-  --radius-3: calc(6px * var(--radius-factor));
-  --radius-4: calc(8px * var(--radius-factor));
-  --radius-5: calc(12px * var(--radius-factor));
-  --radius-6: calc(16px * var(--radius-factor));
-  --shape-control: var(--radius-3);
-  --shape-popup: var(--radius-4);
-  --shape-card: var(--radius-5);
-  --shape-panel: var(--radius-5);
-  --shape-dialog: var(--radius-6);
-  --shape-pill: var(--radius-full);
-  --radius-factor: 0.75;
+@scope ([data-radius="small"]) {
+  :scope[data-radius],
+  [data-app-theme][data-app-theme] {
+    --radius-1: calc(2px * var(--radius-factor));
+    --radius-2: calc(4px * var(--radius-factor));
+    --radius-3: calc(6px * var(--radius-factor));
+    --radius-4: calc(8px * var(--radius-factor));
+    --radius-5: calc(12px * var(--radius-factor));
+    --radius-6: calc(16px * var(--radius-factor));
+    --shape-control: var(--radius-3);
+    --shape-popup: var(--radius-4);
+    --shape-card: var(--radius-5);
+    --shape-panel: var(--radius-5);
+    --shape-dialog: var(--radius-6);
+    --shape-pill: var(--radius-full);
+    --radius-factor: 0.75;
+  }
 }
 
-[data-radius][data-radius="medium"] {
-  --radius-1: calc(2px * var(--radius-factor));
-  --radius-2: calc(4px * var(--radius-factor));
-  --radius-3: calc(6px * var(--radius-factor));
-  --radius-4: calc(8px * var(--radius-factor));
-  --radius-5: calc(12px * var(--radius-factor));
-  --radius-6: calc(16px * var(--radius-factor));
-  --shape-control: var(--radius-3);
-  --shape-popup: var(--radius-4);
-  --shape-card: var(--radius-5);
-  --shape-panel: var(--radius-5);
-  --shape-dialog: var(--radius-6);
-  --shape-pill: var(--radius-full);
-  --radius-factor: 1;
+@scope ([data-radius="medium"]) {
+  :scope[data-radius],
+  [data-app-theme][data-app-theme] {
+    --radius-1: calc(2px * var(--radius-factor));
+    --radius-2: calc(4px * var(--radius-factor));
+    --radius-3: calc(6px * var(--radius-factor));
+    --radius-4: calc(8px * var(--radius-factor));
+    --radius-5: calc(12px * var(--radius-factor));
+    --radius-6: calc(16px * var(--radius-factor));
+    --shape-control: var(--radius-3);
+    --shape-popup: var(--radius-4);
+    --shape-card: var(--radius-5);
+    --shape-panel: var(--radius-5);
+    --shape-dialog: var(--radius-6);
+    --shape-pill: var(--radius-full);
+    --radius-factor: 1;
+  }
 }
 
-[data-radius][data-radius="large"] {
-  --radius-1: calc(2px * var(--radius-factor));
-  --radius-2: calc(4px * var(--radius-factor));
-  --radius-3: calc(6px * var(--radius-factor));
-  --radius-4: calc(8px * var(--radius-factor));
-  --radius-5: calc(12px * var(--radius-factor));
-  --radius-6: calc(16px * var(--radius-factor));
-  --shape-control: var(--radius-3);
-  --shape-popup: var(--radius-4);
-  --shape-card: var(--radius-5);
-  --shape-panel: var(--radius-5);
-  --shape-dialog: var(--radius-6);
-  --shape-pill: var(--radius-full);
-  --radius-factor: 1.5;
+@scope ([data-radius="large"]) {
+  :scope[data-radius],
+  [data-app-theme][data-app-theme] {
+    --radius-1: calc(2px * var(--radius-factor));
+    --radius-2: calc(4px * var(--radius-factor));
+    --radius-3: calc(6px * var(--radius-factor));
+    --radius-4: calc(8px * var(--radius-factor));
+    --radius-5: calc(12px * var(--radius-factor));
+    --radius-6: calc(16px * var(--radius-factor));
+    --shape-control: var(--radius-3);
+    --shape-popup: var(--radius-4);
+    --shape-card: var(--radius-5);
+    --shape-panel: var(--radius-5);
+    --shape-dialog: var(--radius-6);
+    --shape-pill: var(--radius-full);
+    --radius-factor: 1.5;
+  }
 }
 
-[data-radius][data-radius="full"] {
-  --radius-1: calc(2px * var(--radius-factor));
-  --radius-2: calc(4px * var(--radius-factor));
-  --radius-3: calc(6px * var(--radius-factor));
-  --radius-4: calc(8px * var(--radius-factor));
-  --radius-5: calc(12px * var(--radius-factor));
-  --radius-6: calc(16px * var(--radius-factor));
-  --shape-control: var(--radius-full);
-  --shape-popup: var(--radius-4);
-  --shape-card: var(--radius-5);
-  --shape-panel: var(--radius-5);
-  --shape-dialog: var(--radius-6);
-  --shape-pill: var(--radius-full);
-  --radius-factor: 1.5;
+@scope ([data-radius="full"]) {
+  :scope[data-radius],
+  [data-app-theme][data-app-theme] {
+    --radius-1: calc(2px * var(--radius-factor));
+    --radius-2: calc(4px * var(--radius-factor));
+    --radius-3: calc(6px * var(--radius-factor));
+    --radius-4: calc(8px * var(--radius-factor));
+    --radius-5: calc(12px * var(--radius-factor));
+    --radius-6: calc(16px * var(--radius-factor));
+    --shape-control: var(--radius-full);
+    --shape-popup: var(--radius-4);
+    --shape-card: var(--radius-5);
+    --shape-panel: var(--radius-5);
+    --shape-dialog: var(--radius-6);
+    --shape-pill: var(--radius-full);
+    --radius-factor: 1.5;
+  }
 }
 
 [data-corners][data-corners="round"] {

@@ -17,6 +17,13 @@ if (
   );
 }
 const visualMode = visualSetting === "" ? null : (visualSetting as VisualMode);
+const browser = process.env.STORYBOOK_TEST_BROWSER ?? "chromium";
+if (browser !== "chromium" && browser !== "webkit")
+  throw new Error(`Unsupported Storybook test browser: ${browser}`);
+if (visualMode && browser !== "chromium")
+  throw new Error(
+    "Storybook screenshot baselines are recorded and compared in Chromium.",
+  );
 
 const visualDir = path.resolve(
   import.meta.dirname,
@@ -57,7 +64,7 @@ export default defineConfig({
             enabled: true,
             headless: true,
             provider: playwright({}),
-            instances: [{ browser: "chromium" }],
+            instances: [{ browser }],
             ...(visualMode ? { api: { allowWrite: true } } : {}),
             expect: {
               toMatchScreenshot: {
@@ -85,7 +92,7 @@ export default defineConfig({
             enabled: true,
             headless: true,
             provider: playwright({}),
-            instances: [{ browser: "chromium" }],
+            instances: [{ browser }],
           },
         },
       },

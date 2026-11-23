@@ -4,6 +4,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Card } from "../../../src/ui/base-ui/card.js";
 import { Inset, type InsetProps } from "../../../src/ui/base-ui/inset.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./inset.docs.md?raw";
 
 const controls = propControls(insetProps);
 
@@ -51,7 +52,7 @@ function InsetCard({ side, clip }: Pick<InsetProps, "side" | "clip">) {
 const meta = {
   title: "Components/Inset",
   component: Inset,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: controls.args,
   argTypes: controls.argTypes,
   render: (args) => (

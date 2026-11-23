@@ -1,4 +1,6 @@
 import {
+  segmentedControlProps,
+  type SegmentedControlOwnProps,
   type TabsListOwnProps,
   tabsListProps,
 } from "@agent-native/design-system";
@@ -8,7 +10,12 @@ import * as React from "react";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
-export type TabsProps = BaseTabs.Root.Props;
+const ShowIndicator = React.createContext(true);
+
+export interface TabsProps extends BaseTabs.Root.Props {
+  /** Join a horizontal tab strip to its content surface. */
+  variant?: "underline" | "framed";
+}
 
 /**
  * Panels of content on one page, switched by a row of tabs over an underline,
@@ -18,12 +25,17 @@ export type TabsProps = BaseTabs.Root.Props;
  * @import import { Tabs, TabsList, TabsTab, TabsPanel } from "@agent-native/toolkit/ui/base-ui/tabs";
  */
 const Tabs = React.forwardRef<HTMLDivElement, TabsProps>(
-  ({ className, ...props }, ref) => (
-    <BaseTabs.Root
-      ref={ref}
-      className={partClassName("tabs", className)}
-      {...props}
-    />
+  ({ className, variant = "underline", ...props }, ref) => (
+    <ShowIndicator.Provider
+      value={variant !== "framed" || props.orientation === "vertical"}
+    >
+      <BaseTabs.Root
+        ref={ref}
+        data-variant={variant}
+        className={partClassName("tabs", className)}
+        {...props}
+      />
+    </ShowIndicator.Provider>
   ),
 );
 Tabs.displayName = "Tabs";
@@ -38,6 +50,7 @@ export interface TabsListProps
  */
 const TabsList = React.forwardRef<HTMLDivElement, TabsListProps>(
   (props, ref) => {
+    const showIndicator = React.useContext(ShowIndicator);
     const [attributes, { className, children, ...rest }] = splitProps(
       tabsListProps,
       props,
@@ -50,7 +63,7 @@ const TabsList = React.forwardRef<HTMLDivElement, TabsListProps>(
         className={partClassName("tabs-list", className)}
       >
         {children}
-        <BaseTabs.Indicator className="tabs-indicator" />
+        {showIndicator && <BaseTabs.Indicator className="tabs-indicator" />}
       </BaseTabs.List>
     );
   },
@@ -94,3 +107,40 @@ const TabsPanel = React.forwardRef<HTMLDivElement, TabsPanelProps>(
 TabsPanel.displayName = "TabsPanel";
 
 export { Tabs, TabsList, TabsTab, TabsPanel };
+
+export interface SegmentedTabsListProps
+  extends Omit<BaseTabs.List.Props, "color">, SegmentedControlOwnProps {}
+
+/** Base UI panel navigation with the shared segmented track, size and radius.
+ * @import import { Tabs, SegmentedTabsList, SegmentedTabsTab, TabsPanel } from "@agent-native/toolkit/ui/base-ui/tabs";
+ */
+export const SegmentedTabsList = React.forwardRef<
+  HTMLDivElement,
+  SegmentedTabsListProps
+>((props, ref) => {
+  const [attributes, { className, ...rest }] = splitProps(
+    segmentedControlProps,
+    props,
+  );
+  return (
+    <BaseTabs.List
+      ref={ref}
+      {...rest}
+      {...attributes}
+      className={partClassName("segmented-control", className)}
+    />
+  );
+});
+SegmentedTabsList.displayName = "SegmentedTabsList";
+
+export const SegmentedTabsTab = React.forwardRef<
+  HTMLButtonElement,
+  TabsTabProps
+>(({ className, ...props }, ref) => (
+  <BaseTabs.Tab
+    ref={ref}
+    {...props}
+    className={partClassName("segmented-control-item", className)}
+  />
+));
+SegmentedTabsTab.displayName = "SegmentedTabsTab";

@@ -5,6 +5,7 @@
  */
 @layer components;
 
+@import "./direction.css";
 @import "./text-styles.css";
 @import "./parts/button.css";
 @import "./parts/icon-button.css";
@@ -71,3 +72,16 @@
 @import "./parts/data-list.css";
 @import "./parts/aspect-ratio.css";
 @import "./parts/toast.css";
+@import "./parts/image-card.css";
+@import "./parts/inspector.css";
+@import "./parts/constraint-controls.css";
+@import "./parts/paint-editor.css";
+@import "./parts/property-token.css";
+@import "./parts/property-list.css";
+@import "./parts/color-swatch.css";
+@import "./parts/layer-tree.css";
+@import "./parts/layout.css";
+@import "./parts/split-pane.css";
+@import "./parts/dock-workspace.css";
+@import "./parts/design-property-inspector.css";
+@import "./parts/design-file-panel.css";
