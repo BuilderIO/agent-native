@@ -42,7 +42,11 @@ describe("drawer side", () => {
   ] as const)("anchors side=%s by swiping %s", async (side, swipeDirection) => {
     render(
       <Drawer open side={side}>
-        <DrawerPopup data-testid="drawer" aria-describedby={undefined}>
+        <DrawerPopup
+          data-testid="drawer"
+          aria-describedby={undefined}
+          className={({ open }) => (open ? "panel-open" : undefined)}
+        >
           <DrawerTitle>History</DrawerTitle>
         </DrawerPopup>
       </Drawer>,
@@ -50,6 +54,7 @@ describe("drawer side", () => {
     const drawer = await screen.findByTestId("drawer");
     expect(drawer.dataset.swipeDirection).toBe(swipeDirection);
     expect(drawer.dataset.side).toBe(side);
+    expect(drawer.classList.contains("panel-open")).toBe(true);
     expect(drawer.classList.contains("drawer-popup")).toBe(true);
     expect(drawer.hasAttribute("data-open")).toBe(true);
     expect(drawer.hasAttribute("data-state")).toBe(false);

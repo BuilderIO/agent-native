@@ -5,8 +5,9 @@
  *           data-size="sm|md" data-variant="solid|soft|surface|outline|ghost"
  *           [data-color="accent|gray|danger|warning|success|info"]
  *           [data-high-contrast] [data-radius] [data-loading] [data-disabled]>
- *     <span class="button-content">   the label, hidden while loading
- *     <span class="button-spinner">   the Spinner, while loading
+ *     Children stay mounted during loading; a decorative spinner overlays them.
+ *     Optional raw markup: .button-content wraps the label, and a direct
+ *     .button-spinner child can supply a custom indicator.
  *
  * Radix Themes' button on the system's scale: md is the 24px control
  * height and sm the 20px one, and like Radix the corner radius steps with the
@@ -30,7 +31,8 @@
     justify-content: center;
     gap: var(--space-1);
     box-sizing: border-box;
-    height: var(--control-height-3);
+    --_button-height: var(--control-height-3);
+    height: var(--_button-height);
     padding: 0 var(--space-2);
     border: 0;
     border-radius: max(
@@ -66,13 +68,24 @@
     --control-font-size: var(--control-font-size-2);
     --control-line-height: var(--control-line-height-2);
     --_radius: var(--radius-2);
-    height: var(--control-height-2);
+    --_button-height: var(--control-height-2);
     padding-inline: var(--space-2);
   }
 
   :is(.button, .icon-button)[data-size="sm"] :is(svg, .spinner) {
     width: var(--control-icon-size-2);
     height: var(--control-icon-size-2);
+  }
+
+  :is(.dialog-footer, .alert-dialog-footer, .drawer-footer, .image-card-actions)
+    > .button {
+    max-inline-size: 100%;
+    min-block-size: var(--_button-height);
+    block-size: auto;
+    padding-block: max(0px, calc((var(--_button-height) - 1lh) / 2));
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
   }
 
   /* ---- variants ---- */
@@ -174,22 +187,6 @@
 
   /* ---- loading and disabled ---- */
 
-  .button-content {
-    display: contents;
-  }
-
-  :is(.button, .icon-button)[data-loading] .button-content {
-    visibility: hidden;
-  }
-
-  .button-spinner {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
   :is(.button, .icon-button):is(:disabled, [data-disabled]) {
     cursor: not-allowed;
     scale: 1;
@@ -217,5 +214,40 @@
       [data-disabled]
     )[data-variant="ghost"] {
     background-color: transparent;
+  }
+
+  /* Keep text in the accessibility tree, and every child in its original layout position. */
+  :is(.button, .icon-button)[data-loading] {
+    -webkit-text-fill-color: transparent;
+    text-shadow: none;
+  }
+  .button-content {
+    display: contents;
+  }
+  .button-spinner {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+  :is(.button, .icon-button)[data-loading] > :not(.button-spinner),
+  :is(.button, .icon-button)[data-loading] > .button-content > * {
+    opacity: 0;
+  }
+  :is(.button, .icon-button)[data-loading]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    pointer-events: none;
+  }
+  :is(.button, .icon-button)[data-loading]:has(> .button-spinner)::after {
+    content: none;
+  }
+  :is(.button, .icon-button)[data-loading][data-size="sm"]::after {
+    inline-size: var(--control-icon-size-2);
+    block-size: var(--control-icon-size-2);
   }
 }

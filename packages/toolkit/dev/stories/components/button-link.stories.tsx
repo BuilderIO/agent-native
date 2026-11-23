@@ -14,13 +14,14 @@ import {
 } from "../../../src/ui/base-ui/button.js";
 import { VisuallyHidden } from "../../../src/ui/base-ui/visually-hidden.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./button-link.docs.md?raw";
 
 const controls = propControls(buttonLinkProps);
 
 const meta = {
   title: "Components/Button Link",
   component: ButtonLink,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, href: "#docs", children: "Read the docs" },
   argTypes: controls.argTypes,
 } satisfies Meta<typeof ButtonLink>;

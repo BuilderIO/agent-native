@@ -487,9 +487,10 @@ export function DocumentBlockFields({
     propertiesData?.canManageSchema === true &&
     databaseId !== null &&
     databaseDocumentId !== null;
-  // A tab is a property, which a system collection such as Files refuses.
   const canAddFields =
-    canManageFields && propertiesData.canAddProperties !== false;
+    canManageFields &&
+    propertiesData.canAddProperties !== false &&
+    (propertiesData.addablePropertyTypes?.includes("blocks") ?? true);
   const properties = propertiesData?.properties ?? [];
   const blockFields = useMemo(
     () => blockFieldsFromProperties(properties),

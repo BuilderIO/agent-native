@@ -12,6 +12,7 @@ import {
 } from "../../../src/ui/base-ui/toggle-group.js";
 import { Toggle } from "../../../src/ui/base-ui/toggle.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./toggle-group.docs.md?raw";
 
 const controls = propControls(toggleGroupProps);
 
@@ -34,7 +35,7 @@ function Alignment(props: ToggleGroupProps) {
 const meta = {
   title: "Components/Toggle Group",
   component: ToggleGroup,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, disabled: false, multiple: false },
   argTypes: controls.argTypes,
   render: (args) => <Alignment {...args} />,

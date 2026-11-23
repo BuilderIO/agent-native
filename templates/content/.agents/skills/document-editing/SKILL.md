@@ -232,6 +232,38 @@ edit commits. Restore it before editing. A local-folder sync
 (`import-content-source`) leaves a page in Trash unchanged and lists it in
 `skipped`.
 
+### edit-table
+
+Change one table on a page without rewriting it: everything the table's row,
+column and block menus do, plus setting a cell's text. Read the page first and
+pass its `baseRevision` and a fresh `idempotencyKey`, as for `edit-document`.
+`table` numbers the page's tables from 1 in page order, counting each
+`<table>` block and Markdown pipe table, including those inside toggles,
+callouts and columns. Rows and columns also count from 1; row 1 is the header
+row when the table has one.
+
+```bash
+pnpm action edit-table --id abc123 --baseRevision "$REV" --idempotencyKey add-row-1 --table 1 \
+  --operations '[{"op":"insert-row","cells":["Gamma","**Done**"]},{"op":"set-color","row":4,"color":"green_bg"}]'
+```
+
+Operations run in order, each on the table the ones before it left:
+`insert-row` / `insert-column` (`at` is the new one's number; omit it to add at
+the end; `cells` fills it), `delete-row` / `delete-column`, `move-row` /
+`move-column` (`to` is its number after the move), `duplicate-row` /
+`duplicate-column`, `clear-row` / `clear-column` (empties cells, keeps colours),
+`set-cell` (`text` is one line of inline NFM; `<br>` breaks a line),
+`set-header-row` / `set-header-column` / `set-fit-page-width` (`value`), and
+`set-color` (a `row`, a `column`, or both for one cell; `color` is a colour or
+one ending in `_bg`, or `null` to clear). A pipe table comes back as a
+`<table>` block with the same content. The result is `edit-document`'s receipt
+plus `table`, the table's new size and settings (`null` when nothing was saved). Read the page just before
+editing: if it changed since, the edit can refuse with `STALE_BASE_REVISION`
+and `details.currentRevision`; read it again and resend. A change the table
+already has refuses that way whenever the page has moved on. A table it can't
+find exactly on the page, or whose text holds lines a table can't keep, refuses
+with `TABLE_NOT_LOCATED`; change that table with `edit-document`.
+
 ### update-document
 
 Update an existing document's metadata or browser-owned content. External

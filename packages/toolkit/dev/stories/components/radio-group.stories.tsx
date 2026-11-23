@@ -1,5 +1,6 @@
 import { COLORS, radioGroupProps } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect } from "storybook/test";
 
 import { Field, FieldLabel } from "../../../src/ui/base-ui/field.js";
 import {
@@ -8,6 +9,7 @@ import {
   type RadioGroupProps,
 } from "../../../src/ui/base-ui/radio-group.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./radio-group.docs.md?raw";
 
 const controls = propControls(radioGroupProps);
 
@@ -30,7 +32,7 @@ function Plans(props: RadioGroupProps) {
 const meta = {
   title: "Components/Radio Group",
   component: RadioGroup,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, disabled: false },
   argTypes: controls.argTypes,
   render: (args) => <Plans {...args} />,
@@ -95,4 +97,43 @@ export const States: Story = {
       <Plans {...args} disabled aria-label="Plan, disabled" />
     </div>
   ),
+};
+
+export const ItemOverrides: Story = {
+  render: () => (
+    <RadioGroup
+      aria-label="Publishing"
+      defaultValue="automatic"
+      color="gray"
+      variant="soft"
+      highContrast
+    >
+      <label>
+        <Radio value="automatic" />
+        Automatic
+      </label>
+      <label>
+        <Radio
+          value="manual"
+          variant="surface"
+          highContrast={false}
+          color="accent"
+        />
+        Manual approval
+      </label>
+    </RadioGroup>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const automatic = canvas.getByRole("radio", { name: "Automatic" });
+    const manual = canvas.getByRole("radio", { name: "Manual approval" });
+    await expect(automatic).toHaveAttribute("data-color", "gray");
+    await expect(automatic).toHaveAttribute("data-high-contrast");
+    await expect(manual).toHaveAttribute("data-color", "accent");
+    await expect(manual).toHaveAttribute("data-variant", "surface");
+    await expect(manual).not.toHaveAttribute("data-high-contrast");
+    automatic.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await expect(manual).toBeChecked();
+    await expect(automatic).not.toBeChecked();
+  },
 };

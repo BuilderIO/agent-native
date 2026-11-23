@@ -1,0 +1,67 @@
+@layer components {
+  .paint-editor-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .paint-editor-list {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .paint-editor-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) repeat(
+        2,
+        var(--inspector-action-width, var(--size-4))
+      );
+    align-items: center;
+    justify-items: center;
+  }
+  .paint-editor-trigger {
+    justify-self: stretch;
+    min-inline-size: 0;
+    margin-inline-end: var(--inspector-gap, var(--space-2));
+  }
+  .paint-editor-chip {
+    flex: none;
+    inline-size: var(--size-3);
+    block-size: var(--size-3);
+    max-inline-size: 1em;
+    max-block-size: 1em;
+    border-radius: var(--radius-1);
+    box-shadow: inset 0 0 0 1px var(--line-subtle);
+  }
+  .paint-editor-controls {
+    display: flex;
+    gap: var(--space-2);
+    align-items: end;
+  }
+  .paint-editor-controls > label,
+  .paint-editor-field {
+    min-width: 0;
+    flex: 1;
+    display: grid;
+    gap: var(--space-1);
+    font-size: var(--font-size-1);
+    color: var(--fg-muted);
+  }
+  .paint-editor-stops {
+    display: grid;
+    gap: var(--space-3);
+    min-inline-size: min(13rem, 65vw);
+  }
+  @media (forced-colors: active) {
+    .paint-editor-chip,
+    .paint-editor-gradient,
+    .paint-editor-stop {
+      forced-color-adjust: none;
+      outline: 1px solid CanvasText;
+    }
+    .paint-editor-stop:focus-within {
+      outline: 2px solid Highlight;
+    }
+  }
+}

@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { Text } from "../../../src/ui/base-ui/text.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./text.docs.md?raw";
 
 const controls = propControls(textComponentProps);
 
@@ -13,7 +14,7 @@ const LONG_SAMPLE =
 const meta = {
   title: "Typography/Text",
   component: Text,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, children: SAMPLE },
   argTypes: controls.argTypes,
 } satisfies Meta<typeof Text>;

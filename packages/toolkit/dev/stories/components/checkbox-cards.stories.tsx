@@ -1,14 +1,18 @@
 import { checkboxCardsProps, COLORS } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { CSSProperties } from "react";
+import { IconCheck } from "@tabler/icons-react";
+import { useId, type CSSProperties } from "react";
+import { expect } from "storybook/test";
 
 import {
   CheckboxCards,
   CheckboxCardsItem,
   type CheckboxCardsProps,
 } from "../../../src/ui/base-ui/checkbox-cards.js";
+import { CheckboxIndicator } from "../../../src/ui/base-ui/checkbox.js";
 import { Field } from "../../../src/ui/base-ui/field.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./checkbox-cards.docs.md?raw";
 
 const controls = propControls(checkboxCardsProps);
 
@@ -23,6 +27,7 @@ const threeColumns = {
 } as CSSProperties;
 
 function Channels(props: CheckboxCardsProps) {
+  const id = useId();
   return (
     <CheckboxCards
       defaultValue={["email"]}
@@ -31,10 +36,22 @@ function Channels(props: CheckboxCardsProps) {
       {...props}
     >
       {CHANNELS.map((channel) => (
-        <CheckboxCardsItem key={channel.value} value={channel.value}>
+        <CheckboxCardsItem
+          key={channel.value}
+          value={channel.value}
+          aria-labelledby={`${id}-${channel.value}-name`}
+          aria-describedby={`${id}-${channel.value}-detail`}
+        >
           <span className="flex flex-col">
-            <span className="font-medium">{channel.name}</span>
-            <span className="text-fg-muted">{channel.detail}</span>
+            <span id={`${id}-${channel.value}-name`} className="font-medium">
+              {channel.name}
+            </span>
+            <span
+              id={`${id}-${channel.value}-detail`}
+              className="text-fg-muted"
+            >
+              {channel.detail}
+            </span>
           </span>
         </CheckboxCardsItem>
       ))}
@@ -45,7 +62,7 @@ function Channels(props: CheckboxCardsProps) {
 const meta = {
   title: "Components/Checkbox Cards",
   component: CheckboxCards,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, disabled: false },
   argTypes: controls.argTypes,
   render: (args) => (
@@ -61,6 +78,23 @@ type Story = StoryObj<typeof meta>;
 
 /** The cards with the group props from the controls. */
 export const Playground: Story = {};
+
+export const KeyboardSelection: Story = {
+  play: async ({ canvas, userEvent }) => {
+    const email = canvas.getByRole("checkbox", { name: "Email" });
+    const sms = canvas.getByRole("checkbox", { name: "SMS" });
+    await expect(email).toBeChecked();
+    await expect(sms).not.toBeChecked();
+    await expect(sms).toHaveAccessibleDescription("Mentions only");
+    sms.focus();
+    await userEvent.keyboard(" ");
+    await expect(sms).toBeChecked();
+    await expect(email).toBeChecked();
+    await userEvent.keyboard(" ");
+    await expect(sms).not.toBeChecked();
+    await expect(sms).toHaveFocus();
+  },
+};
 
 /** Each variant in every color, then in high contrast. */
 export const Variants: Story = {
@@ -131,4 +165,94 @@ export const States: Story = {
       <Channels {...args} disabled aria-label="Channels, disabled" />
     </div>
   ),
+};
+
+export const NarrowPanel: Story = {
+  render: (args) => (
+    <div style={{ inlineSize: 144 }}>
+      <CheckboxCards {...args} aria-label="Templates">
+        <CheckboxCardsItem value="design">
+          <span>DesignSystemComponents</span>
+        </CheckboxCardsItem>
+        <CheckboxCardsItem value="assets">Assets</CheckboxCardsItem>
+      </CheckboxCards>
+    </div>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const card = canvas.getByRole("checkbox", {
+      name: "DesignSystemComponents",
+    });
+    const group = canvas.getByRole("group", { name: "Templates" });
+    await expect(group.scrollWidth).toBeLessThanOrEqual(group.clientWidth);
+    await expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth);
+    card.focus();
+    await userEvent.keyboard(" ");
+    await expect(card).toBeChecked();
+  },
+};
+
+export const ItemOverrides: Story = {
+  render: () => (
+    <CheckboxCards
+      aria-label="Notifications"
+      variant="soft"
+      color="gray"
+      highContrast
+      defaultValue={["failures"]}
+    >
+      <CheckboxCardsItem
+        value="updates"
+        indicator={
+          <CheckboxIndicator aria-hidden>
+            <IconCheck />
+          </CheckboxIndicator>
+        }
+      >
+        Project updates
+      </CheckboxCardsItem>
+      <CheckboxCardsItem
+        value="failures"
+        color="danger"
+        variant="surface"
+        highContrast={false}
+      >
+        Deployment failures
+      </CheckboxCardsItem>
+    </CheckboxCards>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const inherited = canvas.getByRole("checkbox", { name: "Project updates" });
+    const override = canvas.getByRole("checkbox", {
+      name: "Deployment failures",
+    });
+    await expect(inherited).toHaveAttribute("data-color", "gray");
+    await expect(inherited).toHaveAttribute("data-high-contrast");
+    await expect(inherited).toHaveAttribute("data-variant", "soft");
+    await expect(override).toHaveAttribute("data-color", "danger");
+    await expect(override).toHaveAttribute("data-variant", "surface");
+    await expect(override).not.toHaveAttribute("data-high-contrast");
+    await expect(
+      override.querySelector(".checkbox-cards-checkbox"),
+    ).toHaveAttribute("data-color", "danger");
+    await userEvent.click(inherited);
+    await expect(inherited).toBeChecked();
+    const custom = inherited.querySelector("svg");
+    const standard = override.querySelector("svg");
+    if (!custom || !standard) throw new Error("Expected both selection marks");
+    const glyph = custom.getBoundingClientRect();
+    const reference = standard.getBoundingClientRect();
+    await expect(glyph.width).toBe(reference.width);
+    await expect(glyph.height).toBe(reference.height);
+    const cardBounds = inherited.getBoundingClientRect();
+    const referenceBounds = override.getBoundingClientRect();
+    await expect(glyph.x - cardBounds.x).toBeCloseTo(
+      reference.x - referenceBounds.x,
+      0,
+    );
+    await expect(glyph.y - cardBounds.y).toBeCloseTo(
+      reference.y - referenceBounds.y,
+      0,
+    );
+    await expect(override).toBeChecked();
+  },
 };

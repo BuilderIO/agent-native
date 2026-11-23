@@ -22,15 +22,27 @@ function hostnameOf(url: string | undefined): string | undefined {
   return new URL(url).hostname;
 }
 
-export function resolvePeerAppUrl(appId: PeerAppId): string | null {
+function builtinPeerAppUrl(appId: PeerAppId): string | null {
   const app = getBuiltinAgents("content").find(
     (candidate) => candidate.id === appId,
   );
   if (!app?.url || !URL.canParse(app.url)) return null;
+  return app.url.replace(/\/+$/, "");
+}
+
+export function resolvePeerAppUrl(appId: PeerAppId): string | null {
+  const builtinUrl = builtinPeerAppUrl(appId);
+  if (!builtinUrl) return null;
   return resolveLaneEndpoint(
-    app.url,
+    builtinUrl,
     hostnameOf(getAppConfig().app.url),
   ).replace(/\/+$/, "");
+}
+
+function peerAppTarget(appId: PeerAppId): string {
+  const builtinUrl = builtinPeerAppUrl(appId);
+  const appUrl = resolvePeerAppUrl(appId);
+  return appUrl && appUrl !== builtinUrl ? appUrl : appId;
 }
 
 export function peerLinkOrigins(appId: PeerAppId): string[] {
@@ -122,7 +134,7 @@ export async function requestPeerApp<T, App extends PeerAppId>(args: {
   let response;
   try {
     response = await invokeAgentAction({
-      target,
+      target: peerAppTarget(target),
       selfAppId: "content",
       action,
       input: args.input,
