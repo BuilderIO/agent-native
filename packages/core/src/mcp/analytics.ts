@@ -210,6 +210,43 @@ export function trackMcpToolsList(
   });
 }
 
+export interface McpToolResultSize {
+  resultTextChars: number;
+  resultStructuredChars?: number;
+}
+
+// How big a result is, never what it says. Hosts cut or move a result past
+// about 40,000 characters, and they read different parts of it: Claude Code
+// and OpenCode show the model only the structured content when there is one,
+// and Codex shows both, so each part is counted on its own.
+export function mcpToolResultSize(result: unknown): McpToolResultSize {
+  const record =
+    result && typeof result === "object"
+      ? (result as { content?: unknown; structuredContent?: unknown })
+      : {};
+  let resultTextChars = 0;
+  if (Array.isArray(record.content)) {
+    for (const block of record.content) {
+      if (block?.type === "text" && typeof block.text === "string") {
+        resultTextChars += block.text.length;
+      }
+    }
+  }
+  let resultStructuredChars: number | undefined;
+  if (record.structuredContent !== undefined) {
+    try {
+      resultStructuredChars = JSON.stringify(record.structuredContent).length;
+    } catch {
+      // A value JSON cannot hold fails the response on its own; the
+      // measurement never adds a failure of its own.
+    }
+  }
+  return {
+    resultTextChars,
+    ...(resultStructuredChars !== undefined ? { resultStructuredChars } : {}),
+  };
+}
+
 export function trackMcpToolCall(
   ctx: McpAnalyticsContext,
   args: {
@@ -221,7 +258,7 @@ export function trackMcpToolCall(
     isError: boolean;
     errorType?: string;
     errorMessage?: string;
-  },
+  } & Partial<McpToolResultSize>,
 ): void {
   if (!analyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.toolCall, ctx, {
@@ -234,6 +271,12 @@ export function trackMcpToolCall(
       ? { $mcp_parameters: safeValue(args.parameters) }
       : {}),
     $mcp_duration_ms: args.durationMs,
+    ...(args.resultTextChars !== undefined
+      ? { $mcp_response_text_chars: args.resultTextChars }
+      : {}),
+    ...(args.resultStructuredChars !== undefined
+      ? { $mcp_response_structured_chars: args.resultStructuredChars }
+      : {}),
     $mcp_is_error: args.isError,
     ...(args.errorType ? { $mcp_error_type: args.errorType } : {}),
     ...(args.errorMessage ? { $mcp_error_message: args.errorMessage } : {}),
