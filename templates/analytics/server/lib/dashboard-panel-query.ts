@@ -383,6 +383,7 @@ async function runProgramPanel(
       truncated: result.truncated,
       cached: result.cacheHit,
       fetchedAt: new Date(result.asOfMs).toISOString(),
+      ...(result.stale ? { refreshPending: true } : {}),
     };
   }
 
@@ -393,6 +394,9 @@ async function runProgramPanel(
       truncated: result.lastGoodRun.truncated,
       cached: true,
       fetchedAt: new Date(result.lastGoodRun.asOfMs).toISOString(),
+      ...(result.error.code === "background_pending"
+        ? { refreshPending: true }
+        : {}),
     };
   }
 

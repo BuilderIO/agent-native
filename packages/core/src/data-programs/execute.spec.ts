@@ -823,6 +823,54 @@ describe("data-programs/execute", () => {
       expect(enqueueSandboxExecution).not.toHaveBeenCalled();
     });
 
+    it.each([
+      { status: "queued", startedAgoMs: 5_000, stale: true },
+      { status: "running", startedAgoMs: 5_000, stale: true },
+      { status: "running", startedAgoMs: 11 * 60_000, stale: false },
+    ])(
+      "marks fresh rows stale only while a young queued run is $status",
+      async ({ status, startedAgoMs, stale }) => {
+        storeMocks.getDataProgram.mockResolvedValue(
+          makeProgram({ background: true }),
+        );
+        accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+        storeMocks.getLatestSuccessfulRun.mockResolvedValue(
+          makeRun({ finishedAt: Date.now() - 60_000 }),
+        );
+        storeMocks.getActiveRun.mockResolvedValueOnce(
+          makeRun({
+            id: "dpr_refresh",
+            status: "queued",
+            executionId: "exec_refresh",
+            startedAt: Date.now() - startedAgoMs,
+          }),
+        );
+
+        const enqueueSandboxExecution = vi.fn();
+        vi.doMock("../coding-tools/sandbox/index.js", () => ({
+          discardSandboxExecutionOutput:
+            sandboxMocks.discardSandboxExecutionOutput,
+          enqueueSandboxExecution,
+          getSandboxExecutionForOwner: vi.fn().mockResolvedValue({ status }),
+        }));
+        const { runDataProgram } = await loadExecute();
+
+        const result = await runDataProgram({
+          programId: PROGRAM_ID,
+          ctx: { userEmail: OWNER },
+          triggeredBy: "panel_view",
+        });
+
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.cacheHit).toBe(true);
+        expect(result.stale).toBe(stale);
+        expect(result.rows).toEqual([{ a: 1 }]);
+        expect(storeMocks.updateDataProgramRun).not.toHaveBeenCalled();
+        expect(enqueueSandboxExecution).not.toHaveBeenCalled();
+      },
+    );
+
     it("serves fresh cached rows when checking the queued run fails", async () => {
       const consoleError = vi
         .spyOn(console, "error")

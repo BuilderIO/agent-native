@@ -1188,6 +1188,7 @@ async function runBackgroundProgram(
   let statusUnknown = false;
   let finishedFailure: BackgroundRunFailure | null = null;
   let finishedElsewhere = false;
+  let stillRunning = false;
   if (active?.executionId && args.ctx.userEmail) {
     // A failed check leaves the run for the next read to finish, rather than
     // failing a read the cache can still answer.
@@ -1206,6 +1207,10 @@ async function runBackgroundProgram(
     }
     // An execution this viewer can't find won't report back either.
     statusUnknown = execution === null;
+    stillRunning =
+      execution !== null &&
+      (execution.status === "queued" || execution.status === "running") &&
+      Date.now() - active.startedAt < backgroundTimeout;
     if (
       execution &&
       execution.status !== "queued" &&
@@ -1253,7 +1258,7 @@ async function runBackgroundProgram(
       );
     }
     const cached = await resolveCacheHit(program, paramsHash);
-    if (cached) return cached;
+    if (cached) return stillRunning ? { ...cached, stale: true } : cached;
   }
 
   const stillActive = await getActiveRun(program.id, paramsHash);
