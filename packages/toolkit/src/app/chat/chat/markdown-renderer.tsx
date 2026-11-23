@@ -1,14 +1,6 @@
 // Owns the shared markdown loader, streaming text helpers, and renderer.
 
-import {
-  APP_LOCAL_MARKDOWN_LINK_HASH,
-  appLocalMarkdownLinkPath,
-} from "@agent-native/core/action-ui";
 import { NEW_CHAT_ACTION_HREF } from "@agent-native/core/client/agent-chat";
-import {
-  appBasePath,
-  appPathFromLocalRoute,
-} from "@agent-native/core/client/api-path";
 import { cn } from "@agent-native/toolkit/utils";
 import { IconPlus, IconExternalLink } from "@tabler/icons-react";
 import React, { useState, useEffect, useMemo } from "react";
@@ -239,32 +231,6 @@ function opensMarkdownLinkInNewTab(href: string | undefined): boolean {
   }
 }
 
-function resolveMarkedAppLocalHref(href: string): string | undefined {
-  const localPath = appLocalMarkdownLinkPath(href);
-  if (!localPath) return undefined;
-  try {
-    const basePath = appBasePath();
-    const origin = "https://app.invalid";
-    const mount = new URL(basePath || "/", origin);
-    const target = new URL(appPathFromLocalRoute(localPath), origin);
-    if (
-      mount.origin !== origin ||
-      mount.pathname !== (basePath || "/") ||
-      target.origin !== origin ||
-      target.pathname.startsWith("//") ||
-      (basePath &&
-        target.pathname !== basePath &&
-        !target.pathname.startsWith(`${basePath}/`))
-    ) {
-      return undefined;
-    }
-    return `${target.pathname}${target.search}${target.hash}`;
-  } catch {
-    // coercion-ok: undefined removes the href instead of navigating to a malformed link.
-    return undefined;
-  }
-}
-
 // react-markdown's defaultUrlTransform strips href values whose protocol
 // isn't on its safe list (https, mailto, etc.). Our in-app pseudo-href
 // `agent-native:new-chat` would be blanked out by that, so let it through
@@ -332,15 +298,12 @@ export const markdownComponents = {
         </button>
       );
     }
-    const resolvedHref = href?.endsWith(APP_LOCAL_MARKDOWN_LINK_HASH)
-      ? resolveMarkedAppLocalHref(href)
-      : href;
-    const isBuilderCta = isBuilderErrorCtaHref(resolvedHref);
+    const isBuilderCta = isBuilderErrorCtaHref(href);
     if (!isBuilderCta) {
-      const openInNewTab = opensMarkdownLinkInNewTab(resolvedHref);
+      const openInNewTab = opensMarkdownLinkInNewTab(href);
       return (
         <a
-          href={resolvedHref}
+          href={href}
           target={openInNewTab ? "_blank" : undefined}
           rel={openInNewTab ? "noopener noreferrer" : undefined}
           className={className}

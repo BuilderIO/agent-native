@@ -33,7 +33,6 @@ import {
 } from "react-native-keyboard-controller";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 
-import { AppPanelLinkProvider } from "@/components/chat/AppPanelLinkContext";
 import {
   ChatSettingsSheet,
   DEFAULT_CHAT_SETTINGS,
@@ -53,7 +52,6 @@ import { ComputerConnectSheet } from "@/components/ComputerConnectSheet";
 import { NativeSignInSheet } from "@/components/NativeSignInSheet";
 import { SafeAreaView } from "@/components/uniwind-interop";
 import { createThreadShareLink, forkChatThread } from "@/lib/agent-chat/api";
-import { mobileAppPanelUnavailable } from "@/lib/agent-chat/open-app";
 import { buildRemoteChatState } from "@/lib/agent-chat/remote-presentation";
 import type { ChatMessage } from "@/lib/agent-chat/types";
 import { messageText } from "@/lib/agent-chat/types";
@@ -960,19 +958,14 @@ export default function ChatTab() {
                 <ActivityIndicator color={mutedForeground} />
               </View>
             ) : (
-              <AppPanelLinkProvider
-                baseUrl={chat.baseUrl}
-                onUnavailable={() => setNotice(mobileAppPanelUnavailable())}
-              >
-                <MessagesList
-                  chat={chat}
-                  bottomInset={8}
-                  onMessageActions={setActionsFor}
-                  onOpenConnections={openConnections}
-                  onSignIn={() => setSignInOpen(true)}
-                  onOpenSettings={openBuilderSetup}
-                />
-              </AppPanelLinkProvider>
+              <MessagesList
+                chat={chat}
+                bottomInset={8}
+                onMessageActions={setActionsFor}
+                onOpenConnections={openConnections}
+                onSignIn={() => setSignInOpen(true)}
+                onOpenSettings={openBuilderSetup}
+              />
             )}
           </>
         )}

@@ -179,6 +179,7 @@ describe("manage-automations tool", () => {
       };
       const result = await entry.run(args);
       expect(JSON.parse(result)).not.toHaveProperty("urlPath");
+      expect(JSON.parse(result)).not.toHaveProperty("replyGuidance");
       expect(JSON.parse(result)).toMatchObject({
         resourceId: "resource-1",
         change: {
@@ -194,37 +195,6 @@ describe("manage-automations tool", () => {
     } finally {
       vi.unstubAllEnvs();
     }
-  });
-
-  it("guides the agent to include the app-local markdown link in its reply", async () => {
-    vi.stubEnv("APP_BASE_PATH", "/server-mount");
-    vi.stubEnv("VITE_APP_BASE_PATH", "");
-    const result = await executeAgentToolCall({
-      actions: { "manage-automations": tool() },
-      name: "manage-automations",
-      input: {
-        action: "define",
-        name: "digest",
-        trigger_type: "manual",
-        body: "Build it.",
-      },
-      callId: "create-link",
-      caller: "tool",
-      ownerEmail: owner,
-      orgId: "org-1",
-    });
-    expect(result.status).toBe("completed");
-    if (result.status !== "completed") throw new Error("Tool did not complete");
-    const output = JSON.parse(result.output);
-    expect(output.replyGuidance).toContain(
-      "[label](/settings/automations?automationId=resource-1#agent-native-app-local)",
-    );
-    expect(output.replyGuidance).toMatch(/reply/i);
-    expect(output).not.toHaveProperty("urlPath");
-    expect(output.change.url).toBe(
-      "/settings/automations?automationId=resource-1",
-    );
-    vi.unstubAllEnvs();
   });
 
   it("encodes the automation id as a query value", async () => {

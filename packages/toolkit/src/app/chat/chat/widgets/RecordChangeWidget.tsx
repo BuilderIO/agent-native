@@ -2,7 +2,7 @@ import {
   normalizeActionChangeResult,
   type ActionChange,
 } from "@agent-native/core/action-ui";
-import { appPathFromLocalRoute } from "@agent-native/core/client/api-path";
+import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   compareAndSetClientAppState,
   readClientAppState,
@@ -175,7 +175,7 @@ function ActionChangeCard({
   const href =
     change.kind === "automation" &&
     safeUrl?.startsWith("/settings/automations?")
-      ? appPathFromLocalRoute(safeUrl)
+      ? `${appBasePath()}${safeUrl}`
       : safeUrl;
   const preferenceTitle =
     change.kind === "preference"
