@@ -6,19 +6,35 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { updateEventMutateAsync, resolveOverlap, reportWriteFailure } =
-  vi.hoisted(() => ({
-    updateEventMutateAsync: vi.fn(),
-    resolveOverlap: vi.fn(),
-    reportWriteFailure: vi.fn(),
-  }));
+type Edit = Record<string, unknown>;
+
+const {
+  updateEventMutateAsync,
+  resolveOverlap,
+  reportWriteFailure,
+  conflictPrompt,
+} = vi.hoisted(() => ({
+  updateEventMutateAsync: vi.fn(),
+  resolveOverlap: vi.fn(),
+  reportWriteFailure: vi.fn(),
+  conflictPrompt: {
+    onRestore: undefined as
+      | ((restoreOnto: (current: Edit) => Edit, other: Edit) => void)
+      | undefined,
+  },
+}));
 
 vi.mock("./use-events", () => ({
   useUpdateEvent: () => ({ mutateAsync: updateEventMutateAsync }),
 }));
 
 vi.mock("@agent-native/toolkit/app/save-conflict", () => ({
-  useSaveConflictPrompt: () => ({ resolveOverlap, prompt: null }),
+  useSaveConflictPrompt: (options: {
+    onRestore: (restoreOnto: (current: Edit) => Edit, other: Edit) => void;
+  }) => {
+    conflictPrompt.onRestore = options.onRestore;
+    return { resolveOverlap, prompt: null };
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -65,6 +81,7 @@ function conflict(current: CalendarEvent) {
 
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
+let queryClient: QueryClient | null = null;
 let save: ReturnType<typeof useEventSave> | null = null;
 
 function Harness() {
@@ -81,13 +98,15 @@ beforeEach(() => {
   updateEventMutateAsync.mockReset();
   resolveOverlap.mockReset();
   reportWriteFailure.mockReset();
+  conflictPrompt.onRestore = undefined;
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  const queryClient = new QueryClient();
+  const client = new QueryClient();
+  queryClient = client;
   act(() => {
     root?.render(
-      <QueryClientProvider client={queryClient}>
+      <QueryClientProvider client={client}>
         <EventSaveProvider>
           <Harness />
         </EventSaveProvider>
@@ -101,6 +120,7 @@ afterEach(() => {
   container?.remove();
   container = null;
   root = null;
+  queryClient = null;
   save = null;
 });
 
@@ -165,6 +185,35 @@ describe("mergeEventEdits", () => {
           allDay: false,
         },
       }),
+    ).toMatchObject({ ok: false, fields: ["when"] });
+  });
+
+  it("counts a time zone added on one side as a change to the time", () => {
+    const base = {
+      when: {
+        start: "2026-11-23T15:00:00-05:00",
+        end: "2026-11-23T16:00:00-05:00",
+        allDay: false,
+      },
+    };
+    expect(
+      mergeEventEdits(
+        base,
+        {
+          when: {
+            ...base.when,
+            startTimeZone: "America/New_York",
+            endTimeZone: "America/New_York",
+          },
+        },
+        {
+          when: {
+            ...base.when,
+            startTimeZone: "Europe/London",
+            endTimeZone: "Europe/London",
+          },
+        },
+      ),
     ).toMatchObject({ ok: false, fields: ["when"] });
   });
 
@@ -332,6 +381,78 @@ describe("useEventSave", () => {
     expect(saved).toMatchObject({ title: "Retro", revision: '"2"' });
   });
 
+  it("writes nothing more when the other writer already made the same move", async () => {
+    updateEventMutateAsync.mockRejectedValueOnce(
+      conflict(
+        event({
+          start: "2026-11-23T16:00:00-05:00",
+          end: "2026-11-23T17:00:00-05:00",
+          revision: '"2"',
+        }),
+      ),
+    );
+
+    await act(async () => {
+      await rendered().mutateAsync(event(), {
+        start: "2026-11-23T21:00:00.000Z",
+        end: "2026-11-23T22:00:00.000Z",
+      });
+    });
+
+    expect(resolveOverlap).not.toHaveBeenCalled();
+    expect(updateEventMutateAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("gets the other time back whole, with the edit's scope", async () => {
+    const theirs = event({
+      start: "2026-11-23T17:00:00-05:00",
+      end: "2026-11-23T18:00:00-05:00",
+      revision: '"2"',
+    });
+    updateEventMutateAsync.mockRejectedValueOnce(conflict(theirs));
+    let keptMine: Edit = {};
+    resolveOverlap.mockImplementationOnce((overlap: SaveOverlap<Edit>) => {
+      keptMine = overlap.keepMine;
+      return Promise.resolve(overlap.useTheirs);
+    });
+
+    await act(async () => {
+      await rendered().mutateAsync(event(), {
+        start: "2026-11-23T22:00:00.000Z",
+        end: "2026-11-24T00:00:00.000Z",
+        scope: "all",
+        sendUpdates: "none",
+      });
+    });
+    expect(updateEventMutateAsync).toHaveBeenCalledTimes(1);
+
+    queryClient?.setQueryData<CalendarEvent[]>(
+      ["action", "list-events", {}],
+      [theirs],
+    );
+    const restored = new Promise<void>((resolve) => {
+      updateEventMutateAsync.mockImplementationOnce(() => {
+        resolve();
+        return Promise.resolve({ id: "google-event-1", revision: '"3"' });
+      });
+    });
+    await act(async () => {
+      conflictPrompt.onRestore?.((current) => current, keptMine);
+      await restored;
+    });
+
+    expect(updateEventMutateAsync).toHaveBeenLastCalledWith({
+      id: "google-event-1",
+      accountEmail: "agent@example.com",
+      scope: "all",
+      sendUpdates: "none",
+      start: "2026-11-23T22:00:00.000Z",
+      end: "2026-11-24T00:00:00.000Z",
+      allDay: false,
+      expectedRevision: '"2"',
+    });
+  });
+
   it("moves the event to another account after another writer's change", async () => {
     updateEventMutateAsync
       .mockRejectedValueOnce(
@@ -390,6 +511,35 @@ describe("useEventSave", () => {
       accountEmail: "agent@example.com",
       location: "Room C",
       expectedRevision: '"2"',
+    });
+  });
+
+  it("starts a queued edit of the same field from the first save, so it doesn't ask about the person's own change", async () => {
+    updateEventMutateAsync
+      .mockResolvedValueOnce({ id: "google-event-1", revision: '"2"' })
+      .mockRejectedValueOnce(
+        conflict(
+          event({ title: "Roadmap", location: "Room B", revision: '"3"' }),
+        ),
+      )
+      .mockResolvedValueOnce({ id: "google-event-1", revision: '"4"' });
+
+    await act(async () => {
+      await rendered().mutateAsync(event(), { title: "Roadmap" });
+      await rendered().mutateAsync(event(), { title: "Retro" });
+    });
+
+    expect(resolveOverlap).not.toHaveBeenCalled();
+    expect(updateEventMutateAsync).toHaveBeenCalledTimes(3);
+    expect(updateEventMutateAsync.mock.calls[1]?.[0]).toMatchObject({
+      title: "Retro",
+      expectedRevision: '"2"',
+    });
+    expect(updateEventMutateAsync).toHaveBeenLastCalledWith({
+      id: "google-event-1",
+      accountEmail: "agent@example.com",
+      title: "Retro",
+      expectedRevision: '"3"',
     });
   });
 

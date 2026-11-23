@@ -72,6 +72,7 @@ const IDENTITY_KEYS = [
   "cacheEventIdentity",
   "expectedRevision",
 ] as const;
+const RESTORE_OPTION_KEYS = ["scope", "sendUpdates"] as const;
 const GROUPED_PATHS = new Set(["when", "reminders", "intents"]);
 
 function includesKey(keys: readonly string[], key: string) {
@@ -86,6 +87,29 @@ function pickDefined(
   for (const key of keys) {
     if (source[key] !== undefined) picked[key] = source[key];
   }
+  return picked;
+}
+
+function appliedFields(
+  request: Record<string, unknown>,
+): Record<string, unknown> {
+  const applied: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(request)) {
+    if (
+      value !== undefined &&
+      !includesKey(IDENTITY_KEYS, key) &&
+      !includesKey(OPTION_KEYS, key) &&
+      !includesKey(INTENT_KEYS, key)
+    ) {
+      applied[key] = value;
+    }
+  }
+  return applied;
+}
+
+function pickPaths(edit: EventEdit, paths: string[]): EventEdit {
+  const picked: EventEdit = {};
+  for (const path of paths) picked[path] = edit[path];
   return picked;
 }
 
@@ -145,7 +169,7 @@ function sameTime(a: unknown, b: unknown, allDay: boolean) {
 }
 
 function sameTimeZone(a: unknown, b: unknown) {
-  return isEmptyValue(a) || isEmptyValue(b) || a === b;
+  return (isEmptyValue(a) && isEmptyValue(b)) || a === b;
 }
 
 function sameWhen(a: unknown, b: unknown) {
@@ -156,8 +180,9 @@ function sameWhen(a: unknown, b: unknown) {
     allDay === Boolean(right.allDay) &&
     sameTime(left.start, right.start, allDay) &&
     sameTime(left.end, right.end, allDay) &&
-    sameTimeZone(left.startTimeZone, right.startTimeZone) &&
-    sameTimeZone(left.endTimeZone, right.endTimeZone)
+    (allDay ||
+      (sameTimeZone(left.startTimeZone, right.startTimeZone) &&
+        sameTimeZone(left.endTimeZone, right.endTimeZone)))
   );
 }
 
@@ -187,10 +212,10 @@ export function mergeEventEdits(
     if (sameEventEditValue(path, mineValue, from)) {
       keepMine[path] = theirValue;
       useTheirs[path] = theirValue;
-    } else if (
-      sameEventEditValue(path, theirValue, from) ||
-      sameEventEditValue(path, theirValue, mineValue)
-    ) {
+    } else if (sameEventEditValue(path, theirValue, mineValue)) {
+      keepMine[path] = theirValue;
+      useTheirs[path] = theirValue;
+    } else if (sameEventEditValue(path, theirValue, from)) {
       keepMine[path] = mineValue;
       useTheirs[path] = mineValue;
     } else {
@@ -225,7 +250,13 @@ function eventSaveKey(event: CalendarEvent) {
 
 interface EventSaveQueue {
   tail: Promise<void>;
-  last?: { readRevision: string; saved: UpdateEventResult } | undefined;
+  last?: { readRevision: string; saved: Record<string, unknown> } | undefined;
+}
+
+interface HeldOverlap {
+  event: CalendarEvent;
+  chosen: EventEdit;
+  options: Record<string, unknown>;
 }
 
 interface EventSaveContextValue {
@@ -242,7 +273,7 @@ export function EventSaveProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { mutateAsync } = useUpdateEvent();
   const queuesRef = useRef(new Map<string, EventSaveQueue>());
-  const overlapEventRef = useRef(new WeakMap<EventEdit, CalendarEvent>());
+  const overlapEventRef = useRef(new WeakMap<EventEdit, HeldOverlap>());
   const saveRef = useRef<EventSaveContextValue["save"] | null>(null);
 
   const readCachedEvent = useCallback(
@@ -288,17 +319,25 @@ export function EventSaveProvider({ children }: { children: ReactNode }) {
           return null;
       }
     },
-    onRestore: (restoreOnto, other) => {
-      const saved = overlapEventRef.current.get(other);
+    onRestore: (_restoreOnto, other) => {
+      const held = overlapEventRef.current.get(other);
       const save = saveRef.current;
-      if (!saved || !save) return;
-      const event = readCachedEvent(saved) ?? saved;
+      if (!held || !save) return;
+      const event = readCachedEvent(held.event) ?? held.event;
       const paths = Object.keys(other).filter((path) => path !== "intents");
       const current = eventEditOf(event, paths);
-      const changes = eventRequestFields(current, restoreOnto(current));
+      const restored = mergeEventEdits(
+        pickPaths(held.chosen, paths),
+        pickPaths(other, paths),
+        current,
+      );
+      const changes = eventRequestFields(
+        current,
+        restored.ok ? restored.merged : restored.keepMine,
+      );
       if (Object.keys(changes).length === 0) return;
-      void save(event, changes as EventChanges).catch((error: unknown) =>
-        reportWriteFailure(error),
+      void save(event, { ...held.options, ...changes } as EventChanges).catch(
+        (error: unknown) => reportWriteFailure(error),
       );
     },
   });
@@ -312,10 +351,13 @@ export function EventSaveProvider({ children }: { children: ReactNode }) {
     ): Promise<UpdateEventResult> => {
       const last = queue.last;
       queue.last = undefined;
-      const startedFrom: CalendarEvent =
+      const carried =
         last && event.revision && last.readRevision === event.revision
-          ? { ...event, ...last.saved, id: event.id }
-          : event;
+          ? last.saved
+          : undefined;
+      const startedFrom = carried
+        ? ({ ...event, ...carried, id: event.id } as CalendarEvent)
+        : event;
       const {
         id: _id,
         accountEmail: _accountEmail,
@@ -341,8 +383,17 @@ export function EventSaveProvider({ children }: { children: ReactNode }) {
           return eventEditOf(asRecord(value), paths);
         },
         resolveOverlap: (overlap: SaveOverlap<EventEdit>, finished) => {
-          overlapEventRef.current.set(overlap.keepMine, event);
-          overlapEventRef.current.set(overlap.useTheirs, event);
+          const restoreOptions = pickDefined(request, RESTORE_OPTION_KEYS);
+          overlapEventRef.current.set(overlap.keepMine, {
+            event,
+            chosen: overlap.useTheirs,
+            options: restoreOptions,
+          });
+          overlapEventRef.current.set(overlap.useTheirs, {
+            event,
+            chosen: overlap.keepMine,
+            options: restoreOptions,
+          });
           return resolveOverlap(overlap, finished);
         },
         save: async ({ value, revision, base: from }) => {
@@ -374,7 +425,10 @@ export function EventSaveProvider({ children }: { children: ReactNode }) {
         !result.replacedId &&
         event.revision
       ) {
-        queue.last = { readRevision: event.revision, saved: result };
+        queue.last = {
+          readRevision: event.revision,
+          saved: { ...carried, ...appliedFields(request), ...asRecord(result) },
+        };
       }
       return result ?? outcome.current ?? {};
     },

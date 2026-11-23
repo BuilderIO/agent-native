@@ -688,6 +688,62 @@ describe("EventDetailPopover characterization", () => {
     expect(locationInputAfterUpdate!.value).toBe("Room A (typing)");
   });
 
+  it("saves an edit against the event as it was when editing began", async () => {
+    const event = baseEvent({ attendees: [] });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    act(() => {
+      (findByExactText("span", "Room A") as HTMLElement).click();
+    });
+    const locationInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addLocation"]',
+    );
+    if (!locationInput) throw new Error("The location editor didn't open");
+    act(() => {
+      setNativeInputValue(locationInput, "Room C");
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({ attendees: [], location: "Room B" })}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    await act(async () => {
+      locationInput.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await flushMicrotasks();
+    });
+
+    expect(updateEventMutate).toHaveBeenCalledWith(
+      event,
+      expect.objectContaining({ location: "Room C" }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
+    );
+  });
+
   it("uses the event timezone when seeding the time editor", () => {
     vi.stubEnv("TZ", "UTC");
     const event = baseEvent({

@@ -80,6 +80,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { eventAsShown } from "@/hooks/use-event-at-edit-start";
 import { useEventSave } from "@/hooks/use-event-save";
 import {
   useEvents,
@@ -1473,7 +1474,7 @@ export default function CalendarView({
     );
 
     updateEvent.mutate(
-      event,
+      eventAsShown(selectedEvent, event),
       {
         ...updates,
         ...guestNotification,
@@ -1563,10 +1564,13 @@ export default function CalendarView({
       );
 
       try {
-        const saved = await updateEvent.mutateAsync(event, {
-          ...updates,
-          ...guestNotification,
-        });
+        const saved = await updateEvent.mutateAsync(
+          eventAsShown(selectedEvent, event),
+          {
+            ...updates,
+            ...guestNotification,
+          },
+        );
         const undo = undoFrom(saved);
         setUndoAction(undo);
         toast.success(t("calendarView.eventUpdated"), {
@@ -1809,7 +1813,7 @@ export default function CalendarView({
         });
         if (!guestNotification) return;
         updateEvent.mutate(
-          event,
+          eventAsShown(selectedEvent, event),
           {
             ...updates,
             ...guestNotification,
@@ -1840,7 +1844,7 @@ export default function CalendarView({
       });
       if (!guestNotification) return;
       updateEvent.mutate(
-        event,
+        eventAsShown(selectedEvent, event),
         {
           ...updates,
           ...guestNotification,

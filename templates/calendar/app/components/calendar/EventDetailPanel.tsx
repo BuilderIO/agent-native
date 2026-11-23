@@ -34,6 +34,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip";
+import { useEventAtEditStart } from "@/hooks/use-event-at-edit-start";
 import { useEventSave } from "@/hooks/use-event-save";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
@@ -148,6 +149,10 @@ export function EventDetailPanel({
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [editDescription, setEditDescription] = useState(
     event?.description || "",
+  );
+  const saveBase = useEventAtEditStart(
+    event,
+    isEditingTitle || isEditingDescription,
   );
   const titleInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -293,7 +298,7 @@ export function EventDetailPanel({
           return;
         }
         updateEvent.mutate(
-          event,
+          saveBase ?? event,
           {
             ...updates,
             ...guestNotification,
@@ -308,7 +313,7 @@ export function EventDetailPanel({
       })();
     }
     setIsEditingDescription(false);
-  }, [editDescription, event, promptGuestNotification, updateEvent]);
+  }, [editDescription, event, saveBase, promptGuestNotification, updateEvent]);
 
   const handleUnpin = () => {
     setEventDetailSidebar(false);
@@ -539,7 +544,7 @@ export function EventDetailPanel({
                           trimmed &&
                           trimmed !== getEditableEventTitle(event)
                         ) {
-                          onTitleSave?.(event, trimmed);
+                          onTitleSave?.(saveBase ?? event, trimmed);
                         }
                         setIsEditingTitle(false);
                       } else if (e.key === "Escape") {
@@ -551,7 +556,7 @@ export function EventDetailPanel({
                     onBlur={() => {
                       const trimmed = editingTitle.trim();
                       if (trimmed && trimmed !== getEditableEventTitle(event)) {
-                        onTitleSave?.(event, trimmed);
+                        onTitleSave?.(saveBase ?? event, trimmed);
                       }
                       setIsEditingTitle(false);
                     }}
