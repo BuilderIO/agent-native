@@ -170,11 +170,8 @@ describe("contentFiltersToKitState", () => {
       properties,
       fields,
     );
-    const [rule] = state.items;
-    expect(rule.kind === "rule" ? rule.value : null).toEqual([
-      "opt-done",
-      "opt-active",
-      "Gone",
+    expect(state.items).toMatchObject([
+      { kind: "rule", value: ["opt-done", "opt-active", "Gone"] },
     ]);
   });
 
