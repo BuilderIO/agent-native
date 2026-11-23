@@ -780,6 +780,7 @@ export async function trashDocumentSubtree(
         .map((document) => document.id)
         .filter(
           (documentId) =>
+            documentId === id ||
             !independentlyTrashedDatabaseDocumentIds.has(documentId),
         ),
     );

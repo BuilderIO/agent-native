@@ -74,6 +74,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpTool: false,
   run: async (args, ctx) => {
     if (!ctx?.userEmail) fail("Not authenticated.", { statusCode: 401 });
     const provider = args.provider as ProviderModelSelectionProvider;

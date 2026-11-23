@@ -2,6 +2,8 @@ import { generateKeyPairSync } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithProviderDispatchTracking } from "./provider-dispatch.js";
+
 const resolveCredential = vi.fn();
 const resolveCredentialDetailed = vi.fn();
 const assertCredentialCanReachEndpoint = vi.fn(
@@ -780,6 +782,34 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("refuses named tracked writes before transport when no admission gate owns the request", async () => {
+    resolveCredential.mockResolvedValue("fixture-provider-token");
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(Response.json({ id: "fixture-created" }));
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+    const tracking = { writes: 0 };
+    await expect(
+      runWithProviderDispatchTracking(
+        tracking,
+        () =>
+          runtime.executeRequest({
+            provider: "hubspot",
+            path: "/crm/v3/objects/contacts",
+            method: "POST",
+            body: { properties: {} },
+          }),
+        { requireAdmission: true },
+      ),
+    ).rejects.toMatchObject({ errorCode: "provider_budget_unavailable" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(tracking.writes).toBe(0);
+  });
+
   it("uses a per-request workspace connection for Sigma client-credentials auth", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(
@@ -845,11 +875,15 @@ describe("provider API runtime", () => {
       credentialKeys: string[];
       auth: string;
     }>;
-    const result = await runtime.executeRequest({
-      provider: "sigma",
-      path: "/v2/workbooks",
-      connectionId: "sigma-connection",
-    });
+    const dispatch = { writes: 0 };
+    const result = await runWithProviderDispatchTracking(dispatch, () =>
+      runtime.executeRequest({
+        provider: "sigma",
+        path: "/v2/workbooks",
+        connectionId: "sigma-connection",
+      }),
+    );
+    expect(dispatch.writes).toBe(0);
 
     expect(catalog[0]).toMatchObject({
       defaultBaseUrl: "https://aws-api.sigmacomputing.com",
@@ -4610,8 +4644,9 @@ describe("provider API runtime", () => {
   it("explains an out-of-scope credential instead of reporting it missing", async () => {
     resolveCredential.mockResolvedValue(null);
     describeCredentialScopeGap.mockResolvedValue(
-      'A "HUBSPOT_ACCESS_TOKEN" key is saved in this workspace with Personal scope. ' +
-        "It needs Workspace or Organization scope instead.",
+      'Ask an organization owner or admin to save "HUBSPOT_ACCESS_TOKEN" ' +
+        "with Workspace or Organization scope. This workspace has it only " +
+        "as a Personal key.",
     );
     const runtime = createProviderApiRuntime({
       appId: "analytics",
@@ -4626,13 +4661,45 @@ describe("provider API runtime", () => {
         (err: Error) => err,
       );
 
-    expect(error?.message).toContain("hubspot credential not configured");
-    expect(error?.message).toContain("with Personal scope");
-    expect(error?.message).toContain("Workspace or Organization scope");
+    expect(error?.message).toMatch(
+      /^hubspot credential not configured\. Ask an organization owner or admin to save "HUBSPOT_ACCESS_TOKEN" .* Personal key\. Tried: \S/,
+    );
     expect(describeCredentialScopeGap).toHaveBeenCalledWith(
       expect.arrayContaining(["HUBSPOT_ACCESS_TOKEN"]),
       credentialContext,
     );
+  });
+
+  it("gives no shared-key advice when the selected connection lacks the key", async () => {
+    describeCredentialScopeGap.mockResolvedValue("SAVE A SHARED KEY");
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: { id: "conn-a", label: "A", scopes: [] },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const runtime = createProviderApiRuntime({
+      appId: "headless",
+      providerIds: ["github"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async () => null,
+    });
+    const request = (connectionId?: string) =>
+      runtime
+        .executeRequest({ provider: "github", path: "/user", connectionId })
+        .then(
+          () => null,
+          (err: Error) => err,
+        );
+
+    expect((await request())?.message).toContain("SAVE A SHARED KEY");
+    describeCredentialScopeGap.mockClear();
+
+    const error = await request("conn-a");
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error?.message).not.toContain("SAVE A SHARED KEY");
+    expect(describeCredentialScopeGap).not.toHaveBeenCalled();
   });
 
   it("requests a workspace connection when no credential or scope gap exists", async () => {

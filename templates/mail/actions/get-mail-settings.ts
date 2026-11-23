@@ -14,15 +14,17 @@ function normalize(settings: Partial<UserSettings> | undefined, email: string) {
     writingStyle: settings?.writingStyle ?? "",
     autocompleteEnabled: settings?.autocompleteEnabled === true,
     sendAndArchive: settings?.sendAndArchive === true,
+    readingPane: settings?.previewPane !== "off",
   };
 }
 
 export default defineAction({
   description:
-    "Read the user's mail drafting settings, including signature, writing style, autocomplete, and Send + Mark Done preference. Use this before changing a durable preference so unrelated settings can be preserved.",
+    "Read the user's mail settings: signature, writing style, autocomplete, Send + Mark Done, and whether the reading pane is on. Use this before changing a durable preference so unrelated settings can be preserved.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: false,
   run: async () => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

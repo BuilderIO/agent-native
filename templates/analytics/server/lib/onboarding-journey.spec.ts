@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   BigQueryBackendError,
+  BigQueryJobNotClaimedError,
   BigQueryMaximumBytesBilledError,
+  type BigQueryQueryTrace,
 } from "./bigquery.js";
 import { FirstPartyAnalyticsQueryTimeoutError } from "./first-party-analytics.js";
 
@@ -103,6 +105,17 @@ function eventRow(
     action: null,
     ...extra,
   };
+}
+
+async function claimPageJob(options: unknown): Promise<void> {
+  const { claimJob } = (options ?? {}) as {
+    claimJob?: () => Promise<boolean>;
+  };
+  if (claimJob && !(await claimJob())) throw new BigQueryJobNotClaimedError();
+}
+
+function pageOffset(sql: string): number {
+  return Number(/OFFSET (\d+)$/.exec(sql)?.[1] ?? 0);
 }
 
 function cohortEvent(
@@ -1950,16 +1963,18 @@ describe("getOnboardingJourney", () => {
   });
 
   it("stops BigQuery pages at the aggregate budget and marks the tree partial", async () => {
-    let page = 0;
-    mocks.queryFirstPartyAnalytics.mockImplementation(async () => {
-      const offset = page++ * 4_000;
-      return {
-        rows: Array.from({ length: 4_000 }, (_, index) =>
-          eventRow(`budget-${offset + index}`, "signup", offset + index),
-        ),
-        schema: [],
-      };
-    });
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (sql: string, _scope: unknown, options: unknown) => {
+        await claimPageJob(options);
+        const offset = pageOffset(sql);
+        return {
+          rows: Array.from({ length: 4_000 }, (_, index) =>
+            eventRow(`budget-${offset + index}`, "signup", offset + index),
+          ),
+          schema: [],
+        };
+      },
+    );
 
     const tree = (await getOnboardingJourney(scope, {
       ...ARGS,
@@ -1968,14 +1983,14 @@ describe("getOnboardingJourney", () => {
       maxTotalBytesBilled: 50_000_000_000,
     })) as JourneyTree;
 
-    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(2);
+    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(3);
     expect(mocks.listJourneyRecordings).not.toHaveBeenCalled();
     expect(tree.coverage).toMatchObject({
       sessionsWithReplay: null,
       truncated: true,
     });
     expect(tree.notes?.join(" ")).toMatch(
-      /aggregate maxTotalBytesBilled=50000000000 bytes budget/,
+      /spent its maxTotalBytesBilled=50000000000 bytes budget on pages it had to run in BigQuery/,
     );
     expect(tree.notes?.join(" ")).toMatch(/replay reads were skipped/);
     const examples = tree.nodes.flatMap((node) => node.examples);
@@ -1987,6 +2002,219 @@ describe("getOnboardingJourney", () => {
       incompleteReason: "journey_event_read_truncated",
       coverage: { journeyEventRead: { pages: 2, truncated: true } },
     });
+  });
+
+  it("reads cached BigQuery pages without spending the aggregate budget", async () => {
+    const cached = new Set([0, 4_000, 8_000]);
+    const jobs: number[] = [];
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (sql: string, _scope: unknown, options: unknown) => {
+        if (!sql.includes("journey_total_rows"))
+          return { rows: [], schema: [] };
+        const offset = pageOffset(sql);
+        if (!cached.has(offset)) {
+          await claimPageJob(options);
+          jobs.push(offset);
+        }
+        const rows = offset === 16_000 ? 2_000 : 4_000;
+        return {
+          rows: Array.from({ length: rows }, (_, index) =>
+            eventRow(`cached-${offset + index}`, "signup", offset + index),
+          ),
+          schema: [],
+        };
+      },
+    );
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxEventRows: 20_000,
+      maxTotalBytesBilled: 50_000_000_000,
+    })) as JourneySummary;
+
+    expect(jobs).toEqual([12_000, 16_000]);
+    expect(summary.coverage.truncated).toBe(false);
+    expect(summary.followUp.coverage.journeyEventRead).toMatchObject({
+      rows: 18_000,
+      pages: 5,
+      truncated: false,
+    });
+    expect(summary.continueWith).toBeUndefined();
+  });
+
+  it("gives the budget to pages in order and offers to continue from the cache", async () => {
+    const total = 12_001;
+    const rows = Array.from({ length: total }, (_, index) =>
+      eventRow(`order-${index}`, "signup", index, {
+        journey_total_rows: total,
+        journey_rows_fingerprint: 7,
+      }),
+    );
+    const jobs: number[] = [];
+    let thirdPageAsked!: () => void;
+    const thirdPageAsking = new Promise<void>((resolve) => {
+      thirdPageAsked = resolve;
+    });
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (sql: string, _scope: unknown, options: unknown) => {
+        if (!sql.includes("journey_total_rows"))
+          return { rows: [], schema: [] };
+        const offset = pageOffset(sql);
+        if (offset === 4_000) await thirdPageAsking;
+        if (offset === 8_000) thirdPageAsked();
+        await claimPageJob(options);
+        jobs.push(offset);
+        return { rows: rows.slice(offset, offset + 4_000), schema: [] };
+      },
+    );
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxEventRows: 20_000,
+      maxTotalBytesBilled: 50_000_000_000,
+    })) as JourneySummary;
+
+    expect(jobs).toEqual([0, 4_000]);
+    expect(summary.coverage.truncated).toBe(true);
+    expect(summary.followUp.coverage.journeyEventRead).toMatchObject({
+      pages: 2,
+      truncated: true,
+    });
+    expect(summary.notes?.join(" ")).toMatch(
+      /used up maxTotalBytesBilled=50000000000 before it finished\. The pages it read are cached and cost nothing to read again, so calling again with the same arguments and observationWatermark="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z" reads them/,
+    );
+    expect(summary.continueWith).toEqual({
+      observationWatermark: expect.stringMatching(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/,
+      ),
+    });
+  });
+
+  it("keeps the budget in page order across a cached page between two misses", async () => {
+    const total = 16_001;
+    const rows = Array.from({ length: total }, (_, index) =>
+      eventRow(`between-${index}`, "signup", index, {
+        journey_total_rows: total,
+        journey_rows_fingerprint: 7,
+      }),
+    );
+    const jobs: number[] = [];
+    const letLaterPagesClaimFirst = async () => {
+      for (let turn = 0; turn < 50; turn += 1) await Promise.resolve();
+    };
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (sql: string, _scope: unknown, options: unknown) => {
+        if (!sql.includes("journey_total_rows"))
+          return { rows: [], schema: [] };
+        const offset = pageOffset(sql);
+        if (offset !== 8_000) {
+          if (offset === 4_000) await letLaterPagesClaimFirst();
+          await claimPageJob(options);
+          jobs.push(offset);
+        }
+        return { rows: rows.slice(offset, offset + 4_000), schema: [] };
+      },
+    );
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxEventRows: 20_000,
+      maxTotalBytesBilled: 50_000_000_000,
+    })) as JourneySummary;
+
+    expect(jobs).toEqual([0, 4_000]);
+    expect(summary.followUp.coverage.journeyEventRead).toMatchObject({
+      pages: 3,
+      truncated: true,
+    });
+  });
+
+  it("says which budget-cut pages bill again because the cache did not keep them", async () => {
+    const total = 12_001;
+    const rows = Array.from({ length: total }, (_, index) =>
+      eventRow(`warned-${index}`, "signup", index, {
+        journey_total_rows: total,
+        journey_rows_fingerprint: 7,
+      }),
+    );
+    const read = async (uncachedOffsets: number[]) => {
+      mocks.queryFirstPartyAnalytics.mockImplementation(
+        async (sql: string, _scope: unknown, options: unknown) => {
+          if (!sql.includes("journey_total_rows"))
+            return { rows: [], schema: [] };
+          const offset = pageOffset(sql);
+          await claimPageJob(options);
+          if (uncachedOffsets.includes(offset))
+            (options as { onUncachedResult?: () => void }).onUncachedResult?.();
+          return { rows: rows.slice(offset, offset + 4_000), schema: [] };
+        },
+      );
+      return (await getOnboardingJourney(scope, {
+        ...ARGS,
+        format: "summary",
+        maxEventRows: 20_000,
+        maxTotalBytesBilled: 50_000_000_000,
+      })) as JourneySummary;
+    };
+
+    const oneUncached = await read([0]);
+    expect(oneUncached.followUp.coverage.journeyEventRead).toMatchObject({
+      pages: 2,
+      truncated: true,
+    });
+    expect(oneUncached.notes?.join(" ")).toMatch(
+      /1 of the pages it read were not kept in the query cache \(BigQuery returned them with warnings, or the cache write failed\), so calling again with the same arguments and observationWatermark="[^"]+" bills them again\./,
+    );
+    expect(oneUncached.continueWith).toEqual({
+      observationWatermark: expect.any(String),
+    });
+
+    const allUncached = await read([0, 4_000]);
+    expect(allUncached.notes?.join(" ")).toMatch(
+      /none of the pages it billed was kept in the query cache .*\. Calling again would bill the same pages without reading further/,
+    );
+    expect(allUncached.continueWith).toBeUndefined();
+  });
+
+  it("ends a read at its reported total without asking for an empty page", async () => {
+    const total = 8_000;
+    const rows = Array.from({ length: total }, (_, index) =>
+      eventRow(`exact-${index}`, "signup", index, {
+        journey_total_rows: total,
+        journey_rows_fingerprint: 7,
+      }),
+    );
+    const offsets: number[] = [];
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (sql: string, _scope: unknown, options: unknown) => {
+        if (!sql.includes("journey_total_rows"))
+          return { rows: [], schema: [] };
+        const offset = pageOffset(sql);
+        offsets.push(offset);
+        await claimPageJob(options);
+        return { rows: rows.slice(offset, offset + 4_000), schema: [] };
+      },
+    );
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxEventRows: 20_000,
+      maxTotalBytesBilled: 50_000_000_000,
+    })) as JourneySummary;
+
+    expect(offsets).toEqual([0, 4_000]);
+    expect(summary.coverage.truncated).toBe(false);
+    expect(summary.followUp.coverage.journeyEventRead).toMatchObject({
+      rows: total,
+      pages: 2,
+      truncated: false,
+      paginationConsistency: "stable",
+    });
+    expect(summary.continueWith).toBeUndefined();
   });
 
   it("returns completed pages as partial coverage at the event-read deadline", async () => {
@@ -2066,6 +2294,7 @@ describe("getOnboardingJourney", () => {
         );
         expect(notes).not.toMatch(/BigQuery/);
         expect(summary.continueWith).toBeDefined();
+        expect(summary.stoppedPage).toBeUndefined();
       } finally {
         vi.useRealTimers();
       }
@@ -2099,6 +2328,77 @@ describe("getOnboardingJourney", () => {
           /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/,
         ),
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says which step the BigQuery page it was waiting on had reached at the event-read deadline", async () => {
+    vi.useFakeTimers();
+    const jobs = [
+      {
+        job: "existing" as const,
+        slot: 1,
+        collectable: false,
+        state: "DONE",
+        ageSeconds: 600,
+        sameQuery: false,
+        queryDifference: {
+          at: 412,
+          existingLength: 2_000,
+          submittedLength: 2_010,
+        },
+        failureReason: null,
+      },
+      { job: "new" as const, slot: 2 },
+    ];
+    mocks.queryFirstPartyAnalytics.mockImplementationOnce(
+      (
+        _sql: string,
+        _scope: unknown,
+        options: { signal: AbortSignal; trace: BigQueryQueryTrace },
+      ) => {
+        const { trace } = options;
+        trace.jobs.push(...jobs);
+        setTimeout(() => {
+          trace.stage = "polling";
+          trace.stageStartedAt = performance.now();
+          trace.polls = 4;
+        }, 5_000);
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener(
+            "abort",
+            () => reject(options.signal.reason),
+            { once: true },
+          );
+        });
+      },
+    );
+
+    try {
+      const pending = getOnboardingJourney(scope, {
+        ...ARGS,
+        dateTo: "2026-10-09",
+        format: "summary",
+        maxEventRows: 20_000,
+      });
+      await vi.advanceTimersByTimeAsync(ONBOARDING_EVENT_READ_DEADLINE_MS);
+      const summary = (await pending) as JourneySummary;
+
+      expect(summary.stoppedPage).toEqual({
+        page: 1,
+        stage: "polling",
+        stageMs: ONBOARDING_EVENT_READ_DEADLINE_MS - 5_000,
+        elapsedMs: ONBOARDING_EVENT_READ_DEADLINE_MS,
+        lockWaitMs: 0,
+        staleLockCleared: false,
+        jobs,
+        polls: 4,
+      });
+      expect(summary.notes?.join(" ")).toMatch(
+        /stoppedPage says which step event page 1 was on when time ran out\./,
+      );
+      expect(summary.continueWith).toBeDefined();
     } finally {
       vi.useRealTimers();
     }
@@ -2186,6 +2486,36 @@ describe("getOnboardingJourney", () => {
         });
       }
       expect(summary.personFollowUp).toBeDefined();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("gives the follow-ups a whole number of milliseconds when the clock reads fractions", async () => {
+    let clockMs = 0.4;
+    const clock = vi
+      .spyOn(performance, "now")
+      .mockImplementation(() => clockMs);
+    mocks.queryFirstPartyAnalytics.mockImplementation(async () => {
+      if (mocks.queryFirstPartyAnalytics.mock.calls.length === 1) {
+        clockMs = 18_000.9;
+        return { rows: journeyRows(), schema: [] };
+      }
+      return { rows: [], schema: [] };
+    });
+
+    try {
+      await getOnboardingJourney(scope, {
+        ...ARGS,
+        followUpMode: "person",
+        format: "summary",
+      });
+
+      const followups = mocks.queryFirstPartyAnalytics.mock.calls.slice(1);
+      expect(followups).toHaveLength(2);
+      for (const [, , options] of followups) {
+        expect(options).toMatchObject({ timeoutMs: 3_999 });
+      }
     } finally {
       clock.mockRestore();
     }

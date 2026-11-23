@@ -10,7 +10,10 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isTerminalRecoveryErrorCode,
 } from "../agent/engine/error-detail.js";
-import type { AgentChatRichEventEnvelope } from "../agent/types.js";
+import type {
+  A2APeerApproval,
+  AgentChatRichEventEnvelope,
+} from "../agent/types.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { normalizeConnectRequiredResult } from "../shared/connect-required.js";
@@ -107,6 +110,7 @@ export interface SSEEvent {
   suggestions?: AgentSuggestion[];
   event?: AgentChatRichEventEnvelope;
   tool?: string;
+  navigationKeys?: string[];
   /** Server-assigned call identifier emitted on tool_start / tool_done events. */
   id?: string;
   /** Stable transport identity, preserved when a durable turn is replayed. */
@@ -148,6 +152,8 @@ export interface SSEEvent {
   agentCallId?: string;
   durationMs?: number;
   terminalCode?: string;
+  /** A peer approval on a pending `agent_call` (mirrors AgentChatEvent). */
+  approval?: A2APeerApproval;
   snapshot?: A2AAgentActivitySnapshot;
   reason?: string;
   // Agent task fields
@@ -1998,6 +2004,7 @@ export function processEvent(
             result: ev.result,
             isError: ev.isError === true,
             completedSideEffect: ev.completedSideEffect === true,
+            navigationKeys: ev.navigationKeys,
             tabId,
             browserTabId: getBrowserTabId(),
             runId: context?.runId,

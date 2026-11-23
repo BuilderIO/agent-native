@@ -227,6 +227,7 @@ export interface SendMessageInput {
   onSubmissionAccepted?: () => void;
   /** Reuses a host-created optimistic queue row while async preparation finishes. */
   queuedMessageReservationId?: string;
+  onImmediateMessageAppended?: () => void;
   /** Host-only attachment intent for queued submits prepared before upload. */
   queueMessageHasAttachments?: boolean;
   /** One-use proof of queue readiness checked before a host upload. */
@@ -2444,6 +2445,7 @@ export class AgentKitClient implements AgentKitController {
   private readonly threadLoads = new Map<ThreadId, Promise<AgentThreadState>>();
   private readonly missingThreadStates = new WeakSet<AgentThreadState>();
   private readonly threadLeaseCounts = new Map<ThreadId, number>();
+  private readonly promotionRetries = new Set<string>();
   private readonly queuedMessageOverrides = new Map<
     ThreadId,
     QueuedMessageOverride
@@ -2457,7 +2459,10 @@ export class AgentKitClient implements AgentKitController {
   private readonly queuePromotionTerminalExpedites = new Set<ThreadId>();
   private readonly queuePromotionAfterReconciliation = new Set<ThreadId>();
   private readonly pendingQueueMessageIds = new Set<string>();
-  private readonly queuedMessageReservationIds = new Set<string>();
+  private readonly queuedMessageReservations = new Map<
+    string,
+    AgentQueuedMessage
+  >();
   private readonly queuedMessageReservationCallbacks = new Map<
     string,
     () => void
@@ -2915,10 +2920,10 @@ export class AgentKitClient implements AgentKitController {
           thread = {
             ...thread,
             queuedMessages: settledSteering
-              ? queuedOverrideMessages.filter(
-                  (message) =>
-                    message.delivery !== "steering" ||
-                    durableIds.has(message.id),
+              ? this.settleUndeliveredSteeringRows(
+                  queuedOverrideMessages,
+                  durableIds,
+                  thread.messages,
                 )
               : queuedOverrideMessages,
           };
@@ -3207,11 +3212,20 @@ export class AgentKitClient implements AgentKitController {
     }
     assertSubmissionNotExpired(expiresAt);
     this.assertActive();
-    if (input.queuedMessageReservationId) {
-      this.cancelQueuedMessageReservation(
-        input.threadId,
-        input.queuedMessageReservationId,
-      );
+    let onLocalSubmit = input.onLocalSubmit;
+    const reservationId = input.queuedMessageReservationId;
+    if (reservationId) {
+      if (
+        this.queuedMessageReservations.get(reservationId)?.threadId !==
+        input.threadId
+      ) {
+        throw new TypeError(
+          "Queued message reservation is no longer available.",
+        );
+      }
+      onLocalSubmit ??=
+        this.queuedMessageReservationCallbacks.get(reservationId);
+      this.cancelQueuedMessageReservation(input.threadId, reservationId);
     }
     const currentAfterReadiness = this.getThread(input.threadId);
     const message: AgentMessage = {
@@ -3230,6 +3244,7 @@ export class AgentKitClient implements AgentKitController {
       suggestions: [],
       suggestionsPendingTurn: true,
     });
+    this.acknowledgeLocalSubmit(input.onImmediateMessageAppended);
     this.setConnection("connecting");
     let localSubmitAcknowledged = false;
     let submissionPayload: AgentSubmissionPayload | undefined;
@@ -3240,7 +3255,7 @@ export class AgentKitClient implements AgentKitController {
         expiresAt,
       );
       assertSubmissionNotExpired(expiresAt);
-      this.acknowledgeLocalSubmit(input.onLocalSubmit);
+      this.acknowledgeLocalSubmit(onLocalSubmit);
       this.acknowledgeLocalSubmit(input.onSubmissionAccepted);
       localSubmitAcknowledged = true;
       const messages = messagesWithToolCallHistory(
@@ -3989,7 +4004,7 @@ export class AgentKitClient implements AgentKitController {
     };
     const thread = this.getThread(input.threadId);
     const queuedMessages = [...thread.queuedMessages, reservation];
-    this.queuedMessageReservationIds.add(reservation.id);
+    this.queuedMessageReservations.set(reservation.id, reservation);
     this.pendingQueueMessageIds.add(reservation.id);
     this.setThread(input.threadId, { ...thread, queuedMessages });
     const previousOverride = this.queuedMessageOverrides.get(input.threadId);
@@ -4050,7 +4065,10 @@ export class AgentKitClient implements AgentKitController {
     threadId: ThreadId,
     messageId: string,
   ): void {
-    if (!this.queuedMessageReservationIds.delete(messageId)) return;
+    if (this.queuedMessageReservations.get(messageId)?.threadId !== threadId) {
+      return;
+    }
+    this.queuedMessageReservations.delete(messageId);
     this.queuedMessageReservationCallbacks.delete(messageId);
     this.pendingQueueMessageIds.delete(messageId);
     const thread = this.getThread(threadId);
@@ -4231,43 +4249,14 @@ export class AgentKitClient implements AgentKitController {
       await this.requireSubmissionDeadlinesCapability(requestContext);
     }
     const queueMessage = this.transport.queueMessage;
-    let reservedMessage = input.queuedMessageReservationId
-      ? threadAtSubmit.queuedMessages.find(
-          (message) => message.id === input.queuedMessageReservationId,
-        )
+    const reservation = input.queuedMessageReservationId
+      ? this.queuedMessageReservations.get(input.queuedMessageReservationId)
       : undefined;
     if (
       input.queuedMessageReservationId &&
-      (!this.queuedMessageReservationIds.has(
-        input.queuedMessageReservationId,
-      ) ||
-        !reservedMessage)
+      reservation?.threadId !== input.threadId
     ) {
       throw new TypeError("Queued message reservation is no longer available.");
-    }
-    if (reservedMessage) {
-      const preparingMessage = {
-        ...reservedMessage,
-        text: input.text,
-        attachments: input.attachments,
-        references: input.references,
-        metadata: input.metadata,
-        options: input.options,
-      };
-      const thread = this.getThread(input.threadId);
-      const queuedMessages = thread.queuedMessages.map((message) =>
-        message.id === preparingMessage.id ? preparingMessage : message,
-      );
-      this.setThread(input.threadId, { ...thread, queuedMessages });
-      const override = this.queuedMessageOverrides.get(input.threadId);
-      if (override) {
-        this.queuedMessageOverrides.set(input.threadId, {
-          messages: override.messages.map((message) =>
-            message.id === preparingMessage.id ? preparingMessage : message,
-          ),
-          removedIds: override.removedIds,
-        });
-      }
     }
     const preflightToken = input.queueMessagePreflightToken;
     const preflight = preflightToken
@@ -4288,42 +4277,24 @@ export class AgentKitClient implements AgentKitController {
     // Render immediately so readiness checks and uploads do not make the send
     // feel like it was ignored. The payload is replaced with durable references
     // before it crosses the transport boundary.
-    if (input.queuedMessageReservationId) {
-      reservedMessage = this.getThread(input.threadId).queuedMessages.find(
-        (message) => message.id === input.queuedMessageReservationId,
-      );
-      if (
-        !this.queuedMessageReservationIds.has(
-          input.queuedMessageReservationId,
-        ) ||
-        !reservedMessage
-      ) {
-        throw new TypeError(
-          "Queued message reservation is no longer available.",
-        );
-      }
-    }
-    const optimisticMessage: AgentQueuedMessage = reservedMessage
-      ? {
-          ...reservedMessage,
-          text: input.text,
-          attachments: input.attachments,
-          metadata: input.metadata,
-          options: input.options,
-        }
-      : {
-          id: messageIdOverride ?? this.createId("queued-message"),
-          threadId: input.threadId,
-          text: input.text,
-          createdAt: this.now(),
-          attachments: input.attachments,
-          references: input.references,
-          metadata: input.metadata,
-          options: input.options,
-        };
-    this.pendingQueueMessageIds.add(optimisticMessage.id);
     const localThread = this.getThread(input.threadId);
-    const optimisticQueue = reservedMessage
+    const visibleReservation = reservation
+      ? localThread.queuedMessages.find(({ id }) => id === reservation.id)
+      : undefined;
+    const optimisticMessage: AgentQueuedMessage = {
+      ...(visibleReservation ?? reservation),
+      id:
+        reservation?.id ?? messageIdOverride ?? this.createId("queued-message"),
+      threadId: input.threadId,
+      text: input.text,
+      createdAt: reservation?.createdAt ?? this.now(),
+      ...(input.attachments ? { attachments: input.attachments } : {}),
+      ...(input.references ? { references: input.references } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
+      ...(input.options ? { options: input.options } : {}),
+    };
+    this.pendingQueueMessageIds.add(optimisticMessage.id);
+    const optimisticQueue = visibleReservation
       ? localThread.queuedMessages.map((message) =>
           message.id === optimisticMessage.id ? optimisticMessage : message,
         )
@@ -4339,7 +4310,7 @@ export class AgentKitClient implements AgentKitController {
       messages: optimisticQueue,
       removedIds,
     });
-    const localSubmit = reservedMessage
+    const localSubmit = reservation
       ? this.queuedMessageReservationCallbacks.get(optimisticMessage.id)
       : input.onLocalSubmit;
     this.queuedMessageReservationCallbacks.delete(optimisticMessage.id);
@@ -4433,7 +4404,7 @@ export class AgentKitClient implements AgentKitController {
         });
         this.acknowledgeLocalSubmit(input.onSubmissionAccepted);
         this.assertActive();
-        this.queuedMessageReservationIds.delete(optimisticMessage.id);
+        this.queuedMessageReservations.delete(optimisticMessage.id);
         this.pendingQueueMessageIds.delete(optimisticMessage.id);
         if (result.alreadySubmitted) {
           this.markQueueMessageSubmitted(input.threadId, result.message);
@@ -4472,7 +4443,7 @@ export class AgentKitClient implements AgentKitController {
           : result.message;
       });
     } catch (error) {
-      this.queuedMessageReservationIds.delete(optimisticMessage.id);
+      this.queuedMessageReservations.delete(optimisticMessage.id);
       this.queuedMessageReservationCallbacks.delete(optimisticMessage.id);
       this.pendingQueueMessageIds.delete(optimisticMessage.id);
       const submittedRunId = submittedRunIdFromError(error);
@@ -5056,15 +5027,27 @@ export class AgentKitClient implements AgentKitController {
       this.transport.cancelRun({ threadId, runId }, context),
     );
     this.assertActive();
-    const status = this.getThread(threadId).runs[runId]?.status;
-    if (status && this.isTerminalStatus(status)) return;
-    this.markRunCancelled(threadId, runId);
     const key = this.runKey(threadId, runId);
+    const run = this.findRun(threadId, runId);
+    if (run && this.isTerminalStatus(run.status)) {
+      await this.consumers.get(key)?.catch(() => undefined);
+      return;
+    }
+    this.markRunCancelled(threadId, runId);
     const hasOtherConsumers = [...this.consumers.keys()].some(
       (candidate) => candidate !== key,
     );
     this.stopConsumer(threadId, runId, "cancelled");
     if (!hasOtherConsumers) this.setConnection("connected");
+    const persistenceError =
+      await this.persistThreadSnapshotToTransport(threadId);
+    if (
+      persistenceError &&
+      !this.disposed &&
+      !isExpectedThreadSnapshotDeferral(persistenceError.error)
+    ) {
+      this.fail(persistenceError.error, "thread_snapshot_persist_failed");
+    }
   }
 
   public async submitFeedback(
@@ -5177,7 +5160,7 @@ export class AgentKitClient implements AgentKitController {
     this.queuePromotionRetryAttempts.clear();
     this.queuePromotionTerminalExpedites.clear();
     this.pendingQueueMessageIds.clear();
-    this.queuedMessageReservationIds.clear();
+    this.queuedMessageReservations.clear();
     this.queuedMessageReservationCallbacks.clear();
     this.queuePromotionAfterReconciliation.clear();
     this.terminalRunCatchUps.clear();
@@ -5293,7 +5276,7 @@ export class AgentKitClient implements AgentKitController {
       updatedAt,
       messages: snapshotMessages,
       queuedMessages: thread.queuedMessages.filter(
-        (message) => !this.queuedMessageReservationIds.has(message.id),
+        (message) => !this.queuedMessageReservations.has(message.id),
       ),
       events: thread.events,
       runs: Object.values(thread.runs).map((run) => ({
@@ -5593,7 +5576,20 @@ export class AgentKitClient implements AgentKitController {
       !hasActiveAgentRuns(terminalThread);
     if (queuedWorkKnown) this.scheduleQueuePromotion(threadId, true);
     const persistenceError = await snapshotPersistence;
-    if (completed) {
+    // A failed or cancelled run may still have taken a steering row; the snapshot says which, so
+    // read it before those rows are settled below.
+    const steeringRowsPending = terminalThread.queuedMessages.some(
+      (message) => message.delivery === "steering",
+    );
+    // Steering rows are settled against the transcript, so a failed or cancelled run settles them
+    // only once that transcript is known to be current.
+    let transcriptCurrent =
+      completed ||
+      Boolean(options.projectionAlreadyCaughtUp) ||
+      !(this.transport.getThreadSnapshot || this.transport.getThread);
+    if (completed || steeringRowsPending) {
+      // A load already in flight is not awaited (it can be waiting on this run); a failed or
+      // cancelled run then leaves its steering rows unsettled.
       const shouldRefreshProjection =
         !options.projectionAlreadyCaughtUp &&
         !this.threadLoads.has(threadId) &&
@@ -5605,12 +5601,17 @@ export class AgentKitClient implements AgentKitController {
             this.createRequestContext(),
             true,
           );
+          transcriptCurrent = true;
         } catch (error) {
           // History hydration reports its own failure; it cannot undo a terminal run.
           if (this.disposed) throw error;
         }
       }
-      if (!queuedWorkKnown && !hasActiveAgentRuns(this.getThread(threadId))) {
+      if (
+        completed &&
+        !queuedWorkKnown &&
+        !hasActiveAgentRuns(this.getThread(threadId))
+      ) {
         this.scheduleQueuePromotion(threadId, true);
       }
     }
@@ -5623,11 +5624,26 @@ export class AgentKitClient implements AgentKitController {
     // thread state too. With no run active a steering row cannot be pending - a waiting row carries
     // after_reply - so this can only remove rows the server has already delivered.
     const settledThread = this.getThread(threadId);
-    if (!hasActiveAgentRuns(settledThread)) {
-      const keptQueued = settledThread.queuedMessages.filter(
-        (message) => message.delivery !== "steering",
+    // A steering row the run never put in the transcript was not taken by the run, whether it completed,
+    // failed or was cancelled. It is kept as after_reply so it stays available to send as the next turn.
+    const untaken = (message: AgentQueuedMessage) =>
+      message.delivery === "steering" &&
+      !settledThread.messages.some(
+        (candidate) =>
+          candidate.id === message.id ||
+          metadataRecord(candidate.metadata?.custom)
+            ?.agentNativeQueuedMessageId === message.id,
       );
-      if (keptQueued.length !== settledThread.queuedMessages.length) {
+    const settleRow = (message: AgentQueuedMessage): AgentQueuedMessage =>
+      untaken(message) ? { ...message, delivery: "after_reply" } : message;
+    const rowsChanged = <T>(before: T[], after: T[]) =>
+      after.length !== before.length ||
+      after.some((row, i) => row !== before[i]);
+    if (transcriptCurrent && !hasActiveAgentRuns(settledThread)) {
+      const keptQueued = settledThread.queuedMessages
+        .map(settleRow)
+        .filter((message) => message.delivery !== "steering");
+      if (rowsChanged(settledThread.queuedMessages, keptQueued)) {
         this.setThread(threadId, {
           ...settledThread,
           queuedMessages: keptQueued,
@@ -5635,11 +5651,15 @@ export class AgentKitClient implements AgentKitController {
       }
     }
     const queueOverride = this.queuedMessageOverrides.get(threadId);
-    if (queueOverride) {
-      const remaining = queueOverride.messages.filter(
-        (message) => message.delivery !== "steering",
-      );
-      if (remaining.length !== queueOverride.messages.length) {
+    if (
+      transcriptCurrent &&
+      queueOverride &&
+      !hasActiveAgentRuns(settledThread)
+    ) {
+      const remaining = queueOverride.messages
+        .map(settleRow)
+        .filter((message) => message.delivery !== "steering");
+      if (rowsChanged(queueOverride.messages, remaining)) {
         if (remaining.length === 0 && queueOverride.removedIds.size === 0) {
           this.queuedMessageOverrides.delete(threadId);
         } else {
@@ -6488,19 +6508,20 @@ export class AgentKitClient implements AgentKitController {
     ).filter(
       (runId) => !this.isTerminalStatus(runs[runId]?.status ?? "running"),
     );
+    const mergedMessages =
+      reconciliation &&
+      (preserveLiveMessages || messagesChanged || hasMessageIdRemap)
+        ? reconciliation.messages
+        : loaded.messages.length > 0 || current.messages.length === 0
+          ? loaded.messages
+          : current.messages;
     return {
       ...loaded,
       thread:
         current.thread === baseline.thread ? loaded.thread : current.thread,
       // A snapshot can trail accepted events even when no event arrives
       // during this load.
-      messages:
-        reconciliation &&
-        (preserveLiveMessages || messagesChanged || hasMessageIdRemap)
-          ? reconciliation.messages
-          : loaded.messages.length > 0 || current.messages.length === 0
-            ? loaded.messages
-            : current.messages,
+      messages: mergedMessages,
       queuedMessages:
         current.queuedMessages === baseline.queuedMessages &&
         !snapshotIncludes("queuedMessages")
@@ -6510,6 +6531,7 @@ export class AgentKitClient implements AgentKitController {
               loaded.queuedMessages,
               live.queuedMessages,
               !hasActiveAgentRuns(loaded),
+              mergedMessages,
             ),
       runs,
       activeRunIds,
@@ -6732,11 +6754,37 @@ export class AgentKitClient implements AgentKitController {
     };
   }
 
+  /**
+   * With no run active, a steering row the server no longer lists was taken by its run when the transcript
+   * shows it; it is dropped. A row the transcript does not show was never taken, so it waits as after_reply
+   * for the promotion that is settling to send it as the next turn.
+   */
+  private settleUndeliveredSteeringRows(
+    rows: AgentQueuedMessage[],
+    durableIds: ReadonlySet<string>,
+    transcript: readonly AgentMessage[],
+  ): AgentQueuedMessage[] {
+    const transcriptIds = new Set<unknown>(
+      transcript.flatMap((message) => [
+        message.id,
+        metadataRecord(message.metadata?.custom)?.agentNativeQueuedMessageId,
+      ]),
+    );
+    return rows.flatMap((message) => {
+      if (message.delivery !== "steering" || durableIds.has(message.id)) {
+        return [message];
+      }
+      if (transcriptIds.has(message.id)) return [];
+      return [{ ...message, delivery: "after_reply" as const }];
+    });
+  }
+
   private mergeQueuedMessages(
     baseline: AgentQueuedMessage[],
     loaded: AgentQueuedMessage[],
     current: AgentQueuedMessage[],
     settleDeliveredSteering = false,
+    transcript: AgentMessage[] = [],
   ): AgentQueuedMessage[] {
     const currentIds = new Set(current.map((message) => message.id));
     const removedIds = new Set(
@@ -6749,20 +6797,10 @@ export class AgentKitClient implements AgentKitController {
     // it on screen as a stuck "Send now" until a reload. Rows the server still
     // lists, and rows waiting for after_reply, keep the union's behaviour.
     const durableIds = new Set(loaded.map((message) => message.id));
-    const settledSteeringIds = settleDeliveredSteering
-      ? new Set(
-          current
-            .filter(
-              (message) =>
-                message.delivery === "steering" && !durableIds.has(message.id),
-            )
-            .map((message) => message.id),
-        )
-      : new Set<string>();
     return this.mergeItemsById(
       loaded.filter((message) => !removedIds.has(message.id)),
-      settledSteeringIds.size
-        ? current.filter((message) => !settledSteeringIds.has(message.id))
+      settleDeliveredSteering
+        ? this.settleUndeliveredSteeringRows(current, durableIds, transcript)
         : current,
     );
   }
@@ -7200,6 +7238,10 @@ export class AgentKitClient implements AgentKitController {
     return ["completed", "failed", "cancelled"].includes(status);
   }
 
+  private findRun(threadId: ThreadId, runId: RunId): AgentRunState | undefined {
+    return this.getThread(threadId).runs[runId];
+  }
+
   private scheduleQueuePromotion(threadId: ThreadId, expedite = false): void {
     if (this.disposed) return;
     if (this.pendingApprovalContinuations.has(threadId)) return;
@@ -7269,7 +7311,16 @@ export class AgentKitClient implements AgentKitController {
           return;
         }
         this.queuePromotionRetryAttempts.delete(threadId);
-        // The transport retains the queue item and reports the failure.
+        // A refused steer leaves the row queued with no turn to join. Marking it "after this reply" hands it
+        // to the settle step below, which sends it as the next turn once the thread is idle.
+        if (
+          !this.disposed &&
+          this.getThread(threadId).queuedMessages.some(
+            (message) => message.id === queued.id,
+          )
+        ) {
+          this.setQueuedMessageDelivery(threadId, queued.id, "after_reply");
+        }
       })
       .finally(() => {
         this.queuePromotions.delete(threadId);
@@ -7323,16 +7374,72 @@ export class AgentKitClient implements AgentKitController {
       if (!(error instanceof AgentKitCapabilityError)) throw error;
       this.removeQueuedMessageFromState(threadId, queued.id);
     }
-    await this.sendMessage({
+    const input: SendMessageInput = {
       threadId,
       text: queued.text,
       ...(queued.attachments?.length
         ? { attachments: queued.attachments }
         : {}),
+      ...(queued.requestAttachments?.length
+        ? { requestAttachments: queued.requestAttachments }
+        : {}),
       ...(queued.references?.length ? { references: queued.references } : {}),
+      ...(queued.options ? { options: queued.options } : {}),
       ...(queued.metadata ? { metadata: queued.metadata } : {}),
       queueWhileRunning: false,
-    });
+    };
+    const messageIdsBeforeSend = new Set(
+      this.getThread(threadId).messages.map((message) => message.id),
+    );
+    const retryKey = `${threadId}\u0000${queued.text}`;
+    try {
+      await this.sendMessage(input);
+      this.promotionRetries.delete(retryKey);
+    } catch (error) {
+      // The row was removed before the send; a refusal before any transcript
+      // message exists must not lose the user's text and attachments. Once
+      // sendMessage has kept the text as an errored transcript entry, queueing
+      // it again would send it twice.
+      const retainedAsError = this.getThread(threadId).messages.some(
+        (message) =>
+          !messageIdsBeforeSend.has(message.id) &&
+          message.role === "user" &&
+          message.status === "error",
+      );
+      if (!this.disposed && !retainedAsError) {
+        const requeued = await this.queueMessage({
+          ...input,
+          queueWhileRunning: true,
+        }).then(
+          () => true,
+          () => false,
+        );
+        if (requeued) {
+          // The thread is idle, so nothing else would deliver the restored row. One automatic retry:
+          // a failure that persists leaves the row queued for the user instead of looping.
+          if (!this.promotionRetries.has(retryKey)) {
+            this.promotionRetries.add(retryKey);
+            this.scheduleQueuePromotionIfIdle(threadId);
+          }
+        } else {
+          // Requeueing failed too: keep the row, and tell the override the
+          // row is wanted again, or the next snapshot filters it out as removed.
+          const thread = this.getThread(threadId);
+          if (!thread.queuedMessages.some((m) => m.id === queued.id)) {
+            const queuedMessages = [...thread.queuedMessages, queued];
+            this.setThread(threadId, { ...thread, queuedMessages });
+            const previous = this.queuedMessageOverrides.get(threadId);
+            const removedIds = new Set(previous?.removedIds);
+            removedIds.delete(queued.id);
+            this.queuedMessageOverrides.set(threadId, {
+              messages: queuedMessages,
+              removedIds,
+            });
+          }
+        }
+      }
+      throw error;
+    }
   }
 
   /**

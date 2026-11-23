@@ -89,9 +89,9 @@ relying on ambient screen text.
 from `list-inbox-threads`; `label`/`filter` are accepted aliases),
 `threadId`, `settingsSection`, `queuedDraftId`, or `composeDraftId`.
 
-`settingsSection` opens Settings in the user's tab. `general`, `drafting`,
-`snippets`, `rules`, `ai-filter`, `gmail-filters`, `aliases`, and `tracking`
-are tabs on Mail › General (`/settings/app/<id>`). `rules` is Mail's inbox
+`settingsSection` opens Settings in the user's tab. `general`, `reading`,
+`drafting`, `snippets`, `rules`, `ai-filter`, `gmail-filters`, `aliases`, and
+`tracking` are tabs on Mail › General (`/settings/app/<id>`). `rules` is Mail's inbox
 rules; the core Automations page is the agent's scheduled and event
 automations. `slack` opens Channels › Slack, where Slack draft requests and
 the agent's Slack connection live, and `members` opens Organization › Members.

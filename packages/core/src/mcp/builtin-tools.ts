@@ -15,10 +15,16 @@ import {
   WORKSPACE_APP_CHAT_TTL_SECONDS,
 } from "../shared/workspace-app-chat-capability.js";
 import {
+  INVALID_ASK_APP_TASK_HANDLE_ERROR,
   signAskAppTaskHandle,
   verifyAskAppTaskHandle,
 } from "./ask-app-task-handle.js";
 import type { MCPConfig, MCPCallerIdentity } from "./build-server.js";
+import { mcpChatTurnOwner } from "./chat-turn-scope.js";
+import {
+  hasMcpChatTurnApps,
+  mintMcpChatTurnMetadata,
+} from "./chat-turn-store.js";
 import { embedApp } from "./embed-app.js";
 import { frameworkMcpTool } from "./framework-tools.js";
 import {
@@ -55,6 +61,7 @@ function currentAppId(config: MCPConfig): string {
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
 const ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
+const ASK_APP_CHAT_TURN_MAX_INLINE_WAIT_MS = 24_000;
 const ASK_APP_POLL_INTERVAL_MS = 1_500;
 const ASK_APP_A2A_REQUEST_TIMEOUT_MS = 10_000;
 const ASK_APP_STATUS_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
@@ -210,10 +217,16 @@ function askAppIssuerAudience(requestMeta?: AskAppRequestMeta): string | null {
 }
 
 function boundedAskAppWaitMs(raw: unknown): number {
-  if (raw == null || raw === "") return ASK_APP_DEFAULT_INLINE_WAIT_MS;
+  // A verified user's chat turn waits a little longer so a read finishes inline.
+  const chatTurn = hasMcpChatTurnApps() && mcpChatTurnOwner() !== undefined;
+  const maximum = chatTurn
+    ? ASK_APP_CHAT_TURN_MAX_INLINE_WAIT_MS
+    : ASK_APP_MAX_INLINE_WAIT_MS;
+  const fallback = chatTurn ? maximum : ASK_APP_DEFAULT_INLINE_WAIT_MS;
+  if (raw == null || raw === "") return fallback;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return ASK_APP_DEFAULT_INLINE_WAIT_MS;
-  return Math.max(0, Math.min(ASK_APP_MAX_INLINE_WAIT_MS, Math.trunc(parsed)));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(maximum, Math.trunc(parsed)));
 }
 
 function isExplicitAsyncAsk(raw: unknown): boolean {
@@ -491,8 +504,10 @@ async function submitAskAppA2ATask(
     issuerAudience,
     message,
   );
+  const chatTurn = await mintMcpChatTurnMetadata(route.app);
   const task = await client.send(
     {
+      ...(chatTurn ? { metadata: chatTurn } : {}),
       role: "user",
       parts: [{ type: "text", text: message }],
     },
@@ -1034,8 +1049,11 @@ function openAppTool(config: MCPConfig, inlineMcpApps: boolean): ActionEntry {
           await import("../server/embed-request-origin.js");
         const embedOrigin = getEmbedSessionOrigin();
         if (ownerEmail && embedOrigin) {
-          const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
-            await import("../server/embed-session.js");
+          const {
+            normalizeEmbedTargetPath,
+            createEmbedSessionTicket,
+            FULL_APP_EMBED_SCOPE,
+          } = await import("../server/embed-session.js");
           const { buildEmbedStartPath } =
             await import("../server/embed-route.js");
           const targetPath = normalizeEmbedTargetPath(
@@ -1047,7 +1065,7 @@ function openAppTool(config: MCPConfig, inlineMcpApps: boolean): ActionEntry {
               ownerEmail,
               orgId: ctx?.orgId,
               targetPath,
-              scope: chrome ?? null,
+              scope: embedScopeForChrome(chrome, FULL_APP_EMBED_SCOPE),
             });
             const startPath = buildEmbedStartPath(ticket.ticket);
             embedStartUrl = new URL(startPath, embedOrigin).toString();
@@ -1261,7 +1279,10 @@ function createEmbedSessionTool(
         ownerEmail,
         orgId: ctx?.orgId,
         targetPath,
-        scope: typeof args.chrome === "string" ? args.chrome : null,
+        scope: embedScopeForChrome(
+          typeof args.chrome === "string" ? args.chrome : undefined,
+          embedSession.FULL_APP_EMBED_SCOPE,
+        ),
       });
       const startPath = buildEmbedStartPath(ticket.ticket);
       const startUrl = new URL(startPath, embedOrigin).toString();
@@ -1278,6 +1299,15 @@ function createEmbedSessionTool(
         : null;
     },
   };
+}
+
+// A panel shows the app's own UI to its owner, so it carries that owner's UI
+// authority unless the caller asked for the stripped-down minimal view.
+function embedScopeForChrome(
+  chrome: string | undefined,
+  fullAppScope: string,
+): string | null {
+  return chrome === "minimal" ? chrome : fullAppScope;
 }
 
 async function routeAskOverA2A(
@@ -1324,7 +1354,9 @@ async function routeAskOverA2A(
   const auth = await resolveA2ACallerAuth({
     audience: canonicalA2AAudience(origin),
   });
+  const chatTurn = await mintMcpChatTurnMetadata(id);
   const response = await callAgent(origin, message, {
+    ...(chatTurn ? { metadata: chatTurn } : {}),
     apiKey: auth.apiKey,
     userEmail: auth.userEmail,
     orgId: auth.orgId,
@@ -1597,7 +1629,7 @@ function askAppStatusTool(
           (suppliedTaskId && suppliedTaskId !== verified.taskId) ||
           (suppliedApp && suppliedApp !== verified.route.app.toLowerCase())
         ) {
-          throw new Error("Invalid or expired ask_app task handle.");
+          throw new Error(INVALID_ASK_APP_TASK_HANDLE_ERROR);
         }
         return fetchAskAppA2ATask(
           verified.route,

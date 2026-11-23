@@ -208,3 +208,8 @@ describe("get-feature-flags action", () => {
     });
   });
 });
+
+it("keeps get-feature-flags in the app, off MCP", async () => {
+  const { default: action } = await import("./get-feature-flags.js");
+  expect(action.mcpTool).toBe(false);
+});

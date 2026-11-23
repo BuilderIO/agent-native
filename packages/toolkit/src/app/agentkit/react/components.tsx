@@ -235,12 +235,16 @@ import { registerChatThreadView } from "./viewed-threads.js";
 import { useRealtimeVoiceTranscripts } from "./voice-transcripts.js";
 import {
   agentWorkCallObject,
+  agentWorkSources,
   agentWorkSteps,
   agentWorkTimeline,
   type AgentWorkCall,
   type AgentWorkGroup,
   type AgentWorkItem,
   type AgentWorkObject,
+  type AgentWorkSourceFailure,
+  type AgentWorkSourceKind,
+  type AgentWorkSources,
   type AgentWorkStep,
   type AgentWorkTimelineEntry,
   type AgentWorkVerb,
@@ -2205,6 +2209,181 @@ export function AgentSources({ citations }: { citations: CitationPart[] }) {
   );
 }
 
+const WORK_SOURCE_KINDS: readonly AgentWorkSourceKind[] = [
+  "document",
+  "web",
+  "file",
+  "search",
+];
+
+function workSourceCount(
+  kind: AgentWorkSourceKind,
+  count: number,
+  labels: AgentKitLabels,
+): string {
+  const pairs: Record<AgentWorkSourceKind, [string, string]> = {
+    document: [
+      labels.workStepSourcesDocumentsOne,
+      labels.workStepSourcesDocumentsOther,
+    ],
+    web: [labels.workStepSourcesWebOne, labels.workStepSourcesWebOther],
+    file: [labels.workStepSourcesFilesOne, labels.workStepSourcesFilesOther],
+    search: [
+      labels.workStepSourcesSearchesOne,
+      labels.workStepSourcesSearchesOther,
+    ],
+  };
+  const [one, other] = pairs[kind];
+  return countLabel(one, other, count);
+}
+
+function workSourceVerb(
+  kind: AgentWorkSourceKind,
+  labels: AgentKitLabels,
+): string {
+  return kind === "search"
+    ? labels.workStepSourceSearched
+    : kind === "web"
+      ? labels.workStepSourceOpened
+      : labels.workStepSourceRead;
+}
+
+function workSourceIcon(kind: AgentWorkSourceKind): ReactNode {
+  const props = { "aria-hidden": true, className: "agentkit-icon" } as const;
+  switch (kind) {
+    case "document":
+      return <IconFile {...props} />;
+    case "web":
+      return <IconWorld {...props} />;
+    case "file":
+      return <IconFileText {...props} />;
+    case "search":
+      return <IconSearch {...props} />;
+  }
+}
+
+const WORK_SOURCE_FAILURE_NAME_LIMIT = 80;
+
+function workSourceFailureLabel(
+  failure: AgentWorkSourceFailure,
+  labels: AgentKitLabels,
+): string {
+  const text = readableText(failure.text);
+  const characters = Array.from(text);
+  const name =
+    characters.length > WORK_SOURCE_FAILURE_NAME_LIMIT
+      ? `${characters.slice(0, WORK_SOURCE_FAILURE_NAME_LIMIT).join("").trimEnd()}…`
+      : text;
+  if (name) {
+    const template =
+      failure.kind === "search"
+        ? labels.workStepSourceFailedSearch
+        : failure.kind === "web"
+          ? labels.workStepSourceFailedOpen
+          : labels.workStepSourceFailedRead;
+    return template.replace("{{name}}", () => name);
+  }
+  switch (failure.kind) {
+    case "search":
+      return labels.workStepSourceFailedSearchAny;
+    case "web":
+      return labels.workStepSourceFailedWeb;
+    case "file":
+      return labels.workStepSourceFailedFile;
+    case "document":
+      return labels.workStepSourceFailedPage;
+  }
+}
+
+function AgentWorkSourcesLine({ sources, failures }: AgentWorkSources) {
+  const { labels } = useAgentKit();
+  if (!sources.length && !failures.length) return null;
+  const counts = new Map<AgentWorkSourceKind, number>();
+  for (const source of sources) {
+    counts.set(source.kind, (counts.get(source.kind) ?? 0) + 1);
+  }
+  const label = labels.workStepSourcesUsed.replace("{{sources}}", () =>
+    WORK_SOURCE_KINDS.flatMap((kind) => {
+      const count = counts.get(kind);
+      return count ? [workSourceCount(kind, count, labels)] : [];
+    }).join(labels.workStepSourcesSeparator),
+  );
+  return (
+    <div className="agentkit-work-sources" data-agentkit-work-sources="true">
+      {failures.length ? (
+        <ul className="agentkit-work-source-failures">
+          {failures.map((failure) => (
+            <li key={failure.key} className="agentkit-work-source-failure">
+              <TraceIcon>
+                <IconAlertTriangle
+                  aria-hidden="true"
+                  className="agentkit-icon"
+                />
+              </TraceIcon>
+              <span
+                {...SESSION_REPLAY_MASK_PROPS}
+                className="agentkit-work-source-failure-text"
+              >
+                <span className="agentkit-work-source-failure-label">
+                  {workSourceFailureLabel(failure, labels)}
+                </span>
+                {failure.reason ? (
+                  <>
+                    {" "}
+                    <span className="agentkit-work-source-failure-reason">
+                      {readableText(failure.reason)}
+                    </span>
+                  </>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {sources.length ? (
+        <Trace className="agentkit-sources">
+          <TraceCollapsible>
+            <TraceCollapsibleTrigger>
+              <TraceLine>
+                <TraceIcon>
+                  <IconBook2 aria-hidden="true" className="agentkit-icon" />
+                </TraceIcon>
+                <span className="agentkit-disclosure-label">{label}</span>
+              </TraceLine>
+            </TraceCollapsibleTrigger>
+            <TraceCollapsibleContent keepMounted>
+              <ul
+                {...SESSION_REPLAY_BLOCK_PROPS}
+                className="agentkit-sources-list"
+              >
+                {sources.map((source) => (
+                  <li key={source.key} data-kind={source.kind}>
+                    <AgentLink href={source.uri}>
+                      <TraceLine>
+                        <TraceIcon>{workSourceIcon(source.kind)}</TraceIcon>
+                        <span className="agentkit-work-source-verb">
+                          {workSourceVerb(source.kind, labels)}
+                        </span>
+                        <TraceTitle>
+                          {source.kind === "search" ? (
+                            <q>{readableText(source.text)}</q>
+                          ) : (
+                            readableText(source.text)
+                          )}
+                        </TraceTitle>
+                      </TraceLine>
+                    </AgentLink>
+                  </li>
+                ))}
+              </ul>
+            </TraceCollapsibleContent>
+          </TraceCollapsible>
+        </Trace>
+      ) : null}
+    </div>
+  );
+}
+
 function sourceTitle(source: CitationPart): string {
   const title = readableText(source.title);
   if (title) return title;
@@ -2269,7 +2448,7 @@ function toolToActivity(
   return {
     id: tool.id,
     kind: inferAgentActivityKind(tool.name),
-    label: tool.name,
+    label: labels.resolveToolStepLabel?.(tool) ?? tool.name,
     status:
       tool.status === "completed"
         ? "completed"
@@ -2344,6 +2523,20 @@ function workedSummaryLabel(
     : labels.worked;
 }
 
+function replyDurationMs(
+  message: AgentMessage | undefined,
+): number | undefined {
+  const custom = message?.metadata?.custom as
+    | Record<string, unknown>
+    | undefined;
+  const durationMs = custom?.agentNativeRunDurationMs;
+  return typeof durationMs === "number" &&
+    Number.isFinite(durationMs) &&
+    durationMs >= 0
+    ? durationMs
+    : undefined;
+}
+
 function isVisibleReasoningPart(part: AgentMessagePart): boolean {
   return (
     part.type === "reasoning" &&
@@ -2354,31 +2547,6 @@ function isVisibleReasoningPart(part: AgentMessagePart): boolean {
 
 function hasVisibleReasoning(message: AgentMessage): boolean {
   return message.parts.some(isVisibleReasoningPart);
-}
-
-/** Reasoning that precedes a reply's first answer content, if any. */
-function leadingReasoningCount(message: AgentMessage): number {
-  let count = 0;
-  for (const part of message.parts) {
-    if (part.type !== "reasoning") break;
-    count += 1;
-  }
-  return message.parts.slice(0, count).some(isVisibleReasoningPart) ? count : 0;
-}
-
-function leadingReasoningMessage(
-  message: AgentMessage | undefined,
-): AgentMessage | undefined {
-  if (message?.role !== "assistant") return undefined;
-  const count = leadingReasoningCount(message);
-  return count
-    ? { ...message, parts: message.parts.slice(0, count) }
-    : undefined;
-}
-
-function withoutLeadingReasoning(message: AgentMessage): AgentMessage {
-  const count = leadingReasoningCount(message);
-  return count ? { ...message, parts: message.parts.slice(count) } : message;
 }
 
 function reasoningMessageId(event: AgentEvent): string | undefined {
@@ -2625,7 +2793,6 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   isCurrentSegment?: boolean | undefined;
   /** The reply this work segment precedes. */
   messageId?: string | undefined;
-  /** A saved reply whose reasoning before its answer joins this group. */
   foldedReasoningMessageId?: string | undefined;
   /** This segment is its run's whole turn, so it shows a row with no work. */
   summarizesTurn?: boolean | undefined;
@@ -2640,8 +2807,12 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
     formatWorkedForDuration,
     loadRunUsage,
   } = useAgentKit();
-  const thread = useAgentThreadSlice((previous, next) =>
-    sameRunWork(previous, next, runId),
+  const thread = useAgentThreadSlice(
+    (previous, next) =>
+      sameRunWork(previous, next, runId) &&
+      (messageId === undefined ||
+        agentMessagesById(previous.messages).get(messageId)?.message ===
+          agentMessagesById(next.messages).get(messageId)?.message),
   );
   const runEvents = agentRunEvents(thread, runId);
   const activityMap = new Map<string, AgentActivity>();
@@ -2783,9 +2954,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
     }
   }
   const foldedReasoning = foldedReasoningMessageId
-    ? leadingReasoningMessage(
-        messagesById.get(foldedReasoningMessageId)?.message,
-      )
+    ? messagesById.get(foldedReasoningMessageId)?.message
     : undefined;
   const callIdOf = (event: AgentEvent): string | undefined => {
     if (
@@ -2855,13 +3024,31 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   });
   const toolFor = (id: string): AgentToolCall | undefined =>
     toolMap.get(id) ?? thread.tools[id];
+  // A result whose widget shows on its message already appears there, as it
+  // does after a reload; drawing it here too would show a live run's card
+  // twice. A widget with no message or nothing to draw it leaves the card here.
+  const showsAsMessageWidget = (tool: AgentToolCall) =>
+    [`${tool.id}:chat-ui`, `${tool.id}:mcp-app`].some((id) => {
+      const widget = id in thread.widgets ? thread.widgets[id] : undefined;
+      const messageId =
+        id in thread.widgetMessageIds ? thread.widgetMessageIds[id] : undefined;
+      if (!widget || !messageId || !messagesById.has(messageId)) return false;
+      return widgetHasVisibleAssistantOutput(
+        widget,
+        slots.widget,
+        registry.widgets,
+        registry.messageParts,
+      );
+    });
   const durableToolResults = items.flatMap((activity) => {
     const tool = toolMap.get(activity.id);
     const Renderer = tool ? registry.tools?.[tool.name] : undefined;
     if (!tool || tool.status === "running") return [];
     if (Renderer) return [{ tool, Renderer }];
     if (tool.metadata?.chatUI || tool.metadata?.mcpApp) {
-      return slots.tool ? [{ tool, Renderer: slots.tool }] : [];
+      return slots.tool && !showsAsMessageWidget(tool)
+        ? [{ tool, Renderer: slots.tool }]
+        : [];
     }
     return [];
   });
@@ -2907,10 +3094,14 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
     : run?.completedAt
       ? Date.parse(run.completedAt)
       : Number.NaN;
+  const savedDurationMs = messageId
+    ? replyDurationMs(messagesById.get(messageId)?.message)
+    : undefined;
   const durationMs =
-    Number.isFinite(startedAt) && Number.isFinite(completedAt)
+    savedDurationMs ??
+    (Number.isFinite(startedAt) && Number.isFinite(completedAt)
       ? Math.max(0, completedAt - startedAt)
-      : undefined;
+      : undefined);
   const hasTerminalRunEvent = runEvents.some(
     (event) =>
       event.runId === runId &&
@@ -2957,7 +3148,50 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
         ))}
       </div>
     ) : null;
-  if (part === "results") return resultCards;
+  const workCall = (activity: AgentActivity): AgentWorkCall[] => {
+    if (isInternalActivity(activity)) return [];
+    if (reasoningEntries.has(activity.id)) return [];
+    const tool = toolFor(activity.id);
+    const sourceId = tool ? registry.toolSource?.(tool)?.id : undefined;
+    return [
+      {
+        id: activity.id,
+        activity,
+        ...(tool ? { tool } : {}),
+        ...(sourceId ? { sourceId } : {}),
+      },
+    ];
+  };
+  const laterIds = new Set<string>();
+  if (part !== "row" && runId !== undefined && throughSequence !== undefined) {
+    for (const event of runEvents) {
+      const id = event.sequence > throughSequence ? callIdOf(event) : undefined;
+      if (id) laterIds.add(id);
+    }
+  }
+  const sourcesLine =
+    part === "row" ? null : (
+      <AgentWorkSourcesLine
+        {...agentWorkSources(
+          items.flatMap(workCall),
+          [...laterIds].flatMap((id) => {
+            const tool = toolMap.get(id);
+            const activity =
+              activityMap.get(id) ??
+              (tool ? toolToActivity(tool, labels) : undefined);
+            return activity ? workCall(activity) : [];
+          }),
+        )}
+      />
+    );
+  if (part === "results") {
+    return (
+      <>
+        {sourcesLine}
+        {resultCards}
+      </>
+    );
+  }
   if (
     activityItems.length === 0 &&
     durableToolResults.length === 0 &&
@@ -3092,6 +3326,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   };
   return (
     <>
+      {sourcesLine}
       {resultCards}
       {hasExpandableActivity || activelyWorking ? (
         <AgentWorkDisclosure
@@ -3195,6 +3430,7 @@ function workGroupLabel(
   const pairs: Record<typeof verb, [string, string]> = {
     searched: [labels.workStepSearchedOne, labels.workStepSearchedOther],
     readPages: [labels.workStepReadPagesOne, labels.workStepReadPagesOther],
+    readDocuments: [labels.workStepReadPagesOne, labels.workStepReadPagesOther],
     fetched: [labels.workStepFetchedOne, labels.workStepFetchedOther],
     readFiles: [labels.workStepReadFilesOne, labels.workStepReadFilesOther],
     edited: [labels.workStepEditedOne, labels.workStepEditedOther],
@@ -3216,6 +3452,7 @@ function workStepVerbTitle(
     case "searched":
       return labels.workStepSearching;
     case "readPages":
+    case "readDocuments":
       return labels.workStepReadingPages;
     case "fetched":
       return labels.workStepFetching;
@@ -3241,6 +3478,8 @@ function workVerbIcon(verb: AgentWorkVerb): ReactNode {
       return <IconSearch {...props} />;
     case "readPages":
       return <IconWorld {...props} />;
+    case "readDocuments":
+      return <IconFile {...props} />;
     case "fetched":
       return <IconWorldDownload {...props} />;
     case "readFiles":
@@ -5914,7 +6153,8 @@ function AgentRunDetails({
   messageId?: string | undefined;
   open: boolean;
 }) {
-  const { controller, threadId, labels, formatModelName } = useAgentKit();
+  const { controller, threadId, labels, formatModelName, showRunCredits } =
+    useAgentKit();
   const details = useAgentKitSelector(
     (snapshot) => {
       const thread =
@@ -5950,11 +6190,13 @@ function AgentRunDetails({
       previous.toolCalls === next.toolCalls && previous.model === next.model,
   );
   const usage = useAgentRunUsage(runId, open);
+  // Where credits are hidden, a run still shows its provider dollar cost.
+  const amountKey = showRunCredits ? labels.runCreditsUsed : labels.runCost;
   const credits = (() => {
     if (!usage) return null;
     if (usage.status === "loading") {
       return {
-        key: labels.runCreditsUsed,
+        key: amountKey,
         value: (
           <Skeleton
             className="agentkit-run-details-skeleton h-3 w-12"
@@ -5965,17 +6207,18 @@ function AgentRunDetails({
       };
     }
     if (usage.status === "error") {
-      return { key: labels.runCreditsUsed, value: labels.runDetailUnavailable };
+      return { key: amountKey, value: labels.runDetailUnavailable };
     }
     const billing = usage.data?.billing;
     if (!billing) {
-      return { key: labels.runCreditsUsed, value: labels.runDetailNotRecorded };
+      return { key: amountKey, value: labels.runDetailNotRecorded };
     }
     if (billing.incomplete) {
-      return { key: labels.runCreditsUsed, value: labels.runDetailIncomplete };
+      return { key: amountKey, value: labels.runDetailIncomplete };
     }
     // Zero credits give way to a provider charge, which is the real cost.
     if (
+      showRunCredits &&
       billing.builderCredits !== null &&
       (billing.builderCredits !== 0 || !billing.providerCostUsd)
     ) {
@@ -6011,7 +6254,9 @@ function AgentRunDetails({
         measuredZero: usd === 0,
       };
     }
-    return { key: labels.runCreditsUsed, value: labels.runDetailNotRecorded };
+    return showRunCredits
+      ? { key: labels.runCreditsUsed, value: labels.runDetailNotRecorded }
+      : null;
   })();
   // The model the run's calls reported wins over the request's selection,
   // which stands in only until, or unless, the usage names one. Auto is a
@@ -7155,13 +7400,18 @@ export interface AgentKitComposerProps extends Omit<
     | "includeDefaultSlashSkills"
     | "onSlashCommand"
     | "plusMenuMode"
+    | "richTextEnabled"
+    | "textBlockSeparator"
     | "voiceEnabled"
     | "voiceChatEnabled"
+    | "enterSubmitMode"
     | "onVoiceChatStart"
     | "autoFocus"
     | "disabled"
     | "isReferenceTarget"
     | "submissionDisabled"
+    | "modelSelectionState"
+    | "submissionScopeKey"
     | "onDisabledClick"
     | "onSetupCardClick"
     | "initialText"
@@ -7186,6 +7436,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onModelSelectorOpenChange"
     | "modelStatusChecksEnabled"
     | "modelTriggerNamesSelectionOnly"
+    | "modelTriggerLabel"
     | "showMissingApiKeySetup"
     | "setupCardVisible"
     | "onModelConnectionRequiredChange"
@@ -7194,6 +7445,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onAttachmentRequest"
     | "contextButtonTooltipDisabled"
     | "onTextChange"
+    | "onAttachmentsChange"
     | "contextItems"
     | "onRemoveContextItem"
     | "onInspectContextItem"
@@ -7229,6 +7481,7 @@ export interface AgentKitComposerProps extends Omit<
   /** The host transcript renders its own accessible submission status. */
   announcePendingSubmission?: boolean;
   queueWhileRunning?: boolean;
+  queueReadOnly?: boolean;
   showModelSelector?: boolean;
   /** Hide `/plan`, so every message from this composer acts. */
   planModeDisabled?: boolean;
@@ -7260,7 +7513,9 @@ export function AgentKitComposer({
   className,
   announcePendingSubmission = true,
   queueWhileRunning = true,
+  queueReadOnly = false,
   showModelSelector = true,
+  enterSubmitMode,
   slashCommands,
   slashSkills,
   includeDefaultSlashCommands,
@@ -7270,6 +7525,8 @@ export function AgentKitComposer({
   mentionItemsError,
   mentionPopoverDensity,
   plusMenuMode,
+  richTextEnabled,
+  textBlockSeparator,
   voiceEnabled = false,
   // Let a host keep dictation while the primary resting control is Send;
   // defaults to today's behaviour for every other app.
@@ -7281,6 +7538,8 @@ export function AgentKitComposer({
   disabled,
   isReferenceTarget,
   submissionDisabled,
+  modelSelectionState,
+  submissionScopeKey,
   onDisabledClick,
   onSetupCardClick,
   placeholder,
@@ -7304,6 +7563,7 @@ export function AgentKitComposer({
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
   modelTriggerNamesSelectionOnly,
+  modelTriggerLabel,
   requireAgentEngine = false,
   showMissingApiKeySetup,
   setupCardVisible,
@@ -7320,6 +7580,7 @@ export function AgentKitComposer({
   onSubmit: onSubmitOverride,
   onSubmissionPendingChange,
   onAttachmentError,
+  onAttachmentsChange,
   interceptBuildRequestsForBuilder,
   planModeDisabled,
   stopButton,
@@ -7586,6 +7847,9 @@ export function AgentKitComposer({
       });
     }
   }, [autoFocus]);
+  useEffect(() => {
+    if (editingMessage) composerRef.current?.focus();
+  }, [editingMessage]);
   const reportAttachmentError = useCallback(
     (message: string) => {
       if (onAttachmentError) onAttachmentError(message);
@@ -7784,53 +8048,62 @@ export function AgentKitComposer({
         forkPurpose: "edit",
       });
       submitFailureDraftScopeRef.current = `agentkit:${forkedThread.id}`;
-      onThreadForked(forkedThread);
-      const uploadedAttachments = uploadFiles.length
-        ? await controller.uploadFiles(forkedThread.id, uploadFiles)
-        : [];
-      const previousAttachments = editingMessage.parts.filter(
-        (part): part is Extract<AgentMessagePart, { type: "file" }> =>
-          part.type === "file" && !part.omitted,
-      );
-      const draft = createAgentKitComposerSubmission({
-        threadId: forkedThread.id,
-        intent: "immediate",
-        text,
-        composerModeContext: options.composerModeContext,
-        contextItems: contextItemsForSubmission,
-        references,
-        options: runOptions,
-      });
-      const payload = Object.freeze({
-        ...draft,
-        attachments: snapshotComposerValue([
-          ...previousAttachments,
-          ...uploadedAttachments,
-        ]),
-      });
-      await beforeSend?.(payload);
-      const sendMetadata = {
-        ...payload.options.metadata,
-        ...(payload.references.length
-          ? { references: payload.references }
-          : {}),
-        ...(payload.contextItems === undefined
-          ? {}
-          : { contextItems: payload.contextItems }),
-      };
-      await controller.sendMessage({
-        threadId: forkedThread.id,
-        text: payload.text,
-        attachments: [...payload.attachments],
-        ...(payload.references.length
-          ? { references: [...payload.references] }
-          : {}),
-        options: payload.options,
-        metadata: sendMetadata,
-        onLocalSubmit,
-      });
+      try {
+        const uploadedAttachments = uploadFiles.length
+          ? await controller.uploadFiles(forkedThread.id, uploadFiles)
+          : [];
+        const previousAttachments = editingMessage.parts.filter(
+          (part): part is Extract<AgentMessagePart, { type: "file" }> =>
+            part.type === "file" && !part.omitted,
+        );
+        const draft = createAgentKitComposerSubmission({
+          threadId: forkedThread.id,
+          intent: "immediate",
+          text,
+          ...(options.composerModeContext === undefined
+            ? {}
+            : { composerModeContext: options.composerModeContext }),
+          ...(contextItemsForSubmission === undefined
+            ? {}
+            : { contextItems: contextItemsForSubmission }),
+          references,
+          options: runOptions,
+        });
+        const payload = Object.freeze({
+          ...draft,
+          attachments: snapshotComposerValue([
+            ...previousAttachments,
+            ...uploadedAttachments,
+          ]),
+        });
+        await beforeSend?.(payload);
+        const sendMetadata = {
+          ...payload.options.metadata,
+          ...(payload.references.length
+            ? { references: payload.references }
+            : {}),
+          ...(payload.contextItems === undefined
+            ? {}
+            : { contextItems: payload.contextItems }),
+        };
+        await controller.sendMessage({
+          threadId: forkedThread.id,
+          text: payload.text,
+          attachments: [...payload.attachments],
+          ...(payload.references.length
+            ? { references: [...payload.references] }
+            : {}),
+          options: payload.options,
+          metadata: sendMetadata,
+        });
+      } catch (error) {
+        onThreadForked(forkedThread);
+        throw error;
+      }
       submitFailureDraftScopeRef.current = null;
+      onLocalSubmit();
       editContext?.setMessage(null);
+      onThreadForked(forkedThread);
       return;
     }
     const submissionThread = controller.getThread(threadId);
@@ -8032,7 +8305,21 @@ export function AgentKitComposer({
             {labels.activityBuckets?.thinking ?? labels.reasoning}
           </span>
         ) : null}
-        {queueCapability.visible ? (
+        {queueCapability.visible &&
+        queueReadOnly &&
+        visibleQueuedMessages.length ? (
+          <ol
+            aria-label={labels.queue}
+            className="space-y-1 px-2 py-1 text-sm text-muted-foreground"
+          >
+            {visibleQueuedMessages.map(({ id, text }) => (
+              <li key={id} className="truncate">
+                {splitAgentKitMessageContext(text).message}
+              </li>
+            ))}
+          </ol>
+        ) : null}
+        {queueCapability.visible && !queueReadOnly ? (
           Queue ? (
             <Queue
               items={visibleQueuedMessages.map((message) => {
@@ -8174,6 +8461,8 @@ export function AgentKitComposer({
             inlineTextAttachments,
             disabled,
             isReferenceTarget,
+            modelSelectionState,
+            submissionScopeKey,
             onDisabledClick,
             onSetupCardClick,
             onConnectProvider,
@@ -8196,6 +8485,7 @@ export function AgentKitComposer({
             onModelSelectorOpenChange,
             modelStatusChecksEnabled,
             modelTriggerNamesSelectionOnly,
+            modelTriggerLabel,
             requireAgentEngine,
             showMissingApiKeySetup,
             setupCardVisible,
@@ -8204,6 +8494,7 @@ export function AgentKitComposer({
             layoutVariant,
             toolbarSlot,
             onTextChange,
+            onAttachmentsChange,
             extraActionButton,
             getSubmitFailureDraftScope,
             interceptBuildRequestsForBuilder,
@@ -8212,8 +8503,11 @@ export function AgentKitComposer({
             slashCommands,
             slashSkills,
             onSlashCommand,
+            richTextEnabled,
+            textBlockSeparator,
             voiceEnabled,
             voiceChatEnabled,
+            enterSubmitMode,
             onVoiceChatStart,
             replyPlaceholder: placeholder ?? labels.composerReplyPlaceholder,
             onEscape: editingMessage ? cancelEditing : undefined,
@@ -9559,12 +9853,10 @@ export function AgentKitChat({
       return messageId ? [messageId] : [];
     }),
   );
-  // A saved reply's reasoning before its answer joins the work group above
-  // it, so the turn shows one disclosure; the stream did not place it there.
-  const foldsLeadingReasoning = (message: AgentMessage) =>
+  const foldsSavedReasoning = (message: AgentMessage) =>
     message.status !== "streaming" &&
     !groupedReasoningMessageIds.has(message.id) &&
-    leadingReasoningMessage(message) !== undefined;
+    hasVisibleReasoning(message);
   const hasRunWork = (
     runId: RunId,
     afterSequence?: number,
@@ -9692,7 +9984,7 @@ export function AgentKitChat({
       liveReplies.set(runId, {
         replyId: reply.id,
         start,
-        foldsReasoning: message ? foldsLeadingReasoning(message) : false,
+        foldsReasoning: message ? foldsSavedReasoning(message) : false,
       });
     }
   }
@@ -10045,17 +10337,18 @@ export function AgentKitChat({
     );
     const isLiveReply =
       isAssistantBoundary && liveReplies.get(runId)?.replyId === message.id;
+    const foldsReasoning = isAssistantBoundary && foldsSavedReasoning(message);
     const rendersRunWork = Boolean(
       isAssistantBoundary &&
       runId &&
-      (summarizesTurn ||
+      (foldsReasoning ||
+        summarizesTurn ||
         hasRunWork(
           runId,
           previousAssistant?.sequence,
           isLiveReply ? undefined : sequence,
         )),
     );
-    const foldsReasoning = rendersRunWork && foldsLeadingReasoning(message);
     if (rendersRunWork && runId) {
       transcriptItems.push(
         renderRunWork({
@@ -10071,13 +10364,17 @@ export function AgentKitChat({
       );
     }
     const messageValue = displayMessageFor(message);
-    const standaloneReasoning = foldsReasoning
-      ? withoutLeadingReasoning(message)
-      : message;
+    const standaloneReasoning =
+      !foldsReasoning &&
+      !groupedReasoningMessageIds.has(message.id) &&
+      hasVisibleReasoning(message);
+    const standaloneDuration = rendersRunWork
+      ? undefined
+      : replyDurationMs(message);
     if (
       message.role === "assistant" &&
-      !groupedReasoningMessageIds.has(message.id) &&
-      hasVisibleReasoning(standaloneReasoning)
+      (standaloneReasoning ||
+        (standaloneDuration !== undefined && standaloneDuration >= 1_000))
     ) {
       const active =
         message.status === "streaming" && messageValue.parts.length === 0;
@@ -10088,7 +10385,8 @@ export function AgentKitChat({
             active
               ? labels.reasoning
               : workedSummaryLabel(
-                  reasoningDurationMs(thread.events, new Set([message.id])),
+                  standaloneDuration ??
+                    reasoningDurationMs(thread.events, new Set([message.id])),
                   labels,
                   formatReasoningDuration,
                 )
@@ -10101,14 +10399,17 @@ export function AgentKitChat({
             )
           }
           running={active}
+          expandable={standaloneReasoning}
           runId={runId}
-          messageId={message.id}
+          messageId={rendersRunWork ? undefined : message.id}
         >
-          <AgentReasoningSteps
-            message={standaloneReasoning}
-            threadId={threadId}
-            active={active}
-          />
+          {standaloneReasoning ? (
+            <AgentReasoningSteps
+              message={message}
+              threadId={threadId}
+              active={active}
+            />
+          ) : null}
         </AgentWorkDisclosure>,
       );
     }

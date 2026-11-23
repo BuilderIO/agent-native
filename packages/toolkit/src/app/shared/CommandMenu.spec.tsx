@@ -491,6 +491,29 @@ describe("CommandMenu", () => {
     expect(document.body.textContent).not.toContain("Create a project");
   });
 
+  it("shows an app's own Settings hint in place of the platform chord", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          settingsShortcutHint={
+            <>
+              <kbd>G</kbd>
+              <kbd>S</kbd>
+            </>
+          }
+        />,
+      );
+    });
+
+    const settingsItem = [
+      ...document.querySelectorAll<HTMLElement>("[cmdk-item]"),
+    ].find((item) => item.textContent?.startsWith("Settings"));
+    expect(settingsItem?.textContent).toBe("SettingsGS");
+  });
+
   it("closes the menu and opens Settings from the Settings row", () => {
     const onOpenChange = vi.fn();
     const requests: Array<{ page?: string }> = [];
@@ -2551,6 +2574,8 @@ describe("CommandMenu", () => {
     );
   });
 
+  // oracle-change: removed a duplicate of the next test, same renderResultsHasItems false case with the same empty-state assertion
+
   it("uses result presence for opaque components that render no rows", () => {
     function EmptyResults() {
       return null;
@@ -2608,25 +2633,6 @@ describe("CommandMenu", () => {
 
     expect(document.body.textContent).toContain("Live result");
     expect(document.querySelector('[role="status"]')).toBeNull();
-  });
-
-  it("uses the render-results presence signal for components that render no rows", () => {
-    function EmptyLiveResults() {
-      return null;
-    }
-
-    renderAppCommands({
-      groups: [],
-      renderResults: () => <EmptyLiveResults />,
-      renderResultsHasItems: () => false,
-      emptyState: "No matching records",
-    });
-
-    search("missing");
-
-    expect(document.querySelector('[role="status"]')?.textContent).toContain(
-      "No matching records",
-    );
   });
 
   it("uses the explicit list's rows instead of the default result signal", () => {

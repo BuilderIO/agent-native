@@ -62,11 +62,13 @@ import {
   runPreparedActionCall,
   boundActionCallIntent,
   preparedCallArguments,
+  preparedCallApprovalLabel,
   preparedCallNeedsApproval,
   recordInvalidActionCall,
   resolveToolMaxResultChars,
   type ActionAutomationContext,
   type ActionCallIntent,
+  type ActionMcpTool,
   type PreparedActionCall,
   type ActionCaller,
   type ActionRunContext,
@@ -90,6 +92,7 @@ import type {
   AuditAttributionSource,
   AuditOverride,
 } from "../audit/attribution.js";
+import { scrubLocationHash } from "../client/url-scrub.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
 import {
@@ -170,6 +173,11 @@ import {
   updateRunProgress,
 } from "../progress/registry.js";
 import {
+  isProviderInteractiveScope,
+  runWithDurableTurnToolScope,
+  type ProviderTurnGrant,
+} from "../provider-api/interactive-scope.js";
+import {
   readOptionalKeyCache,
   writeOptionalKeyCache,
 } from "../secrets/optional-key-cache.js";
@@ -203,6 +211,7 @@ import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
+  personalRunProviderKeyOrgId,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
 } from "../server/personal-provider-key-policy.js";
@@ -242,7 +251,9 @@ import {
   stripInlineDataUrls,
 } from "../shared/inline-bytes.js";
 import {
+  isGPTReasoningModel,
   isReasoningEffort,
+  isUnsetReasoningEffort,
   normalizeReasoningEffortForRequest,
   stepDownReasoningEffort,
   type ReasoningEffort,
@@ -282,6 +293,8 @@ import { AGENT_INTERNAL_CONTINUE_PROMPT } from "./continuation-prompt.js";
 import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
+  AGENT_CHAT_TURN_GRANT_FIELD,
+  backgroundRunInitiatorMarker,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
@@ -294,6 +307,11 @@ import {
   resolveAgentChatProcessRunDispatchPath,
   shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
+import {
+  VERIFIED_TURN_GRANT_CONTEXT_KEY,
+  mintDurableTurnGrant,
+  reissueDurableTurnGrant,
+} from "./durable-turn-grant.js";
 import { applyContextXrayTransformForIteration } from "./engine/context-directives-transform.js";
 import { attemptContinuationDispatch } from "./engine/continuation-dispatch-retry.js";
 import {
@@ -311,6 +329,7 @@ import {
   isProviderConnectionErrorMessage,
   isProviderTokenRateLimitMessage,
   isRejectedRequestErrorCode,
+  MODEL_REFUSAL_MESSAGE,
   PROVIDER_RATE_LIMITED_ERROR_CODE,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./engine/error-detail.js";
@@ -392,6 +411,11 @@ import {
   normalizeMaxRunInputTokens,
   readAgentLoopSettings,
 } from "./loop-settings.js";
+import {
+  ModelAttemptMeasurement,
+  type ModelAttemptObserver,
+  type ModelAttemptStartObserver,
+} from "./model-attempt.js";
 import { getProviderDefaultEffort } from "./model-catalog.js";
 import {
   getContextWindowForModel,
@@ -424,7 +448,10 @@ import { applyUncheckedDefaultModelReplacement } from "./provider-model-selectio
 import {
   IncompleteAgentRunError,
   incompleteAgentRunFailure,
+  PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
   RUN_RATE_LIMITED_MESSAGE,
+  TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
+  TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
 } from "./run-errors.js";
 import {
   startRun,
@@ -444,6 +471,7 @@ import {
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
+  carriesAssistantText,
   endsAfterToolResultWithoutAssistantFinal,
   endsDuringActionPreparation,
 } from "./run-manager.js";
@@ -452,6 +480,8 @@ import {
   writeLedgerEntry,
   readLedgerEntry,
   beginAgentExecutionStep,
+  PRIVATE_REPLAY_IDENTITY_PATTERN,
+  privateExecutionStepIdentity,
   privateExecutionStepInputJson,
   completeAgentExecutionStep,
   markAgentExecutionStepDispatched,
@@ -507,6 +537,7 @@ import {
   findUnresolvedJournalStepForCall,
   findInterruptedLegacyJournalEntryForCall,
   findReplayableJournalEntry,
+  findReplayablePrivateJournalEntry,
   hasJournalStepForCall,
   isUnavailableToolCallInput,
   journalEntriesAmbiguousInHistory,
@@ -552,6 +583,8 @@ import {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
   RunEvent,
+  RESPONSE_GUARD_DRAFT_KEPT_EVENT,
+  RESPONSE_GUARD_RICH_EVENT_NAMESPACE,
   type ToolErrorClass,
   type UnknownWriteCause,
 } from "./types.js";
@@ -801,6 +834,7 @@ async function getOwnerApiKeyDetailed(
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   const orgId = getRequestOrgId();
+  const policyOrgId = orgId ?? personalRunProviderKeyOrgId(secretKey);
   // Restricted members keep their stored keys, but none of the personal rows
   // below (user, solo workspace, legacy settings) may answer. Unknown is a
   // failed lookup, never "not restricted". Keys outside the policy (Jev) are
@@ -810,7 +844,9 @@ async function getOwnerApiKeyDetailed(
     personalRestricted =
       isPersonalProviderPolicyKey(secretKey) &&
       (await isPersonalProviderKeyUseRestricted(
-        orgId ? { email: ownerEmail, orgId } : { email: ownerEmail },
+        policyOrgId
+          ? { email: ownerEmail, orgId: policyOrgId }
+          : { email: ownerEmail },
       ));
   } catch {
     lookupFailed = true;
@@ -1372,12 +1408,17 @@ export interface ActionEntry {
   access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   schema?: unknown;
+  /** The input schema agents are shown, when `defineAction` was given one
+   *  narrower than `schema`. */
+  agentInputSchema?: unknown;
   http?: import("../action.js").ActionHttpConfig | false;
   requiresAuth?: boolean;
   maxBodyBytes?: number;
   uiOnly?: boolean;
+  requiresSignedInBrowser?: boolean;
+  opensAnotherAppEmbed?: boolean;
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   /** True when this entry's raw tool schema was authored by an external MCP
    *  server (imported via the MCP client), not a local action. Distinct
    *  from `mcpTool`, which controls whether a *local* action is exposed to
@@ -1388,6 +1429,10 @@ export interface ActionEntry {
    *  Schema dialect when the schema omits `$schema`. */
   fromMcpServer?: boolean;
   mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
+  /** See `mcpScript` in `defineAction`. Read only by the MCP script tools. */
+  mcpScript?: "read" | "write";
+  /** See `mcpScriptWrite` in `defineAction`. */
+  mcpScriptWrite?: import("../action.js").McpScriptWriteContract;
   mcpOutputContract?: import("../action-output-contract.js").ActionMcpOutputContract;
   /** Hints the framework supplies for an action that declares none, such as a
    *  file a dev server discovers. MCP advertises them only when
@@ -1402,6 +1447,8 @@ export interface ActionEntry {
   emptyListsEraseNothing?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
+  userTurn?: import("../action.js").ActionUserTurn;
+  requiresUserTurn?: boolean;
   /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
   confirmsAutomationWork?: boolean;
   grounding?: boolean;
@@ -1410,6 +1457,8 @@ export interface ActionEntry {
   changeEvents?: boolean;
   persistInBrowser?: boolean;
   persistInChatHistory?: boolean;
+  /** The action's audit settings, as `defineAction` was given them. */
+  audit?: import("../audit/types.js").ActionAuditConfig;
   changeResource?: (
     input: any,
     result: any,
@@ -1437,6 +1486,24 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  approvalLabel?(
+    args: unknown,
+    ctx?: import("../action.js").ActionRunContext,
+  ): string;
+  /** See `ActionDefinition.mcpNeedsApproval`. */
+  mcpNeedsApproval?(
+    this: void,
+    args: unknown,
+    ctx?: import("../action.js").ActionRunContext,
+  ): boolean | Promise<boolean>;
+  /** See `ActionDefinition.approvalNotice`. */
+  approvalNotice?(
+    this: void,
+    args: unknown,
+    ctx: import("../action.js").ActionApprovalNoticeContext,
+  ): string | undefined | Promise<string | undefined>;
+  /** See `ActionDefinition.approvalProof`. */
+  approvalProof?: "review-page";
   allowPersistentApproval?: boolean;
   /**
    * Identifies what this entry does under its name. Approvals, including
@@ -4312,9 +4379,7 @@ export async function callConnectedAgentReference(input: {
   });
   relay.start();
   try {
-    const callerAuth = await input.resolveCallerAuth({
-      includeGoogleToken: true,
-    });
+    const callerAuth = await input.resolveCallerAuth();
     const response = await input.callAgent(input.path, input.message, {
       async: true,
       apiKey: callerAuth.apiKey,
@@ -4756,6 +4821,12 @@ export type AgentLoopFinalResponseGuardResult =
       expandToolSurface?: boolean;
     };
 
+export interface FinalGuardKeptDraft {
+  current?:
+    | { draft: string; prefix: string; clearAllText?: boolean }
+    | undefined;
+}
+
 export type AgentLoopFinalResponseGuard = (
   context: AgentLoopFinalResponseGuardContext,
 ) =>
@@ -4763,6 +4834,24 @@ export type AgentLoopFinalResponseGuard = (
   | null
   | undefined
   | Promise<AgentLoopFinalResponseGuardResult | null | undefined>;
+
+function keptGuardDraftRecordEvent(failure: {
+  message: string;
+  errorCode?: string | undefined;
+}): AgentChatEvent {
+  return {
+    type: "rich_event",
+    event: {
+      namespace: RESPONSE_GUARD_RICH_EVENT_NAMESPACE,
+      name: RESPONSE_GUARD_DRAFT_KEPT_EVENT,
+      version: 1,
+      data: {
+        errorCode: failure.errorCode ?? "engine_error",
+        message: failure.message,
+      },
+    },
+  };
+}
 
 function collectTextParts(parts: EngineContentPart[]): string {
   return parts
@@ -4799,8 +4888,7 @@ export function turnHasVisibleText(events: readonly AgentChatEvent[]): boolean {
   let visible = false;
   for (const event of events) {
     if (event.type === "clear") visible = false;
-    else if (event.type === "text" && event.text.trim().length > 0)
-      visible = true;
+    else if (carriesAssistantText(event)) visible = true;
   }
   return visible;
 }
@@ -4861,27 +4949,30 @@ export function appendContinuationCheckpoint(
   });
 }
 
+const CONTINUATION_NOTES = {
+  run_timeout: "The previous run reached an internal execution budget.",
+  loop_limit: "The previous run reached an internal step budget.",
+  max_tokens:
+    "The previous LLM call reached the model output-token cap before the response finished.",
+  stream_ended:
+    "The previous stream ended before the agent sent a final completion signal.",
+  gateway_timeout:
+    "The previous LLM call hit an upstream gateway timeout before the response finished streaming.",
+  rate_limited:
+    "The previous LLM call was temporarily rate limited after exhausting its short provider retry budget.",
+  network_interrupted:
+    "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly).",
+  no_progress:
+    "The previous run stopped producing progress events while the connection stayed open.",
+  empty_response: "The previous LLM call ended without an answer.",
+} satisfies Record<AgentLoopContinuationReason | "empty_response", string>;
+
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
-  reason: AgentLoopContinuationReason,
+  reason: keyof typeof CONTINUATION_NOTES,
   options: { actionPreparationTool?: string; journalNote?: string } = {},
 ) {
-  const note =
-    reason === "loop_limit"
-      ? "The previous run reached an internal step budget."
-      : reason === "max_tokens"
-        ? "The previous LLM call reached the model output-token cap before the response finished."
-        : reason === "stream_ended"
-          ? "The previous stream ended before the agent sent a final completion signal."
-          : reason === "gateway_timeout"
-            ? "The previous LLM call hit an upstream gateway timeout before the response finished streaming."
-            : reason === "rate_limited"
-              ? "The previous LLM call was temporarily rate limited after exhausting its short provider retry budget."
-              : reason === "network_interrupted"
-                ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
-                : reason === "no_progress"
-                  ? "The previous run stopped producing progress events while the connection stayed open."
-                  : "The previous run reached an internal execution budget.";
+  const note = CONTINUATION_NOTES[reason];
   const actionInputNote = options.actionPreparationTool
     ? actionPreparationContinuationNote(options.actionPreparationTool)
     : "";
@@ -4962,6 +5053,10 @@ export function isResumableEngineError(err: unknown): boolean {
     text.includes("too much time has passed without sending any data") ||
     text.includes("terminated")
   );
+}
+
+export function isSilentAfterKeptDraft(err: EngineError): boolean {
+  return isRejectedRequestErrorCode(err.errorCode);
 }
 
 export function isTransientProviderRateLimitError(err: unknown): boolean {
@@ -6299,6 +6394,8 @@ export function buildFirstRequestPayloadDetail(input: {
 
 const DEFAULT_INITIAL_TOOL_NAMES = new Set([
   "resources",
+  "save-memory",
+  "delete-memory",
   "framework-search",
   "docs-search",
   "get-framework-context",
@@ -6788,10 +6885,10 @@ export function permanentPreconditionReason(
     .replace(/[.。]+$/, "");
   const nestedPrecondition = reason
     .match(
-      /\bI stopped because [\w-]+ can't run yet:\s*(.+?)(?:\. That needs to be fixed outside this chat\b|\.?$)/i,
+      /\bI stopped because [\w-]+ can't run yet:\s*(.+?)(?:\.? That needs to be fixed outside this chat\b|\.?$)/i,
     )?.[1]
     ?.trim();
-  if (nestedPrecondition) return nestedPrecondition;
+  if (nestedPrecondition) return shortenPreconditionReason(nestedPrecondition);
   if (!reason) return null;
   if (
     /\bI stopped because\b/i.test(reason) ||
@@ -6799,9 +6896,30 @@ export function permanentPreconditionReason(
   ) {
     return null;
   }
-  return reason.length > PERMANENT_PRECONDITION_REASON_MAX_CHARS
-    ? `${reason.slice(0, PERMANENT_PRECONDITION_REASON_MAX_CHARS).trim()}…`
-    : reason;
+  return shortenPreconditionReason(reason);
+}
+
+const SENTENCE_END_NOT_ABBREVIATION = /(?<!\b[a-z]\.[a-z])[.!?](?=\s)/gi;
+
+function shortenPreconditionReason(reason: string): string {
+  const maxBeforeClosingMark = PERMANENT_PRECONDITION_REASON_MAX_CHARS - 1;
+  if (reason.length <= maxBeforeClosingMark) return reason;
+  let sentenceEnd = 0;
+  for (const { index } of reason.matchAll(SENTENCE_END_NOT_ABBREVIATION)) {
+    if (index >= maxBeforeClosingMark) break;
+    sentenceEnd = index + 1;
+  }
+  if (sentenceEnd >= maxBeforeClosingMark / 2) {
+    return reason.slice(0, sentenceEnd).replace(/\.$/, "");
+  }
+  const wordEnd = reason.lastIndexOf(" ", maxBeforeClosingMark);
+  const cut =
+    wordEnd >= maxBeforeClosingMark / 2 ? wordEnd : maxBeforeClosingMark;
+  return `${reason.slice(0, cut).replace(/[\s,;:—–-]+$/, "")}…`;
+}
+
+function asSentence(text: string): string {
+  return /[.!?…]$/.test(text) ? text : `${text}.`;
 }
 
 const SOURCE_SWEEP_TOOL_NAME =
@@ -7620,6 +7738,8 @@ export async function runAgentLoop(opts: {
   unknownOutcomes?: UnknownOutcomes;
   internalContinuation?: boolean;
   onModelInput?: ModelInputObserver;
+  onModelAttempt?: ModelAttemptObserver;
+  onModelAttemptStart?: ModelAttemptStartObserver;
   /**
    * The model and effort each model call uses. Either can change mid-run: a
    * rate limit falls back to another model, and an empty response steps effort
@@ -7666,6 +7786,7 @@ export async function runAgentLoop(opts: {
   priorTurnInputTokens?: number;
   finalResponseGuard?: AgentLoopFinalResponseGuard;
   finalResponseGuardRequestText?: string;
+  finalGuardKeptDraft?: FinalGuardKeptDraft;
   threadId?: string;
   turnId?: string;
   /** Recovery paths overlay completed durable steps missing from tool_done. */
@@ -8087,6 +8208,8 @@ export async function runAgentLoop(opts: {
     actions,
   });
   const toolResultHistory: AgentLoopToolResultSummary[] = [];
+  const refusedUnavailableTools: Array<{ name: string; resultCount: number }> =
+    [];
   const turnReceipts = (): ToolWriteReceipt[] =>
     toolResultHistory.flatMap((result) =>
       result.receipt ? [{ tool: result.name, ...result.receipt }] : [],
@@ -8108,8 +8231,29 @@ export async function runAgentLoop(opts: {
         opts.recoverCompletedExecutionSteps === true,
     },
   );
+  const journalHasPrivateHistory =
+    (journalRead.status === "read" &&
+      journalRead.events.some(
+        (event) => event.omitFromPersistedHistory === true,
+      )) ||
+    (journalRead.status === "unreadable" &&
+      journalRead.code === PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE);
+  if (journalHasPrivateHistory) {
+    if (opts.runId) await ensurePrivateTurnRecorded();
+    else send.markPrivate();
+  }
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
+  const priorPrivateSideEffect =
+    journalRead.status === "read" &&
+    journalRead.events.some(
+      (event) =>
+        event.type === "tool_done" &&
+        event.omitFromPersistedHistory === true &&
+        event.completedSideEffect === true &&
+        (typeof event.privateReplayIdentity !== "string" ||
+          !PRIVATE_REPLAY_IDENTITY_PATTERN.test(event.privateReplayIdentity)),
+    );
   turnHasActionWarnings =
     journalRead.status === "read" &&
     journalRead.events.some(
@@ -8346,14 +8490,12 @@ export async function runAgentLoop(opts: {
   }
   const unreadableJournalStop: TerminalActionStop | null =
     journalRead.status === "unreadable" &&
-    (journalRead.code === "private_history_unrecoverable" ||
+    (journalRead.code === PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE ||
       internalContinuationTurn ||
       opts.recoverCompletedExecutionSteps === true)
       ? {
-          message:
-            "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
-            "Retrying would risk repeating a step that already completed. Please send the request again.",
-          errorCode: "tool_call_journal_unreadable",
+          message: TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
+          errorCode: TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
           details: journalRead.error,
         }
       : null;
@@ -8495,6 +8637,8 @@ export async function runAgentLoop(opts: {
   };
   const blockedA2ATargets = new Map<string, string>();
   let finalGuardRetries = 0;
+  const finalGuardKeptDraft: FinalGuardKeptDraft =
+    opts.finalGuardKeptDraft ?? {};
   let emptyFinalResponseRetries = 0;
   let followUpOnlyTurns = 0;
   let preserveReasoningEffortForEmptyResponseRetries = false;
@@ -8521,6 +8665,28 @@ export async function runAgentLoop(opts: {
       ...(stop.blockedTool ? { blockedTool: stop.blockedTool } : {}),
       ...(stop.blockedBy ? { blockedBy: stop.blockedBy } : {}),
       recoverable: false,
+    });
+  };
+  const showKeptGuardDraft = async (
+    keptDraft: NonNullable<FinalGuardKeptDraft["current"]>,
+    failure: { message: string; errorCode?: string | undefined },
+  ) => {
+    finalGuardKeptDraft.current = undefined;
+    await send(keptGuardDraftRecordEvent(failure));
+    await send(
+      keptDraft.clearAllText
+        ? { type: "clear", allText: true }
+        : { type: "clear" },
+    );
+    await send({
+      type: "text",
+      text: `${keptDraft.prefix}\n\n${keptDraft.draft}`,
+    });
+    reportOutcome({
+      state: "failed",
+      code: failure.errorCode ?? "engine_error",
+      retryable: false,
+      message: failure.message,
     });
   };
   let effectiveMaxOutputTokens = opts.maxOutputTokens;
@@ -8663,6 +8829,15 @@ export async function runAgentLoop(opts: {
 
     for (let retry = 0; ; retry++) {
       const attemptStartedAt = Date.now();
+      const measurement = opts.onModelAttempt
+        ? new ModelAttemptMeasurement(
+            model,
+            iterations,
+            retry,
+            opts.onModelAttemptStart,
+          )
+        : undefined;
+      let retryWaitStartedAt: number | undefined;
       assistantContent = undefined;
       streamedAssistantText = "";
       streamedAssistantToolCalls.length = 0;
@@ -8686,6 +8861,9 @@ export async function runAgentLoop(opts: {
         )
           ? contextMessages
           : replaceImagesForModelWithoutVision(contextMessages, model);
+        const reasoningEffort = completingFollowUpSuggestions
+          ? ("none" as const)
+          : effectiveReasoningEffort;
         const streamOpts = {
           model,
           systemPrompt: completingFollowUpSuggestions
@@ -8711,11 +8889,12 @@ export async function runAgentLoop(opts: {
               : effectiveMaxOutputTokens,
             model,
           ),
-          reasoningEffort: completingFollowUpSuggestions
-            ? ("none" as const)
-            : effectiveReasoningEffort,
-          beforeModelDispatch: opts.beforeModelDispatch,
+          ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+          ...(opts.beforeModelDispatch === undefined
+            ? {}
+            : { beforeModelDispatch: opts.beforeModelDispatch }),
           onModelDispatchStarted: () => {
+            measurement?.dispatched();
             usage.llmCalls = (usage.llmCalls ?? 0) + 1;
             try {
               opts.onModelDispatchStarted?.();
@@ -8728,6 +8907,7 @@ export async function runAgentLoop(opts: {
           ...(send.isPrivateTurn() ? { privateContent: true } : {}),
         };
 
+        measurement?.request(streamOpts);
         opts.onModelSettings?.(model, effectiveReasoningEffort);
         notifyModelInputObserver(
           opts.onModelInput,
@@ -8898,6 +9078,7 @@ export async function runAgentLoop(opts: {
               break;
             }
             const event = nextEvent.value;
+            measurement?.event(event);
             if (hasNoProgressStalled()) {
               checkpointNoProgress();
               break;
@@ -9050,6 +9231,7 @@ export async function runAgentLoop(opts: {
             terminalStopErrorCode ??= thrownCode;
           throw err;
         } finally {
+          measurement?.endStream();
           closeModelStreamBracket();
           if (!eventIteratorDone) {
             await requestEventIteratorReturn(
@@ -9072,6 +9254,7 @@ export async function runAgentLoop(opts: {
           return usage;
         }
         if (followUpCompletionFailed) break;
+        if (terminalStopReason === "refusal") break;
 
         const hasCompleteToolCall =
           streamedAssistantToolCalls.length > 0 ||
@@ -9090,6 +9273,7 @@ export async function runAgentLoop(opts: {
 
         break;
       } catch (err: unknown) {
+        const streamEndedAt = measurement?.endStream() ?? Date.now();
         if (signal.aborted) throw err;
         if (completingFollowUpSuggestions) {
           failFollowUpCompletion("provider_error");
@@ -9099,6 +9283,7 @@ export async function runAgentLoop(opts: {
           if (retry === 0 && !attemptHasText()) {
             const trimmed = trimOldToolResults(contextMessages);
             if (trimmed !== null) {
+              retryWaitStartedAt = streamEndedAt;
               contextMessages = trimmed;
               await sendClear();
               continue;
@@ -9119,6 +9304,7 @@ export async function runAgentLoop(opts: {
           hasBudgetForEngineRetry(budgetStartedAt, retry, retryAfterMs)
         ) {
           const stalledMs = Date.now() - attemptStartedAt;
+          retryWaitStartedAt = streamEndedAt;
           await sendClear();
           if (stalledMs >= VISIBLE_RETRY_THRESHOLD_MS) {
             send({
@@ -9150,6 +9336,7 @@ export async function runAgentLoop(opts: {
               getContextWindowForModel(fallbackModel) * 0.8;
           if (fallbackModel && fallbackFits) {
             fallbackModelAttempted = true;
+            retryWaitStartedAt = streamEndedAt;
             await sendClear();
             send({
               type: "activity",
@@ -9168,6 +9355,13 @@ export async function runAgentLoop(opts: {
           }
         }
         throw err;
+      } finally {
+        if (retryWaitStartedAt !== undefined) {
+          measurement?.retryWait(Date.now() - retryWaitStartedAt);
+        }
+        if (measurement && opts.onModelAttempt) {
+          measurement.finish(opts.onModelAttempt);
+        }
       }
     }
 
@@ -9176,6 +9370,16 @@ export async function runAgentLoop(opts: {
     }
 
     if (tripwire || followUpCompletionFailed) break;
+    if (terminalStopReason === "refusal") {
+      if (completingFollowUpSuggestions) break;
+      if (streamedAssistantText) await send({ type: "clear" });
+      await send({ type: "text", text: MODEL_REFUSAL_MESSAGE });
+      messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: MODEL_REFUSAL_MESSAGE }],
+      });
+      break;
+    }
 
     if (!assistantContent && toolCallErrors.length > 0) {
       assistantContent = [];
@@ -9489,26 +9693,62 @@ export async function runAgentLoop(opts: {
           );
           effectiveMaxOutputTokens =
             resolveEmptyResponseRetryMaxOutputTokens(model);
-          if (
+          const previousEffort = isUnsetReasoningEffort(
+            effectiveReasoningEffort,
+          )
+            ? getProviderDefaultEffort(model)
+            : effectiveReasoningEffort;
+          const isBuilderGpt =
+            engine.name === "builder" && isGPTReasoningModel(model);
+          if (isBuilderGpt && previousEffort === undefined) {
+            effectiveReasoningEffort = "low";
+          } else if (
             !preserveReasoningEffortForEmptyResponseRetries ||
             effectiveMaxOutputTokens <= previousMaxOutputTokens
           ) {
-            // With no effort chosen the provider ran at its own default, so
-            // step down from that documented level when the catalog knows it.
-            effectiveReasoningEffort = stepDownReasoningEffort(
-              effectiveReasoningEffort ?? getProviderDefaultEffort(model),
-            );
+            const nextEffort = stepDownReasoningEffort(previousEffort);
+            effectiveReasoningEffort =
+              isBuilderGpt && nextEffort === "minimal" ? "low" : nextEffort;
           }
           send({ type: "clear" });
-          appendAgentLoopContinuation(messages, "max_tokens");
+          appendAgentLoopContinuation(
+            messages,
+            terminalStopReason === "max_tokens"
+              ? "max_tokens"
+              : "empty_response",
+          );
           continue;
         }
         send({ type: "clear" });
-        terminalActionStop = {
-          message:
-            "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
-          errorCode: "empty_final_response",
-        };
+        const strandedTools = [
+          ...new Set(
+            refusedUnavailableTools
+              .filter(
+                ({ resultCount }) =>
+                  !toolResultHistory
+                    .slice(resultCount)
+                    .some((result) => !result.isError),
+              )
+              .map(({ name }) => name),
+          ),
+        ];
+        const emptyFinalStop: TerminalActionStop =
+          strandedTools.length > 0
+            ? {
+                message: `${strandedTools.join(", ")} ${strandedTools.length === 1 ? "is" : "are"} not available to this run, so the step did not execute and the request is incomplete. Send the request again in a new message.`,
+                errorCode: "tool_unavailable",
+              }
+            : {
+                message:
+                  "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
+                errorCode: "empty_final_response",
+              };
+        const keptDraft = finalGuardKeptDraft.current;
+        if (keptDraft && emptyFinalStop.errorCode === "empty_final_response") {
+          await showKeptGuardDraft(keptDraft, emptyFinalStop);
+          break;
+        }
+        terminalActionStop = emptyFinalStop;
         sendTerminalActionStop(terminalActionStop);
         break;
       }
@@ -9562,6 +9802,16 @@ export async function runAgentLoop(opts: {
             receiptGuardRetried = true;
           }
           finalGuardRetries += 1;
+          finalGuardKeptDraft.current =
+            typeof guard !== "string" &&
+            guard.exhaustedDraftPrefix &&
+            finalResponseDraftText.trim()
+              ? {
+                  draft: finalResponseDraftText,
+                  prefix: guard.exhaustedDraftPrefix,
+                  ...(guard.clearAllText ? { clearAllText: true } : {}),
+                }
+              : undefined;
           await send(
             typeof guard !== "string" && guard.clearAllText
               ? { type: "clear", allText: true }
@@ -9585,14 +9835,21 @@ export async function runAgentLoop(opts: {
         );
         const exhaustedDraftPrefix =
           typeof guard === "string" ? undefined : guard.exhaustedDraftPrefix;
+        const keptDraft = exhaustedDraftPrefix
+          ? finalGuardKeptDraft.current
+          : undefined;
+        finalGuardKeptDraft.current = undefined;
         send({
           type: "text",
           text:
             exhaustedDraftPrefix && finalResponseDraftText.trim()
               ? `${exhaustedDraftPrefix}\n\n${finalResponseDraftText}`
-              : (fallbackMessage ?? retryMessage),
+              : keptDraft
+                ? `${keptDraft.prefix}\n\n${keptDraft.draft}`
+                : (fallbackMessage ?? retryMessage),
         });
       } else {
+        finalGuardKeptDraft.current = undefined;
         flushUnstreamedAssistantText();
         if (
           !canSettleEmptyFinal &&
@@ -9621,6 +9878,7 @@ export async function runAgentLoop(opts: {
     }
 
     finalGuardRetries = 0;
+    finalGuardKeptDraft.current = undefined;
     emptyFinalResponseRetries = 0;
     followUpOnlyTurns = 0;
     preserveReasoningEffortForEmptyResponseRetries = false;
@@ -9878,13 +10136,35 @@ export async function runAgentLoop(opts: {
           duplicateReadOnlyToolCalls.clear();
         }
         if (event.id) settleRepeatedToolCall(event.id);
+        const privateReplayIdentity =
+          isPrivateCall() &&
+          event.completedSideEffect === true &&
+          argumentsHash &&
+          opts.threadId &&
+          opts.turnId
+            ? privateExecutionStepIdentity({
+                threadId: opts.threadId,
+                turnId: opts.turnId,
+                toolName: toolCall.name,
+                argumentsHash,
+              })
+            : undefined;
         const persisted = Promise.resolve(
           send({
             ...event,
+            ...(actionExecutionOutcome.navigationKeys?.size ||
+            (actionInvoked && event.tool === "navigate")
+              ? {
+                  navigationKeys: [
+                    ...(actionExecutionOutcome.navigationKeys ?? []),
+                  ],
+                }
+              : {}),
             ...(event.outcomeUnknown && unknownOutcomeCause
               ? { unknownCause: unknownOutcomeCause }
               : {}),
             ...(argumentsHash ? { argumentsHash } : {}),
+            ...(privateReplayIdentity ? { privateReplayIdentity } : {}),
             ...(executionStepId ? { executionStepId } : {}),
           }),
         ).then(() => {
@@ -9961,8 +10241,8 @@ export async function runAgentLoop(opts: {
           requestedActionStop ??= {
             message: reason
               ? directStop?.ownRemedy
-                ? `I stopped because ${toolCall.name} can't run yet: ${reason}.`
-                : `I stopped because ${toolCall.name} can't run yet: ${reason}. ` +
+                ? `I stopped because ${toolCall.name} can't run yet: ${asSentence(reason)}`
+                : `I stopped because ${toolCall.name} can't run yet: ${asSentence(reason)} ` +
                   "That needs to be fixed outside this chat (a credential, a role, a connected account, or an approval), then you can retry."
               : `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
                 "Retrying would not have changed it, and anything completed before this is saved.",
@@ -9970,7 +10250,7 @@ export async function runAgentLoop(opts: {
             details: sanitizedResult,
           };
           return reason
-            ? `Stopped: ${toolCall.name} can't run yet: ${reason}. ` +
+            ? `Stopped: ${toolCall.name} can't run yet: ${asSentence(reason)} ` +
                 `Do not retry it with different arguments. ${sanitizedResult}`
             : `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
                 `Do not retry it with different arguments. ${sanitizedResult}`;
@@ -10176,6 +10456,12 @@ export async function runAgentLoop(opts: {
           completedSideEffect: false,
         });
         recordToolResult(result, true);
+        if (noLongerAvailable && isHistoryToolName(toolCall.name)) {
+          refusedUnavailableTools.push({
+            name: toolCall.name,
+            resultCount: toolResultHistory.length,
+          });
+        }
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
@@ -10329,28 +10615,33 @@ export async function runAgentLoop(opts: {
         const approvalUserEmail = requiresWriteApproval
           ? undefined
           : getRequestUserEmail();
+        const approvalContext = {
+          ...(approvalUserEmail === undefined
+            ? {}
+            : { userEmail: approvalUserEmail }),
+          orgId: getRequestOrgId() ?? null,
+          ...(opts.appId === undefined ? {} : { appId: opts.appId }),
+          caller: opts.actionCaller ?? "tool",
+          ...(opts.automation === undefined
+            ? {}
+            : { automation: opts.automation }),
+          ...(opts.networkProtocol === undefined
+            ? {}
+            : { networkProtocol: opts.networkProtocol }),
+          ...(opts.networkId === undefined
+            ? {}
+            : { networkId: opts.networkId }),
+          ...(opts.networkPeer === undefined
+            ? {}
+            : { networkPeer: opts.networkPeer }),
+        };
         let mustApprove =
           requiresWriteApproval ||
-          (await preparedCallNeedsApproval(actionEntry, intent, {
-            ...(approvalUserEmail === undefined
-              ? {}
-              : { userEmail: approvalUserEmail }),
-            orgId: getRequestOrgId() ?? null,
-            ...(opts.appId === undefined ? {} : { appId: opts.appId }),
-            caller: opts.actionCaller ?? "tool",
-            ...(opts.automation === undefined
-              ? {}
-              : { automation: opts.automation }),
-            ...(opts.networkProtocol === undefined
-              ? {}
-              : { networkProtocol: opts.networkProtocol }),
-            ...(opts.networkId === undefined
-              ? {}
-              : { networkId: opts.networkId }),
-            ...(opts.networkPeer === undefined
-              ? {}
-              : { networkPeer: opts.networkPeer }),
-          }));
+          (await preparedCallNeedsApproval(
+            actionEntry,
+            intent,
+            approvalContext,
+          ));
         if (
           mustApprove &&
           opts.requireWriteApproval !== true &&
@@ -10383,6 +10674,11 @@ export async function runAgentLoop(opts: {
           }
           const askId =
             (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
+          // A private call's arguments stay out of the chat, so its card
+          // keeps the generic question.
+          const approvalLabel = isPrivateCall()
+            ? undefined
+            : preparedCallApprovalLabel(actionEntry, intent, approvalContext);
           await send({
             type: "tool_start",
             id: toolCall.id,
@@ -10395,6 +10691,7 @@ export async function runAgentLoop(opts: {
             input: liveToolInput as Record<string, string>,
             approvalKey,
             argumentsHash,
+            ...(approvalLabel ? { label: approvalLabel } : {}),
             ...(actionEntry.allowPersistentApproval === false
               ? { allowPersistentApproval: false }
               : {}),
@@ -10798,17 +11095,46 @@ export async function runAgentLoop(opts: {
       // for arguments prepared exactly as these are, or a write recorded
       // before calls had identities, by its raw input; anything else runs
       // fresh.
-      if (toolCallJournal && !ambiguousLegacyWrite && !isPrivateCall()) {
-        const journaled = findReplayableJournalEntry(
-          toolCallJournal,
-          toolCall.name,
-          argumentsHash,
-          consumedJournalKeys,
-          actionIsReadOnly ? undefined : { input: toolCall.input },
-          journalEntriesAlreadyRepresented,
-          executionStepId,
-          journalEntriesAmbiguous,
-        );
+      const privateReplayIdentity =
+        isPrivateCall() && opts.threadId && opts.turnId
+          ? privateExecutionStepIdentity({
+              threadId: opts.threadId,
+              turnId: opts.turnId,
+              toolName: toolCall.name,
+              argumentsHash,
+            })
+          : undefined;
+      const privateReplayLookup =
+        toolCallJournal &&
+        !ambiguousLegacyWrite &&
+        isPrivateCall() &&
+        privateReplayIdentity
+          ? findReplayablePrivateJournalEntry(
+              toolCallJournal,
+              toolCall.name,
+              privateReplayIdentity,
+              consumedJournalKeys,
+            )
+          : { status: "none" as const };
+      const ambiguousPrivateWrite =
+        !actionIsReadOnly &&
+        !actionRetrySafe &&
+        privateReplayLookup.status === "ambiguous";
+      if (toolCallJournal && !ambiguousLegacyWrite && !ambiguousPrivateWrite) {
+        const journaled = isPrivateCall()
+          ? privateReplayLookup.status === "replay"
+            ? privateReplayLookup.entry
+            : undefined
+          : findReplayableJournalEntry(
+              toolCallJournal,
+              toolCall.name,
+              argumentsHash,
+              consumedJournalKeys,
+              actionIsReadOnly ? undefined : { input: toolCall.input },
+              journalEntriesAlreadyRepresented,
+              executionStepId,
+              journalEntriesAmbiguous,
+            );
         if (journaled) {
           rollbackRepeatedToolCall();
           const recordedResult = journaled.result ?? "";
@@ -10909,14 +11235,15 @@ export async function runAgentLoop(opts: {
         0,
         ...repeated.map(([kind, map]) => map.get(repeatKeys[kind]) ?? 0),
       );
-      const priorInterruptions = ambiguousLegacyWrite
-        ? Math.max(1, priorInterruptionsBeforeStepReplay)
-        : (interruptedCallMatchesStep ||
-              ((actionIsReadOnly || actionRetrySafe) &&
-                retryableInterruptedCallKeys.has(preparedCallKey))) &&
-            priorInterruptionsBeforeStepReplay > 0
-          ? 0
-          : priorInterruptionsBeforeStepReplay;
+      const priorInterruptions =
+        ambiguousLegacyWrite || ambiguousPrivateWrite
+          ? Math.max(1, priorInterruptionsBeforeStepReplay)
+          : (interruptedCallMatchesStep ||
+                ((actionIsReadOnly || actionRetrySafe) &&
+                  retryableInterruptedCallKeys.has(preparedCallKey))) &&
+              priorInterruptionsBeforeStepReplay > 0
+            ? 0
+            : priorInterruptionsBeforeStepReplay;
 
       // Another write of a tool whose earlier call may have applied could
       // apply the same change twice, so it does not run; the turn goes on,
@@ -11361,7 +11688,23 @@ export async function runAgentLoop(opts: {
                 ...(actionOrgId ? { orgId: actionOrgId } : {}),
                 ...(requestContext?.run ? { run: requestContext.run } : {}),
               },
-              invokeAction,
+              () =>
+                runWithDurableTurnToolScope(
+                  invokeAction,
+                  AbortSignal.any([signal, timeoutSignal]),
+                  {
+                    runId: opts.runId,
+                    turnId: opts.turnId,
+                    owner: opts.ownerEmail,
+                    ...(opts.networkProtocol
+                      ? { networkProtocol: opts.networkProtocol }
+                      : {}),
+                    unattended: Boolean(
+                      opts.automation ||
+                      (opts.actionCaller && opts.actionCaller !== "tool"),
+                    ),
+                  },
+                ),
             ),
           );
 
@@ -12061,10 +12404,9 @@ export async function runAgentLoop(opts: {
 
     const skipToolCallAfterStop = (
       toolCall: import("./engine/types.js").EngineToolCallPart,
+      result = `Not executed: ${toolCall.name} was called after an earlier action stopped or paused this turn. ` +
+        "Continue with the results already collected.",
     ): EngineContentPart => {
-      const result =
-        `Not executed: ${toolCall.name} was called after an earlier action stopped or paused this turn. ` +
-        "Continue with the results already collected.";
       send({
         type: "tool_start",
         id: toolCall.id,
@@ -12111,6 +12453,26 @@ export async function runAgentLoop(opts: {
       }
       if (turnYieldedToUser || requestedActionStop) {
         toolResultParts.push(skipToolCallAfterStop(toolCall));
+        continue;
+      }
+      const privateResumeIntent = priorPrivateSideEffect
+        ? await resolveToolCallIntent(toolCall)
+        : undefined;
+      if (
+        priorPrivateSideEffect &&
+        (privateResumeIntent === undefined ||
+          (privateResumeIntent.status === "prepared" &&
+            privateResumeIntent.intent.valid &&
+            !intentIsReadOnly(privateResumeIntent.intent)))
+      ) {
+        await flushParallelBatch();
+        toolResultParts.push(
+          skipToolCallAfterStop(
+            toolCall,
+            `Not executed: a private action already completed earlier in this turn, and its details are not available after the run resumed. ` +
+              `Do not repeat it or guess its result. Tell the user that an earlier private step finished, ask them to check what was saved, and to send a new request for anything else.`,
+          ),
+        );
         continue;
       }
       const batchKind = await getParallelBatchKind(toolCall);
@@ -12574,6 +12936,8 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       : MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT;
 
   const historyPrivacyState = opts.historyPrivacyState ?? { private: false };
+  const finalGuardKeptDraft: FinalGuardKeptDraft =
+    opts.finalGuardKeptDraft ?? {};
   const localTurnEvents: AgentChatEvent[] = [];
   let continuationReason: AgentLoopContinuationReason | undefined;
   const send = createHistoryPrivacySender(
@@ -12609,6 +12973,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
         budgetStartedAt,
         send,
         finalResponseGuardRequestText,
+        finalGuardKeptDraft,
         hasVisibleTurnText: () => turnHasVisibleText(localTurnEvents),
         onModelDispatchStarted: () => {
           dispatchedModelCalls++;
@@ -12622,11 +12987,51 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       });
       addUsage(nextUsage);
     } catch (err) {
+      if (isSignalAborted(opts.signal)) throw err;
       if (
-        isSignalAborted(opts.signal) ||
         !isResumableStreamFailure(err, localTurnEvents.slice(attemptStartIndex))
-      )
+      ) {
+        const keptDraft = finalGuardKeptDraft.current;
+        if (
+          keptDraft &&
+          err instanceof EngineError &&
+          !isRecoverableContinuationError({
+            type: "error",
+            error: err.message,
+            ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+            ...(err.providerRetryable === undefined
+              ? {}
+              : { providerRetryable: err.providerRetryable }),
+          })
+        ) {
+          finalGuardKeptDraft.current = undefined;
+          const failure = { message: err.message, errorCode: err.errorCode };
+          await send(
+            keptDraft.clearAllText
+              ? { type: "clear", allText: true }
+              : { type: "clear" },
+          );
+          await send(keptGuardDraftRecordEvent(failure));
+          await send({
+            type: "text",
+            text: `${keptDraft.prefix}\n\n${keptDraft.draft}`,
+          });
+          if (!isSilentAfterKeptDraft(err)) throw err;
+          await send({ type: "done" });
+          try {
+            opts.onOutcome?.({
+              state: "failed",
+              code: failure.errorCode ?? "engine_error",
+              retryable: false,
+              message: failure.message,
+            });
+          } catch {
+            // coercion-ok: outcome observers cannot change run completion.
+          }
+          return usage;
+        }
         throw err;
+      }
       if (
         !resumeResumableErrorsInProcess &&
         remainingRunBudgetMs(budgetStartedAt) <
@@ -12702,7 +13107,7 @@ export function endsAtContinuationBoundary(run: ActiveRun): boolean {
 function chunkMadeForwardProgress(run: ActiveRun): boolean {
   return run.events.some(
     ({ event }) =>
-      (event.type === "text" && event.text.trim().length > 0) ||
+      carriesAssistantText(event) ||
       event.type === "tool_start" ||
       event.type === "tool_done",
   );
@@ -13738,6 +14143,16 @@ export function isLoopProtectionDispatchError(err: unknown): boolean {
 
 export const MAX_NESTED_SELF_DISPATCH_DEPTH = 6;
 
+function verifiedTurnGrantOf(event: unknown): ProviderTurnGrant | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  const context: unknown = Reflect.get(event, "context");
+  if (!context || typeof context !== "object") return undefined;
+  const grant: unknown = Reflect.get(context, VERIFIED_TURN_GRANT_CONTEXT_KEY);
+  return grant && typeof grant === "object"
+    ? (grant as ProviderTurnGrant)
+    : undefined;
+}
+
 export async function chainServerDrivenContinuation(opts: {
   event: unknown;
   run: ActiveRun;
@@ -13859,6 +14274,7 @@ export async function chainServerDrivenContinuation(opts: {
   const continuationMarker = {
     runId: nextRunId,
     turnId: effectiveTurnId,
+    ...backgroundRunInitiatorMarker(nextRunId, opts.turnInitiator),
     continuationCount: opts.backgroundContinuationCount + 1,
     continuationReason,
     ...(actionPreparationTool ? { actionPreparationTool } : {}),
@@ -13887,6 +14303,17 @@ export async function chainServerDrivenContinuation(opts: {
         }
       : {}),
   };
+  // The turn grant names its run, so the next run gets its own copy, and
+  // only when this run verified the grant it was dispatched with.
+  const nextTurnGrant = reissueDurableTurnGrant({
+    verified: verifiedTurnGrantOf(opts.event),
+    initiator: opts.turnInitiator,
+    turnId: effectiveTurnId,
+    nextRunId,
+  });
+  if (nextTurnGrant)
+    continuationBody[AGENT_CHAT_TURN_GRANT_FIELD] = nextTurnGrant;
+  else delete continuationBody[AGENT_CHAT_TURN_GRANT_FIELD];
   // Approval selectors apply only to the request that consumes their one-shot grants.
   delete continuationBody.approvedToolCalls;
   delete continuationBody.approvedToolCallAskIds;
@@ -14631,12 +15058,16 @@ export function createProductionAgentHandler(
       });
     const mutableBody = body as unknown as Record<string, unknown>;
     if (!isBackgroundWorker) {
+      delete mutableBody[AGENT_CHAT_TURN_GRANT_FIELD];
       // A client can submit this private field, so overwrite it at the boundary.
       mutableBody[AGENT_CHAT_BROWSER_SESSION_ID_FIELD] =
         getRequestContext()?.browserSessionId ?? null;
       const requestContext = getRequestContext();
       mutableBody[AGENT_CHAT_REQUEST_CONTEXT_FIELD] = {
         requestOrigin: requestContext?.requestOrigin ?? null,
+        ...(requestContext?.timezone
+          ? { timezone: requestContext.timezone }
+          : {}),
         isLoopbackRequest:
           !dispatchToBackground && requestContext?.isLoopbackRequest === true,
         isDirectLoopbackRequest:
@@ -15423,9 +15854,8 @@ export function createProductionAgentHandler(
           })
         : null;
     if (
-      (requestedApprovedToolCallAskIds?.length ||
-        (privateRequestHistory && exactApprovedToolCall)) &&
-      !resolvedApprovalTurnId
+      requestedApprovedToolCalls?.length &&
+      (!requestedApprovedToolCallAskIds?.length || !resolvedApprovalTurnId)
     ) {
       setResponseStatus(event, 409);
       return {
@@ -16352,7 +16782,8 @@ export function createProductionAgentHandler(
               : null;
             if (extensionId) lines.push(`extensionId: ${extensionId}`);
             if (url.search) lines.push(`search: ${url.search}`);
-            if (url.hash) lines.push(`hash: ${url.hash}`);
+            // A tab on an older bundle still stores the hash unscrubbed.
+            if (url.hash) lines.push(`hash: ${scrubLocationHash(url.hash)}`);
             if (url.searchParams && Object.keys(url.searchParams).length > 0) {
               lines.push("searchParams:");
               for (const [k, v] of Object.entries(url.searchParams)) {
@@ -16914,6 +17345,23 @@ export function createProductionAgentHandler(
           (typeof requestTurnId === "string" && requestTurnId.trim()
             ? requestTurnId.trim()
             : runId));
+    // Only a fresh turn the owner is driving from the page right now hands its
+    // foreground standing to the durable run; continuations never mint one.
+    if (dispatchToBackground && getAppConfig().agent.interactiveChatTurns) {
+      const grant = mintDurableTurnGrant({
+        runId,
+        turnId: effectiveTurnId,
+        initiator: turnInitiator,
+        interactive: isProviderInteractiveScope(),
+        continuation:
+          internalContinuation === true ||
+          Boolean(continueOf) ||
+          Boolean(requestedAutoContinueOfRunId) ||
+          Boolean(requestedContinueOfRunId),
+        lifetimeMs: MAX_TURN_WALL_CLOCK_MS,
+      });
+      if (grant) mutableBody[AGENT_CHAT_TURN_GRANT_FIELD] = grant;
+    }
     let durableDispatchPayload: string | undefined;
     if (dispatchToBackground) {
       try {
@@ -17434,6 +17882,7 @@ export function createProductionAgentHandler(
                   backgroundFunctionRuntimeExpected:
                     expectsNetlifyBackgroundFunction,
                   payloadRef: true,
+                  ...backgroundRunInitiatorMarker(runId, turnInitiator),
                 },
               }
             : {
@@ -17443,6 +17892,7 @@ export function createProductionAgentHandler(
                   turnId: effectiveTurnId,
                   backgroundFunctionRuntimeExpected:
                     expectsNetlifyBackgroundFunction,
+                  ...backgroundRunInitiatorMarker(runId, turnInitiator),
                 },
               },
         });
@@ -18293,6 +18743,7 @@ export function createProductionAgentHandler(
           },
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
+          appId: options.appId,
           ...(options.appId && getRequestOrgId()
             ? { appAuthorization: getRequestRunContext()?.appAuthorization }
             : {}),

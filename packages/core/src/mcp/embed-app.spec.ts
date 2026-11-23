@@ -516,6 +516,15 @@ describe("embedApp", () => {
         this.headers.set(name.toLowerCase(), value);
       }
     }
+    const appended: Array<{ hasAttribute: (n: string) => boolean }> = [];
+    const fakeDocument = {
+      head: {
+        appendChild(node: { hasAttribute: (n: string) => boolean }) {
+          appended.push(node);
+          return node;
+        },
+      },
+    };
     const sessionStorageObject = { setItem: vi.fn() };
     const installRuntime = new Function(
       "window",
@@ -525,6 +534,7 @@ describe("embedApp", () => {
       "fetch",
       "XMLHttpRequest",
       "EventSource",
+      "document",
       `${runtimeSource}; return installExternalEmbedRuntime;`,
     )(
       windowObject,
@@ -534,6 +544,7 @@ describe("embedApp", () => {
       fetch,
       MockXMLHttpRequest,
       MockEventSource,
+      fakeDocument,
     ) as (config: Record<string, unknown>) => void;
 
     installRuntime({
@@ -622,6 +633,9 @@ describe("embedApp", () => {
       "/deck/reports",
     );
 
+    fetch.mockResolvedValueOnce(new Response("", { status: 503 }));
+    await installedFetch("/deck/_agent-native/auth/session");
+
     const installedEventSource = windowObject.EventSource as (
       url: string,
     ) => unknown;
@@ -654,6 +668,34 @@ describe("embedApp", () => {
       ),
     ).toBe(false);
 
+    const stylesheet = {
+      nodeName: "LINK",
+      rel: "stylesheet",
+      href: "https://host.example/mail/assets/route-abc123.css",
+      attrs: new Map([["crossorigin", ""]]),
+      getAttribute(name: string) {
+        return this.attrs.get(name) ?? null;
+      },
+      hasAttribute(name: string) {
+        return this.attrs.has(name);
+      },
+      removeAttribute(name: string) {
+        this.attrs.delete(name);
+      },
+    };
+    const credentialed = {
+      ...stylesheet,
+      attrs: new Map([
+        ["crossorigin", "use-credentials"],
+        ["integrity", "sha384-x"],
+      ]),
+    };
+    fakeDocument.head.appendChild(credentialed as never);
+    expect(credentialed.attrs.has("crossorigin")).toBe(true);
+    fakeDocument.head.appendChild(stylesheet as never);
+    expect(appended).toContain(stylesheet);
+    expect(stylesheet.hasAttribute("crossorigin")).toBe(false);
+
     locationObject.pathname = "/mail/settings";
     locationObject.href = "https://host.example/mail/settings";
     locationObject.search = "";
@@ -678,6 +720,28 @@ describe("embedApp", () => {
       ),
     ).toBe(false);
 
+    // read_view reports these: the host shows no console for the panel.
+    fetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(
+      installedFetch("/mail/_agent-native/auth/session"),
+    ).rejects.toThrow("Failed to fetch");
+    fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: "Approve this call first.",
+          errorCode: "approval_required",
+        }),
+        { status: 409 },
+      ),
+    );
+    await installedFetch("/mail/_agent-native/actions/x", { method: "post" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(windowObject.__agentNativeEmbedRequestFailures).toEqual([
+      "GET /deck/_agent-native/auth/session HTTP 503",
+      "GET /mail/_agent-native/auth/session failed: Failed to fetch (sent without the panel session)",
+      "POST /mail/_agent-native/actions/x HTTP 409 approval_required: Approve this call first. (sent without the panel session)",
+    ]);
+
     // Off the target's mount its reads go out unsigned, still without
     // cookies: neither the signed transport nor the page's.
     const unsignedTransport = fetchTransport(installedFetch as typeof fetch);
@@ -689,6 +753,16 @@ describe("embedApp", () => {
     locationObject.href = "https://host.example/deck/reports";
     expect(fetchTransport(installedFetch as typeof fetch)).toBe(
       signedTransport,
+    );
+
+    // A token the app attached itself is named when it is not the panel's.
+    fetch.mockResolvedValueOnce(new Response("{}", { status: 403 }));
+    await installedFetch("/deck/_agent-native/actions/y", {
+      method: "POST",
+      headers: { Authorization: "Bearer another-session" },
+    });
+    expect(windowObject.__agentNativeEmbedRequestFailures.at(-1)).toBe(
+      "POST /deck/_agent-native/actions/y HTTP 403 (sent with a session other than the panel's)",
     );
   });
 
@@ -968,24 +1042,20 @@ describe("embedApp", () => {
     ]);
   });
 
-  it("checks for ChatGPT's window.openai bridge before loading the standard bridge module", () => {
+  it("loads the remote fallback module lazily", () => {
     const resource = embedApp({ title: "Mail" });
     const html =
       typeof resource.html === "function"
         ? resource.html({ actionName: "manage-draft", appId: "mail" })
         : resource.html;
 
-    const openAiIndex = html.indexOf("window.openai");
-    const dynamicImportIndex = html.indexOf(
+    expect(html).toContain(
       'await import("https://esm.sh/@modelcontextprotocol',
     );
-
-    expect(openAiIndex).toBeGreaterThanOrEqual(0);
-    expect(dynamicImportIndex).toBeGreaterThan(openAiIndex);
     expect(html).not.toContain('import { App } from "https://esm.sh');
   });
 
-  it("waits longer for ChatGPT's bridge before falling back to the generic MCP Apps module", () => {
+  it("gives ChatGPT's bridge longer to appear", () => {
     const resource = embedApp({ title: "Mail" });
     const html =
       typeof resource.html === "function"
@@ -2361,6 +2431,7 @@ return requestFullscreenOnFirstInteraction;`;
       frameSrc?: string;
       modelContext?: unknown;
       app?: unknown;
+      windowListeners?: Record<string, Array<(event: unknown) => void>>;
     }) => {
       const resource = embedApp({ title: "Mail" });
       const html =
@@ -2376,6 +2447,10 @@ return requestFullscreenOnFirstInteraction;`;
       );
       const pushed: Array<{ state: unknown; url: string }> = [];
       const popstates: unknown[] = [];
+      const windowListeners: Record<
+        string,
+        Array<(event: unknown) => void>
+      > = options.windowListeners ?? {};
       const fakeWindow = {
         location: { href: options.href },
         history: {
@@ -2391,6 +2466,9 @@ return requestFullscreenOnFirstInteraction;`;
         },
         getSelection: () => "",
         __agentNativeWebMcp: options.pageHelper,
+        addEventListener(type: string, listener: (event: unknown) => void) {
+          (windowListeners[type] ??= []).push(listener);
+        },
       };
       const objectValue = (value: unknown) =>
         value && typeof value === "object" && !Array.isArray(value)
@@ -2549,6 +2627,24 @@ return requestFullscreenOnFirstInteraction;`;
       });
     });
 
+    it("reports why the open page failed to load", async () => {
+      const windowListeners: Record<
+        string,
+        Array<(event: unknown) => void>
+      > = {};
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+        windowListeners,
+      });
+      windowListeners.unhandledrejection![0]!({
+        reason: new Error("Failed to fetch dynamically imported module"),
+      });
+      const read = await tools.callViewTool({ name: "read_view" });
+      expect(read.structuredContent).toMatchObject({
+        errors: ["Failed to fetch dynamically imported module"],
+      });
+    });
+
     it("moves the transplanted app in place and refuses other origins", async () => {
       const tools = viewToolsFor({
         href: "https://labs.example.com/mail/inbox",
@@ -2580,10 +2676,10 @@ return requestFullscreenOnFirstInteraction;`;
         arguments: { path: "/calendar/event/e1" },
       });
       expect(moved.isError).toBe(true);
-      expect(moved.content[0]!.text).toContain("nested frame");
+      expect(moved.content[0]?.text).toContain("nested frame");
       const read = await tools.callViewTool({ name: "read_view" });
       expect(read.isError).toBe(true);
-      expect(read.content[0]!.text).toContain("nested frame");
+      expect(read.content[0]?.text).toContain("nested frame");
       expect(await tools.listViewTools()).toEqual([]);
     });
 
@@ -2705,7 +2801,6 @@ return (src) => { renderFrame(src); return appFrame; };`,
     expect(fixture.html).toContain("app.updateModelContext");
     expect(fixture.html).toContain("app.requestDisplayMode");
     expect(fixture.html).toContain("app.sendMessage");
-    expect(fixture.html).toContain("window.openai");
     expect(fixture.html).toContain('"openai:set_globals"');
     expect(fixture.html).toContain("openAiBridge.callTool(startTool, args)");
     expect(fixture.html).toContain("openAiBridge.openExternal");
@@ -2817,6 +2912,7 @@ const WIDGET_CHAT_BRIDGE = "__an_mcp_chat_bridge=1";
 async function mountRestoredWidget(
   callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>,
   catalogMode: "directory" | "app" = "directory",
+  nested = false,
 ) {
   const resource = embedApp({ title: "Slides" });
   const html =
@@ -2862,14 +2958,21 @@ async function mountRestoredWidget(
     locale: "en-US",
     maxHeight: 800,
     callTool: vi.fn(callTool),
-    notifyIntrinsicHeight: vi.fn(),
+    notifyIntrinsicHeight: nested ? undefined : vi.fn(),
     requestDisplayMode: vi.fn(),
     setOpenInAppUrl: vi.fn(),
   };
   const host = "slides-agent-native-com.web-sandbox.oaiusercontent.com";
-  const win = {
+  const hostEvents = new EventTarget();
+  const parent = { postMessage: vi.fn() };
+  const bridgeWindow = {
     openai: bridge,
-    parent: { postMessage: vi.fn() },
+    addEventListener: hostEvents.addEventListener.bind(hostEvents),
+    removeEventListener: hostEvents.removeEventListener.bind(hostEvents),
+  };
+  const win = {
+    openai: nested ? undefined : bridge,
+    parent: nested ? { ...parent, parent: bridgeWindow } : parent,
     location: { href: `https://${host}/`, hostname: host, search: "" },
     screen: { availHeight: 900 },
     addEventListener: (type: string, listener: (event: unknown) => void) => {
@@ -2912,7 +3015,16 @@ async function mountRestoredWidget(
   const stage = document.querySelector("[data-stage]")!;
   return {
     bridge,
+    hostMessages: win.parent.postMessage,
+    respondToHost: async (id: number, result: Record<string, unknown>) => {
+      dispatch("message", {
+        source: win.parent,
+        data: { jsonrpc: "2.0", id, result },
+      });
+      await flush();
+    },
     stageText: () => stage.textContent ?? "",
+    widgetMode: () => document.body.dataset.widgetMode,
     frame: () =>
       stage.querySelector("iframe") as
         | (HTMLIFrameElement & { src: string })
@@ -2935,11 +3047,91 @@ async function mountRestoredWidget(
     },
     resync: async (displayMode: string) => {
       bridge.displayMode = displayMode;
-      dispatch("openai:set_globals");
+      if (nested) {
+        hostEvents.dispatchEvent(new Event("openai:set_globals"));
+      } else {
+        dispatch("openai:set_globals");
+      }
       await flush();
     },
   };
 }
+
+it("loads the ChatGPT tool result and follows globals from an ancestor iframe", async () => {
+  vi.useFakeTimers();
+  try {
+    const shell = await mountRestoredWidget(
+      async () => ({}),
+      "directory",
+      true,
+    );
+    expect(shell.frame()?.src).toBe(
+      `${WIDGET_SPENT_START}&${WIDGET_CHAT_BRIDGE}`,
+    );
+    expect(shell.bridge.setOpenInAppUrl).toHaveBeenCalledWith({
+      href: `${WIDGET_APP_ORIGIN}/deck/deck-1`,
+    });
+    await shell.resync("inline");
+    expect(shell.widgetMode()).toBe("inline");
+    await shell.resync("fullscreen");
+    expect(shell.widgetMode()).toBe("pane");
+    expect(shell.frame()?.src).toBe(
+      `${WIDGET_SPENT_START}&${WIDGET_CHAT_BRIDGE}`,
+    );
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("initializes the MCP Apps host while the ChatGPT bridge is active", async () => {
+  vi.useFakeTimers();
+  try {
+    const shell = await mountRestoredWidget(async () => ({}));
+    const messages = () =>
+      shell.hostMessages.mock.calls.map(([message]) => message);
+    expect(shell.frame()?.src).toBe(
+      `${WIDGET_SPENT_START}&${WIDGET_CHAT_BRIDGE}`,
+    );
+    const initialize = messages().find(
+      (message) => message.method === "ui/initialize",
+    );
+    expect(initialize).toEqual(
+      expect.objectContaining({ jsonrpc: "2.0", id: expect.any(Number) }),
+    );
+    await shell.resync("inline");
+    expect(shell.bridge.notifyIntrinsicHeight).toHaveBeenCalledWith({
+      height: 56,
+    });
+    expect(messages().map((message) => message.method)).not.toContain(
+      "ui/notifications/size-changed",
+    );
+
+    await shell.respondToHost(initialize.id, {
+      protocolVersion: "2026-01-26",
+      hostContext: { displayMode: "inline" },
+    });
+    expect(messages().filter((message) => message.jsonrpc === "2.0")).toEqual([
+      initialize,
+      {
+        jsonrpc: "2.0",
+        method: "ui/notifications/initialized",
+        params: {},
+      },
+      {
+        jsonrpc: "2.0",
+        method: "notifications/tools/list_changed",
+        params: {},
+      },
+      {
+        jsonrpc: "2.0",
+        method: "ui/notifications/size-changed",
+        params: { height: 56 },
+      },
+    ]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 describe.each(["directory", "app"] as const)(
   "embedApp %s widget restored after a chat reload",

@@ -11,6 +11,7 @@
  */
 import type {
   ActionCallRecord,
+  ActionCaller,
   ActionExecutionOutcome,
   ActionRunContext,
 } from "./action.js";
@@ -40,6 +41,13 @@ export type ActionInvocationEvidence = {
   /** The MCP client accepted this exact call's approval elicitation. */
   mcpClientAccepted?: true;
   auditOverride?: AuditOverride;
+  /** The MCP call consumed a grant its owner approved on the review page. */
+  mcpReviewPageApproved?: true;
+  /** When the server asked for that grant. */
+  approvalAskedAt?: number;
+  /** An admitted MCP user-turn grant covers this call, so provider gates may
+   *  treat it as the person's own foreground turn. */
+  providerInteractive?: true;
 };
 export type ActionExecutionFrame = {
   key: object;
@@ -58,6 +66,12 @@ export type ActionExecutionFrame = {
   writes?: boolean;
   emitsChange?: boolean;
   boundaryPending?: boolean;
+  /** Raw `intent` input captured before schema parsing can strip unknown keys. */
+  navigationIntent?: string;
+  /** Declared on an explicit UI-opening write action (never on a read). */
+  allowsAgentNavigation?: boolean;
+  /** True when this frame is executing the `navigate` action itself. */
+  isNavigateAction?: boolean;
   /** The call's record, and the context it ran with, once validated. */
   record?: ActionCallRecord;
   context?: ActionRunContext;
@@ -130,6 +144,161 @@ export function currentInvocationEvidence():
 }
 
 /**
+ * What approved the action call running now over MCP: the person on the
+ * app's review page, or the client's own approval prompt. Undefined when
+ * nothing did, and in any call nested in it, which runs in its own frame.
+ * Read-only: it reports what the dispatcher vouched for, nothing a call sent.
+ * Only the MCP call path that consumed a grant its owner approved on the
+ * review page reports `"mcp-review-page"`; an audit label a trusted
+ * dispatcher passes (`auditOverride`) reports nothing.
+ */
+export function currentActionApproval():
+  | "mcp-review-page"
+  | "mcp-client"
+  | undefined {
+  const evidence = currentInvocationEvidence();
+  if (evidence?.mcpReviewPageApproved) return "mcp-review-page";
+  return evidence?.mcpClientAccepted ? "mcp-client" : undefined;
+}
+
+/**
+ * When the person was asked for the review-page approval of the action call
+ * running now, in epoch milliseconds: its grant's creation time, which the
+ * notice was dated from. Undefined unless the review page approved this call
+ * and its grant recorded the time.
+ */
+export function currentActionApprovalAskedAt(): number | undefined {
+  const evidence = currentInvocationEvidence();
+  return evidence?.mcpReviewPageApproved ? evidence.approvalAskedAt : undefined;
+}
+
+/**
+ * The caller that started the action calls running now: the outermost call's
+ * `caller`, which a dispatcher set, never a nested call's own label or
+ * anything the request sent. Undefined outside an action call.
+ */
+export function currentActionOriginCaller(): ActionCaller | undefined {
+  let caller: ActionCaller | undefined;
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    caller = frame.context?.caller ?? caller;
+  }
+  return caller;
+}
+
+/**
+ * Whether a read-only action call is running now: the innermost call or any
+ * call it runs inside, so a write nested in a read stays inside the read.
+ */
+export function insideReadOnlyAction(): boolean {
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.writes === false) return true;
+  }
+  return false;
+}
+
+/**
+ * The raw `intent` argument on the running action or any ancestor frame,
+ * preferring `"open"` if any caller in the chain asked to open the view.
+ */
+export function currentActionNavigationIntent(): string | undefined {
+  let found: string | undefined;
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.navigationIntent === "keep") return "keep";
+    if (
+      frame.navigationIntent === "open" ||
+      frame.navigationIntent === "reveal"
+    )
+      found = frame.navigationIntent;
+    found ??= frame.navigationIntent;
+  }
+  return found;
+}
+
+/**
+ * Whether the active action chain is authorized to navigate by an action's
+ * declared `allowsAgentNavigation: true`. Only the outermost write action can
+ * grant this: a nested action with `allowsAgentNavigation: true` (such as an
+ * app's own `navigate` action) cannot bypass a parent write action that did
+ * not declare it.
+ */
+export function currentActionAllowsAgentNavigation(): boolean {
+  let outermostWrite: ActionExecutionFrame | undefined;
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.writes === true) {
+      outermostWrite = frame;
+    }
+  }
+  return outermostWrite?.allowsAgentNavigation === true;
+}
+
+/** Whether any write has already been observed in the active action chain. */
+export function hasObservedWriteInActionChain(): boolean {
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.writeObserved) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether the current action is nested inside an outer write action (for
+ * example, an edit action invoking `navigate`).
+ */
+export function insideParentWriteAction(): boolean {
+  const current = actionExecutionStorage?.getStore()?.frame;
+  for (let frame = current?.parent; frame; frame = frame.parent) {
+    if (frame.writes === true) return true;
+  }
+  return false;
+}
+
+/** Whether the running action itself or any ancestor is classified as a write. */
+export function insideWriteAction(): boolean {
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.writes === true) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether the running call is a top-level `navigate` action (no outer write
+ * action). Lets hand-written `actions/navigate.ts` switch section/list views
+ * while refusing non-navigate write actions that try to move the view.
+ */
+export function isStandaloneNavigateAction(): boolean {
+  const current = actionExecutionStorage?.getStore()?.frame;
+  if (!current || current.writes !== true) return false;
+  if (insideParentWriteAction()) return false;
+  return (
+    current.isNavigateAction === true ||
+    current.context?.actionName === "navigate"
+  );
+}
+
+/**
  * Run a dispatcher's own work outside the invocation it runs inside. A frame's
  * evidence belongs only to rows about that frame's own call, so a row about
  * another call is recorded here.
@@ -186,4 +355,15 @@ export function withoutWriteObservation<T>(fn: () => T): T {
   const frame = actionExecutionStorage?.getStore()?.frame;
   if (!frame || !unobservedFrame) return fn();
   return unobservedFrame.run(frame, fn);
+}
+
+export function observeNavigationCommand(key: string): void {
+  if (key !== "navigate" && !/^navigate:[A-Za-z0-9_-]{1,96}$/.test(key)) return;
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.outcome) (frame.outcome.navigationKeys ??= new Set()).add(key);
+  }
 }

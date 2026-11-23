@@ -1199,6 +1199,7 @@ export default {
     monitoring: "監視 - Analytics",
     agents: "エージェント - Analytics",
     session: "セッションリプレイ - Analytics",
+    sessionReport: "セッションレポート - Analytics",
     tool: "ツール - Analytics",
     extensions: "拡張機能 - Analytics",
     overview: "概要 - Analytics",
@@ -1877,6 +1878,28 @@ export default {
     emptyStepVisit: "アプリを開く",
     installSnippetTitle: "セッションリプレイを追加",
     backToSessions: "セッションに戻る",
+    createReport: "レポートを作成",
+    createReportTooltip:
+      "このセッションについてエージェントにレポートを書かせます：何が問題だったか、重要な場面、再現方法。",
+    createReportMessage: "このセッションについてレポートを書いてください。",
+    reportCount: "レポート（{{count}}）",
+    reportsUnavailable: "レポートを利用できません",
+    reportNeedsLab: "セッションレポートはセッショントリアージ Lab の機能です。",
+    reportNotFound: "このレポートは存在しないか、あなたと共有されていません。",
+    reportLoadFailed: "このレポートを読み込めませんでした：{{message}}",
+    reportBackToSession: "セッションに戻る",
+    reportTitleLabel: "レポートのタイトル",
+    reportSummaryLabel: "概要",
+    reportSummaryPlaceholder: "何が問題だったか、その理由",
+    reportKeyMoments: "重要な場面",
+    reportReproSteps: "再現手順",
+    reportErrorIssue: "エラーイシュー",
+    reportCommit: "コミット",
+    reportNoCommit: "このセッションはコミットを報告していません",
+    reportSaveFailed: "レポートを保存できませんでした：{{message}}",
+    reportDelete: "レポートを削除",
+    reportDeleteTitle:
+      "このレポートを削除しますか？エージェント用リンクは使えなくなります。",
     copyForAgent: "エージェント用にコピー",
     copyForAgentTooltip:
       "エージェントがこのリプレイを確認できる一時的なプライベートリンクをコピーします。",
@@ -2153,6 +2176,10 @@ export default {
     flagsUnavailable: "機能フラグを利用できません",
     flagsUnreachable:
       "ワークスペースディレクトリに接続できません。接続可能になったら再試行してください。",
+    verifiedFlagChangeOrg:
+      "{{time}} に確認済み：{{app}} の {{flag}} は、この組織で {{availability}} に設定されています。",
+    verifiedFlagChangeGlobal:
+      "{{time}} に確認済み：{{app}} の {{flag}} は、すべての組織で {{availability}} に設定されています。",
     flagsEmpty: "フラグを報告したワークスペースアプリはありません",
     flagsEmptyDetail:
       "接続済みアプリの準備ができると、登録済みフラグがここに表示されます。",

@@ -73,7 +73,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { name?: string }) =>
     options?.name === undefined ? key : `${key}:${options.name}`,
 }));
-vi.mock("@agent-native/toolkit/app/review", () => ({
+vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/review")
+  >()),
   CommentBody: ({ body }: { body: string }) => body,
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
@@ -325,7 +328,12 @@ describe("comments across Blocks field tabs", () => {
     const trigger = container.querySelector<HTMLButtonElement>(
       "[data-discussion-filter-trigger]",
     )!;
-    await act(async () => trigger.click());
+    // Content's menus open on a press or Enter, not a bare click().
+    await act(async () => {
+      trigger.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
   }
 
   const tabOptions = () => [
@@ -383,7 +391,8 @@ describe("comments across Blocks field tabs", () => {
     );
     expect(feed()).toEqual(["# Notes", "notes-1"]);
     expect(
-      tabOptions().map((option) => option.getAttribute("aria-pressed")),
+      // oracle-change: the options are menu items now, checked rather than pressed.
+      tabOptions().map((option) => option.getAttribute("aria-checked")),
     ).toEqual(["false", "false", "true", "false"]);
 
     act(() => replies.setHistoryFilters({ tab: "" }));

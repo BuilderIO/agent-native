@@ -1211,6 +1211,7 @@ export default {
     monitoring: "Monitoramento - Analytics",
     agents: "Agentes - Analytics",
     session: "Replay de sessão - Analytics",
+    sessionReport: "Relatório de sessão - Analytics",
     tool: "Ferramenta - Analytics",
     extensions: "Extensões - Analytics",
     overview: "Visão geral - Analytics",
@@ -1896,6 +1897,30 @@ export default {
     emptyStepVisit: "Visitar app",
     installSnippetTitle: "Adicionar replay de sessão",
     backToSessions: "Voltar para sessões",
+    createReport: "Criar relatório",
+    createReportTooltip:
+      "Peça ao agente para escrever um relatório sobre esta sessão: o que deu errado, os momentos principais e como reproduzir.",
+    createReportMessage: "Escreva um relatório sobre esta sessão.",
+    reportCount: "Relatórios ({{count}})",
+    reportsUnavailable: "Relatórios indisponíveis",
+    reportNeedsLab:
+      "Os relatórios de sessão fazem parte do Lab de triagem de sessões.",
+    reportNotFound:
+      "Este relatório não existe ou não foi compartilhado com você.",
+    reportLoadFailed: "Não foi possível carregar este relatório: {{message}}",
+    reportBackToSession: "Voltar para a sessão",
+    reportTitleLabel: "Título do relatório",
+    reportSummaryLabel: "Resumo",
+    reportSummaryPlaceholder: "O que deu errado e por quê",
+    reportKeyMoments: "Momentos principais",
+    reportReproSteps: "Passos para reproduzir",
+    reportErrorIssue: "Problema de erro",
+    reportCommit: "Commit",
+    reportNoCommit: "A sessão não informou nenhum commit",
+    reportSaveFailed: "Não foi possível salvar o relatório: {{message}}",
+    reportDelete: "Excluir relatório",
+    reportDeleteTitle:
+      "Excluir este relatório? Os links para agentes deixarão de funcionar.",
     copyForAgent: "Copiar para agente",
     copyForAgentTooltip:
       "Copie um link privado temporário que um agente pode usar para inspecionar este replay.",
@@ -2161,6 +2186,10 @@ export default {
     flagsUnavailable: "Sinalizadores de recursos indisponíveis",
     flagsUnreachable:
       "Não foi possível acessar o diretório do espaço de trabalho. Tente novamente quando estiver disponível.",
+    verifiedFlagChangeOrg:
+      "Verificado às {{time}}: {{flag}} em {{app}} está definido como {{availability}} para esta organização.",
+    verifiedFlagChangeGlobal:
+      "Verificado às {{time}}: {{flag}} em {{app}} está definido como {{availability}} para todas as organizações.",
     flagsEmpty: "Nenhum app informou sinalizadores",
     flagsEmptyDetail:
       "Sinalizadores registrados aparecerão aqui quando os apps conectados estiverem prontos.",

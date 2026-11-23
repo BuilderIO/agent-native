@@ -59,7 +59,7 @@ afterEach(() => {
 });
 
 async function setUp(docId: string) {
-  const pglite = await createTestPglite();
+  const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`
     CREATE TABLE _collab_docs (
       doc_id TEXT PRIMARY KEY,

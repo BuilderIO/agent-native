@@ -1,0 +1,88 @@
+/**
+ * guard-no-new-mcp-parity-gaps.ts
+ *
+ * packages/core/src/mcp/mcp-parity-gaps.json freezes the actions an app's own
+ * agent could call that its MCP server neither served nor ruled out when every
+ * such action had to carry a decision. The list may only shrink: a new action
+ * is served (`mcpTool: true`) or kept in-app (`mcpTool: false`, with a comment
+ * saying why) instead of joining it.
+ *
+ * The parity spec (agent-mcp-parity.spec.ts) checks that every undecided
+ * action is listed and every entry is still undecided. It cannot check that no
+ * entry was added, because that is a comparison with the base branch, so this
+ * guard compares the baseline's ids with the merge-base version and fails on
+ * every id the branch adds. Both read the file through `readParityGaps`.
+ *
+ * The comparison and its outcomes live in `lib/shrink-only-baseline.ts`.
+ */
+
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+import {
+  parseEmptySections as parseShrinkOnlyEmptySections,
+  readShrinkOnlyBaseline,
+  runShrinkOnlyBaselineGuard,
+  type GuardOutcome,
+  type ShrinkOnlyBaseline,
+} from "./lib/shrink-only-baseline.js";
+
+const GUARD_NAME = "guard:no-new-mcp-parity-gaps";
+
+export const BASELINE_PATH = "packages/core/src/mcp/mcp-parity-gaps.json";
+export const GUARD_PATH = "scripts/guard-no-new-mcp-parity-gaps.ts";
+export const EMPTY_SECTIONS_PATH = "guard-allowlists/mcp-parity-gaps.json";
+
+export function parseEmptySections(
+  text: string,
+  baseline: ShrinkOnlyBaseline,
+): string[] {
+  return parseShrinkOnlyEmptySections(text, baseline, {
+    emptySectionsPath: EMPTY_SECTIONS_PATH,
+    baselinePath: BASELINE_PATH,
+    itemNoun: "undecided actions",
+  });
+}
+
+/** The baseline as both this guard and the parity spec read it. */
+export function readParityGaps(root: string): ShrinkOnlyBaseline {
+  return readShrinkOnlyBaseline(root, {
+    baselinePath: BASELINE_PATH,
+    emptySectionsPath: EMPTY_SECTIONS_PATH,
+    itemNoun: "undecided actions",
+  });
+}
+
+export function runParityGapGuard(cwd: string): GuardOutcome {
+  return runShrinkOnlyBaselineGuard(cwd, {
+    guardName: GUARD_NAME,
+    baselinePath: BASELINE_PATH,
+    guardPath: GUARD_PATH,
+    emptySectionsPath: EMPTY_SECTIONS_PATH,
+    idNoun: "undecided actions",
+    movedHelp:
+      "The baseline path is fixed: the guard compares the file at that path with the merge-base,\n" +
+      "and the parity spec reads the same path. Keep the baseline there; to clear an entry,\n" +
+      'decide the action (`mcpTool: true`, `"search"` or `false`) and delete the id.',
+    addedTarget: "the MCP parity baseline",
+    addedHelp:
+      "The baseline records actions that had no MCP decision when the parity check began, and\n" +
+      "may only shrink. Decide the action instead of adding it here: `mcpTool: true` serves it\n" +
+      'to outside agents in their tool list, `mcpTool: "search"` serves it unlisted (tool-search\n' +
+      "finds it and call-tool runs it), and `mcpTool: false` keeps it in-app, with a comment on\n" +
+      "that line saying why. Add a test that calls a served action over MCP.",
+  });
+}
+
+function main() {
+  const outcome = runParityGapGuard(path.resolve(import.meta.dirname, ".."));
+  (outcome.code === 0 ? console.log : console.error)(outcome.message);
+  process.exit(outcome.code);
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  main();
+}

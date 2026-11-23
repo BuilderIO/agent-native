@@ -5,6 +5,7 @@ import { z } from "zod";
 import { searchPeopleForUser } from "../server/lib/people-search.js";
 
 export default defineAction({
+  mcpTool: true,
   description:
     "Search Google contacts and the Google Workspace directory for people by name or email",
   schema: z.object({

@@ -10,9 +10,13 @@ import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
+import { resetAppConfigForTests } from "../app-config/index.js";
 import { WORKSPACE_DEPLOY_BUILD_ENV } from "../cli/process.js";
 import { addVercelSweepCron } from "./build.js";
-import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
+import {
+  IMMUTABLE_ASSET_CACHE_CONTROL,
+  IMMUTABLE_ASSET_PATH_PATTERN,
+} from "./immutable-assets.js";
 import {
   buildStart,
   isDurableBackgroundWorkspaceDeployEnabled,
@@ -524,6 +528,65 @@ describe("workspace deploy", () => {
         execFile: execFile as typeof execFileSync,
       }),
     ).rejects.toThrow("Expected one recurring-jobs sweep cron under /alpha");
+  });
+
+  it("keeps one short immutable-asset route for a Vercel app with thousands of assets", async () => {
+    makeWorkspaceApp(tmpDir, "alpha");
+    execFile.mockImplementation(((_cmd, args, options) => {
+      writeVercelAppBuildOutput(
+        tmpDir,
+        String(args[1]),
+        (options as { env?: NodeJS.ProcessEnv }).env ?? {},
+      );
+      const assetsDir = path.join(
+        tmpDir,
+        "apps",
+        "alpha",
+        ".vercel",
+        "output",
+        "static",
+        "alpha",
+        "assets",
+      );
+      for (let i = 0; i < 3000; i++) {
+        fs.writeFileSync(
+          path.join(assetsDir, `chunk${i}-${String(i).padStart(8, "0")}.js`),
+          "export {};",
+        );
+      }
+      return Buffer.from("");
+    }) as typeof execFileSync);
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "vercel",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const config = JSON.parse(
+      fs.readFileSync(
+        path.join(tmpDir, ".vercel", "output", "config.json"),
+        "utf-8",
+      ),
+    );
+    expect(config.routes.length).toBeLessThanOrEqual(2048);
+    for (const route of config.routes) {
+      expect(route.src?.length ?? 0).toBeLessThanOrEqual(4096);
+    }
+    expect(
+      config.routes.filter(
+        (route: { headers?: Record<string, string> }) =>
+          route.headers?.["cache-control"] === IMMUTABLE_ASSET_CACHE_CONTROL,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        src: IMMUTABLE_ASSET_PATH_PATTERN.replace(
+          "^/assets/",
+          "^/alpha/assets/",
+        ),
+      }),
+    ]);
   });
 
   it("rejects database app access before building isolated-auth apps", async () => {
@@ -1128,6 +1191,8 @@ describe("workspace deploy", () => {
     expect(headers).toContain(
       `netlify-cdn-cache-control: ${IMMUTABLE_ASSET_CACHE_CONTROL}`,
     );
+    // Panels in MCP hosts import these chunks from the host's sandbox origin.
+    expect(headers).toContain("access-control-allow-origin: *");
     expect(headers).not.toContain("/dispatch/assets/app.js\n");
     expect(fs.existsSync(path.join(tmpDir, "dist", "_routes.json"))).toBe(
       false,
@@ -1533,26 +1598,43 @@ describe("workspace deploy", () => {
     );
     expect(config.version).toBe(3);
     expect(config.routes).toContainEqual({ handle: "filesystem" });
+    expect(config.routes.length).toBeLessThanOrEqual(2048);
+    for (const route of config.routes) {
+      expect(route.src?.length ?? 0).toBeLessThanOrEqual(4096);
+    }
     const immutableAssetRoutes = config.routes.filter(
       (route: { headers?: Record<string, string> }) =>
         route.headers?.["cache-control"] === IMMUTABLE_ASSET_CACHE_CONTROL,
     );
+    const hitIndex = config.routes.findIndex(
+      (route: { handle?: string }) => route.handle === "hit",
+    );
+    expect(hitIndex).toBe(config.routes.length - 3);
+    expect(config.routes.slice(hitIndex + 1)).toEqual(immutableAssetRoutes);
     expect(immutableAssetRoutes).toEqual([
       {
-        src: "^(?:/dispatch/assets/app-aB12_cdE\\.js|/dispatch/assets/chunks/chunk-12345678\\.js)$",
+        src: IMMUTABLE_ASSET_PATH_PATTERN.replace(
+          "^/assets/",
+          "^/dispatch/assets/",
+        ),
         headers: {
           "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "access-control-allow-origin": "*",
         },
         continue: true,
       },
       {
-        src: "^(?:/starter/assets/app-aB12_cdE\\.js|/starter/assets/chunks/chunk-12345678\\.js)$",
+        src: IMMUTABLE_ASSET_PATH_PATTERN.replace(
+          "^/assets/",
+          "^/starter/assets/",
+        ),
         headers: {
           "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "access-control-allow-origin": "*",
         },
         continue: true,
       },
@@ -1571,13 +1653,6 @@ describe("workspace deploy", () => {
     expect(
       immutableAssetRoutes.map((route: { src: string }) =>
         new RegExp(route.src).test("/dispatch/assets/app.js"),
-      ),
-    ).toEqual([false, false]);
-    expect(
-      immutableAssetRoutes.map((route: { src: string }) =>
-        new RegExp(route.src).test(
-          "/dispatch/assets/nested/missing-aB12_cdE.js",
-        ),
       ),
     ).toEqual([false, false]);
     expect(config.routes).not.toContainEqual(
@@ -1738,6 +1813,97 @@ describe("workspace deploy", () => {
     });
 
     expect(execFile).toHaveBeenCalledTimes(1);
+  });
+
+  describe("split builds", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    });
+
+    function select(env: { only?: string; prebuilt?: string }) {
+      if (env.only) vi.stubEnv("AGENT_NATIVE_DEPLOY_ONLY_APPS", env.only);
+      if (env.prebuilt) {
+        vi.stubEnv("AGENT_NATIVE_DEPLOY_PREBUILT_APPS", env.prebuilt);
+      }
+      resetAppConfigForTests();
+    }
+
+    function deploy() {
+      return runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "netlify",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+    }
+
+    const builtApps = () =>
+      execFile.mock.calls
+        .filter(([, args]) => Array.isArray(args) && args[0] === "--filter")
+        .map(([, args]) => String((args as string[])[1]));
+
+    it("builds only the selected apps, records each build id, and leaves packaging to the assembling job", async () => {
+      for (const app of ["alpha", "beta"]) makeWorkspaceApp(tmpDir, app);
+      select({ only: "alpha" });
+
+      await deploy();
+
+      expect(builtApps()).toEqual(["alpha"]);
+      const recorded = fs
+        .readFileSync(
+          path.join(tmpDir, "apps", "alpha", ".agent-native-app-build-id"),
+          "utf8",
+        )
+        .trim();
+      expect(recorded).not.toBe("");
+      expect(
+        fs.existsSync(path.join(tmpDir, "dist", "_workspace_static")),
+      ).toBe(false);
+    });
+
+    it("packages prebuilt apps with the id their leg recorded and builds the rest", async () => {
+      for (const app of ["alpha", "beta"]) makeWorkspaceApp(tmpDir, app);
+      writeAppBuildOutput(tmpDir, "alpha");
+      fs.writeFileSync(
+        path.join(tmpDir, "apps", "alpha", ".agent-native-app-build-id"),
+        "leg-build-alpha\n",
+      );
+      select({ prebuilt: "alpha" });
+
+      await deploy();
+
+      expect(builtApps()).toEqual(["beta"]);
+      for (const app of ["alpha", "beta"]) {
+        expect(
+          fs.existsSync(path.join(tmpDir, "dist", "_workspace_static", app)),
+        ).toBe(true);
+      }
+    });
+
+    it("refuses a prebuilt app whose leg recorded no build id", async () => {
+      for (const app of ["alpha", "beta"]) makeWorkspaceApp(tmpDir, app);
+      writeAppBuildOutput(tmpDir, "alpha");
+      select({ prebuilt: "alpha" });
+
+      await expect(deploy()).rejects.toThrow(
+        /Expected \.agent-native-app-build-id under .*alpha/,
+      );
+    });
+
+    it.each([
+      [{ only: "alpha", prebuilt: "beta" }, /cannot both be set/],
+      [
+        { only: "alpha,gamma" },
+        /names "gamma", which is not in this workspace/,
+      ],
+    ])("rejects the selection %j before building", async (env, message) => {
+      for (const app of ["alpha", "beta"]) makeWorkspaceApp(tmpDir, app);
+      select(env);
+
+      await expect(deploy()).rejects.toThrow(message);
+      expect(builtApps()).toEqual([]);
+    });
   });
 
   it("builds apps in parallel up to AGENT_NATIVE_DEPLOY_CONCURRENCY", async () => {

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   decodeOAuthState,
@@ -12,7 +12,16 @@ import {
   isNetlifyPreviewGoogleOAuthCallbackUrl,
   NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX,
   logOAuthStateDecodeFailure,
+  OAUTH_STATE_MAX_AGE_SECONDS,
+  oauthCallbackOwner,
+  resolveOAuthOwner,
 } from "./google-oauth.js";
+
+const sessionMock = vi.hoisted(() => ({
+  getSession: vi.fn(),
+}));
+
+vi.mock("./auth.js", () => sessionMock);
 
 const FALLBACK_URI = "https://app.example.com/_agent-native/google/callback";
 
@@ -23,6 +32,104 @@ function signRawState(data: string): string {
     .digest("base64url");
   return `${data}.${sig}`;
 }
+
+describe("OAuth state lifetime", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("refuses a state used after the consent window", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"));
+    const state = encodeOAuthState({
+      redirectUri: FALLBACK_URI,
+      owner: "owner@example.com",
+      addAccount: true,
+    });
+
+    vi.setSystemTime(
+      new Date(
+        Date.parse("2026-11-18T12:00:00Z") +
+          (OAUTH_STATE_MAX_AGE_SECONDS - 1) * 1000,
+      ),
+    );
+    expect(decodeOAuthState(state, FALLBACK_URI)).toMatchObject({
+      ok: true,
+      owner: "owner@example.com",
+    });
+
+    vi.setSystemTime(
+      new Date(
+        Date.parse("2026-11-18T12:00:00Z") +
+          (OAUTH_STATE_MAX_AGE_SECONDS + 1) * 1000,
+      ),
+    );
+    expect(decodeOAuthState(state, FALLBACK_URI)).toEqual({
+      ok: false,
+      reason: "expired",
+      redirectUri: FALLBACK_URI,
+    });
+  });
+
+  it("refuses a signed state that carries no issue time", () => {
+    const data = Buffer.from(
+      JSON.stringify({ n: "nonce", r: FALLBACK_URI, o: "owner@example.com" }),
+    ).toString("base64url");
+
+    expect(decodeOAuthState(signRawState(data), FALLBACK_URI)).toMatchObject({
+      ok: false,
+      reason: "expired",
+    });
+  });
+});
+
+describe("oauthCallbackOwner", () => {
+  it("connects a browser callback to the session it arrives with", () => {
+    // oracle-change: a differing starter now refuses the callback, covered below
+    expect(
+      oauthCallbackOwner("signed-in@example.com", {
+        owner: "Signed-In@example.com",
+      }),
+    ).toBe("signed-in@example.com");
+    expect(oauthCallbackOwner("signed-in@example.com", {})).toBe(
+      "signed-in@example.com",
+    );
+    expect(
+      oauthCallbackOwner(undefined, { owner: "starter@example.com" }),
+    ).toBeUndefined();
+  });
+
+  it("refuses a callback whose session differs from the account that started it", () => {
+    expect(
+      oauthCallbackOwner("signed-in@example.com", {
+        owner: "starter@example.com",
+      }),
+    ).toBeUndefined();
+    expect(
+      oauthCallbackOwner("signed-in@example.com", {
+        owner: "starter@example.com",
+        desktop: true,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("falls back to the state owner only for a browser-bound desktop hand-off", () => {
+    expect(
+      oauthCallbackOwner(null, {
+        owner: "owner@example.com",
+        desktop: true,
+        flowId: "flow-1",
+        desktopBrowserBindingHash: "binding-hash",
+      }),
+    ).toBe("owner@example.com");
+    // oracle-change: unbound desktop and mobile states no longer name the owner
+    expect(
+      oauthCallbackOwner(null, { owner: "owner@example.com", desktop: true }),
+    ).toBeUndefined();
+    const mobileState = { owner: "owner@example.com", mobile: true };
+    expect(oauthCallbackOwner(null, mobileState)).toBeUndefined();
+  });
+});
 
 describe("decodeOAuthState", () => {
   it("carries the explicit Builder signup attempt in signed OAuth state", () => {
@@ -91,7 +198,7 @@ describe("decodeOAuthState", () => {
   it("rejects a tampered signature", () => {
     const signed = encodeOAuthState({
       redirectUri: FALLBACK_URI,
-      owner: "victim@example.com",
+      owner: "signed-in@example.com",
     });
     const dotIdx = signed.lastIndexOf(".");
     const data = signed.slice(0, dotIdx);
@@ -109,12 +216,12 @@ describe("decodeOAuthState", () => {
   it("rejects a payload that edits the signed data", () => {
     const signed = encodeOAuthState({
       redirectUri: FALLBACK_URI,
-      owner: "victim@example.com",
+      owner: "signed-in@example.com",
     });
     const dotIdx = signed.lastIndexOf(".");
     const sig = signed.slice(dotIdx + 1);
     const forgedData = Buffer.from(
-      JSON.stringify({ r: FALLBACK_URI, o: "attacker@example.com" }),
+      JSON.stringify({ r: FALLBACK_URI, o: "starter@example.com" }),
     ).toString("base64url");
 
     const result = decodeOAuthState(`${forgedData}.${sig}`, FALLBACK_URI);
@@ -236,6 +343,56 @@ describe("Netlify preview Google OAuth relay state", () => {
     ).toThrow("Invalid Netlify preview Google OAuth relay state");
   });
 
+  it("round-trips a Labs branch-alias callback and rejects hostile ones", () => {
+    const labsCallback =
+      "https://c-f53058ae5fc7--agent-native-labs-workspace.netlify.app/_agent-native/google/callback";
+    const state = encodeNetlifyPreviewGoogleOAuthRelayState(
+      "signed-preview-state",
+      labsCallback,
+      1_000,
+    );
+    expect(decodeNetlifyPreviewGoogleOAuthRelayState(state, 1_000)).toEqual({
+      callbackUri: labsCallback,
+      state: "signed-preview-state",
+    });
+    expect(isNetlifyPreviewGoogleOAuthCallbackUrl(labsCallback)).toBe(true);
+    expect(
+      isNetlifyPreviewGoogleOAuthCallbackUrl(
+        `https://${"b".repeat(24)}--agent-native-labs-workspace.netlify.app/_agent-native/google/callback`,
+      ),
+    ).toBe(true);
+
+    for (const bad of [
+      "https://c-f53058ae5fc7--agent-native-other.netlify.app/_agent-native/google/callback",
+      "https://c-f53058ae5fc7--agent-native-labs-workspace.netlify.app.evil.com/_agent-native/google/callback",
+      "https://evil.com/c-abc123def456--agent-native-labs-workspace.netlify.app/_agent-native/google/callback",
+      "http://c-f53058ae5fc7--agent-native-labs-workspace.netlify.app/_agent-native/google/callback",
+      "https://user@c-f53058ae5fc7--agent-native-labs-workspace.netlify.app/_agent-native/google/callback",
+      "https://c-f53058ae5fc7--agent-native-labs-workspace.netlify.app:8443/_agent-native/google/callback",
+      "https://c-f53058ae5f--agent-native-labs-workspace.netlify.app/_agent-native/google/callback",
+      "https://c-f53058ae5fc7a--agent-native-labs-workspace.netlify.app/_agent-native/google/callback",
+      "https://C-F53058AE5FC7--agent-native-labs-workspace.netlify.app/_agent-native/google/callback",
+      "https://c-f53058ae5fc7--agent-native-labs-workspace.netlify.app/other",
+    ]) {
+      expect(isNetlifyPreviewGoogleOAuthCallbackUrl(bad)).toBe(false);
+      expect(() => encodeNetlifyPreviewGoogleOAuthRelayState("s", bad)).toThrow(
+        "Invalid Netlify preview Google OAuth relay state",
+      );
+    }
+
+    const envelope = state.slice(
+      NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX.length,
+    );
+    const delimiter = envelope.lastIndexOf(".");
+    const tampered = `${NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX}${envelope.slice(0, delimiter)}.${"A".repeat(envelope.length - delimiter - 1)}`;
+    expect(
+      decodeNetlifyPreviewGoogleOAuthRelayState(tampered, 1_000),
+    ).toBeNull();
+    expect(
+      decodeNetlifyPreviewGoogleOAuthRelayState(state, 601_001),
+    ).toBeNull();
+  });
+
   it("rejects an edited expiry without the original HMAC", () => {
     const state = encodeNetlifyPreviewGoogleOAuthRelayState(
       "signed-preview-state",
@@ -308,5 +465,30 @@ describe("logOAuthStateDecodeFailure", () => {
       }),
     );
     warn.mockRestore();
+  });
+});
+
+describe("resolveOAuthOwner", () => {
+  it("refuses a callback whose session differs from the account that started it", async () => {
+    sessionMock.getSession.mockResolvedValue({
+      email: "signed-in@example.com",
+    });
+
+    await expect(
+      resolveOAuthOwner({} as never, "starter@example.com"),
+    ).rejects.toThrow(/different account/);
+  });
+
+  it("keeps the session owner when it started the flow", async () => {
+    sessionMock.getSession.mockResolvedValue({
+      email: "signed-in@example.com",
+    });
+
+    await expect(
+      resolveOAuthOwner({} as never, "signed-in@example.com"),
+    ).resolves.toEqual({
+      owner: "signed-in@example.com",
+      hasProductionSession: true,
+    });
   });
 });

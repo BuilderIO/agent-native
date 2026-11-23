@@ -1,9 +1,13 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   LOAD_TIMEOUT_MS,
   defaultProductionTools,
   loadAppCatalogs,
+  repoRoot,
   type AppCatalog,
 } from "./advertised-catalog.harness.js";
 
@@ -81,11 +85,6 @@ const NOT_TOOL_NAMES: Record<string, Record<string, string>> = {
       "visual-edit",
       "browser-capable",
     ),
-    ...prose(
-      "a field of the design system result, not a tool",
-      "designSystem",
-      "next",
-    ),
   },
   slides: {
     ...prose(
@@ -139,16 +138,122 @@ const ADVERTISED_ONLY_CONDITIONALLY: Record<string, Record<string, string>> = {
   },
 };
 
+const EXTRA_ALLOWLIST_PATH = "guard-allowlists/mcp-instruction-prose.json";
+
+interface ExtraInstructionAllowlist {
+  notToolNames?: Record<string, Record<string, string>>;
+  advertisedOnlyConditionally?: Record<string, Record<string, string>>;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseScopeMap(
+  value: unknown,
+  field: string,
+): Record<string, Record<string, string>> {
+  if (!isPlainRecord(value)) {
+    throw new Error(
+      `${EXTRA_ALLOWLIST_PATH}: "${field}" must be an object mapping appId to token reasons.`,
+    );
+  }
+  const out: Record<string, Record<string, string>> = {};
+  for (const [scope, entries] of Object.entries(value)) {
+    if (!scope || scope.trim() !== scope) {
+      throw new Error(
+        `${EXTRA_ALLOWLIST_PATH}: "${field}" contains an invalid scope key "${scope}".`,
+      );
+    }
+    if (!isPlainRecord(entries)) {
+      throw new Error(
+        `${EXTRA_ALLOWLIST_PATH}: "${field}.${scope}" must be an object mapping token to reason.`,
+      );
+    }
+    const cleanEntries: Record<string, string> = {};
+    for (const [token, reason] of Object.entries(entries)) {
+      if (!token || token.trim() !== token) {
+        throw new Error(
+          `${EXTRA_ALLOWLIST_PATH}: "${field}.${scope}" contains an invalid token "${token}".`,
+        );
+      }
+      if (typeof reason !== "string" || !reason.trim()) {
+        throw new Error(
+          `${EXTRA_ALLOWLIST_PATH}: "${field}.${scope}.${token}" must have a non-empty string reason.`,
+        );
+      }
+      cleanEntries[token] = reason;
+    }
+    out[scope] = cleanEntries;
+  }
+  return out;
+}
+
+function parseExtraAllowlist(text: string): ExtraInstructionAllowlist {
+  const value: unknown = JSON.parse(text);
+  if (!isPlainRecord(value)) {
+    throw new Error(`${EXTRA_ALLOWLIST_PATH} must be a JSON object.`);
+  }
+  const allowedKeys = new Set(["notToolNames", "advertisedOnlyConditionally"]);
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) {
+      throw new Error(`${EXTRA_ALLOWLIST_PATH} contains unknown key "${key}".`);
+    }
+  }
+  const result: ExtraInstructionAllowlist = {};
+  if (value.notToolNames !== undefined) {
+    result.notToolNames = parseScopeMap(value.notToolNames, "notToolNames");
+  }
+  if (value.advertisedOnlyConditionally !== undefined) {
+    result.advertisedOnlyConditionally = parseScopeMap(
+      value.advertisedOnlyConditionally,
+      "advertisedOnlyConditionally",
+    );
+  }
+  return result;
+}
+
+function readExtraAllowlist(root: string): ExtraInstructionAllowlist {
+  const file = path.join(root, EXTRA_ALLOWLIST_PATH);
+  if (!existsSync(file)) return {};
+  return parseExtraAllowlist(readFileSync(file, "utf8"));
+}
+
+function mergeScopeMaps(
+  base: Record<string, Record<string, string>>,
+  extra: Record<string, Record<string, string>> | undefined,
+): Record<string, Record<string, string>> {
+  if (!extra) return base;
+  const merged: Record<string, Record<string, string>> = {};
+  for (const [scope, entries] of Object.entries(base)) {
+    merged[scope] = { ...entries };
+  }
+  for (const [scope, entries] of Object.entries(extra)) {
+    merged[scope] = { ...merged[scope], ...entries };
+  }
+  return merged;
+}
+
+const EXTRA_ALLOWLIST = readExtraAllowlist(repoRoot);
+const MERGED_NOT_TOOL_NAMES = mergeScopeMaps(
+  NOT_TOOL_NAMES,
+  EXTRA_ALLOWLIST.notToolNames,
+);
+const MERGED_ADVERTISED_ONLY_CONDITIONALLY = mergeScopeMaps(
+  ADVERTISED_ONLY_CONDITIONALLY,
+  EXTRA_ALLOWLIST.advertisedOnlyConditionally,
+);
+
 function rulesFor(app: AppCatalog): ReferenceRules {
   return {
     advertised: new Set(defaultProductionTools(app).map((tool) => tool.name)),
     notToolNames: {
-      ...NOT_TOOL_NAMES["*"],
-      ...NOT_TOOL_NAMES[app.appId],
+      ...MERGED_NOT_TOOL_NAMES["*"],
+      ...MERGED_NOT_TOOL_NAMES[app.appId],
     },
     advertisedOnlyConditionally: {
-      ...ADVERTISED_ONLY_CONDITIONALLY["*"],
-      ...ADVERTISED_ONLY_CONDITIONALLY[app.appId],
+      ...MERGED_ADVERTISED_ONLY_CONDITIONALLY["*"],
+      ...MERGED_ADVERTISED_ONLY_CONDITIONALLY[app.appId],
     },
   };
 }
@@ -216,6 +321,38 @@ describe("tool reference detection", () => {
       ),
     ).toEqual(["constructor", "toString", "__proto__"]);
   });
+
+  it("merges optional downstream instruction allowlists per appId and rejects malformed shapes", () => {
+    const extra = parseExtraAllowlist(
+      JSON.stringify({
+        notToolNames: {
+          slides: { "extra-prose": "downstream prose" },
+          notes: { "note-link": "downstream prose" },
+        },
+        advertisedOnlyConditionally: {
+          notes: { "sync-notes": "optional connector" },
+        },
+      }),
+    );
+    const merged = mergeScopeMaps(
+      { slides: { "deck-wide": "base prose" } },
+      extra.notToolNames,
+    );
+    expect(merged).toEqual({
+      slides: { "deck-wide": "base prose", "extra-prose": "downstream prose" },
+      notes: { "note-link": "downstream prose" },
+    });
+
+    for (const bad of [
+      "[]",
+      '{"unknownKey": {}}',
+      '{"notToolNames": []}',
+      '{"notToolNames": {"notes": ["bad"]}}',
+      '{"notToolNames": {"notes": {"foo": ""}}}',
+    ]) {
+      expect(() => parseExtraAllowlist(bad)).toThrow();
+    }
+  });
 });
 
 describe("static MCP instructions name only advertised tools", () => {
@@ -251,7 +388,7 @@ describe("static MCP instructions name only advertised tools", () => {
     const stale: string[] = [];
     const ownersOf = (scope: string) =>
       scope === "*" ? apps : apps.filter((app) => app.appId === scope);
-    for (const [scope, entries] of Object.entries(NOT_TOOL_NAMES)) {
+    for (const [scope, entries] of Object.entries(MERGED_NOT_TOOL_NAMES)) {
       for (const token of Object.keys(entries)) {
         if (
           !ownersOf(scope).some((app) =>
@@ -263,7 +400,7 @@ describe("static MCP instructions name only advertised tools", () => {
       }
     }
     for (const [scope, entries] of Object.entries(
-      ADVERTISED_ONLY_CONDITIONALLY,
+      MERGED_ADVERTISED_ONLY_CONDITIONALLY,
     )) {
       for (const [token, reason] of Object.entries(entries)) {
         const owners = ownersOf(scope);

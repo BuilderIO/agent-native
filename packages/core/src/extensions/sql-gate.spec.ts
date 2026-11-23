@@ -72,6 +72,21 @@ describe("extension SQL gate — comment-evasion resistance", () => {
         ),
       ).toBe(true);
     });
+    it.each([
+      "sandbox_executions",
+      "automation_runs",
+      "agent_trace_spans",
+      "agent_trace_summaries",
+      "agent_feedback",
+      "agent_instruction_updates",
+    ])("blocks other members' %s rows, as the raw db tools do", (table) => {
+      expect(matchesSqlGate(SENSITIVE_SQL_RE, `SELECT * FROM ${table}`)).toBe(
+        true,
+      );
+      expect(
+        matchesSqlGate(SENSITIVE_SQL_RE, `UPDATE ${table} SET id = id`),
+      ).toBe(true);
+    });
     it("does not flag a legitimate tool_data query with a real comment", () => {
       expect(
         matchesSqlGate(

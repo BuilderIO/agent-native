@@ -8,6 +8,7 @@ import {
   getCurrentTurnRunEventsForThread,
   getCurrentTurnRunIdsForThread,
   insertRunEvent,
+  persistedRunEventData,
 } from "./run-store.js";
 import {
   classifyToolCallJournal,
@@ -654,3 +655,140 @@ it.each([
     ).rejects.toMatchObject({ errorCode: "tool_call_journal_unreadable" });
   },
 );
+
+describe("private replay identity and allowlisted private errors", () => {
+  const persistPrivate = (event: Record<string, unknown>) =>
+    JSON.parse(
+      persistedRunEventData(
+        JSON.stringify({ ...event, omitFromPersistedHistory: true }),
+      ),
+    ) as Record<string, unknown>;
+
+  it("preserves valid privateReplayIdentity and strips malformed values when omitting content", () => {
+    const validIdentity = `hmac-v1:${"f".repeat(64)}`;
+    const kept = persistPrivate({
+      type: "tool_done",
+      id: "call-1",
+      tool: "create-draft",
+      input: { secret: "body" },
+      result: "secret result",
+      completedSideEffect: true,
+      privateReplayIdentity: validIdentity,
+    });
+    expect(kept).toMatchObject({
+      type: "tool_done",
+      id: "call-1",
+      tool: "create-draft",
+      result: "[Private content omitted]",
+      completedSideEffect: true,
+      omitFromPersistedHistory: true,
+      privateReplayIdentity: validIdentity,
+    });
+
+    const invalid = persistPrivate({
+      type: "tool_done",
+      id: "call-2",
+      tool: "create-draft",
+      input: { secret: "body" },
+      result: "secret result",
+      completedSideEffect: true,
+      privateReplayIdentity: "not-an-hmac",
+    });
+    expect(invalid).not.toHaveProperty("privateReplayIdentity");
+
+    const nonString = persistPrivate({
+      type: "tool_done",
+      id: "call-3",
+      tool: "create-draft",
+      input: {},
+      result: "secret result",
+      completedSideEffect: true,
+      privateReplayIdentity: 123,
+    });
+    expect(nonString).not.toHaveProperty("privateReplayIdentity");
+  });
+
+  it("preserves allowlisted error codes with safe messages and omits non-allowlisted errors", () => {
+    const allowed = persistPrivate({
+      type: "error",
+      error: "private sentinel text",
+      errorCode: "private_history_unrecoverable",
+      details: "private stack trace",
+      upgradeUrl: "https://example.test/upgrade",
+    });
+    expect(allowed).toEqual({
+      type: "error",
+      error:
+        "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.",
+      errorCode: "private_history_unrecoverable",
+      omitFromPersistedHistory: true,
+    });
+
+    const blocked = persistPrivate({
+      type: "error",
+      error: "private sentinel text",
+      errorCode: "provider_secret_failure",
+      details: "private stack trace",
+    });
+    expect(blocked).toEqual({
+      type: "error",
+      error: "Private content omitted",
+      omitFromPersistedHistory: true,
+    });
+  });
+
+  it("reads valid privateReplayIdentity from persisted tool_done events and rejects malformed values", async () => {
+    const validIdentity = `hmac-v1:${"9".repeat(64)}`;
+    mocks.events = [
+      {
+        ...start,
+        event_data: JSON.stringify({
+          type: "tool_start",
+          id: "p1",
+          tool: "create-draft",
+          input: {},
+          omitFromPersistedHistory: true,
+        }),
+      },
+      {
+        ...done,
+        event_data: JSON.stringify({
+          type: "tool_done",
+          id: "p1",
+          tool: "create-draft",
+          input: {},
+          result: "[Private content omitted]",
+          completedSideEffect: true,
+          omitFromPersistedHistory: true,
+          privateReplayIdentity: validIdentity,
+        }),
+      },
+    ];
+    const read = await getCurrentTurnEventsForThread("thread", "turn");
+    expect(read[1]).toMatchObject({
+      type: "tool_done",
+      privateReplayIdentity: validIdentity,
+    });
+
+    for (const badIdentity of ["bad-identity", 99]) {
+      mocks.events = [
+        {
+          ...done,
+          event_data: JSON.stringify({
+            type: "tool_done",
+            id: "p2",
+            tool: "create-draft",
+            input: {},
+            result: "[Private content omitted]",
+            completedSideEffect: true,
+            omitFromPersistedHistory: true,
+            privateReplayIdentity: badIdentity,
+          }),
+        },
+      ];
+      await expect(
+        getCurrentTurnEventsForThread("thread", "turn"),
+      ).rejects.toMatchObject({ errorCode: "tool_call_journal_unreadable" });
+    }
+  });
+});

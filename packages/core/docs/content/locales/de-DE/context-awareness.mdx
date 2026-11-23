@@ -18,7 +18,7 @@ Um zu verstehen, was in welche Oberfläche eingefügt werden muss (AGENTS.md vs.
 Sechs Muster lösen dieses Problem:
 
 1. **Navigationsstatus** – der UI schreibt bei jeder Routenänderung einen `navigation`-Schlüssel in den Anwendungsstatus
-2. **Aktuelles URL** – das Framework schreibt `__url__`, sodass Abfrageparameter vom Agent sichtbar und bearbeitbar sind
+2. **Aktuelles URL** – das Framework schreibt `__url__`, damit der Agent den Seitenpfad und die von der App deklarierten Abfrageparameter sehen und bearbeiten kann
 3. **Auswahlstatus** – der UI schreibt einen `selection`-Schlüssel, wenn der Benutzer etwas Sinnvolles fokussiert, auswählt oder mehrfach auswählt
 4. **`view-screen`** – eine Aktion, die den Anwendungsstatus liest, Kontextdaten abruft und einen Schnappschuss dessen zurückgibt, was der Benutzer sieht
 5. **Prompte Übergabe** – UI steuert den Anruf `sendToAgentChat()`, wenn ein Klick zum Agentenwechsel werden soll
@@ -91,7 +91,7 @@ Verwenden Sie unterschiedliche Kontextkanäle für unterschiedliche Aufgaben:
 | Ebene                                           | Eigentümer        | Verwenden Sie es für                                                                                                   |
 | ----------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `navigation` App-Statusschlüssel                | UI                | Semantischer Routenstatus: aktuelle Ansicht, geöffneter Datensatz, aktive Registerkarte, stabile IDs                   |
-| `__url__` App-Statusschlüssel                   | Framework UI      | Aktueller Pfadname, Suchzeichenfolge, Hash und analysierte URL-Abfrageparameter                                        |
+| `__url__` App-Statusschlüssel                   | Framework UI      | Aktueller Pfadname, Hash und URL-Abfrageparameter (Werte nur für deklarierte Schlüssel)                                |
 | `__set_url__` App-Statusschlüssel               | Agent/Framework   | Einzelne URL-Bearbeitungen von `set-search-params` und `set-url-path`                                                  |
 | `selection` App-Statusschlüssel                 | UI                | Dauerhafte semantische Auswahl: Zeilen, Blöcke, Formen, Assets, Nachrichten                                            |
 | `pending-selection-context` App-Statusschlüssel | UI / `AgentPanel` | Einmaliger ausgewählter Text, der an die nächste Chat-Runde angehängt wird, normalerweise über Cmd+I                   |
@@ -146,6 +146,8 @@ searchParams:
 </current-url>
 ```
 
+Der Agent sieht den Pfad und den Hash, aber einen Abfragewert nur für Schlüssel, die die App deklariert: Übergeben Sie `urlQueryKeys` an `AgentSidebar` (exakte Namen und `prefix*`-Muster; dieses Beispiel deklariert `["f_*", "q"]`). Jeder andere Schlüssel behält seinen Namen, sein Wert wird als `<redacted>` angezeigt.
+
 Dies ist die kanonische Ebene für den gemeinsam nutzbaren Filterstatus. Wenn der Benutzer einen URL kopieren und zur gleichen gefilterten Liste zurückkehren kann, gehört der Filter in die Abfragezeichenfolge. Der Agent kann diese Filter mit dem integrierten `set-search-params`-Tool ändern:
 
 ```text
@@ -154,7 +156,7 @@ set-search-params({ "params": { "f_region": "east", "q": null } })
 
 Verwenden Sie `navigation` nur für semantische Aliase, die `view-screen` dabei helfen, die richtigen Daten abzurufen oder zusammenzufassen. Ein Dashboard behält möglicherweise `navigation.dashboardId` bei, während `__url__.searchParams` `f_region`, `f_dateStart` und `q` besitzt.
 
-Wenn `view-screen` einen umfangreicheren Snapshot zurückgibt, können wichtige URL-Filter in ein benutzerfreundliches `activeFilters`-Objekt kopiert werden:
+Wenn `view-screen` einen umfangreicheren Snapshot zurückgibt, können wichtige URL-Filter in ein benutzerfreundliches `activeFilters`-Objekt kopiert werden. Es liest dasselbe bereinigte `__url__`, deklarieren Sie diese Schlüssel daher auch in `urlQueryKeys`:
 
 ```ts
 const url = (await readAppState("__url__")) as {
@@ -358,6 +360,18 @@ Framework URL-Tools (`set-url-path`, `set-search-params`) und reiner URL-Filter
 Änderungen. Für Befehle, die während des Chat-Streamings eintreffen können, schreiben Sie die Route fest
 mit `navigate(path, { replace: true, flushSync: true })`, anstatt es zu umschließen
 in einem Ansichtsübergang, damit die Adressleiste und die sichtbare Seite zusammen bleiben.
+
+### Agenten lassen die Ansicht des Benutzers stehen {#agent-keeps-view}
+
+Der Bildschirm des Benutzers wechselt nur, wenn er etwas sehen wollte. Das gilt für jeden Agenten: den eingebauten Chat, externe Agenten über MCP oder WebMCP und Peers über A2A (`isAgentCaller(ctx)` aus `@agent-native/core`).
+
+- Lesen navigiert nie. Eine schreibgeschützte Aktion, die während eines Agentenaufrufs `navigate` schreibt, wird im App-State-Store abgelehnt.
+- Schreiben bleibt standardmäßig an Ort und Stelle. Ein Agenten-Schreibvorgang, der `navigate` ohne `intent: "open"` schreibt, wird abgelehnt; rufe `navigateAfterWrite(navigation, { ctx, intent })` aus `@agent-native/core/application-state` auf, damit der Wechsel für Agenten ohne `intent: "open"` sauber entfällt, oder setze `allowsAgentNavigation: true` bei einer Aktion, deren Aufgabe das Öffnen einer Ansicht ist.
+- Ein einzelnes Element zu öffnen braucht `intent: "open"`. `createNavigateAction()` und der App-State-Store erzwingen das standardmäßig für Element-ID-Felder (`id`, `*Id`) und Detailpfade ohne App-spezifischen Code. Übergib `isDetailView` an `createNavigateAction()` nur für eigene Regeln.
+
+```ts
+export const navigate = createNavigateAction();
+```
 
 ## Der useNavigationState-Hook {#use-navigation-state}
 

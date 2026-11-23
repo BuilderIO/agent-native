@@ -1,12 +1,14 @@
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import type { BrainEvidence, BrainSourceProvider } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import {
   createCapture,
   createSource,
+  firstRow,
   getAccessibleCapture,
+  knowledgeRevision,
   nowIso,
   parseJson,
   sanitizeEvidenceCitationUrls,
@@ -23,6 +25,7 @@ import {
   searchEverythingRows,
   sourceUrlFromMetadata,
 } from "./search.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 
 const DEMO_SEED_ID = "brain-product-decisions-demo-v1";
 const RETRIEVAL_EVAL_SEED_ID = "brain-real-channel-retrieval-eval-v1";
@@ -612,7 +615,10 @@ async function findSource(spec: DemoSourceSpec) {
     .from(schema.brainSources)
     .where(
       and(
-        accessFilter(schema.brainSources, schema.brainSourceShares),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
         eq(schema.brainSources.provider, spec.provider),
         eq(schema.brainSources.title, spec.title),
       ),
@@ -648,24 +654,30 @@ async function ensureDemoCapture(sourceId: string, spec: DemoCaptureSpec) {
 }
 
 async function findKnowledgeByTitle(title: string) {
-  const [knowledge] = await getDb()
+  const rows = await getDb()
     .select()
     .from(schema.brainKnowledge)
     .where(
       and(
         accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
         eq(schema.brainKnowledge.title, title),
+        isNull(schema.brainKnowledge.intelligenceKind),
       ),
     )
     .limit(1);
-  return knowledge ?? null;
+  return firstRow(rows) ?? null;
 }
 
 async function upsertDemoKnowledge(input: WriteKnowledgeInput) {
   const existing = await findKnowledgeByTitle(input.title);
   const result = await writeKnowledgeRecord({
     ...input,
-    knowledgeId: existing?.id,
+    ...(existing
+      ? {
+          knowledgeId: existing.id,
+          expectedRevision: knowledgeRevision(existing),
+        }
+      : {}),
     publishTier: input.publishTier ?? "company",
   });
   return result.knowledge;
@@ -784,6 +796,7 @@ export async function seedBrainDemoData(
     ],
     confidence: 96,
     supersedesId: oldFreemium.id,
+    supersedesRevision: oldFreemium.revision,
     publishCanonical: options.publishCanonical ?? true,
   });
 
@@ -1150,6 +1163,7 @@ export async function seedBrainRetrievalEvalData(
     ],
     confidence: 95,
     supersedesId: oldConnectorMarketplace.id,
+    supersedesRevision: oldConnectorMarketplace.revision,
     publishCanonical: options.publishCanonical ?? false,
   });
 

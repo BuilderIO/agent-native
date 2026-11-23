@@ -5,7 +5,10 @@ import {
   isWorkspaceRuntime,
   resolveAppBasePath,
 } from "@agent-native/core/client/api-path";
-import { injectedAgentNativeConfig } from "@agent-native/core/client/app-config";
+import {
+  injectedAgentNativeAppId,
+  injectedAgentNativeConfig,
+} from "@agent-native/core/client/app-config";
 import {
   AgentNativeI18nProvider,
   type AgentNativeI18nProviderProps,
@@ -16,6 +19,7 @@ import {
   EMBEDDED_THEME_CHANGE_EVENT,
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
+  themeStorageKeyForApp,
 } from "@agent-native/core/client/theme";
 import { useThemeFamily } from "@agent-native/core/client/ui";
 import { scheduleAfterPaint } from "@agent-native/core/client/use-after-paint";
@@ -74,6 +78,9 @@ export interface AppProvidersProps {
 
   defaultTheme?: string;
 
+  /** localStorage key for the theme preference; defaults to the app's own key. */
+  themeStorageKey?: string;
+
   themeAttribute?: Attribute | Attribute[];
 
   tooltipDelayDuration?: number;
@@ -92,6 +99,8 @@ export interface AppProvidersProps {
 
   isPublicPath?: boolean;
 
+  automaticConsentPrompt?: boolean;
+
   clientOnlyFallback?: React.ReactNode;
 
   skeletonLayout?: AppShellSkeletonLayout;
@@ -105,6 +114,11 @@ export interface AppProvidersProps {
 
   /** Opt in to the app-specific, consented Builder signup experiment. */
   builderSignupExperiment?: string;
+  /**
+   * Exact hostnames where that experiment runs; elsewhere the startup gate
+   * makes no request. Omit to run it on every host.
+   */
+  builderSignupHostedHosts?: readonly string[];
   /** App-owned first-run surface, rendered only after positive eligibility. */
   firstRunOnboarding?: React.ReactNode;
 
@@ -536,6 +550,7 @@ const CLIENT_ONLY_THEME_SCRIPT_PROPS = { type: "application/json" } as const;
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
+  themeStorageKey,
   themeAttribute = "class",
   tooltipDelayDuration,
   toaster = DEFAULT_TOASTER,
@@ -550,13 +565,16 @@ function ProvidersInner({
   showEnvironmentBadge,
   settingsShortcut,
   ownsDocument = true,
+  automaticConsentPrompt = true,
   clientOnly = false,
   children,
 }: {
   ownsDocument?: boolean;
+  automaticConsentPrompt?: boolean;
   clientOnly?: boolean;
   queryClient: QueryClient;
   defaultTheme?: string;
+  themeStorageKey?: string;
   themeAttribute?: Attribute | Attribute[];
   tooltipDelayDuration?: number;
   toaster?: React.ReactNode | null;
@@ -573,22 +591,27 @@ function ProvidersInner({
   children: React.ReactNode;
 }) {
   // The toaster shares the app's locale but must remain outside session gates.
+  const appContent = (
+    <>
+      {children}
+      {ownsDocument ? (
+        <ConsentBanner automaticPrompt={automaticConsentPrompt} />
+      ) : null}
+      <WriteFailureToaster />
+      {toaster}
+    </>
+  );
   const localizedChildren =
     i18n === false ? (
-      <>
-        {children}
-        {ownsDocument ? <ConsentBanner /> : null}
-        <WriteFailureToaster />
-        {toaster}
-      </>
+      appContent
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
-        {children}
-        {ownsDocument ? <ConsentBanner /> : null}
-        <WriteFailureToaster />
-        {toaster}
+        {appContent}
       </AgentNativeI18nProvider>
     );
+
+  const resolvedThemeStorageKey =
+    themeStorageKey ?? themeStorageKeyForApp(injectedAgentNativeAppId());
 
   const content = (
     <TooltipProvider delayDuration={tooltipDelayDuration}>
@@ -619,6 +642,7 @@ function ProvidersInner({
         <ThemeProvider
           attribute={themeAttribute}
           defaultTheme={defaultTheme}
+          storageKey={resolvedThemeStorageKey}
           enableSystem
           disableTransitionOnChange={disableThemeTransitions}
           scriptProps={clientOnly ? CLIENT_ONLY_THEME_SCRIPT_PROPS : undefined}
@@ -643,18 +667,21 @@ function publicPathI18n(
 export function AppProviders({
   queryClient,
   isPublicPath = false,
+  automaticConsentPrompt,
   clientOnlyFallback,
   skeletonLayout,
   sessionBypass = false,
   signedOutHref,
   skipFirstRunOnboarding = false,
   builderSignupExperiment,
+  builderSignupHostedHosts,
   firstRunOnboarding,
   unsupportedDevice,
   disableWebMcp = false,
   webMcpExcludeActionNames,
   showEnvironmentBadge = false,
   defaultTheme,
+  themeStorageKey,
   themeAttribute,
   tooltipDelayDuration,
   toaster,
@@ -675,6 +702,7 @@ export function AppProviders({
       <ProvidersInner
         queryClient={queryClient}
         defaultTheme={defaultTheme}
+        themeStorageKey={themeStorageKey}
         themeAttribute={themeAttribute}
         tooltipDelayDuration={tooltipDelayDuration}
         toaster={toaster}
@@ -731,6 +759,7 @@ export function AppProviders({
           {builderSignupExperiment ? (
             <BuilderSignupStartupGate
               experimentId={builderSignupExperiment}
+              hostedHosts={builderSignupHostedHosts}
               suppressSurface={skipFirstRunOnboarding}
               cover={fallback}
               appSurface={firstRunOnboarding}
@@ -782,7 +811,9 @@ export function AppProviders({
           <EarlySessionBootstrapScript />
           <EarlyBetaRedirectScript />
           {isFirstRunOnboardingEnabled(
-            import.meta.env,
+            (import.meta.env as
+              | Record<string, string | boolean | undefined>
+              | undefined) ?? {},
             typeof __AGENT_NATIVE_APP_CONFIG__ === "undefined"
               ? {}
               : __AGENT_NATIVE_APP_CONFIG__,
@@ -795,6 +826,7 @@ export function AppProviders({
         <ProvidersInner
           queryClient={queryClient}
           defaultTheme={defaultTheme}
+          themeStorageKey={themeStorageKey}
           themeAttribute={themeAttribute}
           tooltipDelayDuration={tooltipDelayDuration}
           toaster={toaster}
@@ -808,6 +840,7 @@ export function AppProviders({
           showEnvironmentBadge={showEnvironmentBadge}
           settingsShortcut={!sessionBypass}
           ownsDocument={ownsDocument}
+          automaticConsentPrompt={automaticConsentPrompt}
           clientOnly
           holdThemeFamilyUntilResolved={holdThemeFamilyUntilResolved}
         >

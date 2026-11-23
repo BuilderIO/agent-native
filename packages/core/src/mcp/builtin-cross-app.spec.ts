@@ -15,6 +15,8 @@ import * as orgDirectory from "./org-directory.js";
 import * as workspaceResolve from "./workspace-resolve.js";
 
 const ORIGINAL_ENV = { ...process.env };
+const INVALID_HANDLE =
+  /^Invalid or expired ask_app task handle\. To keep polling the same task, call ask_app_status with the app and taskId from the ask_app result and leave out taskHandle\. Do not resubmit ask_app; that can duplicate work\.$/;
 
 function resetEnv() {
   process.env = { ...ORIGINAL_ENV };
@@ -295,6 +297,45 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
       scope: "minimal",
     });
   });
+
+  it.each([
+    [undefined, "full-app"],
+    ["full", "full-app"],
+    ["minimal", "minimal"],
+  ] as const)(
+    "gives a same-app panel with %s chrome the %s scope",
+    async (chrome, scope) => {
+      const createTicket = vi
+        .spyOn(embedSession, "createEmbedSessionTicket")
+        .mockResolvedValue({
+          ticket: "ticket-123",
+          ticketHash: "hash-123",
+          expiresAt: 123456,
+        });
+      const tools = getBuiltinCrossAppTools(baseConfig(), {
+        origin: "https://mail.example.com",
+      });
+
+      await runWithRequestContext(
+        {
+          userEmail: "owner@example.com",
+          orgId: "org-123",
+          requestOrigin: "https://mail.example.com",
+        },
+        () =>
+          tools.open_app.run({
+            app: "mail",
+            view: "inbox",
+            embed: true,
+            ...(chrome ? { chrome } : {}),
+          }),
+      );
+
+      expect(createTicket).toHaveBeenCalledWith(
+        expect.objectContaining({ scope }),
+      );
+    },
+  );
 
   it("requests the default app viewport for full-app MCP App embeds", () => {
     const tools = getBuiltinCrossAppTools(baseConfig());
@@ -1540,13 +1581,13 @@ describe("ask_app — org-directory routing", () => {
         { userEmail: "other@acme.com", orgId: "org-1" },
         () => tools.ask_app_status.run({ taskHandle: submitted.taskHandle }),
       ),
-    ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
+    ).rejects.toThrow(INVALID_HANDLE);
     await expect(
       runWithRequestContext(
         { userEmail: "caller@acme.com", orgId: "org-2" },
         () => tools.ask_app_status.run({ taskHandle: submitted.taskHandle }),
       ),
-    ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
+    ).rejects.toThrow(INVALID_HANDLE);
     const otherDeployment = getBuiltinCrossAppTools(
       baseConfig({ appId: "mail", askAgent: async () => "unused" }),
       { origin: "https://mail-preview.acme.com" },
@@ -1559,7 +1600,7 @@ describe("ask_app — org-directory routing", () => {
             taskHandle: submitted.taskHandle,
           }),
       ),
-    ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
+    ).rejects.toThrow(INVALID_HANDLE);
     const otherConnector = getBuiltinCrossAppTools(
       baseConfig({ appId: "calendar", askAgent: async () => "unused" }),
       { origin: "https://calendar.acme.com" },
@@ -1572,7 +1613,7 @@ describe("ask_app — org-directory routing", () => {
             taskHandle: submitted.taskHandle,
           }),
       ),
-    ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
+    ).rejects.toThrow(INVALID_HANDLE);
     expect(getTaskSpy).not.toHaveBeenCalled();
 
     const completed: any = await runWithRequestContext(
@@ -1596,6 +1637,102 @@ describe("ask_app — org-directory routing", () => {
     );
     expect(sendSpy).toHaveBeenCalledTimes(1);
     expect(getTaskSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("an expired handle points to polling by app and taskId, which reaches the same task", async () => {
+    vi.spyOn(orgDirectory, "fetchOrgApps").mockResolvedValue([
+      {
+        id: "content",
+        name: "Content",
+        url: "https://content.acme.com",
+        a2aUrl: "https://content.acme.com/_agent-native/a2a",
+      },
+    ]);
+    vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
+      apiKey: "signed-org-jwt",
+      userEmail: "caller@acme.com",
+      orgId: "org-1",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+      metadata: {},
+    });
+    const timestamp = new Date().toISOString();
+    const sendSpy = vi
+      .spyOn(a2aClient.A2AClient.prototype, "send")
+      .mockResolvedValue({
+        id: "content-task-1",
+        status: { state: "working", timestamp },
+        history: [],
+        artifacts: [],
+      });
+    const getTaskSpy = vi
+      .spyOn(a2aClient.A2AClient.prototype, "getTask")
+      .mockResolvedValue({
+        id: "content-task-1",
+        status: {
+          state: "completed",
+          timestamp,
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: "content answer" }],
+          },
+        },
+        history: [],
+        artifacts: [],
+      });
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ askAgent: async () => "local-answer" }),
+      { origin: "https://mail.acme.com" },
+    );
+    const submitted = await runWithRequestContext(
+      { userEmail: "caller@acme.com", orgId: "org-1" },
+      () =>
+        tools.ask_app.run({
+          app: "content",
+          message: "recover this document",
+          async: true,
+        }),
+    );
+    expect(submitted).toMatchObject({
+      app: "content",
+      taskId: "content-task-1",
+      taskHandle: expect.any(String),
+    });
+    await expect(
+      runWithRequestContext(
+        { userEmail: "caller@acme.com", orgId: "org-1" },
+        () =>
+          tools.ask_app_status.run({
+            taskHandle: submitted.taskHandle,
+            taskId: "content-task-2",
+          }),
+      ),
+    ).rejects.toThrow(INVALID_HANDLE);
+
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 2 * 60 * 60 * 1000);
+    await expect(
+      runWithRequestContext(
+        { userEmail: "caller@acme.com", orgId: "org-1" },
+        () => tools.ask_app_status.run({ taskHandle: submitted.taskHandle }),
+      ),
+    ).rejects.toThrow(INVALID_HANDLE);
+    const completed = await runWithRequestContext(
+      { userEmail: "caller@acme.com", orgId: "org-1" },
+      () =>
+        tools.ask_app_status.run({
+          app: submitted.app,
+          taskId: submitted.taskId,
+        }),
+    );
+
+    expect(getTaskSpy).toHaveBeenCalledWith("content-task-1");
+    expect(completed).toMatchObject({
+      app: "content",
+      taskId: "content-task-1",
+      status: "completed",
+      response: "content answer",
+    });
+    expect(sendSpy).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -15,6 +15,7 @@ import {
   isAgentChatSubmitCancelled,
   listAgentChatContext,
   removeAgentChatContextItem,
+  reportAgentChatSubmitResult,
   requestAgentChatThreadOpen,
   requestAgentTaskOpen,
   setAgentChatContextItem,
@@ -306,6 +307,11 @@ function stubCatalog(
   currentEngineName: string | null = null,
 ) {
   invalidateClientStatusRequests();
+  const groups = buildChatModelGroups({
+    engines: engines as Parameters<typeof buildChatModelGroups>[0]["engines"],
+    configuredKeys,
+    builderConnected: builderConfigured,
+  });
   const modelEngines = Object.fromEntries(
     (
       engines as Array<{
@@ -313,6 +319,7 @@ function stubCatalog(
         label: string;
         defaultModel?: string;
         supportedModels?: string[];
+        runtimeSupportedModels?: string[];
         acceptsCustomModels?: boolean;
         preserveCustomModels?: boolean;
       }>
@@ -322,7 +329,11 @@ function stubCatalog(
         name: engine.name,
         label: engine.label,
         defaultModel: engine.defaultModel ?? engine.supportedModels?.[0] ?? "",
-        supportedModels: engine.supportedModels ?? [],
+        supportedModels:
+          engine.runtimeSupportedModels ?? engine.supportedModels ?? [],
+        selectableModels: groups
+          .filter((group) => group.engine === engine.name)
+          .flatMap((group) => group.models),
         ...(engine.acceptsCustomModels ? { acceptsCustomModels: true } : {}),
         ...(engine.preserveCustomModels ? { preserveCustomModels: true } : {}),
       },
@@ -330,11 +341,7 @@ function stubCatalog(
   );
   modelCatalogMocks.load = async () => ({
     state: "available",
-    groups: buildChatModelGroups({
-      engines: engines as Parameters<typeof buildChatModelGroups>[0]["engines"],
-      configuredKeys,
-      builderConnected: builderConfigured,
-    }),
+    groups,
     modelEngines,
     currentModelEngine: currentEngineName
       ? modelEngines[currentEngineName]
@@ -559,6 +566,9 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
           data-composer-submission-disabled={
             props.composerSubmissionDisabled ? "true" : "false"
           }
+          data-composer-model-pending={
+            props.composerModelSelectionPending ? "true" : "false"
+          }
           data-disabled-placeholder={props.composerDisabledPlaceholder}
           data-composer-active={props.isActiveComposer ? "true" : "false"}
           data-composer-autofocus={
@@ -647,7 +657,7 @@ function resetThreadMocks() {
   chatThreadHookMocks.useChatThreads.mockImplementation(() => threadMocks);
 }
 
-function dispatchSubmitChat(data: Record<string, unknown>) {
+function dispatchSubmitChat(data: Record<string, unknown>, source?: Window) {
   window.dispatchEvent(
     new MessageEvent("message", {
       data: {
@@ -655,6 +665,7 @@ function dispatchSubmitChat(data: Record<string, unknown>) {
         data,
       },
       origin: window.location.origin,
+      ...(source ? { source } : {}),
     }),
   );
 }
@@ -736,6 +747,34 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it("acknowledges a child frame only after chat accepts its submit", async () => {
+    const child = { parent: window, postMessage: vi.fn() } as unknown as Window;
+    await act(async () => {
+      dispatchSubmitChat(
+        {
+          message: "Review this comment",
+          context: "Bounded thread context",
+          submit: true,
+          submitMessageId: "frame-submit-1",
+        },
+        child,
+      );
+      await Promise.resolve();
+    });
+
+    expect(child.postMessage).not.toHaveBeenCalled();
+    await act(async () => {
+      reportAgentChatSubmitResult("frame-submit-1", true);
+    });
+    expect(child.postMessage).toHaveBeenCalledWith(
+      {
+        type: "agentNative.submitChatResult",
+        data: { submitMessageId: "frame-submit-1", delivered: true },
+      },
+      window.location.origin,
+    );
   });
 
   it.each(["custom", "message"])(
@@ -4481,6 +4520,20 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(composer?.getAttribute("data-composer-active")).toBe("true");
   });
 
+  it("tells a host it has settled while chat content is hidden", async () => {
+    const onSettledChange = vi.fn();
+    await act(async () =>
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          contentHidden
+          onSettledChange={onSettledChange}
+        />,
+      ),
+    );
+    expect(onSettledChange).toHaveBeenCalledWith(true);
+  });
+
   it("reopens a closed target tab before delivering a continuation", async () => {
     const generationThread = {
       id: "closed-generation-thread",
@@ -4663,6 +4716,56 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     el.remove();
   });
 
+  it.each([true, false])(
+    "uses Builder's configured Claude model with picker entry present: %s",
+    async (claudeChecked) => {
+      const configuredModel = "claude-sonnet-5-5";
+      const engineDefault = "gpt-6-luna";
+      stubCatalog(
+        [
+          {
+            name: "builder",
+            label: "Builder.io Gateway",
+            defaultModel: engineDefault,
+            runtimeSupportedModels: [engineDefault, configuredModel],
+            supportedModels: claudeChecked
+              ? [engineDefault, configuredModel]
+              : [engineDefault],
+          },
+        ],
+        [],
+        true,
+        { model: configuredModel, engine: "builder" },
+        "builder",
+      );
+      const el = document.createElement("div");
+      document.body.appendChild(el);
+      const localRoot = createRoot(el);
+      await act(async () => {
+        localRoot.render(
+          <MultiTabAssistantChat
+            storageKey="builder-configured-model"
+            preferEngineDefaultModel
+          />,
+        );
+      });
+      const selected = () => el.querySelector("[data-testid='assistant-chat']");
+      expect(selected()?.getAttribute("data-selected-model")).toBe(
+        configuredModel,
+      );
+      expect(selected()?.getAttribute("data-selected-engine")).toBe("builder");
+
+      await act(async () => {
+        assistantChatMockState.onModelChange?.(engineDefault, "builder");
+      });
+      expect(selected()?.getAttribute("data-selected-model")).toBe(
+        engineDefault,
+      );
+      await act(async () => localRoot.unmount());
+      el.remove();
+    },
+  );
+
   it("offers a provider's own key next to Builder.io", async () => {
     const view = await mountWithCatalog(
       [
@@ -4727,8 +4830,13 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       expect(
         container
           .querySelector("[data-testid='assistant-chat']")
-          ?.getAttribute("data-composer-submission-disabled"),
+          ?.getAttribute("data-composer-model-pending"),
       ).toBe("true");
+      expect(
+        container
+          .querySelector("[data-testid='assistant-chat']")
+          ?.getAttribute("data-composer-submission-disabled"),
+      ).toBe("false");
 
       await act(async () => {
         dispatchSubmitChat({
@@ -4752,7 +4860,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       expect(
         container
           .querySelector("[data-testid='assistant-chat']")
-          ?.getAttribute("data-composer-submission-disabled"),
+          ?.getAttribute("data-composer-model-pending"),
       ).toBe("false");
 
       await act(async () => {
@@ -4808,7 +4916,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       expect(
         container
           .querySelector("[data-testid='assistant-chat']")
-          ?.getAttribute("data-composer-submission-disabled"),
+          ?.getAttribute("data-composer-model-pending"),
       ).toBe("true");
 
       await act(async () => {
@@ -4919,20 +5027,25 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chat?.getAttribute("data-selected-engine")).toBe("builder");
   });
 
-  it("treats a blank submitted engine as absent rather than as a value", () => {
-    act(() => {
-      dispatchSubmitChat({
-        message: "Generate design for hi page",
-        submit: true,
-        model: "gpt-5-6-luna",
-        engine: "",
-      });
-    });
+  // oracle-change: the three keyed-context tests and the blank-engine test became it.each tables and the model-without-engine test is covered by the blank-engine rows asserting the selected model; every case keeps its assertions
 
-    const chat = container.querySelector("[data-testid='assistant-chat']");
-    expect(chat?.getAttribute("data-selected-model")).toBe("gpt-5-6-luna");
-    expect(chat?.getAttribute("data-selected-engine")).toBeNull();
-  });
+  it.each(["", undefined])(
+    "treats a submitted engine of %j as absent rather than as a value",
+    (engine) => {
+      act(() => {
+        dispatchSubmitChat({
+          message: "Generate design for hi page",
+          submit: true,
+          model: "gpt-5-6-luna",
+          engine,
+        });
+      });
+
+      const chat = container.querySelector("[data-testid='assistant-chat']");
+      expect(chat?.getAttribute("data-selected-model")).toBe("gpt-5-6-luna");
+      expect(chat?.getAttribute("data-selected-engine")).toBeNull();
+    },
+  );
 
   it("resolves an engine from the catalog when the submit carries none", async () => {
     const view = await mountWithCatalog(ANTHROPIC_ENGINES, [
@@ -5256,22 +5369,6 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-model-options"),
     ).toBe("model-on-selected-account");
-  });
-
-  it("applies a submitted model override sent without an engine", () => {
-    act(() => {
-      dispatchSubmitChat({
-        message: "Generate design for hi page",
-        submit: true,
-        model: "claude-opus-4-8",
-      });
-    });
-
-    expect(
-      container
-        .querySelector("[data-testid='assistant-chat']")
-        ?.getAttribute("data-selected-model"),
-    ).toBe("claude-opus-4-8");
   });
 
   it("adopts model changes persisted by another shared chat surface", async () => {
@@ -5630,109 +5727,54 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
   });
 
-  it("adds keyed context to the active composer without prefill or submit", () => {
-    const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            type: "agentNative.setChatContext",
+  it.each([
+    ["by default", {}, true, true],
+    ["quietly when openSidebar is false", { openSidebar: false }, false, true],
+    [
+      "without focus when focus is false",
+      { openSidebar: false, focus: false },
+      false,
+      false,
+    ],
+  ])(
+    "adds keyed context to the active composer %s, without prefill or submit",
+    (_name, options, opensPanel, focuses) => {
+      const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
             data: {
-              key: "selected-element",
-              title: "Selected Element",
-              context: "<button>Buy</button>",
+              type: "agentNative.setChatContext",
+              data: {
+                key: "selected-element",
+                title: "Selected Element",
+                context: "<button>Buy</button>",
+                ...options,
+              },
             },
-          },
-          origin: window.location.origin,
-        }),
+            origin: window.location.origin,
+          }),
+        );
+      });
+
+      expect(
+        dispatchEventSpy.mock.calls.some(
+          ([event]) => event.type === "agent-panel:open",
+        ),
+      ).toBe(opensPanel);
+      expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+        {
+          key: "selected-element",
+          title: "Selected Element",
+          context: "<button>Buy</button>",
+        },
+        { focus: focuses },
       );
-    });
-
-    expect(
-      dispatchEventSpy.mock.calls.some(
-        ([event]) => event.type === "agent-panel:open",
-      ),
-    ).toBe(true);
-    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
-      {
-        key: "selected-element",
-        title: "Selected Element",
-        context: "<button>Buy</button>",
-      },
-      { focus: true },
-    );
-    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
-    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
-    dispatchEventSpy.mockRestore();
-  });
-
-  it("stages keyed context quietly when openSidebar is false", () => {
-    const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            type: "agentNative.setChatContext",
-            data: {
-              key: "selected-element",
-              title: "Selected Element",
-              context: "<button>Buy</button>",
-              openSidebar: false,
-            },
-          },
-          origin: window.location.origin,
-        }),
-      );
-    });
-
-    expect(
-      dispatchEventSpy.mock.calls.some(
-        ([event]) => event.type === "agent-panel:open",
-      ),
-    ).toBe(false);
-    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
-      {
-        key: "selected-element",
-        title: "Selected Element",
-        context: "<button>Buy</button>",
-      },
-      { focus: true },
-    );
-    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
-    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
-    dispatchEventSpy.mockRestore();
-  });
-
-  it("stages keyed context without focus when focus is false", () => {
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            type: "agentNative.setChatContext",
-            data: {
-              key: "selected-element",
-              title: "Selected Element",
-              context: "<button>Buy</button>",
-              openSidebar: false,
-              focus: false,
-            },
-          },
-          origin: window.location.origin,
-        }),
-      );
-    });
-
-    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
-      {
-        key: "selected-element",
-        title: "Selected Element",
-        context: "<button>Buy</button>",
-      },
-      { focus: false },
-    );
-    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
-    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
-  });
+      expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+      dispatchEventSpy.mockRestore();
+    },
+  );
 
   it("removes keyed context from the active composer", () => {
     act(() => {

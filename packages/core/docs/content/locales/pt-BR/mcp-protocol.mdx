@@ -248,6 +248,13 @@ legados sem identificador devem reutilizar o mesmo `app` e `taskId`; nunca reenv
 pois o envio pode duplicar o trabalho. Erros permanentes de autenticação, de não
 encontrado e de protocolo continuam sendo erros.
 
+Um `taskHandle` expira uma hora depois que `ask_app` o retorna. Quando
+`ask_app_status` rejeitar um identificador como inválido ou expirado, continue
+consultando a mesma tarefa com o `app` e o `taskId` do resultado de `ask_app`
+e sem `taskHandle`; a mensagem de erro também diz isso. Sem o identificador, a
+chamada de status encontra o app novamente pela descoberta, então só funciona
+enquanto o app ainda puder ser descoberto.
+
 ## Autenticação {#authentication}
 
 O endpoint MCP suporta MCP remoto padrão OAuth mais o substituto de token de portador existente:

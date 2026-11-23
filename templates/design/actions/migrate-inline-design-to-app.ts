@@ -16,7 +16,7 @@
  *
  * ## Write gating (per DESIGN-STUDIO-PLAN.md §3 & §5)
  *
- * - `writeFile` / `writeTokens` / `writeMotion` on the inline source stay
+ * - `writeFile` / `writeTokens` on the inline source stay
  *   **planned** until bridge hardening.  This action does NOT write to the
  *   inline design's source files.
  * - `branch` / `deploy` capabilities are **available** once Builder is
@@ -73,10 +73,6 @@ function buildConnectUrl(origin: string): string {
   return `${base}/_agent-native/builder/connect`;
 }
 
-// ---------------------------------------------------------------------------
-// Snapshot helpers
-// ---------------------------------------------------------------------------
-
 /**
  * Persist a `design_versions` snapshot row before the migration so the user
  * has a named restore point.  Additive only — never modifies existing rows.
@@ -99,11 +95,11 @@ export default defineAction({
     "Migrate an inline Alpine/HTML design to a real React + Tailwind app " +
     "by handing the design's HTML and tokens to the Builder cloud agent. " +
     "Use Builder.io (free tier available) with configured credentials and a branch project ID. " +
-    "When Builder is NOT configured returns a connect CTA — never throws. " +
+    "When Builder is NOT configured returns a connect CTA; a connected workspace with no branch project ID fails with `builder_project_not_configured`. " +
     "Snapshots the current design into design_versions before migrating so " +
     "the inline baseline is always recoverable. " +
     "Returns { branchName, url, status, versionId } on success. " +
-    "Real-app source writes (writeFile/writeTokens/writeMotion to the inline " +
+    "Real-app source writes (writeFile/writeTokens to the inline " +
     "design) remain planned until bridge hardening; this action only creates a " +
     "Builder-hosted branch — it does NOT modify the inline design's files.",
   schema: z.object({
@@ -112,7 +108,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Optional human-readable summary of the linked design system tokens " +
+        "Optional human-readable summary of the design tokens " +
           "(e.g. from index-design-tokens) to include in the migration seed. " +
           "Improves token fidelity in the generated React app.",
       ),
@@ -194,10 +190,11 @@ export default defineAction({
 
     const projectId = await resolveBuilderBranchProjectId();
     if (!projectId) {
-      throw new Error(
+      fail(
         "Builder branch project ID is not configured. " +
           "Set DISPATCH_BUILDER_PROJECT_ID, BUILDER_BRANCH_PROJECT_ID, or " +
           "BUILDER_PROJECT_ID and try again.",
+        { errorCode: "builder_project_not_configured", statusCode: 412 },
       );
     }
 

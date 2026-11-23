@@ -20,6 +20,10 @@ export const IPC = {
   WINDOW_CLOSE: "window:close",
   WINDOW_NATIVE_BUTTONS_VISIBILITY: "window:native-buttons-visibility",
 
+  // Handled only when a host extension registers them (src/main/host-extensions).
+  EXTENSIONS_MEETING_ONBOARDING_HOST: "extensions:meeting-onboarding-host",
+  EXTENSIONS_VOICE_ONBOARDING: "extensions:voice-onboarding",
+
   INTER_APP_SEND: "inter-app:send",
   INTER_APP_MESSAGE: "inter-app:message",
 
@@ -29,8 +33,11 @@ export const IPC = {
   OAUTH_SYSTEM_BROWSER_RETURNED: "oauth:system-browser:returned",
 
   IDENTITY_STATUS_GET: "identity:status:get",
+  IDENTITY_ONBOARDING_SCOPE_GET: "identity:onboarding-scope:get",
   IDENTITY_AVAILABILITY_GET: "identity:availability:get",
   IDENTITY_STATUS_CHANGED: "identity:status:changed",
+  // The verified account changed, possibly without a status change.
+  IDENTITY_ACCOUNT_CHANGED: "identity:account:changed",
   IDENTITY_SETTINGS_GET: "identity:settings:get",
   IDENTITY_SSO_ENABLED_SET: "identity:sso-enabled:set",
   IDENTITY_ENVIRONMENT_LANE_GET: "identity:environment-lane:get",
@@ -80,6 +87,7 @@ export const IPC = {
 
   SET_ACTIVE_APP: "webview:set-active-app",
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
+  SET_WEBVIEW_BACKGROUND_THROTTLING: "webview:set-background-throttling",
 
   DESIGN_PREVIEW_REQUEST: "design-preview:request",
   DESIGN_PREVIEW_STATE: "design-preview:state",
@@ -273,6 +281,10 @@ export interface DesktopAppCreationSettingsUpdateResult {
 export interface DesktopCreateAppRequest {
   prompt: string;
   appsRoot?: string;
+  engine?: string;
+  model?: string;
+  effort?: string;
+  attachments?: unknown[];
 }
 
 export type DesktopIdentityAuthMode = "sign-in" | "sign-up";

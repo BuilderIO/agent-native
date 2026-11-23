@@ -17,6 +17,7 @@ import {
   updateCommentAiRequest,
   verifyCommentAiAttempt,
 } from "../server/lib/comment-ai.js";
+import { commentAiChangeResource } from "../server/lib/document-change-resource.js";
 import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "../server/lib/suggested-edits.js";
 import {
   createWithSavedUnits,
@@ -313,4 +314,5 @@ export default defineAction({
       throw typed;
     }
   },
+  changeResource: commentAiChangeResource,
 });

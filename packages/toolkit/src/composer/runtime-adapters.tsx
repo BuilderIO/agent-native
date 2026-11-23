@@ -219,6 +219,7 @@ export interface ComposerRuntimeAdapters {
     ) => Promise<ComposerAgentEngineState>;
     BuilderSetupCard?: ComponentType<any>;
     BuilderSetupContent?: ComponentType<any>;
+    ProviderSettingsLink?: ComponentType;
     /** Catalog facts for the picker rows, hover card, and effort control. */
     describe?: (model: string, engine?: string) => ComposerModelDescription;
     /**
@@ -252,6 +253,8 @@ export interface ComposerRuntimeAdapters {
       options: ComposerBuilderConnectFlowOptions,
     ) => ComposerBuilderConnectFlow;
     BuilderConnectPopover?: ComponentType<ComposerBuilderConnectPopoverProps>;
+    /** Whether the Builder choice may mention free credits. Defaults to true. */
+    creditsOffered?: () => boolean;
     tryDelegateBuildRequest?: (text: string) => boolean;
     isTrustedFrameMessage?: (event: MessageEvent) => boolean;
     isTrustedBuilderMessage?: (event: MessageEvent) => boolean;
@@ -400,6 +403,7 @@ const fallbackAdapters: ResolvedComposerRuntimeAdapters = {
   },
   builder: {
     useConnectFlow: () => fallbackBuilderFlow,
+    creditsOffered: () => true,
     tryDelegateBuildRequest: () => false,
     isTrustedFrameMessage: () => false,
     isTrustedBuilderMessage: () => false,

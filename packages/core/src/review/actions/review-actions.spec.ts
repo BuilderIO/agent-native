@@ -112,6 +112,7 @@ const {
   finishReviewNotificationDelivery,
   queryReviewComments,
   resolveReviewThread,
+  setReviewCommentReaction,
   upsertReviewStatus,
 } = await import("../store.js");
 
@@ -124,7 +125,7 @@ const { __resetStoreLedgerSnapshotForTests } =
 
 beforeEach(async () => {
   afterCommentRead.run = null;
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetStoreLedgerSnapshotForTests();
   rawClient.execute.mockClear();
   __resetReviewInitForTests();
@@ -328,6 +329,166 @@ afterEach(async () => {
   __resetReviewableResourcesForTests();
   await pglite.close();
   vi.clearAllMocks();
+});
+
+it("keeps the agent's reactions apart from the person it works for", async () => {
+  const root = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const resource = { resourceType: "doc", resourceId: "private" };
+  const person = { userEmail: EDITOR_EMAIL, caller: "frontend" };
+  const agent = { userEmail: EDITOR_EMAIL, caller: "tool" };
+  const react = (ctx: typeof person, active: boolean) =>
+    reactToReviewCommentAction.run(
+      { ...resource, commentId: root.id, reaction: "👍", active },
+      ctx,
+    );
+
+  await react(person, true);
+  await react(agent, true);
+  await react(person, false);
+
+  const asPerson = await listReviewCommentsAction.run(resource, person);
+  expect(asPerson.discussion.reactions[root.id]).toEqual([
+    { reaction: "👍", count: 1, reactedByMe: false },
+  ]);
+  const asAgent = await listReviewCommentsAction.run(resource, agent);
+  expect(asAgent.discussion.reactions[root.id]).toEqual([
+    { reaction: "👍", count: 1, reactedByMe: true },
+  ]);
+});
+
+it("toggles a reaction when active is left out, whatever the case of the email", async () => {
+  const root = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const resource = { resourceType: "doc", resourceId: "private" };
+  const person = { userEmail: EDITOR_EMAIL, caller: "frontend" };
+  await setReviewCommentReaction({
+    commentId: root.id,
+    actorEmail: "Editor@Example.com",
+    reaction: "👍",
+    active: true,
+  });
+  const toggle = () =>
+    reactToReviewCommentAction.run(
+      { ...resource, commentId: root.id, reaction: "👍" },
+      person,
+    );
+
+  const listed = await listReviewCommentsAction.run(resource, person);
+  expect(listed.discussion.reactions[root.id]).toEqual([
+    { reaction: "👍", count: 1, reactedByMe: true },
+  ]);
+  expect(await toggle()).toMatchObject({ active: false });
+  expect(
+    (await listReviewCommentsAction.run(resource, person)).discussion.reactions[
+      root.id
+    ],
+  ).toEqual([]);
+  expect(await toggle()).toMatchObject({ active: true });
+  expect(await toggle()).toMatchObject({ active: false });
+});
+
+it("adds a reaction once whatever the case of the email it was saved under", async () => {
+  const root = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const react = (actorEmail: string) =>
+    setReviewCommentReaction({
+      commentId: root.id,
+      actorEmail,
+      reaction: "👍",
+      active: true,
+    });
+  await react("Editor@Example.com");
+  await react(EDITOR_EMAIL);
+  const { rows } = await pglite.query(
+    "SELECT actor_email FROM agent_review_comment_reactions WHERE comment_id = $1",
+    [root.id],
+  );
+  expect(rows).toEqual([{ actor_email: "Editor@Example.com" }]);
+});
+
+it("lets a resource choose who may resolve its threads", async () => {
+  registerReviewableResource({
+    type: "deck",
+    resolveAccess: () => ({
+      role: "commenter",
+      ownerEmail: OWNER_EMAIL,
+      orgId: null,
+      visibility: "private",
+    }),
+    comments: { resolveRole: "commenter" },
+  });
+  const commenter = { userEmail: COMMENTER_EMAIL, caller: "frontend" };
+  const onDoc = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const onDeck = await insertReviewComment({
+    resourceType: "deck",
+    resourceId: "deck-1",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+
+  await expect(
+    resolveReviewThreadAction.run(
+      { resourceType: "doc", resourceId: "private", threadId: onDoc.threadId },
+      commenter,
+    ),
+  ).rejects.toThrow();
+  await expect(
+    resolveReviewThreadAction.run(
+      { resourceType: "deck", resourceId: "deck-1", threadId: onDeck.threadId },
+      commenter,
+    ),
+  ).resolves.toMatchObject({ resolved: true });
+});
+
+it("refuses to resolve a thread on a resource whose comments the app writes", async () => {
+  const message = "Deck comments are written with the deck's own actions.";
+  registerReviewableResource({
+    type: "deck",
+    resolveAccess: () => ({
+      role: "owner",
+      ownerEmail: OWNER_EMAIL,
+      orgId: null,
+      visibility: "private",
+    }),
+    comments: { resolveRole: "viewer" },
+    commentsWrittenByApp: message,
+  });
+  const onDeck = await insertReviewComment({
+    resourceType: "deck",
+    resourceId: "deck-1",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+
+  await expect(
+    resolveReviewThreadAction.run(
+      { resourceType: "deck", resourceId: "deck-1", threadId: onDeck.threadId },
+      { userEmail: OWNER_EMAIL, caller: "frontend" },
+    ),
+  ).rejects.toThrow(message);
+  const { rows } = await pglite.query(
+    "SELECT status FROM agent_review_comments WHERE id = $1",
+    [onDeck.id],
+  );
+  expect(rows).toEqual([{ status: "open" }]);
 });
 
 describe("review actions", () => {
@@ -982,6 +1143,126 @@ describe("review actions", () => {
         { userEmail: EDITOR_EMAIL },
       ),
     ).rejects.toThrow("Review comment not found");
+  });
+
+  it("refuses a delete that would take someone else's comment when asked to, checking again as the thread locks", async () => {
+    const resource = { resourceType: "doc", resourceId: "private" };
+    const agent = { userEmail: EDITOR_EMAIL, caller: "tool" };
+    const insert = (
+      body: string,
+      authorEmail: string,
+      root?: { id: string; threadId: string },
+    ) =>
+      insertReviewComment({
+        ...resource,
+        ...(root ? { threadId: root.threadId, parentCommentId: root.id } : {}),
+        body,
+        authorEmail,
+        ownerEmail: OWNER_EMAIL,
+      });
+    const remove = (commentId: string, onlyOwnComments?: boolean) =>
+      deleteReviewCommentAction.run(
+        {
+          ...resource,
+          commentId,
+          ...(onlyOwnComments ? { onlyOwnComments } : {}),
+        },
+        agent,
+      );
+
+    const theirs = await insert("Someone else's", OWNER_EMAIL);
+    await expect(remove(theirs.id, true)).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "approval_required",
+    });
+
+    const own = await insert("The agent's", EDITOR_EMAIL);
+    afterCommentRead.run = async () => {
+      await insert("A late reply", OWNER_EMAIL, own);
+    };
+    await expect(remove(own.id, true)).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "approval_required",
+    });
+    expect(
+      (await getReviewCommentById(own.id, {}, { bypassScope: true }))?.status,
+    ).toBe("open");
+
+    await expect(remove(own.id)).resolves.toMatchObject({ deleted: true });
+    expect(
+      (await getReviewCommentById(theirs.id, {}, { bypassScope: true }))
+        ?.status,
+    ).toBe("open");
+  });
+
+  it("asks an agent for approval before it deletes anyone else's comment where the policy says so", async () => {
+    registerReviewableResource({
+      type: "deck",
+      resolveAccess: () => ({
+        role: "editor",
+        ownerEmail: OWNER_EMAIL,
+        orgId: null,
+        visibility: "private",
+      }),
+      comments: { agentDeleteApproval: true },
+    });
+    const resource = { resourceType: "deck", resourceId: "deck-1" };
+    const insert = (
+      body: string,
+      authorEmail: string,
+      root?: { id: string; threadId: string },
+    ) =>
+      insertReviewComment({
+        ...resource,
+        ...(root ? { threadId: root.threadId, parentCommentId: root.id } : {}),
+        body,
+        authorEmail,
+        ownerEmail: OWNER_EMAIL,
+      });
+    const agent = { userEmail: EDITOR_EMAIL, caller: "tool" };
+    const person = { userEmail: EDITOR_EMAIL, caller: "frontend" };
+    const args = (commentId: string) => ({ ...resource, commentId });
+    const needsApproval = deleteReviewCommentAction.needsApproval as (
+      args: unknown,
+      ctx: unknown,
+    ) => Promise<boolean>;
+
+    const theirs = await insert("Someone else's", OWNER_EMAIL);
+    const own = await insert("The agent's", EDITOR_EMAIL);
+    const answered = await insert("The agent's, answered", EDITOR_EMAIL);
+    await insert("Someone else's reply", OWNER_EMAIL, answered);
+
+    await expect(needsApproval(args(theirs.id), agent)).resolves.toBe(true);
+    await expect(needsApproval(args(answered.id), agent)).resolves.toBe(true);
+    await expect(needsApproval(args(own.id), agent)).resolves.toBe(false);
+    await expect(needsApproval(args(theirs.id), person)).resolves.toBe(false);
+    await expect(
+      needsApproval(
+        { resourceType: "doc", resourceId: "private", commentId: theirs.id },
+        agent,
+      ),
+    ).resolves.toBe(false);
+
+    for (const comment of [theirs, answered]) {
+      await expect(
+        deleteReviewCommentAction.run(args(comment.id), agent),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "approval_required",
+      });
+    }
+    await expect(
+      deleteReviewCommentAction.run(args(own.id), agent),
+    ).resolves.toMatchObject({ deleted: true });
+    await expect(
+      deleteReviewCommentAction.run(args(theirs.id), {
+        ...agent,
+        approvedToolCallKey: "approved-1",
+      }),
+    ).resolves.toMatchObject({ deleted: true });
+    await expect(
+      deleteReviewCommentAction.run(args(answered.id), person),
+    ).resolves.toMatchObject({ deleted: true });
   });
 
   it("marks multiple review threads read in one authorized action", async () => {

@@ -2759,6 +2759,10 @@ function runOptions(
     threadTitle: `Job: ${automation.name}`,
     runIdPrefix: `job-${automation.name}`,
     usageLabel: `recurring-job:${automation.name}`,
+    actionAutomation: {
+      triggerId: automation.resource.id,
+      triggerName: automation.name,
+    },
     ...overrides,
   };
 }
@@ -3545,6 +3549,115 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
       cache_write_tokens: 1,
     });
   });
+
+  it("keeps an organization run's usage with its organization when another org's key paid", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const { tagEngineCredentialOrg } =
+      await import("../agent/engine/credential-owner.js");
+    await pglite.exec(`
+      CREATE TABLE IF NOT EXISTS org_members (
+        id TEXT,
+        joined_at BIGINT,
+        org_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL,
+        federation_removal_pending_at BIGINT
+      )
+    `);
+    await pglite
+      .prepare(
+        "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, 'acme', 'alice@agent-native.test', 'member', 0) ON CONFLICT DO NOTHING",
+      )
+      .run("acme:vault-key-usage:alice@agent-native.test");
+    const automation = precondition("vault-key-usage", { orgId: "acme" });
+    automation.resource.owner = "__organization__:acme";
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send({
+          type: "tool_done",
+          tool: "send-notification",
+          result: "Sent",
+          completedSideEffect: true,
+        });
+        return {
+          inputTokens: 19,
+          outputTokens: 7,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          engineName: "test",
+          model: "test-model",
+        };
+      },
+    );
+    // A key from the deployment's designated vault org is tagged with that org.
+    const vaultKeyEngine = { ...testEngine };
+    tagEngineCredentialOrg(vaultKeyEngine, "vault-org");
+
+    await runBackgroundAutomation(runOptions(automation, { orgId: "acme" }), {
+      ...standardDeps,
+      engine: vaultKeyEngine,
+    });
+
+    const recorded = await pglite
+      .prepare(`SELECT org_id FROM token_usage WHERE label = ?`)
+      .get("recurring-job:vault-key-usage");
+    expect(recorded).toEqual({ org_id: "acme" });
+  });
+
+  it.each([
+    { paidBy: "acme", expected: "acme" },
+    { paidBy: "vault-org", expected: null },
+  ])(
+    "saves a personal run's usage under $expected when $paidBy's key paid",
+    async ({ paidBy, expected }) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const { tagEngineCredentialOrg } =
+        await import("../agent/engine/credential-owner.js");
+      const name = `personal-usage-${paidBy}`;
+      const automation = precondition(name);
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          opts.send({
+            type: "tool_done",
+            tool: "send-notification",
+            result: "Sent",
+            completedSideEffect: true,
+          });
+          return {
+            inputTokens: 19,
+            outputTokens: 7,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            engineName: "test",
+            model: "test-model",
+          };
+        },
+      );
+      const paidEngine = { ...testEngine };
+      tagEngineCredentialOrg(paidEngine, paidBy);
+
+      // The creator's org is acme; the run itself stays personal.
+      await runBackgroundAutomation(
+        runOptions(automation, {
+          requestContext: {
+            orgScope: "personal",
+            providerKeyOrg: {
+              orgId: "acme",
+              userEmail: "alice@agent-native.test",
+            },
+          },
+        }),
+        { ...standardDeps, engine: paidEngine },
+      );
+
+      const recorded = await pglite
+        .prepare(`SELECT org_id FROM token_usage WHERE label = ?`)
+        .get(`recurring-job:${name}`);
+      expect(recorded).toEqual({ org_id: expected });
+    },
+  );
 
   it("records usage accumulated before a later continuation fails", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =

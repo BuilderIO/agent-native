@@ -59,13 +59,13 @@ const OUTSIDE = "Alpha paragraph.\n\nOutside paragraph.\n\nBravo paragraph.";
  */
 function makeTabs(
   count: number,
-  options: { visible: boolean; adoption: "server" | "none" },
+  options: { visible: boolean; adoption: "server" | "none"; seed?: string },
 ) {
   const server = new Y.Doc();
   const seedEditor = new CoreEditor({
     extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc: server }),
   });
-  seedEditor.commands.setContent(BASELINE);
+  seedEditor.commands.setContent(options.seed ?? BASELINE);
   seedEditor.destroy();
 
   const docs = Array.from({ length: count }, (_, index) => {
@@ -339,6 +339,10 @@ function makeTabs(
       act(() => {
         editors[index]!.commands.insertContentAt(at, text);
       }),
+    deleteRange: (index: number, from: number, to: number) =>
+      act(() => {
+        editors[index]!.commands.deleteRange({ from, to });
+      }),
     rebaseWithoutRevision: () => {
       rebaseWithoutRevision = true;
     },
@@ -535,6 +539,287 @@ describe("useCollabReconcile — snapshot adoption", () => {
         "Typed. Alpha paragraph.\n\nBravo paragraph.",
       ]);
       expect(tabs.adoptionCalls).toEqual([]);
+      expect(merges).toEqual([{ setAside: 1 }]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("takes in a write beside the tab's typing without waiting for a pause", async () => {
+    vi.useFakeTimers();
+    setVisibility("hidden");
+    const tabs = makeTabs(1, { visible: false, adoption: "server" });
+    tabs.setOptions({ isEditorFocused: () => true });
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.type(0, "Typed. ");
+
+      tabs.saveRevision(SECOND.revision);
+      tabs.render(SECOND);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(tabs.adoptionCalls).toEqual([
+        { index: 0, revision: SECOND.revision },
+      ]);
+      tabs.settleAdoptions();
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+
+      expect(tabs.markdown()).toEqual([
+        "Typed. Alpha paragraph.\n\nOutside paragraph.\n\nBravo paragraph.",
+      ]);
+      expect(tabs.reconciled.map(({ status }) => status)).toEqual(["merged"]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  const threeParagraphs = {
+    value: "Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+    revision: "revision-1",
+    updatedAt: "2024-01-01T00:00:01.000Z",
+  };
+  it.each([
+    {
+      name: "takes in a write the server merged into the tab's save while the tab types past it",
+      typed: { text: "Typed. ", at: 1 },
+      held: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      sent: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      more: { text: "More. ", at: 8 },
+      answered:
+        "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
+      told: "revision-2",
+      adoptions: [{ index: 0, revision: "revision-2" }],
+      shown:
+        "Typed. More. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
+      statuses: ["merged"],
+    },
+    {
+      name: "sets that write aside while the tab types past it when the host does not say it answers the tab's save",
+      typed: { text: "Typed. ", at: 1 },
+      held: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      sent: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      more: { text: "More. ", at: 8 },
+      answered:
+        "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
+      told: null,
+      adoptions: [],
+      shown:
+        "Typed. More. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      statuses: [],
+    },
+    {
+      name: "sets that write aside while the tab types past it when the host's save answered another revision",
+      typed: { text: "Typed. ", at: 1 },
+      held: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      sent: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      more: { text: "More. ", at: 8 },
+      answered:
+        "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
+      told: "revision-0",
+      adoptions: [],
+      shown:
+        "Typed. More. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      statuses: [],
+    },
+    {
+      name: "sets that write aside while the tab types before the words its save sent",
+      typed: { text: "Typed. ", at: 1 },
+      held: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      sent: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      more: { text: "More. ", at: 1 },
+      answered:
+        "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
+      told: "revision-2",
+      adoptions: [],
+      shown:
+        "More. Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      statuses: [],
+    },
+    {
+      name: "keeps the tab's words when the server's answer to its save dropped them",
+      typed: { text: "Foo. ", at: 19 },
+      held: "Alpha paragraph.\n\nFoo. Bravo paragraph.\n\nCharlie paragraph.",
+      sent: "Alpha paragraph.\n\nFoo. Bravo paragraph.\n\nCharlie paragraph.",
+      more: { text: "More. ", at: 1 },
+      answered:
+        "Alpha paragraph.\n\nBravo paragraph, agent.\n\nCharlie paragraph.",
+      told: "revision-2",
+      adoptions: [],
+      shown:
+        "More. Alpha paragraph.\n\nFoo. Bravo paragraph.\n\nCharlie paragraph.",
+      statuses: [],
+    },
+    {
+      name: "takes in text the tab's save sent that its editor does not hold",
+      typed: { text: "Now. ", at: 19 },
+      held: "Alpha paragraph.\n\nNow. Bravo paragraph.\n\nCharlie paragraph.",
+      sent: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      more: { text: "More. ", at: 24 },
+      answered:
+        "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, agent.",
+      told: "revision-2",
+      adoptions: [{ index: 0, revision: "revision-2" }],
+      shown:
+        "Typed. Alpha paragraph.\n\nNow. More. Bravo paragraph.\n\nCharlie paragraph, agent.",
+      statuses: ["merged"],
+    },
+  ])(
+    "$name",
+    async ({
+      typed,
+      held,
+      sent,
+      more,
+      answered,
+      told,
+      adoptions,
+      shown,
+      statuses,
+    }) => {
+      vi.useFakeTimers();
+      setVisibility("hidden");
+      const blocks = (body: string) => body.split("\n\n");
+      const holdsBlock = (before: string, holder: string, other: string) => {
+        let start = 0;
+        while (start < before.length && before[start] === other[start]) {
+          start += 1;
+        }
+        let end = 0;
+        while (
+          end < before.length - start &&
+          before[before.length - 1 - end] === other[other.length - 1 - end]
+        ) {
+          end += 1;
+        }
+        return (
+          holder.startsWith(other.slice(0, other.length - end)) &&
+          holder.endsWith(other.slice(other.length - end))
+        );
+      };
+      const serverHoldsLiveChanges = (
+        base: string,
+        holder: string,
+        other: string,
+      ) =>
+        blocks(other).every(
+          (block, index) =>
+            block === blocks(base)[index] ||
+            holdsBlock(
+              blocks(base)[index] ?? "",
+              blocks(holder)[index] ?? "",
+              block,
+            ),
+        );
+      const tabs = makeTabs(1, {
+        visible: false,
+        adoption: "server",
+        seed: threeParagraphs.value,
+      });
+      tabs.setOptions({ isEditorFocused: () => true, serverHoldsLiveChanges });
+      try {
+        tabs.render(threeParagraphs);
+        await act(async () => vi.advanceTimersByTimeAsync(30));
+        tabs.type(0, typed.text, typed.at);
+        expect(tabs.markdown()).toEqual([held]);
+        tabs.type(0, more.text, more.at);
+
+        const answer = {
+          value: answered,
+          revision: "revision-2",
+          updatedAt: "2024-01-01T00:00:02.000Z",
+        };
+        tabs.setOptions({
+          isEditorFocused: () => true,
+          serverHoldsLiveChanges,
+          ...(told
+            ? {
+                mergedLocalSave: {
+                  sent,
+                  value: answer.value,
+                  revision: told,
+                },
+              }
+            : {}),
+        });
+        tabs.saveRevision(answer.revision);
+        tabs.render(answer);
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        tabs.settleAdoptions();
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+
+        expect(tabs.adoptionCalls).toEqual(adoptions);
+        expect(tabs.markdown()).toEqual([shown]);
+        expect(tabs.reconciled.map(({ status }) => status)).toEqual(statuses);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  // Reporting a merge would have the host save the tab's text against the
+  // write's revision, over the change it set aside.
+  it("reports no merge for a write it sets aside for the tab's typing", async () => {
+    vi.useFakeTimers();
+    setVisibility("hidden");
+    const tabs = makeTabs(1, { visible: false, adoption: "server" });
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.type(0, "Typed. ");
+
+      const revised = {
+        value: "Alpha paragraph, revised.\n\nBravo paragraph, revised.",
+        revision: "revision-2",
+        updatedAt: "2024-01-01T00:00:02.000Z",
+      };
+      tabs.saveRevision(revised.revision);
+      tabs.render(revised);
+      await act(async () => vi.advanceTimersByTimeAsync(8000));
+
+      // The change beside the typing waits with the rest: the server would
+      // mark the whole revision taken in.
+      expect(tabs.markdown()).toEqual([
+        "Typed. Alpha paragraph.\n\nBravo paragraph.",
+      ]);
+      expect(tabs.adoptionCalls).toEqual([]);
+      expect(tabs.reconciled).toEqual([]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("plans a write it set aside again once an edit leaves nothing to overlap", async () => {
+    vi.useFakeTimers();
+    setVisibility("hidden");
+    const tabs = makeTabs(1, { visible: false, adoption: "server" });
+    const merges: Array<{ setAside: number }> = [];
+    tabs.setOptions({ onBaseAwareMerge: (outcome) => merges.push(outcome) });
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.type(0, "Typed. ");
+
+      const revised = {
+        value: "Alpha paragraph, revised.\n\nBravo paragraph, revised.",
+        revision: "revision-2",
+        updatedAt: "2024-01-01T00:00:02.000Z",
+      };
+      tabs.saveRevision(revised.revision);
+      tabs.render(revised);
+      await act(async () => vi.advanceTimersByTimeAsync(8000));
+      expect(tabs.adoptionCalls).toEqual([]);
+
+      // The person takes the typing back out.
+      tabs.deleteRange(0, 1, 1 + "Typed. ".length);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      tabs.settleAdoptions();
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+
+      expect(tabs.markdown()).toEqual([revised.value]);
+      expect(tabs.adoptionCalls).toEqual([
+        { index: 0, revision: revised.revision },
+      ]);
+      // One write, counted once, when it was set aside.
       expect(merges).toEqual([{ setAside: 1 }]);
     } finally {
       tabs.dispose();

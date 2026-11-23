@@ -72,6 +72,22 @@ describe("get-builder-credit-status action", () => {
 
   afterEach(() => vi.clearAllMocks());
 
+  it("keeps the chat state but leaves out balance and quota where commercial surfaces are hidden", async () => {
+    mocks.canViewWorkspaceUsage.mockResolvedValue(true);
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    let result: unknown;
+    try {
+      result = await getBuilderCreditStatus.run({}, context);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(result).toMatchObject({ exhausted: false, period: "monthly" });
+    expect(result).not.toHaveProperty("balance");
+    expect(result).not.toHaveProperty("quota");
+  });
+
   it("returns null when no Builder connection is available", async () => {
     mocks.getBuilderCreditUsage.mockResolvedValue(null);
 
@@ -329,4 +345,8 @@ describe("get-builder-credit-status action", () => {
       });
     },
   );
+});
+
+it("keeps get-builder-credit-status in the app, off MCP", () => {
+  expect(getBuilderCreditStatus.mcpTool).toBe(false);
 });

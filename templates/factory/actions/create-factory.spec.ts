@@ -12,7 +12,8 @@ const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
 const resolveUniqueFactoryIdMock = vi.hoisted(() => vi.fn());
 const writeAppStateForCurrentTabMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/action", () => ({
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   defineAction: (definition: unknown) => definition,
 }));
 

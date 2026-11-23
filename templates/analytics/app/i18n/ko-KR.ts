@@ -1176,6 +1176,7 @@ export default {
     monitoring: "모니터링 - Analytics",
     agents: "에이전트 - Analytics",
     session: "세션 리플레이 - Analytics",
+    sessionReport: "세션 보고서 - Analytics",
     tool: "도구 - Analytics",
     extensions: "확장 - Analytics",
     overview: "개요 - Analytics",
@@ -1844,6 +1845,28 @@ export default {
     emptyStepVisit: "앱 방문",
     installSnippetTitle: "세션 리플레이 추가",
     backToSessions: "세션으로 돌아가기",
+    createReport: "보고서 만들기",
+    createReportTooltip:
+      "에이전트에게 이 세션에 대한 보고서를 작성하게 합니다: 무엇이 잘못됐는지, 주요 순간, 재현 방법.",
+    createReportMessage: "이 세션에 대한 보고서를 작성해 줘.",
+    reportCount: "보고서 ({{count}})",
+    reportsUnavailable: "보고서를 사용할 수 없음",
+    reportNeedsLab: "세션 보고서는 세션 분류 Lab 기능입니다.",
+    reportNotFound: "이 보고서가 없거나 나와 공유되지 않았습니다.",
+    reportLoadFailed: "이 보고서를 불러오지 못했습니다: {{message}}",
+    reportBackToSession: "세션으로 돌아가기",
+    reportTitleLabel: "보고서 제목",
+    reportSummaryLabel: "요약",
+    reportSummaryPlaceholder: "무엇이 잘못됐는지, 그 이유",
+    reportKeyMoments: "주요 순간",
+    reportReproSteps: "재현 단계",
+    reportErrorIssue: "오류 이슈",
+    reportCommit: "커밋",
+    reportNoCommit: "이 세션은 커밋을 보고하지 않았습니다",
+    reportSaveFailed: "보고서를 저장하지 못했습니다: {{message}}",
+    reportDelete: "보고서 삭제",
+    reportDeleteTitle:
+      "이 보고서를 삭제할까요? 에이전트 링크가 더 이상 작동하지 않습니다.",
     copyForAgent: "에이전트용으로 복사",
     copyForAgentTooltip:
       "에이전트가 이 리플레이를 검사하는 데 사용할 수 있는 임시 비공개 링크를 복사합니다.",
@@ -2103,6 +2126,10 @@ export default {
     flagsUnavailable: "기능 플래그를 사용할 수 없습니다",
     flagsUnreachable:
       "작업 공간 디렉터리에 연결할 수 없습니다. 연결되면 다시 시도하세요.",
+    verifiedFlagChangeOrg:
+      "{{time}}에 확인됨: {{app}}의 {{flag}}이(가) 이 조직에서 {{availability}}(으)로 설정되었습니다.",
+    verifiedFlagChangeGlobal:
+      "{{time}}에 확인됨: {{app}}의 {{flag}}이(가) 모든 조직에서 {{availability}}(으)로 설정되었습니다.",
     flagsEmpty: "플래그를 보고한 작업 공간 앱이 없습니다",
     flagsEmptyDetail: "연결된 앱이 준비되면 등록된 플래그가 여기에 표시됩니다.",
     flagsNotReady:

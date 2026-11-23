@@ -1055,6 +1055,83 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
+  it("asks native capture for rich recording tracks only when told to", async () => {
+    const pending = startRecording(params);
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+
+    expect(calls("native_fullscreen_recording_begin")[0][1]).toMatchObject({
+      richTracks: false,
+    });
+    await handle.cancel();
+  });
+
+  it("passes the Rich recordings lab choice to native begin", async () => {
+    const pending = startRecording({ ...params, richTracks: true });
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+
+    expect(calls("native_fullscreen_recording_begin")[0][1]).toMatchObject({
+      richTracks: true,
+    });
+    await handle.cancel();
+  });
+
+  it("names the bubble's camera to native begin for its rich recording track", async () => {
+    const pending = startRecording({
+      ...params,
+      mode: "screen-camera",
+      cameraOn: true,
+      cameraLabel: "FaceTime HD Camera",
+      micOn: false,
+      systemAudioOn: false,
+      richTracks: true,
+    });
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+
+    expect(calls("native_fullscreen_recording_begin")[0][1]).toMatchObject({
+      hasCamera: true,
+      cameraLabel: "FaceTime HD Camera",
+    });
+    await handle.cancel();
+  });
+
+  it("names no camera to native begin without rich tracks", async () => {
+    const pending = startRecording({
+      ...params,
+      mode: "screen-camera",
+      cameraOn: true,
+      cameraLabel: "FaceTime HD Camera",
+      micOn: false,
+      systemAudioOn: false,
+    });
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+
+    const begin = calls("native_fullscreen_recording_begin")[0][1] as {
+      cameraLabel?: string;
+    };
+    expect(begin.cameraLabel).toBeUndefined();
+    await handle.cancel();
+  });
+
+  it("names no camera to native begin when the camera is off", async () => {
+    const pending = startRecording({
+      ...params,
+      cameraLabel: "FaceTime HD Camera",
+      richTracks: true,
+    });
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+
+    const begin = calls("native_fullscreen_recording_begin")[0][1] as {
+      cameraLabel?: string;
+    };
+    expect(begin.cameraLabel).toBeUndefined();
+    await handle.cancel();
+  });
+
   it("ignores a native stop event tagged for another recording", async () => {
     const pending = startRecording({
       ...params,

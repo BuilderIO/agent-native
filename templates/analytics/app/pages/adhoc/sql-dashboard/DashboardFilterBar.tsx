@@ -1,4 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
+import type {
+  DashboardFilter,
+  FilterPreset,
+  FilterPresetEdit,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import {
   IconCheck,
   IconChevronDown,
@@ -65,6 +70,7 @@ import {
   useDashboardNameDraft,
 } from "./DashboardNameDrafts";
 import {
+  customRangeStartingBounds,
   FILTER_PARAM_PREFIX,
   isDateRangePresetFilter,
   MAX_FILTER_PRESETS,
@@ -73,7 +79,6 @@ import {
   resolveFilterVars,
   usableFilterPresets,
 } from "./filter-vars";
-import type { DashboardFilter, FilterPreset, FilterPresetEdit } from "./types";
 import { useFilterSearchParams } from "./use-filter-search-params";
 
 export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
@@ -1136,17 +1141,18 @@ function FilterControl({
           open={selectOpen && !disabled}
           onOpenChange={(open) => setSelectOpen(open && !disabled)}
           value={current}
-          onValueChange={(v) =>
+          onValueChange={(v) => {
+            const bounds =
+              supportsCustomRange && v === "custom"
+                ? customRangeStartingBounds(filter, vars)
+                : { start: "", end: "" };
             setValue({
               [filter.id]: v,
               ...(supportsCustomRange
-                ? {
-                    [startKey]: v === "custom" ? vars[startKey] || "" : "",
-                    [endKey]: v === "custom" ? vars[endKey] || "" : "",
-                  }
+                ? { [startKey]: bounds.start, [endKey]: bounds.end }
                 : {}),
-            })
-          }
+            });
+          }}
         >
           <SelectTrigger
             size="sm"

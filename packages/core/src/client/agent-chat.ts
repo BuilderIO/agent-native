@@ -11,7 +11,6 @@ import { formatAgentSelectionPreamble } from "../shared/agent-selection.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { trackEvent } from "./analytics.js";
-import { agentNativePath } from "./api-path.js";
 import {
   readClientAppState,
   writeClientAppState,
@@ -31,7 +30,9 @@ import {
   readEmbedMcpChatBridgeFlagFromUrl,
 } from "./embed-auth.js";
 import {
+  getFrameOrigin,
   getFramePostMessageTargetOrigin,
+  isInFrame,
   isTrustedFrameMessage,
 } from "./frame.js";
 import {
@@ -84,6 +85,8 @@ export interface AgentChatMessage {
    * {@link AGENT_CHAT_SUBMIT_RESULT_EVENT}. Auto-generated if omitted.
    */
   submitMessageId?: string;
+  /** @internal Parent-frame chat confirmation is an explicit relay opt-in. */
+  confirmParentFrame?: true;
   /** Drop a queued submit instead of handing it to chat after this time. */
   submissionExpiresAt?: number;
   usageLabel?: string;
@@ -187,6 +190,8 @@ const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 
 export const AGENT_CHAT_SUBMIT_RESULT_EVENT = "agentNative.chatSubmitResult";
 export const AGENT_CHAT_SUBMIT_TARGET_EVENT = "agentNative.chatSubmitTarget";
+export const AGENT_CHAT_COMPOSER_SUBMIT_EVENT =
+  "agentNative.chatComposerSubmit";
 
 export interface AgentChatSubmitResult {
   submitMessageId: string;
@@ -260,11 +265,111 @@ export function reportAgentChatSubmitResult(
   );
 }
 
+export interface AgentChatComposerSubmit {
+  /** Names this send for a later withdrawal. */
+  id: string;
+  text: string;
+  tabId?: string | undefined;
+  threadId?: string | null | undefined;
+  /** The last few exchanges before this send, so a host can read follow-ups. */
+  previousTurn?: string | undefined;
+  /** Sent while a run was active, so it waits behind that run. */
+  queued?: boolean | undefined;
+  /** The send with this id never reached the thread. */
+  withdrawn?: boolean | undefined;
+}
+
+let composerSubmitCount = 0;
+
+/**
+ * Announces a visible send before the agent client accepts it, so a host can
+ * start work alongside the turn. Returns the send's id, or null when nothing
+ * was announced.
+ */
+export function reportAgentChatComposerSubmit(
+  detail: Omit<AgentChatComposerSubmit, "id" | "withdrawn">,
+): string | null {
+  if (typeof window === "undefined" || !detail.text.trim()) return null;
+  composerSubmitCount += 1;
+  const id = `composer-submit-${composerSubmitCount}`;
+  window.dispatchEvent(
+    new CustomEvent<AgentChatComposerSubmit>(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, {
+      detail: { ...detail, id },
+    }),
+  );
+  return id;
+}
+
+/** Tells hosts that an announced send was rejected before it reached the thread. */
+export function withdrawAgentChatComposerSubmit(id: string | null): void {
+  if (typeof window === "undefined" || !id) return;
+  window.dispatchEvent(
+    new CustomEvent<AgentChatComposerSubmit>(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, {
+      detail: { id, text: "", withdrawn: true },
+    }),
+  );
+}
+
+export function subscribeAgentChatComposerSubmit(
+  listener: (detail: AgentChatComposerSubmit) => void,
+): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  const handleEvent = (event: Event) => {
+    const detail = (event as CustomEvent<unknown>).detail;
+    if (
+      typeof detail === "object" &&
+      detail !== null &&
+      typeof (detail as { id?: unknown }).id === "string" &&
+      typeof (detail as { text?: unknown }).text === "string"
+    ) {
+      listener(detail as AgentChatComposerSubmit);
+    }
+  };
+  window.addEventListener(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, handleEvent);
+  return () =>
+    window.removeEventListener(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, handleEvent);
+}
+
+const PREVIOUS_TURN_EXCHANGES = 3;
+const PREVIOUS_TURN_MESSAGE_CHARS = 230;
+
+/**
+ * The last three exchanges as "User:"/"Assistant:" lines, clipped, or
+ * undefined before the first reply.
+ */
+export function agentChatPreviousTurnText(
+  messages: ReadonlyArray<{ readonly role: string; readonly text: string }>,
+): string | undefined {
+  const lines: string[] = [];
+  let exchanges = 0;
+  let awaitingAsk = false;
+  for (const message of [...messages].reverse()) {
+    const text = message.text.trim();
+    if (message.role === "assistant") {
+      if (exchanges >= PREVIOUS_TURN_EXCHANGES) break;
+      exchanges += 1;
+      awaitingAsk = true;
+      if (text) {
+        lines.unshift(
+          `Assistant: ${text.slice(0, PREVIOUS_TURN_MESSAGE_CHARS)}`,
+        );
+      }
+    } else if (message.role === "user" && text && awaitingAsk) {
+      awaitingAsk = false;
+      lines.unshift(`User: ${text.slice(0, PREVIOUS_TURN_MESSAGE_CHARS)}`);
+    }
+  }
+  return lines.length ? lines.join("\n") : undefined;
+}
+
 let agentChatContextState: AgentChatContextState = {
   items: [],
   updatedAt: 0,
 };
 let pendingAgentChatContextPersistence: Promise<void> = Promise.resolve();
+// Keys a synchronous call removed while a persisted write was in flight, so
+// the write doesn't add them back. Only one persisted write runs at a time.
+let agentChatContextRemovedMidWrite: Set<string> | "all" | null = null;
 const agentChatContextListeners = new Set<() => void>();
 let agentChatContextNotifyQueued = false;
 
@@ -282,6 +387,28 @@ function queueAgentChatContextPersistence<T>(
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
     if (!isTrustedFrameMessage(event) && !isTrustedBuilderMessage(event)) {
+      return;
+    }
+    if (event.data?.type === "agentNative.submitChatResult") {
+      if (
+        window.parent === window ||
+        event.source !== window.parent ||
+        event.origin !== getFrameOrigin()
+      ) {
+        return;
+      }
+      const data = event.data.data;
+      if (
+        data &&
+        typeof data.submitMessageId === "string" &&
+        typeof data.delivered === "boolean"
+      ) {
+        reportAgentChatSubmitResult(
+          data.submitMessageId,
+          data.delivered,
+          typeof data.reason === "string" ? data.reason : undefined,
+        );
+      }
       return;
     }
     if (
@@ -517,6 +644,21 @@ function withReplacedAgentChatContextItem(
   );
 }
 
+function sameAgentChatContextItem(
+  a: AgentChatContextItem | undefined,
+  b: AgentChatContextItem | undefined,
+): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.key === b.key &&
+    a.title === b.title &&
+    a.context === b.context &&
+    a.contextNamespace === b.contextNamespace &&
+    a.targetThreadId === b.targetThreadId &&
+    a.stagingId === b.stagingId
+  );
+}
+
 function notifyAgentChatContextListeners(): void {
   if (agentChatContextNotifyQueued) return;
   agentChatContextNotifyQueued = true;
@@ -531,19 +673,13 @@ function notifyAgentChatContextListeners(): void {
   }
 }
 
+// Saved through the ordered app-state writer, like the persisted calls, so a
+// save made earlier can't land after a later one and replace it.
 function persistAgentChatContextState(state: AgentChatContextState): void {
   if (typeof window === "undefined" || typeof fetch !== "function") return;
-  fetch(
-    agentNativePath(
-      `/_agent-native/application-state/${AGENT_CHAT_CONTEXT_STATE_KEY}`,
-    ),
-    {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state),
-    },
-  ).catch(() => {});
+  writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, state, {
+    keepalive: true,
+  }).catch(() => {});
 }
 
 export function publishAgentChatContextItems(
@@ -1241,7 +1377,10 @@ export function parseSubmitChatMessage(
       ? { submissionExpiresAt: raw.submissionExpiresAt as number }
       : {}),
     usageLabel: nonEmptyString(raw.usageLabel),
-    approvedToolCalls: parseSubmitChatApprovedToolCalls(raw.approvedToolCalls),
+    approvedToolCalls:
+      typeof window !== "undefined" && event.origin === window.location.origin
+        ? parseSubmitChatApprovedToolCalls(raw.approvedToolCalls)
+        : undefined,
     surface: nonEmptyString(raw.preset),
   };
 }
@@ -1442,7 +1581,13 @@ export interface SendToAgentChatAndConfirmResult {
 
 function confirmAgentChatSubmit(
   opts: Omit<AgentChatMessage, "submitMessageId">,
-  options: { submitMessageId?: string; timeoutMs?: number } | undefined,
+  options:
+    | {
+        submitMessageId?: string;
+        timeoutMs?: number;
+        confirmParentFrame?: boolean;
+      }
+    | undefined,
   tabId: string,
   dispatch: (submission: AgentChatMessage) => void,
 ): Promise<SendToAgentChatAndConfirmResult> {
@@ -1482,7 +1627,16 @@ function confirmAgentChatSubmit(
     );
     timer = window.setTimeout(() => finish(false, "timeout", true), timeoutMs);
     try {
-      dispatch({ ...opts, tabId, submitMessageId });
+      dispatch({
+        ...opts,
+        tabId,
+        submitMessageId,
+        ...(options?.confirmParentFrame === true &&
+        opts.chatTarget !== "local" &&
+        isInFrame()
+          ? { confirmParentFrame: true as const }
+          : {}),
+      });
     } catch {
       finish(false, "send-failed", true);
     }
@@ -1491,14 +1645,19 @@ function confirmAgentChatSubmit(
 
 export function sendToAgentChatAndConfirm(
   opts: Omit<AgentChatMessage, "submitMessageId">,
-  options?: { submitMessageId?: string; timeoutMs?: number },
+  options?: {
+    submitMessageId?: string;
+    timeoutMs?: number;
+    confirmParentFrame?: boolean;
+  },
 ): Promise<SendToAgentChatAndConfirmResult> {
   const tabId = opts.tabId ?? generateTabId();
   if (typeof window === "undefined") {
     return Promise.resolve({ tabId, delivered: false, reason: "no-window" });
   }
   if (
-    opts.chatTarget !== "local" ||
+    (opts.chatTarget !== "local" &&
+      !(options?.confirmParentFrame === true && isInFrame())) ||
     routesToCodeFrame(opts) ||
     opts.submit === false
   ) {
@@ -1598,18 +1757,13 @@ export async function setAgentChatContextItemAndPersist(
   }
 
   return queueAgentChatContextPersistence(async () => {
+    const baseState = agentChatContextState;
     const nextState: AgentChatContextState = {
-      items: withReplacedAgentChatContextItem(
-        agentChatContextState.items,
-        item,
-      ),
-      updatedAt: Math.max(Date.now(), agentChatContextState.updatedAt + 1),
+      items: withReplacedAgentChatContextItem(baseState.items, item),
+      updatedAt: Math.max(Date.now(), baseState.updatedAt + 1),
     };
-    const persistedState = normalizeAgentChatContextState(
-      await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
-        keepalive: true,
-      }),
-    );
+    const { persistedState, removedMidWrite } =
+      await writeAgentChatContextState(nextState);
     const persistedItem = persistedState?.items.find(
       (candidate) => candidate.key === item.key,
     );
@@ -1624,12 +1778,94 @@ export async function setAgentChatContextItemAndPersist(
       throw new Error("Agent chat context was not persisted.");
     }
 
+    await publishPersistedAgentChatContextKey(
+      baseState,
+      persistedState,
+      item.key,
+      removedMidWrite,
+    );
+    return item;
+  });
+}
+
+/**
+ * Save a state, noting the keys a synchronous call removed meanwhile. It goes
+ * in a request of its own, so a synchronous save made while it waits can't
+ * replace what it saves.
+ */
+async function writeAgentChatContextState(
+  state: AgentChatContextState,
+): Promise<{
+  persistedState: AgentChatContextState | null;
+  removedMidWrite: Set<string> | "all" | null;
+}> {
+  agentChatContextRemovedMidWrite = new Set();
+  try {
+    const persistedState = normalizeAgentChatContextState(
+      await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, state, {
+        keepalive: true,
+        ownRequest: true,
+      }),
+    );
+    return { persistedState, removedMidWrite: agentChatContextRemovedMidWrite };
+  } finally {
+    agentChatContextRemovedMidWrite = null;
+  }
+}
+
+/**
+ * Publish a persisted write of one key. A synchronous change can publish while
+ * the write is in flight, from items that predate it, and its later clock
+ * would hide the write. So the key is written onto that newer state, unless
+ * the newer state changed the key itself or `removedMidWrite` holds it. That
+ * is saved here, in the queue, so a later queued write can't overtake it, and
+ * published only once saved, by the same rule against whatever is newest then.
+ */
+async function publishPersistedAgentChatContextKey(
+  baseState: AgentChatContextState,
+  persistedState: AgentChatContextState,
+  key: string,
+  removedMidWrite: Set<string> | "all" | null,
+): Promise<void> {
+  const currentState = agentChatContextState;
+  if (currentState === baseState) {
     publishAgentChatContextItems(persistedState.items, {
       persist: false,
       updatedAt: persistedState.updatedAt,
     });
-    return item;
+    return;
+  }
+  const keyIn = (state: AgentChatContextState) =>
+    state.items.find((candidate) => candidate.key === key);
+  if (
+    removedMidWrite === "all" ||
+    removedMidWrite?.has(key) ||
+    !sameAgentChatContextItem(keyIn(baseState), keyIn(currentState))
+  ) {
+    // The newer state's own save, queued after this write, keeps the server
+    // matching it.
+    return;
+  }
+  const persistedItem = keyIn(persistedState);
+  const repaired = await writeAgentChatContextState({
+    items: persistedItem
+      ? withReplacedAgentChatContextItem(currentState.items, persistedItem)
+      : currentState.items.filter((candidate) => candidate.key !== key),
+    updatedAt: Math.max(
+      Date.now(),
+      currentState.updatedAt + 1,
+      persistedState.updatedAt + 1,
+    ),
   });
+  if (!repaired.persistedState) {
+    throw new Error("Agent chat context was not persisted.");
+  }
+  await publishPersistedAgentChatContextKey(
+    currentState,
+    repaired.persistedState,
+    key,
+    repaired.removedMidWrite,
+  );
 }
 
 /** Remove a staged context item from persisted state before clearing its composer. */
@@ -1654,17 +1890,13 @@ export async function removeAgentChatContextItemAndPersist(
     ) {
       return;
     }
+    const baseState = agentChatContextState;
     const nextState: AgentChatContextState = {
-      items: agentChatContextState.items.filter(
-        (item) => item.key !== normalizedKey,
-      ),
-      updatedAt: Math.max(Date.now(), agentChatContextState.updatedAt + 1),
+      items: baseState.items.filter((item) => item.key !== normalizedKey),
+      updatedAt: Math.max(Date.now(), baseState.updatedAt + 1),
     };
-    const persistedState = normalizeAgentChatContextState(
-      await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
-        keepalive: true,
-      }),
-    );
+    const { persistedState, removedMidWrite } =
+      await writeAgentChatContextState(nextState);
     if (
       !persistedState ||
       persistedState.items.some((item) => item.key === normalizedKey)
@@ -1672,10 +1904,12 @@ export async function removeAgentChatContextItemAndPersist(
       throw new Error("Agent chat context removal was not persisted.");
     }
 
-    publishAgentChatContextItems(persistedState.items, {
-      persist: false,
-      updatedAt: persistedState.updatedAt,
-    });
+    await publishPersistedAgentChatContextKey(
+      baseState,
+      persistedState,
+      normalizedKey,
+      removedMidWrite,
+    );
   });
 }
 
@@ -1711,6 +1945,9 @@ export function removeAgentChatContextItem(
   const openSidebar =
     typeof keyOrOpts === "string" ? false : keyOrOpts.openSidebar === true;
 
+  if (agentChatContextRemovedMidWrite instanceof Set) {
+    agentChatContextRemovedMidWrite.add(key);
+  }
   publishAgentChatContextItems(
     agentChatContextState.items.filter((item) => item.key !== key),
   );
@@ -1725,6 +1962,7 @@ export function clearAgentChatContext(
   opts: AgentChatContextMutationOptions = {},
 ): void {
   if (typeof window === "undefined") return;
+  if (agentChatContextRemovedMidWrite) agentChatContextRemovedMidWrite = "all";
   publishAgentChatContextItems([]);
   postAgentChatContextMessage(
     AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,

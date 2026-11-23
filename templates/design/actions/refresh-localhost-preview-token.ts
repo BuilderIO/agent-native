@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import { assertVisualEditCapabilityConnections } from "../server/lib/visual-edit-capability.js";
 import { isLocalVisualEditPrincipal } from "../shared/local-visual-edit-principal.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
 import {
@@ -116,6 +117,7 @@ export default defineAction({
         ),
       };
     }
+    await assertVisualEditCapabilityConnections(requestedConnectionIds);
     const connectionScope = await resolveLocalhostConnectionScope({ designId });
     const { ownerEmail, orgId } = connectionScope;
     const connections = await getDb()

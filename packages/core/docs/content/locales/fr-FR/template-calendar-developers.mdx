@@ -68,6 +68,8 @@ Calendrier enregistre ces informations dans son propre coffre-fort de secrets, p
 si bien que cette étape est identique sur Windows et macOS. Les jetons se rafraîchissent automatiquement une fois
 connectés.
 
+Sur un déploiement, définissez `GOOGLE_CLIENT_ID` et `GOOGLE_CLIENT_SECRET` dans son environnement. Le bouton **Connectez-vous avec Google** demande alors l'accès au calendrier sur le même écran Google, si bien que la connexion associe aussi ce compte ; les comptes supplémentaires passent toujours par **Ajouter un compte**. La connexion revient à la même adresse `/_agent-native/google/callback` que l'association d'un compte, si bien qu'une seule URI de redirection couvre les deux. Sans ces variables, la connexion demande seulement qui vous êtes, et chacun associe Google ensuite.
+
 ### Connecter Zoom (facultatif)
 
 Contrairement à Google, Zoom n'a pas de formulaire dans Paramètres. Créez un fichier `.env` à la

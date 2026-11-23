@@ -1,5 +1,7 @@
 # Code-Native Design Studio - Canonical Implementation Plan
 
+> Note: the Motion timeline feature (dock, keyframes, `*-motion-*` actions, `motion_timeline` editing) was removed from Design. Motion sections below are historical.
+
 ## Goal
 
 Turn the Design template into a code-native editor where code is the source of

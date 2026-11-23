@@ -217,6 +217,12 @@ export interface MigrationEntry {
   sql: MigrationSql;
   name?: string;
   run?: (exec: DbExec) => Promise<MigrationRunResult>;
+  /**
+   * Set when `run` makes or changes tables, so it runs on the migration
+   * connection as SQL does. Otherwise a migration that only runs code uses the
+   * app's own connection, which may be pooled or a role that can't.
+   */
+  changesSchema?: boolean;
 }
 
 export type MigrationSource =
@@ -341,7 +347,9 @@ export function runMigrations(
         current >= 0 &&
         !namedRowsMissing &&
         pendingFast.every(
-          (migration) => resolveMigrationSql(migration.sql) === null,
+          (migration) =>
+            resolveMigrationSql(migration.sql) === null &&
+            migration.changesSchema !== true,
         );
       const exec = runOnlyPending ? getDbExec() : await acquireMigrationExec();
 
@@ -413,8 +421,15 @@ export function runMigrations(
           // Callbacks are idempotent by contract (store-registry retries them
           // the same way), so a concurrent CREATE TABLE losing a pg_type race
           // retries instead of escaping and exiting the server.
-          const runResult = migration.run
-            ? await retryOnDdlRace(() => migration.run!(exec))
+          const run = migration.run;
+          const runResult = run
+            ? await retryOnDdlRace(() => run(exec)).catch((err: unknown) => {
+                console.error(
+                  `[db] Migration ${label} FAILED:`,
+                  (err as Error).message,
+                );
+                throw err;
+              })
             : undefined;
           if (runResult === MIGRATION_DEFERRED) {
             console.info(

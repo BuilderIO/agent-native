@@ -155,6 +155,7 @@ export function FieldPropertiesPanel({
           <Label className="text-xs">{t("fieldProperties.label")}</Label>
           <Input
             size="sm"
+            dir="auto"
             value={field.label}
             onChange={(e) => update({ label: e.target.value })}
             className="text-xs"
@@ -166,6 +167,7 @@ export function FieldPropertiesPanel({
           <Label className="text-xs">{t("fieldProperties.placeholder")}</Label>
           <Input
             size="sm"
+            dir="auto"
             value={field.placeholder || ""}
             onChange={(e) => update({ placeholder: e.target.value })}
             className="text-xs"
@@ -176,6 +178,7 @@ export function FieldPropertiesPanel({
         <div className="space-y-1.5">
           <Label className="text-xs">{t("fieldProperties.helpText")}</Label>
           <Textarea
+            dir="auto"
             value={field.description || ""}
             onChange={(e) => update({ description: e.target.value })}
             rows={2}
@@ -298,7 +301,7 @@ export function FieldPropertiesPanel({
                       }}
                     >
                       <SelectTrigger size="sm" className="text-xs">
-                        <SelectValue />
+                        <SelectValue dir="auto" />
                       </SelectTrigger>
                       <SelectContent>
                         {availableFields.map((candidate) => (
@@ -307,7 +310,9 @@ export function FieldPropertiesPanel({
                             value={candidate.id}
                             className="text-xs"
                           >
-                            {candidate.label || candidate.id}
+                            <span dir="auto">
+                              {candidate.label || candidate.id}
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -365,7 +370,7 @@ export function FieldPropertiesPanel({
                         }
                       >
                         <SelectTrigger size="sm" className="text-xs">
-                          <SelectValue />
+                          <SelectValue dir="auto" />
                         </SelectTrigger>
                         <SelectContent>
                           {conditionOptions.map((option) => (
@@ -374,7 +379,7 @@ export function FieldPropertiesPanel({
                               value={option}
                               className="text-xs"
                             >
-                              {option}
+                              <span dir="auto">{option}</span>
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -382,6 +387,7 @@ export function FieldPropertiesPanel({
                     ) : (
                       <Input
                         size="sm"
+                        dir="auto"
                         value={conditionValue}
                         onChange={(event) =>
                           update({
@@ -414,6 +420,7 @@ export function FieldPropertiesPanel({
               {(field.options || []).map((opt, i) => (
                 <div key={i} className="flex items-center gap-1">
                   <Input
+                    dir="auto"
                     value={opt}
                     onChange={(e) => {
                       const next = [...(field.options || [])];
@@ -437,6 +444,7 @@ export function FieldPropertiesPanel({
               ))}
               <div className="flex items-center gap-1">
                 <Input
+                  dir="auto"
                   value={newOption}
                   onChange={(e) => setNewOption(e.target.value)}
                   placeholder={t("fieldProperties.addOptionPlaceholder")}

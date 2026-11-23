@@ -79,11 +79,16 @@ export {
 } from "./deep-link.js";
 export { createOpenRouteHandler, type OpenRouteOptions } from "./open-route.js";
 export {
+  VISUAL_EDIT_CAPABILITY_ACTIONS,
+  visualEditCapabilityDesignId,
+} from "./visual-edit-capability.js";
+export {
   createEmbedStartRouteHandler,
   buildEmbedStartPath,
   type EmbedStartRouteOptions,
 } from "./embed-route.js";
 export {
+  FULL_APP_EMBED_SCOPE,
   createEmbedSessionTicket,
   consumeEmbedSessionTicket,
   normalizeEmbedTargetPath,
@@ -405,6 +410,10 @@ export {
 } from "./embedded.js";
 export {
   createThread,
+  registerChatThreadSharingPolicy,
+  getQueuedSubmissionReceipt,
+  mutateThreadQueuedMessages,
+  QueuedSubmissionAdmissionError,
   getThread,
   listThreads,
   searchThreads,
@@ -422,6 +431,7 @@ export {
   type ChatThreadListRow,
   type ListThreadsOptions,
 } from "../chat-threads/store.js";
+export { isAgentChatAiSetupReady } from "./agent-chat-ai-setup.js";
 export {
   createResourcesPlugin,
   defaultResourcesPlugin,
@@ -689,6 +699,7 @@ export {
   NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
   logOAuthStateDecodeFailure,
   resolveOAuthOwner,
+  oauthCallbackOwner,
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
@@ -983,6 +994,7 @@ export {
   runRecurringSweepHandlers,
   type RecurringSweepContext,
   type RecurringSweepHandler,
+  type RecurringSweepHandlerOptions,
 } from "../jobs/sweep-hooks.js";
 export {
   hasJobRunner,
@@ -1058,3 +1070,9 @@ export function defineNitroPlugin(def: NitroPluginDef): NitroPluginDef {
   return def;
 }
 export { appStateListKeysByKeySuffixPrefix } from "./application-state-maintenance.js";
+export {
+  PROVIDER_PAUSE_FORBIDDEN,
+  assertProviderPauseOperator,
+  isProviderPauseOperator,
+  type ProviderPauseCaller,
+} from "./provider-pause-operator.js";

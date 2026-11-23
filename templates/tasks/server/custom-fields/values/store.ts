@@ -10,7 +10,7 @@ import {
 } from "../../db/schema.js";
 import type { DbHandle } from "../../db/transaction.js";
 import { NotFoundError, UserInputError } from "../../errors.js";
-import { getStoredItem } from "../../stored-items/store.js";
+import { getStoredItem, lockStoredItem } from "../../stored-items/store.js";
 import { isEmptyFieldValue, normalizeFieldValue } from "../normalize.js";
 import {
   parseField,
@@ -265,6 +265,11 @@ export async function updateCustomFieldValuesByTaskId(
 
   const updatedAt = timestamp(input.now);
   await db.transaction(async (tx) => {
+    const task = await lockStoredItem(
+      { ownerEmail: input.ownerEmail, id: input.taskId, promotedToTask: true },
+      tx,
+    );
+    if (!task) throw new NotFoundError("Task not found.");
     await applyCustomFieldValuePatches(
       {
         ownerEmail: input.ownerEmail,

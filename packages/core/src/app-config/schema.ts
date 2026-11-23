@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { appCapabilityManifestSchema } from "../manifest/index.js";
 import { a2aConfig } from "./a2a.js";
 import { accessConfig } from "./access.js";
 import { agentConfig } from "./agent.js";
@@ -25,6 +26,7 @@ import { onboardingConfig } from "./onboarding.js";
 import { openAiAppsConfig } from "./openai-apps.js";
 import { pluginsConfig } from "./plugins.js";
 import { privateBlobConfig } from "./private-blob.js";
+import { providerPauseConfig } from "./provider-pause.js";
 import { runtimeConfig } from "./runtime.js";
 import type {
   AppConfigSectionInputs,
@@ -76,6 +78,7 @@ export const nativeManifestSchema = z.strictObject({
 export type NativeManifest = z.infer<typeof nativeManifestSchema>;
 
 export const appConfigSchema = z.object({
+  manifest: appCapabilityManifestSchema.optional(),
   a2a: a2aConfig.prefault({}),
   access: accessConfig.prefault({}),
   agent: agentConfig.prefault({}),
@@ -101,6 +104,7 @@ export const appConfigSchema = z.object({
   openAiApps: openAiAppsConfig.prefault({}),
   plugins: pluginsConfig.prefault({}),
   privateBlob: privateBlobConfig.prefault({}),
+  providerPause: providerPauseConfig.prefault({}),
   runtime: runtimeConfig.prefault({}),
   testIdentity: testIdentityConfig.prefault({}),
   workspace: workspaceConfig.prefault({}),

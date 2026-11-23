@@ -22,6 +22,7 @@ const MCP_APP_IMPORT =
 
 export const MCP_APP_REQUEST_ORIGIN_CSP_SOURCE = "$requestOrigin";
 const MCP_APP_WRAPPER_CHROME_HEIGHT = 44;
+const EMBED_REQUEST_FAILURES_WINDOW_KEY = "__agentNativeEmbedRequestFailures";
 const MCP_APP_INLINE_LAUNCHER_HEIGHT = 56;
 export const DEFAULT_MCP_APP_SHELL_HEIGHT = 560;
 export const DEFAULT_MCP_APP_VIEWPORT_HEIGHT =
@@ -963,6 +964,86 @@ export function embedApp(
         }
         return headers;
       }
+      // The host shows no console for this document, so read_view reports
+      // the app's failed requests and whether each carried the panel session.
+      function observedRequest(promise, method, url, headers) {
+        function note(detail) {
+          var list = window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}] ||
+            (window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}] = []);
+          var path;
+          var queryToken = null;
+          try {
+            var parsedUrl = new URL(url);
+            path = parsedUrl.pathname;
+            queryToken = parsedUrl.searchParams.get(activeConfig().embedTokenParam || "__an_embed_token");
+          } catch (_err) {
+            path = String(url);
+          }
+          var sent = headers.get("Authorization");
+          var panelToken = activeConfig().token;
+          var suffix = !sent
+            ? " (sent without the panel session)"
+            : panelToken && sent !== "Bearer " + panelToken
+              ? " (sent with a session other than the panel's)"
+              : queryToken && queryToken !== panelToken
+                ? " (its URL carried a session other than the panel's)"
+                : "";
+          var text = String(method || "GET").toUpperCase() + " " + path + " " + detail;
+          if (list.length >= 5 || list.indexOf(text + suffix) >= 0) return function() {};
+          // The entry keeps its place in request order while its reason loads.
+          var index = list.push(text + suffix) - 1;
+          return function(reason) {
+            if (list[index] === text + suffix) list[index] = text + " " + reason + suffix;
+          };
+        }
+        return promise.then(function(response) {
+          if (!response.ok) {
+            var addReason = note("HTTP " + response.status);
+            // The refusal's own words name the failing check; a status alone
+            // cannot tell an approval gate from an expired session.
+            response.clone().text().then(function(body) {
+              var parsed;
+              try {
+                parsed = JSON.parse(body);
+              } catch (_err) {
+                // coercion-ok: a body that is not JSON names no reason; the status stays.
+                return;
+              }
+              var reason = parsed && [parsed.errorCode, parsed.error || parsed.statusMessage || parsed.message]
+                .filter(function(part) { return typeof part === "string" && part; })
+                .join(": ");
+              if (reason) addReason(reason.slice(0, 160));
+            }, function() {});
+          }
+          return response;
+        }, function(error) {
+          if (!error || error.name !== "AbortError") {
+            note("failed: " + String((error && error.message) || error).slice(0, 120));
+          }
+          throw error;
+        });
+      }
+      // Vite's preload helper adds lazy-route stylesheets as empty-valued CORS-mode
+      // links under the app's assets; only those are rewritten, never a stylesheet
+      // that asks for a CORS mode or an integrity check itself.
+      // The sandbox loads the document's own stylesheets without CORS, so load these
+      // the same way instead of failing the route with "Unable to preload CSS".
+      if (typeof document !== "undefined" && document.head) {
+        const originalAppendChild = document.head.appendChild.bind(document.head);
+        document.head.appendChild = function(node) {
+          if (
+            node &&
+            node.nodeName === "LINK" &&
+            String(node.rel).toLowerCase() === "stylesheet" &&
+            node.getAttribute("crossorigin") === "" &&
+            !node.hasAttribute("integrity") &&
+            String(node.href).indexOf("/assets/") >= 0
+          ) {
+            node.removeAttribute("crossorigin");
+          }
+          return originalAppendChild(node);
+        };
+      }
       if (typeof fetch === "function") {
         const originalFetch = fetch.bind(window);
         var pageFetch = fetch;
@@ -974,36 +1055,40 @@ export function embedApp(
             headers: authHeaders(input, init),
             credentials: "omit"
           });
-          if (input instanceof Request) {
-            const requestInit = {
-              method: input.method,
-              mode: input.mode,
-              cache: input.cache,
-              redirect: input.redirect,
-              referrer: input.referrer,
-              referrerPolicy: input.referrerPolicy,
-              integrity: input.integrity,
-              keepalive: input.keepalive,
-              signal: input.signal
-            };
-            // A body in init replaces the Request's, which may already be spent.
-            if (nextInit.body !== undefined) {
-              return originalFetch(url, Object.assign(requestInit, nextInit));
+          const method = (init && init.method) || (input instanceof Request ? input.method : "GET");
+          return observedRequest(sendRewritten(), method, url, nextInit.headers);
+          function sendRewritten() {
+            if (input instanceof Request) {
+              const requestInit = {
+                method: input.method,
+                mode: input.mode,
+                cache: input.cache,
+                redirect: input.redirect,
+                referrer: input.referrer,
+                referrerPolicy: input.referrerPolicy,
+                integrity: input.integrity,
+                keepalive: input.keepalive,
+                signal: input.signal
+              };
+              // A body in init replaces the Request's, which may already be spent.
+              if (nextInit.body !== undefined) {
+                return originalFetch(url, Object.assign(requestInit, nextInit));
+              }
+              // Read the body first: a Request used as init sends it as a stream,
+              // which needs HTTP/2 and which not every browser can send.
+              return input.arrayBuffer().then(function(body) {
+                return originalFetch(
+                  url,
+                  Object.assign(
+                    requestInit,
+                    body.byteLength > 0 ? { body: body } : null,
+                    nextInit
+                  )
+                );
+              });
             }
-            // Read the body first: a Request used as init sends it as a stream,
-            // which needs HTTP/2 and which not every browser can send.
-            return input.arrayBuffer().then(function(body) {
-              return originalFetch(
-                url,
-                Object.assign(
-                  requestInit,
-                  body.byteLength > 0 ? { body: body } : null,
-                  nextInit
-                )
-              );
-            });
+            return originalFetch(url, nextInit);
           }
-          return originalFetch(url, nextInit);
         };
         // The requests it signs go out on a transport of their own, one per
         // token. It signs only on the target's mount and with a token; its
@@ -2023,6 +2108,10 @@ export function embedApp(
       }
     }
 
+    function nativeAppUsable() {
+      return !!app && !openAiBridge;
+    }
+
     async function ensureHostAppConnected() {
       if (!app || typeof app.connect !== "function") return;
       if (!appConnectPromise) {
@@ -2047,7 +2136,7 @@ export function embedApp(
       if (data && data.structuredContent && typeof data.structuredContent === "object") {
         params.structuredContent = data.structuredContent;
       }
-      if (app && typeof app.updateModelContext === "function") {
+      if (nativeAppUsable() && typeof app.updateModelContext === "function") {
         await ensureHostAppConnected();
         return await app.updateModelContext(params);
       }
@@ -2106,16 +2195,14 @@ export function embedApp(
         : fillsPane
         ? paneFillHeight(hostState().context || {})
         : applyIntrinsicHeight(visibleIntrinsicHeight());
-      if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") {
-        if (app && typeof app.sendSizeChanged === "function") {
-          try {
-            app.sendSizeChanged({ height });
-          } catch (err) {
-            console.warn("[agent-native] MCP host rejected size update", err);
-          }
+      if (app && typeof app.sendSizeChanged === "function") {
+        try {
+          app.sendSizeChanged({ height });
+        } catch (err) {
+          console.warn("[agent-native] MCP host rejected size update", err);
         }
-        return;
       }
+      if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") return;
       try {
         openAiBridge.notifyIntrinsicHeight({ height });
       } catch (err) {
@@ -2240,7 +2327,7 @@ export function embedApp(
       }
       try {
         let result = null;
-        if (app && typeof app.sendMessage === "function") {
+        if (nativeAppUsable() && typeof app.sendMessage === "function") {
           await ensureHostAppConnected();
         }
         if (hostChatRequest && hostChatRequest.cancelled) {
@@ -2248,7 +2335,7 @@ export function embedApp(
           return;
         }
         if (hostChatRequest) hostChatRequest.state = "sending";
-        if (app && typeof app.sendMessage === "function") {
+        if (nativeAppUsable() && typeof app.sendMessage === "function") {
           result = await app.sendMessage({
             role: "user",
             content,
@@ -2560,10 +2647,30 @@ export function embedApp(
       titleEl.textContent = String(label);
     }
 
+    let openAiBridgeWindow = window;
+
     function readOpenAiBridge() {
-      return window.openai && typeof window.openai === "object"
-        ? window.openai
-        : null;
+      // ChatGPT can inject the bridge into a sandbox around the widget HTML.
+      let frame = window;
+      while (frame) {
+        let bridge;
+        try {
+          bridge = frame === window ? window.openai : frame.openai;
+        } catch (err) {
+          if (!err || err.name !== "SecurityError") throw err;
+        }
+        if (bridge && typeof bridge === "object") {
+          if (frame !== openAiBridgeWindow) {
+            openAiBridgeWindow.removeEventListener("openai:set_globals", onOpenAiGlobals);
+            openAiBridgeWindow = frame;
+            frame.addEventListener("openai:set_globals", onOpenAiGlobals, { passive: true });
+          }
+          return bridge;
+        }
+        if (frame === frame.parent) break;
+        frame = frame.parent;
+      }
+      return null;
     }
 
     function isChatGptHostHint() {
@@ -2573,6 +2680,14 @@ export function embedApp(
       try {
         if (/^(?:[^.]+\\.)?web-sandbox\\.oaiusercontent\\.com$/i.test(window.location.hostname || "")) return true;
       } catch (_err) {}
+      try {
+        const origins = window.location.ancestorOrigins;
+        for (let i = 0; origins && i < origins.length; i += 1) {
+          if (/(?:^|[./])(?:chatgpt\\.com|oaiusercontent\\.com)$/i.test(String(origins[i]))) return true;
+        }
+      } catch (err) {
+        console.warn("[agent-native] could not inspect ancestor origins for the ChatGPT bridge", err);
+      }
       try {
         return /chatgpt/i.test(String(navigator.userAgent || ""));
       } catch (_err) {
@@ -2681,10 +2796,11 @@ export function embedApp(
       });
     }
 
-    window.addEventListener("openai:set_globals", () => {
+    function onOpenAiGlobals() {
       const bridge = readOpenAiBridge();
       if (bridge && (!appFrame || openAiBridge)) syncOpenAiBridge(bridge);
-    }, { passive: true });
+    }
+    window.addEventListener("openai:set_globals", onOpenAiGlobals, { passive: true });
 
     // App tools: the host calls these on this open view, so a "filter it" or
     // "open that one" turn changes the panel in place instead of opening a new view.
@@ -2716,6 +2832,18 @@ export function embedApp(
       return lastFrameSrc ? new URL(window.location.href) : null;
     }
 
+    // The transplanted app runs in this document, where the host shows no
+    // console; read_view is the only place its load failures surface.
+    const viewErrors = [];
+    function rememberViewError(value) {
+      const text = String(
+        (value && (value.message || (value.reason && value.reason.message) || value.reason)) || value || "",
+      ).slice(0, 300);
+      if (text && viewErrors.length < 5 && !viewErrors.includes(text)) viewErrors.push(text);
+    }
+    window.addEventListener("error", (event) => rememberViewError(event.error || event.message));
+    window.addEventListener("unhandledrejection", (event) => rememberViewError(event.reason));
+
     function readViewState() {
       // A nested app frame is cross-origin and moves on its own, so its src is
       // only the launch URL; reporting it would describe the wrong page.
@@ -2736,6 +2864,13 @@ export function embedApp(
           ? String(root.innerText || "").replace(/\\s+/g, " ").trim().slice(0, maxViewTextChars)
           : "";
       }
+      const loadError = document.body
+        ? document.body.getAttribute("data-agent-native-hydration-error")
+        : null;
+      if (loadError) rememberViewError(loadError);
+      const requestFailures = window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}];
+      if (Array.isArray(requestFailures)) requestFailures.forEach(rememberViewError);
+      if (viewErrors.length) state.errors = viewErrors.slice();
       return state;
     }
 
@@ -2909,6 +3044,8 @@ export function embedApp(
     function createNativeMcpAppsBridge() {
       let rpcId = 0;
       let connectPromise = null;
+      let initialized = false;
+      let toolListChangedPending = false;
       let hostContext = {};
       let hostContextFields = {};
       const pendingRequests = new Map();
@@ -3019,12 +3156,18 @@ export function embedApp(
             );
             setHostContext(result, true);
             rpcNotify("ui/notifications/initialized", {});
+            initialized = true;
+            if (toolListChangedPending) {
+              toolListChangedPending = false;
+              rpcNotify("notifications/tools/list_changed", {});
+            }
             if (typeof nativeApp.onhostcontextchanged === "function") {
               nativeApp.onhostcontextchanged(hostContextFields);
             }
             return hostContext;
           })().catch((err) => {
             connectPromise = null;
+            window.removeEventListener("message", onMessage);
             throw err;
           });
           return await connectPromise;
@@ -3056,10 +3199,11 @@ export function embedApp(
           return await rpcRequest("ui/request-display-mode", objectValue(params));
         },
         sendSizeChanged(params) {
-          rpcNotify("ui/notifications/size-changed", objectValue(params));
+          if (initialized) rpcNotify("ui/notifications/size-changed", objectValue(params));
         },
         sendToolListChanged() {
-          if (connectPromise) rpcNotify("notifications/tools/list_changed", {});
+          if (initialized) rpcNotify("notifications/tools/list_changed", {});
+          else toolListChangedPending = true;
         },
         async sendMessage(params) {
           await nativeApp.connect();
@@ -3209,15 +3353,21 @@ export function embedApp(
     }
 
     try {
-      const initialOpenAiBridge = await waitForOpenAiBridge();
-      if (!syncOpenAiBridge(initialOpenAiBridge)) {
-        try {
-          await startNativeMcpAppsBridge();
-        } catch (nativeErr) {
+      const nativeStartup = startNativeMcpAppsBridge();
+      const openAiStartup = waitForOpenAiBridge().then(syncOpenAiBridge);
+      await Promise.all([
+        openAiStartup,
+        nativeStartup.catch(async (nativeErr) => {
+          await openAiStartup;
+          if (openAiBridge) {
+            console.warn("[agent-native] native MCP Apps bridge failed; using the ChatGPT bridge", nativeErr);
+            app = null;
+            return;
+          }
           console.warn("[agent-native] native MCP Apps bridge failed", nativeErr);
           ${remoteBridgeFallbackEnabled ? "await startMcpAppsBridge();" : "throw nativeErr;"}
-        }
-      }
+        })
+      ]);
     } catch (err) {
       console.error("[agent-native] MCP app shell failed", err);
       reportEmbedError(

@@ -69,6 +69,7 @@ const changesetsRequire = createRequire(
 const semver = changesetsRequire("semver") as {
   inc: (version: string, release: ReleaseBump) => string | null;
   satisfies: (version: string, range: string) => boolean;
+  gte: (version: string, other: string) => boolean;
   minVersion: (range: string) => {
     major: number;
     minor: number;
@@ -1347,7 +1348,7 @@ esac
   it("keeps the release changeset package list aligned with the publisher", () => {
     const source = readFileSync("scripts/create-release-changeset.ts", "utf8");
     assert.match(source, /NPM_PUBLISH_PACKAGE_NAMES/);
-    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 11);
+    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 12);
   });
 
   it("allows npm propagation to settle before failing a publish", () => {
@@ -1493,10 +1494,9 @@ esac
         ["full", "install --frozen-lockfile"],
         ["no-scripts", "install --frozen-lockfile --ignore-scripts"],
       ]) {
-        const script = String(install.run).replaceAll(
-          "${{ inputs.install }}",
-          mode,
-        );
+        const script = String(install.run)
+          .replaceAll("${{ inputs.install }}", mode)
+          .replaceAll("${{ inputs.filter }}", "");
         const env = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
         const success = spawnSync("bash", ["-e", "-c", script], {
           env,
@@ -1606,6 +1606,54 @@ esac
     assert(changesetsIndex < consumeIndex);
     assert(consumeIndex < restoreIndex);
     assert(changesetsIndex < restoreIndex);
+  });
+
+  it("keeps release credentials valid for a publish that outlasts the app token", () => {
+    // An app installation token lives one hour. A stable publish runs longer
+    // and pushes its tags at the very end, so neither that push nor the
+    // follow-up push to main may use the token minted when the job started.
+    const releaseSteps = (jobs.release as Workflow).steps as Workflow[];
+    const stepNamed = (name: string) => {
+      const step = releaseSteps.find((candidate) => candidate.name === name);
+      assert(step, `missing step: ${name}`);
+      return step;
+    };
+
+    const checkout = releaseSteps.find((step) =>
+      String(step.uses).startsWith("actions/checkout@"),
+    );
+    assert(checkout);
+    assert.match(
+      String((checkout.with as Workflow)["persist-credentials"]),
+      /github\.event_name != 'push'/,
+    );
+
+    const changesets = stepNamed("Create stable Release PR or publish to npm");
+    assert.match(
+      String((changesets.env as Workflow).GITHUB_TOKEN),
+      /github\.event_name == 'push' && github\.token \|\| steps\.app-token\.outputs\.token/,
+    );
+
+    const fresh = stepNamed(
+      "Generate fresh app token for the post-publish push",
+    );
+    assert.equal(fresh.id, "app-token-post-publish");
+    assert.match(String(fresh.if), /github\.event_name == 'push'/);
+    assert.match(String(fresh.if), /steps\.changesets\.outcome == 'success'/);
+    assert.match(String(fresh.uses), /actions\/create-github-app-token/);
+
+    const consume = stepNamed("Consume concurrent public-package changesets");
+    assert.match(
+      String((consume.env as Workflow).POST_PUBLISH_TOKEN),
+      /steps\.app-token-post-publish\.outputs\.token/,
+    );
+    assert.match(
+      String(consume.run),
+      /http\.https:\/\/github\.com\/\.extraheader/,
+    );
+
+    assert(releaseSteps.indexOf(changesets) < releaseSteps.indexOf(fresh));
+    assert(releaseSteps.indexOf(fresh) < releaseSteps.indexOf(consume));
   });
 
   it("updates plain internal dependency ranges only in non-stable releases", async () => {
@@ -1804,7 +1852,10 @@ esac
     assert(corePeerRange);
     const minimum = semver.minVersion(corePeerRange);
     assert(minimum);
-    assert(semver.satisfies(minimum.version, ">=0.222.0-0"));
+    // Not `satisfies`: a prerelease of a newer tuple never satisfies a range
+    // floor on an older one, so this broke each time the release raised the
+    // peer floor.
+    assert(semver.gte(minimum.version, "0.222.0-0"));
     const tuple = `${minimum.major}.${minimum.minor}.${minimum.patch}`;
     const core = JSON.parse(
       readFileSync("packages/core/package.json", "utf8"),

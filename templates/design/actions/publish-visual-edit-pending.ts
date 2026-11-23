@@ -1,11 +1,20 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { visualEditCapabilityDesignId } from "@agent-native/core/server";
+import {
+  getRequestAuthCapability,
+  getRequestCapabilitySessionId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
+import {
+  MAX_HANDOFF_RECORDS,
+  visualEditHandoffRecordSchema,
+} from "../shared/visual-edit-handoff.js";
 import { isSameOriginVisualEditBrowserRequest } from "./visual-edit-browser-request.js";
 
 const MAX_PROMPT_LENGTH = 64 * 1024;
@@ -17,6 +26,14 @@ const pendingSchema = z
     pendingEditCount: z.number().int().positive(),
     status: z.literal("ready"),
     prompt: z.string().min(1).max(MAX_PROMPT_LENGTH),
+    records: z
+      .array(visualEditHandoffRecordSchema)
+      .min(1)
+      .max(MAX_HANDOFF_RECORDS),
+  })
+  .refine((pending) => pending.pendingEditCount === pending.records.length, {
+    message: "pendingEditCount must equal the number of handoff records.",
+    path: ["pendingEditCount"],
   })
   .nullable();
 
@@ -27,7 +44,8 @@ export default defineAction({
   agentTool: false,
   mcpTool: false,
   capabilityScopes: ["visual-edit"],
-  maxBodyBytes: MAX_PROMPT_LENGTH + 8_192,
+  // The composed prompt plus the per-record prompts it was composed from.
+  maxBodyBytes: 2 * MAX_PROMPT_LENGTH + 16_384,
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     publisherId: z.string().uuid().describe("This browser's handoff identity."),
@@ -92,18 +110,38 @@ export default defineAction({
         designId,
         revision: 1,
         publisherId,
+        publisherSessionHash:
+          visualEditCapabilityDesignId(getRequestAuthCapability()) === designId
+            ? (getRequestCapabilitySessionId() ?? null)
+            : null,
         clientRevision: revision,
         pendingEditCount: pending?.pendingEditCount ?? 0,
         status,
         prompt: pending?.prompt ?? "",
-        authorEmail: pending ? (getRequestUserEmail() ?? null) : null,
+        handoffRecords: JSON.stringify(pending?.records ?? []),
+        authorEmail: getRequestUserEmail() ?? null,
         updatedAt: now,
         visibility: design.visibility,
         ownerEmail: design.ownerEmail,
         orgId: design.orgId,
       };
 
-      const samePublisherIsNewer = sql`${schema.designVisualEditPending.publisherId} = excluded.publisher_id AND ${schema.designVisualEditPending.clientRevision} < excluded.client_revision`;
+      const samePublisherIsNewer = sql`
+        ${schema.designVisualEditPending.publisherId} = excluded.publisher_id
+        AND ${schema.designVisualEditPending.clientRevision} < excluded.client_revision
+        AND (
+          (${schema.designVisualEditPending.authorEmail} IS NOT NULL
+            AND ${schema.designVisualEditPending.authorEmail} = excluded.author_email)
+          OR
+          (${schema.designVisualEditPending.publisherSessionHash} IS NOT NULL
+            AND ${schema.designVisualEditPending.publisherSessionHash} = excluded.publisher_session_hash)
+          OR
+          (${schema.designVisualEditPending.authorEmail} IS NULL
+            AND ${schema.designVisualEditPending.publisherSessionHash} IS NULL
+            AND excluded.author_email IS NULL
+            AND excluded.publisher_session_hash IS NULL)
+        )
+      `;
       const fromNewPublisher = sql`${schema.designVisualEditPending.publisherId} IS DISTINCT FROM excluded.publisher_id`;
       const fromNewPublisherToOpen = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} NOT IN ('ready', 'suggested'))`;
       const fromNewPublisherToSuggested = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} = 'suggested' AND ${canReplaceSuggestion})`;
@@ -116,9 +154,11 @@ export default defineAction({
             pendingEditCount: values.pendingEditCount,
             status: values.status,
             prompt: values.prompt,
+            handoffRecords: values.handoffRecords,
             authorEmail: values.authorEmail,
             revision: sql`${schema.designVisualEditPending.revision} + 1`,
             publisherId: values.publisherId,
+            publisherSessionHash: values.publisherSessionHash,
             clientRevision: values.clientRevision,
             updatedAt: values.updatedAt,
             visibility: values.visibility,

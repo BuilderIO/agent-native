@@ -10,6 +10,9 @@ import { DEPLOY_GUIDE_PATHS } from "./qa-deploy-paths-lib.ts";
 const EXECUTION_LEASE_MODEL_PREFIX = "verification/execution-lease/";
 const EXECUTION_LEASE_MANIFEST = `${EXECUTION_LEASE_MODEL_PREFIX}manifest.json`;
 const EXECUTION_LEASE_CHECK_SCRIPT = "scripts/verify-execution-lease.ts";
+// execFileSync throws ENOBUFS past 1 MB of output; a branch that adds or removes a
+// few tens of thousands of paths names more than that.
+export const GIT_DIFF_MAX_BUFFER = 64 * 1024 * 1024;
 
 const DOCS_PATH_PREFIXES = [
   "docs/",
@@ -55,10 +58,37 @@ const INSTRUCTION_WORKSPACE_FILTERS = [
 // exercised by the guards job; no workspace build or test imports them.
 const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
 const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
+const HOSTED_BUILDER_SIGNUP_TEST =
+  "scripts/hosted-builder-signup-config.test.ts";
+
 const RELATED_SCRIPT_TESTS = new Map<string, string | readonly string[]>([
+  ["scripts/netlify-production-sites.json", HOSTED_BUILDER_SIGNUP_TEST],
+  ["scripts/netlify-site-hosts.json", HOSTED_BUILDER_SIGNUP_TEST],
+  ...[
+    "analytics",
+    "assets",
+    "brain",
+    "calendar",
+    "clips",
+    "content",
+    "crm",
+    "design",
+    "dispatch",
+    "factory",
+    "forms",
+    "mail",
+    "plan",
+    "slides",
+  ].flatMap((app) =>
+    [
+      `templates/${app}/server/plugins/config.ts`,
+      `templates/${app}/shared/builder-signup.ts`,
+    ].map((path) => [path, HOSTED_BUILDER_SIGNUP_TEST] as const),
+  ),
   [".github/workflows/ci.yml", "scripts/feedback-fix-proof.test.ts"],
   ["scripts/fix-proof.ts", "scripts/fix-proof.test.ts"],
   ["scripts/feedback-fix-proof.ts", "scripts/feedback-fix-proof.test.ts"],
+  ["scripts/ci-run-script-tests.ts", "scripts/ci-run-script-tests.test.ts"],
   ["scripts/ci-wait.ts", "scripts/ci-wait.test.ts"],
   [
     "scripts/chat-health.mjs",
@@ -158,10 +188,6 @@ const DESIGN_BROAD_WORKFLOW_SHARDS = new Map([
   [
     "templates/design/e2e/interaction-responsive-music-app.spec.ts",
     "music-app-workflow",
-  ],
-  [
-    "templates/design/e2e/home-system-selection.spec.ts",
-    "home-system-selection",
   ],
   [
     "templates/design/e2e/interaction-landing-page-build.spec.ts",
@@ -594,6 +620,7 @@ const CHECK_NAMES = [
   "slides_text_surface_e2e",
   "slides_authoring_e2e",
   "slides_oracle",
+  "storybook_tests",
   "changeset",
   "verify_execution_lease",
   "core_mutation",
@@ -623,6 +650,7 @@ const SLOW_APP_CHECKS = [
   "slides_text_surface_e2e",
   "slides_authoring_e2e",
   "slides_oracle",
+  "storybook_tests",
 ] as const;
 
 const QUERY_BUDGET_UNRELATED_SCRIPTS = new Set([
@@ -698,10 +726,18 @@ const BRAIN_EVAL_RUNTIME_PATHS = [
   "templates/brain/package.json",
   "templates/brain/server/db/index.ts",
   "templates/brain/server/db/schema.ts",
+  "templates/brain/server/lib/audiences.ts",
   "templates/brain/server/lib/brain-health.ts",
   "templates/brain/server/lib/brain.ts",
   "templates/brain/server/lib/demo.ts",
+  "templates/brain/server/lib/intelligence.ts",
+  "templates/brain/server/lib/knowledge-access.integration.test.ts",
+  "templates/brain/server/lib/knowledge-access.ts",
+  "templates/brain/server/lib/knowledge-provenance.integration.test.ts",
+  "templates/brain/server/lib/knowledge-provenance.ts",
+  "templates/brain/server/lib/knowledge-write.postgres.integration.test.ts",
   "templates/brain/server/lib/search.ts",
+  "templates/brain/server/plugins/db.ts",
   "templates/brain/shared/types.ts",
   "templates/brain/vitest.config.ts",
 ] as const;
@@ -742,6 +778,7 @@ const CORE_AGENTKIT_ACCEPTANCE_PATHS = [
 ] as const;
 
 const CORE_INTEGRATION_PATH_PREFIXES = [
+  "packages/core/src/provider-api/",
   "packages/core/src/agent/",
   "packages/core/src/db/",
   "packages/core/src/scripts/db/",
@@ -750,6 +787,8 @@ const CORE_INTEGRATION_PATH_PREFIXES = [
 const CORE_INTEGRATION_RUNTIME_FILES = new Set([
   "packages/core/src/client/session-replay-iframe.e2e-host.tsx",
   "packages/core/src/extensions/session-replay-iframe.ts",
+  "packages/core/src/mcp/script-ledger.ts",
+  "packages/core/src/mcp/script-writes.ts",
   "packages/core/src/secrets/crypto.ts",
   "packages/core/src/server/action-routes.ts",
   "packages/core/src/server/core-routes-plugin.ts",
@@ -764,10 +803,12 @@ const CORE_INTEGRATION_RUNTIME_FILES = new Set([
 ]);
 
 const CORE_INTEGRATION_TEST_FILES = new Set([
+  "packages/core/src/provider-api/write-queue.postgres.integration.test.ts",
   "packages/core/src/agent/engine/translate-ai-sdk.integration.spec.ts",
   "packages/core/src/agent/run-loop-with-resume.integration.spec.ts",
   "packages/core/src/agent/run-store.fencing.postgres.integration.spec.ts",
   "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
+  "packages/core/src/mcp/script-receipt-fence.postgres.integration.spec.ts",
   "packages/core/src/scripts/db/migrate-encrypt-credentials.e2e.spec.ts",
   "packages/core/src/scripts/db/scope-isolation.e2e.spec.ts",
   "packages/core/src/server/csrf-plugin-ordering.integration.spec.ts",
@@ -939,6 +980,48 @@ export function normalizeChangedPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\/+/, "");
 }
 
+export function isStandaloneE2eRunner(
+  path: string,
+  repositoryRoot = process.cwd(),
+): boolean {
+  const normalized = normalizeChangedPath(path);
+  if (
+    !/^(?:templates|packages|community-templates)\/[^/]+\/e2e\//u.test(
+      normalized,
+    ) ||
+    !/\.[cm]?[jt]sx?$/u.test(normalized) ||
+    /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(normalized)
+  )
+    return false;
+  try {
+    const source = readFileSync(join(repositoryRoot, normalized), "utf8");
+    if (/\bexport\b/u.test(source)) return false;
+    const { tokens } = tokenizeE2eSource(source);
+    for (let index = 0; index < tokens.length; index += 1) {
+      const token = tokens[index];
+      if (
+        (token.kind === "string" && token.uncertain) ||
+        (token.kind === "punctuation" && token.value === "/")
+      )
+        return false;
+      if (
+        token.kind === "identifier" &&
+        token.value === "process" &&
+        tokens[index + 1]?.value === "." &&
+        tokens[index + 2]?.kind === "identifier" &&
+        tokens[index + 2]?.value === "argv"
+      )
+        return true;
+    }
+    return false;
+  } catch {
+    console.error(
+      `Cannot read E2E entry ${normalized}; keeping production tests selected.`,
+    );
+    return false;
+  }
+}
+
 export function runtimeSourceChangesInTestTitledPr(
   title: string,
   paths: readonly string[],
@@ -1068,6 +1151,33 @@ export function scriptTestsForPaths(
     }
   }
   return [...tests].sort();
+}
+
+const STORYBOOK_TEST_PREFIXES = [
+  "packages/design-system/",
+  "packages/toolkit/src/",
+  "packages/toolkit/dev/",
+  "packages/toolkit/.storybook/",
+] as const;
+
+const STORYBOOK_TEST_FILES = new Set([
+  "packages/toolkit/vitest.storybook.config.ts",
+  "packages/toolkit/package.json",
+  ".github/workflows/storybook-tests.yml",
+]);
+
+export function isStorybookTestPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  if (
+    STORYBOOK_TEST_FILES.has(normalized) ||
+    GLOBAL_RUNTIME_INPUTS.has(normalized)
+  ) {
+    return true;
+  }
+  return (
+    STORYBOOK_TEST_PREFIXES.some((prefix) => normalized.startsWith(prefix)) &&
+    !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(normalized)
+  );
 }
 
 // The paths that can change which tests Vitest collects and how it modes them.
@@ -2372,6 +2482,10 @@ function buildChecks(
   }
 
   const workspaceChanged = changedPaths.some(isWorkspacePath);
+  const fastTestsChanged = changedPaths.some(
+    (path) =>
+      isWorkspacePath(path) && !isStandaloneE2eRunner(path, repositoryRoot),
+  );
   const instructionsChanged = changedPaths.some(isInstructionPath);
   const guardScriptsChanged = changedPaths.some(isGuardScopedScriptPath);
   const readmeChanged = changedPaths.some(isReadmePath);
@@ -2396,9 +2510,6 @@ function buildChecks(
     isTemplateRuntimePath(path, "dispatch"),
   );
   const templateChanged = hasPath(changedPaths, "templates/");
-  const planChanged = hasPath(changedPaths, "templates/plan/");
-  const clipsChanged = hasPath(changedPaths, "templates/clips/");
-  const assetsChanged = hasPath(changedPaths, "templates/assets/");
   const neonQueryBudgetChanged =
     measuresEveryQueryBudgetApp(changedPaths) ||
     changedPaths.some(isCreativeContextQueryBudgetRuntimePath) ||
@@ -2435,7 +2546,7 @@ function buildChecks(
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
     typecheck: workspaceChanged,
-    fast_tests: workspaceChanged || instructionsChanged,
+    fast_tests: fastTestsChanged || instructionsChanged,
     content:
       contentChanged ||
       schedulingChanged ||
@@ -2509,6 +2620,7 @@ function buildChecks(
     slides_text_surface_e2e: slidesTextSurfaceE2eChanged,
     slides_authoring_e2e: changedPaths.some(isSlidesAuthoringPath),
     slides_oracle: changedPaths.some(isSlidesOraclePath),
+    storybook_tests: changedPaths.some(isStorybookTestPath),
     changeset: changedPaths.some(isChangesetPath),
     verify_execution_lease: changedPaths.some((path) =>
       isExecutionLeasePath(path, executionLeaseCovered),
@@ -2667,10 +2779,17 @@ export function readChangedPaths(
 ): string[] {
   const output = execFileSync(
     "git",
-    ["diff", "--name-only", "-z", `${baseSha}...${headSha}`],
+    [
+      "diff",
+      "--name-only",
+      "--find-renames=100%",
+      "-z",
+      `${baseSha}...${headSha}`,
+    ],
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   return output.split("\0").filter(Boolean);
@@ -2683,10 +2802,18 @@ export function readDeletedPaths(
 ): string[] {
   const output = execFileSync(
     "git",
-    ["diff", "--name-only", "--diff-filter=D", "-z", `${baseSha}...${headSha}`],
+    [
+      "diff",
+      "--name-only",
+      "--find-renames=100%",
+      "--diff-filter=D",
+      "-z",
+      `${baseSha}...${headSha}`,
+    ],
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   return output.split("\0").filter(Boolean);
@@ -2703,7 +2830,7 @@ export function readAddedPaths(
     [
       "diff",
       "--name-only",
-      "--find-renames",
+      "--find-renames=100%",
       "--diff-filter=ACR",
       "-z",
       `${baseSha}...${headSha}`,
@@ -2711,6 +2838,7 @@ export function readAddedPaths(
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   return output.split("\0").filter(Boolean);
@@ -2734,6 +2862,7 @@ export function readSameDirectoryPureDesignSpecRenames(
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   const fields = output.split("\0");

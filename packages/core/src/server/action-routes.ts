@@ -20,6 +20,7 @@ import {
 import {
   actionCallIntent,
   ActionContractError,
+  assertNoNulByteActionArgs,
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
@@ -120,7 +121,10 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import {
+  FULL_APP_EMBED_SCOPE,
   hasEmbedSessionRequestMarker,
+  hasFullAppEmbedSession,
+  presentsFullAppEmbedToken,
   hasPresentedEmbedSessionCredential,
   isExpiredMcpDirectoryWidgetSessionRequest,
   resolveEmbedSessionFromRequest,
@@ -140,6 +144,11 @@ import {
   hasSameOriginBrowserEvidence,
 } from "./request-origin.js";
 import { hasUiActionCapability } from "./ui-action-capability.js";
+import {
+  allowsVisualEditCapabilityResource,
+  isVisualEditCapability,
+  isVisualEditCapabilityAction,
+} from "./visual-edit-capability.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
@@ -298,7 +307,21 @@ async function isProvenUiRequest(
   caller: ActionCaller,
   userEmail: string | undefined,
   embedded: boolean,
+  embedSession: ResolvedEmbedSession | null,
 ): Promise<boolean> {
+  // A full-app panel's own requests: the host's agent can navigate the panel
+  // but cannot send them, so they carry the owner's UI authority.
+  if (embedSession && embedSession.scope === FULL_APP_EMBED_SCOPE) {
+    return (
+      caller === "frontend" &&
+      !!userEmail &&
+      embedSession.email.trim().toLowerCase() ===
+        userEmail.trim().toLowerCase() &&
+      (presentsFullAppEmbedToken(event, embedSession) ||
+        (hasSameOriginBrowserEvidence(event) &&
+          hasUiActionCapability(event, userEmail)))
+    );
+  }
   if (
     caller !== "frontend" ||
     !userEmail ||
@@ -524,6 +547,21 @@ const LLM_CREDENTIAL_TERM_RE =
  * absent: the agent engine's broader `isLlmCredentialError` also matches "LLM
  * response missing required field", a real bug that must stay a captured 500.
  */
+function isPgInvalidNulByteError(error: unknown): boolean {
+  if (
+    isActionContractError(error) ||
+    isAgentActionStopError(error) ||
+    isMarkedExpectedError(error)
+  ) {
+    return false;
+  }
+  const codes = [
+    (error as { code?: unknown } | null | undefined)?.code,
+    (error as { cause?: { code?: unknown } } | null | undefined)?.cause?.code,
+  ];
+  return codes.some((code) => code === "22021" || code === "22P05");
+}
+
 function isLlmProviderMissingError(error: unknown): boolean {
   if (
     isActionContractError(error) ||
@@ -590,38 +628,13 @@ function isPublicWebMcpAction(entry: ActionEntry): boolean {
   );
 }
 
-const VISUAL_EDIT_CAPABILITY_ACTIONS = new Set([
-  "acknowledge-visual-edit-pending",
-  "add-breakpoint",
-  "add-localhost-screens",
-  "clear-localhost-write-consent-request",
-  "get-design",
-  "get-design-snapshot",
-  "get-localhost-write-consent-request",
-  "get-visual-edit-pending",
-  "get-visual-edit-snapshot",
-  "list-design-source-capabilities",
-  "list-design-states",
-  "list-files",
-  "list-local-files",
-  "list-localhost-connections",
-  "migrate-board-objects-to-file",
-  "publish-visual-edit-pending",
-  "read-local-file",
-  "refresh-localhost-preview-token",
-  "remove-breakpoint",
-  "request-localhost-write-consent",
-  "update-breakpoint",
-  "update-screen-source",
-]);
-
 function allowsWebMcpCapability(
   name: string,
   entry: ActionEntry,
   authCapability: string | undefined,
 ): boolean {
-  if (authCapability?.startsWith("capability:visual-edit:")) {
-    if (!VISUAL_EDIT_CAPABILITY_ACTIONS.has(name)) return false;
+  if (isVisualEditCapability(authCapability)) {
+    if (!isVisualEditCapabilityAction(name)) return false;
     if (name === "get-design") return true;
   }
   if (!authCapability || !Array.isArray(entry.capabilityScopes)) return false;
@@ -659,25 +672,6 @@ function allowsMcpDirectoryWidgetReadManifestAction(
       requireArgumentMatch: false,
     })
   );
-}
-
-function allowsWebMcpCapabilityResource(
-  actionName: string,
-  authCapability: string | undefined,
-  params: Record<string, unknown>,
-): boolean {
-  const prefix = "capability:visual-edit:";
-  if (!authCapability?.startsWith(prefix)) return true;
-  const match = /^design:([^:]+)$/.exec(authCapability.slice(prefix.length));
-  const encodedDesignId = match?.[1];
-  const designId = actionName === "get-design" ? params.id : params.designId;
-  if (!encodedDesignId || typeof designId !== "string") return false;
-  try {
-    return decodeURIComponent(encodedDesignId) === designId;
-  } catch {
-    // coercion-ok: malformed capability scope is invalid and must fail closed.
-    return false;
-  }
 }
 
 async function resolveRequestEmbedSession(
@@ -1372,6 +1366,7 @@ function mountActionRoutesInternal(
           requestCaller,
           userEmail,
           embedded,
+          embedSession,
         );
         if (entry.uiOnly === true && !provenUiRequest) {
           setResponseStatus(event, 403);
@@ -1380,6 +1375,17 @@ function mountActionRoutesInternal(
             errorCode: embedded
               ? "ui_only_action"
               : UI_CAPABILITY_REQUIRED_ERROR_CODE,
+          };
+        }
+        if (
+          entry.requiresSignedInBrowser === true &&
+          (embedSession?.scope === FULL_APP_EMBED_SCOPE ||
+            hasFullAppEmbedSession(event))
+        ) {
+          setResponseStatus(event, 403);
+          return {
+            error: "Sign in to the app in your browser to do this.",
+            errorCode: "signed_in_browser_required",
           };
         }
         const privateScope = getHeader(event, PRIVATE_ACTION_SCOPE_HEADER);
@@ -1451,6 +1457,9 @@ function mountActionRoutesInternal(
             orgId,
             ...(orgScope ? { orgScope } : {}),
             authCapability,
+            ...(authCapability && embedSession?.sessionId
+              ? { capabilitySessionId: embedSession.sessionId }
+              : {}),
             timezone,
             browserSessionId,
             clientPlatform,
@@ -1536,7 +1545,6 @@ function mountActionRoutesInternal(
               callArgs: unknown,
               result: unknown,
             ) => {
-              if (runContext?.caller === "mcp-widget") return;
               const markerLanded = await notifyActionChangeForResponse({
                 actionName: name,
                 ...actionChangeResource(entry, callArgs, result),
@@ -1565,6 +1573,9 @@ function mountActionRoutesInternal(
                   errorCode: "invalid_action_request_body",
                   statusCode: 400,
                 });
+              }
+              if (!entry.schema) {
+                assertNoNulByteActionArgs(params);
               }
               if (directoryWidgetReadAllowed) {
                 const normalizedArgs =
@@ -1641,7 +1652,11 @@ function mountActionRoutesInternal(
                 params = normalizedArgs;
               }
               if (
-                !allowsWebMcpCapabilityResource(name, authCapability, params)
+                !allowsVisualEditCapabilityResource(
+                  name,
+                  authCapability,
+                  params,
+                )
               ) {
                 throw createError({
                   statusCode: 401,
@@ -1830,9 +1845,9 @@ function mountActionRoutesInternal(
                 );
               }
               const msg = err?.message ?? String(err);
-              const isValidationError = msg.startsWith(
-                "Invalid action parameters",
-              );
+              const pgNulByteError = isPgInvalidNulByteError(err);
+              const isValidationError =
+                msg.startsWith("Invalid action parameters") || pgNulByteError;
               const explicitStatus =
                 typeof err?.statusCode === "number"
                   ? err.statusCode
@@ -1845,6 +1860,11 @@ function mountActionRoutesInternal(
                   ? LLM_PROVIDER_MISSING_STATUS
                   : (explicitStatus ?? (markedExpected ? 409 : 500));
               setResponseStatus(event, status);
+              setResponseHeader(
+                event,
+                "Content-Type",
+                "application/json; charset=utf-8",
+              );
 
               const failureCaller = requestCaller;
               const privateAction = entry.persistInChatHistory === false;
@@ -1916,30 +1936,34 @@ function mountActionRoutesInternal(
                 markedExpected ||
                 (explicitStatus !== undefined && explicitStatus < 500);
               if (isUserFacing) {
-                return isActionContractError(err) ||
+                const isContractError =
+                  isActionContractError(err) ||
                   isAgentActionStopError(err) ||
-                  markedExpected
-                  ? {
-                      error: msg,
-                      ...(typeof err.errorCode === "string"
-                        ? { errorCode: err.errorCode }
-                        : {}),
-                      ...(err.details === undefined
-                        ? {}
-                        : { details: err.details }),
-                    }
-                  : {
-                      error: msg,
-                      ...(typeof err?.errorCode === "string"
-                        ? { errorCode: err.errorCode }
-                        : {}),
-                      ...(status === 429 &&
+                  markedExpected;
+                const errorCode =
+                  typeof err?.errorCode === "string" && err.errorCode.length > 0
+                    ? err.errorCode
+                    : isValidationError
+                      ? "action_invalid_parameters"
+                      : runContext
+                        ? `action_http_${status}`
+                        : undefined;
+                const details = isContractError
+                  ? err.details
+                  : status === 429 &&
                       typeof retryAfterSeconds === "number" &&
                       Number.isInteger(retryAfterSeconds) &&
                       retryAfterSeconds > 0
-                        ? { details: { retryAfterSeconds } }
-                        : {}),
-                    };
+                    ? { retryAfterSeconds }
+                    : undefined;
+                return {
+                  error:
+                    pgNulByteError || (privateAction && isValidationError)
+                      ? "Invalid action parameters"
+                      : msg,
+                  ...(errorCode === undefined ? {} : { errorCode }),
+                  ...(details === undefined ? {} : { details }),
+                };
               }
               const captureId = captureError(
                 privateAction ? new Error("Private content omitted") : err,
@@ -1965,7 +1989,10 @@ function mountActionRoutesInternal(
                   ? "Private content omitted"
                   : (redactErrorStack(err) ?? redact(String(err))),
               });
-              return { error: "Internal server error" };
+              return {
+                error: "Internal server error",
+                errorCode: "action_execution_failed",
+              };
             }
           },
         );
