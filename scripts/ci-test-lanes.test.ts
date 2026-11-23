@@ -113,6 +113,7 @@ test("runs the catalog contract specs for any workspace source change", () => {
   ];
   for (const changed of [
     "templates/mail/actions/send-email.ts",
+    "templates/mail/actions/e2e/inspect-catalog.ts",
     "templates/forms/server/plugins/agent-chat.ts",
     "templates/content/server/lib/chatgpt-directory-tools.ts",
     "templates/slides/shared/api.ts",
@@ -136,6 +137,9 @@ test("runs the catalog contract specs for any workspace source change", () => {
   }
   for (const unrelated of [
     "templates/mail/actions/send-email.test.ts",
+    "templates/analytics-2/e2e/thread-layout.ts",
+    "templates/mail/e2e/daily/fixtures.ts",
+    "packages/core/e2e/harness.ts",
     "templates/mail/app/routes/inbox.spec.tsx",
     "packages/creative-context/src/actions/x.spec.ts",
     "packages/core/src/server/agent-chat-plugin.lifecycle.spec.ts",

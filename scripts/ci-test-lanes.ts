@@ -276,6 +276,7 @@ export function catalogContractCoreSpecs(
     const normalized = normalizeChangedPath(path);
     return (
       /^(?:templates|packages)\//u.test(normalized) &&
+      !/^(?:templates|packages)\/[^/]+\/e2e\//u.test(normalized) &&
       !isDocsPath(normalized) &&
       !TEST_FILE_RE.test(normalized) &&
       !/\.d\.[cm]?ts$/u.test(normalized) &&
