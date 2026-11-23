@@ -7,7 +7,7 @@ import { askGrantedDispatchMcpApp } from "../server/lib/mcp-gateway.js";
 
 export default defineAction({
   description:
-    "Delegate a multi-step specialist sub-workflow to a granted app's own agent via A2A. For single-app reads, lookups, navigation, or simple mutations, prefer call_app_action (1 LLM hop, ~1-3s) instead of ask_app. Call list_apps first to see which apps are granted.",
+    "Route a natural-language request to any app granted through this existing Dispatch MCP connection; do not require a separate app MCP connection. Call list_apps first to see which apps are granted.",
   schema: z.object({
     app: z.string().describe("Granted app id, e.g. mail or calendar."),
     message: z.string().describe("The request to send to that app's agent."),
