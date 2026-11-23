@@ -747,6 +747,10 @@ export async function runMigration(
         );
         for (const prior of priors) {
           const version = versions.get(prior.versionId)!;
+          const [applied] = await tx
+            .select({ content: schema.documents.content })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, prior.documentId));
           const restoredRows = await tx
             .update(schema.documents)
             .set({
@@ -768,7 +772,11 @@ export async function runMigration(
             );
           await syncAnalyticsChartCitations(
             tx as unknown as ReturnType<typeof getDb>,
-            { documentId: prior.documentId, after: version.content },
+            {
+              documentId: prior.documentId,
+              before: applied?.content ?? "",
+              after: version.content,
+            },
           );
         }
         const ids = rollback.createdPropertyIds ?? [];

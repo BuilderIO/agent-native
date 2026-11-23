@@ -522,10 +522,12 @@ export async function applyMigration(
     appliedUpdatedAt: string;
   }> = [];
   const versionRows: Array<typeof schema.documentVersions.$inferInsert> = [];
+  const priorBodies = new Map<string, string>();
   for (const row of plan.rows) {
     const persisted = snapshot.rows.find(
       (candidate: any) => candidate.item.id === row.itemId,
     )!;
+    priorBodies.set(row.documentId, persisted.document.content ?? "");
     const versionId = deterministicId(
       "migration_version",
       receiptId,
@@ -591,6 +593,7 @@ export async function applyMigration(
     });
     await syncAnalyticsChartCitations(tx, {
       documentId: row.documentId,
+      before: priorBodies.get(row.documentId),
       after: row.content,
     });
   }
