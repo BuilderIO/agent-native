@@ -307,9 +307,6 @@ function PagedContentFilesBranch({
   const activeDocument = props.activePathDocuments.find(
     (document) => document.id === props.activeDocumentId,
   );
-  // The open page's path can reach this branch a render after a move of one
-  // of its pages ends, still naming the old parent. The cached path already
-  // has the new one, so the branch the page left doesn't draw it again.
   const revealsHere = (document: ActivePathDocument) => {
     if (document.parentId !== props.parentId) return false;
     const cachedParentId = props.activeDocumentId

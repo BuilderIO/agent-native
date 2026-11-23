@@ -673,8 +673,8 @@ describe("PagedContentFilesSidebarView", () => {
   });
 
   it("draws the open page once after its move ends, while the path the sidebar passes down still names its old parent", async () => {
-    // The open page is off the root's first page, so the root shows it from
-    // its path until the move takes it into the folder.
+    notifyManager.setScheduler((callback) => callback());
+    onTestFinished(() => notifyManager.setScheduler(defaultScheduler));
     const branches: Partial<Record<string, ContentDatabaseNavigationItem[]>> = {
       root: [navigationItem("folder"), navigationItem("page-a")],
       folder: [],
@@ -716,7 +716,6 @@ describe("PagedContentFilesSidebarView", () => {
     const container = document.createElement("div");
     const root = createRoot(container);
     await act(async () => root.render(<Harness {...props} />));
-    // Each link with how many rows it sits inside.
     const shown = () => {
       const rows = Array.from(container.querySelectorAll("a"), (link) => {
         let depth = 0;
@@ -737,14 +736,20 @@ describe("PagedContentFilesSidebarView", () => {
     const moveAnswer = new Promise<void>((resolve) => {
       answerMove = resolve;
     });
+    let sent: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      sent = resolve;
+    });
     let moving: Promise<unknown> = Promise.resolve();
     await act(async () => {
       moving = queryClient
         .getMutationCache()
         .build(queryClient, {
           mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
-          mutationFn: (_variables: { id: string; parentId: string }) =>
-            moveAnswer,
+          mutationFn: (_variables: { id: string; parentId: string }) => {
+            sent();
+            return moveAnswer;
+          },
           onMutate: (): MoveDocumentContext => ({
             move: {
               documentId: openPage.id,
@@ -754,8 +759,6 @@ describe("PagedContentFilesSidebarView", () => {
               item: { ...navigationItem(openPage.id), parentId: "folder" },
             },
           }),
-          // As `useMoveDocument` does before the move counts as done: the
-          // folder lists the page, and the cached path names its new parent.
           onSettled: () => {
             branches.root = [
               { ...navigationItem("folder"), hasChildren: true },
@@ -770,7 +773,7 @@ describe("PagedContentFilesSidebarView", () => {
           },
         })
         .execute({ id: openPage.id, parentId: "folder" });
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      await started;
     });
     expect(shown()).toEqual([
       ["/page/folder", 0],
@@ -778,11 +781,9 @@ describe("PagedContentFilesSidebarView", () => {
       ["/page/page-a", 0],
     ]);
 
-    // The move ends; the sidebar hasn't passed down the new path yet.
     await act(async () => {
       answerMove();
       await moving;
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
     });
     expect(shown()).toEqual([
       ["/page/folder", 0],
@@ -790,7 +791,6 @@ describe("PagedContentFilesSidebarView", () => {
       ["/page/page-a", 0],
     ]);
 
-    // Then it does.
     await act(async () =>
       root.render(
         <Harness
