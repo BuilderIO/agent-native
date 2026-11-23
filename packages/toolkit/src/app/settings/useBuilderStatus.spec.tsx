@@ -2018,6 +2018,42 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("Allow popups and try again.");
   });
 
+  it("report qa-1794801126.743289: opens the Builder connect popup from an app webview that has no desktop transport", async () => {
+    // Analytics (and every other template) renders in an Electron webview:
+    // the user agent says AgentNativeDesktop but only the desktop shell
+    // passes a transport.openConnectUrl. The webview must open the signed
+    // URL itself; the Electron main process routes window.open.
+    setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    const [openedUrl, target] = openSpy.mock.calls[0] as unknown as [
+      string,
+      string,
+    ];
+    const opened = new URL(openedUrl);
+    expect(opened.pathname).toBe("/_agent-native/builder/connect");
+    expect(opened.searchParams.get("_an_connect")).toBe("signed");
+    expect(opened.searchParams.get("_an_connect_attempt")).toBeTruthy();
+    expect(target).toBe("_blank");
+    expect(container.textContent).not.toContain(
+      "Couldn't start Builder.io setup",
+    );
+    expect(container.textContent).toContain("connecting");
+  });
+
   it("restores existing-account state when desktop status refresh fails", async () => {
     setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
     const accountExistsStatus: BuilderStatus = {

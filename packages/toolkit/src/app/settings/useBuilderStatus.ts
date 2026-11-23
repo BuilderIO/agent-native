@@ -1554,15 +1554,19 @@ export function useBuilderConnectFlow(
         cachedFreshUrl ?? signedPropUrl ?? fallbackUrl,
       );
 
-      if (isAgentNativeDesktop()) {
-        const openDesktopConnectUrl = transport?.openConnectUrl;
-        if (!openDesktopConnectUrl) {
-          connectStartedAtRef.current = null;
-          setConnecting(false);
-          restoreExistingAccount();
-          setError(t("agentChat.settingsShell.builder.setupStartFailed"));
-          return;
-        }
+      const openDesktopConnectUrl = transport?.openConnectUrl;
+      if (isAgentNativeDesktop() && !openDesktopConnectUrl) {
+        // An app rendered in a desktop webview (Analytics settings, for one)
+        // has the desktop user agent but no shell transport. Open the signed
+        // URL directly: the Electron main process routes window.open and
+        // reports null to the webview, so null is not a blocker here.
+        const opened = openBuilderConnectPopup({
+          url: directUrl,
+          source: clickTrackingSource,
+          flow: clickTrackingFlow,
+        });
+        if (opened) activePopupRef.current = opened;
+      } else if (isAgentNativeDesktop() && openDesktopConnectUrl) {
         void (async () => {
           const status = await fetchStatus(undefined, connectAttemptId);
           const isCurrentAttempt = () =>
