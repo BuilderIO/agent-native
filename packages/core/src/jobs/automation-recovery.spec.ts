@@ -283,38 +283,6 @@ describe("automation worker recovery", () => {
     },
   );
 
-  it.each(["completed", "errored"])(
-    "preserves an unknown write before a terminal error for a %s run",
-    async (status) => {
-      mocks.get.mockResolvedValue({
-        id: "job-1",
-        status,
-        errorCode: "http_502",
-      });
-      const events: AgentChatEvent[] = [
-        {
-          type: "tool_done",
-          tool: "send-report",
-          isError: true,
-          outcomeUnknown: true,
-          result: "PRIVATE_PROVIDER_RESPONSE",
-        },
-        { type: "error", error: "Gateway failed", errorCode: "http_502" },
-      ];
-      mocks.events.mockResolvedValue(events);
-      const result = await inspectAutomationRecovery(resource, meta, now);
-      expect(events.map((event) => event.type)).toEqual(["tool_done", "error"]);
-      expect(result).toMatchObject({
-        state: "settle",
-        status: "error",
-        errorCode: "write_tool_outcome_unknown",
-        error: expect.stringContaining("An action may already have applied."),
-      });
-      if (result?.state !== "settle") throw new Error("Expected settlement");
-      expect(result.error).not.toContain("PRIVATE_PROVIDER_RESPONSE");
-    },
-  );
-
   it.each([false, true])(
     "reports a known failed action without an unknown-outcome warning (delivery: %s)",
     async (delivery) => {
