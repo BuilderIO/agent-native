@@ -628,6 +628,7 @@ export function useSqlQuery(
     refetchInterval: (current) => {
       const interval = options?.refetchInterval ?? false;
       return current.state.data?.refreshPending === true &&
+        current.state.status !== "error" &&
         (interval === false || interval > REFRESH_PENDING_POLL_MS)
         ? REFRESH_PENDING_POLL_MS
         : interval;

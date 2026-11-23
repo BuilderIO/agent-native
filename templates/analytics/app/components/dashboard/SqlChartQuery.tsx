@@ -320,7 +320,10 @@ function SqlChartContent({
   const isUpdating =
     !resultOverride &&
     queryResult !== undefined &&
-    (queryIsFetching || queryResult.refreshPending === true) &&
+    (queryIsFetching ||
+      (queryResult.refreshPending === true &&
+        !queryError &&
+        !queryIsPlaceholderData)) &&
     (rawRows.length > 0 || !queryError);
   const isShowingPreviousFilters =
     !resultOverride && queryResult !== undefined && queryIsPlaceholderData;

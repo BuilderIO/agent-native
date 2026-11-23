@@ -164,6 +164,24 @@ describe("useSqlQuery with a data program refresh still running", () => {
     expect(mocks.callAction).toHaveBeenCalledTimes(3);
   });
 
+  it("stops reading when a read fails while a run is pending", async () => {
+    answers.push(OLD);
+    await render(0);
+    await settle(1);
+
+    answers.push({ ...OLD, refreshPending: true });
+    await render(1);
+    await settle(2);
+
+    await advance(REFRESH_PENDING_POLL_MS);
+    await settle(3);
+    expect(shown("rows")).toBe("old");
+    expect(shown("completed")).toBe("undefined");
+
+    await advance(REFRESH_PENDING_POLL_MS * 4);
+    expect(mocks.callAction).toHaveBeenCalledTimes(3);
+  });
+
   it("doesn't read again when no run is pending", async () => {
     answers.push(OLD);
     await render(0);
