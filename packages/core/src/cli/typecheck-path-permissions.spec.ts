@@ -106,6 +106,12 @@ describe("agent-native typecheck with simulated Windows CLI selection on Linux",
     expect(result.error).toBeUndefined();
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/spawn tsc EACCES/);
-    expect(result.stderr).not.toMatch(/Could not execute TypeScript compiler/);
+    expect(result.stderr).toMatch(/permissions/i);
+    expect(result.stderr).toMatch(/PATH/);
+    expect(result.stderr).toMatch(/mount/i);
+    expect(result.stderr).not.toMatch(/installed|(?:install|add).*typescript/i);
+    expect(result.stderr).not.toMatch(
+      /Unexpected error|Report this bug|Send feedback/i,
+    );
   });
 });
