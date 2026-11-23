@@ -22102,6 +22102,7 @@ describe("runAgentLoop", () => {
       input: { viewId: "view-1", name: null, hiddenColumns: [] },
     });
     expect(result.status).toBe("failed");
+    expect(result.output).toContain("No action was run");
     expect(run).not.toHaveBeenCalled();
   });
 

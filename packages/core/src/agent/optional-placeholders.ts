@@ -199,6 +199,9 @@ function stripOptionalToolPlaceholders(
         placeholders.push(key);
         continue;
       }
+      if (entry === null && depth === 0 && emptyValues.safeEmptyFields.length) {
+        emptyValues.unsafeValid = true;
+      }
       // A valid `false` sets a value, and `[]` on an action that says an empty
       // list erases nothing is padding. `null` on an optional field is absent:
       // models fill every unused field with it, so it never marks a call as
@@ -287,11 +290,7 @@ export function normalizeOptionalToolPlaceholders(
   let result = stripOptionalToolPlaceholders(schema, input, emptyValues);
   // A padded call means its nulls are padding too, including on nullable
   // fields where a lone null would be a deliberate clear.
-  if (
-    emptyValues.invalid &&
-    (!emptyValues.valid ||
-      (!emptyValues.unsafeValid && !emptyValues.invalidNonNull))
-  ) {
+  if (emptyValues.invalid && !emptyValues.valid) {
     result = stripOptionalToolPlaceholders(schema, input, {
       ...emptyValues,
       stripNull: true,
