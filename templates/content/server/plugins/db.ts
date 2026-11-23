@@ -1827,6 +1827,19 @@ export const runContentMigrations = runMigrations(
       name: "content-database-builder-autosave-claimed-edit",
       sql: `ALTER TABLE content_database_builder_autosaves ADD COLUMN IF NOT EXISTS claimed_edit_at TEXT`,
     },
+    {
+      version: 144,
+      name: "content-analytics-chart-citations",
+      sql: `CREATE TABLE IF NOT EXISTS content_analytics_chart_citations (
+        document_id TEXT NOT NULL,
+        dashboard_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_analytics_chart_citation_unique
+        ON content_analytics_chart_citations (document_id, dashboard_id);
+      CREATE INDEX IF NOT EXISTS content_analytics_chart_citation_dashboard_idx
+        ON content_analytics_chart_citations (dashboard_id)`,
+    },
   ],
   { table: "content_migrations" },
 );
