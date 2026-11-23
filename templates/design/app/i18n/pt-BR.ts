@@ -1862,8 +1862,6 @@ export default {
       redoSkippedConcurrentEdit: "Refazer ignorado — outra pessoa moveu isso",
       saveConflict:
         "Esta página foi alterada em outro lugar. Sua última edição não foi salva.",
-      versionHistoryUnavailable:
-        "O histórico de versões não está disponível para este design. Sua edição foi salva mesmo assim.",
       removeAutoLayoutFailed: "Não foi possível remover o auto layout",
       autoLayoutScreensUnsupported:
         "Adicionar layout automático não se aplica a páginas",

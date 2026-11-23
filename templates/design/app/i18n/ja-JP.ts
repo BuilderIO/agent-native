@@ -1858,8 +1858,6 @@ export default {
         "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
       saveConflict:
         "このページは別の場所で変更されました。最後の編集は保存されませんでした。",
-      versionHistoryUnavailable:
-        "このデザインではバージョン履歴を利用できません。編集内容は保存されました。",
       removeAutoLayoutFailed: "オートレイアウトを削除できませんでした",
       autoLayoutScreensUnsupported:
         "オートレイアウトの追加はページには適用されません",

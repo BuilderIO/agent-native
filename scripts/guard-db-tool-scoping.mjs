@@ -123,6 +123,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "plan:plan_reports": "moderation reports scoped through plans/action",
   "plan:plan_sections": "child rows scoped through plans",
   "design:design_files": "child rows scoped through designs",
+  "design:design_contents": "checkpoint content rows scoped through designs",
+  "design:design_version_files": "checkpoint manifest rows scoped through designs",
   "design:design_access_requests":
     "access-request rows scoped through the design access action",
   "design:design_template_files": "child rows scoped through design templates",
