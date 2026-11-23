@@ -898,6 +898,9 @@ const editor = {
     imageUploadsFailed:
       "이미지 {{total}}개 중 {{failed}}개를 업로드할 수 없습니다.",
     imageView: "이미지 보기",
+    imagePosition: "{{current}} / {{total}}",
+    nextImage: "다음 이미지",
+    previousImage: "이전 이미지",
     keptYourAltText: "입력한 대체 텍스트를 유지했습니다.",
     link: "링크",
     loadingAssetsPicker: "자산 선택기 로드 중",

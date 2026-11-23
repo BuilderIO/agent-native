@@ -908,6 +908,9 @@ const editor = {
     imageUploadsFailed:
       "{{total}} 件中 {{failed}} 件の画像をアップロードできませんでした。",
     imageView: "イメージビュー",
+    imagePosition: "{{current}} / {{total}}",
+    nextImage: "次の画像",
+    previousImage: "前の画像",
     keptYourAltText: "入力した代替テキストを残しました。",
     link: "リンク",
     loadingAssetsPicker: "アセットピッカーのロード",

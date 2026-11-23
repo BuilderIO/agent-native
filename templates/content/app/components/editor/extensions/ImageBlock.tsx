@@ -22,6 +22,7 @@ import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import {
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -52,7 +53,7 @@ import {
   useFinishedImageUpload,
   useImageUploadPreview,
 } from "../image-upload-previews";
-import { downloadImage, ImageLightbox } from "../ImageLightbox";
+import { downloadImage, ImageLightbox, usePageImage } from "../ImageLightbox";
 import { imageDisplaySrc } from "../private-media-src";
 import { storedBodyImageFailed } from "../stored-body-images";
 import { useEditorEditable } from "../useEditorEditable";
@@ -492,6 +493,18 @@ export function ImageBlock({
   const [altDraft, setAltDraft] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const focusImage = useCallback(
+    (image: HTMLImageElement) => {
+      const position = typeof getPos === "function" ? getPos() : undefined;
+      if (editor.isEditable && typeof position === "number") {
+        editor.commands.setNodeSelection(position);
+        editor.view.focus();
+      }
+      image.scrollIntoView({ block: "nearest" });
+    },
+    [editor, getPos],
+  );
+  const [pageImage, setPageImage] = usePageImage(focusImage);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [isGeneratingAlt, setIsGeneratingAlt] = useState(false);
   const altInputRef = useRef<HTMLInputElement>(null);
@@ -712,7 +725,7 @@ export function ImageBlock({
     );
     return (
       <>
-        <span className="sr-only" role="status" aria-live="polite">
+        <span className="sr-only" role="status">
           {message}
         </span>
         {message ? (
@@ -1373,6 +1386,7 @@ export function ImageBlock({
           </div>
         ) : (
           <img
+            ref={setPageImage}
             src={displaySrc}
             alt={alt || ""}
             className="media-block__content"
@@ -1734,6 +1748,7 @@ export function ImageBlock({
           onOpenChange={setLightboxOpen}
           src={displaySrc}
           alt={alt || ""}
+          origin={pageImage}
         />
       </div>
     </NodeViewWrapper>
