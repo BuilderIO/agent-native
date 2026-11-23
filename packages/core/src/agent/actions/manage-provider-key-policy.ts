@@ -99,6 +99,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpTool: false,
   run: async (args, ctx): Promise<ProviderKeyPolicyStatus> => {
     const email = ctx?.userEmail?.trim().toLowerCase();
     const orgId = ctx?.orgId?.trim();

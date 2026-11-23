@@ -1,0 +1,58 @@
+/*
+ * Part: checkbox-cards
+ *
+ *   <div class="checkbox-cards"                         Base UI CheckboxGroup
+ *        data-variant="surface|soft"
+ *        [data-color="accent|gray|danger|warning|success|info"]
+ *        [data-high-contrast]
+ *        [style="--checkbox-cards-columns: …; --checkbox-cards-gap: …"]>
+ *     <span class="checkbox-cards-item" role="checkbox" Checkbox.Root, with the group's
+ *           data-variant [data-color]        props written on it, holding
+ *           [data-high-contrast] [data-checked]        the card's content
+ *           [data-unchecked] [data-invalid] [data-disabled]>
+ *       <span class="checkbox checkbox-cards-checkbox"  Checkbox.Indicator, always mounted:
+ *             data-variant="surface"         the checkbox part at the card's
+ *             [data-checked] [data-unchecked] ...>     size, drawn for the card
+ *         <span class="checkbox-indicator">            a check, while checked
+ *
+ * Radix Themes' checkbox cards: a grid of cards, each a checkbox whose
+ * content is its name, so the whole card is the hit area. The cards draw
+ * with radio-cards.css's `.checkbox-cards-item` rules (sizes, surface and
+ * soft, hover, focus, disabled), so the two stay one look. Here: the grid,
+ * whose columns are `--checkbox-cards-columns` (cards at least 200px wide,
+ * as many as fit, by default) and gap `--checkbox-cards-gap`, and the
+ * corner checkbox at the card's inline end, the checkbox part at the
+ * card's size. As in Radix, the checkbox alone shows the card is checked.
+ */
+
+@layer components {
+  .checkbox-cards {
+    display: grid;
+    grid-template-columns: var(
+      --checkbox-cards-columns,
+      repeat(auto-fit, minmax(min(100%, 200px), 1fr))
+    );
+    gap: var(--checkbox-cards-gap, var(--space-4));
+  }
+
+  /* Room at the inline end for the checkbox: its width, kept in step with
+     checkbox.css's sizes, and the card's padding on both sides of it. */
+  .checkbox-cards-item {
+    --_box: var(--space-4);
+    --_padding-end: calc(var(--_padding-x) * 2 + var(--_box));
+  }
+
+  .checkbox-cards-mark {
+    --_indicator: var(--control-icon-size-1);
+    display: grid;
+    inline-size: var(--_box);
+    place-items: center;
+  }
+
+  .checkbox-cards-item > :is(.checkbox-cards-checkbox, .checkbox-cards-mark) {
+    position: absolute;
+    top: 50%;
+    inset-inline-end: var(--_padding-x);
+    translate: 0 -50%;
+  }
+}

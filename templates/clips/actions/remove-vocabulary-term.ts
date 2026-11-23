@@ -14,6 +14,7 @@ export default defineAction({
     id: z.string().describe("Vocabulary entry id"),
   }),
   http: { method: "DELETE" },
+  mcpTool: "search",
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {

@@ -442,6 +442,44 @@ describe("chat thread ownership lists (real SQL)", () => {
     expect(left.every((row) => row.pinnedAt === null)).toBe(true);
   });
 
+  it("leaves excluded scope types out unless their scope is asked for", async () => {
+    const owner = "quiet-runs@example.com";
+    for (const [id, scopeType] of [
+      ["general", null],
+      ["page-chat", "document"],
+      ["quiet-run", "image-alt-text"],
+    ] as const) {
+      await seed({ id, owner, updatedAt: 1 });
+      await pglite.query(
+        `UPDATE chat_threads SET scope_type = ?, scope_id = ? WHERE id = ?`,
+        [scopeType, scopeType ? "doc-1" : null, id],
+      );
+    }
+    const excludeScopeTypes = ["image-alt-text"];
+
+    expect(ids(await listThreads(owner, { excludeScopeTypes })).sort()).toEqual(
+      ["general", "page-chat"],
+    );
+    expect(
+      ids(
+        await searchThreads(owner, "Quarterly", 20, { excludeScopeTypes }),
+      ).sort(),
+    ).toEqual(["general", "page-chat"]);
+    expect(
+      ids(
+        await listThreads(owner, {
+          excludeScopeTypes,
+          scope: { type: "image-alt-text", id: "doc-1" },
+        }),
+      ),
+    ).toEqual(["quiet-run"]);
+    expect(ids(await listThreads(owner)).sort()).toEqual([
+      "general",
+      "page-chat",
+      "quiet-run",
+    ]);
+  });
+
   it("deletes an edit committed immediately before the delete transaction", async () => {
     await seed({
       id: "race-root",

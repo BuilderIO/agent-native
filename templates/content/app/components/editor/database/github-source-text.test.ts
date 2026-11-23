@@ -7,9 +7,9 @@ import {
   githubLinkErrorText,
   githubList,
   githubProblemStopsUpdates,
-  githubRelativeTime,
   githubUrlProblem,
 } from "./github-source-text";
+import { sourceRelativeTime } from "./source-status-text";
 
 const NOW = Date.parse("2026-10-20T12:00:00Z");
 const FOLDER_URL = "https://github.com/acme/handbook/tree/main/docs/guides";
@@ -127,11 +127,11 @@ describe("Numbers, times and examples", () => {
     [NOW - 3 * 60 * 60_000, "3 hours ago"],
     [NOW - 24 * 60 * 60_000, "yesterday"],
   ])("says %d as %s", (at, said) => {
-    expect(githubRelativeTime(new Date(at).toISOString(), NOW)).toBe(said);
+    expect(sourceRelativeTime(new Date(at).toISOString(), NOW)).toBe(said);
   });
 
   it("says nothing for a time it can't read", () => {
-    expect(githubRelativeTime("not a date", NOW)).toBe("");
+    expect(sourceRelativeTime("not a date", NOW)).toBe("");
   });
 
   it("shows frontmatter examples as a writer reads them", () => {

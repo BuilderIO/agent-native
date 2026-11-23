@@ -2215,6 +2215,10 @@ export default {
     flagsUnavailable: "Les indicateurs de fonctionnalités sont indisponibles",
     flagsUnreachable:
       "Le répertoire de l'espace de travail est inaccessible. Réessayez lorsqu'il sera disponible.",
+    verifiedFlagChangeOrg:
+      "Vérifié à {{time}} : {{flag}} dans {{app}} est réglé sur {{availability}} pour cette organisation.",
+    verifiedFlagChangeGlobal:
+      "Vérifié à {{time}} : {{flag}} dans {{app}} est réglé sur {{availability}} pour toutes les organisations.",
     flagsEmpty: "Aucune application n'a signalé d'indicateur",
     flagsEmptyDetail:
       "Les indicateurs enregistrés apparaîtront ici lorsque les applications connectées seront prêtes.",
@@ -2379,6 +2383,15 @@ export default {
     addedBy: "Ajouté par {{email}}",
     more: "+{{count}} de plus",
     flagLabel: "Notes sur les données",
+  },
+  citedIn: {
+    menu: "Cité dans",
+    menuTooltip: "Pages Content contenant des graphiques de ce tableau de bord",
+    empty:
+      "Aucune page Content que vous pouvez ouvrir ne contient encore de graphiques de ce tableau de bord",
+    unavailable: "Impossible de joindre Content. Réessayez dans une minute.",
+    untitledPage: "Sans titre",
+    more: "Content n'a vérifié que les pages modifiées le plus récemment ; il peut y en avoir d'autres.",
   },
   annotations: {
     menu: "Annotations",

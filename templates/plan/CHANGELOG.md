@@ -3,6 +3,24 @@
 All notable user-facing changes to Agent-Native Plan are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-19
+
+### Fixed
+
+- New signups from the private-plan access gate now include automatic Builder.io setup alongside the sign-in page.
+
+## 2026-11-18
+
+### Added
+
+- New hosted signups now set up a Builder account automatically, so AI features are ready on first load.
+
+## 2026-11-17
+
+### Fixed
+
+- Images added to a plan are stored privately and load only for people who can open the plan, instead of at a public link anyone holding it could open.
+
 ## 2026-11-16
 
 ### Fixed

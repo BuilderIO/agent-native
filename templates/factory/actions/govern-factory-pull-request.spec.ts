@@ -2,7 +2,15 @@ import { createRequire } from "node:module";
 
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { PGlite } = createRequire(new URL("../package.json", import.meta.url))(
   "@electric-sql/pglite",
@@ -87,8 +95,7 @@ const context = {
   userEmail: "owner@example.test",
 };
 
-beforeEach(async () => {
-  vi.clearAllMocks();
+beforeAll(async () => {
   client = await PGlite.create("memory://");
   db = drizzle(client);
   await client.exec(`
@@ -143,6 +150,15 @@ beforeEach(async () => {
       factory_id text
     );
   `);
+});
+
+afterAll(async () => {
+  await client.close();
+});
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+  await client.exec("TRUNCATE factory_items, factory_decisions, factory_runs");
   getDbMock.mockReturnValue(db);
   resolveFactoryRepositoryMock.mockResolvedValue("BuilderIO/agent-native");
   requireWorkspaceMemberMock.mockResolvedValue({
@@ -153,10 +169,6 @@ beforeEach(async () => {
   requireFactoryAutomationMock.mockResolvedValue(undefined);
   parseTriageMetadataMock.mockReturnValue({});
   serializeTriageMetadataMock.mockReturnValue("{}");
-});
-
-afterEach(async () => {
-  await client.close();
 });
 
 async function seedItem(
@@ -378,12 +390,9 @@ async function seedFinalizedApproval() {
   });
 }
 
-describe("govern-factory-pull-request final check evidence", () => {
-  it("uses distinct governance identities for different PR heads", () => {
-    expect(governanceDecisionId("head-sha-2")).not.toBe(governanceDecisionId());
-    expect(manualDispositionId("head-sha-2")).not.toBe(manualDispositionId());
-  });
+// oracle-change: removed a comparison of the spec's own id helpers and merged duplicate fork-assignee, terminal-status and stale-summary tests into it.each tables; the terminal-status table now also asserts item status, no decisions and no audit
 
+describe("govern-factory-pull-request final check evidence", () => {
   it("skips a bot-authored pull request before evidence or state changes", async () => {
     await seedItem("pr_observed");
     const github = governanceGitHub({ initialSummary: { userType: "Bot" } });
@@ -718,12 +727,24 @@ describe("govern-factory-pull-request final check evidence", () => {
       });
 
       const result = await runGovernance(github, DEFAULT_FACTORY_ID, true);
+      const item = (
+        await db
+          .select({ status: triageItems.status })
+          .from(triageItems)
+          .where(eq(triageItems.id, "item-1"))
+      )[0];
+      const decisions = await db
+        .select({ id: triageDecisions.id })
+        .from(triageDecisions);
 
       expect(result).toMatchObject({
         ok: true,
         action: "skipped",
         reason: expect.stringContaining(`already ${status}`),
       });
+      expect(item.status).toBe(status);
+      expect(decisions).toEqual([]);
+      expect(recordFactoryAuditMock).not.toHaveBeenCalled();
       expect(github.getPullRequestSummary).not.toHaveBeenCalled();
       expect(github.approvePullRequest).not.toHaveBeenCalled();
     },
@@ -1570,47 +1591,50 @@ describe("govern-factory-pull-request final check evidence", () => {
     expect(item.status).toBe("pr_observed");
   });
 
-  it("skips a fork assigned to a verified BuilderIO member during evidence review", async () => {
-    await seedItem("pr_observed");
-    const github = governanceGitHub({
-      headRepository: "contributor/fork",
-      currentApproval: true,
-      changedFiles: ["src/change.ts"],
-      revalidatedSummary: {
-        assignees: [{ id: 456, login: "builder-assignee" }],
-      },
-      assigneeMember: true,
-    });
+  it.each([true, false])(
+    "skips a fork assigned to a verified BuilderIO member during evidence review (current approval: %s)",
+    async (currentApproval) => {
+      await seedItem("pr_observed");
+      const github = governanceGitHub({
+        headRepository: "contributor/fork",
+        currentApproval,
+        changedFiles: ["src/change.ts"],
+        revalidatedSummary: {
+          assignees: [{ id: 456, login: "builder-assignee" }],
+        },
+        assigneeMember: true,
+      });
 
-    const result = await runGovernance(github);
-    const item = (
-      await db
-        .select({ status: triageItems.status })
-        .from(triageItems)
-        .where(eq(triageItems.id, "item-1"))
-    )[0];
-    const decisions = await db
-      .select({ id: triageDecisions.id })
-      .from(triageDecisions);
+      const result = await runGovernance(github);
+      const item = (
+        await db
+          .select({ status: triageItems.status })
+          .from(triageItems)
+          .where(eq(triageItems.id, "item-1"))
+      )[0];
+      const decisions = await db
+        .select({ id: triageDecisions.id })
+        .from(triageDecisions);
 
-    expect(result).toMatchObject({
-      ok: true,
-      action: "skipped",
-      reason: expect.stringContaining(
-        "assigned to a verified BuilderIO member",
-      ),
-    });
-    expect(github.checkOrganizationMemberById).toHaveBeenCalledWith(
-      "BuilderIO",
-      456,
-      "builder-assignee",
-    );
-    expect(github.getPullRequestSummary).toHaveBeenCalledTimes(2);
-    expect(github.getPullRequestEvidence).toHaveBeenCalledTimes(1);
-    expect(decisions).toEqual([]);
-    expect(item.status).toBe("pr_observed");
-    expect(github.approvePullRequest).not.toHaveBeenCalled();
-  });
+      expect(result).toMatchObject({
+        ok: true,
+        action: "skipped",
+        reason: expect.stringContaining(
+          "assigned to a verified BuilderIO member",
+        ),
+      });
+      expect(github.checkOrganizationMemberById).toHaveBeenCalledWith(
+        "BuilderIO",
+        456,
+        "builder-assignee",
+      );
+      expect(github.getPullRequestSummary).toHaveBeenCalledTimes(2);
+      expect(github.getPullRequestEvidence).toHaveBeenCalledTimes(1);
+      expect(decisions).toEqual([]);
+      expect(item.status).toBe("pr_observed");
+      expect(github.approvePullRequest).not.toHaveBeenCalled();
+    },
+  );
 
   it("preserves an approval claim when an external fork gains a verified assignee", async () => {
     await seedItem("pr_observed", true);
@@ -1651,96 +1675,25 @@ describe("govern-factory-pull-request final check evidence", () => {
     expect(github.approvePullRequest).not.toHaveBeenCalled();
   });
 
-  it.each(["merged", "resolved", "dismissed"] as const)(
-    "reports a terminal %s item as skipped when changed-file evidence is missing",
-    async (status) => {
-      await seedItem(status);
-      const result = await runGovernance(
-        governanceGitHub({ changedFiles: [] }),
-      );
-      const item = (
-        await db
-          .select({ status: triageItems.status })
-          .from(triageItems)
-          .where(eq(triageItems.id, "item-1"))
-      )[0];
-      const decisions = await db
-        .select({ id: triageDecisions.id })
-        .from(triageDecisions);
-
-      expect(result).toMatchObject({
-        ok: true,
-        action: "skipped",
-        reason: expect.stringContaining(`already ${status}`),
-      });
-      expect(item.status).toBe(status);
-      expect(decisions).toEqual([]);
-    },
-  );
-
-  it("does not report a terminal external item as needing disposition", async () => {
-    await seedItem("merged");
-    const result = await runGovernance(
-      governanceGitHub({
-        currentApproval: true,
-        changedFiles: ["src/change.ts"],
-      }),
-    );
-    const decisions = await db
-      .select({ id: triageDecisions.id })
-      .from(triageDecisions);
-
-    expect(result).toMatchObject({
-      ok: true,
-      action: "skipped",
-      reason: expect.stringContaining("already merged"),
-    });
-    expect(recordFactoryAuditMock).not.toHaveBeenCalled();
-    expect(decisions).toEqual([]);
-  });
-
-  it.each([
-    ["a changed head", { headSha: "new-head-sha" }],
-    ["a closed pull request", { state: "closed", merged: true }],
-    ["a draft pull request", { draft: true }],
-  ])(
-    "does not record an external disposition after %s",
-    async (_label, summary) => {
+  it.each(
+    [true, false].flatMap((currentApproval) =>
+      [
+        ["a changed head", { headSha: "new-head-sha" }],
+        ["a closed pull request", { state: "closed", merged: true }],
+        ["a draft pull request", { draft: true }],
+      ].map(([label, summary]) => [
+        currentApproval ? "an external approval" : "no approval",
+        label,
+        currentApproval,
+        summary,
+      ]),
+    ) as [string, string, boolean, Record<string, unknown>][],
+  )(
+    "does not record a disposition for %s after %s",
+    async (_approval, _label, currentApproval, summary) => {
       await seedItem("pr_observed");
       const github = governanceGitHub({
-        currentApproval: true,
-        changedFiles: ["src/change.ts"],
-        revalidatedSummary: summary,
-      });
-
-      const result = await runGovernance(github);
-      const decisions = await db
-        .select({ id: triageDecisions.id })
-        .from(triageDecisions);
-      const item = (
-        await db
-          .select({ status: triageItems.status })
-          .from(triageItems)
-          .where(eq(triageItems.id, "item-1"))
-      )[0];
-
-      expect(result).toMatchObject({ ok: true, action: "needs_manual" });
-      expect(github.getPullRequestSummary).toHaveBeenCalledTimes(2);
-      expect(decisions).toEqual([]);
-      expect(item.status).toBe("pr_observed");
-    },
-  );
-
-  it.each([
-    ["a changed head", { headSha: "new-head-sha" }],
-    ["a closed pull request", { state: "closed", merged: true }],
-    ["a draft pull request", { draft: true }],
-  ])(
-    "does not record a no-approval disposition after %s",
-    async (_label, summary) => {
-      await seedItem("pr_observed");
-      const github = governanceGitHub({
-        currentApproval: false,
+        currentApproval,
         changedFiles: ["src/change.ts"],
         revalidatedSummary: summary,
       });
@@ -1763,41 +1716,6 @@ describe("govern-factory-pull-request final check evidence", () => {
       expect(item.status).toBe("pr_observed");
     },
   );
-
-  it("skips a no-approval fork newly assigned to a verified BuilderIO member", async () => {
-    await seedItem("pr_observed");
-    const github = governanceGitHub({
-      headRepository: "contributor/fork",
-      currentApproval: false,
-      changedFiles: ["src/change.ts"],
-      revalidatedSummary: {
-        assignees: [{ id: 456, login: "builder-assignee" }],
-      },
-      assigneeMember: true,
-    });
-
-    const result = await runGovernance(github);
-    const decisions = await db
-      .select({ id: triageDecisions.id })
-      .from(triageDecisions);
-    const item = (
-      await db
-        .select({ status: triageItems.status })
-        .from(triageItems)
-        .where(eq(triageItems.id, "item-1"))
-    )[0];
-
-    expect(result).toMatchObject({
-      ok: true,
-      action: "skipped",
-      reason: expect.stringContaining(
-        "assigned to a verified BuilderIO member",
-      ),
-    });
-    expect(recordFactoryAuditMock).not.toHaveBeenCalled();
-    expect(decisions).toEqual([]);
-    expect(item.status).toBe("pr_observed");
-  });
 
   it("skips an internal-author fork newly assigned to a verified BuilderIO member", async () => {
     await seedItem("pr_observed");

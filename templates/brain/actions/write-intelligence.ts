@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { EXPECTED_REVISION_DESCRIPTION } from "@agent-native/core/save-conflict/server";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -24,13 +25,13 @@ export default defineAction({
     openWorldHint: false,
   },
   description:
-    "Save an evidence-backed action item, decision, or customer feature request. Copy exact quotes from get-capture; include cited owner, due date, entities and ownership confidence. If privacy redaction is required, use an exact email-free excerpt and omit email owners. AI extraction happens in agent chat.",
+    "Save an evidence-backed action item, decision, or customer feature request. Call write-intelligence one item at a time in sequence (never in parallel batches) with every required field populated. Copy exact quotes from get-capture; include cited owner, due date, entities and ownership confidence. If privacy redaction is required, use an exact email-free excerpt and omit email owners. AI extraction happens in agent chat.",
   schema: z.object({
     expectedRevision: z
       .string()
       .optional()
       .describe(
-        "The revision from list-intelligence; required when updating id. A stale revision fails with save_conflict.",
+        `${EXPECTED_REVISION_DESCRIPTION} Required when updating id; read it from list-intelligence.`,
       ),
     id: z
       .string()
@@ -105,14 +106,18 @@ export default defineAction({
       )
       .describe(
         "One to twenty exact capture quotes; every evidence source must remain accessible.",
-      ),
+      )
+      .nonoptional(),
     publishTier: publishTierSchema
       .optional()
       .describe(
         "private (default), team, or company; evidence audience restrictions always apply.",
       ),
   }),
-  outputSchema: z.object({ item: intelligenceItemSchema }),
+  outputSchema: z.object({
+    item: intelligenceItemSchema,
+    postCommitWarnings: z.array(z.string()).optional(),
+  }),
   link: ({ result }) => ({
     url: buildDeepLink({
       app: "brain",

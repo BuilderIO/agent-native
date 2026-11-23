@@ -5,6 +5,7 @@ import {
 import {
   SOURCE_VERSION_UNVERIFIABLE_ERROR_CODE,
   saveErrorCode,
+  saveErrorDiagnostic,
 } from "@shared/save-conflict";
 
 export type DesignSaveFailureKind =
@@ -59,7 +60,7 @@ export function classifyDesignSaveFailure(
   }
 
   const status = errorField(error, "status");
-  const message = designSaveErrorMessage(error)?.toLowerCase() ?? "";
+  const message = saveErrorDiagnostic(error).toLowerCase();
   if (
     status === 409 ||
     message.includes("changed since it was read") ||

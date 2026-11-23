@@ -271,6 +271,8 @@ const messages = {
         "レビュー中はリンクが無効になっているため、文書はそのまま残ります。",
       visualPromptCopied: "視覚的な摂取プロンプトがコピーされました",
       sentAnswers: "エージェントに回答を送信しました",
+      sendAnswersPrompt: "回答をエージェントに送信しますか？",
+      sendAnswersAction: "送信",
       recapLinkCopied: "要約リンクをコピーしました",
       planLinkCopied: "Plan リンクがコピーされました",
       localPathCopied: "ローカルパスがコピーされました",

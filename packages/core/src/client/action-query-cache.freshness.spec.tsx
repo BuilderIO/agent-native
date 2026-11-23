@@ -328,18 +328,13 @@ it("keeps unchanged and subsequently refreshed snapshots fresh without extra req
     });
     await cache.bindActionQueryCache(next, scope);
     await render(next);
-    await vi.waitFor(() => expect(reads).toBe(2));
-    await vi.waitFor(() =>
-      expect(next.getQueryState(key)?.fetchStatus).toBe("idle"),
-    );
-    const beforeNextWrite = writes;
-    await vi.waitFor(() => expect(writes).toBeGreaterThan(beforeNextWrite), {
-      timeout: 3000,
-    });
+    expect(container.textContent).toBe("fresh");
+    // oracle-change: own mutation epoch is adopted, so restore needs no extra read
+    expect(reads).toBe(1);
     await cache.bindActionQueryCache(last, scope);
     await render(last);
     expect(container.textContent).toBe("fresh");
-    expect(reads).toBe(2);
+    expect(reads).toBe(1);
   } finally {
     act(() => root.unmount());
     container.remove();

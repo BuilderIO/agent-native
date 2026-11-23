@@ -7,6 +7,7 @@ import { getWorkspaceConnectionProvider } from "@agent-native/core/connections";
 import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
+import { CONTENT_CONNECT_STEPS } from "../server/connectors/content-workflow.js";
 import {
   PROVIDER_VAULT_KEYS,
   readProviderConnections,
@@ -37,6 +38,9 @@ function manualSetup(provider: string): { where: string; keys: string[] } {
   if (provider === "builder") {
     return { where: "Settings, Integrations, Builder", keys: [] };
   }
+  if (provider === "content") {
+    return { where: CONTENT_CONNECT_STEPS, keys: [] };
+  }
   if (provider === "email") {
     return {
       where: "Settings, API keys",
@@ -51,7 +55,7 @@ function manualSetup(provider: string): { where: string; keys: string[] } {
 
 export default defineAction({
   description:
-    "Ask the user to connect an integration a workflow needs. Call it for each provider that save-factory-workflow or get-factory-workflow lists as not connected, or that a dry-run step failed with credential_missing for. For Slack, GitHub, Sentry, HubSpot, Jira, Notion and BigQuery it shows the connect card in the chat and the turn waits for the user to finish; ask for one provider per turn. For a provider connected by key or in Settings (Gong, Pylon, Stripe, PostHog, Builder, email) it returns connected: false with where to add it and the key names, which you then tell the user. When the provider is already connected it says so.",
+    "Ask the user to connect an integration a workflow needs. Call it for each provider that save-factory-workflow or get-factory-workflow lists as not connected, or that a dry-run step failed with credential_missing for. For Slack, GitHub, Sentry, HubSpot, Jira, Notion and BigQuery it shows the connect card in the chat and the turn waits for the user to finish; ask for one provider per turn. For a provider connected by key or in Settings (Gong, Pylon, Stripe, PostHog, Builder, Content, email) it returns connected: false with where to add it and the key names, which you then tell the user. When the provider is already connected it says so. Content is checked for the signed-in person only: a saved workflow's Content steps write as its owner, whose connection get-factory-workflow reports.",
   schema: z.object({
     provider: z
       .string()
@@ -99,7 +103,10 @@ export default defineAction({
           return {
             provider,
             connected: true,
-            message: `${provider} is already connected; nothing to do.`,
+            message:
+              provider === "content"
+                ? "content is connected for you; nothing to do. A saved workflow's Content steps write as its owner, so for a workflow someone else owns, only the owner can connect it, and get-factory-workflow reports whether they have."
+                : `${provider} is already connected; nothing to do.`,
           };
         }
         // Saved but unreadable: a connect card would not fix it, and asking again would not answer it.
@@ -130,13 +137,16 @@ export default defineAction({
           !catalogProvider
         ) {
           const { where, keys } = manualSetup(provider);
+          const detail = provider === "content" ? connection.detail : undefined;
           return {
             provider,
             connected: false,
             connectWith: connection.connectWith,
             where,
             keys,
-            message: `${provider} is not connected and has no connect card. Tell the user to add it under ${where}${keys.length > 0 ? ` (${keys.join("; ")})` : ""}, then check again.`,
+            message: detail
+              ? `${provider} is not ready for you and has no connect card: ${detail} A saved workflow's Content steps write as its owner, so for a workflow someone else owns, only the owner can connect it, and get-factory-workflow reports whether they have. Tell the user, then check again.`
+              : `${provider} is not connected and has no connect card. Tell the user to add it under ${where}${keys.length > 0 ? ` (${keys.join("; ")})` : ""}, then check again.`,
           };
         }
 

@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { putUserSetting } from "@agent-native/core/settings";
@@ -50,6 +51,13 @@ const availabilitySchema = z.object({
 });
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   description:
     "Update booking availability configuration, including working hours such as Monday-Friday 09:00-16:30. Read the current config first and preserve fields the user did not ask to change.",
   schema: availabilitySchema,

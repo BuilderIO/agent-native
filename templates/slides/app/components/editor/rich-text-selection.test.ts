@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { startInPlaceTextSession } from "./in-place-text-session";
 import {
   applyInlineTextStyle,
+  applyInlineFontSizeDelta,
+  applyObjectFontSizeDelta,
   getEditableTextRange,
   getInlineTextStyleSnapshot,
   getInlineTextStyleSnapshotForRange,
@@ -17,6 +20,11 @@ import {
   toggleInlineTextFormat,
 } from "./rich-text-selection";
 
+function required<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected a non-null test value");
+  return value;
+}
+
 function rangeFor(
   start: Text,
   startOffset: number,
@@ -26,7 +34,7 @@ function rangeFor(
   const range = document.createRange();
   range.setStart(start, startOffset);
   range.setEnd(end, endOffset);
-  const selection = window.getSelection()!;
+  const selection = required(window.getSelection());
   selection.removeAllRanges();
   selection.addRange(range);
   return range;
@@ -59,7 +67,7 @@ describe("rich text selection", () => {
     const block = editable(
       '<span data-slide-inline-style="true" style="font-weight: 700">hello world</span>',
     );
-    const text = block.querySelector("span")!.firstChild as Text;
+    const text = required(block.querySelector("span")).firstChild as Text;
     rangeFor(text, 6, text, 11);
 
     applyInlineTextStyle(
@@ -87,7 +95,7 @@ describe("rich text selection", () => {
     const block = editable("before <span>middle</span> after");
     const first = block.firstChild as Text;
     const last = block.lastChild as Text;
-    const selection = window.getSelection()!;
+    const selection = required(window.getSelection());
     selection.setBaseAndExtent(last, 2, first, 2);
 
     toggleInlineTextFormat(block, "bold", selection);
@@ -109,7 +117,7 @@ describe("rich text selection", () => {
     expect(block.innerHTML).toBe(
       'left <code data-slide-authoring-format="code">right</code>',
     );
-    expect(window.getSelection()!.toString()).toBe("right");
+    expect(required(window.getSelection()).toString()).toBe("right");
 
     toggleInlineTextFormat(block, "code");
     expect(block.innerHTML).toBe("left right");
@@ -119,7 +127,7 @@ describe("rich text selection", () => {
     const block = editable(
       '<code><span style="color: red">beforebold</span></code>',
     );
-    const text = block.querySelector("span")!.firstChild as Text;
+    const text = required(block.querySelector("span")).firstChild as Text;
     rangeFor(text, 6, text, 10);
 
     toggleInlineTextFormat(block, "code");
@@ -128,14 +136,14 @@ describe("rich text selection", () => {
       '<code><span style="color: red">before</span></code><span style="color: red">bold</span>',
     );
     expect(block.textContent).toBe("beforebold");
-    expect(window.getSelection()!.toString()).toBe("bold");
+    expect(required(window.getSelection()).toString()).toBe("bold");
   });
 
   it.each([
     [
       "call <strong>fetch</strong>() now",
       (block: HTMLElement) => {
-        const bold = block.querySelector("strong")!.firstChild as Text;
+        const bold = required(block.querySelector("strong")).firstChild as Text;
         const suffix = block.lastChild as Text;
         rangeFor(bold, 0, suffix, 2);
       },
@@ -170,7 +178,7 @@ describe("rich text selection", () => {
       block.querySelectorAll("p"),
       (p) => p.firstChild as Text,
     );
-    rangeFor(first!, 1, second!, 4);
+    rangeFor(required(first), 1, required(second), 4);
     const selectedText = window.getSelection()?.toString();
 
     toggleInlineTextFormat(block, "code");
@@ -192,7 +200,7 @@ describe("rich text selection", () => {
     const block = editable("one <strong>two</strong> three");
     const [one, two] = [
       block.firstChild as Text,
-      block.querySelector("strong")!.firstChild as Text,
+      required(block.querySelector("strong")).firstChild as Text,
     ];
     rangeFor(one, 2, two, 2);
 
@@ -208,9 +216,9 @@ describe("rich text selection", () => {
     expect(wrappers[1].parentElement?.tagName).toBe("STRONG");
     expect(wrappers.every((wrapper) => wrapper.style.color)).toBe(true);
     expect(block.querySelectorAll("strong")).toHaveLength(1);
-    expect(block.querySelector("strong")!.textContent).toBe("two");
+    expect(required(block.querySelector("strong")).textContent).toBe("two");
     expect(block.textContent).toBe("one two three");
-    expect(window.getSelection()!.toString()).toBe("e tw");
+    expect(required(window.getSelection()).toString()).toBe("e tw");
   });
 
   it("styles part of a pill inside the one pill", () => {
@@ -218,7 +226,7 @@ describe("rich text selection", () => {
       'Solar <span class="pill" style="background: rgb(220, 252, 231); padding: 4px 10px;">Done now</span> more',
     );
     const lead = block.firstChild as Text;
-    const pillText = block.querySelector(".pill")!.firstChild as Text;
+    const pillText = required(block.querySelector(".pill")).firstChild as Text;
     rangeFor(lead, 3, pillText, 4);
 
     applyInlineTextStyle(block, { color: "rgb(0, 0, 255)" });
@@ -260,8 +268,8 @@ describe("rich text selection", () => {
     const block = editable(
       '<ul><li><span data-slide-inline-style="true" style="color: red;">outer</span><ul><li><p><strong><span data-slide-inline-style="true">nested </span><span data-slide-inline-style="true">text</span></strong></p></li></ul></li></ul>',
     );
-    const outer = block.querySelector("li > span")!.firstChild as Text;
-    const nested = block.querySelector("ul ul")!;
+    const outer = required(block.querySelector("li > span")).firstChild as Text;
+    const nested = required(block.querySelector("ul ul"));
     const beforeNested = nested.innerHTML;
 
     normalizeInlineTextSpans(block, [outer]);
@@ -274,16 +282,20 @@ describe("rich text selection", () => {
     style.textContent = ".heavy { font-weight: 700; }";
     document.head.append(style);
     const block = editable('<span class="heavy">Heavy</span> plain');
-    const heavy = block.querySelector(".heavy")!.firstChild as Text;
+    const heavy = required(block.querySelector(".heavy")).firstChild as Text;
     rangeFor(heavy, 0, heavy, 5);
 
     toggleInlineTextFormat(block, "bold");
 
-    const unbolded = block.querySelector<HTMLSpanElement>(
-      ".heavy > span[data-slide-inline-style]",
-    )!;
+    const unbolded = required(
+      block.querySelector<HTMLSpanElement>(
+        ".heavy > span[data-slide-inline-style]",
+      ),
+    );
     expect(unbolded.style.fontWeight).toBe("400");
-    expect(block.querySelector(".heavy")!.getAttribute("class")).toBe("heavy");
+    expect(required(block.querySelector(".heavy")).getAttribute("class")).toBe(
+      "heavy",
+    );
 
     rangeFor(unbolded.firstChild as Text, 0, unbolded.firstChild as Text, 5);
     toggleInlineTextFormat(block, "bold");
@@ -319,25 +331,29 @@ describe("rich text selection", () => {
     const block = editable(
       '<a style="text-decoration: underline;">under</a> rest',
     );
-    const under = block.querySelector("a")!.firstChild as Text;
+    const under = required(block.querySelector("a")).firstChild as Text;
     rangeFor(under, 0, under, 5);
 
     toggleInlineTextFormat(block, "italic");
     expect(
-      block.querySelector<HTMLSpanElement>("span[data-slide-inline-style]")!
-        .style.fontStyle,
+      required(
+        block.querySelector<HTMLSpanElement>("span[data-slide-inline-style]"),
+      ).style.fontStyle,
     ).toBe("italic");
 
     rangeFor(under, 0, under, 5);
     toggleInlineTextFormat(block, "underline");
-    expect(block.querySelector("a")!.style.textDecorationLine).toBe("none");
+    expect(required(block.querySelector("a")).style.textDecorationLine).toBe(
+      "none",
+    );
     expect(block.querySelectorAll("a")).toHaveLength(1);
 
     rangeFor(under, 0, under, 5);
     toggleInlineTextFormat(block, "underline");
     expect(
-      block.querySelector<HTMLSpanElement>("span[data-slide-inline-style]")!
-        .style.textDecorationLine,
+      required(
+        block.querySelector<HTMLSpanElement>("span[data-slide-inline-style]"),
+      ).style.textDecorationLine,
     ).toBe("underline");
   });
 
@@ -345,14 +361,14 @@ describe("rich text selection", () => {
     const block = editable(
       '<span style="color: rgb(239, 68, 68)"><em>before</em> after</span>',
     );
-    const text = block.querySelector("em")!.firstChild as Text;
+    const text = required(block.querySelector("em")).firstChild as Text;
     rangeFor(text, 1, text, 5);
 
     applyInlineTextStyle(block, { color: "rgb(96, 159, 248)" });
 
-    const styled = block.querySelector<HTMLSpanElement>(
-      "span[data-slide-inline-style]",
-    )!;
+    const styled = required(
+      block.querySelector<HTMLSpanElement>("span[data-slide-inline-style]"),
+    );
     expect(styled.textContent).toBe("efor");
     expect(styled.parentElement?.tagName).toBe("EM");
     expect(styled.style.color).toBe("rgb(96, 159, 248)");
@@ -379,18 +395,20 @@ describe("rich text selection", () => {
     const block = editable("hello");
     const text = block.firstChild as Text;
     rangeFor(text, 1, text, 4);
-    const saved = snapshotEditableTextRange(block)!;
-    window.getSelection()!.removeAllRanges();
+    const saved = required(snapshotEditableTextRange(block));
+    required(window.getSelection()).removeAllRanges();
 
     expect(restoreEditableTextRange(block, saved)).toBe(true);
-    expect(window.getSelection()!.toString()).toBe("ell");
+    expect(required(window.getSelection()).toString()).toBe("ell");
   });
 
   it("selects the whole editable block without selecting the page", () => {
     const block = editable("first line<br>second line");
 
     expect(selectAllEditableText(block)).toBe(true);
-    expect(window.getSelection()!.toString()).toBe("first linesecond line");
+    expect(required(window.getSelection()).toString()).toBe(
+      "first linesecond line",
+    );
     expect(getEditableTextRange(block)).not.toBeNull();
   });
 
@@ -409,7 +427,7 @@ describe("rich text selection", () => {
       result.range && block.contains(result.range.commonAncestorContainer),
     ).toBe(true);
     expect(restoreEditableTextRange(block, result.range ?? null)).toBe(true);
-    expect(window.getSelection()!.toString()).toBe("two");
+    expect(required(window.getSelection()).toString()).toBe("two");
   });
 
   it("reuses one wrapper for repeated styles on the same selection", () => {
@@ -423,15 +441,458 @@ describe("rich text selection", () => {
     const wrappers = block.querySelectorAll("span[data-slide-inline-style]");
     expect(wrappers).toHaveLength(1);
     expect((wrappers[0] as HTMLSpanElement).style.fontSize).toBe("32px");
-    expect(window.getSelection()!.toString()).toBe("resize me");
+    expect(required(window.getSelection()).toString()).toBe("resize me");
+  });
+
+  it("adjusts each selected run's computed size and preserves a backward partial selection", () => {
+    const block = editable(
+      '<span style="font-size: 20px">first</span><strong style="font-size: 30px">second</strong>',
+    );
+    const first = required(block.firstElementChild).firstChild as Text;
+    const second = required(block.lastElementChild).firstChild as Text;
+    const selection = required(window.getSelection());
+    selection.setBaseAndExtent(second, 3, first, 2);
+
+    const result = applyInlineFontSizeDelta(block, 4, { min: 10, max: 50 });
+
+    const firstRun = block.querySelector("span > span") as HTMLElement;
+    const secondRun = block.querySelector("strong > span") as HTMLElement;
+    expect(firstRun.textContent).toBe("rst");
+    expect(firstRun.style.fontSize).toBe("24px");
+    expect(secondRun.textContent).toBe("sec");
+    expect(secondRun.style.fontSize).toBe("34px");
+    expect(block.textContent).toBe("firstsecond");
+    expect(selection.toString()).toBe("rstsec");
+    expect(selection.anchorNode).toBe(secondRun.firstChild);
+    expect(selection.anchorOffset).toBe(3);
+    expect(selection.focusNode).toBe(firstRun.firstChild);
+    expect(selection.focusOffset).toBe(0);
+    expect(result.range?.toString()).toBe("rstsec");
+  });
+
+  it.each([
+    [4, ["10px", "14px", "24px", "35px"]],
+    [12, ["17px", "22px", "30px", "35px"]],
+    [-4, ["5px", "10px", "16px", "30px"]],
+    [0, ["5px", "10px", "20px", "35px"]],
+  ])(
+    "clamps a %s px step without moving out-of-range runs backwards",
+    (delta, sizes) => {
+      const block = editable(
+        '<span style="font-size: 5px">a</span><span style="font-size: 10px">b</span><span style="font-size: 20px">c</span><span style="font-size: 35px">d</span>',
+      );
+      const first = required(block.firstElementChild).firstChild as Text;
+      const last = required(block.lastElementChild).firstChild as Text;
+      rangeFor(first, 0, last, 1);
+
+      applyInlineFontSizeDelta(block, delta, { min: 10, max: 30 });
+
+      expect(
+        Array.from(
+          block.children,
+          (run) => getComputedStyle(run.firstElementChild ?? run).fontSize,
+        ),
+      ).toEqual(sizes);
+      expect(required(window.getSelection()).toString()).toBe("abcd");
+    },
+  );
+
+  it("uses inherited computed sizes and leaves a foreign selection alone", () => {
+    const block = editable(
+      '<span style="font-size: 18.5px"><em>inside</em></span>',
+    );
+    const other = editable("outside");
+    const text = other.firstChild as Text;
+    rangeFor(text, 0, text, 3);
+
+    expect(
+      applyInlineFontSizeDelta(block, 1.5, { min: 1, max: 40 }).scope,
+    ).toBe("block");
+    expect(required(block.querySelector("em")).textContent).toBe("inside");
+    expect(required(window.getSelection()).toString()).toBe("out");
+
+    const inside = required(block.querySelector("em")).firstChild as Text;
+    rangeFor(inside, 0);
+    applyInlineFontSizeDelta(block, 1.5, { min: 1, max: 40 });
+    expect(block.querySelector("em > span")?.getAttribute("style")).toBe(
+      "font-size: 20px;",
+    );
+  });
+
+  it("resolves absolute CSS lengths and reports a run without a computed size", () => {
+    const block = editable(
+      '<span style="font-size: 12pt">one</span><span>two</span>',
+    );
+    block.style.fontSize = "20px";
+    const first = required(block.firstElementChild);
+    const second = required(block.lastElementChild);
+    const original = window.getComputedStyle.bind(window);
+    const spy = vi
+      .spyOn(window, "getComputedStyle")
+      .mockImplementation((element, pseudo) => {
+        const computed = original(element, pseudo);
+        if (element !== first && element !== second) return computed;
+        return new Proxy(computed, {
+          get: (target, key) =>
+            key === "fontSize"
+              ? element === first
+                ? "12pt"
+                : ""
+              : Reflect.get(target, key, target),
+        });
+      });
+    try {
+      const result = applyObjectFontSizeDelta(block, 2, { min: 1, max: 100 });
+      expect(result).toEqual({ changed: true, unresolved: 1 });
+      expect(block.style.fontSize).toBe("20px");
+      expect(
+        (required(block.firstElementChild).firstElementChild as HTMLElement)
+          .style.fontSize,
+      ).toBe("18px");
+      expect(second.innerHTML).toBe("two");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("leaves a partial selection and its markup untouched at the size limit", () => {
+    const block = editable(
+      '<span data-slide-inline-style="true" style="font-size: 30px">hello</span><span data-slide-inline-style="true"></span>',
+    );
+    const before = block.innerHTML;
+    const text = required(block.firstElementChild).firstChild as Text;
+    rangeFor(text, 1, text, 4);
+    const result = applyInlineFontSizeDelta(block, 2, { min: 10, max: 30 });
+    expect(result).toMatchObject({
+      scope: "selection",
+      changed: false,
+      unresolved: 0,
+    });
+    expect(block.innerHTML).toBe(before);
+    expect(required(block.firstElementChild).firstChild).toBe(text);
+    expect(required(window.getSelection()).toString()).toBe("ell");
+  });
+
+  it("reports an unresolved valid CSS size without changing a selection", () => {
+    const block = editable('<span style="font-size: medium">hello</span>');
+    const before = block.innerHTML;
+    const text = required(block.firstElementChild).firstChild as Text;
+    rangeFor(text, 1, text, 4);
+    const result = applyInlineFontSizeDelta(block, 2, { min: 10, max: 30 });
+    expect(result).toMatchObject({
+      scope: "selection",
+      changed: false,
+      unresolved: 1,
+    });
+    expect(block.innerHTML).toBe(before);
+    expect(required(window.getSelection()).toString()).toBe("ell");
+  });
+
+  it("keeps the full selected range when only some run sizes can be resolved", () => {
+    const block = editable(
+      '<span style="font-size: 20px">left</span><span style="font-size: medium">right</span>',
+    );
+    const first = required(block.firstElementChild).firstChild as Text;
+    const last = required(block.lastElementChild).firstChild as Text;
+    rangeFor(first, 1, last, 3);
+
+    const result = applyInlineFontSizeDelta(block, 2, { min: 10, max: 40 });
+
+    expect(result).toMatchObject({
+      scope: "selection",
+      changed: true,
+      unresolved: 1,
+    });
+    expect(
+      (required(block.firstElementChild).firstElementChild as HTMLElement).style
+        .fontSize,
+    ).toBe("22px");
+    expect(required(block.lastElementChild).textContent).toBe("right");
+    expect(required(window.getSelection()).toString()).toBe("eftrig");
+    expect(result.range?.toString()).toBe("eftrig");
+  });
+
+  it("supports session.apply undo and redo with a backward selected range", () => {
+    const block = editable('<span style="font-size: 20px">hello world</span>');
+    block.removeAttribute("contenteditable");
+    const session = startInPlaceTextSession(block);
+    try {
+      const text = required(block.firstElementChild).firstChild as Text;
+      required(window.getSelection()).setBaseAndExtent(text, 8, text, 2);
+      let applied: ReturnType<typeof applyInlineFontSizeDelta> | undefined;
+      expect(
+        session.apply(() => {
+          applied = applyInlineFontSizeDelta(block, 4, { min: 10, max: 40 });
+        }),
+      ).toBe(true);
+      expect(applied?.range?.toString()).toBe("llo wo");
+      expect(
+        (block.querySelector("span > span") as HTMLElement).style.fontSize,
+      ).toBe("24px");
+      expect(session.undo()).toBe(true);
+      expect(block.innerHTML).toBe(
+        '<span style="font-size: 20px">hello world</span>',
+      );
+      expect(required(window.getSelection()).toString()).toBe("llo wo");
+      expect(session.redo()).toBe(true);
+      expect(
+        (block.querySelector("span > span") as HTMLElement).style.fontSize,
+      ).toBe("24px");
+      expect(required(window.getSelection()).toString()).toBe("llo wo");
+      const selection = required(window.getSelection());
+      expect(selection.anchorNode).toBe(selection.getRangeAt(0).endContainer);
+      expect(selection.anchorOffset).toBe(selection.getRangeAt(0).endOffset);
+    } finally {
+      session.end();
+    }
+  });
+
+  it.each([
+    [
+      "selected range",
+      (
+        session: ReturnType<typeof startInPlaceTextSession>,
+        block: HTMLElement,
+      ) =>
+        session.apply(
+          () =>
+            applyInlineFontSizeDelta(block, 4, { min: 10, max: 30 }).changed,
+        ),
+    ],
+    [
+      "whole object",
+      (
+        session: ReturnType<typeof startInPlaceTextSession>,
+        block: HTMLElement,
+      ) =>
+        session.apply(
+          () =>
+            applyObjectFontSizeDelta(block, 4, { min: 10, max: 30 }).changed,
+        ),
+    ],
+  ])(
+    "preserves redo when resizing a %s at its size limit",
+    (_scope, resize) => {
+      const block = editable(
+        '<span style="font-size: 30px">hello world</span>',
+      );
+      block.style.fontSize = "30px";
+      block.removeAttribute("contenteditable");
+      const session = startInPlaceTextSession(block);
+      try {
+        const text = required(block.firstElementChild).firstChild as Text;
+        required(window.getSelection()).setBaseAndExtent(text, 8, text, 2);
+        expect(
+          session.apply(() => {
+            applyInlineTextStyle(block, { color: "red" });
+          }),
+        ).toBe(true);
+        const changedHtml = block.outerHTML;
+        expect(session.undo()).toBe(true);
+        expect(session.historyStats()).toMatchObject({
+          undoDepth: 0,
+          redoDepth: 1,
+        });
+        const before = block.outerHTML;
+        const selection = required(window.getSelection());
+        const anchor = selection.anchorNode;
+        const focus = selection.focusNode;
+        const anchorOffset = selection.anchorOffset;
+        const focusOffset = selection.focusOffset;
+        expect(selection.toString()).toBe("llo wo");
+
+        expect.soft(resize(session, block)).toBe(false);
+        expect.soft(session.historyStats()).toMatchObject({
+          undoDepth: 0,
+          redoDepth: 1,
+        });
+        expect(block.outerHTML).toBe(before);
+        expect(selection.anchorNode).toBe(anchor);
+        expect(selection.anchorOffset).toBe(anchorOffset);
+        expect(selection.focusNode).toBe(focus);
+        expect(selection.focusOffset).toBe(focusOffset);
+        expect(selection.toString()).toBe("llo wo");
+        expect(session.redo()).toBe(true);
+        expect(block.outerHTML).toBe(changedHtml);
+        expect(selection.toString()).toBe("llo wo");
+      } finally {
+        session.end();
+      }
+    },
+  );
+
+  it.each([
+    [
+      "selected range",
+      (block: HTMLElement) =>
+        applyInlineFontSizeDelta(block, -4, { min: 10, max: 30 }).changed,
+    ],
+    [
+      "whole object",
+      (block: HTMLElement) =>
+        applyObjectFontSizeDelta(block, -4, { min: 10, max: 30 }).changed,
+    ],
+  ])("records a changed font size step for a %s", (_scope, resize) => {
+    const block = editable('<span style="font-size: 30px">hello world</span>');
+    block.style.fontSize = "30px";
+    block.removeAttribute("contenteditable");
+    const session = startInPlaceTextSession(block);
+    try {
+      const text = required(block.firstElementChild).firstChild as Text;
+      rangeFor(text, 2, text, 8);
+      const before = block.outerHTML;
+      expect(session.apply(() => resize(block))).toBe(true);
+      const changed = block.outerHTML;
+      expect(changed).not.toBe(before);
+      expect(block.innerHTML).toContain("26px");
+      expect(session.historyStats()).toMatchObject({
+        undoDepth: 1,
+        redoDepth: 0,
+      });
+      expect(session.undo()).toBe(true);
+      expect(block.outerHTML).toBe(before);
+      expect(session.redo()).toBe(true);
+      expect(block.outerHTML).toBe(changed);
+      expect(required(window.getSelection()).toString()).toBe("llo wo");
+    } finally {
+      session.end();
+    }
+  });
+
+  it("updates the object size and each mixed run once while keeping bounded runs unchanged", () => {
+    const block = editable(
+      'inherited <span style="font-size: 18px">small</span> <strong style="font-size: 30px">limited</strong>',
+    );
+    block.style.fontSize = "20px";
+    const direct = block.firstChild as Text;
+    const small = required(block.querySelector("span")).firstChild as Text;
+    const limited = required(block.querySelector("strong")).firstChild as Text;
+
+    const result = applyObjectFontSizeDelta(block, 4, { min: 10, max: 30 });
+
+    expect(result).toEqual({ changed: true, unresolved: 0 });
+    expect(getInlineTextStyleSnapshot(block, null).values.fontSize).toBe(
+      "24px",
+    );
+    expect(getComputedStyle(required(direct.parentElement)).fontSize).toBe(
+      "24px",
+    );
+    expect(getComputedStyle(required(small.parentElement)).fontSize).toBe(
+      "22px",
+    );
+    expect(getComputedStyle(required(limited.parentElement)).fontSize).toBe(
+      "30px",
+    );
+    expect(block.textContent).toBe("inherited small limited");
+  });
+
+  it("keeps relative nested text at its original size when the root moves past its bound", () => {
+    const block = editable(
+      '<span style="font-size: 200%">large</span><span style="font-size: 100%">normal</span>',
+    );
+    block.style.fontSize = "20px";
+    const large = required(block.firstElementChild).firstChild as Text;
+    const normal = required(block.lastElementChild).firstChild as Text;
+
+    expect(getComputedStyle(required(large.parentElement)).fontSize).toBe(
+      "40px",
+    );
+    expect(getComputedStyle(required(normal.parentElement)).fontSize).toBe(
+      "20px",
+    );
+    applyObjectFontSizeDelta(block, 4, { min: 10, max: 30 });
+
+    expect(getComputedStyle(block).fontSize).toBe("24px");
+    expect(getComputedStyle(required(large.parentElement)).fontSize).toBe(
+      "40px",
+    );
+    expect(getComputedStyle(required(normal.parentElement)).fontSize).toBe(
+      "24px",
+    );
+    expect(required(block.firstElementChild).getAttribute("style")).toBe(
+      "font-size: 200%",
+    );
+  });
+
+  it.each([
+    ["20px", -4, "16px", true],
+    ["35px", 4, "35px", false],
+    ["5px", -4, "5px", false],
+  ])(
+    "updates an empty object's root with directional bounds",
+    (size, delta, expected, changed) => {
+      const block = editable("");
+      block.style.fontSize = size;
+      const result = applyObjectFontSizeDelta(block, delta, {
+        min: 10,
+        max: 30,
+      });
+      expect(result.changed).toBe(changed);
+      expect(getComputedStyle(block).fontSize).toBe(expected);
+    },
+  );
+
+  it("does not mutate an object when its root and runs are already at the directional bound", () => {
+    const block = editable('<span style="font-size: 35px">above</span> text');
+    block.style.fontSize = "30px";
+    const before = block.outerHTML;
+    const text = block.lastChild as Text;
+    rangeFor(text, 1, text, 3);
+
+    const result = applyObjectFontSizeDelta(block, 4, { min: 10, max: 30 });
+
+    expect(result).toEqual({ changed: false, unresolved: 0 });
+    expect(block.outerHTML).toBe(before);
+    expect(required(window.getSelection()).toString()).toBe("te");
+  });
+
+  it("resizes a whole object without changing the active backward selection", () => {
+    const block = editable(
+      '<span style="font-size: 18px">hello</span><span style="font-size: 24px">world</span>',
+    );
+    const first = required(block.firstElementChild).firstChild as Text;
+    const last = required(block.lastElementChild).firstChild as Text;
+    const selection = required(window.getSelection());
+    selection.setBaseAndExtent(last, 3, first, 1);
+
+    applyObjectFontSizeDelta(block, 2, { min: 10, max: 40 });
+
+    expect(
+      Array.from(
+        block.children,
+        (run) => getComputedStyle(required(run.firstElementChild)).fontSize,
+      ),
+    ).toEqual(["20px", "26px"]);
+    expect(selection.toString()).toBe("ellowor");
+    expect(selection.anchorNode).toBe(last);
+    expect(selection.anchorOffset).toBe(3);
+    expect(selection.focusNode).toBe(first);
+    expect(selection.focusOffset).toBe(1);
+  });
+
+  it("leaves a foreign selection untouched when resizing a whole object", () => {
+    const block = editable('<span style="font-size: 20px">inside</span>');
+    const other = editable("outside");
+    const text = other.firstChild as Text;
+    other.focus();
+    rangeFor(text, 1, text, 4);
+
+    applyObjectFontSizeDelta(block, 2, { min: 10, max: 40 });
+
+    expect(document.activeElement).toBe(other);
+    expect(block.querySelector("span > span")?.getAttribute("style")).toBe(
+      "font-size: 22px;",
+    );
+    expect(required(window.getSelection()).anchorNode).toBe(text);
+    expect(required(window.getSelection()).toString()).toBe("uts");
   });
 
   it("reports a single inline value and null for mixed selected runs", () => {
     const block = editable(
       '<span style="color: rgb(96, 159, 248); font-size: 20px; font-family: Inter, sans-serif">blue</span><span style="color: rgb(239, 68, 68); font-size: 20px; font-family: Poppins, sans-serif">red</span>',
     );
-    const blue = block.firstChild!.firstChild as Text;
-    const red = block.lastChild!.firstChild as Text;
+    const blue = required(block.firstChild).firstChild as Text;
+    const red = required(block.lastChild).firstChild as Text;
 
     rangeFor(blue, 0, blue, 4);
     const blueSnapshot = getInlineTextStyleSnapshot(block);
@@ -449,8 +910,10 @@ describe("rich text selection", () => {
     expect(mixed.values.fontFamily).toBeNull();
     expect(mixed.mixed).toContain("fontFamily");
 
-    const savedMixed = window.getSelection()!.getRangeAt(0).cloneRange();
-    window.getSelection()!.removeAllRanges();
+    const savedMixed = required(window.getSelection())
+      .getRangeAt(0)
+      .cloneRange();
+    required(window.getSelection()).removeAllRanges();
     expect(
       getInlineTextStyleSnapshotForRange(block, savedMixed).mixed,
     ).toContain("color");
@@ -462,9 +925,9 @@ describe("setInlineTextLink", () => {
     const block = editable(
       '<ul><li style="display: flex"><span data-slide-inline-style="true" style="font-weight: 700;">•</span><span data-slide-inline-style="true" style="font-weight: 700;"></span><span data-slide-inline-style="true" style="font-weight: 700;">label</span></li></ul><p>Link this</p>',
     );
-    const list = block.querySelector("ul")!;
+    const list = required(block.querySelector("ul"));
     const before = list.innerHTML;
-    const text = block.querySelector("p")!.firstChild as Text;
+    const text = required(block.querySelector("p")).firstChild as Text;
     rangeFor(text, 0, text, text.length);
 
     setInlineTextLink(block, "https://example.com");
@@ -476,7 +939,7 @@ describe("setInlineTextLink", () => {
     const block = editable(
       '<ul><li><span data-slide-inline-style="true" style="color: red;">a</span><span data-slide-inline-style="true" style="color: red;">b</span></li></ul>',
     );
-    const item = block.querySelector("li")!;
+    const item = required(block.querySelector("li"));
     const [first, second] = Array.from(
       item.querySelectorAll("span"),
       (span) => span.firstChild as Text,
@@ -497,7 +960,7 @@ describe("setInlineTextLink", () => {
     document.body.replaceChildren(block);
     const [before, inside] = [
       block.firstChild as Text,
-      block.querySelector("em")!.firstChild as Text,
+      required(block.querySelector("em")).firstChild as Text,
     ];
     rangeFor(before, 5, inside, 3);
 
@@ -508,7 +971,7 @@ describe("setInlineTextLink", () => {
       'Read <em class="pill"><a href="https://example.com">the</a> docs</em> now',
     );
 
-    rangeFor(block.querySelector("a")!.firstChild as Text, 0);
+    rangeFor(required(block.querySelector("a")).firstChild as Text, 0);
     setInlineTextLink(block, null);
     expect(block.innerHTML).toBe('Read <em class="pill">the docs</em> now');
   });
@@ -518,7 +981,7 @@ describe("setInlineTextLink", () => {
     block.innerHTML =
       '<a href="https://old.test" style="color: green">2026 sustainability report</a>';
     document.body.replaceChildren(block);
-    const text = block.querySelector("a")!.firstChild as Text;
+    const text = required(block.querySelector("a")).firstChild as Text;
     rangeFor(text, 5, text, 19);
 
     setInlineTextLink(block, "https://new.test");
@@ -586,8 +1049,14 @@ describe("normalizeSlideClipboardHtml", () => {
     const list = normalizeSlideClipboardHtml(
       '<b style="font-weight:normal" id="docs-internal-guid-x"><ul><li><p>Item A</p></li><li><p>Item B</p></li></ul></b>',
     );
-    const paragraphs = new DOMParser().parseFromString(docs!, "text/html");
-    const listDoc = new DOMParser().parseFromString(list!, "text/html");
+    const paragraphs = new DOMParser().parseFromString(
+      required(docs),
+      "text/html",
+    );
+    const listDoc = new DOMParser().parseFromString(
+      required(list),
+      "text/html",
+    );
 
     expect(
       Array.from(paragraphs.querySelectorAll("p")).map((p) => p.textContent),
@@ -604,7 +1073,7 @@ describe("normalizeSlideClipboardHtml", () => {
     const html = normalizeSlideClipboardHtml(
       '<html xmlns:o="urn:schemas-microsoft-com:office:office"><body><!--StartFragment--><p class="MsoListParagraph" style="text-indent:-.25in;mso-list:l0 level1 lfo1"><![if !supportLists]><span style="font-family:Symbol"><span style="mso-list:Ignore">·<span style="font:7.0pt &quot;Times New Roman&quot;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span></span></span><![endif]>Word item<o:p></o:p></p><!--EndFragment--></body></html>',
     );
-    const doc = new DOMParser().parseFromString(html!, "text/html");
+    const doc = new DOMParser().parseFromString(required(html), "text/html");
 
     expect(doc.body.textContent).toBe("Word item");
     expect(doc.body.textContent).not.toContain("·");
@@ -632,21 +1101,26 @@ describe("review round 3", () => {
     const block = editable(
       '<span id="u" style="text-decoration-line: underline; text-decoration-style: wavy; text-decoration-color: red;">Hello world</span>',
     );
-    const text = block.querySelector("#u")!.firstChild as Text;
+    const text = required(block.querySelector("#u")).firstChild as Text;
     rangeFor(text, 6, text, 11);
     toggleInlineTextFormat(block, "underline");
-    const world = Array.from(block.querySelectorAll("*"))
-      .flatMap((element) => Array.from(element.childNodes))
-      .find(
-        (node): node is Text => node instanceof Text && node.data === "world",
-      )!;
-    const hello = Array.from(block.querySelectorAll("*"))
-      .flatMap((element) => Array.from(element.childNodes))
-      .find(
-        (node): node is Text => node instanceof Text && node.data === "Hello ",
-      )!;
+    const world = required(
+      Array.from(block.querySelectorAll("*"))
+        .flatMap((element) => Array.from(element.childNodes))
+        .find(
+          (node): node is Text => node instanceof Text && node.data === "world",
+        ),
+    );
+    const hello = required(
+      Array.from(block.querySelectorAll("*"))
+        .flatMap((element) => Array.from(element.childNodes))
+        .find(
+          (node): node is Text =>
+            node instanceof Text && node.data === "Hello ",
+        ),
+    );
     expect(drawsLine(world, block, "underline")).toBeNull();
-    const kept = drawsLine(hello, block, "underline")!;
+    const kept = required(drawsLine(hello, block, "underline"));
     expect(kept).not.toBeNull();
     expect(getComputedStyle(kept).textDecorationStyle).toBe("wavy");
     expect(getComputedStyle(kept).textDecorationColor).toBe("red");
@@ -658,17 +1132,17 @@ describe("review round 3", () => {
     const block = editable(
       '<span id="s" style="text-decoration-line: line-through; text-decoration-style: wavy; text-decoration-color: red;">Hello world</span>',
     );
-    const text = block.querySelector("#s")!.firstChild as Text;
+    const text = required(block.querySelector("#s")).firstChild as Text;
     rangeFor(text, 6, text, 11);
     toggleInlineTextFormat(block, "strike");
     const textNodes = Array.from(block.querySelectorAll("*"))
       .flatMap((element) => Array.from(element.childNodes))
       .filter((node): node is Text => node instanceof Text);
-    const hello = textNodes.find((node) => node.data === "Hello ")!;
-    const world = textNodes.find((node) => node.data === "world")!;
+    const hello = required(textNodes.find((node) => node.data === "Hello "));
+    const world = required(textNodes.find((node) => node.data === "world"));
 
     expect(drawsLine(world, block, "line-through")).toBeNull();
-    const kept = drawsLine(hello, block, "line-through")!;
+    const kept = required(drawsLine(hello, block, "line-through"));
     expect(kept).not.toBeNull();
     expect(getComputedStyle(kept).textDecorationStyle).toBe("wavy");
     expect(getComputedStyle(kept).textDecorationColor).toBe("red");

@@ -1,5 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconBook2,
@@ -13,7 +13,7 @@ import {
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import {
@@ -83,6 +83,7 @@ export default function SearchRoute() {
   const t = useT();
   const [params, setParams] = useSearchParams();
   const query = params.get("q") ?? "";
+  const captureId = params.get("captureId");
   const type = params.get("type") ?? "all";
   const provider = params.get("provider") ?? "all";
   const status = params.get("status") ?? "all";
@@ -334,7 +335,87 @@ export default function SearchRoute() {
           />
         )}
       </div>
+      {captureId ? (
+        <CaptureDetails
+          key={captureId}
+          captureId={captureId}
+          onClose={() => updateParam("captureId", "")}
+        />
+      ) : null}
     </div>
+  );
+}
+
+type CaptureResponse = {
+  capture: {
+    title: string;
+    content: string;
+    withheldPassages?: number | null;
+  } | null;
+};
+
+function CaptureDetails({
+  captureId,
+  onClose,
+}: {
+  captureId: string;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const scope = useId();
+  const [readSucceeded, setReadSucceeded] = useState(false);
+  const captureQuery = useActionQuery<CaptureResponse>(
+    "get-capture",
+    { id: captureId },
+    {
+      queryKeyScope: ["capture-view", scope],
+      batchRefetches: false,
+      refetchOnMount: "always",
+      staleTime: 0,
+      retry: false,
+      onServerResult: () => setReadSucceeded(true),
+    },
+  );
+  const pending =
+    captureQuery.isFetching || (!readSucceeded && !captureQuery.isError);
+  const capture =
+    !pending && !captureQuery.isError ? captureQuery.data?.capture : null;
+  return (
+    <Sheet
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <SheetContent className="flex w-full max-w-full flex-col overflow-y-auto p-0 sm:max-w-xl">
+        <SheetHeader className="border-b border-border px-5 py-5 pr-12">
+          <SheetTitle className="text-start">
+            {capture?.title ?? t("searchPage.details")}
+          </SheetTitle>
+          <SheetDescription className="sr-only">
+            {t("searchPage.details")}
+          </SheetDescription>
+        </SheetHeader>
+        <div className="px-5 py-5">
+          {pending ? (
+            <LoadingRows rows={3} />
+          ) : captureQuery.isError ? (
+            <p role="alert">{t("ops.failed")}</p>
+          ) : capture ? (
+            <>
+              <IncompleteTranscriptWarning
+                withheldPassages={capture.withheldPassages}
+              />
+              <p className="whitespace-pre-wrap text-sm leading-6">
+                {capture.content}
+              </p>
+            </>
+          ) : (
+            <p>{t("searchPage.notAvailable")}</p>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -346,6 +427,8 @@ function SearchResultRow({
   query: string;
 }) {
   const t = useT();
+  const format = useFormatters();
+  const [params] = useSearchParams();
   const body = result.snippet ?? result.summary ?? t("searchPage.noExcerpt");
   const whyMatched = explainMatch(result, query);
   const sourceLabel =
@@ -354,7 +437,10 @@ function SearchResultRow({
     result.sourceProvider ??
     result.provider ??
     t("searchPage.companyKnowledge");
-  const internalHref = internalResultHref(result);
+  const internalHref =
+    result.type === "capture"
+      ? `?${new URLSearchParams([...params.entries()].filter(([key]) => key !== "captureId").concat([["captureId", result.id]])).toString()}`
+      : internalResultHref(result);
   const sourceUrl =
     result.url ?? result.sourceUrl ?? result.citation?.sourceUrl ?? null;
   const sourceProvider =
@@ -414,6 +500,16 @@ function SearchResultRow({
           <span className="truncate">
             {t("searchPage.citation")}: {sourceLabel}
           </span>
+          {result.type === "capture" &&
+          result.citation?.capturedAt &&
+          !Number.isNaN(Date.parse(result.citation.capturedAt)) ? (
+            <time dateTime={result.citation.capturedAt}>
+              {format.formatDate(result.citation.capturedAt, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </time>
+          ) : null}
           {result.updatedAt ? (
             <span>
               {t("searchPage.updated")} {result.updatedAt}
@@ -421,7 +517,9 @@ function SearchResultRow({
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <SearchResultDetails result={result} query={query} />
+          {result.type !== "capture" ? (
+            <SearchResultDetails result={result} query={query} />
+          ) : null}
           {internalHref ? (
             <Button asChild variant="ghost" size="sm">
               <Link to={internalHref}>{t("searchPage.viewInBrain")}</Link>
@@ -449,6 +547,7 @@ function SearchResultDetails({
   query: string;
 }) {
   const t = useT();
+  const format = useFormatters();
   const body = result.snippet ?? result.summary ?? t("searchPage.noExcerpt");
   const summary = result.summary ?? result.snippet ?? null;
   const sourceProvider =
@@ -520,6 +619,18 @@ function SearchResultDetails({
               <IconQuote className="size-4" />
               {t("searchPage.citationQuote")}
             </h3>
+            {result.citation?.capturedAt &&
+            !Number.isNaN(Date.parse(result.citation.capturedAt)) ? (
+              <time
+                className="text-xs text-muted-foreground"
+                dateTime={result.citation.capturedAt}
+              >
+                {format.formatDate(result.citation.capturedAt, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
+              </time>
+            ) : null}
             {quote ? (
               <blockquote className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
                 {quote}
@@ -836,6 +947,8 @@ function filterResults(
 }
 
 function internalResultHref(result: SearchEverythingResult) {
+  if (result.type === "capture")
+    return `/search?captureId=${encodeURIComponent(result.id)}`;
   if (result.type === "knowledge") return `/knowledge?knowledgeId=${result.id}`;
   if (result.type === "source") return `/sources?sourceId=${result.id}`;
   return null;
@@ -908,14 +1021,16 @@ function formatScore(score: number) {
   return Math.round(score).toString();
 }
 
+const DATE_TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  return DATE_TIME_FORMAT.format(date);
 }
 
 function displayLabel(value: string) {

@@ -33,7 +33,7 @@ vi.mock("../db/ddl-guard.js", () => ({
 const { ensureRunTables, listRecentRunsForOwner } =
   await import("./run-store.js");
 beforeAll(async () => {
-  db = await createTestPglite();
+  db = await createTestPglite({ reuseEmptyBootstrap: true });
   await ensureRunTables();
   for (const [id, owner, app] of [
     ["local", "a@example.test", "app-a"],

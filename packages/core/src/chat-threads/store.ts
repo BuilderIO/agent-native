@@ -40,7 +40,7 @@ import {
   projectRootAssistantMessages,
   threadMessageRecord,
 } from "../agent/thread-message-projection.js";
-import { getDbExec, type DbExec } from "../db/client.js";
+import { getDbExec, withDbExec, type DbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureColumnExists,
@@ -1434,6 +1434,26 @@ const THREAD_COLUMNS = `id, owner_email, title, preview, thread_data, message_co
 // `getThread`) still returns the full blob.
 const SUMMARY_COLUMNS = `id, owner_email, title, preview, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at, source_platform, source_app_id, source_url, org_id, visibility, edit_root_id`;
 
+const threadSharingPolicies = new Map<
+  string,
+  (threadId: string) => Promise<boolean>
+>();
+
+export function registerChatThreadSharingPolicy(
+  appId: string,
+  permitsSharing: (threadId: string) => Promise<boolean>,
+): void {
+  threadSharingPolicies.set(appId, permitsSharing);
+}
+
+async function permitsThreadSharing(
+  id: string,
+  appId?: string | null,
+): Promise<boolean> {
+  const permits = appId ? threadSharingPolicies.get(appId) : undefined;
+  return permits ? permits(id) : true;
+}
+
 export function registerChatThreadsShareable(): void {
   registerShareableResource({
     type: "chat_thread",
@@ -1444,6 +1464,13 @@ export function registerChatThreadsShareable(): void {
     getResourcePath: (thread) =>
       `/?thread=${encodeURIComponent(String(thread.id ?? ""))}`,
     getDb: () => getChatThreadsDb(),
+    assertSharingChange: async ({ resource, change }) => {
+      if (change.kind === "visibility" && change.visibility === "private")
+        return;
+      if (!(await permitsThreadSharing(resource.id, resource.sourceAppId))) {
+        throw new ForbiddenError("This app manages conversation sharing.");
+      }
+    },
     allowPublic: false,
     confirmOrgVisibility: true,
     ownerAccessIgnoresOrg: true,
@@ -1659,6 +1686,12 @@ export async function forkThread(
   if (opts?.forkPurpose === "edit" && !snapshot?.beforeMessageId)
     throw new ForkThreadBoundaryError();
   let source = await getThread(sourceId);
+  if (
+    source &&
+    !(await permitsThreadSharing(source.id, source.source?.appId))
+  ) {
+    throw new ForbiddenError("This app manages conversation sharing.");
+  }
   // Exclusive forks are cut from authorized durable history, never a replacement snapshot.
   if (snapshot?.beforeMessageId && !source) return null;
   if (!source) {
@@ -1842,6 +1875,11 @@ export interface ListThreadsOptions {
   scope?: { type: string; id: string };
   /** When true, returns only threads with no scope (general chats). */
   unscopedOnly?: boolean;
+  /**
+   * Scope types to leave out when `scope` is not given, such as the chats a
+   * quiet background run makes. Asking for one of those scopes still lists it.
+   */
+  excludeScopeTypes?: readonly string[];
   orgId?: string | null;
   /**
    * Include archived threads in the results. Defaults to false: archived
@@ -2005,6 +2043,8 @@ export async function listThreads(
     args.push(opts.scope.type, opts.scope.id);
   } else if (opts.unscopedOnly) {
     filters.push(`scope_type IS NULL`);
+  } else {
+    pushExcludedScopeTypes(filters, args, opts.excludeScopeTypes);
   }
   if (opts.collapseEdits) {
     filters.push(
@@ -2024,6 +2064,19 @@ export async function listThreads(
     .filter((r): r is ChatThreadListRow => r !== null);
 }
 
+function pushExcludedScopeTypes(
+  filters: string[],
+  args: (string | number)[],
+  scopeTypes: readonly string[] | undefined,
+): void {
+  const types = [...new Set(scopeTypes ?? [])].filter(Boolean);
+  if (types.length === 0) return;
+  filters.push(
+    `(scope_type IS NULL OR scope_type NOT IN (${types.map(() => "?").join(", ")}))`,
+  );
+  args.push(...types);
+}
+
 function escapeLike(s: string): string {
   return s.replace(/[!%_]/g, (match) => `!${match}`);
 }
@@ -2034,6 +2087,7 @@ export async function searchThreads(
   limit = 50,
   options: {
     scope?: { type: string; id: string };
+    excludeScopeTypes?: readonly string[];
     orgId?: string | null;
     collapseEdits?: boolean;
     /** See `ListThreadsOptions.includeArchived` — defaults to false. */
@@ -2102,6 +2156,8 @@ export async function searchThreads(
   if (options.scope) {
     filters.push(`scope_type = ? AND scope_id = ?`);
     args.push(options.scope.type, options.scope.id);
+  } else {
+    pushExcludedScopeTypes(filters, args, options.excludeScopeTypes);
   }
   if (options.collapseEdits) {
     filters.push(
@@ -2497,6 +2553,7 @@ export async function setThreadArchived(
 }
 
 export interface UpdateThreadDataOptions {
+  transaction?: DbExec;
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
   preserveCurrentMetadata?: boolean;
@@ -2752,17 +2809,21 @@ export async function updateThreadData(
         return result;
       };
       const fence = currentExecutionFence();
-      const result = fence
-        ? await withFencedExecutionWrite(write, { threadId: id })
-        : options.beforeUpdate || options.afterUpdate
-          ? client.transaction
-            ? await client.transaction(write)
-            : (() => {
-                throw new Error(
-                  "Atomic thread-data callbacks require transaction support",
-                );
-              })()
-          : await withFencedExecutionWrite(write, { threadId: id });
+      const result = options.transaction
+        ? await withDbExec(options.transaction, () =>
+            withFencedExecutionWrite(write, { threadId: id }),
+          )
+        : fence
+          ? await withFencedExecutionWrite(write, { threadId: id })
+          : options.beforeUpdate || options.afterUpdate
+            ? client.transaction
+              ? await client.transaction(write)
+              : (() => {
+                  throw new Error(
+                    "Atomic thread-data callbacks require transaction support",
+                  );
+                })()
+            : await withFencedExecutionWrite(write, { threadId: id });
 
       if (beforeUpdateRejected) return false;
 
@@ -2776,6 +2837,7 @@ export async function updateThreadData(
 
       lastConflict = true;
     } catch (error) {
+      if (options.transaction) throw error;
       if (error instanceof QueuedSubmissionAdmissionError) throw error;
       if (error instanceof InlineAttachmentDataNotPersistableError) {
         throw error;
@@ -3293,6 +3355,22 @@ export async function listQueuedSubmissionReceipts(
   );
 }
 
+/**
+ * When the signed server sweep next has a queued submission to drain, as epoch
+ * ms, or `null` when the queue is empty. A receipt with no retry time is due
+ * now and answers `0`.
+ */
+export async function nextQueuedSubmissionDueAt(): Promise<number | null> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT MIN(COALESCE(retry_after, 0)) AS due_at
+          FROM agent_chat_submission_inbox WHERE state = 'queued'`,
+    args: [],
+  });
+  const dueAt = (rows[0] as { due_at?: unknown } | undefined)?.due_at;
+  return dueAt === null || dueAt === undefined ? null : Number(dueAt);
+}
+
 /** Records a run admission in the same transaction that persists its user message. */
 export async function markQueuedSubmissionSubmitted(
   tx: DbExec,
@@ -3775,7 +3853,7 @@ function queuedMessageMatchesReceipt(
 export async function mutateThreadQueuedMessages(
   threadId: string,
   mutation: ThreadQueuedMessageMutation,
-  options: { actor?: QueuedSubmissionActor } = {},
+  options: { actor?: QueuedSubmissionActor; transaction?: DbExec } = {},
 ): Promise<ThreadQueuedMessageMutationResult | null> {
   if (mutation.type === "claimFromInbox") {
     const message = mutation.receipt.message;
@@ -3833,7 +3911,7 @@ export async function mutateThreadQueuedMessages(
     );
   }
 
-  return withThreadDataLock(threadId, async () => {
+  const mutate = async () => {
     let result: ThreadQueuedMessageMutationResult | undefined;
     let receiptUnavailable = false;
     let retryDeferred = false;
@@ -3847,6 +3925,7 @@ export async function mutateThreadQueuedMessages(
     try {
       // raw-sql-ok: updateThreadData binds the thread values in its SQL args.
       await updateThreadData(threadId, "{}", "", "", 0, {
+        ...(options.transaction ? { transaction: options.transaction } : {}),
         preserveExistingQueuedMessages: false,
         preserveCurrentMetadata: true,
         transformThreadData: (threadData) => {
@@ -4758,7 +4837,8 @@ export async function mutateThreadQueuedMessages(
       throw error;
     }
     return result ?? null;
-  });
+  };
+  return options.transaction ? mutate() : withThreadDataLock(threadId, mutate);
 }
 
 const THREAD_SHARE_DATA_KEY = "_share";
@@ -4853,6 +4933,8 @@ export async function createThreadShareLink(
     if (options.ownerEmail && thread.ownerEmail !== options.ownerEmail) {
       return null;
     }
+    if (!(await permitsThreadSharing(thread.id, thread.source?.appId)))
+      return null;
 
     const now = Date.now();
     const token = generateShareToken();
@@ -4965,7 +5047,8 @@ export async function getThreadByShareToken(
   });
   for (const row of indexed.rows) {
     const thread = validate(row);
-    if (thread) return thread;
+    if (thread && (await permitsThreadSharing(thread.id, thread.source?.appId)))
+      return thread;
   }
 
   // Legacy fallback: shares created before the share_token_hash column
@@ -4978,7 +5061,10 @@ export async function getThreadByShareToken(
   });
   for (const row of legacy.rows) {
     const thread = validate(row);
-    if (thread) {
+    if (
+      thread &&
+      (await permitsThreadSharing(thread.id, thread.source?.appId))
+    ) {
       await setThreadShareTokenHashColumn(
         thread.id,
         thread.ownerEmail,
@@ -5008,6 +5094,11 @@ export async function grantThreadUserShare(
   const normalizedEmail = userEmail.trim().toLowerCase();
   if (!threadId || !normalizedEmail.includes("@")) return;
   await ensureTable();
+  const thread = await getThread(threadId);
+  if (!thread) return;
+  if (!(await permitsThreadSharing(thread.id, thread.source?.appId))) {
+    throw new ForbiddenError("This app manages conversation sharing.");
+  }
   const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT id, role FROM chat_thread_shares WHERE resource_id = ? AND principal_type = 'user' AND LOWER(principal_id) = ?`,

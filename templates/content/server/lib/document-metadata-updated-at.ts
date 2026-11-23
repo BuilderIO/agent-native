@@ -75,7 +75,10 @@ export async function lockDocumentBodyDatabases(args: DocumentMetadataScope) {
         and(
           eq(schema.contentDatabases.ownerDocumentId, args.documentId),
           eq(schema.contentDatabases.ownerEmail, args.ownerEmail),
-          isNull(schema.contentDatabases.deletedAt),
+          or(
+            isNull(schema.contentDatabases.deletedAt),
+            isNull(schema.documents.trashedAt),
+          ),
         ),
       ),
     )

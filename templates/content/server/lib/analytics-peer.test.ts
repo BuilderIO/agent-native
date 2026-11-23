@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +11,15 @@ vi.mock("@agent-native/core/a2a", () => ({
   invokeAgentAction: mocks.invokeAgentAction,
 }));
 
+const discovery = vi.hoisted(() => ({
+  analyticsUrl: "https://analytics.agent-native.com",
+}));
+
+vi.mock("@agent-native/core/server/agent-discovery", () => ({
+  getBuiltinAgents: () => [{ id: "analytics", url: discovery.analyticsUrl }],
+}));
+
+import { resetAppConfigForTests } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -25,8 +34,14 @@ function answer(status: "completed" | "failed", output: string) {
   return { result: { action: "capture-dashboard-panel", status, output } };
 }
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+  resetAppConfigForTests();
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
+  discovery.analyticsUrl = "https://analytics.agent-native.com";
   mocks.resolveA2ACallerAuth.mockResolvedValue({
     userEmail: "editor@example.test",
     orgDomain: "example.test",
@@ -143,5 +158,47 @@ describe("requestAnalytics", () => {
     });
     expect(JSON.stringify(warn.mock.calls)).not.toContain("acme");
     warn.mockRestore();
+  });
+
+  it("asks beta Analytics when Content is served from beta", async () => {
+    vi.stubEnv("APP_URL", "https://beta.content.agent-native.com");
+    resetAppConfigForTests();
+    mocks.invokeAgentAction.mockResolvedValue(
+      answer("completed", JSON.stringify({ value: 3 })),
+    );
+    await requestAnalytics("capture-dashboard-panel", {}, schema, 58_000, null);
+    expect(mocks.invokeAgentAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: "https://beta.analytics.agent-native.com",
+      }),
+    );
+  });
+
+  it("asks the built-in Analytics by name on production and locally", async () => {
+    mocks.invokeAgentAction.mockResolvedValue(
+      answer("completed", JSON.stringify({ value: 3 })),
+    );
+    for (const lane of [
+      {
+        content: "https://content.agent-native.com",
+        analytics: "https://analytics.agent-native.com",
+      },
+      { content: "http://localhost:8083", analytics: "http://localhost:8084" },
+    ]) {
+      vi.stubEnv("APP_URL", lane.content);
+      resetAppConfigForTests();
+      discovery.analyticsUrl = lane.analytics;
+      await requestAnalytics(
+        "capture-dashboard-panel",
+        {},
+        schema,
+        58_000,
+        null,
+      );
+    }
+    expect(mocks.invokeAgentAction).toHaveBeenCalledTimes(2);
+    expect(
+      mocks.invokeAgentAction.mock.calls.map((call) => call[0]?.target),
+    ).toEqual(["analytics", "analytics"]);
   });
 });

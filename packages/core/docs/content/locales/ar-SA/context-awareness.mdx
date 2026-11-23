@@ -363,6 +363,18 @@ await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
 باستخدام `navigate(path, { replace: true, flushSync: true })` بدلاً من تغليفه
 في انتقال العرض بحيث يظل شريط العناوين والصفحة المرئية معًا.
 
+### الوكلاء يُبقون عرض المستخدم كما هو {#agent-keeps-view}
+
+لا تنتقل شاشة المستخدم إلا عندما يطلب رؤية شيء ما. ينطبق هذا على كل وكيل: الدردشة المدمجة، والوكلاء الخارجيين عبر MCP أو WebMCP، والنظراء عبر A2A (`isAgentCaller(ctx)` من `@agent-native/core`).
+
+- القراءة لا تنقل الشاشة أبدًا. يُرفض أي إجراء للقراءة فقط يكتب `navigate` أثناء استدعاء وكيل في مخزن حالة التطبيق.
+- الكتابة لا تحرّك العرض افتراضيًا. يُرفض أي إجراء كتابة من وكيل يكتب `navigate` دون `intent: "open"`؛ استدعِ `navigateAfterWrite(navigation, { ctx, intent })` من `@agent-native/core/application-state` حتى يتخطّى الوكيل الانتقال بسلاسة ما لم تكن `intent` هي `"open"`، أو اضبط `allowsAgentNavigation: true` على إجراء وظيفته فتح واجهة.
+- فتح عنصر واحد يتطلب `intent: "open"`. يفرض `createNavigateAction()` ومخزن حالة التطبيق ذلك افتراضيًا لحقول معرّف العنصر (`id`، `*Id`) ومسارات التفاصيل دون كود خاص بكل تطبيق. مرّر `isDetailView` إلى `createNavigateAction()` فقط عند الحاجة إلى مطابقة مخصصة.
+
+```ts
+export const navigate = createNavigateAction();
+```
+
 ## خطاف useNavigationState {#use-navigation-state}
 
 `useNavigationState` هو **رابط تطبيقك، وليس استيراد إطار عمل.** يشحن كل قالب واحدًا في `app/hooks/use-navigation-state.ts` ويستدعيه مرة واحدة من غلاف التطبيق (`root.tsx`). وهو المكان الوحيد الذي يربط الأسلاك في كلا الاتجاهين:

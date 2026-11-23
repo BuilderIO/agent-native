@@ -280,6 +280,13 @@ present; legacy results without a handle must reuse the same `app` and `taskId`.
 Never resubmit `ask_app` to recover, because submission can duplicate work.
 Permanent authentication, not-found, and protocol failures remain errors.
 
+A `taskHandle` expires an hour after `ask_app` returns it. When
+`ask_app_status` rejects a handle as invalid or expired, keep polling the same
+task with the `app` and `taskId` from the `ask_app` result and no
+`taskHandle`; the error message says so too. Without the handle the status
+call finds the app through discovery again, so it works only while the app is
+still discoverable.
+
 ## Authentication {#authentication}
 
 The MCP endpoint supports standard remote MCP OAuth plus the existing bearer-token fallback:

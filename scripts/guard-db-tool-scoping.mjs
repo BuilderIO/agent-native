@@ -38,10 +38,14 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "actor-scoped retry receipts; access is rechecked through database setup actions",
   "content:content_database_builder_blob_cleanup":
     "private payload cleanup outbox processed by Content source actions",
+  "content:content_database_builder_autosaves":
+    "per-article automatic save state for a Builder source; the autosave actions check the row page's access before reading or changing it",
   "content:document_property_value_tombstones":
     "property generation bookkeeping written only by a database trigger; holds no content",
   "content:content_private_media_references":
     "page-to-image links; the private image route checks the page's access before using one",
+  "content:content_analytics_chart_citations":
+    "page-to-dashboard links; list-analytics-chart-citations checks each page's access and saved body before returning it",
   "content:content_webhook_deliveries":
     "webhook delivery outbox sent by the Content webhook sweep; list-content-webhooks shows delivery status to admins",
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",

@@ -23,6 +23,7 @@ export function DocumentPagePanel({
   spacerRef,
   headingRef,
   agentSlotRef,
+  agentHeadSlotRef,
   headToolsRef,
   panelId = DOCUMENT_PAGE_PANEL_ID,
   onClose,
@@ -37,6 +38,7 @@ export function DocumentPagePanel({
   spacerRef: RefObject<HTMLDivElement | null>;
   headingRef: RefObject<HTMLHeadingElement | null>;
   agentSlotRef?: RefObject<HTMLDivElement | null> | undefined;
+  agentHeadSlotRef?: RefObject<HTMLDivElement | null> | undefined;
   /** Where a tab puts its own tools, between the title and Close. */
   headToolsRef?: Ref<HTMLDivElement> | undefined;
   panelId?: string | undefined;
@@ -51,6 +53,7 @@ export function DocumentPagePanel({
       : tab === "info"
         ? t("editor.toolbar.info")
         : t("comments.discussion");
+  const agentHead = tab === "agent" && Boolean(agentHeadSlotRef);
 
   return (
     <>
@@ -108,14 +111,29 @@ export function DocumentPagePanel({
           <h2
             ref={headingRef}
             tabIndex={-1}
-            className="min-w-0 truncate text-sm font-semibold outline-none"
+            className={cn(
+              "min-w-0 truncate text-sm font-semibold outline-none",
+              agentHead && "sr-only",
+            )}
           >
             {title}
           </h2>
-          {/* Always there, so Close stays put whichever tab is open. */}
+          {agentHeadSlotRef ? (
+            <div
+              ref={agentHeadSlotRef}
+              className={cn(
+                "-ms-1.5 min-w-0 flex-1 items-center",
+                agentHead ? "flex" : "hidden",
+              )}
+              data-document-panel-agent-head
+            />
+          ) : null}
           <div
             ref={headToolsRef}
-            className="flex min-w-0 flex-1 items-center justify-end gap-1"
+            className={cn(
+              "min-w-0 flex-1 items-center justify-end gap-1",
+              agentHead ? "hidden" : "flex",
+            )}
             data-document-panel-head-tools
           />
           <button

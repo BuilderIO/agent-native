@@ -56,6 +56,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "mail.actions.moveToTrash": "Move to Trash",
       "mail.actions.markRead": "Mark read",
       "mail.actions.markUnread": "Mark unread",
+      "mail.actions.labelAs": "Label as",
+      "mail.actions.moveTo": "Move to",
       "mail.selection.read": "Read",
       "mail.mobileActions.star": "Star",
       "mail.mobileActions.replyAll": "Reply All",
@@ -368,6 +370,8 @@ describe("CommandPalette Search action", () => {
     expectShortcut("Search in conversation...", "⌘ F / Ctrl F");
     expectShortcut("Toggle read state", "U");
     expectShortcut("Move to Trash", "# / D");
+    expectShortcut("Label as", "L");
+    expectShortcut("Move to", "V");
     expectShortcut("Extend selection", "Shift+J/K · Shift+↑/↓");
     expectShortcut("Select all conversations", "⌘ A / Ctrl A");
     expectShortcut("Cycle tabs", "Tab / Shift+Tab");

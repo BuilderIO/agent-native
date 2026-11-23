@@ -1,0 +1,53 @@
+Changed files:
+  components/ui/sonner.tsx  (shim)
+  root.tsx  (toast 1)
+  save.ts  (toast 14)
+
+Sites transformed:
+  button     0
+  badge      0
+  input      0
+  text-area  0
+  skeleton   0
+  spinner    0
+  toast      15
+
+Shims:
+  components/ui/sonner.tsx: swapped to the new module
+
+Not transformed (11 sites), by reason:
+  [toast] action/cancel must close the toast by id, and the call's result isn't a statement, a variable or an `id` option (1)
+    unsupported.tsx:12
+  [toast] first argument isn't a plain message expression (1)
+    unsupported.tsx:9
+  [toast] imports `ExternalToast`, which the new module doesn't have (1)
+    blocked.ts:1
+  [toast] options `className`, `icon` (1)
+    unsupported.tsx:8
+  [toast] options aren't an object literal (1)
+    blocked.ts:4
+  [toast] toast.custom (1)
+    unsupported.tsx:7
+  [toast] toast.error used as a value, not called (1)
+    unsupported.tsx:10
+  [toast] toast.error used as a value, not called (a test reading sonner's mock: assert on toast.add instead) (1)
+    __tests__/asserts.ts:5
+  [toast] toast.promise (1)
+    unsupported.tsx:6
+  [toast] toast.success used as a value, not called (1)
+    unsupported.tsx:10
+  [toast] toast[…] picks its method at runtime (1)
+    unsupported.tsx:16
+
+Transformed, needs a look (2 sites), by reason:
+  [toast] dropped position: toasts now sit in the bottom-right viewport (2)
+    root.tsx:7
+    save.ts:17
+  [toast] toolkit and core still raise sonner toasts: keep a sonner Toaster mounted beside this one until they move (1)
+    root.tsx:7
+
+Test mocks of a legacy module (2):
+  [toast] mocks "@/components/ui/sonner", which now re-exports @agent-native/toolkit/ui/base-ui/toast: the mock must match it (1)
+    __tests__/save-mocks.ts:4
+  [toast] mocks "sonner"; code that moved imports @agent-native/toolkit/ui/base-ui/toast instead (1)
+    __tests__/save-mocks.ts:3

@@ -410,6 +410,10 @@ export {
 } from "./embedded.js";
 export {
   createThread,
+  registerChatThreadSharingPolicy,
+  getQueuedSubmissionReceipt,
+  mutateThreadQueuedMessages,
+  QueuedSubmissionAdmissionError,
   getThread,
   listThreads,
   searchThreads,
@@ -427,6 +431,7 @@ export {
   type ChatThreadListRow,
   type ListThreadsOptions,
 } from "../chat-threads/store.js";
+export { isAgentChatAiSetupReady } from "./agent-chat-ai-setup.js";
 export {
   createResourcesPlugin,
   defaultResourcesPlugin,
@@ -612,8 +617,10 @@ export {
   getRequestRunContext,
   getCredentialContext,
   isIntegrationCallerRequest,
+  normalizeViewportMode,
   type RequestContext,
   type RequestRunContext,
+  type ViewportMode,
 } from "./request-context.js";
 export {
   loadFirstRunBuilderCreditsV2Assignment,
@@ -694,6 +701,7 @@ export {
   NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
   logOAuthStateDecodeFailure,
   resolveOAuthOwner,
+  oauthCallbackOwner,
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
@@ -988,6 +996,7 @@ export {
   runRecurringSweepHandlers,
   type RecurringSweepContext,
   type RecurringSweepHandler,
+  type RecurringSweepHandlerOptions,
 } from "../jobs/sweep-hooks.js";
 export {
   hasJobRunner,

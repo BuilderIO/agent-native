@@ -36,6 +36,11 @@ export default defineAction({
       .optional(),
     offset: z.coerce.number().int().min(0).optional(),
     tableQuery: contentDatabaseTableQuerySchema,
+    rowDocumentId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Read only the row whose page is this document ID"),
     navigation: z
       .object({
         parentId: z
@@ -64,6 +69,20 @@ export default defineAction({
           .describe(
             "Expanded document IDs, most important first; each one this read returns comes back with its first child page in branches, and branchesTruncated is true when the cap left any out",
           ),
+        group: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "A group ID from a grouped top-level read's groups, with parentId null and that group's cursor; reads the group's next page",
+          ),
+        locate: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "A document ID, with parentId null and no cursor or group; returns the IDs of the groups that list it in locatedGroupIds, and no rows",
+          ),
       })
       .optional()
       .describe(
@@ -86,6 +105,7 @@ export default defineAction({
       limit,
       offset,
       tableQuery,
+      rowDocumentId,
       navigation,
       compactRows,
     },
@@ -95,7 +115,12 @@ export default defineAction({
     | ContentDatabaseUnavailableResponse
     | ContentDatabaseNavigationPageResponse
   > => {
-    if (navigation && (offset !== undefined || tableQuery !== undefined)) {
+    if (
+      navigation &&
+      (offset !== undefined ||
+        tableQuery !== undefined ||
+        rowDocumentId !== undefined)
+    ) {
       fail("Files navigation does not support offset or table constraints.", {
         errorCode: "unsupported_navigation_query",
         statusCode: 400,
@@ -140,6 +165,8 @@ export default defineAction({
         limit: limit ?? 20,
         cursor: navigation.cursor,
         expand: navigation.expand,
+        group: navigation.group,
+        locate: navigation.locate,
       });
     }
 
@@ -155,6 +182,7 @@ export default defineAction({
       limit: limit ?? 100,
       offset,
       tableQuery,
+      ...(rowDocumentId ? { documentIds: [rowDocumentId] } : {}),
       database,
     });
     const rows = {

@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   resolveCredential: vi.fn(),
   resolveWorkspaceConnectionCredentialForApp: vi.fn(),
   resolveOrgIdForEmail: vi.fn(),
+  isOrgMember: vi.fn(),
   select: vi.fn(),
 }));
 
@@ -14,6 +15,7 @@ vi.mock("@agent-native/core/credentials", () => ({
 vi.mock("@agent-native/core/org", () => ({
   orgMembers: { email: "email", orgId: "org_id" },
   resolveOrgIdForEmail: mocks.resolveOrgIdForEmail,
+  isOrgMember: mocks.isOrgMember,
 }));
 vi.mock("@agent-native/core/secrets", () => ({
   readAppSecret: mocks.readAppSecret,
@@ -101,11 +103,32 @@ describe("resolveConnectorSecret", () => {
       value: undefined,
     });
     mocks.resolveOrgIdForEmail.mockResolvedValue("active-org");
+    mocks.isOrgMember.mockResolvedValue(true);
     mocks.select.mockReturnValue({
       from: () => ({
         where: async () => [{ orgId: "active-org" }],
       }),
     });
+  });
+
+  it("skips the designated vault organization when the user is not a member", async () => {
+    vi.stubEnv("AGENT_VAULT_ORG_ID", "dispatch-org");
+    mocks.isOrgMember.mockResolvedValue(false);
+    mocks.readAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "workspace" && scopeId === "dispatch-org"
+        ? { value: "dispatch-value" }
+        : null,
+    );
+
+    await expect(
+      resolveConnectorSecret("FACTORY_TEST_CONNECTOR_KEY", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBeUndefined();
+    expect(mocks.isOrgMember).toHaveBeenCalledWith("dispatch-org", userEmail);
+    expect(mocks.readAppSecret).not.toHaveBeenCalledWith(
+      expect.objectContaining({ scopeId: "dispatch-org" }),
+    );
   });
 
   it("prefers the designated Dispatch vault over a deployment fallback", async () => {
@@ -326,6 +349,7 @@ describe("resolveFactoryConnectorReadiness", () => {
       value: undefined,
     });
     mocks.resolveOrgIdForEmail.mockResolvedValue("active-org");
+    mocks.isOrgMember.mockResolvedValue(true);
     mocks.select.mockReturnValue({
       from: () => ({
         where: async () => [{ orgId: "active-org" }],
@@ -486,6 +510,7 @@ describe("a saved key this deployment cannot decrypt", () => {
       value: undefined,
     });
     mocks.resolveOrgIdForEmail.mockResolvedValue("active-org");
+    mocks.isOrgMember.mockResolvedValue(true);
   });
 
   it("is not retried as a vault outage: it names the key, says a person must fix it, and stops the search", async () => {
@@ -612,6 +637,7 @@ describe("credential_source_used tripwire", () => {
       value: undefined,
     });
     mocks.resolveOrgIdForEmail.mockResolvedValue("active-org");
+    mocks.isOrgMember.mockResolvedValue(true);
     mocks.select.mockReturnValue({
       from: () => ({
         where: async () => [{ orgId: "active-org" }],

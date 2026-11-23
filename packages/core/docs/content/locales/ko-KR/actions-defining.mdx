@@ -130,6 +130,13 @@ description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 acti
             "true이면(또는 predicate가 true를 반환하면) 이 action 자신의 쓰기 이후의 실패는 현재 턴의 나머지 동안 도구를 차단하는 대신 모델이 수정하고 재시도할 수 있는 알려진 실패가 됩니다. 어떤 오류 뒤에도 안전하게 다시 실행할 수 있는 action에만 사용하세요. 쓰기 이전의 거부에는 이 옵션이 필요 없습니다. 아래의 재시도 안전 쓰기를 참고하세요.",
         },
         {
+          name: "automatic",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            '사용자 동작 없이 앱이 스스로 하는 쓰기를 표시합니다: 로드 시, 마운트 시, 타이머, 또는 실험과 사용량 기록. 이 action의 action_started, action_completed, action_failed 이벤트는 action_kind가 "write" 대신 "automatic"이 되어 제품 사용 집계에서 빠집니다. predicate를 주면 true를 반환한 호출만 표시됩니다. 분석에만 영향을 줍니다: 쓰기를 숨기려고 readOnly를 설정하지 마세요.',
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,

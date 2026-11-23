@@ -4,6 +4,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assertCommentAiEditsResolve,
+  commentAiEditErrors,
+} from "../server/lib/comment-ai-edits.js";
+import {
   CommentAiOperationError,
   commentThreadDigest,
   completeCommentAiAttempt,
@@ -14,6 +18,7 @@ import {
   updateCommentAiRequest,
   verifyCommentAiAttempt,
 } from "../server/lib/comment-ai.js";
+import { commentAiChangeResource } from "../server/lib/document-change-resource.js";
 import type { CommentAiAppliedChange } from "../shared/comment-ai.js";
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
 import {
@@ -78,14 +83,20 @@ function targetError(kind: "missing" | "ambiguous" | "overlapping") {
 
 export default defineAction({
   description:
-    "Apply exact edits against the latest Page, verify the save, post one receipt, and resolve the source thread. Pass the latest attemptId from get-comment-ai-context. Unrelated edits are tolerated when every target remains unique; true overlap stays open as a typed review conflict.",
+    "Apply exact edits against the latest Page, verify the save, post one receipt, and resolve the source thread. Pass the latest attemptId from get-comment-ai-context. Unrelated edits are tolerated when every target remains unique. A find that is missing, repeated, or overlapping in an unchanged Page is refused with nothing saved, so correct it and call again with the same attemptId; true overlap with a later Page change stays open as a typed review conflict.",
   schema: payloadSchema,
+  errors: commentAiEditErrors,
   run: async (args, ctx) => {
     const request = await requireCommentAiRequest("apply-resolve");
     if (request.status === "resolved") {
       return serializeCommentAiRequest(request);
     }
     const verification = await verifyCommentAiAttempt(request, args.attemptId);
+    assertCommentAiEditsResolve(
+      verification,
+      verification.source.document.content,
+      args.edits,
+    );
     let result = serializeCommentAiRequest(request).result ?? {};
     try {
       const payload = payloadSchema.parse(
@@ -269,4 +280,5 @@ export default defineAction({
       throw typed;
     }
   },
+  changeResource: commentAiChangeResource,
 });

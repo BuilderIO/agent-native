@@ -3,10 +3,42 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-11-18
+## 2026-11-22
 
 ### Fixed
 
+- Saving a journey storyboard's screenshots to a design works again.
+
+## 2026-11-20
+
+### Added
+
+- Content pages can pin a picture of a screen from a design you can open; paste the screen's copied link into the page.
+
+## 2026-11-19
+
+### Improved
+
+- New designs now generate a first draft directly using sensible defaults instead of stopping for intake questions.
+
+### Fixed
+
+- Design no longer fails with an empty response when it can't save a change, and now says plainly when nothing was saved.
+
+## 2026-11-18
+
+### Improved
+
+- Design Systems and Design System Intelligence are removed from Design. Tokens now come only from the design itself, imported token files, and your edits.
+- Every new hosted signup now sets up a Builder account automatically, so AI features are ready on first load.
+- Removed the Design review tools: the accessibility audit, the visual diff panel, and the run-design-audit, apply-a11y-fix, get-design-review and get-design-branch-diff actions. There is no replacement for them.
+- Unexpected errors now show a clearer message.
+
+### Fixed
+
+- Fix a crash in older Design editor tabs after an update
+- Panel settings in older editor tabs now save correctly.
+- The agent now learns why an edit missed when it wrote line breaks as \n or an earlier edit in the same batch already changed the text, so it can fix the edit instead of failing
 - Template suggestions no longer appear for designs that already contain files
 
 ## 2026-11-17
@@ -22,6 +54,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Ambiguous localhost connections now explain how to select the intended bridge.
 - Authored entrance animations play in Design mode as well as Interact mode
 - Double-clicking a board container selects the child under the pointer consistently
+
+### Changed
+
+- Creative context is removed from Design, including the Library, the context picker in the new design popover, and Add to context.
 
 ## 2026-11-16
 
@@ -39,6 +75,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- A left panel an agent opens in the editor now stays open instead of switching back.
 - Applying canvas changes now keeps sent tweaks pending until source verification is acknowledged.
 - Applying pending tweaks preserves the remaining undo history and uses the current design when acknowledging source updates.
 - Fixed Apply handoffs for live edits, tweak tokens, and Interact previews
@@ -189,6 +226,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Fixed the right-click menu failing to open on previews hosted on another origin.
 - Ungrouping cards inside a flex or grid row now puts them back in the row instead of leaving them pinned and breaking the layout.
 
 ## 2026-11-03
@@ -2025,47 +2063,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - Agent settings are clearly labeled Manage agent in the sidebar.
-
-## 2026-07-22
-
-### Added
-
-- Fill a no-token Figma paste's images by dropping the original .fig file — no Figma token or API quota needed.
-
-### Improved
-
-- View-only designs now support layer inspection without edit handles or drag controls
-- Manage agent navigation now uses the connected-nodes icon.
-- Narrow breakpoint previews keep their device labels readable
-- Responsive peers now use a softer selection highlight without resize handles.
-- Rotate selected elements from the canvas context menu with an instant-open menu.
-- View-only designs support layer inspection without edit handles or drag controls
-
-### Fixed
-
-- Imported and pasted frames preserve layout, groups, and clipping; this fixes off-canvas layers and frames that could render as black boxes.
-- Connecting a Figma token now actually fills in a pasted design's images (placeholders were previously left unresolved).
-- Design owners can keep editing their designs after switching workspaces
-- Figma line/arrow vectors and stroked icons now render instead of vanishing — fixed clipping of strokes and zero-size line vectors.
-- Imported and pasted Figma frames preserve more source layout, groups, and clipping; this fixes off-canvas layers and frames that could render as black boxes.
-- Inspector tabs keep their text labels at narrow widths
-- Responsive breakpoint controls stay within narrow sidebars
-- The selection outline now stays attached while moving screens
-
-### Removed
-
-- Removed the Draft status chip from the design editor.
-
-## 2026-07-21
-
-### Improved
-
-- Upload a .fig file alongside a Figma frame link to import only that frame — no API quota needed, embedded images included. API rate-limit errors now suggest clipboard paste or .fig upload as no-quota alternatives.
-
-## 2026-07-20
-
-### Added
-
-- Paste Figma frames directly onto the canvas — no token needed; connect Figma anytime to fill in images.
 
 For the full list of updates, see the [changelog folder](./changelog/).

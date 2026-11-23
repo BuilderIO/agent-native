@@ -54,6 +54,15 @@ How to export designs and generate handoff documentation for developers converti
   per edge and 8,388,608 pixels total. Poll `get-native-local-export` with the
   exact request and tab IDs; only `completed` provides the protected PNG URL.
 
+- **A screen pinned in a Content page**: Content asks Design for a picture of
+  one screen with `capture-design-screen`, and for a design's sharing, screen
+  fingerprints and open comments with `get-design-screen-status`. Both answer
+  only another Agent-Native app's call, made as the signed-in person, and only
+  for designs that person can open; neither is yours to call. To pin a screen
+  in a page, use Content's own `capture-design-screen` with the screen's copied
+  link (`/design/<designId>?screen=<fileId>`). A screen with live native
+  effects can't be pinned; export it with the live editor's PNG path instead.
+
 - **Deploy preview**: `deploy-design-preview` triggers a preview deploy for a
   fusion-backed design branch. It requires the design's source to advertise
   the `deployPreview` capability (fusion tier) and Builder.io to be connected;

@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { ensureReviewTables } from "@agent-native/core/review";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   ForbiddenError,
@@ -17,6 +18,7 @@ import {
   resolvePlanAccessContext,
   resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
+import { deleteMirroredPlanComments } from "../server/lib/plan-comment-mirror.js";
 import { nowIso, writeEvent } from "../server/plans.js";
 
 type CommentRow = {
@@ -158,19 +160,27 @@ export default defineAction({
     }
 
     const deletedCommentIds = commentAndDescendantIds(comments, args.commentId);
-    await db
-      .update(schema.planComments)
-      .set({
-        deletedAt: now,
-        deletedBy: commentRequestEmail,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(schema.planComments.planId, args.planId),
-          inArray(schema.planComments.id, deletedCommentIds),
-        ),
+    await ensureReviewTables();
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.planComments)
+        .set({
+          deletedAt: now,
+          deletedBy: commentRequestEmail,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.planComments.planId, args.planId),
+            inArray(schema.planComments.id, deletedCommentIds),
+          ),
+        );
+      await deleteMirroredPlanComments(
+        args.planId,
+        deletedCommentIds,
+        commentRequestEmail,
       );
+    });
 
     await writeEvent({
       planId: args.planId,
