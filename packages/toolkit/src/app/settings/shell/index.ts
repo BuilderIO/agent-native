@@ -30,6 +30,7 @@ export {
   type CoreSettingsPageId,
   type SettingsPageContext,
   type SettingsPageDefinition,
+  type SchemaSettingsPageDefinition,
   type SettingsPageGroup,
   type SettingsPageIcon,
   type SettingsPageProps,

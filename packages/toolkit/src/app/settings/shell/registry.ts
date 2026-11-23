@@ -1,8 +1,10 @@
 import type { LabStates } from "@agent-native/core/client/labs/use-lab";
 import type { CoreSettingsPageId } from "@agent-native/core/navigation/settings-redirects";
 import type { OrgRole } from "@agent-native/core/org/types";
+import { createElement, lazy } from "react";
 import type { ComponentType, ReactNode } from "react";
 
+import type { SettingsSection } from "../schema.js";
 import type { SettingsBridge } from "./bridge.js";
 import type { SettingsPageIcon } from "./types.js";
 
@@ -109,10 +111,25 @@ export type AppSettingsPageDefinition = Omit<
   group?: "app";
 };
 
+export type SchemaSettingsPageDefinition = Omit<
+  SettingsPageDefinition,
+  "component"
+> & {
+  /** The page's model hook, mounted at the page boundary before skin selection. */
+  sections: (props: SettingsPageProps) => readonly SettingsSection[];
+  component?: never;
+};
+
+const SettingsSections = lazy(() =>
+  import("../SettingsSections.js").then(({ SettingsSections }) => ({
+    default: SettingsSections,
+  })),
+);
+
 const PAGE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function defineSettingsPage(
-  definition: SettingsPageDefinition,
+  definition: SettingsPageDefinition | SchemaSettingsPageDefinition,
 ): SettingsPageDefinition {
   if (!PAGE_ID_PATTERN.test(definition.id)) {
     throw new Error(
@@ -121,6 +138,19 @@ export function defineSettingsPage(
   }
   if (!definition.labelKey && !definition.label) {
     throw new Error(`Settings page ${definition.id} needs a labelKey or label`);
+  }
+  if ("sections" in definition) {
+    const { sections: useSections, ...page } = definition;
+    return Object.freeze({
+      ...page,
+      component: function SchemaSettingsPage(props: SettingsPageProps) {
+        const sections = useSections(props);
+        return createElement(SettingsSections, {
+          sections,
+          pageId: props.pageId,
+        });
+      },
+    });
   }
   return Object.freeze({ ...definition });
 }

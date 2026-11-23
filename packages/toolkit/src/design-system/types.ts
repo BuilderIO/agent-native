@@ -9,6 +9,8 @@ import type {
   RefObject,
 } from "react";
 
+import type { SettingsSectionsProps } from "../app/settings/SettingsSections.js";
+
 export const DESIGN_SYSTEM_CONTRACT_VERSION = 1 as const;
 
 export type DesignSystemIntent = "primary" | "neutral" | "danger";
@@ -341,6 +343,7 @@ export interface TabsComponent {
 }
 
 export interface DesignSystemComponents {
+  SettingsPage?: ComponentType<SettingsSectionsProps>;
   ActionButton: ComponentType<ActionButtonProps>;
   IconButton: ComponentType<IconButtonProps>;
   TextField: ComponentType<TextFieldProps>;

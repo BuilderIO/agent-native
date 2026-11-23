@@ -53,6 +53,7 @@ export function SettingsGroup({
 }
 
 export interface SettingsRowProps {
+  schemaRow?: `settings.${string}`;
   id?: string;
   label: ReactNode;
   description?: ReactNode;
@@ -65,6 +66,7 @@ export interface SettingsRowProps {
 
 export function SettingsRow({
   id,
+  schemaRow,
   label,
   description,
   icon,
@@ -76,6 +78,7 @@ export function SettingsRow({
   return (
     <div
       id={id}
+      data-schema-row={schemaRow}
       className={cn(
         "agent-native-settings-row scroll-mt-16 px-5 py-4 sm:px-6",
         className,

@@ -119,3 +119,23 @@ export {
   type CredentialSaveScope,
 } from "./use-credential-save-scope.js";
 export { ApiKeySettings } from "./ApiKeySettings.js";
+
+export {
+  SettingsSections,
+  HouseSettingsPage,
+  type SettingsSectionsProps,
+} from "./SettingsSections.js";
+export type {
+  Binding,
+  CollectionField,
+  CollectionFieldValue,
+  CollectionRow,
+  Operation,
+  Option,
+  Read,
+  RowAction,
+  SettingsRowDefinition,
+  SettingsRowId,
+  SettingsSection,
+  Summary,
+} from "./schema.js";
