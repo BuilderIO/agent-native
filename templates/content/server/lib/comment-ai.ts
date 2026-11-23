@@ -1465,7 +1465,7 @@ export async function markCommentAiRefreshRequired(
   if (request.attemptCount >= MAX_ATTEMPTS) {
     const exhausted = operationError(
       "refresh_exhausted",
-      "The Page kept changing while AI worked. Review the retained operation before retrying.",
+      "The AI operation reached its attempt limit. Review the retained operation before retrying.",
     );
     await recordConflict(request, attempt, exhausted);
     throw exhausted;

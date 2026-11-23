@@ -154,3 +154,98 @@ it("reports the attempt limit without changing an unavailable retained operation
     beforeComments,
   );
 });
+
+it("persists the attempt-limit message when a Page changes before publication", async () => {
+  const documentId = "attempt-limit-publish-page";
+  const rootId = "attempt-limit-publish-root";
+  const operationId = "22222222-2222-4222-8222-222222222222";
+  const now = new Date().toISOString();
+  await getDb().insert(schema.documents).values({
+    id: documentId,
+    ownerEmail: OWNER,
+    title: "Attempt limit publish page",
+    content: "Alpha one.",
+    bodyRevision: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDb().insert(schema.documentComments).values({
+    id: rootId,
+    ownerEmail: OWNER,
+    documentId,
+    threadId: rootId,
+    parentId: null,
+    content: "Please answer",
+    authorEmail: OWNER,
+    authorName: "Owner",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await asUser(() =>
+    commentAi.startCommentAiRequest({
+      requestId: operationId,
+      agentThreadId: `agent-thread-${operationId}`,
+      documentId,
+      threadId: rootId,
+      rootCommentId: rootId,
+      intent: "reply",
+    }),
+  );
+  await asUser(async () =>
+    commentAi.beginCommentAiAttempt(
+      await commentAi.loadCommentAiRequest(operationId),
+    ),
+  );
+  await getDb()
+    .update(schema.documents)
+    .set({ content: "Intro. Alpha one.", bodyRevision: 2 })
+    .where(eq(schema.documents.id, documentId));
+  const second = await asUser(async () =>
+    commentAi.beginCommentAiAttempt(
+      await commentAi.loadCommentAiRequest(operationId),
+    ),
+  );
+  if (!second.attempt) throw new Error("Second attempt was not created");
+  const attempt = second.attempt;
+  const payload = { attemptId: attempt.id, content: "Retained answer" };
+  await asUser(() =>
+    commentAi.retainCommentAiAttemptPayload(
+      second.request,
+      attempt.id,
+      payload,
+    ),
+  );
+  await getDb()
+    .update(schema.documents)
+    .set({ content: "Updated. Alpha one.", bodyRevision: 3 })
+    .where(eq(schema.documents.id, documentId));
+  const verification = await asUser(() =>
+    commentAi.verifyCommentAiAttempt(second.request, attempt.id),
+  );
+  expect(verification.sourceRevisionMatches).toBe(false);
+
+  const message =
+    "The AI operation reached its attempt limit. Review the retained operation before retrying.";
+  await expect(
+    asUser(() =>
+      commentAi.markCommentAiRefreshRequired(second.request, attempt),
+    ),
+  ).rejects.toMatchObject({ code: "refresh_exhausted", message });
+  expect(
+    await asUser(() => commentAi.loadCommentAiRequest(operationId)),
+  ).toMatchObject({
+    status: "needs-review",
+    errorCode: "refresh_exhausted",
+    error: message,
+  });
+  expect(
+    await asUser(() =>
+      commentAi.getCommentAiAttempt(second.request, attempt.id),
+    ),
+  ).toMatchObject({
+    status: "needs-review",
+    errorCode: "refresh_exhausted",
+    error: message,
+    payloadJson: JSON.stringify(payload),
+  });
+});
