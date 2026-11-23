@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   Autocomplete,
+  AutocompleteTrigger,
   AutocompleteClear,
   AutocompleteCollection,
   AutocompleteEmpty,
@@ -41,7 +42,7 @@ function Sample({
   onValueChange?: (value: string) => void;
   input?: Pick<
     AutocompleteInputProps,
-    "size" | "variant" | "color" | "radius" | "disabled"
+    "className" | "style" | "size" | "variant" | "color" | "radius" | "disabled"
   >;
   popup?: Pick<AutocompletePopupProps, "variant" | "color" | "highContrast">;
 }) {
@@ -49,7 +50,7 @@ function Sample({
     <Autocomplete items={FRUITS} onValueChange={onValueChange}>
       <AutocompleteInput aria-label="Fruit" {...input}>
         <InputSlot side="right">
-          <AutocompleteClear />
+          <AutocompleteClear render={<button data-action="clear" />} />
         </InputSlot>
       </AutocompleteInput>
       <AutocompletePopup {...popup}>
@@ -90,6 +91,116 @@ async function key(name: string) {
 }
 
 describe("Autocomplete", () => {
+  it("updates frame classes and styles as the popup opens and closes", async () => {
+    render(
+      <Sample
+        input={{
+          className: (state) => (state.open ? "expanded" : undefined),
+          style: (state) => ({ opacity: state.open ? 1 : 0.9 }),
+        }}
+      />,
+    );
+    const field = screen.getByRole("combobox");
+    const frame = field.closest<HTMLElement>(".input");
+    expect(frame?.style.opacity).toBe("0.9");
+    await act(async () => {
+      fireEvent.keyDown(field, { key: "ArrowDown" });
+    });
+    await screen.findByRole("listbox");
+    expect(frame?.classList.contains("expanded")).toBe(true);
+    expect(frame?.style.opacity).toBe("1");
+    await act(async () => {
+      fireEvent.keyDown(field, { key: "Escape" });
+    });
+    expect(frame?.classList.contains("expanded")).toBe(false);
+    expect(frame?.style.opacity).toBe("0.9");
+  });
+
+  it("keeps default action names when an optional label is undefined", () => {
+    render(
+      <Autocomplete items={["Rust"]} defaultValue="Rust">
+        <AutocompleteInput aria-label="Language">
+          <AutocompleteTrigger aria-label={undefined} />
+          <AutocompleteClear aria-label={undefined} />
+        </AutocompleteInput>
+      </Autocomplete>,
+    );
+    expect(
+      screen.getByRole("button", { name: "Show suggestions" }),
+    ).toBeDefined();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDefined();
+  });
+
+  it("preserves the accessible names of rendered action buttons", () => {
+    render(
+      <Autocomplete items={["Rust"]} defaultValue="Rust">
+        <AutocompleteInput aria-label="Language">
+          <AutocompleteTrigger render={<button>Choose language</button>} />
+          <AutocompleteClear render={<button title="Reset language" />} />
+        </AutocompleteInput>
+      </Autocomplete>,
+    );
+    expect(
+      screen.getByRole("button", { name: "Choose language" }),
+    ).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: "Reset language" }),
+    ).toBeDefined();
+  });
+
+  it("uses the visible names of custom trigger and clear actions", () => {
+    render(
+      <Autocomplete items={["Rust"]} defaultValue="Rust">
+        <AutocompleteInput aria-label="Language">
+          <AutocompleteTrigger render={<button />}>
+            <span>Choose language</span>
+          </AutocompleteTrigger>
+          <AutocompleteClear render={<button />}>
+            <span>Reset language</span>
+          </AutocompleteClear>
+        </AutocompleteInput>
+      </Autocomplete>,
+    );
+    expect(
+      screen.getByRole("button", { name: "Choose language" }),
+    ).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: "Reset language" }),
+    ).toBeDefined();
+  });
+
+  it("keeps each inline list associated with its own named input", () => {
+    render(
+      <>
+        {["Source", "Destination"].map((label) => (
+          <Autocomplete
+            key={label}
+            aria-label={label}
+            items={FRUITS}
+            inline
+            open
+          >
+            <AutocompleteInput aria-label={label + " search"} />
+            <AutocompleteList>
+              {(fruit: string) => (
+                <AutocompleteItem key={fruit} value={fruit}>
+                  {fruit}
+                </AutocompleteItem>
+              )}
+            </AutocompleteList>
+          </Autocomplete>
+        ))}
+      </>,
+    );
+    for (const label of ["Source", "Destination"]) {
+      const list = screen.getByRole("listbox", { name: label });
+      expect(
+        screen
+          .getByRole("combobox", { name: label + " search" })
+          .getAttribute("aria-controls"),
+      ).toBe(list.id);
+    }
+  });
   it("draws the field as the input part with Input's defaults", () => {
     render(<Sample />);
     const frame = input().parentElement;
@@ -202,6 +313,7 @@ describe("Autocomplete", () => {
     await type("ban");
     const clear = screen.getByRole("button", { name: "Clear", hidden: true });
     expect(clear.className).toContain("autocomplete-clear");
+    expect(clear.dataset.action).toBe("clear");
     await act(async () => {
       fireEvent.click(clear);
     });

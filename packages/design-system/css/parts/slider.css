@@ -100,8 +100,6 @@
     outline-offset: var(--focus-ring-offset);
   }
 
-  /* ---- sizes ---- */
-
   /* ---- variants ---- */
 
   .slider[data-variant="surface"] .slider-track {
@@ -143,5 +141,29 @@
   .slider[data-disabled][data-variant] .slider-thumb {
     border-color: var(--gray-a6);
     box-shadow: none;
+  }
+
+  @media (forced-colors: active) {
+    .slider-track,
+    .slider-thumb {
+      border: 1px solid ButtonText;
+    }
+
+    .slider[data-variant] .slider-indicator {
+      forced-color-adjust: none;
+      background-color: Highlight;
+    }
+
+    .slider[data-disabled][data-variant] .slider-indicator {
+      background-color: GrayText;
+    }
+
+    .slider[data-disabled][data-variant] :is(.slider-track, .slider-thumb) {
+      border-color: GrayText;
+    }
+
+    .slider-thumb:has(:focus-visible) {
+      outline: var(--focus-ring-width) solid Highlight;
+    }
   }
 }

@@ -79,6 +79,7 @@ export const LAYERS = {
   "--layer-popup": "360",
   "--layer-toast": "400",
   "--layer-tooltip": "500",
+  "--layer-cursor": "510",
 } as const satisfies TokenMap;
 
 const px = (value: number) => `${value}px`;

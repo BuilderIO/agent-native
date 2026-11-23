@@ -17,6 +17,7 @@ import type {
   checkboxGroupProps,
   checkboxProps,
   codeProps,
+  colorSwatchProps,
   comboboxPopupProps,
   comboboxProps,
   contextMenuItemProps,
@@ -368,6 +369,18 @@ export interface CodeOwnProps {
    * @default false
    */
   highContrast?: boolean;
+}
+
+export interface ColorSwatchOwnProps {
+  /**
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
+   */
+  size?: "sm" | "md";
+  /**
+   * Overrides the theme's corner radius for this component.
+   */
+  radius?: "none" | "small" | "medium" | "large" | "full";
 }
 
 export interface ComboboxPopupOwnProps {
@@ -1212,6 +1225,7 @@ export type PropTypesMatchDefinitions = [
   Expect<Equal<CheckboxGroupOwnProps, PropsOf<typeof checkboxGroupProps>>>,
   Expect<Equal<CheckboxOwnProps, PropsOf<typeof checkboxProps>>>,
   Expect<Equal<CodeOwnProps, PropsOf<typeof codeProps>>>,
+  Expect<Equal<ColorSwatchOwnProps, PropsOf<typeof colorSwatchProps>>>,
   Expect<Equal<ComboboxPopupOwnProps, PropsOf<typeof comboboxPopupProps>>>,
   Expect<Equal<ComboboxOwnProps, PropsOf<typeof comboboxProps>>>,
   Expect<Equal<ContextMenuItemOwnProps, PropsOf<typeof contextMenuItemProps>>>,

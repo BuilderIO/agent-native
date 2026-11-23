@@ -3,12 +3,15 @@ import {
   dialogPopupProps,
 } from "@agent-native/design-system";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
+import { mergeProps } from "@base-ui/react/merge-props";
+import { useRender } from "@base-ui/react/use-render";
 import { IconX } from "@tabler/icons-react";
 import * as React from "react";
 
-import { cn } from "../../utils.js";
 import { ModalLayerProvider } from "../modal-layer.js";
-import { IconButton } from "./button.js";
+import { IconButton, type IconButtonProps } from "./button.js";
+import { scopePortal } from "./overlay-scope.js";
+import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
 /**
@@ -39,15 +42,11 @@ export const DialogClose = BaseDialog.Close;
  *
  * @import import { DialogPortal } from "@agent-native/toolkit/ui/base-ui/dialog";
  */
-export const DialogPortal = BaseDialog.Portal;
+export const DialogPortal = scopePortal(BaseDialog.Portal);
 
 type DialogMotion = "default" | "instant";
 
-type WithClassName<Props> = Omit<Props, "className"> & {
-  className?: string | undefined;
-};
-
-type DialogBackdropProps = WithClassName<BaseDialog.Backdrop.Props> & {
+type DialogBackdropProps = BaseDialog.Backdrop.Props & {
   motion?: DialogMotion;
 };
 
@@ -61,7 +60,7 @@ const DialogBackdrop = React.forwardRef<HTMLDivElement, DialogBackdropProps>(
   ({ className, motion = "default", ...props }, ref) => (
     <BaseDialog.Backdrop
       ref={ref}
-      className={cn("dialog-backdrop", className)}
+      className={partClassName("dialog-backdrop", className)}
       data-motion={motion}
       {...props}
     />
@@ -69,16 +68,17 @@ const DialogBackdrop = React.forwardRef<HTMLDivElement, DialogBackdropProps>(
 );
 DialogBackdrop.displayName = "DialogBackdrop";
 
-type DialogPopupProps = WithClassName<BaseDialog.Popup.Props> &
+type DialogPopupProps = BaseDialog.Popup.Props &
   DialogPopupOwnProps & {
     showClose?: boolean;
     motion?: DialogMotion;
     container?: BaseDialog.Portal.Props["container"];
     keepMounted?: boolean;
     closeLabel?: string;
+    closeVariant?: IconButtonProps["variant"];
     closeDisabled?: boolean;
-    backdropClassName?: string | undefined;
-    backdropStyle?: React.CSSProperties | undefined;
+    backdropClassName?: BaseDialog.Backdrop.Props["className"];
+    backdropStyle?: BaseDialog.Backdrop.Props["style"];
   };
 
 /**
@@ -100,6 +100,7 @@ const DialogPopup = React.forwardRef<HTMLDivElement, DialogPopupProps>(
         keepMounted,
         closeLabel = "Close",
         closeDisabled,
+        closeVariant = "ghost",
         backdropClassName,
         backdropStyle,
         ...rest
@@ -114,7 +115,7 @@ const DialogPopup = React.forwardRef<HTMLDivElement, DialogPopupProps>(
         />
         <BaseDialog.Popup
           ref={ref}
-          className={cn("dialog-popup", className)}
+          className={partClassName("dialog-popup", className)}
           data-motion={motion}
           {...rest}
           {...attributes}
@@ -125,7 +126,7 @@ const DialogPopup = React.forwardRef<HTMLDivElement, DialogPopupProps>(
               render={
                 <IconButton
                   className="dialog-close"
-                  variant="ghost"
+                  variant={closeVariant}
                   color="gray"
                 />
               }
@@ -147,12 +148,12 @@ DialogPopup.displayName = "DialogPopup";
  *
  * @import import { DialogHeader } from "@agent-native/toolkit/ui/base-ui/dialog";
  */
-const DialogHeader = ({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("dialog-header", className)} {...props} />
-);
+const DialogHeader = ({ render, ...props }: useRender.ComponentProps<"div">) =>
+  useRender({
+    defaultTagName: "div",
+    render,
+    props: mergeProps<"div">({ className: "dialog-header" }, props),
+  });
 DialogHeader.displayName = "DialogHeader";
 
 /**
@@ -160,12 +161,12 @@ DialogHeader.displayName = "DialogHeader";
  *
  * @import import { DialogFooter } from "@agent-native/toolkit/ui/base-ui/dialog";
  */
-const DialogFooter = ({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("dialog-footer", className)} {...props} />
-);
+const DialogFooter = ({ render, ...props }: useRender.ComponentProps<"div">) =>
+  useRender({
+    defaultTagName: "div",
+    render,
+    props: mergeProps<"div">({ className: "dialog-footer" }, props),
+  });
 DialogFooter.displayName = "DialogFooter";
 
 /**
@@ -175,11 +176,11 @@ DialogFooter.displayName = "DialogFooter";
  */
 const DialogTitle = React.forwardRef<
   HTMLHeadingElement,
-  WithClassName<BaseDialog.Title.Props>
+  BaseDialog.Title.Props
 >(({ className, ...props }, ref) => (
   <BaseDialog.Title
     ref={ref}
-    className={cn("dialog-title", className)}
+    className={partClassName("dialog-title", className)}
     {...props}
   />
 ));
@@ -192,15 +193,39 @@ DialogTitle.displayName = "DialogTitle";
  */
 const DialogDescription = React.forwardRef<
   HTMLParagraphElement,
-  WithClassName<BaseDialog.Description.Props>
+  BaseDialog.Description.Props
 >(({ className, ...props }, ref) => (
   <BaseDialog.Description
     ref={ref}
-    className={cn("dialog-description", className)}
+    className={partClassName("dialog-description", className)}
     {...props}
   />
 ));
 DialogDescription.displayName = "DialogDescription";
+
+/** Edge-to-edge artwork inside a DialogPopup, paired with DialogBody. */
+export function DialogMedia({
+  render,
+  ...props
+}: useRender.ComponentProps<"div">) {
+  return useRender({
+    defaultTagName: "div",
+    render,
+    props: mergeProps<"div">({ className: "dialog-media" }, props),
+  });
+}
+
+/** A padded content area for titles, descriptions, arbitrary content, and DialogFooter. */
+export function DialogBody({
+  render,
+  ...props
+}: useRender.ComponentProps<"div">) {
+  return useRender({
+    defaultTagName: "div",
+    render,
+    props: mergeProps<"div">({ className: "dialog-body" }, props),
+  });
+}
 
 export type { DialogPopupProps, DialogMotion, DialogBackdropProps };
 export {

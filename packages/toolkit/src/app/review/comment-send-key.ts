@@ -1,5 +1,9 @@
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 
+import { isComposingKey } from "../../ui/is-composing-key.js";
+
+export { isComposingKey };
+
 type SendKeyEvent =
   | Pick<KeyboardEvent, "key" | "shiftKey" | "isComposing" | "keyCode">
   | ReactKeyboardEvent;
@@ -12,10 +16,4 @@ type SendKeyEvent =
 export function isCommentSendKey(event: SendKeyEvent): boolean {
   const native = "nativeEvent" in event ? event.nativeEvent : event;
   return native.key === "Enter" && !native.shiftKey && !isComposingKey(native);
-}
-
-/** Whether an input method is composing, so the key belongs to it. */
-export function isComposingKey(event: SendKeyEvent): boolean {
-  const native = "nativeEvent" in event ? event.nativeEvent : event;
-  return native.isComposing || native.keyCode === 229;
 }

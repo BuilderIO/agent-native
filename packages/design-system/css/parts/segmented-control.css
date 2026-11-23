@@ -124,8 +124,14 @@
   }
 
   .segmented-control-item:first-child::before,
-  .segmented-control-item:where([data-pressed], :focus-visible)::before,
-  .segmented-control-item:where([data-pressed], :focus-visible)
+  .segmented-control-item:where(
+      :is([data-pressed], [aria-selected="true"]),
+      :focus-visible
+    )::before,
+  .segmented-control-item:where(
+      :is([data-pressed], [aria-selected="true"]),
+      :focus-visible
+    )
     + .segmented-control-item::before,
   .segmented-control[data-orientation="vertical"]
     .segmented-control-item::before {
@@ -133,32 +139,40 @@
   }
 
   @media (hover: hover) {
-    .segmented-control-item:not([data-pressed], [data-disabled]):hover {
+    .segmented-control-item:not(
+        :is([data-pressed], [aria-selected="true"]),
+        [data-disabled],
+        :disabled
+      ):hover {
       color: var(--fg-default);
     }
 
-    .segmented-control-item:not([data-pressed], [data-disabled]):hover::after {
+    .segmented-control-item:not(
+        :is([data-pressed], [aria-selected="true"]),
+        [data-disabled],
+        :disabled
+      ):hover::after {
       background-color: var(--gray-a3);
     }
   }
 
-  .segmented-control-item[data-pressed] {
+  .segmented-control-item:is([data-pressed], [aria-selected="true"]) {
     color: var(--fg-default);
   }
 
   .segmented-control[data-variant="surface"]
-    .segmented-control-item[data-pressed]::after {
+    .segmented-control-item:is([data-pressed], [aria-selected="true"])::after {
     background-color: var(--base-panel);
     box-shadow: var(--shadow-2);
   }
 
   .segmented-control[data-variant="soft"]
-    .segmented-control-item[data-pressed] {
+    .segmented-control-item:is([data-pressed], [aria-selected="true"]) {
     color: var(--accent-text);
   }
 
   .segmented-control[data-variant="soft"]
-    .segmented-control-item[data-pressed]::after {
+    .segmented-control-item:is([data-pressed], [aria-selected="true"])::after {
     background-color: var(--accent-a3);
   }
 
@@ -169,18 +183,34 @@
 
   /* ---- disabled ---- */
 
-  .segmented-control-item[data-disabled] {
+  .segmented-control-item:is(:disabled, [data-disabled]) {
     cursor: not-allowed;
     color: var(--fg-disabled);
   }
 
-  .segmented-control .segmented-control-item[data-disabled][data-pressed] {
+  .segmented-control
+    .segmented-control-item:is(:disabled, [data-disabled]):is(
+      [data-pressed],
+      [aria-selected="true"]
+    ) {
     color: var(--fg-disabled);
   }
 
   .segmented-control
-    .segmented-control-item[data-disabled][data-pressed]::after {
+    .segmented-control-item:is(:disabled, [data-disabled]):is(
+      [data-pressed],
+      [aria-selected="true"]
+    )::after {
     background-color: var(--gray-a3);
     box-shadow: none;
+  }
+  @media (forced-colors: active) {
+    .segmented-control {
+      outline: 1px solid ButtonText;
+      outline-offset: -1px;
+    }
+    .segmented-control-item:is([data-pressed], [aria-selected="true"])::after {
+      border-block-end: 2px solid Highlight;
+    }
   }
 }
