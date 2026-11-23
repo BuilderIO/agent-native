@@ -2,6 +2,9 @@ import { enUSJourneyCanvasMessages } from "../../shared/journey-canvas-messages.
 
 export default {
   journeyCanvas: enUSJourneyCanvasMessages,
+  responseGuard: {
+    noDesignChangesSaved: "No design changes were saved in this turn.",
+  },
   composer: { menu: { integrations: "Integrations" } },
   root: {
     commandActions: "Actions",

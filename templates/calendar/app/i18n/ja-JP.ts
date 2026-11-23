@@ -558,6 +558,15 @@ export default {
     connectZoom: "Zoomを接続する",
     copyBookingLink: "予約リンクをコピーする",
     copyLink: "リンクをコピー",
+    copySingleUseLink: "1回限りのリンクをコピー",
+    singleUseLinkCopied:
+      "1回限りのリンクをコピーしました。予約は1件だけできます。",
+    singleUseLinkReady: "1回限りのリンクを作成しました",
+    singleUseLinkCreateFailed: "1回限りのリンクを作成できませんでした",
+    singleUseLinkUsed: "このリンクはすでに使用されています",
+    singleUseLinkInvalid: "このリンクは無効になりました",
+    singleUseLinkAskForNew:
+      "このリンクは1件の予約専用でした。送信者に新しいリンクを依頼してください。",
     createFirstLink: "最初のリンクを作成する",
     createLink: "リンクの作成",
     custom: "カスタム",

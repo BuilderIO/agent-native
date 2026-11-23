@@ -4,6 +4,7 @@ import {
   SOURCE_VERSION_CONFLICT_ERROR_CODE,
   TWEAK_SELECTIONS_CONFLICT_ERROR_CODE,
   saveErrorCode,
+  saveErrorDiagnostic,
 } from "@shared/save-conflict";
 import { sourceContentHash } from "@shared/source-workspace";
 
@@ -69,11 +70,9 @@ export function isTerminalSaveError(error: unknown): boolean {
   // The merge's live read fails with this code when the file was deleted
   // after the save was refused; its wording differs from update-file's.
   if (saveErrorCode(error) === SOURCE_FILE_NOT_FOUND_ERROR_CODE) return true;
-  const candidate = error as { status?: unknown; message?: unknown };
   return (
-    candidate.status === 404 &&
-    typeof candidate.message === "string" &&
-    /file not found/i.test(candidate.message)
+    (error as { status?: unknown }).status === 404 &&
+    /file not found/i.test(saveErrorDiagnostic(error))
   );
 }
 
@@ -83,10 +82,8 @@ export function isConflictSaveError(error: unknown): boolean {
   if (code !== undefined) return code === SOURCE_VERSION_CONFLICT_ERROR_CODE;
   // Only a server that predates typed codes says it in words; a typed error
   // that is not a conflict can still quote the wording.
-  const message = (error as { message?: unknown }).message;
-  return (
-    typeof message === "string" &&
-    /changed since it was read|re-read the file/i.test(message)
+  return /changed since it was read|re-read the file/i.test(
+    saveErrorDiagnostic(error),
   );
 }
 

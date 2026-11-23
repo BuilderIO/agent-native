@@ -23,7 +23,9 @@ export default defineAction({
     "List design projects accessible to the current user. Pass page and " +
     "pageSize for pagination; omitted values use the first bounded page. " +
     "Set includeAll only for a lightweight UI picker; it returns the first " +
-    "bounded picker page. Returns optional HTML previews.",
+    "bounded picker page. Returns optional HTML previews. This only reads: " +
+    "to also show the user the matches, call navigate with view=list and " +
+    "search set to the same text.",
   schema: z.object({
     page: z.coerce
       .number()

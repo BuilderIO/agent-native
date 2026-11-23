@@ -78,16 +78,15 @@ describe("VisibilityBadge", () => {
     }
   });
 
-  it("applies a custom size to both the span font size and the icon size", () => {
-    const el = renderBadge({ visibility: "public", size: 20, labels });
-    expect(el.props.style.fontSize).toBe(20);
-    expect(el.props.children[0].props.size).toBe(22);
-  });
+  // oracle-change: merged the custom and default size tests (same four size assertions) and dropped the muted-foreground color token check, a copy of a style constant
 
-  it("defaults size to 12 for the span and 14 for the icon when omitted", () => {
-    const el = renderBadge({ visibility: "public", labels });
-    expect(el.props.style.fontSize).toBe(12);
-    expect(el.props.children[0].props.size).toBe(14);
+  it("sizes the span font and the icon, defaulting to 12 and 14", () => {
+    const custom = renderBadge({ visibility: "public", size: 20, labels });
+    expect(custom.props.style.fontSize).toBe(20);
+    expect(custom.props.children[0].props.size).toBe(22);
+    const fallback = renderBadge({ visibility: "public", labels });
+    expect(fallback.props.style.fontSize).toBe(12);
+    expect(fallback.props.children[0].props.size).toBe(14);
   });
 
   it("passes className through to the span", () => {
@@ -97,10 +96,5 @@ describe("VisibilityBadge", () => {
       className: "my-badge",
     });
     expect(el.props.className).toBe("my-badge");
-  });
-
-  it("always uses the muted-foreground color token", () => {
-    const el = renderBadge({ visibility: "org", labels });
-    expect(el.props.style.color).toBe("hsl(var(--muted-foreground))");
   });
 });

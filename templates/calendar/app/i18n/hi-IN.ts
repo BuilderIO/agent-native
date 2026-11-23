@@ -544,6 +544,15 @@ export default {
     connectZoom: "Zoom कनेक्ट करें",
     copyBookingLink: "बुकिंग लिंक कॉपी करें",
     copyLink: "लिंक कॉपी करें",
+    copySingleUseLink: "एक बार इस्तेमाल होने वाला लिंक कॉपी करें",
+    singleUseLinkCopied:
+      "एक बार इस्तेमाल होने वाला लिंक कॉपी हो गया। इससे एक ही बुकिंग हो सकती है।",
+    singleUseLinkReady: "एक बार इस्तेमाल होने वाला लिंक तैयार है",
+    singleUseLinkCreateFailed: "एक बार इस्तेमाल होने वाला लिंक नहीं बन सका",
+    singleUseLinkUsed: "यह लिंक पहले ही इस्तेमाल हो चुका है",
+    singleUseLinkInvalid: "यह लिंक अब काम नहीं करता",
+    singleUseLinkAskForNew:
+      "यह लिंक सिर्फ़ एक बुकिंग के लिए था। जिसने भेजा है, उनसे नया लिंक माँगें।",
     createFirstLink: "अपना पहला लिंक बनाएं",
     createLink: "लिंक बनाएं",
     custom: "कस्टम",

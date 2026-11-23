@@ -777,6 +777,10 @@ export default {
     flagsUnavailable: "Feature flags are unavailable",
     flagsUnreachable:
       "The workspace directory could not be reached. Retry when its connection is available.",
+    verifiedFlagChangeOrg:
+      "Verified at {{time}}: {{flag}} in {{app}} is set to {{availability}} for this organization.",
+    verifiedFlagChangeGlobal:
+      "Verified at {{time}}: {{flag}} in {{app}} is set to {{availability}} for every organization.",
     flagsEmpty: "No workspace apps reported flags",
     flagsEmptyDetail:
       "Registered flags will appear here when connected apps are ready.",

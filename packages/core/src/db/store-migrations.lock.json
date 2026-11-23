@@ -541,6 +541,10 @@
     {
       "name": "data-program-runs-credential-uses",
       "checksum": null
+    },
+    {
+      "name": "data-programs-scheduled-refresh",
+      "checksum": null
     }
   ],
   "email_log": [

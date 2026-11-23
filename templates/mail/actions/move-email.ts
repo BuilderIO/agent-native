@@ -100,6 +100,7 @@ export default defineAction({
       .optional()
       .describe("Current label to remove after applying the destination"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const ids = [
       ...new Set(

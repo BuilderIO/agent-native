@@ -1,6 +1,17 @@
 import { createRequire } from "node:module";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 function must<T>(value: T | null | undefined, message = "Expected a value"): T {
   if (value === null || value === undefined) throw new Error(message);
@@ -16,6 +27,7 @@ const database = vi.hoisted(() => {
   const state = { queue: Promise.resolve() };
   return {
     client: null as null | PGliteClient,
+    generation: 0,
     stall: null as
       | null
       | ((sql: string, args: unknown[]) => Promise<void> | undefined),
@@ -50,13 +62,17 @@ vi.mock("@agent-native/core/db", async (importOriginal) => {
     ...(await importOriginal<typeof import("@agent-native/core/db")>()),
     getDbExec: () => ({
       execute: async (input: { sql: string; args?: unknown[] }) => {
+        const generation = database.generation;
         await database.stall?.(input.sql, input.args ?? []);
+        if (generation !== database.generation) throw new Error("test ended");
         return database.runExclusive(() =>
           query((sql, args) => must(database.client).query(sql, args), input),
         );
       },
       transaction: async <T>(callback: (tx: unknown) => Promise<T>) => {
+        const generation = database.generation;
         await database.stall?.("BEGIN", []);
+        if (generation !== database.generation) throw new Error("test ended");
         return database.runExclusive(() =>
           must(database.client).transaction((tx: PGliteClient) =>
             callback({
@@ -208,8 +224,17 @@ function completedPoll(rows: { f: { v: unknown }[] }[], extra = {}) {
   });
 }
 
-beforeEach(async () => {
+beforeAll(async () => {
   database.client = await PGlite.create("memory://");
+});
+
+afterAll(async () => {
+  await database.client?.close();
+  database.client = null;
+});
+
+beforeEach(async () => {
+  await resetPublicSchema(must(database.client));
   for (const statement of [
     ...BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
     ...BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
@@ -299,11 +324,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   database.stall = null;
+  database.generation += 1;
   for (const release of stalls.splice(0)) release();
-  await database.client?.close();
-  database.client = null;
 });
 
 const stalls: Array<() => void> = [];

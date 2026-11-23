@@ -9469,14 +9469,9 @@ function PageEditorSessionBody({
       (thread) => !thread.resolved && !isPageCommentThread(thread),
     ) ??
       false);
-  // A suggestion whose text is gone lives in the comments panel only, so it
-  // must not hold open an otherwise empty margin.
   const hasOpenSuggestions =
     presentedSuggestions.some(
-      (suggestion) =>
-        suggestion.status === "pending" &&
-        (!anchoredSuggestionIds ||
-          anchoredSuggestionIds.includes(suggestion.id)),
+      (suggestion) => suggestion.status === "pending",
     ) ||
     draftSuggestions.length > 0 ||
     fieldSuggestions.hasOpen;
@@ -9694,7 +9689,6 @@ function PageEditorSessionBody({
     threads,
     suggestions: reviewSuggestions,
     draftSuggestions: reviewDraftSuggestions,
-    anchoredSuggestionIds: reviewAnchoredSuggestionIds,
     selectedThreadId,
     selectedSuggestionId,
     focusSuggestionId,

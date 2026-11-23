@@ -7,6 +7,7 @@ export default defineAction({
     "Trigger automation processing to run now against new inbox emails. Automations normally run every minute on a cron, but this forces immediate processing.",
   schema: z.object({}),
   http: false,
+  mcpTool: "search",
   run: async () => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {

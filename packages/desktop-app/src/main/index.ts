@@ -351,7 +351,10 @@ import {
   createOAuthPopupCloser,
   watchOAuthSystemBrowserReturnForContents,
 } from "./oauth-popup-close";
-import { routeOAuthToBoundSession } from "./oauth-session";
+import {
+  isTrustedBuilderConnectUrl,
+  routeOAuthToBoundSession,
+} from "./oauth-session";
 import { registerOnboardingIdentityIpc } from "./onboarding-identity.js";
 import {
   isQuickPromptActive,
@@ -13200,14 +13203,9 @@ const OAUTH_PROVIDERS: OAuthProvider[] = [
   },
   {
     name: "builder",
-    matches: (u) => {
+    matches: (u, context) => {
       const host = u.hostname.toLowerCase();
-      const isLocalhost =
-        host === "localhost" || host === "127.0.0.1" || host === "[::1]";
-      if (
-        isLocalhost &&
-        u.pathname.endsWith("/_agent-native/builder/connect")
-      ) {
+      if (isTrustedBuilderConnectUrl(u, context?.sourceUrl)) {
         return true;
       }
       return isBuilderAppHost(host) && u.pathname.startsWith("/cli-auth");
