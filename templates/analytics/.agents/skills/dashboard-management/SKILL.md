@@ -207,10 +207,14 @@ channel's ID in the item's `metadata.channelId`. A count the channel hides has
 no row, so the Videos table shows only counts from a video's newest read.
 Views gained is the difference between two reads, and a video first read
 after its channel's first read (by channel ID) starts from 0, as the YouTube
-tab does. The tab shows only channels the newest read covered, so a channel
-taken off `youtube.channels` drops off it while its rows stay stored. It
-needs `YOUTUBE_API_KEY` under Data Sources → YouTube, stays off until turned
-on, reports `not_configured` without channels or a key, and costs about one
+tab does. A successful read stamps every video it returns with an
+`updated_at` after the run started, so the tab takes the videos stamped since
+the newest successful `youtube` run started as that read: its chart shows only
+channels that read covered, and its Videos table only videos it covered, so a
+channel taken off `youtube.channels` or a deleted video drops off while its
+rows stay stored. It needs
+`YOUTUBE_API_KEY` under Data Sources → YouTube, stays off until turned on,
+reports `not_configured` without channels or a key, and costs about one
 quota unit per 25 videos of the key's free 10,000 a day.
 
 The catalog's "Content" dashboard (`content-view`) is the reference for these

@@ -261,6 +261,7 @@ describe("Content view dashboard", () => {
               "per_video",
               "channels",
               "named",
+              "latest",
             ].includes(name),
         );
       expect(tables.length).toBeGreaterThan(0);
@@ -460,12 +461,13 @@ describe("Content view dashboard", () => {
   async function insertVideos(): Promise<void> {
     await client.exec(`
       INSERT INTO analytics_content_items (id, tenant_key, owner_email, org_id, source, external_id, url, title, author, published_at, metadata, first_seen_at, updated_at) VALUES
-        ('y1', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y1', 'https://www.youtube.com/watch?v=y1', 'Old Builder video', 'Builder', '2026-09-01T12:00:00Z', '{"channelId":"UCbuilder","durationSeconds":813}', '2026-09-01', '2026-09-01'),
-        ('y2', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y2', 'https://www.youtube.com/watch?v=y2', 'New Builder video', 'Builder', '${daysAgo(1)}T15:00:00Z', '{"channelId":"UCbuilder","durationSeconds":3723}', '2026-09-01', '2026-09-01'),
-        ('y3', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y3', 'https://www.youtube.com/watch?v=y3', 'Codevolution video', 'Codevolution', '2026-09-01T12:00:00Z', '{"channelId":"UCcodevolution","durationSeconds":null}', '2026-09-01', '2026-09-01'),
-        ('y4', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y4', 'https://www.youtube.com/watch?v=y4', 'Other Builder channel video', 'Builder', '${daysAgo(2)}T12:00:00Z', '{"channelId":"UCotherbuilder","durationSeconds":60}', '2026-09-01', '2026-09-01'),
-        ('y5', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y5', 'https://www.youtube.com/watch?v=y5', 'Removed channel video', 'Old channel', '2026-09-01T12:00:00Z', '{"channelId":"UCremoved","durationSeconds":30}', '2026-09-01', '2026-09-01'),
-        ('yb', 'org:org_b', 'carol@example.test', 'org_b', 'youtube', 'yb', 'https://www.youtube.com/watch?v=yb', 'Other org video', 'Builder', '2026-09-01T12:00:00Z', '{"channelId":"UCbuilder","durationSeconds":60}', '2026-09-01', '2026-09-01');
+        ('y1', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y1', 'https://www.youtube.com/watch?v=y1', 'Old Builder video', 'Builder', '2026-09-01T12:00:00Z', '{"channelId":"UCbuilder","durationSeconds":813}', '2026-09-01', '${daysAgo(0)}T07:00:06.000Z'),
+        ('y2', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y2', 'https://www.youtube.com/watch?v=y2', 'New Builder video', 'Builder', '${daysAgo(1)}T15:00:00Z', '{"channelId":"UCbuilder","durationSeconds":3723}', '2026-09-01', '${daysAgo(0)}T07:00:06.000Z'),
+        ('y3', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y3', 'https://www.youtube.com/watch?v=y3', 'Codevolution video', 'Codevolution', '2026-09-01T12:00:00Z', '{"channelId":"UCcodevolution","durationSeconds":null}', '2026-09-01', '${daysAgo(0)}T07:00:06.000Z'),
+        ('y4', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y4', 'https://www.youtube.com/watch?v=y4', 'Other Builder channel video', 'Builder', '${daysAgo(2)}T12:00:00Z', '{"channelId":"UCotherbuilder","durationSeconds":60}', '2026-09-01', '${daysAgo(0)}T07:00:06.000Z'),
+        ('y6', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y6', 'https://www.youtube.com/watch?v=y6', 'Deleted Builder video', 'Builder', '2026-09-01T12:00:00Z', '{"channelId":"UCbuilder","durationSeconds":45}', '2026-09-01', '${daysAgo(1)}T07:00:06.000Z'),
+        ('y5', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y5', 'https://www.youtube.com/watch?v=y5', 'Removed channel video', 'Old channel', '2026-09-01T12:00:00Z', '{"channelId":"UCremoved","durationSeconds":30}', '2026-09-01', '${daysAgo(0)}T06:00:00.000Z'),
+        ('yb', 'org:org_b', 'carol@example.test', 'org_b', 'youtube', 'yb', 'https://www.youtube.com/watch?v=yb', 'Other org video', 'Builder', '2026-09-01T12:00:00Z', '{"channelId":"UCbuilder","durationSeconds":60}', '2026-09-01', '${daysAgo(0)}T07:00:06.000Z');
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
       SELECT reads.item_id || reads.metric || reads.days_ago, items.tenant_key, items.owner_email, items.org_id, reads.item_id, to_char(CURRENT_DATE - reads.days_ago, 'YYYY-MM-DD'), reads.metric, reads.value, 'youtube', 'ry', '2026-09-01'
       FROM (VALUES
@@ -479,8 +481,10 @@ describe("Content view dashboard", () => {
         ('y3', 'youtube_views', 2, 1000),
         ('y3', 'youtube_views', 1, 1007),
         ('y3', 'youtube_views', 0, 1010),
-        ('y5', 'youtube_views', 3, 10),
-        ('y5', 'youtube_views', 2, 20),
+        ('y5', 'youtube_views', 1, 10),
+        ('y5', 'youtube_views', 0, 20),
+        ('y6', 'youtube_views', 2, 500),
+        ('y6', 'youtube_views', 1, 520),
         ('y4', 'youtube_views', 1, 400),
         ('y4', 'youtube_views', 0, 404),
         ('yb', 'youtube_views', 3, 5000),
@@ -488,7 +492,7 @@ describe("Content view dashboard", () => {
       ) AS reads (item_id, metric, days_ago, value)
       JOIN analytics_content_items items ON items.id = reads.item_id;
       INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, window_end)
-      VALUES ('ry', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'scheduled', 'succeeded', '${daysAgo(0)}T07:00:06.000Z', '${daysAgo(0)}');
+      VALUES ('ry', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'scheduled', 'succeeded', '${daysAgo(0)}T07:00:00.000Z', '${daysAgo(0)}');
     `);
   }
 
@@ -496,7 +500,7 @@ describe("Content view dashboard", () => {
     await insertVideos();
     expect(await runPanel("youtube-views-per-day")).toEqual([
       { date: daysAgo(3), channel: "Builder (UCbuilder)", views: 10 },
-      { date: daysAgo(2), channel: "Builder (UCbuilder)", views: 15 },
+      { date: daysAgo(2), channel: "Builder (UCbuilder)", views: 35 },
       { date: daysAgo(2), channel: "Codevolution", views: 7 },
       { date: daysAgo(1), channel: "Builder (UCbuilder)", views: 55 },
       { date: daysAgo(1), channel: "Builder (UCotherbuilder)", views: 4 },
@@ -559,6 +563,15 @@ describe("Content view dashboard", () => {
         (row) => row.title === "Old Builder video",
       )?.views_gained,
     ).toBe(30);
+  });
+
+  it("shows no YouTube videos once the newest read returned none", async () => {
+    await insertVideos();
+    await client.exec(
+      `INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, window_end) VALUES ('ry2', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'manual', 'succeeded', '${daysAgo(0)}T09:00:00.000Z', '${daysAgo(0)}')`,
+    );
+    expect(await runPanel("youtube-views-per-day")).toEqual([]);
+    expect(await runPanel("youtube-videos")).toEqual([]);
   });
 
   it("names YouTube in the notice once it has run and failed", async () => {
