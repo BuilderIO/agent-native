@@ -1015,6 +1015,9 @@ export function isStandaloneE2eRunner(
     }
     return false;
   } catch {
+    console.error(
+      `Cannot read E2E entry ${normalized}; keeping production tests selected.`,
+    );
     return false;
   }
 }
