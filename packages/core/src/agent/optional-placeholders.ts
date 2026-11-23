@@ -287,7 +287,11 @@ export function normalizeOptionalToolPlaceholders(
   let result = stripOptionalToolPlaceholders(schema, input, emptyValues);
   // A padded call means its nulls are padding too, including on nullable
   // fields where a lone null would be a deliberate clear.
-  if (emptyValues.invalid && !emptyValues.valid) {
+  if (
+    emptyValues.invalid &&
+    (!emptyValues.valid ||
+      (!emptyValues.unsafeValid && !emptyValues.invalidNonNull))
+  ) {
     result = stripOptionalToolPlaceholders(schema, input, {
       ...emptyValues,
       stripNull: true,

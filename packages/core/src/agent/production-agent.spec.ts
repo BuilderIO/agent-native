@@ -22084,7 +22084,7 @@ describe("runAgentLoop", () => {
     });
   });
 
-  it("preserves an empty list on an action that may store it beside a null", async () => {
+  it("refuses an empty list on an action that may store it beside a null", async () => {
     const run = vi.fn(async (_input: unknown) => "ok");
     const action = defineAction({
       description: "Update a saved view",
@@ -22101,15 +22101,11 @@ describe("runAgentLoop", () => {
       callId: "padded-stored-list",
       input: { viewId: "view-1", name: null, hiddenColumns: [] },
     });
-    expect(result.status).toBe("completed");
-    expect(run).toHaveBeenCalledOnce();
-    expect(run.mock.calls[0]?.[0]).toEqual({
-      viewId: "view-1",
-      hiddenColumns: [],
-    });
+    expect(result.status).toBe("failed");
+    expect(run).not.toHaveBeenCalled();
   });
 
-  it("preserves an empty string the schema accepts beside a null", async () => {
+  it("refuses an empty string that may clear a value beside a null", async () => {
     const run = vi.fn(async (_input: unknown) => "ok");
     const action = defineAction({
       description: "Update a design",
@@ -22126,8 +22122,8 @@ describe("runAgentLoop", () => {
       callId: "padded-string",
       input: { designId: "design-1", note: "", primaryViewport: null },
     });
-    expect(result.status).toBe("completed");
-    expect(run.mock.calls[0]?.[0]).toEqual({ designId: "design-1", note: "" });
+    expect(result.status).toBe("failed");
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("coerces a JSON-encoded string into the object/array the tool schema expects", async () => {

@@ -112,6 +112,16 @@ describe("normalizeOptionalToolPlaceholders", () => {
         },
       );
 
+      it("strips nullable padding alongside an allowlisted empty field", () => {
+        const result = normalizeOptionalToolPlaceholders(
+          schema,
+          { id: "a", title: null, note: null, tags: [] },
+          { readOnly: false, nullPaddingSafeEmptyFields: ["tags"] },
+          options,
+        );
+        expect(result).toEqual({ input: { id: "a", tags: [] }, changed: true });
+      });
+
       it("refuses a mix of allowlisted and other valid empty fields", () => {
         const input = { id: "a", title: null, tags: [], label: "" };
         const entry = { readOnly: false, nullPaddingSafeEmptyFields: ["tags"] };
