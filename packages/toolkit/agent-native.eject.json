@@ -2186,6 +2186,38 @@
       "verification": ["pnpm typecheck"]
     },
     {
+      "id": "toolkit/craft",
+      "label": "Craft UI primitives and semantic tokens",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["craft"],
+      "entrypoints": ["./craft", "./craft/*"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/craft"],
+      "styles": [
+        {
+          "entrypoint": "./craft-tokens.css",
+          "source": "src/app/styles/craft-tokens.css"
+        },
+        {
+          "entrypoint": "./app/styles/craft-tokens.css",
+          "source": "src/app/styles/craft-tokens.css"
+        }
+      ],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@radix-ui/react-alert-dialog",
+        "@radix-ui/react-dialog",
+        "@radix-ui/react-slot",
+        "@tabler/icons-react",
+        "class-variance-authority",
+        "clsx",
+        "culori",
+        "react",
+        "tailwind-merge"
+      ],
+      "verification": ["pnpm typecheck"]
+    },
+    {
       "id": "toolkit/styles",
       "label": "Toolkit Tailwind source styles",
       "catalog": "toolkit-ui",
