@@ -226,7 +226,8 @@ function CommandItem({
   disabled = false,
   preview,
 }: CommandItemProps) {
-  const { onOpenChange, selectCommand, selectionEnabled } = useCommandMenuContext();
+  const { onOpenChange, selectCommand, selectionEnabled } =
+    useCommandMenuContext();
   const selectedValue = useCommandState((state) => state.value);
 
   const handleSelect = () => {
@@ -1387,7 +1388,9 @@ export function CommandMenu<TAppContext = unknown>({
               value={{
                 search,
                 onOpenChange,
-                selectCommand: () => { commandSelectedRef.current = true; },
+                selectCommand: () => {
+                  commandSelectedRef.current = true;
+                },
                 registerNestedDialog,
                 selectionEnabled:
                   initialSelection !== "none" || selectionEnabled,
