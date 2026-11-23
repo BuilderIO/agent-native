@@ -316,11 +316,18 @@ function slicePresentation(
         ...node,
         value: node.value.slice(Math.max(0, from - start), to - start),
       });
-    else if ("children" in node)
-      sliced.push({
-        ...node,
-        children: slicePresentation(node.children, from - start, to - start),
-      });
+    else if ("children" in node) {
+      const children = slicePresentation(
+        node.children,
+        from - start,
+        to - start,
+      );
+      sliced.push(
+        node.type === "link" && start + length > to
+          ? { type: "underline", children }
+          : { ...node, children },
+      );
+    }
   }
   return sliced;
 }

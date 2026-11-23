@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clipSuggestionPresentation,
   suggestionAnchorText,
+  suggestionLinkDestinations,
   suggestionTextForDisplay,
   type SuggestionPresentationNode,
   suggestionTextPresentation,
@@ -206,5 +208,21 @@ describe("suggestion structural text", () => {
     expect(presentationText(suggestionTextPresentation(content))).toBe(
       expected,
     );
+  });
+});
+
+describe("clipped suggestion text", () => {
+  it("names a clipped link's destination once", () => {
+    const label = "a".repeat(120);
+    const clipped = clipSuggestionPresentation(
+      suggestionTextPresentation(`[${label}](https://example.test)`),
+      { head: 72, tail: 24 },
+    );
+    expect(presentationText(clipped)).toBe(
+      `${"a".repeat(72)}…${"a".repeat(24)}`,
+    );
+    expect(suggestionLinkDestinations(clipped)).toEqual([
+      "https://example.test",
+    ]);
   });
 });

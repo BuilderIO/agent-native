@@ -1640,6 +1640,148 @@ it.each([
   },
 );
 
+it("keeps a change's formatting, says several blocks as text, and opens a short replacement for any reader", async () => {
+  const onActivateSuggestion = vi.fn();
+  const show = async (
+    id: string,
+    operation: {
+      before: string;
+      after: string;
+      changedBefore: string;
+      changedAfter: string;
+      from: number;
+    },
+    check: (card: HTMLElement) => void,
+    canComment = true,
+  ) => {
+    const saved = suggestionFixture({
+      id,
+      revision: 1,
+      threadId: `thread-${id}`,
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations: [
+        {
+          ordinal: 0,
+          kind: "replace_text",
+          before: {
+            markdown: operation.before,
+            changedText: operation.changedBefore,
+          },
+          after: {
+            markdown: operation.after,
+            changedText: operation.changedAfter,
+          },
+          anchor: {
+            from: operation.from,
+            to: operation.from + operation.changedBefore.length,
+            prefix: "",
+            suffix: "",
+          },
+          schemaVersion: 1,
+        },
+      ],
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    function Harness() {
+      const replyDrafts = useCommentReplyDrafts(`document-${id}`);
+      return (
+        <CommentsSidebar
+          replyDrafts={replyDrafts}
+          documentId={`document-${id}`}
+          suggestions={[saved]}
+          canComment={canComment}
+          onActivateSuggestion={onActivateSuggestion}
+          forceVisible
+        />
+      );
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+      const card = container.querySelector<HTMLElement>(
+        `[data-suggestion-id="${id}"]`,
+      );
+      if (!card) throw new Error(`No card for ${id}`);
+      check(card);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  };
+  const text = (card: HTMLElement) =>
+    card.querySelector("[data-suggestion-change]")?.textContent;
+
+  await show(
+    "struck-word",
+    {
+      before: "~~workflow~~",
+      after: "~~workflows~~",
+      changedBefore: "~~workflow~~",
+      changedAfter: "~~workflows~~",
+      from: 0,
+    },
+    (card) => {
+      expect(text(card)).toBe("Replace “workflow” with “workflows”");
+      expect(
+        [...card.querySelectorAll("[data-suggestion-change] s")].map(
+          (element) => element.textContent,
+        ),
+      ).toEqual(["workflow", "workflow", "s"]);
+    },
+  );
+  await show(
+    "code-inside",
+    {
+      before: "`fooBar`",
+      after: "`fooBaz`",
+      changedBefore: "fooBar",
+      changedAfter: "fooBaz",
+      from: 1,
+    },
+    (card) => {
+      expect(text(card)).toBe("Replace “fooBar” with “fooBaz”");
+      expect(
+        [...card.querySelectorAll("[data-suggestion-change] code")].map(
+          (element) => element.textContent,
+        ),
+      ).toEqual(["fooBar", "fooBaz"]);
+    },
+  );
+  await show(
+    "two-blocks",
+    {
+      before: "Intro.",
+      after: "Intro.\nFirst note.\nSecond note.",
+      changedBefore: "Intro.",
+      changedAfter: "Intro.\nFirst note.\nSecond note.",
+      from: 0,
+    },
+    (card) => {
+      expect(text(card)).toMatch(/^Add “First note\.[\s\S]*Second note\.”$/);
+    },
+  );
+  await show(
+    "short-swap",
+    {
+      before: "The cat sat.",
+      after: "The dog sat.",
+      changedBefore: "cat",
+      changedAfter: "dog",
+      from: 4,
+    },
+    (card) => {
+      expect(text(card)).toBe("Replace “cat” with “dog”");
+      act(() => card.querySelector<HTMLElement>("[data-thread-card]")?.click());
+      expect(onActivateSuggestion).toHaveBeenCalledWith("short-swap");
+    },
+    false,
+  );
+});
+
 it("shows an explicit unavailable label for invalid provided suggestion context", async () => {
   const saved = suggestionFixture({
     id: "invalid-presentation",

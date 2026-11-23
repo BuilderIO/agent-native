@@ -213,6 +213,16 @@ function readsInPieces(runs: readonly Run[]) {
   return true;
 }
 
+function styledIn(
+  text: string,
+  context: SuggestionPresentationContext | undefined,
+) {
+  return (
+    !!context &&
+    !!suggestionTextNodes(text, context)?.some((node) => "children" in node)
+  );
+}
+
 function changedStretches(runs: readonly Run[]) {
   let stretches = 0;
   let changing = false;
@@ -279,7 +289,11 @@ function operationChange(
   ];
 
   if (removedText && insertedText) {
-    const markdown = /[<>*_`\[\]]/.test(removedText + insertedText);
+    const markdown = /[<>*_~`\[\]]/.test(removedText + insertedText);
+    const formatted =
+      markdown ||
+      styledIn(removedText, removedContext) ||
+      styledIn(insertedText, insertedContext);
     const { lead, trail } = sharedEnds(removedText, insertedText, markdown);
     const kept = (
       text: string,
@@ -315,7 +329,7 @@ function operationChange(
           {
             text: part.text,
             changed: part.type !== "equal",
-            formatted: markdown,
+            formatted,
             context: presentation && {
               source: presentation.source,
               from,
@@ -335,7 +349,7 @@ function operationChange(
     const piecewise =
       !!marked &&
       !rewritten &&
-      (!markdown ||
+      (!formatted ||
         (readsInPieces(markedRemoved) && readsInPieces(markedInserted)));
     let removed = piecewise ? markedRemoved : said(removedText, removedContext);
     let inserted = piecewise
@@ -399,7 +413,7 @@ function addedOrRemoved(
       paragraph:
         trims &&
         /\n/.test(lead + trail) &&
-        !/\n\s*\n/.test(inner) &&
+        !inner.includes("\n") &&
         !BLOCK_SYNTAX.test(inner),
     },
     narrowed: false,

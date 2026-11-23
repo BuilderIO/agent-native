@@ -4858,6 +4858,7 @@ function SuggestionThreadView({
         replyText={draft}
         replyMentions={mentions}
         onHoverChange={() => {}}
+        onSelect={suggestion.status === "pending" ? onActivate : undefined}
         onExpand={() => {
           if (!canExpand) return;
           if (!expanded) {
@@ -5258,6 +5259,7 @@ function ThreadView({
   onReplyImagesChange,
   aiDraft,
   onHoverChange,
+  onSelect,
   onExpand,
   onCollapse,
   collapsesWhenLeftAlone = false,
@@ -5326,6 +5328,7 @@ function ThreadView({
   onReplyImagesChange?: (images: CommentImage[]) => void;
   aiDraft?: CommentAiDraft | null;
   onHoverChange: (hovered: boolean) => void;
+  onSelect?: () => void;
   onExpand: () => void;
   onCollapse: () => void;
   /** Collapse once neither the pointer nor keyboard focus has been on the card for a while. */
@@ -5561,12 +5564,13 @@ function ThreadView({
       onKeyDown={(event) => {
         if (
           !isSubmitting &&
-          canExpand &&
+          (canExpand || onSelect) &&
           event.target === event.currentTarget &&
           (event.key === "Enter" || event.key === " ")
         ) {
           event.preventDefault();
-          onExpand();
+          if (canExpand) onExpand();
+          else onSelect?.();
         }
       }}
       data-thread-card={thread.threadId}
@@ -5586,7 +5590,7 @@ function ThreadView({
                 ? "max-h-[var(--comment-popover-max-height)] shadow-comment-raised"
                 : "shadow-comment-card",
             ),
-        canExpand && !isExpanded && "cursor-pointer",
+        (canExpand || onSelect) && !isExpanded && "cursor-pointer",
         isRail &&
           "mx-2 mr-4 transition-[box-shadow,translate] duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transform-none motion-reduce:transition-none motion-reduce:hover:translate-x-0 motion-reduce:focus-within:translate-x-0",
         isRail &&
@@ -5605,7 +5609,7 @@ function ThreadView({
         if (!isSubmitting && canExpand) {
           if (isExpanded && !canComment) onCollapse();
           else onExpand();
-        }
+        } else if (!isSubmitting) onSelect?.();
       }}
       onMouseEnter={() => onHoverChange(true)}
       onMouseLeave={() => onHoverChange(false)}
