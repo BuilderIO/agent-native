@@ -445,9 +445,6 @@ export async function resolveAgentToolApprovalTurnId(binding: {
   if (binding.approvalId) {
     const [exactTurnId] = turnIds;
     if (turnIds.size !== 1 || !exactTurnId) return null;
-    // The ask id is the pending row. A continuation can mint a fresh client
-    // turn id while the grant is still stored under the paused turn, so a
-    // mismatched requestedTurnId must not hide that unique row.
     return exactTurnId;
   }
   if (requestedTurnId && turnIds.has(requestedTurnId)) return requestedTurnId;

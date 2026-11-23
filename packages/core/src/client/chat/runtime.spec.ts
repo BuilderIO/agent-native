@@ -6808,7 +6808,10 @@ describe("createAgentNativeChatRuntime", () => {
       approval: { id: approvalAskId, approved: true },
     });
     expect(continuation).toBeDefined();
-    const continuationEvents = await drain(continuation!.events);
+    if (!continuation) {
+      throw new Error("expected an approval continuation");
+    }
+    const continuationEvents = await drain(continuation.events);
 
     const approvalRequest = JSON.parse(
       String(fetchMock.mock.calls[1]?.[1]?.body),
@@ -6921,10 +6924,7 @@ describe("createAgentNativeChatRuntime", () => {
           return [];
         });
       }
-      if (typeof message === "object" && message && "content" in message) {
-        return typeof message.content === "string" ? [message.content] : [];
-      }
-      return [];
+      return typeof message.content === "string" ? [message.content] : [];
     });
     const waitingAt = orderedTexts.findIndex((text) =>
       text.includes("Waiting for your approval to run resources."),
@@ -6938,7 +6938,7 @@ describe("createAgentNativeChatRuntime", () => {
     expect(waitingAt).toBeGreaterThanOrEqual(0);
     expect(resultAt).toBeGreaterThanOrEqual(0);
     expect(waitingAt).toBeLessThan(resultAt);
-    if (doneAt >= 0) expect(waitingAt).toBeLessThan(doneAt);
+    expect(doneAt === -1 || waitingAt < doneAt).toBe(true);
   });
 
   it("sends approver instructions with the already-ran note on an approval continuation", async () => {
@@ -7004,7 +7004,10 @@ describe("createAgentNativeChatRuntime", () => {
       prompt: callerPrompt,
     });
     expect(continuation).toBeDefined();
-    await drain(continuation!.events);
+    if (!continuation) {
+      throw new Error("expected an approval continuation");
+    }
+    await drain(continuation.events);
 
     const approvalRequest = JSON.parse(
       String(fetchMock.mock.calls[1]?.[1]?.body),
@@ -7018,7 +7021,10 @@ describe("createAgentNativeChatRuntime", () => {
       prompt: "Continue",
     });
     expect(laterContinuation).toBeDefined();
-    await drain(laterContinuation!.events);
+    if (!laterContinuation) {
+      throw new Error("expected a later continuation");
+    }
+    await drain(laterContinuation.events);
     const laterRequest = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
     expect(laterRequest.message).toBe("Continue");
     expect(laterRequest).not.toHaveProperty("approvedContinuationPrompt");

@@ -6110,8 +6110,6 @@ export function createAgentNativeChatRuntime(
                 ],
               }
             : {}),
-          // Marks the prompt as the approver's own words so the server keeps
-          // it beside its already-ran note instead of replacing it.
           ...(callerContinuationPrompt
             ? {
                 [AGENT_NATIVE_APPROVED_CONTINUATION_PROMPT_METADATA_KEY]: true,

@@ -6198,9 +6198,6 @@ export async function executeAgentToolCall(
       beforeExecution: true,
     };
   }
-  // Invocation, not consumeApproval, is what distinguishes "ran but failed"
-  // from "never ran". Wrap the named handler so every pre-start failure
-  // (invalid input, beforeWrite, a thrown grant) carries the same marker.
   const invocation = { started: false };
   const actions: Record<string, ActionEntry> = {
     ...options.actions,
@@ -8716,8 +8713,6 @@ export async function runAgentLoop(opts: {
   let loopBreakerStopped = false;
   const sendTerminalActionStop = (stop: TerminalActionStop) => {
     if (stop.errorCode === "needs-approval") {
-      // Waiting copy is emitted at the pause so it stays before the approval
-      // card and the later approved result, including after the stream closes.
       return;
     }
     if (stop.errorCode === "awaiting-user-input") {
@@ -10748,9 +10743,6 @@ export async function runAgentLoop(opts: {
             ? undefined
             : preparedCallApprovalLabel(actionEntry, intent, approvalContext);
           const waitingMessage = `Waiting for your approval to run ${toolCall.name}.`;
-          // Repeated pauses for the same tool must not repeat the waiting
-          // copy; claim the text before the async send so a parallel pause
-          // cannot slip its own send in.
           if (!sentApprovalTranscriptTexts.has(waitingMessage)) {
             sentApprovalTranscriptTexts.add(waitingMessage);
             await send({ type: "text", text: waitingMessage });
@@ -14842,13 +14834,14 @@ function boundedPromptSpanIndex(region: string, prompt: string): number {
   if (
     suffixAt > 0 &&
     region.endsWith(prompt) &&
-    (region.endsWith(`\n\n${prompt}`) || /\s/.test(region[suffixAt - 1]!))
+    (region.endsWith(`\n\n${prompt}`) || /\s/.test(region.charAt(suffixAt - 1)))
   ) {
     return suffixAt;
   }
   if (
     region.startsWith(prompt) &&
-    (region.startsWith(`${prompt}\n\n`) || /\s/.test(region[prompt.length]!))
+    (region.startsWith(`${prompt}\n\n`) ||
+      /\s/.test(region.charAt(prompt.length)))
   ) {
     return 0;
   }
@@ -14864,8 +14857,6 @@ function replaceUserPromptInMessages(
   const prompt = from.trim();
   const replacement = to.trim();
   if (!prompt || prompt === replacement) return;
-  // The prompt being replaced is the current request's own message; an
-  // earlier user turn can contain the same short text and must stay intact.
   const current = messages.at(-1);
   if (!current || current.role !== "user") return;
   const textPart = [...current.content]
@@ -14875,17 +14866,10 @@ function replaceUserPromptInMessages(
         part.type === "text",
     );
   if (!textPart) return;
-  // The composed message ends with the request segment followed by injected
-  // screen, file, and attachment context. Rewrite only the last prompt
-  // occurrence before that context, so a short approver note cannot splice
-  // the continuation into unrelated context text.
   const messageRegion = textPart.text.slice(
     0,
     textPart.text.length - requestContextText.length,
   );
-  // Prefer the original prompt as its own span, bounded by the request
-  // edges or a blank line. Prepared or enriched context sits in this
-  // region, so a short note like "ok" must not rewrite that context.
   const promptAt = boundedPromptSpanIndex(messageRegion, prompt);
   if (promptAt < 0) return;
   textPart.text =
@@ -17761,8 +17745,6 @@ export function createProductionAgentHandler(
         ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
         : "";
 
-    // Everything appended after the request message itself; the
-    // continuation-prompt rewrite must never touch this context.
     const requestContextText =
       screenContext +
       prefetchNote +
@@ -17821,8 +17803,6 @@ export function createProductionAgentHandler(
         (typeof requestTurnId === "string" &&
           requestTurnId &&
           (await isTurnAborted(threadId, requestTurnId))) ||
-        // An approval resolved to its stored turn can outlive the client turn
-        // id, so the paused turn's own stop state gates the continuation too.
         (resolvedApprovalTurnId &&
           (await isTurnAborted(threadId, resolvedApprovalTurnId)))
       ) {
@@ -19447,10 +19427,6 @@ export function createProductionAgentHandler(
                 approvedContinuationOriginalPrompt,
                 continuation,
               );
-              // The original request stays the response guard's task context;
-              // only the model-facing message carries the continuation note.
-              // A self-chained successor rebuilds from this body, so the
-              // rewritten message keeps the already-ran instruction in it.
               mutableBody.message = continuation;
             }
             if (isBackgroundWorker) return;

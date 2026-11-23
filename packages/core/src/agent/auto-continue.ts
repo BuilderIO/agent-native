@@ -31,19 +31,15 @@ export const CONTINUE_OF_RUN_METADATA_KEY = "agentNativeContinueOfRunId";
 // i18n-ignore: Internal continuation instruction sent to the agent, never shown as product copy.
 export const AUTO_CONTINUE_PROMPT = "Continue from where you left off.";
 
-// i18n-ignore: Internal continuation instruction sent to the agent after an approved tool call has already been executed, never shown as product copy.
 export const APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT =
   "Approved. The requested action has already been run. Continue from its result; do not run that same action again.";
 
-// i18n-ignore: Internal continuation instruction sent to the agent when an approved tool call re-pauses or otherwise does not execute, never shown as product copy.
 export const APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT =
   "The approved action did not execute. It is waiting for approval again. Do not report that it already ran.";
 
-// i18n-ignore: Internal continuation instruction sent to the agent when an approved tool call executed but returned an error, never shown as product copy.
 export const APPROVED_TOOL_CALL_FAILED_PROMPT =
   "The approved action ran but failed. Continue from its error result; do not report the action as done.";
 
-// i18n-ignore: Internal continuation instruction sent to the agent when an approved tool call fails before its action executes, never shown as product copy.
 export const APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT =
   "The approved action did not execute. Do not report that it ran; respond to the tool's error result instead.";
 

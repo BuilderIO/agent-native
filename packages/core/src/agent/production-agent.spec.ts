@@ -8359,7 +8359,7 @@ describe("createProductionAgentHandler", () => {
       expect(startRun).not.toHaveBeenCalled();
       response.emit("finish");
     } finally {
-      finishSetupFinalization?.(true);
+      finishSetupFinalization(true);
       releaseOwnerEmail("alice@example.com");
       await pending?.catch(() => {});
       response.emit("finish");
@@ -8753,14 +8753,12 @@ describe("createProductionAgentHandler", () => {
       expect(JSON.stringify(outerStream.mock.calls)).toContain(
         APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
       );
-      // The model-facing conversation must not be told to rerun the action;
-      // the follow-up completion may still see the preserved original request.
       const mainStreamMessages = JSON.stringify(
         (
           outerStream.mock.calls[0] as unknown as [
             { messages?: EngineMessage[] },
           ]
-        )[0]?.messages ?? [],
+        )[0].messages ?? [],
       );
       expect(mainStreamMessages).not.toContain(
         "Go ahead and run the requested action.",
@@ -10159,8 +10157,11 @@ describe("createProductionAgentHandler", () => {
           (call) => (call[3] as { dispatchPayload?: string }).dispatchPayload,
         );
       expect(chainInsert).toBeDefined();
+      if (!chainInsert) {
+        throw new Error("expected a successor dispatch payload");
+      }
       const successorPayload = JSON.parse(
-        (chainInsert![3] as { dispatchPayload: string }).dispatchPayload,
+        (chainInsert[3] as { dispatchPayload: string }).dispatchPayload,
       ) as Record<string, unknown>;
       expect(successorPayload.message).toBe(
         APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
@@ -28869,7 +28870,7 @@ describe("runAgentLoop", () => {
       },
     };
     const writeNote = vi.fn(async () => "noted");
-    const events: any[] = [];
+    const events: AgentChatEvent[] = [];
     const messages = [
       {
         role: "user" as const,
