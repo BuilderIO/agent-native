@@ -534,7 +534,7 @@ async function getMicStream(
   }
 }
 
-async function correctMicStreamIfNeeded(
+export async function correctMicStreamIfNeeded(
   stream: MediaStream,
   requestedDeviceId: string,
   requestedDeviceLabel: string,
@@ -547,7 +547,10 @@ async function correctMicStreamIfNeeded(
     !!requestedDeviceId &&
     !!actualDeviceId &&
     actualDeviceId !== requestedDeviceId;
-  const phoneLike = isLikelyPhoneMicLabel(track.label);
+  // The picked mic is requested by exact id, so a phone-like track from a
+  // request with an id is the user's own choice. Only the system default
+  // landing on a phone mic gets corrected.
+  const phoneLike = !requestedDeviceId && isLikelyPhoneMicLabel(track.label);
   if (!mismatched && !phoneLike) return stream;
 
   warnIfTrackDeviceMismatch("mic", requestedDeviceId, track);

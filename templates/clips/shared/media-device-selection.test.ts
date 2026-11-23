@@ -31,13 +31,49 @@ describe("media device selection", () => {
     });
   });
 
-  it("skips pseudo and phone microphones when choosing a concrete fallback", () => {
+  it("lists phone-like microphones so the user can pick one", () => {
     expect(isSelectableAudioInputDevice(audio("default", "Default"))).toBe(
       false,
     );
     expect(
       isSelectableAudioInputDevice(audio("iphone", "Steve's iPhone")),
-    ).toBe(false);
+    ).toBe(true);
+    expect(isSelectableAudioInputDevice(audio("ipad", "iPad Mic"))).toBe(true);
+  });
+
+  it("rematches a picked phone-like mic under a new id by its exact name", () => {
+    expect(
+      chooseFallbackAudioInput(
+        [
+          audio("built-in", "MacBook Pro Microphone"),
+          audio("ipad-rotated", "iPad Mic"),
+        ],
+        { savedLabel: "iPad Mic", avoidDeviceIds: ["ipad-old"] },
+      ),
+    ).toEqual({
+      deviceId: "ipad-rotated",
+      label: "iPad Mic",
+      reason: "saved-label",
+    });
+  });
+
+  it("never brings back a phone-like mic through a loose name match", () => {
+    expect(
+      chooseFallbackAudioInput(
+        [
+          audio("iphone", "Steve's iPhone Microphone"),
+          audio("built-in", "MacBook Pro Microphone"),
+        ],
+        { savedLabel: "Default - Steve's iPhone Microphone" },
+      ),
+    ).toEqual({
+      deviceId: "built-in",
+      label: "MacBook Pro Microphone",
+      reason: "best-concrete",
+    });
+  });
+
+  it("skips pseudo and phone microphones when choosing a concrete fallback", () => {
     expect(
       chooseFallbackAudioInput([
         audio("default", "Default"),
