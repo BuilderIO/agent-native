@@ -194,13 +194,30 @@ set `agentNativeSignups.eventsTable` and `maxBytesBilled` with
 `estimate-content-signups-cost` and `step: "agent_native_signups"`, which
 prices the first run's 90-day backfill. Later runs read back three days.
 
+The `daily_dev` step writes `daily_dev_sessions` per article: GA4 sessions
+that landed on it with daily.dev's `via=dailydev` tag or from a daily.dev
+session source, read from the collection's GA4 property, so it needs nothing
+else and reads back three days like pageviews. It stores only days with
+visits, so once the step has succeeded a missing day is 0, unlike pageviews.
+The `youtube` step stores every video on `youtube.channels` (channel IDs or
+`@handles`, set with `configure-content-collection --youtubeChannels`) as a
+`youtube` item and writes `youtube_views`, `youtube_likes` and
+`youtube_comments`: counts to date, dated the day they were read. A count the
+channel hides has no row. Views gained is the difference between two reads,
+and a video first read after its channel's first read starts from 0, as the
+YouTube tab does. It needs `YOUTUBE_API_KEY` under Data Sources → YouTube,
+stays off until turned on, reports `not_configured` without channels or a
+key, and costs about one quota unit per 25 videos of the key's free 10,000 a
+day.
+
 The catalog's "Content" dashboard (`content-view`) is the reference for these
 tables: start from its panels before writing new content SQL. Its Missing
 data callout has no `tab`, so it shows on every tab. It joins the expected
 sources to their latest run in the last 30 days, so it names each source whose
 run failed, hit the cost cap or isn't connected, and each one with no run in
 that window; keep that pattern rather than letting a missing row read as
-"nothing missing". The
+"nothing missing". YouTube, which is off by default, is named only once it
+has run. The
 first-party SQL policy rejects functions outside its allow-list (for example
 `concat_ws`) and reads `CASE (` as a function call, so join a status column
 instead of a scalar subquery inside `CASE`. Its parser also rejects `VALUES`
