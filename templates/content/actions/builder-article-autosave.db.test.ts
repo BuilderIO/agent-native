@@ -1224,4 +1224,52 @@ describe("Builder article autosave", () => {
     );
     expect(listed.rows[0]?.autosave?.due).toBe(true);
   });
+
+  it("creates a new article as a Builder draft before Builder's required fields are filled", async () => {
+    const ids = await seedArticle({ linked: false });
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({
+        metadataJson: JSON.stringify({
+          primaryKey: "id",
+          titleField: "title",
+          writeMode: "stage_only",
+          pushMode: "autosave",
+          liveReadConfigured: true,
+          builderModelFields: [
+            { name: "title", type: "text", required: true },
+            {
+              name: "author",
+              type: "reference",
+              model: "blog-author",
+              required: true,
+            },
+          ],
+        }),
+      })
+      .where(eq(schema.contentDatabaseSources.id, ids.sourceId));
+    const created = `created_${ids.entryId}`;
+    const { deps, executeWrite } = harness({ entryId: created });
+
+    const status = await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        { ...deps, now: () => "2026-06-29T15:00:05.000Z" },
+      ),
+    );
+
+    expect(executeWrite).toHaveBeenCalledTimes(1);
+    const [{ request }] = executeWrite.mock.calls[0] as unknown as [
+      {
+        request: {
+          method: string;
+          body: { published?: string; data: Record<string, unknown> };
+        };
+      },
+    ];
+    expect(request.method).toBe("POST");
+    expect(request.body.published).toBe("draft");
+    expect(request.body.data).not.toHaveProperty("author");
+    expect(status.autosave).toMatchObject({ state: "saved", error: null });
+  });
 });
