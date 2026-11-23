@@ -78,9 +78,6 @@ export async function getDataProgramDetails(
     reader.userEmail,
     reader.orgId ?? null,
   );
-  // A background program records its next run as soon as it queues it,
-  // so read the newest finished run, plus the newest success when that
-  // run failed, rather than an empty queued row.
   const lastRun = await getLatestFinishedRun(program.id, hash);
   const lastGoodRun =
     lastRun && lastRun.status !== "succeeded"
