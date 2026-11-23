@@ -47,6 +47,22 @@ function SyncedPageLine({
   );
 }
 
+function UnreadableSourceLine({ retry }: { retry: () => void }) {
+  const t = useT();
+  return (
+    <SyncedPageLine provider="unknown">
+      {t("editor.syncedPageSourceUnreadable")}{" "}
+      <button
+        type="button"
+        className="underline underline-offset-2 hover:text-foreground"
+        onClick={retry}
+      >
+        {t("editor.syncedPageCheckAgain")}
+      </button>
+    </SyncedPageLine>
+  );
+}
+
 const BUILDER_EDIT_KEYS = {
   read_only: "editor.syncedPageBuilderReadOnly",
   stage_only: "editor.syncedPageBuilderStageOnly",
@@ -128,18 +144,7 @@ export function SyncedPageBanner({ document }: { document: Document }) {
   }
 
   if (rowPage.state === "unreadable") {
-    return (
-      <SyncedPageLine provider="unknown">
-        {t("editor.syncedPageSourceUnreadable")}{" "}
-        <button
-          type="button"
-          className="underline underline-offset-2 hover:text-foreground"
-          onClick={rowPage.retry}
-        >
-          {t("editor.syncedPageCheckAgain")}
-        </button>
-      </SyncedPageLine>
-    );
+    return <UnreadableSourceLine retry={rowPage.retry} />;
   }
   const membershipSourceId = document.databaseMembership?.sourceId ?? null;
   const builder = sources.find(
@@ -158,9 +163,15 @@ export function SyncedPageBanner({ document }: { document: Document }) {
     );
   }
 
-  const notion = notionSources.find((source) =>
-    overlays?.some((overlay) => overlay.sourceId === source.id),
-  );
+  if (notionSources.length > 0 && overlays.state === "unreadable") {
+    return <UnreadableSourceLine retry={overlays.retry} />;
+  }
+  const notion =
+    overlays.state === "read"
+      ? notionSources.find((source) =>
+          overlays.overlays.some((overlay) => overlay.sourceId === source.id),
+        )
+      : undefined;
   if (notion) {
     return (
       <SyncedPageLine provider="notion">

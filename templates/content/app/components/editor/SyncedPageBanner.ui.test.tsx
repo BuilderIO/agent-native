@@ -84,7 +84,7 @@ describe("Synced page banner", () => {
     collection.read.mockReset();
     collection.read.mockReturnValue({ data: undefined });
     collection.rowOverlays.mockReset();
-    collection.rowOverlays.mockReturnValue(undefined);
+    collection.rowOverlays.mockReturnValue({ state: "pending" });
   });
 
   it("says a GitHub page is view only, with Open in GitHub, without reading its collection", () => {
@@ -131,7 +131,10 @@ describe("Synced page banner", () => {
 
   it("says which Notion database adds details to a page it matched", () => {
     collection.read.mockReturnValue({ data: { sources: [notionSource] } });
-    collection.rowOverlays.mockReturnValue([{ sourceId: "notion-1" }]);
+    collection.rowOverlays.mockReturnValue({
+      state: "read",
+      overlays: [{ sourceId: "notion-1" }],
+    });
     renderUi(
       <SyncedPageBanner
         document={rowPage({
@@ -147,8 +150,8 @@ describe("Synced page banner", () => {
   });
 
   it.each([
-    ["Notion matched no row for it", []],
-    ["its row hasn't been read yet", undefined],
+    ["Notion matched no row for it", { state: "read", overlays: [] }],
+    ["its row hasn't been read yet", { state: "pending" }],
   ])("says nothing of Notion on a page when %s", (_, overlays) => {
     collection.read.mockReturnValue({ data: { sources: [notionSource] } });
     collection.rowOverlays.mockReturnValue(overlays);
@@ -160,6 +163,24 @@ describe("Synced page banner", () => {
       />,
     );
     expect(banner()).toBe(null);
+  });
+
+  it("says it couldn't check the page's source when its Notion row can't be read, and tries again", () => {
+    const retry = vi.fn();
+    collection.read.mockReturnValue({ data: { sources: [notionSource] } });
+    collection.rowOverlays.mockReturnValue({ state: "unreadable", retry });
+    renderUi(
+      <SyncedPageBanner
+        document={rowPage({
+          databaseMembership: { ...membership, sourceId: null },
+        })}
+      />,
+    );
+    expect(banner()?.textContent).toBe(
+      "Couldn’t check where this page comes from. Try again",
+    );
+    banner()?.querySelector("button")?.click();
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 
   it("reads no row when no Notion database adds details", () => {

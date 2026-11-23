@@ -24,6 +24,7 @@ import type {
   ContentDatabaseItem,
   ContentDatabasePersonalViewResponse,
   ContentDatabaseSourceFieldMapping,
+  ContentDatabaseSourceOverlay,
   CreateInlineDatabaseRequest,
   CreateInlineDatabaseResponse,
   DocumentPropertyType,
@@ -1028,17 +1029,25 @@ export function useContentDatabaseById(
 export function useContentDatabaseRowSourceOverlays(
   databaseId: string | null,
   rowDocumentId: string,
-) {
+):
+  | { state: "pending" }
+  | { state: "unreadable"; retry: () => void }
+  | { state: "read"; overlays: ContentDatabaseSourceOverlay[] } {
   const read = useActionQuery<ContentDatabaseItemsPageResponse>(
     "query-content-database-items",
     databaseId ? { databaseId, rowDocumentId, limit: 1 } : undefined,
     { enabled: !!databaseId, retry: false },
   );
-  if (!read.data || isContentDatabaseUnavailable(read.data)) return undefined;
-  const row = read.data.items.find(
-    (item) => item.document.id === rowDocumentId,
-  );
-  return row?.sourceOverlays ?? [];
+  if (read.data && !isContentDatabaseUnavailable(read.data)) {
+    const row = read.data.items.find(
+      (item) => item.document.id === rowDocumentId,
+    );
+    return { state: "read", overlays: row?.sourceOverlays ?? [] };
+  }
+  if (read.data || read.isError) {
+    return { state: "unreadable", retry: () => void read.refetch() };
+  }
+  return { state: "pending" };
 }
 
 /**
