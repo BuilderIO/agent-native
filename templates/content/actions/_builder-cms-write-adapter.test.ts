@@ -788,7 +788,7 @@ describe("Builder CMS write adapter plan", () => {
     expect(plan.payload.request.body).not.toHaveProperty("data.topics");
   });
 
-  it("blocks safe-model creates when a required field is missing", () => {
+  it("creates a safe-model draft without the fields Builder needs to publish", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: {
         ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
@@ -806,6 +806,48 @@ describe("Builder CMS write adapter plan", () => {
       pushModeConfirmation: "draft",
     });
 
+    expect(plan.payload.effect).toBe("create_draft");
+    expect(plan.payload.safety.blockers).toEqual([]);
+    expect(plan.state).toBe("ready");
+    expect(plan.payload.request).toMatchObject({
+      method: "POST",
+      body: { published: "draft" },
+    });
+    expect(plan.payload.request.body.data).not.toHaveProperty("author");
+  });
+
+  it("still blocks publishing that draft while a required field is missing", () => {
+    const publishSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      allowedWriteModes: ["autosave", "publish"],
+      allowPublicationTransitions: true,
+      builderModelFields: [
+        { name: "title", type: "string", required: true },
+        { name: "author", type: "reference", required: true },
+      ],
+    });
+    expect(
+      buildBuilderCmsExecutionPlan({
+        source: { ...publishSource, rows: [] },
+        changeSet: { ...approvedChangeSet(), pushMode: "publish" },
+        pushModeConfirmation: "publish",
+        publicationTransition: "publish",
+      }).payload.effect,
+    ).toBe("create_draft");
+
+    publishSource.rows = publishSource.rows.map((row) => ({
+      ...row,
+      sourceValues: { "data.title": "Old title", published: "draft" },
+    }));
+    const plan = buildBuilderCmsExecutionPlan({
+      source: publishSource,
+      changeSet: { ...approvedChangeSet(), pushMode: "publish" },
+      pushModeConfirmation: "publish",
+      publicationTransition: "publish",
+    });
+
+    expect(plan.payload.effect).toBe("publish");
     expect(plan).toMatchObject({
       state: "blocked",
       payload: {

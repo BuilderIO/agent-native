@@ -200,7 +200,7 @@ export function renderVisualEditApplyToolbar({
                   </DropdownMenuItem>
                   {showClearEdits ? (
                     <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
+                      variant="destructive"
                       onClick={() => void handleClearPendingVisualEdits()}
                     >
                       <IconX className="mr-2 h-4 w-4" />

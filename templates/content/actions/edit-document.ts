@@ -16,6 +16,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import {
   documentEditAttribution,
   requireDocumentRequestActor,
@@ -652,6 +653,10 @@ export default defineAction({
         await syncPrivateMediaReferences(
           tx as unknown as ReturnType<typeof getDb>,
           { documentId: id, after: content, userEmail: actor },
+        );
+        await syncAnalyticsChartCitations(
+          tx as unknown as ReturnType<typeof getDb>,
+          { documentId: id, before: existing.content ?? "", after: content },
         );
         for (const field of primaryBlocksFields) {
           await persistBlocksFieldIdentity({

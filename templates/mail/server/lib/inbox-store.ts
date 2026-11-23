@@ -726,6 +726,35 @@ export async function readCachedLabels(
   return { labels: [...labelsById.values()], labelMapByAccount };
 }
 
+export async function addCachedGmailLabel(
+  ownerEmail: string,
+  accountEmail: string,
+  label: CachedGmailLabel,
+): Promise<void> {
+  const conditions = [
+    eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)),
+  ];
+  await getDb().transaction(async (tx) => {
+    const rows = await tx
+      .select({ labelsJson: schema.mailSyncAccounts.labelsJson })
+      .from(schema.mailSyncAccounts)
+      .where(and(...conditions))
+      .for("update")
+      .limit(1);
+    const row = rows.length > 0 ? rows[0] : undefined;
+    const labels = readStateJson<CachedGmailLabel[] | null>(
+      {},
+      "labels_json",
+      row ? row.labelsJson : null,
+      (parsed) =>
+        Array.isArray(parsed) ? (parsed as CachedGmailLabel[]) : null,
+      null,
+    );
+    if (!labels || labels.some((existing) => existing.id === label.id)) return;
+    await applySyncPatch(tx, conditions, { labels: [...labels, label] });
+  });
+}
+
 export type LocalLabelDelta = {
   add?: string[];
   remove?: string[];

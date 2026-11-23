@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createTurnViewportLock,
   delegatedAppFromToolStart,
   visibleChatFirstSurfaceTabId,
 } from "./chat-first-pane";
@@ -91,5 +92,75 @@ describe("delegatedAppFromToolStart", () => {
         input: { agent: "https://example.com/agent" },
       }),
     ).toBeNull();
+    expect(
+      delegatedAppFromToolStart({
+        tool: "ask_app",
+        input: {
+          app: "content-2",
+          message: "lookup notes",
+          viewportMode: "background",
+        },
+      }),
+    ).toBeNull();
+    expect(
+      delegatedAppFromToolStart({
+        tool: "call_app_action",
+        input: {
+          app: "content-2",
+          action: "search-docs",
+          viewportMode: "background",
+        },
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("createTurnViewportLock", () => {
+  it("locks the foreground app for the turn and blocks secondary lookups without focus: true", () => {
+    const lock = createTurnViewportLock();
+    lock.beginTurn("turn-1");
+
+    expect(
+      lock.evaluate({ appId: "meeting-notes-2", turnKey: "turn-1" }),
+    ).toEqual({
+      allowed: true,
+      lockedAppId: "meeting-notes-2",
+    });
+
+    expect(
+      lock.evaluate({ appId: "meeting-notes-2", turnKey: "turn-1" }),
+    ).toEqual({
+      allowed: true,
+      lockedAppId: "meeting-notes-2",
+    });
+
+    expect(lock.evaluate({ appId: "content-2", turnKey: "turn-1" })).toEqual({
+      allowed: false,
+      lockedAppId: "meeting-notes-2",
+    });
+
+    expect(
+      lock.evaluate({
+        appId: "content-2",
+        focus: true,
+        viewportMode: "background",
+        turnKey: "turn-1",
+      }),
+    ).toEqual({
+      allowed: false,
+      lockedAppId: "meeting-notes-2",
+    });
+
+    expect(
+      lock.evaluate({ appId: "content-2", focus: true, turnKey: "turn-1" }),
+    ).toEqual({
+      allowed: true,
+      lockedAppId: "content-2",
+    });
+
+    expect(lock.evaluate({ appId: "decks-2", turnKey: "turn-2" })).toEqual({
+      allowed: true,
+      lockedAppId: "decks-2",
+    });
   });
 });

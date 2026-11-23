@@ -39,6 +39,7 @@ import {
 } from "../../actions/_document-edit-mutation.js";
 import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
+import { ANALYTICS_CHART_TAG } from "../../shared/analytics-chart-block.js";
 import {
   commentAnchorHoldsOn,
   commentAnchorText,
@@ -917,7 +918,9 @@ async function commitAcceptedContent(input: {
       if (
         currentContent.includes("<callout") ||
         nextContent.includes("<callout") ||
-        nextContent.includes(PRIVATE_MEDIA_PATH_PREFIX)
+        nextContent.includes(PRIVATE_MEDIA_PATH_PREFIX) ||
+        currentContent.includes(`<${ANALYTICS_CHART_TAG}`) ||
+        nextContent.includes(`<${ANALYTICS_CHART_TAG}`)
       ) {
         const actorEmail = input.ctx?.userEmail;
         if (typeof actorEmail !== "string" || !actorEmail) {

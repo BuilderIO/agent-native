@@ -28,6 +28,7 @@ import {
   ContextMenuTrigger,
 } from "../../../src/ui/base-ui/context-menu.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./context-menu.docs.md?raw";
 
 type ContextMenuProps = ContextMenuPopupOwnProps;
 
@@ -96,7 +97,11 @@ function ContextMenuSample(props: ContextMenuProps) {
 
 const meta = {
   title: "Components/Context Menu",
-  parameters: { layout: "fullscreen" },
+  component: ContextMenuPopup,
+  parameters: {
+    docs: { description: { component: guide } },
+    layout: "fullscreen",
+  },
   args: controls.args,
   argTypes: controls.argTypes,
 } satisfies Meta<ContextMenuProps>;

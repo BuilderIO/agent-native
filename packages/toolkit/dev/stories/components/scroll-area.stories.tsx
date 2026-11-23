@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { ScrollArea } from "../../../src/ui/base-ui/scroll-area.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./scroll-area.docs.md?raw";
 
 const controls = propControls(scrollAreaProps);
 
@@ -19,7 +20,7 @@ const rows = (
 const meta = {
   title: "Components/Scroll Area",
   component: ScrollArea,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, children: rows },
   argTypes: controls.argTypes,
   decorators: [

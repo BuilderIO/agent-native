@@ -13,6 +13,7 @@ import {
   OTPFieldSeparator,
 } from "../../../src/ui/base-ui/otp-field.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./otp-field.docs.md?raw";
 
 const controls = propControls(otpFieldProps);
 
@@ -21,7 +22,7 @@ const VARIANTS = otpFieldProps.variant.values;
 const meta = {
   title: "Components/OTP Field",
   component: OTPField,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, length: 6, disabled: false },
   argTypes: controls.argTypes,
 } satisfies Meta<typeof OTPField>;

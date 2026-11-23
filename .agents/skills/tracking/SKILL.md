@@ -426,7 +426,14 @@ Attribution parsing is defensive and never blocks signup. A request with no attr
 
 Other framework-level baseline events:
 
-- `session status` from `useSession()`, with `signed_in`
+- `session status` from `useSession()`, with `signed_in` and `trigger`: what
+  made the tab read the session. `load` is its first read in the page, `focus`
+  a return to the tab (focus or visibility) once the answer was stale,
+  `expired` a component mounting after the answer expired, `auth_change` a
+  sign-in, sign-out, or account or organization switch here or in another tab,
+  `unauthorized` a request answered 401, and `transport_change` requests
+  moving to another transport, such as an embed's token. Only `load` is a page
+  load; count visits from it, not from every `session status`.
 - `action.response` from the browser action transport, with action name,
   the `route` template of the page that made the request (omitted when no
   manifest route matches),
@@ -493,7 +500,15 @@ framework also emits `action_started`, `action_completed`, and
 `action_failed` for mutating `defineAction()` calls so UI, agent, MCP, A2A,
 automation, and CLI activity share one action-level trail. Read-only actions
 and high-frequency refresh, polling, navigation, and application-state actions
-are excluded.
+are excluded. `action_kind` says what kind of call it was: `write` for one
+someone asked for, `read` for a call the action's `planMode` declares a read,
+and `automatic` for a write the app made on its own, declared with
+`automatic` on `defineAction` (a predicate of the input and the call's
+context when only some calls are automatic). Only a call from the app's own UI
+can be automatic; an agent's, MCP client's, or CLI call stays `write`.
+Product-use counts keep `write` only. A new action that runs
+on load, on mount, on a timer, or as experiment or usage bookkeeping must
+declare `automatic`.
 
 App entry is emitted once per app and browser session. Tracking is action-level
 only: it does not install mouse, pointer, scroll, keypress, or DOM autocapture.

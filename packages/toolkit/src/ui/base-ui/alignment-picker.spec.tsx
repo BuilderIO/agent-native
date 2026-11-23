@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -215,6 +221,21 @@ describe("AlignmentPicker value mapping", () => {
 });
 
 describe("AlignmentPicker keyboard", () => {
+  it("preserves focus and value during assistive navigation", () => {
+    const onValueChange = vi.fn();
+    render(<Example onValueChange={onValueChange} />);
+    const current = screen.getByRole("radio", { name: "Top left" });
+    current.focus();
+    expect(
+      fireEvent.keyDown(current, {
+        key: "ArrowRight",
+        altKey: true,
+        ctrlKey: true,
+      }),
+    ).toBe(true);
+    expect(document.activeElement).toBe(current);
+    expect(onValueChange).not.toHaveBeenCalled();
+  });
   it("moves and checks in two dimensions, stopping at the edges", () => {
     const onValueChange = vi.fn();
     render(<Example onValueChange={onValueChange} />);
@@ -257,9 +278,66 @@ describe("AlignmentPicker keyboard", () => {
     fireEvent.keyDown(cell, { key: "Enter" });
     expect(checkedName()).toBe("Top");
     expect(focused().getAttribute("aria-label")).toBe("Top");
+    fireEvent.keyDown(focused(), { key: "Enter", repeat: true });
+    expect(checkedName()).toBe("Top");
     fireEvent.keyDown(focused(), { key: "Enter" });
     expect(checkedName()).toBe("Top center");
     expect(focused().getAttribute("aria-label")).toBe("Top center");
+  });
+
+  it("keeps focus inside an externally reconfigured matrix", () => {
+    const { rerender } = render(
+      <Example value={{ justify: "center", align: "end" }} />,
+    );
+    screen.getByRole("radio", { name: "Bottom center" }).focus();
+    rerender(<Example value={{ justify: "space-between", align: "end" }} />);
+    expect(focused()).toBe(screen.getByRole("radio", { name: "Bottom" }));
+    rerender(
+      <Example
+        direction="column"
+        value={{ justify: "space-between", align: "end" }}
+      />,
+    );
+    expect(focused()).toBe(screen.getByRole("radio", { name: "Right" }));
+  });
+
+  it("restores keyboard focus after the matrix changes inside a shadow root", () => {
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = host.attachShadow({ mode: "open" });
+    const container = root.appendChild(document.createElement("div"));
+    const view = render(<Example />, { container });
+    try {
+      const controls = within(container);
+      const first = controls.getByRole("radio", { name: "Top left" });
+      first.focus();
+      fireEvent.keyDown(first, { key: "Enter" });
+      const top = controls.getByRole("radio", { name: "Top" });
+      expect(root.activeElement).toBe(top);
+      fireEvent.keyDown(top, { key: "ArrowDown" });
+      expect(root.activeElement).toBe(
+        controls.getByRole("radio", { name: "Center" }),
+      );
+    } finally {
+      view.unmount();
+      host.remove();
+    }
+  });
+
+  it("leaves focus on the next control when a deferred change arrives", () => {
+    const panel = (justify: AlignmentValue["justify"]) => (
+      <>
+        <Example value={{ justify, align: "start" }} />
+        <button>Next property</button>
+      </>
+    );
+    const { rerender } = render(panel("center"));
+    const radio = screen.getByRole("radio", { name: "Top center" });
+    radio.focus();
+    fireEvent.keyDown(radio, { key: "Enter" });
+    const next = screen.getByRole("button", { name: "Next property" });
+    next.focus();
+    rerender(panel("space-between"));
+    expect(focused()).toBe(next);
   });
 
   it("disables every radio when disabled", () => {

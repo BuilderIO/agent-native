@@ -46,7 +46,7 @@ export const agentNativeTheme: ThemeDefinition = {
   },
 };
 
-const APPS: ReadonlyArray<readonly [string, string, "light" | "dark"]> = [
+const APPS = [
   ["analytics", "Analytics", "dark"],
   ["assets", "Assets", "light"],
   ["brain", "Brain", "light"],
@@ -65,7 +65,12 @@ const APPS: ReadonlyArray<readonly [string, string, "light" | "dark"]> = [
   ["plan", "Plan", "light"],
   ["slides", "Slides", "dark"],
   ["tasks", "Tasks", "light"],
-];
+] as const satisfies ReadonlyArray<readonly [string, string, "light" | "dark"]>;
+
+export type AppThemeName =
+  | (typeof APPS)[number][0]
+  | "agent-native"
+  | "baseline";
 
 /** One theme per app, named for the app; their values are their token files. */
 export const APP_THEMES: readonly ThemeDefinition[] = APPS.map(

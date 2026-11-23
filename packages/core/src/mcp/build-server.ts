@@ -527,6 +527,8 @@ export interface MCPRequestMeta {
    * `run.browserTabId`) so the call does not impersonate an open editor tab.
    */
   browserTabId?: string;
+  /** Optional viewport mode (`foreground` or `background`) from `x-agent-native-viewport-mode`. */
+  viewportMode?: import("../server/request-context.js").ViewportMode;
   /** Origin verified at the HTTP boundary for a page-grant review link. */
   approvalOrigin?: string;
   localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
@@ -4031,7 +4033,15 @@ export async function createMCPServerForRequest(
     const browserTabTarget = hasVerifiedMcpUserIdentity(effectiveIdentity)
       ? createBrowserTabTargetSlot(requestMeta?.browserTabId)
       : undefined;
+    const viewportMode = requestMeta?.viewportMode;
     const authUserId = await resolveCallerAuthUserId();
+    const runContext: RequestRunContext | undefined =
+      browserTabTarget || viewportMode
+        ? {
+            ...(browserTabTarget ? { browserTabTarget } : {}),
+            ...(viewportMode ? { viewportMode } : {}),
+          }
+        : undefined;
     const result = await runWithMcpChatTurnCall(
       effectiveIdentity,
       toolName,
@@ -4041,7 +4051,7 @@ export async function createMCPServerForRequest(
           fn,
           mcpRequestId,
           authUserId,
-          browserTabTarget ? { browserTabTarget } : undefined,
+          runContext,
           timezone,
           "UTC",
         ),

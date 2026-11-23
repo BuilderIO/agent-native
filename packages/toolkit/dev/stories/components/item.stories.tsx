@@ -23,13 +23,14 @@ import {
 } from "../../../src/ui/base-ui/item.js";
 import { Switch } from "../../../src/ui/base-ui/switch.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./item.docs.md?raw";
 
 const controls = propControls(itemProps);
 
 const meta = {
   title: "Components/Item",
   component: Item,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: {
     ...controls.args,
     children: (

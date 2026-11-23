@@ -1,14 +1,15 @@
 import { type DrawerOwnProps, drawerProps } from "@agent-native/design-system";
 import { Drawer as BaseDrawer } from "@base-ui/react/drawer";
+import { useRender } from "@base-ui/react/use-render";
 import { IconX } from "@tabler/icons-react";
 import * as React from "react";
 
 import { cn } from "../../utils.js";
 import { ModalLayerProvider, useInModalLayer } from "../modal-layer.js";
 import { IconButton } from "./button.js";
+import { scopePortal } from "./overlay-scope.js";
+import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
-
-type WithClassName<Props> = Omit<Props, "className"> & { className?: string };
 
 type DrawerSide = NonNullable<DrawerOwnProps["side"]>;
 
@@ -72,7 +73,7 @@ export const DrawerClose = BaseDrawer.Close;
  *
  * @import import { DrawerPortal } from "@agent-native/toolkit/ui/base-ui/drawer";
  */
-export const DrawerPortal = BaseDrawer.Portal;
+export const DrawerPortal = scopePortal(BaseDrawer.Portal);
 
 function useOverDialog() {
   const overDialog = useInModalLayer();
@@ -90,13 +91,13 @@ function useOverDialog() {
  */
 const DrawerBackdrop = React.forwardRef<
   HTMLDivElement,
-  WithClassName<BaseDrawer.Backdrop.Props>
+  BaseDrawer.Backdrop.Props
 >(({ className, ...props }, ref) => {
   const { attributes, forceBackdrop } = useOverDialog();
   return (
     <BaseDrawer.Backdrop
       ref={ref}
-      className={cn("drawer-backdrop", className)}
+      className={partClassName("drawer-backdrop", className)}
       forceRender={forceBackdrop}
       {...attributes}
       {...props}
@@ -105,12 +106,12 @@ const DrawerBackdrop = React.forwardRef<
 });
 DrawerBackdrop.displayName = "DrawerBackdrop";
 
-type DrawerPopupProps = WithClassName<BaseDrawer.Popup.Props> & {
+type DrawerPopupProps = BaseDrawer.Popup.Props & {
   container?: BaseDrawer.Portal.Props["container"];
   keepMounted?: boolean;
   showOverlay?: boolean;
-  backdropClassName?: string;
-  backdropStyle?: React.CSSProperties;
+  backdropClassName?: BaseDrawer.Backdrop.Props["className"];
+  backdropStyle?: BaseDrawer.Backdrop.Props["style"];
   /** A close button in the corner. Defaults on for a panel, off for a bottom drawer, which swipes down. */
   showClose?: boolean;
   closeLabel?: string;
@@ -144,7 +145,7 @@ const DrawerPopup = React.forwardRef<HTMLDivElement, DrawerPopupProps>(
       <DrawerPortal container={container} keepMounted={keepMounted}>
         {showOverlay ? (
           <BaseDrawer.Backdrop
-            className={cn("drawer-backdrop", backdropClassName)}
+            className={partClassName("drawer-backdrop", backdropClassName)}
             style={backdropStyle}
             forceRender={forceBackdrop}
             {...attributes}
@@ -153,7 +154,7 @@ const DrawerPopup = React.forwardRef<HTMLDivElement, DrawerPopupProps>(
         <BaseDrawer.Viewport className="drawer-viewport" {...attributes}>
           <BaseDrawer.Popup
             ref={ref}
-            className={cn("drawer-popup", className)}
+            className={partClassName("drawer-popup", className)}
             {...attributes}
             {...props}
             data-side={side}
@@ -192,11 +193,17 @@ DrawerPopup.displayName = "DrawerPopup";
  * @import import { DrawerHeader } from "@agent-native/toolkit/ui/base-ui/drawer";
  */
 const DrawerHeader = ({
+  render,
+  ref,
   className,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("drawer-header", className)} {...props} />
-);
+}: useRender.ComponentProps<"div">) =>
+  useRender({
+    defaultTagName: "div",
+    render,
+    ref,
+    props: { ...props, className: cn("drawer-header", className) },
+  });
 DrawerHeader.displayName = "DrawerHeader";
 
 /**
@@ -205,11 +212,17 @@ DrawerHeader.displayName = "DrawerHeader";
  * @import import { DrawerFooter } from "@agent-native/toolkit/ui/base-ui/drawer";
  */
 const DrawerFooter = ({
+  render,
+  ref,
   className,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("drawer-footer", className)} {...props} />
-);
+}: useRender.ComponentProps<"div">) =>
+  useRender({
+    defaultTagName: "div",
+    render,
+    ref,
+    props: { ...props, className: cn("drawer-footer", className) },
+  });
 DrawerFooter.displayName = "DrawerFooter";
 
 /**
@@ -219,11 +232,11 @@ DrawerFooter.displayName = "DrawerFooter";
  */
 const DrawerTitle = React.forwardRef<
   HTMLHeadingElement,
-  WithClassName<BaseDrawer.Title.Props>
+  BaseDrawer.Title.Props
 >(({ className, ...props }, ref) => (
   <BaseDrawer.Title
     ref={ref}
-    className={cn("drawer-title", className)}
+    className={partClassName("drawer-title", className)}
     {...props}
   />
 ));
@@ -236,11 +249,11 @@ DrawerTitle.displayName = "DrawerTitle";
  */
 const DrawerDescription = React.forwardRef<
   HTMLParagraphElement,
-  WithClassName<BaseDrawer.Description.Props>
+  BaseDrawer.Description.Props
 >(({ className, ...props }, ref) => (
   <BaseDrawer.Description
     ref={ref}
-    className={cn("drawer-description", className)}
+    className={partClassName("drawer-description", className)}
     {...props}
   />
 ));

@@ -5,12 +5,11 @@ import {
   themeCss,
   tokensCss,
 } from "./css.js";
-import { agentNativeTheme, THEMES } from "./themes/index.js";
+import { THEMES } from "./themes/index.js";
 
 /**
  * Every generated stylesheet, keyed by its path under `css/`. Each theme has
- * its own file: an app loads the default theme (through toolkit) and its own,
- * so a theme resets only what the default sets.
+ * its own file. A theme region can be nested inside any other loaded theme.
  */
 export function generatedStylesheets(): Record<string, string> {
   const files: Record<string, string> = {
@@ -20,10 +19,7 @@ export function generatedStylesheets(): Record<string, string> {
     "text-style-utilities.css": textStyleUtilitiesCss(),
   };
   for (const theme of THEMES) {
-    files[`themes/${theme.name}.css`] = themeCss(
-      theme,
-      theme.isDefault ? [theme] : [agentNativeTheme, theme],
-    );
+    files[`themes/${theme.name}.css`] = themeCss(theme, THEMES);
   }
   return files;
 }

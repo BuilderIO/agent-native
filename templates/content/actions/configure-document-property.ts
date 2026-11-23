@@ -238,7 +238,7 @@ export default defineAction({
     }
     // Without an id this creates a property. Edits to one a system collection
     // already has still go through, so it can be renamed or cleaned up.
-    if (!args.id) assertOrdinaryPropertySetupAllowed(database);
+    if (!args.id) assertOrdinaryPropertySetupAllowed(database, type);
     if (args.icon !== undefined) {
       const userEmail = getRequestUserEmail();
       if (!userEmail) throw new Error("Authentication is required.");
@@ -339,6 +339,9 @@ export default defineAction({
         }
         if (lockedDefinition.systemRole) {
           throw new Error("System properties cannot be changed.");
+        }
+        if (lockedDefinition.type !== type) {
+          assertOrdinaryPropertySetupAllowed(database, type);
         }
         if (
           isComputedPropertyType(
