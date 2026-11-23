@@ -1,0 +1,87 @@
+/*
+ * Part: kbd
+ *
+ *   <kbd class="kbd" data-variant="surface|soft">
+ *
+ * Radix Themes' kbd on the system's scale: a keycap holding a whole
+ * shortcut, sized in em so it follows the text around it, or a step of the
+ * type scale when `size` is set. Surface is raised like the controls around
+ * it: Input's border with a soft drop; soft is a flat tint. Rendered as a link or button, it takes
+ * hover, pressed and focus states.
+ */
+
+@layer components {
+  .kbd {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    /* Holds its own height in a flex or grid row instead of stretching. */
+    height: fit-content;
+    min-width: 1.6em;
+    padding: 0 0.45em;
+    border: 0;
+    border-radius: calc(var(--radius-3) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    color: var(--fg-default);
+    font-family: inherit;
+    font-size: 0.85em;
+    line-height: 1.6em;
+    font-weight: var(--font-weight-medium);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    vertical-align: text-top;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .kbd + .kbd {
+    margin-inline-start: var(--space-1);
+  }
+
+  /* ---- sizes ---- */
+
+  /* ---- variants ---- */
+
+  .kbd[data-variant="surface"] {
+    background-color: var(--surface-raised);
+    box-shadow:
+      inset 0 0 0 1px var(--line-strong),
+      0 1px 1px 0 var(--shadow-tint-a1),
+      0 2px 1px -1px var(--shadow-tint-a2);
+  }
+
+  .kbd[data-variant="soft"] {
+    background-color: var(--gray-a3);
+  }
+
+  :is(a, button).kbd {
+    cursor: pointer;
+    outline-style: none;
+  }
+
+  @media (hover: hover) {
+    :is(a, button).kbd[data-variant="surface"]:hover {
+      background-color: var(--gray-a2);
+    }
+
+    :is(a, button).kbd[data-variant="soft"]:hover {
+      background-color: var(--gray-a4);
+    }
+  }
+
+  :is(a, button).kbd[data-variant="surface"]:active {
+    background-color: var(--gray-a3);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+  }
+
+  :is(a, button).kbd[data-variant="soft"]:active {
+    background-color: var(--gray-a5);
+  }
+
+  :is(a, button).kbd:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+}

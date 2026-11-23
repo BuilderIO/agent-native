@@ -4001,11 +4001,180 @@ describe("useBuilderConnectFlow", () => {
     releaseStalledStatus?.();
   });
 
-  it("does not open a Builder popup from a desktop flow without the native bridge", async () => {
+  it("opens the signed Builder connect URL from an embedded desktop webview when Electron returns null", async () => {
     setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
 
     await act(async () => {
       root.render(<BuilderConnectProbe />);
+    });
+
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+    });
+
+    const openedUrl = String(openSpy.mock.calls[0]?.[0]);
+    expect(withoutConnectAttempt(openedUrl)).toBe(
+      expectedConnectUrl(signedConnectUrl),
+    );
+    expect(new URL(openedUrl).searchParams.get("_an_connect_attempt")).toMatch(
+      /^[0-9a-f-]{36}$/,
+    );
+    expect(openSpy.mock.calls[0]?.slice(1)).toEqual([
+      "_blank",
+      "noopener,noreferrer",
+    ]);
+    expect(window.location.href).toBe("http://localhost:3000/settings");
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain("Popup blocked");
+    expect(container.textContent).not.toContain(
+      "Couldn't start Builder.io setup. Refresh this page and try again.",
+    );
+  });
+
+  it("refreshes an expired Builder connect URL before opening from an embedded desktop webview", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+          appHost: "https://builder.io",
+          apiHost: "https://api.builder.io",
+          publicKeyConfigured: false,
+          privateKeyConfigured: false,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: refreshedConnectUrl,
+          appHost: "https://builder.io",
+          apiHost: "https://api.builder.io",
+          publicKeyConfigured: false,
+          privateKeyConfigured: false,
+        }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const openedUrl = String(openSpy.mock.calls[0]?.[0]);
+    expect(withoutConnectAttempt(openedUrl)).toBe(
+      expectedConnectUrl(refreshedConnectUrl),
+    );
+    expect(new URL(openedUrl).searchParams.get("_an_connect_attempt")).toMatch(
+      /^[0-9a-f-]{36}$/,
+    );
+    expect(container.textContent).toContain("not-configured connecting");
+  });
+
+  it("cancels and polls an embedded desktop webview connect flow through window.agentNativeDesktop.oauth", async () => {
+    setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
+    let notifySystemBrowserReturned:
+      | ((attemptId: string | null) => void)
+      | null = null;
+    const cancelPopup = vi.fn();
+    Object.defineProperty(window, "agentNativeDesktop", {
+      configurable: true,
+      value: {
+        oauth: {
+          cancelPopup,
+          onSystemBrowserReturned: (
+            callback: (attemptId: string | null) => void,
+          ) => {
+            notifySystemBrowserReturned = callback;
+            return () => {
+              notifySystemBrowserReturned = null;
+            };
+          },
+          onPopupClosed: () => () => {},
+        },
+      },
+    });
+    try {
+      await act(async () => {
+        root.render(<BuilderConnectProbe />);
+      });
+      await flushAfterPaint();
+
+      await act(async () => {
+        container.querySelector("button")?.click();
+      });
+
+      const openedUrl = String(openSpy.mock.calls[0]?.[0]);
+      const attemptId = new URL(openedUrl).searchParams.get(
+        "_an_connect_attempt",
+      );
+      expect(attemptId).toBeTruthy();
+      expect(container.textContent).toContain("not-configured connecting");
+
+      const fetchCountBeforeReturn = vi.mocked(fetch).mock.calls.length;
+      await act(async () => {
+        notifySystemBrowserReturned?.(attemptId);
+        await Promise.resolve();
+      });
+      expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(
+        fetchCountBeforeReturn,
+      );
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+          ?.click();
+      });
+      expect(cancelPopup).toHaveBeenCalledWith(attemptId);
+      expect(container.textContent).toContain("not-configured idle");
+    } finally {
+      delete (window as Window & { agentNativeDesktop?: unknown })
+        .agentNativeDesktop;
+    }
+  });
+
+  it("does not open a Builder popup from a desktop host flow when transport omits openConnectUrl", async () => {
+    setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
+    const transport: BuilderConnectTransport = {
+      readStatus: vi.fn().mockResolvedValue({
+        configured: false,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        connectUrl: signedConnectUrl,
+        appHost: "https://builder.io",
+        apiHost: "https://api.builder.io",
+        publicKeyConfigured: false,
+        privateKeyConfigured: false,
+      }),
+      activateAccount: vi
+        .fn()
+        .mockResolvedValue({ ok: false, code: "unused", message: null }),
+    };
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe transport={transport} />);
     });
 
     await flushAfterPaint();
@@ -4019,6 +4188,32 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain(
       "Couldn't start Builder.io setup. Refresh this page and try again.",
     );
+  });
+
+  it("does not open a Builder popup from the desktop host renderer when electronAPI is present without a transport", async () => {
+    setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {},
+    });
+    try {
+      await act(async () => {
+        root.render(<BuilderConnectProbe />);
+      });
+
+      await flushAfterPaint();
+
+      await act(async () => {
+        container.querySelector("button")?.click();
+      });
+
+      expect(openSpy).not.toHaveBeenCalled();
+      expect(container.textContent).toContain(
+        "Couldn't start Builder.io setup. Refresh this page and try again.",
+      );
+    } finally {
+      delete (window as Window & { electronAPI?: unknown }).electronAPI;
+    }
   });
 
   it("asks the MCP host to open Builder when an embedded chat sandbox blocks popups", async () => {

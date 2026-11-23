@@ -1,4 +1,7 @@
-import { withoutWriteObservation } from "../action-frame.js";
+import {
+  observeNavigationCommand,
+  withoutWriteObservation,
+} from "../action-frame.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, isLocalDatabase, type DbExec } from "../db/client.js";
 import {
@@ -204,6 +207,7 @@ export async function appStatePut(
     });
     if (result.rowsAffected === 0) return;
   }
+  observeNavigationCommand(key);
   emitAppStateChange(key, options?.requestSource, sessionId);
 }
 
@@ -259,6 +263,7 @@ export async function appStateCompareAndSet(
     if (nextValue === null) {
       emitAppStateDelete(key, options?.requestSource, sessionId);
     } else {
+      observeNavigationCommand(key);
       emitAppStateChange(key, options?.requestSource, sessionId);
     }
   }
@@ -390,6 +395,7 @@ export async function appStateCompareAndSetMany(
     if (nextValue === null) {
       emitAppStateDelete(key, options?.requestSource, sessionId);
     } else {
+      observeNavigationCommand(key);
       emitAppStateChange(key, options?.requestSource, sessionId);
     }
   }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, isOutsideAgentCall } from "../../action.js";
 import {
   assertVersionedResourceAccess,
   getVersionedResource,
@@ -36,6 +36,8 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const actionCtx = ctx as VersionedResourceContext | undefined;
     const scope = {

@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { EXPECTED_REVISION_DESCRIPTION } from "@agent-native/core/save-conflict/server";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -30,7 +31,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "The revision from list-intelligence; required when updating id. A stale revision fails with save_conflict.",
+        `${EXPECTED_REVISION_DESCRIPTION} Required when updating id; read it from list-intelligence.`,
       ),
     id: z
       .string()

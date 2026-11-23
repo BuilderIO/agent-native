@@ -225,6 +225,16 @@ vi.mock(
   },
 );
 
+vi.mock(
+  "../server/lib/first-party-analytics-backend",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../server/lib/first-party-analytics-backend")
+    >()),
+    getFirstPartyAnalyticsBackend: async () => ({ sink: "bigquery" }),
+  }),
+);
+
 vi.mock("../server/lib/first-party-analytics", async (importOriginal) => {
   const actual =
     await importOriginal<

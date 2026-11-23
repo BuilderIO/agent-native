@@ -85,7 +85,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "mail",
     label: "Mail",
-    hint: "Agent-Native Superhuman — email client with keyboard shortcuts and AI triage",
+    hint: "Email client with keyboard shortcuts and AI triage",
     icon: "Mail",
     color: "#3B82F6",
     colorRgb: "59 130 246",

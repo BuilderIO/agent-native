@@ -940,7 +940,7 @@ function ToolCallDisplayGeneric({
     toolName,
     args,
     resultText: result,
-    resultJson: parsedResult,
+    resultJson: parsedResult ?? (chatUI && result ? result : null),
     status,
     isRunning,
     isActiveTail,

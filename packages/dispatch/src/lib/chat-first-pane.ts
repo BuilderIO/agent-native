@@ -1,4 +1,30 @@
-import type { ChatFirstSurfaceTab } from "@agent-native/core/client/chat-first-state";
+import {
+  resolveChatFirstAppTarget,
+  type ChatFirstAppRegistration,
+  type ChatFirstAppResolution,
+  type ChatFirstOpenAppDetail,
+  type ChatFirstSurfaceTab,
+} from "@agent-native/core/client/chat-first-state";
+
+export function resolveDispatchChatFirstAppTarget(
+  detail: ChatFirstOpenAppDetail,
+  apps: readonly ChatFirstAppRegistration[],
+  options?: { currentOrigin?: string },
+): ChatFirstAppResolution {
+  const requested = detail.app?.trim().toLowerCase();
+  if (!requested) return resolveChatFirstAppTarget(detail, apps, options);
+
+  const enabled = apps.filter((app) => app.enabled !== false);
+  const exact = enabled.find((app) => app.id.toLowerCase() === requested);
+  if (exact) return resolveChatFirstAppTarget(detail, [exact], options);
+
+  const named = enabled.filter(
+    (app) => app.name?.trim().toLowerCase() === requested,
+  );
+  return !requested.includes("/") && named.length === 1
+    ? resolveChatFirstAppTarget(detail, named, options)
+    : { status: "unresolved", reason: "unknown-app" };
+}
 
 /**
  * The tab the side panel shows.

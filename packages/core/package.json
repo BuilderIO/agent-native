@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.231.0",
+  "version": "0.232.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -441,6 +441,10 @@
     "./client/transcription/use-live-transcription": "./dist/client/transcription/use-live-transcription.js",
     "./transcription/builder": "./dist/transcription/builder-transcription.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
+    "./cli/process": {
+      "types": "./dist/cli/process.d.ts",
+      "default": "./dist/cli/process.js"
+    },
     "./cli/telemetry": {
       "types": "./dist/cli/telemetry.d.ts",
       "default": "./dist/cli/telemetry.js"
@@ -668,6 +672,7 @@
     "./labs/core-labs": "./dist/labs/core-labs.js",
     "./localization/workspace-integration-messages": "./dist/localization/workspace-integration-messages.js",
     "./localization/mcp-settings-messages": "./dist/localization/mcp-settings-messages.js",
+    "./localization/privacy-choice-messages": "./dist/localization/privacy-choice-messages.js",
     "./localization/shared": "./dist/localization/shared.js",
     "./navigation/settings-redirects": "./dist/navigation/settings-redirects.js",
     "./notifications/types": "./dist/notifications/types.js",
@@ -793,6 +798,7 @@
     "ajv-formats": "^3.0.1",
     "better-auth": "1.7.6",
     "cron-parser": "^5.5.0",
+    "cross-spawn": "7.0.6",
     "diff": "^9.0.0",
     "diff-match-patch": "^1.0.5",
     "dotenv": "^17.2.1",
@@ -861,6 +867,7 @@
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-query": "^5.101.2",
+    "@types/cross-spawn": "6.0.6",
     "@types/diff-match-patch": "^1.0.36",
     "@types/express": "^5.0.6",
     "@types/mdast": "^4.0.4",

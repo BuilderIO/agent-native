@@ -1,0 +1,146 @@
+/*
+ * Part: popover
+ *
+ *   <div class="popover-positioner">                Base UI Popover.Positioner
+ *     <div class="popover-popup" role="dialog"      Popover.Popup
+ *          [data-open] [data-side] [data-align] [data-instant]
+ *          [data-starting-style] [data-ending-style]>
+ *       <div class="popover-arrow">                 Popover.Arrow
+ *       <h2 class="popover-title">                  Popover.Title
+ *       <p class="popover-description">             Popover.Description
+ *
+ * The positioner carries the layer, so a popover opened from inside a dialog
+ * paints above it (the popup layer is above the dialog layer).
+
+ */
+
+@layer components {
+  .popover-positioner {
+    z-index: var(--layer-popup);
+    outline: none;
+  }
+
+  .popover-popup {
+    --_slide-x: 0px;
+    --_slide-y: 0px;
+
+    box-sizing: border-box;
+    width: 18rem;
+    padding: var(--space-4);
+    border: 0;
+    border-radius: calc(var(--shape-popup) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--surface-raised);
+    color: var(--fg-default);
+    box-shadow: var(--shadow-4);
+    outline-style: none;
+    transform-origin: var(--transform-origin);
+    transition-property: opacity, scale, translate;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-enter);
+  }
+
+  .popover-popup[data-side="bottom"] {
+    --_slide-y: calc(var(--space-2) * -1);
+  }
+  .popover-popup[data-side="top"] {
+    --_slide-y: var(--space-2);
+  }
+  .popover-popup[data-side="left"] {
+    --_slide-x: var(--space-2);
+  }
+  .popover-popup[data-side="right"] {
+    --_slide-x: calc(var(--space-2) * -1);
+  }
+  .popover-popup[data-side="inline-start"] {
+    --_slide-x: calc(var(--space-2) * var(--_inline-direction, 1));
+  }
+  .popover-popup[data-side="inline-end"] {
+    --_slide-x: calc(var(--space-2) * var(--_inline-direction, 1) * -1);
+  }
+
+  .popover-popup[data-starting-style] {
+    opacity: 0;
+    scale: 0.95;
+    translate: var(--_slide-x) var(--_slide-y);
+  }
+
+  .popover-popup[data-ending-style] {
+    opacity: 0;
+    scale: 0.95;
+  }
+
+  /* A nested popup measures its trigger in viewport pixels. Finish the parent
+     scale before that measurement can feed back into the child popup width. */
+  @media (prefers-reduced-motion: no-preference) {
+    .popover-popup:where(:has([data-popup-open])) {
+      scale: none;
+      transition-property: opacity, translate;
+    }
+  }
+
+  .popover-popup[data-instant] {
+    transition-duration: 0s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .popover-popup {
+      transition-property: none;
+    }
+  }
+
+  .popover-title {
+    margin: 0;
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    font-weight: var(--font-weight-medium);
+  }
+
+  .popover-description {
+    margin: 0;
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    color: var(--fg-muted);
+  }
+
+  /* ---- sizes: padding and type step together ---- */
+
+  .popover-arrow {
+    --_size: 10px;
+
+    width: var(--_size);
+    height: var(--_size);
+    background-color: var(--surface-raised);
+    border: 1px solid var(--gray-a3);
+    rotate: 45deg;
+  }
+  .popover-arrow[data-side="bottom"] {
+    top: calc(var(--_size) / -2 - 1px);
+    border-right: 0;
+    border-bottom: 0;
+  }
+  .popover-arrow[data-side="top"] {
+    bottom: calc(var(--_size) / -2 - 1px);
+    border-top: 0;
+    border-left: 0;
+  }
+  .popover-arrow[data-side="left"],
+  .popover-arrow[data-side="inline-start"]:where(:dir(ltr)),
+  .popover-arrow[data-side="inline-end"]:where(:dir(rtl)) {
+    right: calc(var(--_size) / -2 - 1px);
+    border-bottom: 0;
+    border-left: 0;
+  }
+  .popover-arrow[data-side="right"],
+  .popover-arrow[data-side="inline-end"]:where(:dir(ltr)),
+  .popover-arrow[data-side="inline-start"]:where(:dir(rtl)) {
+    left: calc(var(--_size) / -2 - 1px);
+    border-top: 0;
+    border-right: 0;
+  }
+  @media (forced-colors: active) {
+    .popover-popup {
+      outline: 1px solid CanvasText;
+    }
+  }
+}

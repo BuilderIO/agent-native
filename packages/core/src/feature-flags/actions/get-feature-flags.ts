@@ -19,6 +19,7 @@ export default defineAction({
     "Return the boolean values of every feature flag registered by this app for the current caller. Unknown or unconfigured flags always evaluate to false.",
   schema: z.object({}),
   http: { method: "GET" },
+  mcpTool: false,
   run: async (_args, ctx) => {
     const scope: FeatureFlagScope = {
       ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),

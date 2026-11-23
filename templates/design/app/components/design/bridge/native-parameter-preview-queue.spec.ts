@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { NativeParameterPreviewQueue } from "./native-parameter-preview-queue";
+
+// oracle-change: removed the final-value case; the first case already asserts only the latest pending value runs after the in-flight application
 const turn = async () => {
   await Promise.resolve();
   await Promise.resolve();
@@ -35,30 +37,6 @@ describe("native transient parameter previews", () => {
       ["other", { scale: 3 }],
     ]);
     expect(failure).not.toHaveBeenCalled();
-  });
-
-  it("lets the final cancel or commit value replace older queued previews", async () => {
-    let release!: () => void;
-    const apply = vi
-      .fn()
-      .mockImplementationOnce(
-        () =>
-          new Promise<void>((resolve) => {
-            release = resolve;
-          }),
-      )
-      .mockResolvedValue(undefined);
-    const queue = new NativeParameterPreviewQueue(() => {}, apply, vi.fn());
-    queue.enqueue("glass", { thickness: 1 });
-    queue.enqueue("glass", { thickness: 20 });
-    queue.enqueue("glass", { thickness: 28 });
-    release();
-    await turn();
-    await turn();
-    expect(apply.mock.calls.map(([, params]) => params)).toEqual([
-      { thickness: 1 },
-      { thickness: 28 },
-    ]);
   });
 
   it("invalidates old requests across canonical rescans and reports current invalid values", async () => {

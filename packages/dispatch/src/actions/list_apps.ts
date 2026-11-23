@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { hideHostedAppsWhenOff } from "../server/lib/hosted-apps-settings.js";
-import { listGrantedDispatchMcpApps } from "../server/lib/mcp-gateway.js";
+import { listGrantedDispatchMcpAppsWithStatus } from "../server/lib/mcp-gateway.js";
 
 export default defineAction({
   description:
@@ -12,14 +12,15 @@ export default defineAction({
   readOnly: true,
   parallelSafe: true,
   run: async () => {
-    const apps = await hideHostedAppsWhenOff(
-      await listGrantedDispatchMcpApps(),
-    );
+    const { apps: granted, degradedSources } =
+      await listGrantedDispatchMcpAppsWithStatus();
+    const apps = await hideHostedAppsWhenOff(granted);
     const appSummaries = apps.map((app) => ({
       id: app.id,
       name: app.name,
       description: app.description,
       url: app.url,
+      ...(app.aliases?.length ? { aliases: app.aliases } : {}),
       running: true,
       source: "dispatch-mcp-grant",
     }));
@@ -27,8 +28,14 @@ export default defineAction({
       workspace: true,
       gateway: "dispatch",
       apps: appSummaries,
+      degradedSources,
       message: JSON.stringify({
-        apps: appSummaries.map(({ id, name }) => ({ id, name })),
+        apps: appSummaries.map(({ id, name, aliases }) => ({
+          id,
+          name,
+          ...(aliases?.length ? { aliases } : {}),
+        })),
+        ...(degradedSources.length ? { degradedSources } : {}),
       }),
     };
   },

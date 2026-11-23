@@ -170,17 +170,17 @@ Use `patch` for fixes, docs, and refactors, `minor` for additive features, and
 
 ## Syncing main
 
-Merge `origin/main` only when GitHub reports `CONFLICTING`, or a failing
-required check is already fixed on `main`. A behind count or pending checks
-are no reason to sync. Use a normal merge, never a rebase, with the tree clean
-and HEAD equal to the live PR head:
-
-```bash
-dirty=$(git status --porcelain -- ':/' ':(top,exclude)learnings.md' ':(top,exclude)bridge/**' ':(top,exclude)data/**') \
-  && test -z "$dirty" \
-  && [ "$(git rev-parse HEAD)" = "$(gh pr view $ARGUMENTS --json headRefOid --jq .headRefOid)" ] \
-  && git fetch origin main && git merge --no-edit origin/main
-```
+Run `node scripts/merge-main-into-pr.ts $ARGUMENTS`. It merges `origin/main`
+only when GitHub reports the PR `CONFLICTING`/`DIRTY` and refuses otherwise
+(exit 3): a behind count, pending checks, or a failing check whose fix exists
+only on `main` are no reason to sync (in the last case, stop and report
+blocked with what `main` has). It is a normal merge, never a rebase, and
+requires a clean tree and HEAD equal to the live PR head (`learnings.md`,
+`bridge/**` and `data/**` don't count as dirty). Exit codes: 0 merged; 1
+unresolved conflicts (resolve, `git commit --no-edit`, push); 2 precondition
+failed (dirty tree, HEAD not the live head, fetch failed); 3 refused, no
+conflict; 4 merge failed with no conflicts (inspect `git status`, don't
+resolve); 5 GitHub query failed (retry).
 
 For a `pnpm-lock.yaml` conflict, take one side with
 `git checkout --theirs -- pnpm-lock.yaml`, then

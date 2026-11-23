@@ -211,6 +211,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  cachedDocumentPropertyState,
+  forgetDocumentPropertyChanges,
+  groupDocumentPropertyChanges,
+  recordDocumentPropertyChange,
+  startDocumentPropertySave,
+  withExpectedGeneration,
+} from "@/hooks/document-property-undo";
+import { useBuilderSourceReviewBatches } from "@/hooks/use-builder-source-review-batches";
+import {
   applyOptimisticBuilderWriteMode,
   contentDatabaseQueryFilter,
   isContentDatabaseUnavailable,
@@ -233,7 +242,6 @@ import {
   useMaterializeBuilderRequiredFields,
   useNotionDatabaseSources,
   usePrepareBuilderSourceReview,
-  usePreviewBuilderSourceReview,
   useProcessBuilderBodyHydration,
   useRefreshContentDatabaseSource,
   useSetContentDatabaseSourceWriteMode,
@@ -290,6 +298,15 @@ import {
   builderBodyHydrationRetryDelayMs,
   shouldPumpBuilderBodyHydration,
 } from "../builder-body-hydration-pump";
+import {
+  BUILDER_REVIEW_CHECK_BATCH_SIZE,
+  chunkBuilderReviewIds,
+  mergeBuilderReviewBatch,
+} from "../database-sources/builder-review-batches";
+import {
+  BuilderArticleAutosaveRunner,
+  BuilderArticleCellStatus,
+} from "../database-sources/BuilderArticleAutosave";
 import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
@@ -384,6 +401,7 @@ import { DatabaseGalleryView } from "./GalleryView";
 import type { GitHubCollectionPlace } from "./github-availability";
 import { GitHubSourcePanel, useGitHubSourcesRow } from "./GitHubSourcePanel";
 import { GitHubSourceStatusLine } from "./GitHubSourceStatusLine";
+import { showInlineCollectionView } from "./inline-collection-views";
 import { DatabaseListRowsSetting } from "./ListItemLayout";
 import { DatabaseListView } from "./ListView";
 import {
@@ -1531,6 +1549,10 @@ function DatabaseTable({
       if (renderMode === "page") onExportContextChange?.(null);
     };
   }, [onExportContextChange, renderMode]);
+  useEffect(() => {
+    if (renderMode !== "inline" || !exportContext) return;
+    return showInlineCollectionView(document.id, exportContext);
+  }, [document.id, exportContext, renderMode]);
   const visibleItems = useMemo(
     () =>
       applyDatabaseView(
@@ -1685,25 +1707,37 @@ function DatabaseTable({
     source,
     builderReviewSourceId,
   );
-  const builderReviewPreviewQuery = usePreviewBuilderSourceReview({
-    documentId: document.id,
-    sourceId: builderReviewSourceId,
-    scope: selectedItemIds.length > 0 ? "selected" : "all",
-    documentIds: selectedItems.map((item) => item.document.id),
-    enabled: builderReviewOpen,
-  });
-  const completeBuilderReviewPreview =
-    builderReviewPreviewQuery.data &&
-    builderReviewSource &&
-    builderReviewPreviewQuery.data.sourceId === builderReviewSource.id &&
-    builderReviewPreviewQuery.data.sourceTable ===
-      builderReviewSource.sourceTable
-      ? builderReviewPreviewQuery.data
-      : null;
   const builderReviewChangeSets = useMemo(
     () => builderReviewableChangeSets(builderReviewSource),
     [builderReviewSource],
   );
+  const builderReviewBatches = useBuilderSourceReviewBatches({
+    documentId: document.id,
+    sourceId: builderReviewSourceId,
+    scope: selectedItemIds.length > 0 ? "selected" : "all",
+    documentIds: selectedItems.map((item) => item.document.id),
+    priorityDocumentIds: builderReviewChangeSets.flatMap((changeSet) =>
+      changeSet.documentId ? [changeSet.documentId] : [],
+    ),
+    enabled: builderReviewOpen,
+  });
+  const completeBuilderReviewPreview =
+    builderReviewBatches.data &&
+    builderReviewSource &&
+    builderReviewBatches.data.sourceId === builderReviewSource.id &&
+    builderReviewBatches.data.sourceTable === builderReviewSource.sourceTable
+      ? builderReviewBatches.data
+      : null;
+  const builderReviewBatchIdMap = builderReviewBatches.selectionChangeSetIdMap;
+  const builderReviewDialogSelectionMap = useMemo(
+    () =>
+      builderReviewBatchIdMap || builderReviewSelectionRemap
+        ? { ...builderReviewBatchIdMap, ...builderReviewSelectionRemap }
+        : null,
+    [builderReviewBatchIdMap, builderReviewSelectionRemap],
+  );
+  const [builderReviewCheckPending, setBuilderReviewCheckPending] =
+    useState(false);
   const builderReviewCountIsComplete =
     databaseSourceChangeSetsAreComplete(builderReviewSource);
   const builderReviewPreview = useMemo(
@@ -1731,7 +1765,7 @@ function DatabaseTable({
       processBuilderBodies.isPending ||
       hydrationSourceInFlightRef.current !== null,
     disconnect: disconnectSource.isPending,
-    review: prepareBuilderReview.isPending,
+    review: builderReviewCheckPending || prepareBuilderReview.isPending,
     execute: executeBuilderExecution.isPending,
     writeMode: setSourceWriteMode.isPending,
     changeRoleSourceId: pendingMutationSourceId(
@@ -2787,6 +2821,7 @@ function DatabaseTable({
 
   function openBuilderReview(sourceId: string) {
     if (
+      builderReviewCheckPending ||
       prepareBuilderReview.isPending ||
       executeBuilderExecution.isPending ||
       cancelPreparedBuilderUpdate.isPending
@@ -2811,7 +2846,8 @@ function DatabaseTable({
   function closeBuilderReview(force = false) {
     if (
       !force &&
-      (prepareBuilderReview.isPending ||
+      (builderReviewCheckPending ||
+        prepareBuilderReview.isPending ||
         executeBuilderExecution.isPending ||
         cancelPreparedBuilderUpdate.isPending)
     ) {
@@ -2879,33 +2915,95 @@ function DatabaseTable({
       setBuilderReviewCheckedAt(null);
       setBuilderReviewError(null);
       setPreparedBuilderReviewConfirmation(null);
+      const selectedRows = activeBuilderReview.rows.filter((row) =>
+        selectedChangeSetIdSet.has(row.changeSetId),
+      );
+      const checkBatches =
+        selectedRows.length === selectedChangeSetIds.length &&
+        selectedRows.every((row) => row.documentId)
+          ? chunkBuilderReviewIds(
+              selectedRows,
+              BUILDER_REVIEW_CHECK_BATCH_SIZE,
+            ).map((rows) => ({
+              changeSetIds: rows.map((row) => row.changeSetId),
+              documentIds: [
+                ...new Set(rows.flatMap((row) => row.documentId ?? [])),
+              ],
+            }))
+          : [
+              {
+                changeSetIds: selectedChangeSetIds,
+                documentIds:
+                  selectedItemIds.length > 0
+                    ? selectedItems.map((item) => item.document.id)
+                    : undefined,
+              },
+            ];
+      setBuilderReviewCheckPending(true);
       try {
-        const prepared = await prepareBuilderReview.mutateAsync({
-          documentId: document.id,
-          sourceId: session.sourceId,
-          changeSetIds: selectedChangeSetIds,
-          documentIds:
-            selectedItemIds.length > 0
-              ? selectedItems.map((item) => item.document.id)
-              : undefined,
-          pushModeConfirmation:
-            activeBuilderReview.pushMode === "none"
-              ? undefined
-              : activeBuilderReview.pushMode,
-          transitions: selection.transitions,
-        });
-        if (
-          !databaseBuilderReviewSessionIsCurrent(
-            builderReviewSessionRef.current,
-            session,
-          )
-        ) {
+        let preparedReview: ContentDatabaseSourceReviewPayload | null = null;
+        const preparedChangeSetMappings: PreparedBuilderChangeSetMapping[] = [];
+        const unchangedChangeSetIds = new Set<string>();
+        for (const batch of checkBatches) {
+          const batchIds = new Set(batch.changeSetIds);
+          const batchPrepared = await prepareBuilderReview.mutateAsync({
+            documentId: document.id,
+            sourceId: session.sourceId,
+            changeSetIds: batch.changeSetIds,
+            ...(batch.documentIds ? { documentIds: batch.documentIds } : {}),
+            ...(activeBuilderReview.pushMode === "none"
+              ? {}
+              : { pushModeConfirmation: activeBuilderReview.pushMode }),
+            transitions: Object.fromEntries(
+              Object.entries(selection.transitions).filter(([changeSetId]) =>
+                batchIds.has(changeSetId),
+              ),
+            ),
+          });
+          if (
+            !databaseBuilderReviewSessionIsCurrent(
+              builderReviewSessionRef.current,
+              session,
+            )
+          ) {
+            return;
+          }
+          preparedReview =
+            mergeBuilderReviewBatch(preparedReview, batchPrepared.review) ??
+            batchPrepared.review;
+          preparedChangeSetMappings.push(
+            ...batchPrepared.preparedChangeSetMappings,
+          );
+          for (const changeSetId of batchPrepared.unchangedChangeSetIds ?? []) {
+            unchangedChangeSetIds.add(changeSetId);
+          }
+        }
+        if (!preparedReview) {
+          throw new Error(dbText("needsAFreshReview"));
+        }
+        const prepared = { review: preparedReview, preparedChangeSetMappings };
+        const changedChangeSetIds = selectedChangeSetIds.filter(
+          (changeSetId) => !unchangedChangeSetIds.has(changeSetId),
+        );
+        if (unchangedChangeSetIds.size > 0) {
+          toast.info(
+            dbText(
+              unchangedChangeSetIds.size === 1
+                ? "builderReviewRowsMatchBuilderOne"
+                : "builderReviewRowsMatchBuilder",
+              { count: unchangedChangeSetIds.size },
+            ),
+          );
+        }
+        if (changedChangeSetIds.length === 0) {
+          setBuilderReviewResult(prepared.review);
+          setBuilderReviewCheckedAt(new Date().toISOString());
           return;
         }
         const preparedSelection = databaseBuilderPreparedReviewSelection(
           prepared.review,
           reviewSource,
-          selectedChangeSetIds,
+          changedChangeSetIds,
           prepared.preparedChangeSetMappings,
         );
         if (!preparedSelection) {
@@ -2966,6 +3064,8 @@ function DatabaseTable({
         toast.error(dbText("builderUpdateFailed"), {
           description: message,
         });
+      } finally {
+        setBuilderReviewCheckPending(false);
       }
       return;
     }
@@ -3434,6 +3534,12 @@ function DatabaseTable({
 
   return (
     <div className={DATABASE_VIEW_CLASS_NAME}>
+      {builderSources.length > 0 ? (
+        <BuilderArticleAutosaveRunner
+          collectionDocumentId={document.id}
+          canEdit={effectiveCanEdit}
+        />
+      ) : null}
       <div
         {...(renderMode === "page" ? startupAnchor("database-tabs") : {})}
         className={DATABASE_VIEW_TABS_ROW_CLASS_NAME}
@@ -4311,22 +4417,37 @@ function DatabaseTable({
         source={builderReviewSource}
         canEdit={canEdit}
         pending={
-          builderReviewPreviewQuery.isFetching ||
+          builderReviewCheckPending ||
           prepareBuilderReview.isPending ||
           executeBuilderExecution.isPending ||
           cancelPreparedBuilderUpdate.isPending
         }
-        executionPending={executeBuilderExecution.isPending}
-        error={
-          builderReviewError ??
-          (builderReviewPreviewQuery.error instanceof Error
-            ? builderReviewPreviewQuery.error.message
-            : null)
+        loading={
+          !builderReviewResult &&
+          !builderReviewBatches.error &&
+          builderReviewBatches.loadingFirstBatch
         }
+        loadProgress={
+          builderReviewResult ? null : builderReviewBatches.progress
+        }
+        loadError={
+          builderReviewResult
+            ? null
+            : (builderReviewBatches.error?.message ?? null)
+        }
+        onRetryLoad={builderReviewBatches.retry}
+        unchangedRowCount={
+          builderReviewResult ? 0 : builderReviewBatches.unchangedRowCount
+        }
+        moreRowsBeyondLimit={
+          !builderReviewResult && builderReviewBatches.moreRowsBeyondLimit
+        }
+        executionPending={executeBuilderExecution.isPending}
+        error={builderReviewError}
         checkedAt={builderReviewCheckedAt}
         preparedForExecution={preparedBuilderReviewConfirmation !== null}
         autoSelectReviewRows={selectedItemIds.length > 0}
-        selectionChangeSetIdMap={builderReviewSelectionRemap}
+        selectionChangeSetIdMap={builderReviewDialogSelectionMap}
         onClose={closeBuilderReview}
         onValidate={(selection) => void handleBuilderReviewPush(selection)}
         onCancelPrepared={(changeSetId) =>
@@ -6473,6 +6594,21 @@ function DatabaseTableView({
     const selectedSnapshot = selectedItems;
 
     if (operation.kind === "set") {
+      const changes = selectedSnapshot.map((item) => {
+        const target = {
+          documentId: item.document.id,
+          databaseId,
+          databaseDocumentId,
+          propertyId: property.definition.id,
+        };
+        return {
+          target,
+          before: cachedDocumentPropertyState(queryClient, target),
+          run: startDocumentPropertySave(queryClient, target, {
+            optimistic: false,
+          }),
+        };
+      });
       try {
         const response = await updateItems.mutateAsync({
           databaseId,
@@ -6480,6 +6616,51 @@ function DatabaseTableView({
           propertyId: property.definition.id,
           value: operation.value,
         });
+        const samePage = !changes.some((change) => change.run.leftPage());
+        const generations = new Map(
+          response.results
+            .filter((result) => result.success)
+            .map((result) => [result.documentId, result.generation]),
+        );
+        const savedChanges = changes.filter((change) =>
+          generations.has(change.target.documentId),
+        );
+        if (
+          samePage &&
+          savedChanges.some(
+            (change) => change.before === null || !change.run.trusted(),
+          )
+        ) {
+          forgetDocumentPropertyChanges(queryClient);
+        } else if (samePage) {
+          await groupDocumentPropertyChanges(
+            queryClient,
+            savedChanges.map((change) => change.target),
+            async () => {
+              for (const { target, before } of savedChanges) {
+                if (!before) continue;
+                recordDocumentPropertyChange(queryClient, {
+                  target,
+                  before,
+                  after: { value: operation.value },
+                  generation: generations.get(target.documentId),
+                  write: (state, expectedGeneration) =>
+                    setProperty.saveWithoutUndo(
+                      withExpectedGeneration(
+                        {
+                          documentId: target.documentId,
+                          propertyId: target.propertyId,
+                          ...state,
+                        },
+                        expectedGeneration,
+                      ),
+                    ),
+                  reportsErrors: false,
+                });
+              }
+            },
+          );
+        }
         await queryClient.invalidateQueries({
           queryKey: [
             "action",
@@ -6493,28 +6674,44 @@ function DatabaseTableView({
           });
         }
       } catch (err) {
+        forgetDocumentPropertyChanges(queryClient);
         toast.error(dbText("failedToUpdateEverySelectedRow"), {
           description:
             err instanceof Error ? err.message : dbText("somethingWentWrong"),
         });
+      } finally {
+        for (const change of changes) change.run.settled();
       }
       return;
     }
 
     let updatedCount = 0;
     let failedCount = 0;
-    for (const item of selectedSnapshot) {
-      try {
-        await setProperty.mutateAsync({
-          documentId: item.document.id,
-          propertyId: property.definition.id,
-          value: databaseBulkPropertyValueForItem(item, property, operation),
-        });
-        updatedCount += 1;
-      } catch {
-        failedCount += 1;
-      }
-    }
+    await groupDocumentPropertyChanges(
+      queryClient,
+      selectedSnapshot.map((item) => ({
+        documentId: item.document.id,
+        propertyId: property.definition.id,
+      })),
+      async () => {
+        for (const item of selectedSnapshot) {
+          try {
+            await setProperty.mutateAsync({
+              documentId: item.document.id,
+              propertyId: property.definition.id,
+              value: databaseBulkPropertyValueForItem(
+                item,
+                property,
+                operation,
+              ),
+            });
+            updatedCount += 1;
+          } catch {
+            failedCount += 1;
+          }
+        }
+      },
+    );
 
     await queryClient.invalidateQueries({
       queryKey: [
@@ -20119,6 +20316,13 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
             ) : (
               value
             )}
+            {itemProperty.definition.systemRole === "builder_status" ? (
+              <BuilderArticleCellStatus
+                collectionDocumentId={databaseDocumentId}
+                documentId={item.document.id}
+                canEdit={canEdit}
+              />
+            ) : null}
             <DatabaseCellComments
               item={item}
               property={itemProperty}

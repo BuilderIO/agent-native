@@ -1266,11 +1266,42 @@ export const analyticsContentCollectionRuns = table(
     costUsd: real("cost_usd"),
     errorCode: text("error_code"),
     errorMessage: text("error_message"),
+    detail: text("detail"),
   },
   (t) => ({
     tenantStepStartedIdx: index(
       "analytics_content_collection_runs_step_idx",
     ).on(t.tenantKey, t.step, t.startedAt),
+  }),
+);
+
+export const analyticsContentSearchQueries = table(
+  "analytics_content_search_queries",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    itemId: text("item_id").notNull(),
+    weekStart: text("week_start").notNull(),
+    query: text("query").notNull(),
+    clicks: real("clicks").notNull(),
+    impressions: real("impressions").notNull(),
+    positionWeighted: real("position_weighted").notNull(),
+    runId: text("run_id").notNull(),
+    collectedAt: text("collected_at").notNull(),
+  },
+  (t) => ({
+    queryUnique: uniqueIndex("analytics_content_search_queries_key_idx").on(
+      t.tenantKey,
+      t.itemId,
+      t.weekStart,
+      t.query,
+    ),
+    tenantWeekIdx: index("analytics_content_search_queries_week_idx").on(
+      t.tenantKey,
+      t.weekStart,
+    ),
   }),
 );
 

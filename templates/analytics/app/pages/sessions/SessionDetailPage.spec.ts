@@ -34,6 +34,11 @@ import {
   shouldPublishReplayClockUpdate,
 } from "./SessionDetailPage";
 
+vi.mock("@shared/session-replay-capture", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@shared/session-replay-capture")>()),
+  MAX_SESSION_REPLAY_CAPTURE_CHUNKS: 25,
+}));
+
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {

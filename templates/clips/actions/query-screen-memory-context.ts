@@ -25,5 +25,6 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: false,
   run: async (args) => queryScreenMemoryForAgent(args),
 });

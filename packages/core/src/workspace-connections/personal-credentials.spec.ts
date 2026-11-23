@@ -281,7 +281,7 @@ beforeEach(async () => {
   postCommitFailure = undefined;
   trackingReadbacks = false;
   readbackReads = 0;
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   currentExec = await createExec(pglite);
 }, 30_000);
 

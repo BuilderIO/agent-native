@@ -13,6 +13,7 @@ import {
   isVerificationLinkInvalid,
   oauthReturnTarget,
   resolveGoogleAuthUrlPath,
+  resolveOAuthReturnOrigin,
   shouldUseIdentitySsoForGoogle,
   shouldAutoFederateIdentitySso,
   shouldHideAuthSubtitle,
@@ -359,20 +360,60 @@ describe("AuthPage", () => {
   it("returns Builder Electron OAuth to the local workspace gateway", () => {
     const target = "/agent?tab=context";
     const genericElectron = "Mozilla/5.0 Electron/32.0 BuilderDesktop";
+    const localApp = "http://127.0.0.1:8080";
 
-    expect(oauthReturnTarget(target, "", genericElectron)).toBe(
+    expect(oauthReturnTarget(target, "", genericElectron, localApp)).toBe(
       "http://127.0.0.1:8080/agent?tab=context",
     );
+    for (const loopbackApp of [
+      "http://localhost:8100",
+      "http://127.1.2.3:8100",
+      "http://[::1]:8100",
+    ]) {
+      expect(oauthReturnTarget(target, "", genericElectron, loopbackApp)).toBe(
+        "http://127.0.0.1:8080/agent?tab=context",
+      );
+    }
     expect(
       oauthReturnTarget(
         target,
         "",
         "Mozilla/5.0 Electron/43.4.0 AgentNativeDesktop/0.1.150",
+        localApp,
       ),
     ).toBe("http://127.0.0.1:8080/agent?tab=context");
-    expect(oauthReturnTarget(target, "", "Mozilla/5.0 Chrome/138.0")).toBe(
-      target,
-    );
+    expect(
+      oauthReturnTarget(target, "", "Mozilla/5.0 Chrome/138.0", localApp),
+    ).toBe(target);
+  });
+
+  it("returns a hosted app's OAuth to the app in any Electron browser", () => {
+    const target = "/deck/deck-1";
+    const t3CodeBrowser =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) T3CodeBeta/0.1.6 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36";
+
+    for (const userAgent of [
+      t3CodeBrowser,
+      "Mozilla/5.0 Electron/32.0 BuilderDesktop",
+      "Mozilla/5.0 Electron/43.4.0 AgentNativeDesktop/0.1.150",
+    ]) {
+      for (const hostedApp of [
+        "https://slides.agent-native.com",
+        "https://127.example.com",
+      ]) {
+        expect(oauthReturnTarget(target, "", userAgent, hostedApp)).toBe(
+          target,
+        );
+      }
+    }
+    expect(oauthReturnTarget(target, "", t3CodeBrowser, "")).toBe(target);
+    expect(
+      resolveOAuthReturnOrigin({
+        previewOrigin: "",
+        workspaceGatewayReturnOrigin: "",
+        userAgent: t3CodeBrowser,
+      }),
+    ).toBe("");
   });
 
   it("keeps Builder preview OAuth at the public app root", () => {
