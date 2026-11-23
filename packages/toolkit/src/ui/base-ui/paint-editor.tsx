@@ -251,7 +251,7 @@ function PaintNumber({
   onChange,
   onCancelPreview,
   ...props
-}: Pick<PropertyNumberProps, "label" | "step" | "min" | "max"> & {
+}: Pick<PropertyNumberProps, "label" | "step" | "min" | "max" | "unit"> & {
   value: number;
   onChange: Change<number>;
   onCancelPreview?: (() => void) | undefined;
@@ -607,6 +607,7 @@ export function PaintEditor({
                   {paint.kind === "linear" && (
                     <PaintNumber
                       label={copy.angle}
+                      unit="degree"
                       value={paint.angle}
                       onChange={(angle, phase) =>
                         change({ ...paint, angle }, phase)

@@ -13,6 +13,8 @@ import {
 </NumberField>;
 ```
 
+Fields display numbers without digit grouping (`1280`) and step in whole numbers by default. Typed decimals round to at most two places on commit. Set `step` for fractional increments or `format` for a different precision. Use `unit="degree"` to display the symbol beside the value, as in `3.86°`.
+
 ## Handling changes
 
 Use `onValueChange` for live previews and `onValueCommitted` to save a completed edit. For a controlled field, update `value` on each change. A cleared field can report `null`.

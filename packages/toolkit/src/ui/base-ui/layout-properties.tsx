@@ -47,6 +47,7 @@ export interface PropertyNumberProps extends Pick<
   | "min"
   | "max"
   | "step"
+  | "unit"
   | "format"
   | "locale"
   | "size"

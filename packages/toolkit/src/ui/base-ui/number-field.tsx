@@ -54,8 +54,30 @@ export interface NumberFieldProps
   extends RootProps, InputProps, NumberFieldOwnProps {
   className?: string;
   style?: React.CSSProperties;
+  /** A localized unit rendered with the value, such as "degree" or "percent". */
+  unit?: string | undefined;
   /** A scrub area, `InputSlot`s and the steppers. */
   children?: React.ReactNode;
+}
+
+const DEFAULT_FORMAT: Intl.NumberFormatOptions = { maximumFractionDigits: 2 };
+
+// Grouped clipboard text still needs its locale's separator even when display grouping is off.
+const groupingSeparators = new Map<string, string>();
+function groupingSeparator(
+  locale: Intl.LocalesArgument,
+  numberingSystem?: string,
+) {
+  const key = `${locale ?? ""}|${numberingSystem ?? ""}`;
+  let separator = groupingSeparators.get(key);
+  if (separator === undefined) {
+    separator =
+      new Intl.NumberFormat(locale, { numberingSystem, useGrouping: true })
+        .formatToParts(10000)
+        .find((part) => part.type === "group")?.value ?? "";
+    groupingSeparators.set(key, separator);
+  }
+  return separator;
 }
 
 const ROOT_PROP_NAMES = new Set<string>(ROOT_PROPS);
@@ -88,10 +110,8 @@ function useNumberFieldContext(part: string): NumberFieldContextValue {
  */
 const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
   (props, ref) => {
-    const [attributes, { className, style, children, ...rest }] = splitProps(
-      numberFieldProps,
-      props,
-    );
+    const [attributes, { className, style, children, unit, ...rest }] =
+      splitProps(numberFieldProps, props);
     const rootEntries: Record<string, unknown> = {};
     const inputEntries: Record<string, unknown> = {};
     for (const [name, value] of Object.entries(rest)) {
@@ -100,6 +120,19 @@ const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
     }
     const root = rootEntries as RootProps;
     const { onValueChange, onValueCommitted } = root;
+    const format = React.useMemo<Intl.NumberFormatOptions>(
+      () => ({
+        ...(unit || !root.format ? DEFAULT_FORMAT : undefined),
+        ...(unit
+          ? ({ style: "unit", unit, unitDisplay: "narrow" } as const)
+          : undefined),
+        ...root.format,
+        useGrouping: false,
+      }),
+      [root.format, unit],
+    );
+    const inputProps = inputEntries as InputProps;
+    const separator = groupingSeparator(root.locale, format.numberingSystem);
     const generatedId = React.useId();
     const inputId = root.id ?? generatedId;
     const scrubControl = React.useRef<HTMLElement | null>(null);
@@ -116,6 +149,12 @@ const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
       <NumberFieldContext.Provider value={context}>
         <BaseNumberField.Root
           {...root}
+          step={root.step ?? "any"}
+          smallStep={
+            root.smallStep ??
+            (typeof root.step === "number" ? Math.min(root.step, 1) : 1)
+          }
+          format={format}
           onValueCommitted={
             onValueCommitted &&
             ((value, details) => {
@@ -146,7 +185,40 @@ const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
           <BaseNumberField.Input
             ref={ref}
             className="input-control"
-            {...(inputEntries as InputProps)}
+            data-unit={format.style === "unit" ? format.unit : undefined}
+            {...inputProps}
+            onChange={(event) => {
+              const field = event.currentTarget;
+              if (
+                separator &&
+                field.value.includes(separator) &&
+                !(
+                  "isComposing" in event.nativeEvent &&
+                  event.nativeEvent.isComposing
+                )
+              ) {
+                const caret = field.selectionStart;
+                const before = field.value.slice(
+                  0,
+                  caret ?? field.value.length,
+                );
+                field.value = field.value.replaceAll(separator, "");
+                const nextCaret = before.replaceAll(separator, "").length;
+                field.setSelectionRange(nextCaret, nextCaret);
+              }
+              inputProps.onChange?.(event);
+            }}
+            onPaste={(event) => {
+              inputProps.onPaste?.(event);
+              if (
+                !event.defaultPrevented &&
+                separator &&
+                event.clipboardData.getData("text/plain").includes(separator)
+              ) {
+                // Native paste preserves selection and feeds the result through onChange.
+                event.preventBaseUIHandler();
+              }
+            }}
           />
           {children}
         </BaseNumberField.Root>
@@ -269,6 +341,8 @@ const NumberFieldScrubArea = React.forwardRef<
       win.addEventListener("pointerdown", cancelOtherPointer, options);
       let x = event.clientX,
         y = event.clientY;
+      const axis = direction === "vertical" ? "movementY" : "movementX";
+      let remainder = 0;
       win.addEventListener(
         "pointermove",
         (move) => {
@@ -276,17 +350,19 @@ const NumberFieldScrubArea = React.forwardRef<
             cancel();
             return;
           }
-          if (!doc.pointerLockElement) {
-            if (!move.movementX && move.clientX !== x)
-              Object.defineProperty(move, "movementX", {
-                value: move.clientX - x,
-                configurable: true,
-              });
-            if (!move.movementY && move.clientY !== y)
-              Object.defineProperty(move, "movementY", {
-                value: move.clientY - y,
-                configurable: true,
-              });
+          // Zoom and high-resolution pointers can deliver a fraction of a CSS pixel.
+          const fallback =
+            direction === "vertical" ? move.clientY - y : move.clientX - x;
+          const movement =
+            move[axis] || (doc.pointerLockElement ? 0 : fallback);
+          const total = movement + remainder;
+          const pixels = Math.trunc(total);
+          remainder = total - pixels;
+          if (pixels !== move[axis]) {
+            Object.defineProperty(move, axis, {
+              value: pixels,
+              configurable: true,
+            });
           }
           x = move.clientX;
           y = move.clientY;

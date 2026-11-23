@@ -193,7 +193,7 @@ export const EditNav: StoryObj = {
     );
     await userEvent.click(canvas.getByRole("button", { name: "Undo" }));
     await expect(canvas.getByRole("textbox", { name: "Width" })).toHaveValue(
-      "1,280",
+      "1280",
     );
     await userEvent.click(canvas.getByRole("button", { name: "Fill styles" }));
     await userEvent.click(await portal.findByRole("menuitem", { name: "Ink" }));

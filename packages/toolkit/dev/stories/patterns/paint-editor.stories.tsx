@@ -255,7 +255,7 @@ export const CancelNumericEdit: StoryObj = {
     await expect(middle).toHaveFocus();
     for (const [name, before, changed] of [
       ["Stop position", "55", "32"],
-      ["Angle", "125", "40"],
+      ["Angle", "125°", "40"],
       ["Opacity", "85", "62"],
     ]) {
       const input = page.getByRole("textbox", { name });

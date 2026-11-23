@@ -702,7 +702,7 @@ export function DesignSelectionProperties<
   const num = (
     label: string,
     key: NumericProperty,
-    suffix?: string,
+    unit?: string,
     min?: number,
     max?: number,
   ) => {
@@ -710,7 +710,7 @@ export function DesignSelectionProperties<
       <SelectionNumber
         label={label}
         property={key}
-        suffix={suffix}
+        unit={unit}
         min={min}
         max={max}
         value={commonValue(current, numberValues[key])}
@@ -845,7 +845,7 @@ export function DesignSelectionProperties<
           )}
         </InspectorGrid>
         <InspectorGrid className="design-property-inspector-position-pair">
-          {num("Rotation", "rotation", "°")}
+          {num("Rotation", "rotation", "degree")}
           {transform}
         </InspectorGrid>
       </Section>
@@ -943,7 +943,7 @@ export function DesignSelectionProperties<
       }
     >
       <InspectorGrid>
-        {num("Opacity", "opacity", "%", 0, 100)}
+        {num("Opacity", "opacity", "percent", 0, 100)}
         {num("Corner radius", "radius", undefined, 0)}
         <Flyout
           label="Corners"

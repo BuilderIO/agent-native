@@ -10,7 +10,6 @@ import { expect } from "storybook/test";
 
 import { Button } from "../../../src/ui/base-ui/button.js";
 import { Field, FieldLabel } from "../../../src/ui/base-ui/field.js";
-import { InputSlot } from "../../../src/ui/base-ui/input.js";
 import {
   NumberField,
   NumberFieldDecrement,
@@ -188,13 +187,12 @@ export const WithScrubArea: Story = {
         variant="soft"
         color="gray"
         defaultValue={0}
-        format={{ maximumFractionDigits: 1 }}
+        unit="degree"
       >
         <NumberFieldScrubArea>
           <IconAngle aria-hidden />
           <VisuallyHidden>Rotation</VisuallyHidden>
         </NumberFieldScrubArea>
-        <InputSlot side="right">°</InputSlot>
       </NumberField>
       <NumberField
         size="sm"
@@ -213,7 +211,7 @@ export const WithScrubArea: Story = {
   ),
 };
 
-/** Intl number formats: currency, a unit, and grouped thousands. */
+/** Intl number formats: currency, a unit, and large whole numbers. */
 export const Formats: Story = {
   render: () => (
     <div className="flex flex-col gap-4">

@@ -94,7 +94,7 @@ export const EditSelection: StoryObj<typeof EditorWorkspace> = {
       await expect(
         canvas.getByRole("button", { name: "Select Nav" }),
       ).toHaveAttribute("aria-pressed", "true");
-      await expect(width()).toHaveValue("1,280");
+      await expect(width()).toHaveValue("1280");
       await userEvent.click(
         canvas.getByRole("button", { name: "Select Headline" }),
       );

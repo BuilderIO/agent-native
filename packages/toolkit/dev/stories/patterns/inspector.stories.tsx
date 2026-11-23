@@ -200,6 +200,7 @@ function Measure({
       <NumberField
         id={id}
         value={value}
+        unit={unit}
         min={min}
         max={max}
         onValueChange={(next) => {
@@ -207,7 +208,6 @@ function Measure({
         }}
       >
         <InputSlot side="left">{prefix ?? name}</InputSlot>
-        {unit && <InputSlot side="right">{unit}</InputSlot>}
       </NumberField>
     </InspectorField>
   );
@@ -569,7 +569,7 @@ function FrameInspector({ initialAuto = false }: { initialAuto?: boolean }) {
               change={setAngle}
               min={-360}
               max={360}
-              unit="°"
+              unit="degree"
             />
             <div className="flex justify-around rounded-control bg-fill-neutral">
               <IconButton
@@ -648,7 +648,7 @@ function FrameInspector({ initialAuto = false }: { initialAuto?: boolean }) {
             <Measure
               name="Opacity"
               prefix={<IconGridDots />}
-              unit="%"
+              unit="percent"
               value={opacity}
               change={setOpacity}
               max={100}

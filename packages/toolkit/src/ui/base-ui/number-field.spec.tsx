@@ -21,7 +21,10 @@ afterEach(cleanup);
 
 function scrub(movementX: number) {
   const move = new PointerEvent("pointermove", { bubbles: true });
-  Object.defineProperty(move, "movementX", { value: movementX });
+  Object.defineProperty(move, "movementX", {
+    value: movementX,
+    configurable: true,
+  });
   Object.defineProperty(move, "movementY", { value: 0 });
   act(() => {
     window.dispatchEvent(move);
@@ -39,6 +42,36 @@ describe("Number Field part", () => {
     expect(frame?.dataset.size).toBe("md");
     expect(frame?.dataset.variant).toBe("surface");
     expect(frame?.dataset.color).toBeUndefined();
+  });
+
+  it("keeps degree units inline and commits typed fractions at two-place precision", () => {
+    const commit = vi.fn();
+    render(
+      <NumberField
+        aria-label="Angle"
+        name="angle"
+        locale="en-US"
+        defaultValue={0}
+        unit="degree"
+        onValueCommitted={commit}
+      />,
+    );
+    const input = screen.getByRole<HTMLInputElement>("textbox", {
+      name: "Angle",
+    });
+    expect(input.value).toBe("0°");
+    fireEvent.keyDown(input, { key: "ArrowUp", altKey: true });
+    expect(input.value).toBe("1°");
+    act(() => input.focus());
+    fireEvent.change(input, { target: { value: "-3.859" } });
+    act(() => input.blur());
+    expect(input.value).toBe("-3.86°");
+    expect(commit).toHaveBeenLastCalledWith(-3.86, expect.anything());
+    const submitted = document.querySelector<HTMLInputElement>(
+      'input[name="angle"]',
+    );
+    expect(submitted?.valueAsNumber).toBe(-3.86);
+    expect(submitted?.validity.valid).toBe(true);
   });
 
   it("writes variant, color and radius on the frame, with its class and style", () => {
@@ -165,7 +198,9 @@ describe("Number Field part", () => {
       fireEvent.pointerDown(area, { pointerType: "mouse", button: 0 });
     });
     expect(area.hasAttribute("data-scrubbing")).toBe(true);
-    scrub(6);
+    scrub(2.75);
+    expect(input).toHaveProperty("value", "122");
+    scrub(3.25);
     expect(input).toHaveProperty("value", "126");
     scrub(-10);
     expect(input).toHaveProperty("value", "116");
@@ -335,6 +370,22 @@ describe("Number Field part", () => {
     );
   });
 
+  it("removes German digit grouping while preserving the decimal comma", () => {
+    const changed = vi.fn();
+    render(
+      <NumberField
+        aria-label="Width"
+        locale="de-DE"
+        defaultValue={1280.5}
+        onValueChange={changed}
+      />,
+    );
+    const input = screen.getByRole("textbox", { name: "Width" });
+    expect(input).toHaveProperty("value", "1280,5");
+    fireEvent.change(input, { target: { value: "2.048,25" } });
+    expect(changed).toHaveBeenLastCalledWith(2048.25, expect.anything());
+  });
+
   it("formats its value with Intl options and parses what is typed back", () => {
     const onValueChange = vi.fn();
     render(
@@ -347,9 +398,9 @@ describe("Number Field part", () => {
       />,
     );
     const input = screen.getByRole("textbox", { name: "Price" });
-    expect(input).toHaveProperty("value", "$1,234.50");
+    expect(input).toHaveProperty("value", "$1234.50");
     fireEvent.keyDown(input, { key: "ArrowUp" });
-    expect(input).toHaveProperty("value", "$1,235.50");
+    expect(input).toHaveProperty("value", "$1235.50");
     fireEvent.change(input, { target: { value: "$2,000" } });
     expect(onValueChange).toHaveBeenLastCalledWith(2000, expect.anything());
   });
