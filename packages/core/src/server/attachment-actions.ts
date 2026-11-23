@@ -451,6 +451,7 @@ export function createCoreAttachmentActionEntries(): Record<
           if (candidates.length === 0) {
             return {
               error: `No stored attachment found with name "${name}" in thread ${threadId}. The attachment may not have been persisted as a resource (only text-like files are stored).`,
+              errorCode: "attachment_not_stored",
             };
           }
 
@@ -460,6 +461,7 @@ export function createCoreAttachmentActionEntries(): Record<
           if (!meta) {
             return {
               error: `No stored attachment found with name "${name}" in thread ${threadId}.`,
+              errorCode: "attachment_not_stored",
             };
           }
           const newestBatch = parseStoredAttachmentPath(meta.path).batch;
@@ -495,6 +497,7 @@ export function createCoreAttachmentActionEntries(): Record<
               if ("error" in read) {
                 return {
                   error: `Could not re-read "${name}" from file storage: ${read.error}. Tell the user which part of the file you could not read before doing anything that depends on it.`,
+                  errorCode: "attachment_reread_failed",
                 };
               }
               cacheReread(cacheKey, read.text);
@@ -536,6 +539,7 @@ export function createCoreAttachmentActionEntries(): Record<
         } catch (err) {
           return {
             error: `Failed to read attachment: ${err instanceof Error ? err.message : String(err)}`,
+            errorCode: "attachment_read_failed",
           };
         }
       },

@@ -6,6 +6,7 @@ import {
   snapshotActionArguments,
 } from "./action-arguments-identity.js";
 import {
+  actionCallIsAutomatic,
   actionCallIsRetrySafe,
   actionCallReadOnly,
   actionOutputEffect,
@@ -16,6 +17,8 @@ import {
 import {
   ACTION_EXECUTION_KEY,
   actionExecutionStorage,
+  currentActionApproval,
+  currentActionApprovalAskedAt,
   currentActionOriginCaller,
   endInvocationEvidence,
   holdInvocationEvidence,
@@ -50,6 +53,11 @@ import type {
   AgentChatEvent,
   AgentNativeJsonSchema,
 } from "./agent/types.js";
+import {
+  buildAgentNavigationKeptResult,
+  isAgentNavigationRefusedError,
+} from "./application-state/navigate-write-guard.js";
+import { isReversibleWriteInlineApprovalAction } from "./approval/reversible-write-policy.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { RecordActionAuditInput } from "./audit/record.js";
 import type { ActionAuditConfig } from "./audit/types.js";
@@ -79,8 +87,10 @@ import {
   isProviderInteractiveScope,
   runWithProviderInteractiveScope,
 } from "./provider-api/interactive-scope.js";
+import type { AgentNativeActionKind } from "./shared/analytics-events.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
+export { isOutsideAgentCall } from "./action-caller.js";
 export {
   ACTION_RECEIPT_SCHEMA_VERSION,
   DOMAIN_EVENT_CONTENT_TYPE,
@@ -110,9 +120,19 @@ export type {
 } from "./action-receipt.js";
 export {
   ACTION_EXECUTION_KEY,
+  currentActionApproval,
+  currentActionApprovalAskedAt,
   currentActionOriginCaller,
   withoutWriteObservation,
 };
+export {
+  REVERSIBLE_WRITE_INLINE_APPROVAL_KEY,
+  createReversibleWriteApprovalPolicy,
+  isReversibleWriteInlineApprovalAction,
+  isReversibleWriteNoApprovalsMode,
+  reversibleWriteNeedsApproval,
+  type ReversibleWriteApprovalPredicate,
+} from "./approval/reversible-write-policy.js";
 
 /**
  * An action's recorder for a call refused before its run, kept on its
@@ -286,6 +306,12 @@ export interface ActionRunContext {
     userAgent?: string;
     oauthClientId?: string;
   };
+}
+
+/** What an action's `approvalNotice` runs with. */
+export interface ActionApprovalNoticeContext extends ActionRunContext {
+  /** When the server asked, in epoch milliseconds; the grant records it. */
+  askedAt: number;
 }
 
 export type ActionAuthorize<TArgs> = (
@@ -1210,6 +1236,9 @@ interface DefineActionWithSchema<
   /** Returns an embed start URL that another app on its own origin minted
    *  for the caller, which the MCP server keeps instead of re-minting. */
   opensAnotherAppEmbed?: boolean;
+  /** Marks a write action whose explicit job is opening a view in the UI when
+   *  called by an agent without `intent: "open"`. Ignored on `readOnly` actions. */
+  allowsAgentNavigation?: boolean;
   agentTool?: boolean;
   /** Whether this action is exposed to EXTERNAL agents over MCP (and the direct
    *  A2A action surface, which shares the same policy).
@@ -1232,7 +1261,9 @@ interface DefineActionWithSchema<
    *  - `"search"` — served to external agents but left out of `tools/list`, so
    *    the list stays short. `tool-search` finds it and the `call-tool` tool
    *    runs it, with the same checks as a listed tool; it does not activate
-   *    the connector tier. The full catalog lists it like any other.
+   *    the connector tier. A catalog that lists it on its own terms still
+   *    does: the full catalog, an app's `mcp.connectorCatalog` naming it, or
+   *    `mcpApp.compactCatalog` in an app with no `connectorCatalog`.
    *  - `undefined` (default) — follows `agentTool`; the tier rules then decide
    *    whether it is advertised up front or found through `tool-search`.
    *
@@ -1333,6 +1364,25 @@ interface DefineActionWithSchema<
     | boolean
     | ((input: StandardSchemaV1.InferInput<TSchema>) => boolean);
   /**
+   * Marks a write the app makes on its own, with no user gesture behind it: on
+   * page load, on mount, on a timer, or experiment and usage bookkeeping. Its
+   * `action_started`, `action_completed`, and `action_failed` events carry
+   * `action_kind: "automatic"` instead of `"write"`, so product-use counts
+   * leave it out. Only a call the action route sees come from the app's own
+   * page can be automatic; a call from an agent, an MCP client, the CLI, or
+   * another app is a person asking and stays a write. Pass a predicate when
+   * only some UI calls are automatic, such as a background sync the poller calls without `force`;
+   * it sees the validated arguments and the call's context. It labels
+   * analytics only: a write stays a write everywhere else, so never set
+   * `readOnly` to quiet one.
+   */
+  automatic?:
+    | boolean
+    | ((
+        input: StandardSchemaV1.InferOutput<TSchema>,
+        ctx: ActionRunContext,
+      ) => boolean);
+  /**
    * How the action reads an ISO date-time argument that names no zone, so an
    * approval summary can say so: `"calendar"` means in the calendar's own
    * time zone. Unset, the summary shows such a time as having no zone given.
@@ -1364,6 +1414,40 @@ interface DefineActionWithSchema<
     args: StandardSchemaV1.InferOutput<TSchema>,
     ctx?: ActionRunContext,
   ) => string;
+  /**
+   * Over MCP only, whether this call needs the person's approval before it
+   * runs, for a reason server state decides rather than what the action does,
+   * such as a spend allowance. It asks through the same grants, prompt and
+   * review page as `needsApproval`, but leaves the action's listing,
+   * annotations, A2A exposure and every other surface as they are, so the
+   * action must refuse on its own wherever no approval reached it (see
+   * `currentActionApproval`). A throw asks.
+   */
+  mcpNeedsApproval?: (
+    args: StandardSchemaV1.InferOutput<TSchema>,
+    ctx?: ActionRunContext,
+  ) => boolean | Promise<boolean>;
+  /**
+   * Facts the MCP approval prompt, review link and review page state that
+   * the call's arguments don't carry, such as a cost, a limit or an expiry.
+   * The server computes it when it asks, never from the call's words, and
+   * date any time-bound fact from `ctx.askedAt`: the grant records that
+   * time as when the person was asked. Returning nothing shows the
+   * arguments alone; a throw, or text over 2,000 characters, fails the call
+   * rather than ask without it.
+   */
+  approvalNotice?: (
+    args: StandardSchemaV1.InferOutput<TSchema>,
+    ctx: ActionApprovalNoticeContext,
+  ) => string | undefined | Promise<string | undefined>;
+  /**
+   * `"review-page"`: over MCP, only the person's approval on the app's review
+   * page approves a call. A client's form answer never does, so the prompt
+   * opens the page or the call returns its link, and no-approvals mode does
+   * not skip the question. A reversible-write inline approval never links to
+   * the page, so `defineAction` refuses the two together.
+   */
+  approvalProof?: "review-page";
   allowPersistentApproval?: boolean;
   /**
    * Authorization gate that runs before `run()` on **every** caller — agent
@@ -1429,6 +1513,9 @@ interface DefineActionWithParams<
   /** Returns an embed start URL that another app on its own origin minted
    *  for the caller, which the MCP server keeps instead of re-minting. */
   opensAnotherAppEmbed?: boolean;
+  /** Marks a write action whose explicit job is opening a view in the UI when
+   *  called by an agent without `intent: "open"`. Ignored on `readOnly` actions. */
+  allowsAgentNavigation?: boolean;
   agentTool?: boolean;
   mcpTool?: ActionMcpTool;
   mcpAnnotations?: ActionMcpToolAnnotations;
@@ -1468,6 +1555,10 @@ interface DefineActionWithParams<
   parallelSafe?: boolean;
   /** See `ActionDefinition.retrySafe`. */
   retrySafe?: boolean | ((input: InferParams<TParams>) => boolean);
+  /** See `automatic` on the schema form above. */
+  automatic?:
+    | boolean
+    | ((input: InferParams<TParams>, ctx: ActionRunContext) => boolean);
   /** See `ActionDefinition.zonelessTimes`. */
   zonelessTimes?: "calendar";
   endsTurn?: boolean;
@@ -1496,6 +1587,18 @@ interface DefineActionWithParams<
     args: InferParams<TParams>,
     ctx?: ActionRunContext,
   ) => string;
+  /** See `DefineActionWithSchema.mcpNeedsApproval`. */
+  mcpNeedsApproval?: (
+    args: InferParams<TParams>,
+    ctx?: ActionRunContext,
+  ) => boolean | Promise<boolean>;
+  /** See `DefineActionWithSchema.approvalNotice`. */
+  approvalNotice?: (
+    args: InferParams<TParams>,
+    ctx: ActionApprovalNoticeContext,
+  ) => string | undefined | Promise<string | undefined>;
+  /** See `DefineActionWithSchema.approvalProof`. */
+  approvalProof?: "review-page";
   allowPersistentApproval?: boolean;
   authorize?: ActionAuthorize<InferParams<TParams>>;
   access?: ActionAccessConfig;
@@ -1540,6 +1643,10 @@ export interface ActionDefinition<TInput, TReturn> {
   ) => ActionChangeResource | null | undefined;
   readonly parallelSafe?: boolean;
   readonly retrySafe?: boolean | ((input: TInput) => boolean);
+  /** See `automatic` on the action options. */
+  readonly automatic?:
+    | boolean
+    | ((input: TInput, ctx: ActionRunContext) => boolean);
   readonly zonelessTimes?: "calendar";
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
@@ -1563,6 +1670,15 @@ export interface ActionDefinition<TInput, TReturn> {
     | boolean
     | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
   readonly approvalLabel?: (args: TInput, ctx?: ActionRunContext) => string;
+  readonly mcpNeedsApproval?: (
+    args: TInput,
+    ctx?: ActionRunContext,
+  ) => boolean | Promise<boolean>;
+  readonly approvalNotice?: (
+    args: TInput,
+    ctx: ActionApprovalNoticeContext,
+  ) => string | undefined | Promise<string | undefined>;
+  readonly approvalProof?: "review-page";
   readonly allowPersistentApproval?: boolean;
   readonly audit?: ActionAuditConfig;
   readonly access?: ActionAccessConfig;
@@ -1705,6 +1821,27 @@ export function defineAction(options: any) {
     throw new Error(
       'defineAction: userTurn: "approval" needs needsApproval (not false) or requiresUserTurn; otherwise a call without an admitted grant would run the write unattended.',
     );
+  }
+  if (
+    options.approvalProof !== undefined &&
+    options.approvalProof !== "review-page"
+  ) {
+    throw new Error(
+      'defineAction: approvalProof is "review-page" or left out; any other value would weaken the proof it names.',
+    );
+  }
+  if (
+    options.approvalProof === "review-page" &&
+    isReversibleWriteInlineApprovalAction(options)
+  ) {
+    throw new Error(
+      'defineAction: approvalProof: "review-page" can\'t be combined with a reversible-write inline approval, which never links to the review page, so no call could be approved.',
+    );
+  }
+  for (const key of ["mcpNeedsApproval", "approvalNotice"] as const) {
+    if (options[key] !== undefined && typeof options[key] !== "function") {
+      throw new Error(`defineAction: ${key} must be a function.`);
+    }
   }
 
   const tool: ActionTool = {
@@ -1849,6 +1986,10 @@ export function defineAction(options: any) {
         options.description,
       )
     : undefined;
+  const classificationEntry = {
+    ...(readOnly !== undefined ? { readOnly } : {}),
+    ...(options.planMode !== undefined ? { planMode: options.planMode } : {}),
+  };
   // Runs inside input validation, so a call is classified from the arguments
   // `run` receives, defaults applied, and inside audit and tracking, so an
   // invalid call is still recorded as a failed run.
@@ -1859,11 +2000,13 @@ export function defineAction(options: any) {
     const prepared = takePreparedClassification(ctx, args, executionKey);
     const callReadOnly = prepared
       ? prepared.readOnly
-      : actionCallReadOnly({ readOnly, planMode: options.planMode }, args);
+      : actionCallReadOnly(classificationEntry, args);
     const frame = ownFrame();
     if (frame) {
       frame.writes = callReadOnly !== true;
       frame.emitsChange = options.changeEvents !== false;
+      frame.allowsAgentNavigation =
+        options.allowsAgentNavigation === true && callReadOnly !== true;
     }
     // What the call has done so far: whether a write entered its handler in
     // it or in a call nested in it. Without a frame nothing tracks that, so
@@ -1899,6 +2042,7 @@ export function defineAction(options: any) {
         nested = ctx !== undefined && f.context === ctx;
       }
       if (!nested) actionName = ctx?.actionName;
+      frame.isNavigateAction = actionName === "navigate";
     }
     let ran = false;
     try {
@@ -1908,6 +2052,17 @@ export function defineAction(options: any) {
         ? await checkOutput(output, { actionName, effect: effect() })
         : output;
     } catch (thrown) {
+      if (
+        !ran &&
+        frame?.isNavigateAction &&
+        isAgentNavigationRefusedError(thrown) &&
+        thrown.reason !== "read-only-action"
+      ) {
+        return buildAgentNavigationKeptResult(
+          thrown.reason,
+          thrown.currentView,
+        );
+      }
       const error = readableFailure(thrown);
       // Raised by this handler, not passed up through a nested call's
       // boundary, with no nested write entered.
@@ -1952,10 +2107,73 @@ export function defineAction(options: any) {
   const finalRun = resolveAuditAttach(effectiveAuditConfig, readOnly)
     ? wrapRunWithAudit(run, effectiveAuditConfig, actionIsPrivate)
     : run;
+  const automatic =
+    typeof options.automatic === "boolean" ||
+    typeof options.automatic === "function"
+      ? options.automatic
+      : undefined;
+  const validatedCopy = async (args: unknown): Promise<unknown> => {
+    const copy = copyActionArguments(snapshotActionArguments(args).value);
+    if (!hasSchema) return copy;
+    const value = await validateActionArgs(
+      options.schema,
+      copy,
+      convertedParameters(),
+    );
+    if (typeof args === "object" && args !== null) {
+      labelValidatedArgs.set(args, { schema: options.schema, value });
+    }
+    return copyActionArguments(snapshotActionArguments(value).value);
+  };
+  const actionKind = async (
+    args: unknown,
+    ctx: ActionRunContext,
+    fromAppUi: boolean,
+  ): Promise<AgentNativeActionKind> => {
+    const prepared = preparedRunFor(ctx, args);
+    const intent = prepared?.key === executionKey ? prepared.intent : undefined;
+    let input: Promise<unknown> | undefined;
+    const callInput = () =>
+      (input ??= intent
+        ? Promise.resolve(preparedCallArguments(intent))
+        : validatedCopy(args));
+    try {
+      const callReadOnly = intent
+        ? intent.readOnly
+        : options.planMode !== undefined &&
+          actionCallReadOnly(classificationEntry, await callInput());
+      if (callReadOnly === true) return "read";
+      if (!fromAppUi) return "write";
+      return actionCallIsAutomatic(
+        { automatic },
+        typeof automatic === "function" ? await callInput() : args,
+        ctx,
+      )
+        ? "automatic"
+        : "write";
+    } catch {
+      // coercion-ok: invalid or uncopyable arguments stay counted as a write.
+      return "write";
+    }
+  };
+  const trackingOptions = {
+    includeOutputId: options.persistInChatHistory !== false,
+    actionKind,
+  };
   const trackedRun = wrapRunWithServicePrincipalGrant(
-    wrapRunWithActionTracking(finalRun, readOnly, {
-      includeOutputId: options.persistInChatHistory !== false,
-    }),
+    wrapRunWithActionTracking(
+      async (args: unknown, ctx?: ActionRunContext) => {
+        try {
+          return await finalRun(args, ctx);
+        } finally {
+          if (typeof args === "object" && args !== null) {
+            labelValidatedArgs.delete(args);
+          }
+        }
+      },
+      readOnly,
+      trackingOptions,
+    ),
   );
   const invalidCallRun = wrapRunWithActionTracking(
     resolveAuditAttach(effectiveAuditConfig, readOnly)
@@ -1966,7 +2184,7 @@ export function defineAction(options: any) {
         )
       : throwInvalidCallError,
     readOnly,
-    { includeOutputId: options.persistInChatHistory !== false },
+    trackingOptions,
   );
 
   const toolCallable: boolean | undefined =
@@ -2200,6 +2418,7 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(retrySafe !== undefined ? { retrySafe } : {}),
+    ...(automatic !== undefined ? { automatic } : {}),
     ...(zonelessTimes !== undefined ? { zonelessTimes } : {}),
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),
@@ -2235,6 +2454,15 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof options.approvalLabel === "function"
       ? { approvalLabel: options.approvalLabel }
+      : {}),
+    ...(typeof options.mcpNeedsApproval === "function"
+      ? { mcpNeedsApproval: options.mcpNeedsApproval }
+      : {}),
+    ...(typeof options.approvalNotice === "function"
+      ? { approvalNotice: options.approvalNotice }
+      : {}),
+    ...(options.approvalProof === "review-page"
+      ? { approvalProof: options.approvalProof }
       : {}),
     ...(typeof options.allowPersistentApproval === "boolean"
       ? { allowPersistentApproval: options.allowPersistentApproval }
@@ -2913,14 +3141,37 @@ export function describeToolParameterSignature(
  * `actionCallIntent`, the call also carries its classification and the action
  * it was classified for.
  */
+function extractNavigationIntent(args: unknown): string | undefined {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    return undefined;
+  }
+  const { navigationMode, intent } = args as {
+    navigationMode?: unknown;
+    intent?: unknown;
+  };
+  if (
+    navigationMode === "open" ||
+    navigationMode === "reveal" ||
+    navigationMode === "keep"
+  ) {
+    return navigationMode;
+  }
+  return typeof intent === "string" ? intent : undefined;
+}
+
 interface PreparedRun {
   readonly schema: StandardSchemaV1 | undefined;
   readonly value: unknown;
   readonly key?: object;
   readonly intent?: PreparedActionCall;
+  readonly navigationIntent?: string;
 }
 
 const preparedRuns = new WeakMap<object, PreparedRun>();
+const labelValidatedArgs = new WeakMap<
+  object,
+  { readonly schema: StandardSchemaV1; readonly value: unknown }
+>();
 
 function preparedRunHolder(ctx: unknown, args: unknown): object | undefined {
   if (args !== null && typeof args === "object" && preparedRuns.has(args)) {
@@ -2989,6 +3240,7 @@ export interface ActionCallRecord {
  */
 export interface ActionExecutionOutcome {
   refused: boolean;
+  navigationKeys?: Set<string>;
   record?: ActionCallRecord;
   /** What the call, and every call nested in it, has done; absent untracked. */
   evidence?: ActionCallEvidence;
@@ -3075,6 +3327,12 @@ function wrapRunWithExecutionBoundary(
     frame.key = key;
     frame.boundaryPending = false;
     frame.handlerEntered = false;
+    const rawNavigationIntent =
+      extractNavigationIntent(args) ??
+      preparedRunFor(ctx, args)?.navigationIntent;
+    if (rawNavigationIntent !== undefined) {
+      frame.navigationIntent = rawNavigationIntent;
+    }
     const state: ActionExecutionState = {
       frame,
       failures: parent?.failures ?? new WeakMap(),
@@ -3104,6 +3362,7 @@ export async function runActionWithExecutionOutcome(
 ): Promise<any> {
   outcome.refused = false;
   delete outcome.record;
+  delete outcome.navigationKeys;
   delete outcome.evidence;
   delete outcome.keyed;
   const vouched = takeVouchedEvidence(outcome);
@@ -3196,6 +3455,83 @@ export async function validateActionArgs(
   }
 }
 
+const MAX_NUL_BYTE_PATHS = 8;
+
+function findNulBytePaths(root: unknown): Array<readonly (string | number)[]> {
+  const paths: Array<readonly (string | number)[]> = [];
+  const seen = new Set<object>();
+  const stack: Array<{ value: unknown; path: readonly (string | number)[] }> = [
+    { value: root, path: [] },
+  ];
+  while (stack.length > 0 && paths.length < MAX_NUL_BYTE_PATHS) {
+    const current = stack.pop();
+    if (!current) break;
+    const { value, path } = current;
+    if (typeof value === "string") {
+      if (value.includes("\u0000")) {
+        paths.push(path);
+      }
+      continue;
+    }
+    if (
+      !value ||
+      typeof value !== "object" ||
+      value instanceof Date ||
+      value instanceof RegExp ||
+      ArrayBuffer.isView(value) ||
+      seen.has(value)
+    ) {
+      continue;
+    }
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (let i = value.length - 1; i >= 0; i -= 1) {
+        const desc = Object.getOwnPropertyDescriptor(value, i);
+        if (!desc || "get" in desc || "set" in desc) continue;
+        stack.push({ value: desc.value, path: [...path, i] });
+      }
+      continue;
+    }
+    for (const key of Object.keys(value).reverse()) {
+      const desc = Object.getOwnPropertyDescriptor(value, key);
+      if (!desc || "get" in desc || "set" in desc) continue;
+      const nextPath = [...path, key];
+      if (key.includes("\u0000")) {
+        paths.push(nextPath);
+        if (paths.length >= MAX_NUL_BYTE_PATHS) break;
+        continue;
+      }
+      stack.push({ value: desc.value, path: nextPath });
+    }
+  }
+  return paths;
+}
+
+export function assertNoNulByteActionArgs(
+  value: unknown,
+  schema?: StandardSchemaV1,
+): void {
+  const rawPaths = findNulBytePaths(value);
+  if (rawPaths.length === 0) return;
+  const declared = schema ? inputIssueSchema(schema) : undefined;
+  const paths: string[] = [];
+  const descriptions: string[] = [];
+  for (const segments of rawPaths) {
+    const masked =
+      segments.length > 0 ? maskedIssuePath(segments, declared).join(".") : "";
+    if (masked) paths.push(masked);
+    descriptions.push(
+      masked
+        ? `${masked}: String cannot contain NUL bytes`
+        : "String cannot contain NUL bytes",
+    );
+  }
+  throw new ActionInputValidationError(
+    `Invalid action parameters — ${[...new Set(descriptions)].join("; ")}.`,
+    paths,
+  );
+}
+
 async function validatedActionArgs(
   schema: StandardSchemaV1,
   args: unknown,
@@ -3266,7 +3602,15 @@ async function validatedActionArgs(
     );
   }
   const value = (result as StandardSchemaV1.SuccessResult<any>).value;
-  if (ctx) preparedRuns.set(ctx, { schema, value });
+  assertNoNulByteActionArgs(value, schema);
+  const navigationIntent = extractNavigationIntent(args);
+  if (ctx) {
+    preparedRuns.set(ctx, {
+      schema,
+      value,
+      ...(navigationIntent !== undefined ? { navigationIntent } : {}),
+    });
+  }
   return value;
 }
 
@@ -3310,6 +3654,7 @@ const preparedIntents = new WeakMap<
     readonly schema: StandardSchemaV1 | undefined;
     readonly key?: object;
     readonly snapshot: unknown;
+    readonly navigationIntent?: string;
   }
 >();
 
@@ -3330,6 +3675,7 @@ export async function actionCallIntent(
     "~standard" in entry.schema
       ? (entry.schema as StandardSchemaV1)
       : undefined;
+  const rawNavigationIntent = extractNavigationIntent(input);
   let snapshot: ReturnType<typeof snapshotActionArguments>;
   try {
     const repaired = getStrictToolInputValidator(entry)
@@ -3367,6 +3713,9 @@ export async function actionCallIntent(
     schema,
     ...(key !== null && typeof key === "object" ? { key } : {}),
     snapshot: snapshot.value,
+    ...(rawNavigationIntent !== undefined
+      ? { navigationIntent: rawNavigationIntent }
+      : {}),
   });
   return intent;
 }
@@ -3401,6 +3750,19 @@ export function preparedCallArguments(call: PreparedActionCall): unknown {
 }
 
 /**
+ * `noApprovalsMode: false` decides by the predicate alone, for an approval
+ * only a person's review may give (`approvalProof: "review-page"`).
+ */
+export interface ApprovalDecisionOptions {
+  noApprovalsMode?: false;
+}
+
+async function isNoApprovalsForCall(ctx: ActionRunContext): Promise<boolean> {
+  const { isNoApprovalsMode } = await import("./approval/no-approvals-mode.js");
+  return isNoApprovalsMode(ctx.userEmail);
+}
+
+/**
  * Whether `call` needs a person's approval before it runs, by the action's
  * `needsApproval`. Every surface that can run an action decides with this, so
  * a predicate means the same thing to the agent loop, MCP, and HTTP.
@@ -3413,11 +3775,13 @@ export async function preparedCallNeedsApproval(
   },
   call: PreparedActionCall,
   ctx: ActionRunContext,
+  options: ApprovalDecisionOptions = {},
 ): Promise<boolean> {
   const gate = entry.needsApproval;
   if (typeof gate !== "function" && gate !== true) return false;
-  const { isNoApprovalsMode } = await import("./approval/no-approvals-mode.js");
-  if (await isNoApprovalsMode(ctx.userEmail)) return false;
+  if (options.noApprovalsMode !== false && (await isNoApprovalsForCall(ctx))) {
+    return false;
+  }
   if (typeof gate !== "function") return true;
   try {
     return Boolean(await gate(preparedCallArguments(call), ctx));
@@ -3429,9 +3793,9 @@ export async function preparedCallNeedsApproval(
 
 /**
  * Whether the action's `needsApproval` predicate clears `call` of review: only
- * an answer of exactly `false`. Anything else, a throw or a non-boolean
- * included, leaves the call to review, so a direct write never runs on a
- * predicate that could not decide.
+ * an answer of exactly `false` (or no-approvals mode). Anything else, a throw
+ * or a non-boolean included, leaves the call to review, so a direct write
+ * never runs on a predicate that could not decide.
  */
 export async function preparedCallClearsReview(
   entry: {
@@ -3441,7 +3805,11 @@ export async function preparedCallClearsReview(
   },
   call: PreparedActionCall,
   ctx: ActionRunContext,
+  options: ApprovalDecisionOptions = {},
 ): Promise<boolean> {
+  if (options.noApprovalsMode !== false && (await isNoApprovalsForCall(ctx))) {
+    return true;
+  }
   const gate = entry.needsApproval;
   if (typeof gate !== "function") return false;
   try {
@@ -3508,6 +3876,9 @@ export function runPreparedActionCall(
     value: args,
     ...(prepared.key ? { key: prepared.key } : {}),
     intent: call,
+    ...(prepared.navigationIntent !== undefined
+      ? { navigationIntent: prepared.navigationIntent }
+      : {}),
   });
   return outcome
     ? runActionWithExecutionOutcome(
@@ -3536,6 +3907,14 @@ function wrapWithValidation(
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
     if (preparedRunFor(ctx, args)?.schema === schema) return run(args, ctx);
+    const labelled =
+      typeof args === "object" && args !== null
+        ? labelValidatedArgs.get(args)
+        : undefined;
+    if (labelled?.schema === schema) {
+      labelValidatedArgs.delete(args);
+      return run(labelled.value, ctx);
+    }
     let validated: unknown;
     try {
       validated = await validateActionArgs(schema, args, toolParameters());

@@ -1,4 +1,5 @@
 export default {
+  responseGuard: { noDesignChangesSaved: "本輪未儲存任何設計變更。" },
   journeyCanvas: {
     observedSessionReference: "已觀察工作階段參考",
     sessionsOfAll: "{count} 個工作階段 · 佔全部 {percent}",

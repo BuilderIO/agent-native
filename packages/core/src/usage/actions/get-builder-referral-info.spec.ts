@@ -135,3 +135,7 @@ describe("get-builder-referral-info action", () => {
     expect(getBuilderReferralInfoMock).not.toHaveBeenCalled();
   });
 });
+
+it("keeps get-builder-referral-info in the app, off MCP", () => {
+  expect(getBuilderReferralInfo.mcpTool).toBe(false);
+});

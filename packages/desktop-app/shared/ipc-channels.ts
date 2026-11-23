@@ -87,6 +87,7 @@ export const IPC = {
 
   SET_ACTIVE_APP: "webview:set-active-app",
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
+  SET_WEBVIEW_BACKGROUND_THROTTLING: "webview:set-background-throttling",
 
   DESIGN_PREVIEW_REQUEST: "design-preview:request",
   DESIGN_PREVIEW_STATE: "design-preview:state",

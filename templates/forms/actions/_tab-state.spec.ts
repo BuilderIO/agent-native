@@ -14,7 +14,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 import { readAppStateForCurrentTab } from "./_tab-state.js";
 
 function mcpCall(
-  target: { kind: "last-used"; tabId: string } | { kind: "unavailable" },
+  target:
+    | { kind: "requested"; tabId: string }
+    | { kind: "last-used"; tabId: string }
+    | { kind: "unavailable" },
 ) {
   run = { browserTabTarget: { resolve: async () => target } };
 }
@@ -48,6 +51,14 @@ describe("Forms tab state", () => {
   it("keeps reading the account-wide row for a request with no tab to look for", async () => {
     await expect(readAppStateForCurrentTab("navigation")).resolves.toEqual({
       key: "navigation",
+    });
+  });
+
+  it("reads the caller-requested tab row for an MCP call", async () => {
+    mcpCall({ kind: "requested", tabId: "tab-r" });
+
+    await expect(readAppStateForCurrentTab("navigation")).resolves.toEqual({
+      key: "navigation:tab-r",
     });
   });
 });

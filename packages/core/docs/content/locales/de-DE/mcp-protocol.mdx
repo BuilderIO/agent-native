@@ -245,6 +245,13 @@ nicht, dass die dauerhafte Aufgabe fehlgeschlagen ist. Wiederholen Sie
 und dieselbe `taskId` wiederverwenden. Reichen Sie zur Wiederherstellung niemals erneut `ask_app` ein, da dies Arbeit duplizieren kann.
 Dauerhafte Authentifizierungs-, Nicht-gefunden- und Protokollfehler bleiben Fehler.
 
+Ein `taskHandle` läuft eine Stunde nach der Rückgabe durch `ask_app` ab.
+Wenn `ask_app_status` ein Handle als ungültig oder abgelaufen ablehnt, fragen
+Sie dieselbe Aufgabe weiter mit dem `app` und der `taskId` aus dem
+`ask_app`-Ergebnis und ohne `taskHandle` ab; das steht auch in der
+Fehlermeldung. Ohne das Handle findet der Statusabruf die App erneut über die
+Discovery, daher funktioniert das nur, solange die App noch auffindbar ist.
+
 ## Authentifizierung {#authentication}
 
 Der MCP-Endpunkt unterstützt den Standard-Remote-MCP OAuth sowie den vorhandenen Bearer-Token-Fallback:

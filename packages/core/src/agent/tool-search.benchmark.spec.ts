@@ -28,12 +28,20 @@ describe("tool-search retrieval benchmark", () => {
   const registries = new Map<string, Record<string, ActionEntry>>();
   let results: CaseResult[] = [];
 
+  function registryOf(template: string): Record<string, ActionEntry> {
+    const registry = registries.get(template);
+    if (!registry) throw new Error(`No registry loaded for ${template}`);
+    return registry;
+  }
+
   beforeAll(async () => {
-    for (const template of templates) {
-      registries.set(template, await loadTemplateRegistry(template));
-    }
+    const loadedTemplates = [...templates, "design"];
+    const loaded = await Promise.all(loadedTemplates.map(loadTemplateRegistry));
+    loadedTemplates.forEach((template, index) => {
+      registries.set(template, loaded[index]);
+    });
     results = TOOL_SEARCH_BENCHMARK_CASES.map((benchmarkCase) =>
-      runCase(registries.get(benchmarkCase.template)!, benchmarkCase),
+      runCase(registryOf(benchmarkCase.template), benchmarkCase),
     );
     const rows = [
       { label: "all", metrics: summarize(results) },
@@ -78,44 +86,35 @@ describe("tool-search retrieval benchmark", () => {
     expect(summarize(results).mrr).toBeGreaterThanOrEqual(MIN_MRR);
   });
 
-  it(
-    "marks the real delete and cancel actions destructive, and archive not",
-    async () => {
-      const marks = (registry: Record<string, ActionEntry>, names: string[]) =>
-        Object.fromEntries(
-          searchToolRegistry(registry, { names }).results.map((result) => [
-            result.name,
-            result.destructive,
-          ]),
-        );
+  it("marks the real delete and cancel actions destructive, and archive not", () => {
+    const marks = (registry: Record<string, ActionEntry>, names: string[]) =>
+      Object.fromEntries(
+        searchToolRegistry(registry, { names }).results.map((result) => [
+          result.name,
+          result.destructive,
+        ]),
+      );
 
-      expect(
-        marks(registries.get("mail")!, [
-          "manage-gmail-filters",
-          "manage-email-rules",
-          "cancel-scheduled-email",
-          "archive-email",
-        ]),
-      ).toEqual({
-        "manage-gmail-filters": true,
-        "manage-email-rules": true,
-        "cancel-scheduled-email": true,
-        "archive-email": undefined,
-      });
-      expect(marks(registries.get("calendar")!, ["cancel-booking"])).toEqual({
-        "cancel-booking": true,
-      });
-      // `update-design` deletes through `dataOperations[].op: "delete"`, and
-      // `apply-visual-edit` through an edit of `kind: "deleteNode"`.
-      expect(
-        marks(await loadTemplateRegistry("design"), [
-          "update-design",
-          "apply-visual-edit",
-        ]),
-      ).toEqual({ "update-design": true, "apply-visual-edit": true });
-    },
-    LOAD_TIMEOUT_MS,
-  );
+    expect(
+      marks(registryOf("mail"), [
+        "manage-gmail-filters",
+        "manage-email-rules",
+        "cancel-scheduled-email",
+        "archive-email",
+      ]),
+    ).toEqual({
+      "manage-gmail-filters": true,
+      "manage-email-rules": true,
+      "cancel-scheduled-email": true,
+      "archive-email": undefined,
+    });
+    expect(marks(registryOf("calendar"), ["cancel-booking"])).toEqual({
+      "cancel-booking": true,
+    });
+    expect(
+      marks(registryOf("design"), ["update-design", "apply-visual-edit"]),
+    ).toEqual({ "update-design": true, "apply-visual-edit": true });
+  });
 
   it("finds the right tools in the top 5 for held-out requests", () => {
     expect(

@@ -284,4 +284,79 @@ describe("SearchBar command-menu handoff", () => {
       "/r/recording-1?t=2&panel=transcript",
     );
   });
+
+  it("syncs with the URL ?q= parameter and updates it on Enter and clear", () => {
+    mocks.searchParams = new URLSearchParams({ q: "onboarding" });
+    act(() => root.render(<SearchBar />));
+
+    const input = container.querySelector<HTMLInputElement>("input");
+    expect(input?.value).toBe("onboarding");
+
+    mocks.searchParams = new URLSearchParams({ q: "pricing" });
+    act(() => root.render(<SearchBar />));
+    expect(input?.value).toBe("pricing");
+
+    const inputValueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    act(() => {
+      inputValueSetter?.call(input, "  launch demo  ");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      input?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+    });
+    expect(mocks.setSearchParams).toHaveBeenCalled();
+    const enterCalls = mocks.setSearchParams.mock.calls;
+    const enterUpdater = enterCalls[enterCalls.length - 1]?.[0] as (
+      prev: URLSearchParams,
+    ) => URLSearchParams;
+    expect(enterUpdater(new URLSearchParams("sort=recent")).get("q")).toBe(
+      "launch demo",
+    );
+
+    const clearButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="searchBar.clear"]',
+    );
+    expect(clearButton).not.toBeNull();
+    act(() => clearButton?.click());
+    const clearCalls = mocks.setSearchParams.mock.calls;
+    const clearUpdater = clearCalls[clearCalls.length - 1]?.[0] as (
+      prev: URLSearchParams,
+    ) => URLSearchParams;
+    expect(clearUpdater(new URLSearchParams("q=pricing")).has("q")).toBe(false);
+  });
+
+  it("ignores Enter while IME composition is active", () => {
+    act(() => root.render(<SearchBar />));
+
+    const input = container.querySelector<HTMLInputElement>("input");
+    const inputValueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    act(() => {
+      inputValueSetter?.call(input, "nihon");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const composingEnter = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Enter",
+      isComposing: true,
+    });
+    act(() => {
+      input?.dispatchEvent(composingEnter);
+    });
+
+    expect(composingEnter.defaultPrevented).toBe(false);
+    expect(mocks.setSearchParams).not.toHaveBeenCalled();
+  });
 });

@@ -33,6 +33,12 @@ import {
 import { displayNameFromIdentifier } from "../lib/booking-og-image.js";
 import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import { publicErrorReply } from "../lib/public-error-reply.js";
+import {
+  deleteSingleUseLinksFor,
+  getSingleUseLinkStatus,
+  readSingleUseToken,
+  SINGLE_USE_LINK_QUERY_PARAM,
+} from "../lib/single-use-links.js";
 import { ensureBookingUsername } from "./booking-usernames.js";
 
 async function requireRequestContext<T>(
@@ -165,6 +171,7 @@ export async function deleteBookingLinkById(id: string) {
   await getDb()
     .delete(schema.bookingLinks)
     .where(eq(schema.bookingLinks.id, id));
+  await deleteSingleUseLinksFor(id);
 
   if (toDelete.length > 0) {
     await getDb()
@@ -253,12 +260,25 @@ export const getPublicBookingLink = defineEventHandler(
         ),
       ]);
 
+      const singleUseToken = readSingleUseToken(
+        query[SINGLE_USE_LINK_QUERY_PARAM],
+      );
+      const singleUse =
+        SINGLE_USE_LINK_QUERY_PARAM in query
+          ? {
+              status: singleUseToken
+                ? await getSingleUseLinkStatus(bookingLink.id, singleUseToken)
+                : ("missing" as const),
+            }
+          : undefined;
+
       return {
         ...withHostTimezones(bookingLink, ownerTimezone, eligibleHosts),
         ownerName: displayNameFromIdentifier(
           canonicalUsername,
           rows[0].ownerEmail,
         ),
+        ...(singleUse ? { singleUse } : {}),
       };
     } catch (error) {
       return publicErrorReply(

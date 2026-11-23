@@ -25,6 +25,7 @@ const KNOWN_PROVIDERS = new Set<string>([
   "slack",
   "github",
   "builder",
+  "content",
   "email",
   "factory",
 ]);
@@ -60,6 +61,10 @@ const UNUSED_ON_PURPOSE: { id: string; reason: string }[] = [
     id,
     reason: "no story wires it yet, run by jira-sentry.scenario.spec.ts",
   })),
+  {
+    id: "content.upsertRow",
+    reason: "no story wires it yet, run by content-row.scenario.spec.ts",
+  },
 ];
 
 // A read that is a POST must be listed here with the reason it is still a read.
@@ -98,6 +103,7 @@ const HOST_ACTIONS = [
   "resolve-sentry-issue",
   "send-factory-email",
   "transition-jira-issue",
+  "upsert-content-row",
 ];
 
 const PLACEHOLDER = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -439,6 +445,7 @@ describe("the operation catalog", () => {
         "builder.start.branchName",
         "builder.start.projectId",
         "builder.start.userEmail",
+        "content.upsertRow.collection",
         "email.send.cc",
         "email.send.replyTo",
         "email.send.to",

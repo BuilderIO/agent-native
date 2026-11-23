@@ -9,6 +9,14 @@ function must<T>(value: T | null | undefined, message = "Expected a value"): T {
   return value;
 }
 
+function deferred<T>() {
+  let resolve: ((value: T) => void) | undefined;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve: (value: T) => must(resolve)(value) };
+}
+
 const budget = vi.hoisted(() => ({
   admit: vi.fn(),
   mark: vi.fn(async () => undefined),
@@ -26,6 +34,51 @@ const send = vi.hoisted(() => ({
 }));
 const after = vi.hoisted(() => ({
   firstJob: null as null | (() => Promise<unknown>),
+}));
+const captureState = vi.hoisted(() => ({
+  email: "alice@example.com" as string | null,
+  accessible: true,
+  cached: false,
+  chartType: "table",
+  trackingError: false,
+  keyDatesError: null as Error | null,
+  exceptions: [] as Array<{ error: unknown; context: unknown }>,
+  trackEvents: [] as string[],
+}));
+vi.mock("../server/lib/open-dashboard", () => ({
+  openDashboard: async () =>
+    captureState.accessible
+      ? {
+          saved: {
+            id: "capture-test",
+            kind: "sql",
+            title: "Capture test",
+            ownerEmail: "alice@example.com",
+            orgId: "org-1",
+            visibility: "org",
+            config: {
+              name: "Capture test",
+              panels: [
+                {
+                  id: "cost",
+                  title: "Cost",
+                  source: "bigquery",
+                  chartType: captureState.chartType,
+                  sql: "SELECT 1 AS capture_budget_test",
+                  config: {},
+                },
+              ],
+            },
+          },
+        }
+      : null,
+  openedDashboardVisibility: async () => "org",
+}));
+vi.mock("../server/lib/key-dates-store", () => ({
+  listKeyDateSets: async () => {
+    if (captureState.keyDatesError) throw captureState.keyDatesError;
+    return [];
+  },
 }));
 const PRINCIPAL =
   "sa:runner@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b";
@@ -54,7 +107,30 @@ vi.mock("../server/lib/bigquery-usage", async (importOriginal) => ({
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   getDbExec: () => ({
-    execute: async () => {
+    execute: async (request: { sql: string }) => {
+      if (
+        captureState.cached &&
+        request.sql.startsWith("SELECT generation, fence_token")
+      )
+        return { rows: [] };
+      if (
+        captureState.cached &&
+        request.sql.startsWith("SELECT result, created_at FROM bigquery_cache")
+      ) {
+        return {
+          rows: [
+            {
+              result: JSON.stringify({
+                rows: [{ x: 7 }],
+                schema: [{ name: "x", type: "INT64" }],
+                totalRows: 1,
+                bytesProcessed: 0,
+                cacheHit: true,
+              }),
+            },
+          ],
+        };
+      }
       throw new Error("no cache database in this spec");
     },
   }),
@@ -65,10 +141,15 @@ vi.mock("@agent-native/core/server", async (importOriginal) => ({
     userEmail: "alice@example.com",
     orgId: "org-1",
   }),
-  getRequestUserEmail: () => "alice@example.com",
+  getRequestUserEmail: () => captureState.email,
   getRequestOrgId: () => "org-1",
   getRequestRunContext: () => undefined,
   platformWaitUntil: () => undefined,
+}));
+vi.mock("@agent-native/core/credentials", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/credentials")>()),
+  resolveCredential: async (key: string) =>
+    key === "BIGQUERY_PROJECT_ID" ? "builder-3b0a2" : null,
 }));
 vi.mock("../server/lib/credentials", () => ({
   resolveCredential: async (key: string) =>
@@ -83,7 +164,15 @@ vi.mock("../server/lib/gcloud", async (importOriginal) => ({
       "sa:runner@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b",
   }),
 }));
-vi.mock("@agent-native/core/tracking", () => ({ track: () => undefined }));
+vi.mock("@agent-native/core/tracking", () => ({
+  captureException: (error: unknown, context: unknown) => {
+    captureState.exceptions.push({ error, context });
+  },
+  track: (event: string) => {
+    captureState.trackEvents.push(event);
+    if (captureState.trackingError) throw new Error("Tracking unavailable");
+  },
+}));
 vi.mock("../server/lib/onboarding-journey", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../server/lib/onboarding-journey")>();
@@ -136,6 +225,16 @@ vi.mock(
   },
 );
 
+vi.mock(
+  "../server/lib/first-party-analytics-backend",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../server/lib/first-party-analytics-backend")
+    >()),
+    getFirstPartyAnalyticsBackend: async () => ({ sink: "bigquery" }),
+  }),
+);
+
 vi.mock("../server/lib/first-party-analytics", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -152,6 +251,7 @@ vi.mock("../server/lib/first-party-analytics", async (importOriginal) => {
   };
 });
 
+const { default: capturePanel } = await import("./capture-dashboard-panel");
 const { runQuery } = await import("../server/lib/bigquery");
 const { OutsideAgentBigQueryRefusalError } =
   await import("../server/lib/bigquery-agent-context");
@@ -233,6 +333,14 @@ const accessDenied = () =>
   );
 
 beforeEach(() => {
+  captureState.email = "alice@example.com";
+  captureState.accessible = true;
+  captureState.cached = false;
+  captureState.chartType = "table";
+  captureState.trackingError = false;
+  captureState.keyDatesError = null;
+  captureState.exceptions.length = 0;
+  captureState.trackEvents.length = 0;
   submissions.length = 0;
   duplicate.jobId = null;
   journey.args.length = 0;
@@ -323,6 +431,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -945,5 +1054,340 @@ describe("in-app paths keep today's caps", () => {
       "100000000",
     );
     expect(budget.admit).not.toHaveBeenCalled();
+  });
+});
+
+describe("saved-panel capture outside-agent budget adapter", () => {
+  const args = { dashboardId: "capture-test", panelId: "cost" };
+
+  beforeEach(() => {
+    dryRun.response = () =>
+      json({
+        statistics: {
+          query: {
+            totalBytesProcessed: "20971520",
+            referencedTables: [],
+          },
+        },
+      });
+  });
+
+  it.each(["mcp", "a2a"] as const)(
+    "%s captures the saved query with admission and settled costs",
+    async (caller) => {
+      const result = await capturePanel.run(args, { caller });
+      expect(result.rows).toEqual([[1]]);
+      expect(result.bigQueryBudget).toMatchObject({
+        provisional: false,
+        thisCall: { jobsAdmitted: 1, stillReservedUsd: 0 },
+        jobs: [{ state: "settled", billedUsd: expect.any(Number) }],
+      });
+      expect(budget.admit).toHaveBeenCalledWith(
+        { ownerEmail: "alice@example.com", orgId: "org-1" },
+        expect.objectContaining({
+          source: "capture-dashboard-panel",
+          estimatedBytes: 20971520,
+          reservedBytes: 23068672,
+        }),
+        expect.objectContaining({ reconcile: expect.any(Object) }),
+      );
+      expect(submissions).toHaveLength(1);
+      expect(must(submissions[0]).configuration.query.maximumBytesBilled).toBe(
+        "23068672",
+      );
+      expect(budget.mark).toHaveBeenCalled();
+      expect(budget.settle).toHaveBeenCalledWith(
+        "builder-3b0a2",
+        must(submissions[0]).jobReference.jobId,
+        { kind: "billed", billedBytes: 10485760, cacheHit: false },
+        expect.any(Date),
+      );
+      expect(capturePanel.outputSchema.parse(result)).toEqual(result);
+      expect(captureState.trackEvents).toEqual(["dashboard_panel_captured"]);
+    },
+  );
+
+  it("returns an explicit budget refusal without submission", async () => {
+    budget.admit.mockImplementation(async (_identity, request) => ({
+      status: "refused",
+      code: "approval_required",
+      scope: "person",
+      reservedBytes: request.reservedBytes,
+      budget: snapshot(0),
+    }));
+    await expect(
+      capturePanel.run(args, { caller: "mcp" }),
+    ).rejects.toMatchObject({
+      errorCode: "approval_required",
+      statusCode: 429,
+      details: {
+        bigQueryBudget: {
+          refusal: { code: "approval_required" },
+          thisCall: { jobsAdmitted: 0 },
+        },
+      },
+    });
+    expect(submissions).toHaveLength(0);
+    expect(budget.settle).not.toHaveBeenCalled();
+  });
+
+  it("returns a non-retryable refusal when the saved query exceeds the per-job cap", async () => {
+    dryRun.response = () =>
+      json({
+        statistics: {
+          query: { totalBytesProcessed: "100000000000", referencedTables: [] },
+        },
+      });
+    await expect(
+      capturePanel.run(args, { caller: "mcp" }),
+    ).rejects.toMatchObject({
+      errorCode: "over_job_cap",
+      statusCode: 422,
+      details: {
+        bigQueryBudget: {
+          refusal: { code: "over_job_cap" },
+          thisCall: { jobsAdmitted: 0 },
+        },
+      },
+    });
+    expect(submissions).toHaveLength(0);
+    expect(budget.admit).not.toHaveBeenCalled();
+    expect(budget.settle).not.toHaveBeenCalled();
+  });
+
+  it("uses the same over-cap request status for the first-party query action", async () => {
+    dryRun.response = () =>
+      json({
+        statistics: {
+          query: { totalBytesProcessed: "100000000000", referencedTables: [] },
+        },
+      });
+    await expect(
+      queryFirstParty.run({ sql: "SELECT 1" }, { caller: "a2a" }),
+    ).rejects.toMatchObject({ errorCode: "over_job_cap", statusCode: 422 });
+    expect(submissions).toHaveLength(0);
+    expect(budget.admit).not.toHaveBeenCalled();
+  });
+
+  it("checks sign-in and dashboard access before warehouse work", async () => {
+    captureState.email = null;
+    await expect(
+      capturePanel.run(args, { caller: "mcp" }),
+    ).rejects.toMatchObject({ errorCode: "unauthenticated" });
+    captureState.email = "alice@example.com";
+    captureState.accessible = false;
+    await expect(
+      capturePanel.run(args, { caller: "a2a" }),
+    ).rejects.toMatchObject({ errorCode: "dashboard_not_found" });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(budget.admit).not.toHaveBeenCalled();
+  });
+
+  it("serves cached rows without admission or submission", async () => {
+    captureState.cached = true;
+    const result = await capturePanel.run(args, { caller: "mcp" });
+    expect(result.rows).toEqual([[7]]);
+    expect(result.bigQueryBudget?.thisCall.jobsAdmitted).toBe(0);
+    expect(budget.admit).not.toHaveBeenCalled();
+    expect(submissions).toHaveLength(0);
+  });
+
+  it("fails visibly and releases the reservation on provider rejection", async () => {
+    send.response = accessDenied;
+    await expect(
+      capturePanel.run(args, { caller: "mcp" }),
+    ).rejects.toMatchObject({
+      errorCode: "query_failed",
+      statusCode: 502,
+      details: { bigQueryBudget: { jobs: [{ state: "released" }] } },
+    });
+    expect(submissions).toHaveLength(1);
+    expect(budget.settle).toHaveBeenCalledWith(
+      "builder-3b0a2",
+      must(submissions[0]).jobReference.jobId,
+      { kind: "rejected" },
+      expect.any(Date),
+    );
+  });
+
+  it("records the original cause and spend receipt if post-query metadata fails", async () => {
+    const cause = new Error("Key dates unavailable");
+    captureState.keyDatesError = cause;
+    await expect(
+      capturePanel.run(args, { caller: "mcp" }),
+    ).rejects.toMatchObject({
+      message: "This panel could not be captured.",
+      errorCode: "capture_failed",
+      statusCode: 500,
+      details: {
+        bigQueryBudget: {
+          provisional: false,
+          thisCall: { jobsAdmitted: 1, stillReservedUsd: 0 },
+          jobs: [{ state: "settled", billedUsd: expect.any(Number) }],
+        },
+      },
+    });
+    expect(submissions).toHaveLength(1);
+    expect(captureState.exceptions).toEqual([
+      {
+        error: cause,
+        context: {
+          route: "capture-dashboard-panel",
+          tags: { stage: "capture_result" },
+          handled: true,
+        },
+      },
+    ]);
+  });
+
+  it("returns a billed capture when outside-agent success tracking fails", async () => {
+    captureState.trackingError = true;
+    const result = await capturePanel.run(args, { caller: "mcp" });
+    expect(result.rows).toEqual([[1]]);
+    expect(result.bigQueryBudget).toMatchObject({
+      provisional: false,
+      thisCall: { jobsAdmitted: 1, stillReservedUsd: 0 },
+      jobs: [{ state: "settled", billedUsd: expect.any(Number) }],
+    });
+    expect(submissions).toHaveLength(1);
+    expect(captureState.exceptions).toEqual([
+      {
+        error: expect.objectContaining({ message: "Tracking unavailable" }),
+        context: {
+          route: "capture-dashboard-panel",
+          tags: { stage: "success_tracking" },
+          level: "warning",
+          handled: true,
+        },
+      },
+    ]);
+  });
+
+  it("preserves in-app tracking failure behavior", async () => {
+    captureState.trackingError = true;
+    await expect(
+      capturePanel.run(args, { caller: "frontend" }),
+    ).rejects.toThrow("Tracking unavailable");
+    expect(budget.admit).not.toHaveBeenCalled();
+    expect(captureState.exceptions).toEqual([]);
+  });
+
+  it.each([
+    [
+      "mcp",
+      {
+        errorCode: "query_cancelled",
+        statusCode: 499,
+        message: "Panel capture was cancelled.",
+      },
+    ],
+    ["frontend", { errorCode: "query_timed_out", statusCode: 504 }],
+  ] as const)(
+    "honors %s cancellation before warehouse submission",
+    async (caller, failure) => {
+      const controller = new AbortController();
+      controller.abort(new Error("capture cancelled"));
+      await expect(
+        capturePanel.run(args, { caller, signal: controller.signal }),
+      ).rejects.toMatchObject(failure);
+      expect(submissions).toHaveLength(0);
+      expect(budget.admit).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["deadline", "query_timed_out", 504],
+    ["caller abort", "query_cancelled", 499],
+  ] as const)(
+    "marks a receipt provisional when %s precedes cancellation settlement",
+    async (stop, errorCode, statusCode) => {
+      vi.useFakeTimers();
+      const queryStarted = deferred<void>();
+      const cancelResponse = deferred<Response>();
+      const settled = deferred<void>();
+      const originalFetch = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input));
+          if (url.pathname.endsWith("/cancel")) return cancelResponse.promise;
+          if (url.pathname.includes("/queries/")) {
+            queryStarted.resolve();
+            return json({ jobComplete: false });
+          }
+          return originalFetch(input, init);
+        }),
+      );
+      budget.settle.mockImplementationOnce(async () => {
+        settled.resolve();
+        return true;
+      });
+      const controller = new AbortController();
+      const result = capturePanel.run(args, {
+        caller: "mcp",
+        signal: controller.signal,
+      });
+      const failure = result.catch((error: unknown) => error);
+      await queryStarted.promise;
+      if (stop === "caller abort")
+        controller.abort(new Error("capture cancelled"));
+      await vi.advanceTimersByTimeAsync(45_000);
+      const error = await failure;
+      try {
+        expect(error).toMatchObject({
+          errorCode,
+          statusCode,
+          details: {
+            bigQueryBudget: {
+              provisional: true,
+              thisCall: {
+                jobsAdmitted: 1,
+                stillReservedUsd: expect.any(Number),
+              },
+              jobs: [{ state: "reserved", billedUsd: null }],
+            },
+          },
+        });
+        expect(submissions).toHaveLength(1);
+        expect(budget.settle).not.toHaveBeenCalled();
+      } finally {
+        cancelResponse.resolve(json({}));
+        await settled.promise;
+      }
+      expect(budget.settle).toHaveBeenCalledTimes(1);
+      expect(error).toMatchObject({
+        details: { bigQueryBudget: { provisional: true } },
+      });
+    },
+  );
+
+  it("keeps the spend receipt when budget overhead makes a metric too large", async () => {
+    captureState.chartType = "metric";
+    const plain = await capturePanel.run(args, { caller: "frontend" });
+    const maxResultChars = JSON.stringify(plain, null, 2).length + 1_000;
+    captureState.trackEvents.length = 0;
+    await expect(
+      capturePanel.run(args, { caller: "mcp", maxResultChars }),
+    ).rejects.toMatchObject({
+      errorCode: "panel_too_large",
+      statusCode: 413,
+      details: {
+        bigQueryBudget: {
+          thisCall: { jobsAdmitted: 1, stillReservedUsd: 0 },
+          jobs: [{ state: "settled", billedUsd: expect.any(Number) }],
+        },
+      },
+    });
+    expect(submissions).toHaveLength(2);
+    expect(captureState.trackEvents).toEqual([]);
+  });
+
+  it("keeps in-app capture unbudgeted", async () => {
+    const result = await capturePanel.run(args, { caller: "frontend" });
+    expect(result.rows).toEqual([[1]]);
+    expect(captureState.trackEvents).toEqual(["dashboard_panel_captured"]);
+    expect(result).not.toHaveProperty("bigQueryBudget");
+    expect(budget.admit).not.toHaveBeenCalled();
+    expect(budget.read).not.toHaveBeenCalled();
   });
 });

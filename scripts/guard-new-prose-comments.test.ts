@@ -212,3 +212,16 @@ test("unreadable syntax is a failure instead of a clean comment inventory", () =
     /Variable declaration expected/,
   );
 });
+
+await test("permits Vitest environment selectors without admitting attached prose", () => {
+  for (const text of [
+    "// @vitest-environment happy-dom",
+    "/** @vitest-environment jsdom */",
+  ])
+    assert.deepEqual(lines(text, false, "example.spec.tsx"), []);
+  assert.deepEqual(
+    lines("// @vitest-environment happy-dom with an explanation"),
+    [1],
+  );
+  assert.deepEqual(lines("// @vitest-environment"), [1]);
+});

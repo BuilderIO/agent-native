@@ -269,6 +269,8 @@ const messages = {
         "समीक्षा में लिंक अक्षम कर दिए जाते हैं, इसलिए दस्तावेज़ वहीं रखा रहता है।",
       visualPromptCopied: "विज़ुअल इनटेक प्रॉम्प्ट की प्रतिलिपि बनाई गई",
       sentAnswers: "एजेंट को जवाब भेजा",
+      sendAnswersPrompt: "क्या अपने जवाब एजेंट को भेजें?",
+      sendAnswersAction: "भेजें",
       recapLinkCopied: "रीकैप लिंक कॉपी किया गया",
       planLinkCopied: "Plan लिंक कॉपी किया गया",
       localPathCopied: "स्थानीय पथ की प्रतिलिपि बनाई गई",

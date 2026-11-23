@@ -7,10 +7,18 @@ use std::io::{Seek, SeekFrom, Write};
 use std::sync::RwLock;
 use tauri::{AppHandle, Emitter};
 
+mod audio_writer;
+mod camera_writer;
+mod screen_writer;
+mod track_writer;
+pub(super) use audio_writer::{start_audio_capture, AudioCapture, RichAudioTaps};
+pub(super) use camera_writer::{start_camera_capture, CameraCapture};
+pub(super) use screen_writer::{start_screen_capture, ScreenCapture};
+
 const AV_WRITER_STATUS_COMPLETED: i64 = 2;
 const AUDIO_FORMAT_AAC: i64 = 0x6161_6320;
 const OUTPUT_SEGMENT_INTERVAL_SECONDS: i64 = 1;
-const CAPTURE_VIDEO_BPP: f64 = 0.15;
+pub(super) const CAPTURE_VIDEO_BPP: f64 = 0.15;
 // AVAssetWriter closes the first media fragment once it accepts a second video
 // frame past the first segment boundary. ScreenCaptureKit only delivers a frame
 // when the screen changes, so a still screen never gets there.
@@ -575,13 +583,20 @@ impl SegmentProgress {
 
 pub(super) struct SegmentSink {
     state: Mutex<SegmentSinkState>,
+    /// Logs the recording's capture-health milestones; off for track files.
+    diagnostics: bool,
 }
 
 impl SegmentSink {
     fn create(path: &Path) -> Result<Arc<Self>, String> {
+        Self::create_with(path, true)
+    }
+
+    fn create_with(path: &Path, diagnostics: bool) -> Result<Arc<Self>, String> {
         let file = std::fs::File::create(path)
             .map_err(|e| format!("could not create recording file {}: {e}", path.display()))?;
         Ok(Arc::new(Self {
+            diagnostics,
             state: Mutex::new(SegmentSinkState {
                 file,
                 path: path.to_path_buf(),
@@ -674,10 +689,12 @@ impl SegmentSink {
         match segment_type {
             AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION => {
                 state.init_segment = Some(bytes.to_vec());
-                crate::logfile::diagnostic(&format!(
-                    "[capture-health] writer initialization segment: {} bytes",
-                    bytes.len()
-                ));
+                if self.diagnostics {
+                    crate::logfile::diagnostic(&format!(
+                        "[capture-health] writer initialization segment: {} bytes",
+                        bytes.len()
+                    ));
+                }
                 if state.media_fragments == 0 && state.bytes_written == 0 {
                     if let Err(error) = Self::write_current(&mut state, bytes) {
                         Self::fail(&mut state, error);
@@ -741,7 +758,7 @@ impl SegmentSink {
                     Self::fail(&mut state, error);
                 } else {
                     state.media_fragments = state.media_fragments.saturating_add(1);
-                    if state.media_fragments == 1 {
+                    if state.media_fragments == 1 && self.diagnostics {
                         crate::logfile::diagnostic(&format!(
                             "[capture-health] first writer media fragment: {} bytes",
                             bytes.len()
@@ -833,6 +850,7 @@ pub(crate) struct CustomScreenCaptureWriter {
     pause_offset_bits: Arc<AtomicU64>,
     audio_producer: Option<crate::capture_audio_bus::AudioProducer>,
     audio_sidecars: Option<Arc<AudioSidecarManager>>,
+    rich_audio: Arc<RichAudioTaps>,
 }
 
 struct CustomScreenCaptureWriterState {
@@ -1143,6 +1161,7 @@ impl Clone for CustomScreenCaptureWriter {
             pause_offset_bits: Arc::clone(&self.pause_offset_bits),
             audio_producer: self.audio_producer.clone(),
             audio_sidecars: self.audio_sidecars.clone(),
+            rich_audio: Arc::clone(&self.rich_audio),
         }
     }
 }
@@ -1255,6 +1274,17 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
         );
         if self.writer.appends_closed.load(Ordering::SeqCst) {
             return;
+        }
+        if matches!(
+            of_type,
+            SCStreamOutputType::Audio | SCStreamOutputType::Microphone
+        ) {
+            let tapped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.writer.rich_audio.offer(&sample_buffer, of_type);
+            }));
+            if tapped.is_err() {
+                eprintln!("[rich-tracks] panic while handing {of_type:?} to its track");
+            }
         }
         if matches!(of_type, SCStreamOutputType::Screen) {
             use std::sync::atomic::AtomicU64;
@@ -1484,6 +1514,7 @@ impl CustomScreenCaptureWriter {
                 pause_offset_bits: Arc::new(AtomicU64::new(0.0_f64.to_bits())),
                 audio_producer,
                 audio_sidecars,
+                rich_audio: Arc::default(),
             })
         }
     }
@@ -1684,6 +1715,21 @@ impl CustomScreenCaptureWriter {
     pub(super) fn set_pause_offset(&self, seconds: f64) {
         self.pause_offset_bits
             .store(seconds.max(0.0).to_bits(), Ordering::SeqCst);
+    }
+
+    /// The first frame's host time and the pause offset, shared so rich
+    /// recording tracks time their events the way frames are timed.
+    pub(super) fn recording_clock_bits(&self) -> (Arc<AtomicU64>, Arc<AtomicU64>) {
+        (
+            Arc::clone(&self.session_start_bits),
+            Arc::clone(&self.pause_offset_bits),
+        )
+    }
+
+    /// Where the stream's audio goes for a rich recording's mic and system
+    /// sound tracks.
+    pub(super) fn rich_audio_taps(&self) -> Arc<RichAudioTaps> {
+        Arc::clone(&self.rich_audio)
     }
 
     fn append_sample(

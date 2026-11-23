@@ -124,6 +124,7 @@ export default defineAction({
       .default(1200)
       .describe("Minimum gap (ms) to be considered a silence"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),

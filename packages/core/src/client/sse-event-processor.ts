@@ -20,7 +20,10 @@ import { normalizeConnectRequiredResult } from "../shared/connect-required.js";
 import { isNonProgressEventType } from "../shared/progress-events.js";
 import { toolInputsMatch } from "../shared/tool-inputs.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
-import { emitChatFirstOpenApp } from "./chat-first-state.js";
+import {
+  emitChatFirstOpenApp,
+  emitChatFirstOpenAppStart,
+} from "./chat-first-state.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   humanizeToolLabelText,
@@ -110,6 +113,7 @@ export interface SSEEvent {
   suggestions?: AgentSuggestion[];
   event?: AgentChatRichEventEnvelope;
   tool?: string;
+  navigationKeys?: string[];
   /** Server-assigned call identifier emitted on tool_start / tool_done events. */
   id?: string;
   /** Stable transport identity, preserved when a durable turn is replayed. */
@@ -1513,6 +1517,7 @@ interface ProcessEventState {
    *  it once. Cleared by `resetProcessEventState` on a server `clear` retry
    *  so the next batch of real output re-arms it. */
   streamProgressDispatched: boolean;
+  optimisticOpenAppTargets?: Map<string, string>;
 }
 
 function markAssistantText(state: ProcessEventState | undefined) {
@@ -1528,6 +1533,7 @@ function markCompletedToolAfterAssistantText(
 
 function resetProcessEventState(state: ProcessEventState | undefined) {
   state?.completedToolsAfterLastAssistantText.clear();
+  state?.optimisticOpenAppTargets?.clear();
   if (state) state.streamProgressDispatched = false;
 }
 
@@ -1542,7 +1548,81 @@ function shouldDispatchStreamProgress(
   return true;
 }
 
-function emitFirstPartyOpenAppHandoff(ev: SSEEvent): void {
+function readOpenAppString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function openAppHandoffSignature(detail: {
+  app?: string | undefined;
+  path?: string | undefined;
+  url?: string | undefined;
+  view?: string | undefined;
+  focus?: boolean | undefined;
+}): string {
+  return JSON.stringify([
+    detail.app ?? "",
+    detail.path ?? "",
+    detail.url ?? "",
+    detail.view ?? "",
+    detail.focus === true,
+  ]);
+}
+
+function emitOptimisticOpenAppHandoff(
+  rawInput: unknown,
+  toolCallId: string | undefined,
+  state: ProcessEventState | undefined,
+  context?: { runId?: string; turnId?: string },
+): void {
+  if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
+    return;
+  }
+  const input = rawInput as Record<string, unknown>;
+  const app = readOpenAppString(input.app ?? input.appId ?? input.application);
+  const url = readOpenAppString(input.url ?? input.href);
+  if (!app && !url) return;
+  const path = readOpenAppString(input.path ?? input.targetPath);
+  const view = readOpenAppString(input.view);
+  const focus = input.focus === true ? true : undefined;
+  const signature = openAppHandoffSignature({ app, path, url, view, focus });
+  const key = toolCallId ?? "__open_app__";
+  if (state) {
+    state.optimisticOpenAppTargets ??= new Map();
+    if (state.optimisticOpenAppTargets.get(key) === signature) return;
+    state.optimisticOpenAppTargets.set(key, signature);
+  }
+  emitChatFirstOpenAppStart({
+    ...(app ? { app } : {}),
+    ...(path ? { path } : {}),
+    ...(url ? { url } : {}),
+    ...(view ? { view } : {}),
+    ...(focus ? { focus } : {}),
+    optimistic: true,
+    ...(context?.turnId ? { turnId: context.turnId } : {}),
+  });
+}
+
+function tryEmitStreamingOpenAppHandoff(
+  argsText: string,
+  toolCallId: string | undefined,
+  state: ProcessEventState | undefined,
+  context?: { runId?: string; turnId?: string },
+): void {
+  const trimmed = argsText.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    emitOptimisticOpenAppHandoff(parsed, toolCallId, state, context);
+  } catch {
+    // coercion-ok: partial streaming tool JSON may not be complete yet.
+  }
+}
+
+function emitFirstPartyOpenAppHandoff(
+  ev: SSEEvent,
+  state: ProcessEventState | undefined,
+  context?: { runId?: string; turnId?: string },
+): void {
   if (ev.type !== "tool_done" || (ev.tool ?? "unknown") !== "open_app") {
     return;
   }
@@ -1572,14 +1652,23 @@ function emitFirstPartyOpenAppHandoff(ev: SSEEvent): void {
     return;
   }
 
-  const readString = (value: unknown): string | undefined =>
-    typeof value === "string" && value.trim() ? value : undefined;
-  const delivery = emitChatFirstOpenApp({
-    app: readString(result.app ?? result.appId ?? result.application),
-    path: readString(result.path ?? result.targetPath),
-    url: readString(result.url ?? result.href),
-    view: readString(result.view),
-  });
+  const app = readOpenAppString(
+    result.app ?? result.appId ?? result.application,
+  );
+  const path = readOpenAppString(result.path ?? result.targetPath);
+  const url = readOpenAppString(result.url ?? result.href);
+  const view = readOpenAppString(result.view);
+  const detail = {
+    ...(app ? { app } : {}),
+    ...(path ? { path } : {}),
+    ...(url ? { url } : {}),
+    ...(view ? { view } : {}),
+    ...(result.focus === true ? { focus: true } : {}),
+    ...(context?.turnId ? { turnId: context.turnId } : {}),
+  };
+  const key = ev.id ?? "__open_app__";
+  state?.optimisticOpenAppTargets?.delete(key);
+  const delivery = emitChatFirstOpenApp(detail);
   if (!delivery.delivered) {
     console.warn(
       `[chat-first] open_app was completed but not delivered (${delivery.reason ?? "unknown"})`,
@@ -1617,6 +1706,18 @@ export function processEvent(
     if (state) {
       state.omitFromPersistedHistory = false;
       state.assistantTurnBoundaryPending = true;
+      state.optimisticOpenAppTargets?.clear();
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:turn-start", {
+          detail: {
+            tabId,
+            ...(context?.runId ? { runId: context.runId } : {}),
+            ...(context?.turnId ? { turnId: context.turnId } : {}),
+          },
+        }),
+      );
     }
   } else if (ev.omitFromPersistedHistory === true && state) {
     state.omitFromPersistedHistory = true;
@@ -1808,6 +1909,14 @@ export function processEvent(
       }
       if (ev.type === "tool_input_delta" && ev.text) {
         pending.argsText += ev.text;
+        if (tool === "open_app") {
+          tryEmitStreamingOpenAppHandoff(
+            pending.argsText,
+            ev.id ?? pending.toolCallId,
+            state,
+            context,
+          );
+        }
       }
       if (omitFromPersistedHistory) {
         pending.omitFromPersistedHistory = true;
@@ -1852,6 +1961,9 @@ export function processEvent(
         delete completedPart.approvalPauseCandidate;
       }
       return { action: "continue" };
+    }
+    if (tool === "open_app") {
+      emitOptimisticOpenAppHandoff(args, ev.id, state, context);
     }
     if (typeof window !== "undefined") {
       window.dispatchEvent(
@@ -1994,7 +2106,7 @@ export function processEvent(
         return { action: "continue" };
       }
     }
-    emitFirstPartyOpenAppHandoff(ev);
+    emitFirstPartyOpenAppHandoff(ev, state, context);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
@@ -2003,6 +2115,7 @@ export function processEvent(
             result: ev.result,
             isError: ev.isError === true,
             completedSideEffect: ev.completedSideEffect === true,
+            navigationKeys: ev.navigationKeys,
             tabId,
             browserTabId: getBrowserTabId(),
             runId: context?.runId,

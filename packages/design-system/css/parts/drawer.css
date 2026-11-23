@@ -1,0 +1,249 @@
+/*
+ * Part: drawer
+ *
+ *   <div class="drawer-backdrop" [data-over-dialog] data-open|data-closed>
+ *   <div class="drawer-viewport" [data-over-dialog]>
+ *     <div class="drawer-popup" [data-over-dialog]
+ *          data-side="top|right|bottom|left"
+ *          data-open|data-closed [data-starting-style] [data-ending-style]
+ *          [data-swiping]>
+ *       <div class="drawer-handle">                    bottom drawers only
+ *       <div class="drawer-content">                   (display: contents)
+ *         <div class="drawer-header">
+ *           <h2 class="drawer-title"> <p class="drawer-description">
+ *         <div class="drawer-footer">
+ *       <button class="drawer-close"><svg/></button>
+ *
+ * `data-side` is the edge a drawer is anchored to, and Base UI swipes it
+ * back toward that edge: bottom (the default) is a bottom drawer, left and
+ * right are side panels, top is a top panel. A bottom drawer has a handle and
+ * pads its header and footer; a panel pads itself.
+ *
+ * A drawer sits under dialogs (so a dialog opened from a drawer covers it);
+ * one opened from inside a dialog carries `data-over-dialog` and rises above
+ * it, still under popovers and menus. The viewport lets presses through to the
+ * backdrop and to a non-modal page; only the popup takes them.
+ */
+
+@layer components {
+  .drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--layer-drawer-backdrop);
+    background-color: var(--surface-overlay);
+    opacity: calc(1 - var(--drawer-swipe-progress, 0));
+    transition-property: opacity;
+    transition-duration: var(--duration-3);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .drawer-backdrop[data-over-dialog] {
+    z-index: var(--layer-drawer-over-dialog-backdrop);
+  }
+
+  .drawer-backdrop[data-starting-style],
+  .drawer-backdrop[data-ending-style] {
+    opacity: 0;
+  }
+
+  .drawer-backdrop[data-swiping] {
+    transition-duration: 0ms;
+  }
+
+  .drawer-viewport {
+    position: fixed;
+    inset: 0;
+    z-index: var(--layer-drawer);
+    pointer-events: none;
+  }
+
+  .drawer-viewport[data-over-dialog] {
+    z-index: var(--layer-drawer-over-dialog);
+  }
+
+  .drawer-popup:where(:not([hidden])) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .drawer-popup {
+    --_x: 0px;
+    --_y: 0px;
+
+    position: fixed;
+    box-sizing: border-box;
+    pointer-events: auto;
+    border: 0;
+    background-color: var(--surface-raised);
+    color: var(--fg-default);
+    box-shadow: var(--shadow-5);
+    outline-style: none;
+    transform: translate3d(
+      calc(var(--drawer-swipe-movement-x, 0px) + var(--_x)),
+      calc(var(--drawer-swipe-movement-y, 0px) + var(--_y)),
+      0
+    );
+    transition-property: transform;
+    transition-duration: var(--duration-3);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .drawer-popup[data-swiping] {
+    transition-duration: 0ms;
+  }
+
+  .drawer-popup[data-ending-style] {
+    transition-duration: calc(
+      var(--duration-2) * var(--drawer-swipe-strength, 1)
+    );
+  }
+
+  .drawer-popup[data-starting-style],
+  .drawer-popup[data-ending-style] {
+    transform: translate3d(var(--_x), var(--_y), 0);
+  }
+
+  /* ---- sides ---- */
+
+  .drawer-popup[data-side="bottom"] {
+    inset-inline: 0;
+    bottom: 0;
+    height: auto;
+    margin-top: var(--space-9);
+    border-top-left-radius: calc(var(--shape-dialog) * var(--corner-scale, 1));
+    border-top-right-radius: calc(var(--shape-dialog) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+  }
+
+  .drawer-popup[data-side="top"] {
+    inset-inline: 0;
+    top: 0;
+    gap: var(--space-4);
+    padding: var(--space-5);
+  }
+
+  .drawer-popup[data-side="right"] {
+    inset-block: 0;
+    right: 0;
+    width: 75%;
+    gap: var(--space-4);
+    padding: var(--space-5);
+  }
+
+  .drawer-popup[data-side="left"] {
+    inset-block: 0;
+    left: 0;
+    width: 75%;
+    gap: var(--space-4);
+    padding: var(--space-5);
+  }
+
+  @media (min-width: 40rem) {
+    .drawer-popup[data-side="right"],
+    .drawer-popup[data-side="left"] {
+      max-width: 24rem;
+    }
+  }
+
+  .drawer-popup[data-starting-style][data-side="bottom"],
+  .drawer-popup[data-ending-style][data-side="bottom"] {
+    --_y: 100%;
+  }
+
+  .drawer-popup[data-starting-style][data-side="top"],
+  .drawer-popup[data-ending-style][data-side="top"] {
+    --_y: -100%;
+  }
+
+  .drawer-popup[data-starting-style][data-side="right"],
+  .drawer-popup[data-ending-style][data-side="right"] {
+    --_x: 100%;
+  }
+
+  .drawer-popup[data-starting-style][data-side="left"],
+  .drawer-popup[data-ending-style][data-side="left"] {
+    --_x: -100%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drawer-backdrop,
+    .drawer-popup {
+      transition-property: none;
+    }
+  }
+
+  .drawer-handle {
+    flex-shrink: 0;
+    width: calc(2 * var(--size-6));
+    height: var(--space-2);
+    margin: var(--space-4) auto 0;
+    border-radius: calc(var(--shape-pill) * var(--corner-scale, 1));
+    background-color: var(--gray-a4);
+  }
+
+  /* Children lay out as if they were the popup's own, and the swipe logic
+     still finds the content to leave pointer text selection alone. */
+  .drawer-content {
+    display: contents;
+  }
+
+  /* ---- header, footer, text ---- */
+
+  .drawer-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    text-align: center;
+  }
+
+  .drawer-footer {
+    display: flex;
+    flex-direction: column;
+    min-inline-size: 0;
+    gap: var(--space-2);
+  }
+
+  .drawer-popup[data-side="bottom"] .drawer-header,
+  .drawer-popup[data-side="bottom"] .drawer-footer {
+    padding: var(--space-4);
+  }
+
+  .drawer-popup[data-side="bottom"] .drawer-footer {
+    margin-top: auto;
+  }
+
+  @media (min-width: 40rem) {
+    .drawer-header {
+      text-align: start;
+    }
+
+    .drawer-popup:not([data-side="bottom"]) .drawer-footer {
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+  }
+
+  .drawer-title {
+    margin: 0;
+    font-size: var(--font-size-4);
+    line-height: var(--line-height-4);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg-default);
+  }
+
+  .drawer-description {
+    margin: 0;
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    color: var(--fg-muted);
+  }
+
+  /* ---- close button: a gray ghost icon button ---- */
+
+  .drawer-close {
+    position: absolute;
+    top: var(--space-3);
+    inset-inline-end: var(--space-3);
+  }
+}

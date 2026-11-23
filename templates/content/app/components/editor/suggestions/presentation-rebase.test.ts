@@ -1224,3 +1224,72 @@ describe("a pending piece reloaded beside other accepted edits", () => {
     ).toBe(1);
   });
 });
+
+describe("a member that joined its proposal after some of it was accepted", () => {
+  const original =
+    "The coastal town wakes early as gulls circle overhead and boats leave at dawn.";
+  const later = original.replace("coastal", "seaside");
+  const page = later.replace("early", "slowly").replace("dawn", "sunrise");
+
+  function member(
+    id: string,
+    before: string,
+    find: string,
+    replace: string,
+    status: "accepted" | "pending",
+    proposalId = "town",
+  ) {
+    const from = before.indexOf(find);
+    const operation = edit(before, from, from + find.length, replace);
+    return {
+      id,
+      proposalId,
+      status,
+      revision: 1,
+      operation,
+      operations: [operation],
+    };
+  }
+  const seaside = member("seaside", original, "coastal", "seaside", "accepted");
+  const slowly = member("slowly", original, "early", "slowly", "accepted");
+  const sunrise = member("sunrise", original, "dawn", "sunrise", "accepted");
+  const wheel = member("wheel", later, "circle", "wheel", "pending");
+
+  function shownAt(body: string, accepted: Array<typeof seaside>) {
+    const hydrated = hydrateSuggestionPresentationTransitions(
+      new Map(),
+      [wheel],
+      accepted,
+      body,
+    );
+    return resolveSuggestionPresentationRange(
+      body,
+      wheel.operation,
+      hydrated.get(suggestionPresentationTransitionKey(wheel)),
+    );
+  }
+
+  it("shows it once the rest of its proposal is accepted", () => {
+    expect(resolveMarkdownSuggestionRange(page, wheel.operation)).toBeNull();
+    expect(shownAt(page, [seaside, slowly, sunrise])).toEqual({
+      from: page.indexOf("circle"),
+      to: page.indexOf("circle") + "circle".length,
+    });
+  });
+
+  it("doesn't explain its Page with another proposal's edits", () => {
+    expect(
+      shownAt(page, [
+        seaside,
+        { ...slowly, proposalId: "other" },
+        { ...sunrise, proposalId: "other" },
+      ]),
+    ).toBeNull();
+  });
+
+  it("still hides it when its words changed", () => {
+    expect(
+      shownAt(page.replace("circle", "glide"), [seaside, slowly, sunrise]),
+    ).toBeNull();
+  });
+});

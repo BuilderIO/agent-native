@@ -215,6 +215,42 @@ describe("public form SSR", () => {
     }
   });
 
+  it("keeps authored labels and button text inside the page script", async () => {
+    const closingTag = "</script><script>window.ran=1</script>";
+    mockGetDb.mockReturnValue(
+      createDbWithRows([
+        {
+          id: "form-script-text",
+          slug: "script-text",
+          title: "Title",
+          description: "",
+          updatedAt: "2026-07-23T12:00:00.000Z",
+          fields: JSON.stringify([
+            { id: "name", type: "text", label: closingTag, required: true },
+          ]),
+          settings: JSON.stringify({ submitText: closingTag }),
+          status: "published",
+          deletedAt: null,
+        },
+      ]),
+    );
+
+    const { html } = await renderPublicFormHtml(
+      "https://forms.example.test/f/script-text",
+    );
+
+    expect(html).not.toContain("<script>window.ran");
+    const parsed = new DOMParser().parseFromString(
+      html.replace(/<link\b[^>]*>/g, ""),
+      "text/html",
+    );
+    const inline = [...parsed.querySelectorAll("script:not([src])")]
+      .map((script) => script.textContent)
+      .join("\n");
+    expect(inline).toContain("var FIELDS =");
+    expect(inline).toContain("btn.textContent =");
+  });
+
   it("does not emit CSP headers on direct public form HTML responses", async () => {
     mockGetRequestURL.mockReturnValue(
       new URL("https://forms.example.test/f/nope"),

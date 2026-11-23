@@ -23,6 +23,7 @@ describe("Dispatch view-screen production bundle", () => {
     );
     temporaryDirectories.push(temporaryDirectory);
     const entry = path.resolve("src/actions/view-screen.ts");
+    const paneContext = path.resolve("src/server/lib/dispatch-pane-context.ts");
     const outputDirectory = path.join(temporaryDirectory, "dist");
     const calls: Array<[string, Record<string, unknown>]> = [];
     const stubbedImports = new Set([
@@ -49,7 +50,15 @@ describe("Dispatch view-screen production bundle", () => {
       enforce: "pre" as const,
       resolveId(source: string, importer?: string) {
         if (source.startsWith("\0view-screen-stub:")) return source;
-        if (importer !== entry || !stubbedImports.has(source)) return null;
+        if (
+          !(importer === entry && stubbedImports.has(source)) &&
+          !(
+            importer === paneContext &&
+            source === "@agent-native/core/application-state"
+          )
+        ) {
+          return null;
+        }
         return `\0view-screen-stub:${source}`;
       },
       load(id: string) {
@@ -65,7 +74,11 @@ describe("Dispatch view-screen production bundle", () => {
           return "export const defineAction = (action) => action;";
         }
         if (source === "@agent-native/core/application-state") {
-          return "export const readAppState = async () => globalThis.__viewScreenNavigation;";
+          return [
+            "export const readAppState = async () => globalThis.__viewScreenNavigation;",
+            "export const resolveCurrentRequestStateTab = async () => ({ tabId: null, unavailable: true });",
+            "export const appStateKeyForBrowserTab = (key, tab) => key + ':' + tab;",
+          ].join("\n");
         }
         if (source === "zod") {
           return "export const z = { object: () => ({}) };";

@@ -362,6 +362,7 @@ function welcomeCreated(resolution: string) {
 export default defineAction({
   description:
     "Resolve the signed-in user's safe Content landing page, restoring an authorized last page when possible.",
+  automatic: true,
   schema: z.object({ spaceId: z.string().min(1).max(256).optional() }),
   run: async (args) => {
     const userEmail = getRequestUserEmail();

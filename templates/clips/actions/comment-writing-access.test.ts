@@ -28,6 +28,7 @@ const mockNotify = vi.hoisted(() =>
   vi.fn<(...args: unknown[]) => Promise<null>>(async () => null),
 );
 const mockUpdate = vi.hoisted(() => vi.fn());
+const mockMirror = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
@@ -64,36 +65,40 @@ vi.mock("../server/db/index.js", () => {
     content: "comment.content",
     emojiReactionsJson: "comment.emojiReactionsJson",
   };
-  return {
-    schema: { recordings, recordingComments },
-    getDb: () => ({
-      select: () => ({
-        from: (table: unknown) => ({
-          where: () => ({
-            limit: async () =>
-              table === recordings
-                ? [{ organizationId: "org-1" }]
-                : [{ ...state.comment }],
-          }),
-        }),
-      }),
-      insert: () => ({
-        values: async (row: Record<string, unknown>) => {
-          state.inserted.push(row);
-        },
-      }),
-      update: () => ({
-        set: (patch: Record<string, unknown>) => ({
-          where: () => {
-            mockUpdate(patch);
-            Object.assign(state.comment, patch);
-            return { returning: async () => [{ id: state.comment.id }] };
-          },
+  const db = {
+    transaction: async (run: (tx: unknown) => unknown) => run(db),
+    select: () => ({
+      from: (table: unknown) => ({
+        where: () => ({
+          limit: async () =>
+            table === recordings
+              ? [{ organizationId: "org-1" }]
+              : [{ ...state.comment }],
+          for: async () => [{ id: "recording-1" }],
         }),
       }),
     }),
+    insert: () => ({
+      values: async (row: Record<string, unknown>) => {
+        state.inserted.push(row);
+      },
+    }),
+    update: () => ({
+      set: (patch: Record<string, unknown>) => ({
+        where: () => {
+          mockUpdate(patch);
+          Object.assign(state.comment, patch);
+          return { returning: async () => [{ id: state.comment.id }] };
+        },
+      }),
+    }),
   };
+  return { schema: { recordings, recordingComments }, getDb: () => db };
 });
+vi.mock("../server/lib/recording-comment-mirror.js", () => ({
+  prepareRecordingCommentMirror: async () => {},
+  mirrorRecordingComments: (...args: unknown[]) => mockMirror(...args),
+}));
 
 import addComment from "./add-comment";
 import reactToComment from "./react-to-comment";
@@ -224,6 +229,7 @@ describe.each(writers)("$name comment writing access", ({ run }) => {
       expect(mockUpdate).not.toHaveBeenCalled();
       expect(mockNotify).not.toHaveBeenCalled();
       expect(mockWriteAppState).not.toHaveBeenCalled();
+      expect(mockMirror).not.toHaveBeenCalled();
     },
   );
 
@@ -296,6 +302,9 @@ describe.each(writers)("$name comment writing access", ({ run }) => {
     await expect(run()).resolves.toBeDefined();
     expect(mockWriteAppState).toHaveBeenCalled();
     expect(state.inserted.length + mockUpdate.mock.calls.length).toBe(1);
+    expect(mockMirror).toHaveBeenCalledWith(expect.anything(), "recording-1", [
+      state.inserted.length ? "new-comment" : "comment-1",
+    ]);
   });
 
   it("refuses an expired recording for a viewer", async () => {

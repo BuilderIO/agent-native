@@ -1,12 +1,20 @@
 import { z } from "zod";
 
 import { defineAction } from "../action.js";
-import { readAppState, writeAppState } from "../application-state/index.js";
+import {
+  navigationIntentSchema,
+  writeNavigationCommand,
+  type DetailViewPredicate,
+} from "../application-state/agent-navigation.js";
+import { readAppState } from "../application-state/index.js";
+import { navigationModeSchema } from "../manifest/index.js";
 
 const navigateSchema = z
   .object({
     view: z.string().optional().describe("View name to navigate to"),
     path: z.string().optional().describe("URL path to navigate to"),
+    intent: navigationIntentSchema,
+    navigationMode: navigationModeSchema.optional(),
   })
   .passthrough();
 
@@ -20,6 +28,13 @@ export interface CreateNavigateActionOptions {
     navigation: Record<string, unknown>,
     args: z.infer<typeof navigateSchema>,
   ) => string;
+  /**
+   * Which navigations open one item's detail view. Defaults to
+   * `isDefaultDetailNavigation` (any `id` / `*Id` / `*_id` field or nested
+   * detail path outside `/settings`). An agent call to one is refused unless
+   * it passes `intent: "open"`.
+   */
+  isDetailView?: DetailViewPredicate;
 }
 
 export interface CreateViewScreenActionOptions {
@@ -34,10 +49,6 @@ export interface CreateViewScreenActionOptions {
     | Promise<Record<string, unknown> | string>;
 }
 
-function writeId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 export function createNavigateAction(
   options: CreateNavigateActionOptions = {},
 ) {
@@ -45,25 +56,32 @@ export function createNavigateAction(
   return defineAction({
     description:
       options.description ??
-      "Navigate the UI to a specific view or path. Writes a navigate command to application state which the UI reads and auto-deletes.",
+      'Show an app screen. Use navigationMode "open" for an explicit request, "reveal" to show an answer or artifact, and "keep" for background work.',
     schema: navigateSchema,
     http: false,
-    run: async (args) => {
-      if (!args.view && !args.path) {
+    run: async (args, ctx) => {
+      const { intent, navigationMode, ...target } = args;
+      if (!target.view && !target.path) {
         throw new Error("At least --view or --path is required.");
       }
       const navigation = options.normalize
-        ? await options.normalize(args)
+        ? await options.normalize(target)
         : ({
-            ...(args.view ? { view: args.view } : null),
-            ...(args.path ? { path: args.path } : null),
+            ...(target.view ? { view: target.view } : null),
+            ...(target.path ? { path: target.path } : null),
           } as Record<string, unknown>);
-      navigation._writeId = writeId();
-      await writeAppState(stateKey, navigation);
-      return (
-        options.describeResult?.(navigation, args) ??
-        `Navigating to ${String(args.view || args.path)}`
-      );
+      const result = await writeNavigationCommand(navigation, {
+        ctx,
+        intent,
+        navigationMode,
+        isDetailView: options.isDetailView,
+        isNavigateAction: true,
+        stateKey,
+      });
+      const message = result.navigated
+        ? options.describeResult?.(navigation, args)
+        : undefined;
+      return message === undefined ? result : { ...result, message };
     },
   });
 }

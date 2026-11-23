@@ -25,6 +25,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { IMAGE_EXTENSION_BY_MIME } from "../server/lib/image-signature.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
+import { recordingMadeBy } from "../server/lib/recording-made-by.js";
 import { withRecordingMediaProduction } from "../server/lib/recording-media-lifecycle.js";
 import {
   getCurrentOwnerEmail,
@@ -170,6 +171,7 @@ export default defineAction({
       // A screenshot's title comes from what was on screen, so it stays
       // replaceable by a better one later rather than counting as user input.
       titleSource: args.title?.trim() ? "context" : "default",
+      ...recordingMadeBy(actionContext),
       sourceAppName: args.sourceAppName?.trim() || null,
       sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
       kind: "image",

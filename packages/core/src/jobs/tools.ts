@@ -32,6 +32,10 @@ import {
   isValidTimezone,
 } from "./cron.js";
 import {
+  resourceTargetsHost,
+  setsExecutionTarget,
+} from "./execution-target.js";
+import {
   assertJobExecutionTargetFields,
   assertJobRunnerTarget,
   classifyJobResource,
@@ -577,9 +581,36 @@ async function runDelete(
   return JSON.stringify({ deleted: true, name });
 }
 
+async function existingJobTargetsHost(
+  args: Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    const path = `jobs/${args.name}.md`;
+    let resource = await resourceGetByPath(getSharedOwner(), path);
+    if (!resource && args.scope !== "shared") {
+      resource = await resourceGetByPath(getOwner(), path);
+    }
+    if (!resource) return false;
+    return resourceTargetsHost(resource.content);
+  } catch {
+    // coercion-ok: an unreadable job asks for approval
+    return true;
+  }
+}
+
 export function createJobTools(appId?: string): Record<string, ActionEntry> {
   return frameworkMcpTools({
     "manage-jobs": {
+      needsApproval: async (args) => {
+        if (
+          (args.action === "create" || args.action === "update") &&
+          setsExecutionTarget(args, "camel")
+        ) {
+          return true;
+        }
+        return args.action === "update" && existingJobTargetsHost(args);
+      },
+      allowPersistentApproval: false,
       tool: {
         description: `Manage recurring jobs that run on a cron schedule.
 

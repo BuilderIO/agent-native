@@ -23,6 +23,7 @@ export default defineAction({
       .describe("Video time (ms) the reaction is attached to"),
     viewerName: z.string().optional(),
   }),
+  mcpTool: "search",
   run: async (args) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "viewer"),

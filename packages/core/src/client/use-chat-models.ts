@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
@@ -33,6 +33,11 @@ export interface UseChatModelsResult {
   availableModels: EngineModelGroup[];
   configuredModels: EngineModelGroup[];
   defaultModel: string;
+  /**
+   * Where a picker starts before anyone chooses (`resolveDefaultModelSelection`),
+   * so a host holding an unavailable choice can offer the same default.
+   */
+  defaultSelection: { model: string; engine: string } | null;
   selectedModel: string;
   selectedEngine: string;
   selectedEffort: ReasoningEffort;
@@ -301,6 +306,7 @@ export function useChatModels({
     selectedEffort: ReasoningEffort;
   } | null>(null);
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
+  const [defaultEngine, setDefaultEngine] = useState<string | undefined>();
 
   const initialPersisted = readPersisted(storageKey);
   const hasExplicitSelectionRef = useRef(Boolean(initialPersisted.model));
@@ -450,6 +456,7 @@ export function useChatModels({
           } = catalog;
           setAvailableModels(groups);
           setDefaultModel(nextDefaultModel);
+          setDefaultEngine(nextDefaultEngine);
 
           void catalog.loadLiveGroups().then((liveGroups) => {
             if (liveGroups && isCurrentRefresh()) {
@@ -641,10 +648,21 @@ export function useChatModels({
       );
   }, [enabled, refreshEngines]);
 
+  const defaultSelection = useMemo(
+    () =>
+      resolveDefaultModelSelection(
+        availableModels,
+        defaultModel,
+        defaultEngine,
+      ),
+    [availableModels, defaultEngine, defaultModel],
+  );
+
   return {
     availableModels,
     configuredModels: availableModels.filter((group) => group.configured),
     defaultModel,
+    defaultSelection,
     selectedModel,
     selectedEngine,
     selectedEffort,
