@@ -93,7 +93,10 @@ import {
   releaseSuppressionClaims,
   type AccountError,
 } from "@/hooks/use-emails";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import {
+  isKeyboardShortcutTarget,
+  useKeyboardShortcuts,
+} from "@/hooks/use-keyboard-shortcuts";
 import {
   useConfirmUncertainScheduledEmail,
   useDeleteScheduledJob,
@@ -564,6 +567,15 @@ function AccountErrorsNotice({ errors }: { errors: AccountError[] }) {
     </div>
   );
 }
+
+const LIST_NAVIGATION_KEYS = new Set([
+  "j",
+  "k",
+  "J",
+  "K",
+  "ArrowDown",
+  "ArrowUp",
+]);
 
 export function EmailList({
   emails: emailsProp,
@@ -1328,6 +1340,38 @@ export function EmailList({
     [navigate, onNavigateThread, searchParams, threadId, view],
   );
 
+  // While J and K drive the list, the row under a resting pointer would look
+  // like a second current row, so hover stays quiet until the pointer moves.
+  // The keys are watched here rather than in moveFocus because the open
+  // email handles them while it is shown beside the list. A move is a change
+  // of position: the list scrolling under a still pointer is not one.
+  // The open thread the current row was last synced to, and the one just
+  // closed, which the first J or K steps past instead of reopening.
+  const syncedThreadIdRef = useRef<string | null>(null);
+  const closedThreadIdRef = useRef<string | null>(null);
+
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!LIST_NAVIGATION_KEYS.has(event.key)) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isKeyboardShortcutTarget(event.target, event.key)) return;
+      containerRef.current?.setAttribute("data-keyboard-nav", "");
+    };
+    const onMouseMove = (event: MouseEvent) => {
+      const last = lastPointerRef.current;
+      if (last && last.x === event.clientX && last.y === event.clientY) return;
+      lastPointerRef.current = { x: event.clientX, y: event.clientY };
+      containerRef.current?.removeAttribute("data-keyboard-nav");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousemove", onMouseMove, { passive: true });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousemove", onMouseMove);
+    };
+  }, []);
+
   const moveFocus = useCallback(
     (delta: number) => {
       setSelectedIds(new Set());
@@ -1339,14 +1383,18 @@ export function EmailList({
         );
       }
       const base = current === -1 ? 0 : current;
+      const baseEmail = threads[base]?.latestMessage;
       // With the reading pane empty, the first J or K opens the current row
-      // (the top row on a fresh list) instead of skipping past it. Drafts
-      // never open in the pane, so they step on as before.
+      // (the top row on a fresh list) instead of skipping past it. After you
+      // close an email they step on from it, and drafts, which never open in
+      // the pane, step on as before.
       const opensCurrent =
         readingPane &&
         !threadId &&
         Math.abs(delta) === 1 &&
-        !threads[base]?.latestMessage.isDraft;
+        baseEmail !== undefined &&
+        !baseEmail.isDraft &&
+        (baseEmail.threadId || baseEmail.id) !== closedThreadIdRef.current;
       const next = Math.max(
         0,
         Math.min(threads.length - 1, base + (opensCurrent ? 0 : delta)),
@@ -2077,12 +2125,15 @@ export function EmailList({
   // Opening a thread, by click, link or the agent, makes it the current row,
   // so J and K continue from the thread on screen. Synced once per thread so a
   // list refresh never pulls the current row back.
-  const syncedThreadIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!threadId) {
+      if (syncedThreadIdRef.current) {
+        closedThreadIdRef.current = syncedThreadIdRef.current;
+      }
       syncedThreadIdRef.current = null;
       return;
     }
+    closedThreadIdRef.current = null;
     if (syncedThreadIdRef.current === threadId) return;
     const open = threads.find(
       (t) => (t.latestMessage.threadId || t.latestMessage.id) === threadId,

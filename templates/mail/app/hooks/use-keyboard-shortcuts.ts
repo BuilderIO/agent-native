@@ -18,8 +18,9 @@ const INTERACTIVE_TARGET_SELECTOR = [
   '[role="tab"]',
 ].join(",");
 
-// Where a typed character belongs to the focused control: text entry, and the
-// menus, lists and dialogs that use letters for typeahead or their own keys.
+// Where a typed character or Escape belongs to the focused control: text
+// entry, and the menus, lists and dialogs that use letters for typeahead or
+// their own keys.
 const CHARACTER_TARGET_SELECTOR = [
   "input",
   "textarea",
@@ -36,16 +37,17 @@ const CHARACTER_TARGET_SELECTOR = [
   "[data-radix-popper-content-wrapper]",
 ].join(",");
 
-function isCharacterKey(key: string): boolean {
-  return key.length === 1 && key !== " ";
+// Keys a focused button or link has no use of its own for.
+function isKeyButtonsIgnore(key: string): boolean {
+  return (key.length === 1 && key !== " ") || key === "Escape";
 }
 
 /**
  * Whether a key pressed on `target` belongs to that control rather than to a
  * shortcut. A focused button or link keeps Enter, Space and the arrows, but a
- * letter such as J or K still reaches the shortcut: clicking a toolbar button
- * leaves focus on it, and the list must not go deaf until something else is
- * clicked. Without a key, every interactive control counts.
+ * letter such as J or K, or Escape, still reaches the shortcut: clicking a
+ * toolbar button leaves focus on it, and the list must not go deaf until
+ * something else is clicked. Without a key, every interactive control counts.
  */
 export function isKeyboardShortcutTarget(
   target: EventTarget | null,
@@ -60,7 +62,7 @@ export function isKeyboardShortcutTarget(
   if (!element) return false;
   if (element instanceof HTMLElement && element.isContentEditable) return true;
   const selector =
-    key !== undefined && isCharacterKey(key)
+    key !== undefined && isKeyButtonsIgnore(key)
       ? CHARACTER_TARGET_SELECTOR
       : INTERACTIVE_TARGET_SELECTOR;
   return element.closest(selector) !== null;

@@ -52,7 +52,7 @@ describe("isKeyboardShortcutTarget", () => {
     expect(isKeyboardShortcutTarget(text)).toBe(true);
   });
 
-  it("lets a letter shortcut through a focused button, but not its own keys", () => {
+  it("lets letters and Escape through a focused button, but not its own keys", () => {
     const button = document.createElement("button");
     const link = document.createElement("a");
     link.href = "/inbox";
@@ -60,12 +60,13 @@ describe("isKeyboardShortcutTarget", () => {
 
     expect(isKeyboardShortcutTarget(button, "j")).toBe(false);
     expect(isKeyboardShortcutTarget(link, "k")).toBe(false);
+    expect(isKeyboardShortcutTarget(button, "Escape")).toBe(false);
     expect(isKeyboardShortcutTarget(button, "Enter")).toBe(true);
     expect(isKeyboardShortcutTarget(button, " ")).toBe(true);
     expect(isKeyboardShortcutTarget(button, "ArrowDown")).toBe(true);
   });
 
-  it("keeps letters for text entry, menus and dialogs", () => {
+  it("keeps letters and Escape for text entry, menus and dialogs", () => {
     const input = document.createElement("input");
     const editor = document.createElement("div");
     editor.setAttribute("contenteditable", "true");
@@ -84,6 +85,9 @@ describe("isKeyboardShortcutTarget", () => {
     expect(isKeyboardShortcutTarget(editor, "j")).toBe(true);
     expect(isKeyboardShortcutTarget(menuItem, "j")).toBe(true);
     expect(isKeyboardShortcutTarget(dialogButton, "j")).toBe(true);
+    expect(isKeyboardShortcutTarget(input, "Escape")).toBe(true);
+    expect(isKeyboardShortcutTarget(menuItem, "Escape")).toBe(true);
+    expect(isKeyboardShortcutTarget(dialogButton, "Escape")).toBe(true);
   });
 
   it("leaves a non-interactive list surface available to shortcuts", () => {

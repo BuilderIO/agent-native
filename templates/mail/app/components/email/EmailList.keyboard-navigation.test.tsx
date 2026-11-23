@@ -1458,6 +1458,20 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
   });
 
+  it("quiets hover while j and k drive the list, until the pointer moves", () => {
+    render(<Harness />);
+    const keyboardDriven = () => document.querySelector("[data-keyboard-nav]");
+    fireEvent.mouseMove(document, { clientX: 10, clientY: 10 });
+    press("j");
+    expect(keyboardDriven()).not.toBeNull();
+
+    // The list scrolling under a still pointer reports the same position.
+    fireEvent.mouseMove(document, { clientX: 10, clientY: 10 });
+    expect(keyboardDriven()).not.toBeNull();
+    fireEvent.mouseMove(document, { clientX: 14, clientY: 10 });
+    expect(keyboardDriven()).toBeNull();
+  });
+
   it("makes a row the current row when it takes keyboard focus", () => {
     render(<Harness />);
     const lastRow = rows()[2];
@@ -1644,6 +1658,20 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(mocks.navigate).toHaveBeenLastCalledWith(
       "/all/thread-middle?accountEmail=synthetic%40example.test",
       { replace: true },
+    );
+  });
+
+  it("steps on from an email you close instead of reopening it", () => {
+    mocks.threadId = "thread-middle";
+    const { rerender } = render(<Harness readingPane />);
+    mocks.threadId = undefined;
+    rerender(<Harness readingPane />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+    press("j");
+
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-last?accountEmail=synthetic%40example.test",
+      { replace: false },
     );
   });
 
