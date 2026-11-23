@@ -180,7 +180,7 @@ describe("offboardMember", () => {
   );
 
   it("sweeps first-time Connect and OAuth issuance committed before the member lock and keeps grants revoked after re-add", async () => {
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     await pglite.exec(`
       CREATE TABLE organizations (id TEXT PRIMARY KEY, identity_authority TEXT, identity_id TEXT);
       CREATE TABLE org_members (
@@ -310,7 +310,7 @@ describe("offboardMember", () => {
   }, 30_000);
 
   it("refuses missing membership schema without transferring account-owned rows", async () => {
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     await pglite.exec(`
       CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
       CREATE TABLE workspace_connections (id TEXT PRIMARY KEY, owner_email TEXT);
@@ -330,7 +330,7 @@ describe("offboardMember", () => {
   }, 30_000);
 
   it("transfers owned rows, removes access, revokes sessions, and audits", async () => {
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     await pglite.exec(`
       CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
       CREATE TABLE "session" (id TEXT PRIMARY KEY, "userId" TEXT);
@@ -416,7 +416,7 @@ describe("offboardMember", () => {
   }, 30_000);
 
   it("refuses a missing successor before changing anything", async () => {
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     await pglite.exec(
       `CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);`,
     );
@@ -428,7 +428,7 @@ describe("offboardMember", () => {
   }, 30_000);
 
   it("requires the successor to be active in the requested organization", async () => {
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     await pglite.exec(`
       CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
       CREATE TABLE org_members (
@@ -459,7 +459,7 @@ describe("offboardMember", () => {
   }, 30_000);
 
   it("refuses an unregistered identity column before changing the roster", async () => {
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     await pglite.exec(`
       CREATE TABLE org_members (
         id TEXT PRIMARY KEY, org_id TEXT, email TEXT,
@@ -483,7 +483,7 @@ describe("offboardMember", () => {
   }, 30_000);
 
   it("keeps sessions when the member remains active in another organization", async () => {
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     await pglite.exec(`
       CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
       CREATE TABLE "session" (id TEXT PRIMARY KEY, "userId" TEXT);
@@ -523,7 +523,7 @@ describe("offboardMember", () => {
   }, 30_000);
 
   it("uses the shared identity registry for account-wide cleanup", async () => {
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     await pglite.exec(`
       CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
       CREATE TABLE "session" (id TEXT PRIMARY KEY, "userId" TEXT);
@@ -588,7 +588,7 @@ describe("offboardMember", () => {
   }, 30_000);
 
   it("revokes or deletes the member's MCP credentials instead of handing them to the successor", async () => {
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     await pglite.exec(`
       CREATE TABLE org_members (
         id TEXT PRIMARY KEY, org_id TEXT, email TEXT,
@@ -722,7 +722,7 @@ describe("offboardMember", () => {
         reason: "Bearer keys act as their owner.",
       },
     ]);
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     await pglite.exec(`
       CREATE TABLE org_members (
         id TEXT PRIMARY KEY, org_id TEXT, email TEXT,

@@ -2126,6 +2126,10 @@ export default {
     flagsUnavailable: "기능 플래그를 사용할 수 없습니다",
     flagsUnreachable:
       "작업 공간 디렉터리에 연결할 수 없습니다. 연결되면 다시 시도하세요.",
+    verifiedFlagChangeOrg:
+      "{{time}}에 확인됨: {{app}}의 {{flag}}이(가) 이 조직에서 {{availability}}(으)로 설정되었습니다.",
+    verifiedFlagChangeGlobal:
+      "{{time}}에 확인됨: {{app}}의 {{flag}}이(가) 모든 조직에서 {{availability}}(으)로 설정되었습니다.",
     flagsEmpty: "플래그를 보고한 작업 공간 앱이 없습니다",
     flagsEmptyDetail: "연결된 앱이 준비되면 등록된 플래그가 여기에 표시됩니다.",
     flagsNotReady:

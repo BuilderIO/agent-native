@@ -29,6 +29,7 @@ const COMMENT_COUNT_MUTATIONS = new Set([
 
 const DOCUMENT_MUTATIONS = new Set([
   "add-github-pull-requests",
+  "append-to-document",
   "create-and-link-notion-page",
   "decide-resource-suggestion",
   "decide-resource-suggestion-proposal",
@@ -57,6 +58,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "push-builder-doc",
   "push-notion-page",
   "refresh-content-database-source",
+  "run-builder-article-autosave",
   "reorder-document-property",
   "resolve-local-folder-conflict",
   "resolve-notion-sync-conflict",
@@ -104,6 +106,7 @@ export const DATABASE_RESULT_MUTATIONS = new Set([
   "reorder-document-property",
   "restore-content-database",
   "restore-document",
+  "run-builder-article-autosave",
   "set-document-property",
   "submit-content-database-form",
   "sync-github-folder",
@@ -263,11 +266,19 @@ const REVIEW_MUTATIONS = new Set([
   "set-review-thread-muted",
 ]);
 
-const COMMENT_AI_MUTATIONS = new Set([
+const PAGE_COMMENT_AI_MUTATIONS = new Set([
   "start-comment-ai-request",
+  "submit-comment-ai-classification",
+  "get-comment-ai-context",
+  "reconcile-comment-ai-session",
   "reply-to-comment-ai-request",
   "create-comment-ai-suggestion",
+]);
+
+export const COMMENT_AI_MUTATIONS = new Set([
+  ...PAGE_COMMENT_AI_MUTATIONS,
   "apply-comment-ai-request",
+  "undo-comment-ai-request",
 ]);
 
 function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
@@ -319,14 +330,36 @@ function eventsIncludeMutation(
   );
 }
 
+function eventsIncludePageMutation(
+  events: readonly ActionEvent[],
+  mutations: ReadonlySet<string>,
+  documentId: string,
+): boolean {
+  return events.some(
+    (event) =>
+      event.source === "action" &&
+      typeof event.key === "string" &&
+      mutations.has(event.key) &&
+      !(
+        event.resourceType === "document" &&
+        typeof event.resourceId === "string" &&
+        event.resourceId !== "" &&
+        event.resourceId !== documentId
+      ),
+  );
+}
+
 function eventRefreshesDocumentQuery(eventKey: string, queryName: unknown) {
-  if (eventKey === "start-comment-ai-request") return false;
   if (
     eventKey === "reply-to-comment-ai-request" ||
     eventKey === "create-comment-ai-suggestion"
   )
     return queryName === "list-comments";
-  if (eventKey === "apply-comment-ai-request")
+  if (PAGE_COMMENT_AI_MUTATIONS.has(eventKey)) return false;
+  if (
+    eventKey === "apply-comment-ai-request" ||
+    eventKey === "undo-comment-ai-request"
+  )
     return queryName === "get-document" || queryName === "list-comments";
   // Accepting a suggestion writes the Page body, or the Blocks field tab it
   // was made on.
@@ -362,9 +395,15 @@ function eventChangesOnlyAnotherPage(
   ) {
     return false;
   }
-  if (PAGE_COMMENT_MUTATIONS.has(event.key)) return true;
+  if (
+    PAGE_COMMENT_MUTATIONS.has(event.key) ||
+    PAGE_COMMENT_AI_MUTATIONS.has(event.key)
+  )
+    return true;
   return (
-    event.key === "edit-document" &&
+    (event.key === "edit-document" ||
+      event.key === "apply-comment-ai-request" ||
+      event.key === "undo-comment-ai-request") &&
     typeof queryName === "string" &&
     PAGE_COMMENT_QUERIES.has(queryName)
   );
@@ -568,7 +607,11 @@ export function contentActionInvalidatePredicate(
       typeof targetId === "string" &&
       targetId === documentId
     ) {
-      return eventsIncludeMutation(events, COMMENT_AI_MUTATIONS);
+      return eventsIncludePageMutation(
+        events,
+        COMMENT_AI_MUTATIONS,
+        documentId,
+      );
     }
     if (
       queryTargetsDocumentReviewResource(
@@ -579,7 +622,7 @@ export function contentActionInvalidatePredicate(
     ) {
       return (
         eventsIncludeMutation(events, SUGGESTION_MUTATIONS) ||
-        eventsIncludeMutation(events, COMMENT_AI_MUTATIONS)
+        eventsIncludePageMutation(events, COMMENT_AI_MUTATIONS, documentId)
       );
     }
     if (

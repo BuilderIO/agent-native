@@ -9,7 +9,8 @@ import { SidePanel } from "@/components/shared/SidePanel";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import type { FieldValue, TaskFieldValue } from "@/hooks/use-custom-fields";
-import { useUpdateTask, type TaskWithFields } from "@/hooks/use-tasks";
+import type { TaskChange } from "@/hooks/use-task-save";
+import type { TaskWithFields } from "@/hooks/use-tasks";
 
 import { FieldValueControl } from "./controls/FieldValueControl";
 import { TaskTitleSection } from "./TaskTitleSection";
@@ -22,11 +23,15 @@ type RouteSuggestion = {
   urgentProbability: number;
 };
 
+type SaveTask = (task: TaskWithFields, change: TaskChange) => Promise<void>;
+
 export function TaskFieldsSidebar({
   task,
+  onSave,
   onClose,
 }: {
   task: TaskWithFields | null;
+  onSave: SaveTask;
   onClose: () => void;
 }) {
   const t = useT();
@@ -39,15 +44,20 @@ export function TaskFieldsSidebar({
       closeLabel={t("taskFields.closeLabel")}
       onClose={onClose}
     >
-      <TaskFieldsSidebarPanel task={task} />
+      <TaskFieldsSidebarPanel task={task} onSave={onSave} />
     </SidePanel>
   );
 }
 
-function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
+function TaskFieldsSidebarPanel({
+  task,
+  onSave,
+}: {
+  task: TaskWithFields;
+  onSave: SaveTask;
+}) {
   const t = useT();
   const fields = task.fields ?? [];
-  const updateTask = useUpdateTask();
   const suggestRoute = useActionMutation<RouteSuggestion, { taskId: string }>(
     "suggest-task-route",
   );
@@ -81,19 +91,16 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
   };
 
   const saveUpdate = useCallback(
-    (payload: {
-      title?: string;
-      fieldValues?: Array<{ fieldId: string; value: FieldValue | null }>;
-    }) => {
-      void updateTask
-        .mutateAsync({ taskId: task.id, ...payload })
-        .catch((caught) => {
-          toast.error(
-            (caught as Error)?.message ?? t("taskFields.updateError"),
-          );
-        });
+    (change: TaskChange) => {
+      void onSave(task, change).catch((caught: unknown) => {
+        toast.error(
+          caught instanceof Error
+            ? caught.message
+            : t("taskFields.updateError"),
+        );
+      });
     },
-    [task.id, updateTask, t],
+    [task, onSave, t],
   );
 
   return (

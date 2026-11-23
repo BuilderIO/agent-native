@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { attachFieldsToTasks } from "../server/custom-fields/task-fields.js";
+import {
+  attachFieldsToTasks,
+  attachRevisionsToTasks,
+} from "../server/custom-fields/task-fields.js";
 import {
   hasCompletedTasks,
   listTasks,
@@ -11,7 +14,7 @@ import { booleanQueryParam } from "./lib/boolean-query-param.js";
 
 export default defineAction({
   description:
-    "List tasks for the current user. By default returns incomplete tasks only.",
+    "List tasks for the current user. By default returns incomplete tasks only. Each task carries the revision to send as update-task's expectedRevision.",
   schema: z.object({
     includeDone: booleanQueryParam(false).describe(
       "When true, include completed tasks in the result.",
@@ -43,7 +46,7 @@ export default defineAction({
       };
     }
     return {
-      tasks,
+      tasks: await attachRevisionsToTasks(ownerEmail, tasks),
       ...(hasCompleted !== undefined
         ? { hasCompletedTasks: hasCompleted }
         : {}),

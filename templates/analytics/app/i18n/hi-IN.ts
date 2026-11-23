@@ -2099,6 +2099,10 @@ export default {
     flagsUnavailable: "फ़ीचर फ़्लैग उपलब्ध नहीं हैं",
     flagsUnreachable:
       "वर्कस्पेस डायरेक्टरी तक नहीं पहुँचा जा सका। कनेक्शन उपलब्ध होने पर फिर कोशिश करें।",
+    verifiedFlagChangeOrg:
+      "{{time}} पर सत्यापित: {{app}} में {{flag}} इस संगठन के लिए {{availability}} पर सेट है।",
+    verifiedFlagChangeGlobal:
+      "{{time}} पर सत्यापित: {{app}} में {{flag}} सभी संगठनों के लिए {{availability}} पर सेट है।",
     flagsEmpty: "किसी वर्कस्पेस ऐप ने फ़्लैग की सूचना नहीं दी",
     flagsEmptyDetail: "कनेक्टेड ऐप तैयार होने पर पंजीकृत फ़्लैग यहाँ दिखाई देंगे।",
     flagsNotReady: "यह ऐप {{status}} है; इसकी फ़्लैग स्थिति को बंद नहीं माना जाता।",

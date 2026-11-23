@@ -23,6 +23,7 @@ import type {
   SetBuilderEntryStatusRequest,
   SetBuilderEntryStatusResponse,
   SetDocumentPropertyRequest,
+  SetDocumentPropertyResponse,
   UpdateDatabaseItemsRequest,
   UpdateDatabaseItemsResponse,
 } from "@shared/api";
@@ -37,6 +38,15 @@ import { toast } from "sonner";
 
 import { dbText } from "../components/editor/database/text";
 import { trackDocumentPropertyWrite } from "./document-property-persistence";
+import {
+  cachedDocumentPropertyState,
+  documentPropertyState,
+  forgetDocumentPropertyChanges,
+  isPropertyGenerationConflict,
+  recordDocumentPropertyChange,
+  startDocumentPropertySave,
+  withExpectedGeneration,
+} from "./document-property-undo";
 import { useContentActionMutation } from "./use-content-action-mutation";
 import {
   applyDocumentPropertiesToDatabaseResponse,
@@ -45,6 +55,7 @@ import {
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseQueryKey,
   invalidateContentDatabaseNavigationQueries,
+  isContentDatabaseUnavailable,
   removeDocumentPropertyFromDatabaseResponse,
 } from "./use-content-database";
 import {
@@ -448,7 +459,10 @@ export function useCollectionRefusesNewProperties(
     )
     .some(
       ([, value]) =>
-        value?.database.id === databaseId && value.database.systemRole != null,
+        !!value &&
+        !isContentDatabaseUnavailable(value) &&
+        value.database.id === databaseId &&
+        value.database.systemRole != null,
     );
 }
 
@@ -464,7 +478,12 @@ export function useConfigureDocumentProperty(
         contentDatabaseQueryFilter(databaseDocumentId),
       )
       .map(([, value]) => value)
-      .find((value) => value?.database.id === databaseId);
+      .find(
+        (value) =>
+          !!value &&
+          !isContentDatabaseUnavailable(value) &&
+          value.database.id === databaseId,
+      );
   const mutation = useActionMutation<
     ConfigureDocumentPropertyResponse | GuardedConfigurePropertyResult,
     ConfigureDocumentPropertyRequest | GuardedConfigurePropertyInput
@@ -475,7 +494,12 @@ export function useConfigureDocumentProperty(
         queryClient.setQueriesData<ContentDatabaseResponse>(
           contentDatabaseQueryFilter(databaseDocumentId),
           (current) => {
-            if (!current || current.database.id !== databaseId) return current;
+            if (
+              !current ||
+              isContentDatabaseUnavailable(current) ||
+              current.database.id !== databaseId
+            )
+              return current;
             const existing = current.properties.find(
               (property) => property.definition.id === data.value.id,
             );
@@ -565,7 +589,7 @@ export function useSetDocumentProperty(
 ) {
   const queryClient = useQueryClient();
   const mutation = useActionMutation<
-    DocumentPropertiesResponse,
+    SetDocumentPropertyResponse,
     SetDocumentPropertyRequest
   >("set-document-property", {
     skipActionQueryInvalidation: true,
@@ -617,7 +641,10 @@ export function useSetDocumentProperty(
       return { previous, ...sequence };
     },
     onError: (error, variables, context) => {
-      if (options.errorNotification !== "caller") {
+      const guardedConflict =
+        variables.expectedGeneration !== undefined &&
+        isPropertyGenerationConflict(error);
+      if (options.errorNotification !== "caller" && !guardedConflict) {
         toast.error(dbText("somethingWentWrong"), {
           description: error.message,
         });
@@ -714,15 +741,71 @@ export function useSetDocumentProperty(
           { documentId: databaseDocumentId },
         ],
       });
+      if (savedProperty?.definition.type !== "blocks") {
+        invalidateContentDatabaseNavigationQueries(queryClient, { databaseId });
+      }
     },
   });
   const scoped = withDatabaseScope(mutation, databaseId);
+  const save = (...args: Parameters<typeof scoped.mutateAsync>) =>
+    trackDocumentPropertyWrite(args[0].documentId, args[0].propertyId, () =>
+      scoped.mutateAsync(...args),
+    );
   return {
     ...scoped,
-    mutateAsync: (...args: Parameters<typeof scoped.mutateAsync>) =>
-      trackDocumentPropertyWrite(args[0].documentId, args[0].propertyId, () =>
-        scoped.mutateAsync(...args),
-      ),
+    mutateAsync: async (...args: Parameters<typeof scoped.mutateAsync>) => {
+      const [request] = args;
+      const target = {
+        documentId: request.documentId,
+        databaseId,
+        databaseDocumentId,
+        propertyId: request.propertyId,
+      };
+      const before =
+        request.expectedBlocksFieldRevision === undefined
+          ? cachedDocumentPropertyState(queryClient, target)
+          : null;
+      const run = startDocumentPropertySave(queryClient, target);
+      let response: SetDocumentPropertyResponse;
+      try {
+        response = await save(...args);
+      } catch (error) {
+        run.failed();
+        throw error;
+      } finally {
+        run.settled();
+      }
+      if (run.leftPage()) return response;
+      if (before && run.trusted()) {
+        const saved = response.properties.find(
+          (property) => property.definition.id === request.propertyId,
+        );
+        recordDocumentPropertyChange(queryClient, {
+          target,
+          before,
+          after: saved
+            ? documentPropertyState(saved.value, saved.relationTargets)
+            : documentPropertyState(request.value, request.relationTargets),
+          generation: response.generation,
+          write: (state, expectedGeneration) =>
+            save(
+              withExpectedGeneration(
+                {
+                  documentId: request.documentId,
+                  propertyId: request.propertyId,
+                  ...state,
+                },
+                expectedGeneration,
+              ),
+            ),
+          reportsErrors: options.errorNotification !== "caller",
+        });
+      } else if (request.expectedBlocksFieldRevision === undefined) {
+        forgetDocumentPropertyChanges(queryClient);
+      }
+      return response;
+    },
+    saveWithoutUndo: save,
   };
 }
 
@@ -733,7 +816,7 @@ export function useUpdateDatabaseItems(databaseDocumentId: string) {
     UpdateDatabaseItemsRequest
   >("update-database-items", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => {
+    onSuccess: (data) => {
       const databaseQueries = contentDatabaseQueryFilter(databaseDocumentId);
       const constrainedQueries =
         contentDatabaseConstrainedQueryFilter(databaseDocumentId);
@@ -745,6 +828,9 @@ export function useUpdateDatabaseItems(databaseDocumentId: string) {
       });
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
+      });
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        databaseId: data.databaseId,
       });
     },
   });

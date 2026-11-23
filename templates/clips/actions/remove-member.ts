@@ -19,6 +19,7 @@ export default defineAction({
   }),
   needsApproval: true,
   allowPersistentApproval: false,
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const { organizationId } = await requireOrganizationAccess(

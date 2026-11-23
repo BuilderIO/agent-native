@@ -149,6 +149,10 @@ import {
   type CommentBlockTarget,
 } from "./comment-block-anchors";
 import { buildContentSelectionPayload } from "./content-selection";
+import {
+  DesignScreenPaste,
+  type DesignScreenPasteOptions,
+} from "./design-screen/design-screen-paste";
 import { DrawDiagramsContext } from "./draw-diagrams";
 import {
   isEditorDraftSaveAccepted,
@@ -266,6 +270,8 @@ import {
 } from "./suggestions/read-only-blocks";
 import { ContentTableView, contentTableColumnSizing } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
+import { useTurnCollectionIntoTable } from "./use-turn-collection-into-table";
+import { useTurnTableIntoCollection } from "./use-turn-table-into-collection";
 import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
 function compareDocumentBodyRevisions(
@@ -571,8 +577,7 @@ const MarkdownPasteDetection = Extension.create({
               return false;
             }
 
-            const div = document.createElement("div");
-            div.innerHTML = html;
+            const div = new DOMParser().parseFromString(html, "text/html").body;
             const hasRichStructure = div.querySelector(
               "h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, table, a, strong, b, em, i, u, s, code, img, picture, video, audio, iframe, object, embed, svg",
             );
@@ -1871,6 +1876,11 @@ interface VisualEditorProps {
     updatedAt: string;
     sequence: number;
   } | null;
+  mergedLocalSave?: {
+    sent: string;
+    value: string;
+    revision: string;
+  } | null;
   collabContentRevision?: string | null;
   requestCollabSync?: () => Promise<{
     status: "synced" | "failed" | "unavailable";
@@ -1970,6 +1980,7 @@ interface VisualEditorProps {
   onInitialSelectionApplied?: (selection: VisualEditorInitialSelection) => void;
   onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
+  emptyDocumentPlaceholder?: string | null;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
   resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
@@ -2346,6 +2357,7 @@ interface VisualEditorExtensionOptions {
   referenceDepth?: number;
   drawDiagrams?: boolean;
   emptyBlockPlaceholder?: string;
+  emptyDocumentPlaceholder?: () => string | null;
   onMediaSourceCommitted?: (
     editor: CoreEditor,
     transaction: Transaction,
@@ -2353,6 +2365,7 @@ interface VisualEditorExtensionOptions {
   findCommentQuote?: CommentHighlightOptions["findQuote"];
   /** Turns a pasted Analytics panel link into a chart while it returns one. */
   analyticsChartPaste?: AnalyticsChartPasteOptions["getContext"];
+  designScreenPaste?: DesignScreenPasteOptions["getContext"];
 }
 
 export function hasAncestorType(
@@ -3051,18 +3064,20 @@ function getVisualEditorPlaceholder({
 
 const VisualEditorPlaceholder = Extension.create<{
   emptyBlockPlaceholder: string;
+  emptyDocumentPlaceholder?: () => string | null;
 }>({
   name: "visualEditorPlaceholder",
 
   addOptions() {
     return {
       emptyBlockPlaceholder: DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
+      emptyDocumentPlaceholder: undefined,
     };
   },
 
   addProseMirrorPlugins() {
     const editor = this.editor;
-    const { emptyBlockPlaceholder } = this.options;
+    const { emptyBlockPlaceholder, emptyDocumentPlaceholder } = this.options;
 
     return [
       new Plugin({
@@ -3070,6 +3085,21 @@ const VisualEditorPlaceholder = Extension.create<{
         props: {
           decorations: ({ doc, selection }) => {
             if (!editor.isEditable) return DecorationSet.empty;
+
+            const documentPlaceholder = emptyDocumentPlaceholder?.();
+            const firstBlock = doc.firstChild;
+            if (
+              documentPlaceholder &&
+              editor.isEmpty &&
+              firstBlock?.type.name === "paragraph"
+            ) {
+              return DecorationSet.create(doc, [
+                Decoration.node(0, firstBlock.nodeSize, {
+                  class: "is-empty is-editor-empty is-new-page-empty",
+                  "data-placeholder": documentPlaceholder,
+                }),
+              ]);
+            }
 
             const { $anchor } = selection;
             let node = $anchor.parent;
@@ -3398,9 +3428,11 @@ export function createVisualEditorExtensions({
   referenceDepth = 0,
   drawDiagrams = true,
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
+  emptyDocumentPlaceholder,
   onMediaSourceCommitted,
   findCommentQuote,
   analyticsChartPaste,
+  designScreenPaste,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return createSharedEditorExtensions({
     preset: "content",
@@ -3430,6 +3462,7 @@ export function createVisualEditorExtensions({
       drawDiagrams ? DrawingCodeBlock : CodeBlock,
       VisualEditorPlaceholder.configure({
         emptyBlockPlaceholder,
+        emptyDocumentPlaceholder,
       }),
       Link.configure({
         openOnClick: false,
@@ -3509,6 +3542,9 @@ export function createVisualEditorExtensions({
       NotionMarkdownShortcuts,
       ...(analyticsChartPaste
         ? [AnalyticsChartPaste.configure({ getContext: analyticsChartPaste })]
+        : []),
+      ...(designScreenPaste
+        ? [DesignScreenPaste.configure({ getContext: designScreenPaste })]
         : []),
       MarkdownPasteDetection,
       SelectAllDocument,
@@ -3834,6 +3870,7 @@ export function VisualEditor({
   contentUpdatedAt,
   contentRevision,
   acknowledgedLocalSnapshot,
+  mergedLocalSave,
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
@@ -3883,6 +3920,7 @@ export function VisualEditor({
   onInitialSelectionApplied,
   onSuggestionAnchorsChange,
   showCommentIndicators = true,
+  emptyDocumentPlaceholder = null,
   onJoinTitle,
   onOpenNotionPageLink,
   resolveNotionPageLink,
@@ -4260,6 +4298,29 @@ export function VisualEditor({
         : null,
     [documentId, localFileMode],
   );
+  const designLinks = useActionQuery(
+    "get-design-links",
+    {},
+    {
+      enabled: Boolean(documentId) && editable && !localFileMode,
+      staleTime: Infinity,
+      retry: false,
+    },
+  );
+  const designLinkOriginsRef = useRef<readonly string[]>([]);
+  designLinkOriginsRef.current = designLinks.data?.linkOrigins ?? [];
+  const getDesignScreenPasteContext = useCallback(
+    () =>
+      documentId && !localFileMode
+        ? {
+            documentId,
+            canEdit: !suggestingRef.current,
+            linkOrigins: designLinkOriginsRef.current,
+            t: tRef.current,
+          }
+        : null,
+    [documentId, localFileMode],
+  );
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
@@ -4297,6 +4358,11 @@ export function VisualEditor({
   onEscapeRef.current = onEscape;
   const onImportFilesRef = useRef(onImportFiles);
   onImportFilesRef.current = onImportFiles;
+  const emptyDocumentPlaceholderRef = useRef(emptyDocumentPlaceholder);
+  const getEmptyDocumentPlaceholder = useCallback(
+    () => emptyDocumentPlaceholderRef.current,
+    [],
+  );
   const extensions = useMemo(
     () => [
       ...createVisualEditorExtensions({
@@ -4319,9 +4385,11 @@ export function VisualEditor({
         referenceDepth,
         drawDiagrams,
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
+        emptyDocumentPlaceholder: getEmptyDocumentPlaceholder,
         onMediaSourceCommitted,
         findCommentQuote,
         analyticsChartPaste: getAnalyticsChartPasteContext,
+        designScreenPaste: getDesignScreenPasteContext,
       }),
       Extension.create({
         name: "suggestingCaretOnPageSwap",
@@ -4401,9 +4469,11 @@ export function VisualEditor({
       referenceDepth,
       drawDiagrams,
       t,
+      getEmptyDocumentPlaceholder,
       onMediaSourceCommitted,
       findCommentQuote,
       getAnalyticsChartPasteContext,
+      getDesignScreenPasteContext,
     ],
   );
 
@@ -4835,6 +4905,20 @@ export function VisualEditor({
     },
   });
   historyEditorRef.current = editor;
+  const turnTableIntoCollection = useTurnTableIntoCollection({
+    editor,
+    documentId,
+    bodyIsLiveCopy,
+    persist: (markdown) =>
+      Promise.resolve(
+        persistEditorContent(editor, {
+          markdown,
+          immediate: true,
+          userInitiated: true,
+        }),
+      ).then(isEditorDraftSaveAccepted),
+  });
+  const turnCollectionIntoTable = useTurnCollectionIntoTable(editor);
   const appliedContentResetKeyRef = useRef(contentResetKey);
   useLayoutEffect(() => {
     if (!editor || appliedContentResetKeyRef.current === contentResetKey)
@@ -5028,6 +5112,16 @@ export function VisualEditor({
     );
     return () => onSuggestionPlacementsChange(null);
   }, [editor, onSuggestionPlacementsChange]);
+
+  useEffect(() => {
+    emptyDocumentPlaceholderRef.current = emptyDocumentPlaceholder;
+    if (editor.isDestroyed) return;
+    editor.view.dispatch(
+      editor.state.tr
+        .setMeta("addToHistory", false)
+        .setMeta("visualEditorPlaceholder", emptyDocumentPlaceholder),
+    );
+  }, [editor, emptyDocumentPlaceholder]);
 
   useEffect(() => {
     if (!editor) {
@@ -5391,6 +5485,7 @@ export function VisualEditor({
       : contentRevision,
     compareContentRevisions: compareDocumentBodyRevisions,
     acknowledgedLocalSnapshot,
+    mergedLocalSave,
     collabContentRevision: propsPredateAcknowledgedRestore
       ? null
       : collabContentRevision,
@@ -6163,6 +6258,16 @@ export function VisualEditor({
           documentId={documentId}
           editor={editor}
           onComment={onComment}
+          onTurnTableIntoCollection={
+            documentId && !directoryWidgetEditing
+              ? turnTableIntoCollection
+              : undefined
+          }
+          onTurnCollectionIntoTable={
+            documentId && !directoryWidgetEditing
+              ? turnCollectionIntoTable
+              : undefined
+          }
           suggesting={suggesting}
         />
       ) : null}

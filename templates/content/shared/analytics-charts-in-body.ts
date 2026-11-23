@@ -6,42 +6,11 @@ import {
   readAnalyticsChartData,
   type AnalyticsChartData,
 } from "./analytics-chart-block.js";
+import { embedsInBody, embedTagsInBody } from "./embeds-in-body.js";
 import { parseRegistryBlockData } from "./nfm-registry.js";
-import { nfmToDoc, type PMNode } from "./nfm.js";
 
 const dashboardIdSchema = analyticsPanelStatusRequestSchema.shape.dashboardId;
 const ATTRIBUTE = /\s+([A-Za-z_][\w-]*)(=?)/y;
-
-function walk(node: PMNode | undefined, visit: (node: PMNode) => void) {
-  if (!node) return;
-  visit(node);
-  for (const child of node.content ?? []) walk(child, visit);
-}
-
-function chartTags(content: string): string[] {
-  const raws: string[] = [];
-  walk(nfmToDoc(content), (node) => {
-    if (
-      node.type === "registryBlock" &&
-      node.attrs?.blockType === ANALYTICS_CHART_BLOCK_TYPE
-    ) {
-      raws.push(typeof node.attrs.__raw === "string" ? node.attrs.__raw : "");
-    }
-  });
-  return raws;
-}
-
-async function readRaw(raw: string): Promise<AnalyticsChartData | null> {
-  try {
-    const parsed = await parseRegistryBlockData(raw);
-    return parsed?.type === ANALYTICS_CHART_BLOCK_TYPE
-      ? readAnalyticsChartData(parsed.data)
-      : null;
-    // coercion-ok: a tag that doesn't parse is counted as unreadable by the caller
-  } catch {
-    return null;
-  }
-}
 
 function expressionEnd(tag: string, start: number): number {
   let depth = 0;
@@ -125,21 +94,21 @@ async function dashboardIdOf(raw: string): Promise<string | null> {
 export async function analyticsChartsInBody(
   content: string | null | undefined,
 ): Promise<{ charts: AnalyticsChartData[]; unreadable: number }> {
-  if (!content || !content.includes(`<${ANALYTICS_CHART_TAG}`)) {
-    return { charts: [], unreadable: 0 };
-  }
-  const read = await Promise.all(chartTags(content).map(readRaw));
-  const charts = read.filter(
-    (chart): chart is AnalyticsChartData => chart !== null,
-  );
-  return { charts, unreadable: read.length - charts.length };
+  const { found, unreadable } = await embedsInBody(content, {
+    tag: ANALYTICS_CHART_TAG,
+    blockType: ANALYTICS_CHART_BLOCK_TYPE,
+    read: readAnalyticsChartData,
+  });
+  return { charts: found, unreadable };
 }
 
 export async function analyticsChartDashboardIds(
   content: string | null | undefined,
 ): Promise<string[]> {
   if (!content || !content.includes(`<${ANALYTICS_CHART_TAG}`)) return [];
-  const ids = await Promise.all(chartTags(content).map(dashboardIdOf));
+  const ids = await Promise.all(
+    embedTagsInBody(content, ANALYTICS_CHART_BLOCK_TYPE).map(dashboardIdOf),
+  );
   return [...new Set(ids.filter((id): id is string => id !== null))];
 }
 

@@ -19,6 +19,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
+  mcpTool: false,
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     await assertReviewableResourceAccess(

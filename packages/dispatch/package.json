@@ -54,6 +54,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@agent-native/agentkit": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",

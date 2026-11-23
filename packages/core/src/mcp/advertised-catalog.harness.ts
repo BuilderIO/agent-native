@@ -339,6 +339,7 @@ export async function withCatalogClient<T>(
     fullCatalog: boolean;
     fullSurface: boolean;
     inlineMcpApps?: boolean;
+    oauthScopes?: string[];
   },
   inspect: (client: Client) => Promise<T>,
 ): Promise<T> {
@@ -348,7 +349,7 @@ export async function withCatalogClient<T>(
       userEmail: "catalog-contract@example.com",
       orgDomain: undefined,
       orgId: null,
-      oauthScopes: ["mcp:read", "mcp:write"],
+      oauthScopes: request.oauthScopes ?? ["mcp:read", "mcp:write"],
     },
     {
       transport: "http",
@@ -468,13 +469,43 @@ export async function loadAppCatalogs(
   // overlapping first imports of a mocked module can resolve the real one. The
   // real integrations plugin starts retry timers that outlive each app's
   // database, so resolve its mock once before any plugin runs.
+  await import("../server/framework-request-handler.js");
+  await import("../mcp-client/index.js");
+  await import("../jobs/scheduler.js");
   await import("../integrations/plugin.js");
+  await import("../triggers/dispatcher.js");
+  await import("../chat-threads/migrations.js");
+  await import("../server/social-og-image.js");
+  await import("@agent-native/core/labs/server");
+  await import("@agent-native/core/mcp");
+  await import("../mcp/server.js");
+  await import("@agent-native/core/server");
+  const appIds = templateIdsWithAgentChat().filter(
+    (appId) => !only || only.includes(appId),
+  );
+  for (const appId of appIds) {
+    generateActionRegistryForProject(path.join(repoRoot, "templates", appId));
+  }
+  await Promise.all(
+    appIds.flatMap((appId) => {
+      const projectRoot = path.join(repoRoot, "templates", appId);
+      return [
+        import(
+          pathToFileURL(
+            path.join(projectRoot, ".generated/actions-registry.ts"),
+          ).href
+        ),
+        import(
+          pathToFileURL(path.join(projectRoot, "server/plugins/agent-chat.ts"))
+            .href
+        ),
+      ];
+    }),
+  );
   const results: AppCatalog[] = [];
   try {
-    for (const appId of templateIdsWithAgentChat()) {
-      if (only && !only.includes(appId)) continue;
+    for (const appId of appIds) {
       const projectRoot = path.join(repoRoot, "templates", appId);
-      generateActionRegistryForProject(projectRoot);
       const registry = await import(
         pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts"))
           .href

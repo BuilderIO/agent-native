@@ -2176,6 +2176,10 @@ export default {
     flagsUnavailable: "機能フラグを利用できません",
     flagsUnreachable:
       "ワークスペースディレクトリに接続できません。接続可能になったら再試行してください。",
+    verifiedFlagChangeOrg:
+      "{{time}} に確認済み：{{app}} の {{flag}} は、この組織で {{availability}} に設定されています。",
+    verifiedFlagChangeGlobal:
+      "{{time}} に確認済み：{{app}} の {{flag}} は、すべての組織で {{availability}} に設定されています。",
     flagsEmpty: "フラグを報告したワークスペースアプリはありません",
     flagsEmptyDetail:
       "接続済みアプリの準備ができると、登録済みフラグがここに表示されます。",

@@ -2210,6 +2210,10 @@ export default {
     flagsUnavailable: "Funktionsschalter sind nicht verfügbar",
     flagsUnreachable:
       "Das Arbeitsbereichsverzeichnis konnte nicht erreicht werden. Versuche es erneut, wenn die Verbindung verfügbar ist.",
+    verifiedFlagChangeOrg:
+      "Um {{time}} bestätigt: {{flag}} in {{app}} steht für diese Organisation auf {{availability}}.",
+    verifiedFlagChangeGlobal:
+      "Um {{time}} bestätigt: {{flag}} in {{app}} steht für alle Organisationen auf {{availability}}.",
     flagsEmpty: "Keine Arbeitsbereichs-App meldet Funktionsschalter",
     flagsEmptyDetail:
       "Registrierte Schalter erscheinen hier, sobald verbundene Apps bereit sind.",

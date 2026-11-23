@@ -2186,6 +2186,10 @@ export default {
     flagsUnavailable: "Sinalizadores de recursos indisponíveis",
     flagsUnreachable:
       "Não foi possível acessar o diretório do espaço de trabalho. Tente novamente quando estiver disponível.",
+    verifiedFlagChangeOrg:
+      "Verificado às {{time}}: {{flag}} em {{app}} está definido como {{availability}} para esta organização.",
+    verifiedFlagChangeGlobal:
+      "Verificado às {{time}}: {{flag}} em {{app}} está definido como {{availability}} para todas as organizações.",
     flagsEmpty: "Nenhum app informou sinalizadores",
     flagsEmptyDetail:
       "Sinalizadores registrados aparecerão aqui quando os apps conectados estiverem prontos.",

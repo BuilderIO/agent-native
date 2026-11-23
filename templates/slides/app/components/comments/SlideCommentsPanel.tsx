@@ -1,41 +1,19 @@
-import {
-  actionErrorMessage,
-  useAvatarUrl,
-  useReconciledState,
-} from "@agent-native/core/client/hooks";
+import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  CommentBody,
-  isComposingKey,
-  isCommentSendKey,
-} from "@agent-native/toolkit/app/review";
-import { isAgentAuthoredComment } from "@shared/comment-author";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import {
   IconX,
   IconCheck,
-  IconTrash,
-  IconPencil,
   IconMessageCircle,
   IconChevronDown,
   IconAlertTriangle,
   IconRefresh,
-  IconMoodSmile,
   IconSearch,
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
+import { toast } from "sonner";
 
-import {
-  Avatar as UserAvatar,
-  AvatarFallback as UserAvatarFallback,
-  AvatarImage as UserAvatarImage,
-} from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -43,18 +21,20 @@ import {
 } from "@/components/ui/tooltip";
 import {
   useSlideComments,
-  useCreateSlideComment,
-  useResolveSlideComment,
-  useDeleteSlideComment,
-  useToggleSlideCommentReaction,
-  useUpdateSlideComment,
-  emailToColor,
-  formatRelativeTime,
   type CommentThread,
-  type SlideComment,
 } from "@/hooks/use-slide-comments";
 
-const COMMENT_REACTION_EMOJIS = ["👍", "❤️", "😂", "🎉", "😮", "😢", "🙏"];
+import {
+  isOwnSlideComment,
+  SlideCommentComposerBox,
+  slideCommentDraftSpot,
+  SlideCommentEntry,
+  slideCommentMentionsViewer,
+  useSlideCommentDraft,
+  useSlideCommentKit,
+  type SlideCommentKit,
+} from "./slide-comment-kit";
+
 const COMMENT_FILTERS_STORAGE_KEY = "slides:comments-filters-expanded";
 
 function readCommentFiltersExpanded() {
@@ -80,7 +60,6 @@ interface SlideCommentsPanelProps {
   deckId: string | null;
   slideId: string | null;
   canComment: boolean;
-  canEdit: boolean;
   currentUserEmail: string | null;
   onBeforeCommentSubmit?: () => Promise<void>;
   onSelectSlide?: (slideId: string) => void;
@@ -96,477 +75,93 @@ interface SlideCommentsPanelProps {
   onThreadResolved?: (threadId: string) => void;
 }
 
-function Avatar({ email, name }: { email: string; name?: string | null }) {
-  const color = emailToColor(email);
-  const avatarUrl = useAvatarUrl(email);
-  const initials = (name || email)
-    .split(/[@.\s]/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((s) => s[0].toUpperCase())
-    .join("")
-    .slice(0, 2);
-  return (
-    <UserAvatar className="h-5 w-5 shrink-0" title={name || email}>
-      {avatarUrl ? (
-        <UserAvatarImage src={avatarUrl} alt={name || email} />
-      ) : null}
-      <UserAvatarFallback
-        className="text-[9px] font-bold text-primary-foreground"
-        style={{ backgroundColor: color }}
-      >
-        {initials}
-      </UserAvatarFallback>
-    </UserAvatar>
-  );
+function threadComments(thread: CommentThread) {
+  return [thread.root, ...thread.replies];
 }
 
-export function CommentItem({
-  comment,
-  deckId,
-  onDelete,
-  canManage,
-  canReact,
-}: {
-  comment: SlideComment;
-  deckId: string;
-  onDelete: () => void;
-  canManage: boolean;
-  canReact: boolean;
-}) {
-  const t = useT();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useReconciledState(comment.content, {
-    active: editing,
-  });
-  const [error, setError] = useState<string | null>(null);
-  const [reactionOpen, setReactionOpen] = useState(false);
-  const updateComment = useUpdateSlideComment();
-  const toggleReaction = useToggleSlideCommentReaction();
-
-  const save = async () => {
-    const content = draft.trim();
-    if (!content || updateComment.isPending) return;
-    setError(null);
-    try {
-      await updateComment.mutateAsync({ id: comment.id, deckId, content });
-      setEditing(false);
-    } catch (caught) {
-      setError(actionErrorMessage(caught) ?? t("comments.saveCommentFailed"));
-    }
-  };
-
-  const reactions = comment.reactions ?? [];
-  const toggleEmoji = (emoji: string) => {
-    setError(null);
-    toggleReaction.mutate(
-      { commentId: comment.id, deckId, emoji },
-      {
-        onError: (caught) =>
-          setError(actionErrorMessage(caught) ?? t("comments.reactionFailed")),
-      },
-    );
-    setReactionOpen(false);
-  };
-
-  return (
-    <div className="group flex gap-2">
-      <Avatar email={comment.author_email} name={comment.author_name} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-1">
-          <span className="truncate text-[11px] font-medium text-foreground/80">
-            {comment.author_name || comment.author_email.split("@")[0]}
-          </span>
-          <div className="flex shrink-0 items-center gap-1">
-            <span className="text-[10px] text-muted-foreground">
-              {formatRelativeTime(comment.created_at)}
-            </span>
-            {canManage && !editing && (
-              <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={t("comments.editComment")}
-                      onClick={() => {
-                        setDraft(comment.content);
-                        setError(null);
-                        setEditing(true);
-                      }}
-                      className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-                    >
-                      <IconPencil size={11} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("comments.editComment")}</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={t("comments.deleteComment")}
-                      onClick={onDelete}
-                      className="rounded p-0.5 text-muted-foreground hover:text-destructive"
-                    >
-                      <IconTrash size={11} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("comments.deleteComment")}</TooltipContent>
-                </Tooltip>
-              </div>
-            )}
-          </div>
-        </div>
-        {editing ? (
-          <div className="mt-1 space-y-1.5">
-            <textarea
-              aria-label={t("comments.editComment")}
-              value={draft}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                if (error) setError(null);
-              }}
-              onKeyDown={(event) => {
-                if (isComposingKey(event)) return;
-                if (isCommentSendKey(event)) {
-                  event.preventDefault();
-                  void save();
-                }
-                if (event.key === "Escape") setEditing(false);
-              }}
-              rows={3}
-              className="w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            />
-            {error && <p className="text-[11px] text-destructive">{error}</p>}
-            <div className="flex justify-end gap-1.5">
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
-                className="rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                {t("comments.cancel")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void save()}
-                disabled={!draft.trim() || updateComment.isPending}
-                className="rounded bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
-              >
-                {updateComment.isPending
-                  ? t("comments.saving")
-                  : t("comments.save")}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <CommentBody
-            body={comment.content}
-            className="mt-0.5 text-[12px] leading-relaxed text-foreground/90"
-          />
-        )}
-        <div className="mt-1.5 flex flex-wrap items-center gap-1">
-          {reactions.map((reaction) =>
-            canReact ? (
-              <button
-                key={reaction.emoji}
-                type="button"
-                aria-label={t("comments.toggleReaction", {
-                  emoji: reaction.emoji,
-                })}
-                aria-pressed={reaction.reacted}
-                onClick={() => toggleEmoji(reaction.emoji)}
-                className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] transition-colors ${reaction.reacted ? "border-primary/60 bg-primary/10" : "border-border bg-background hover:bg-accent"}`}
-              >
-                <span aria-hidden="true">{reaction.emoji}</span>
-                <span>{reaction.count}</span>
-              </button>
-            ) : (
-              <span
-                key={reaction.emoji}
-                aria-label={`${reaction.emoji} ${reaction.count}`}
-                className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${reaction.reacted ? "border-primary/60 bg-primary/10" : "border-border bg-background"}`}
-              >
-                <span aria-hidden="true">{reaction.emoji}</span>
-                <span>{reaction.count}</span>
-              </span>
-            ),
-          )}
-          {canReact && (
-            <Popover open={reactionOpen} onOpenChange={setReactionOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={t("comments.addReaction")}
-                  className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  <IconMoodSmile className="size-3" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                side="bottom"
-                align="start"
-                className="w-auto p-1.5"
-              >
-                <div className="flex gap-0.5">
-                  {COMMENT_REACTION_EMOJIS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      aria-label={t("comments.reactWith", { emoji })}
-                      onClick={() => toggleEmoji(emoji)}
-                      className="rounded p-1.5 text-base leading-none hover:bg-accent"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
-          )}
-        </div>
-        {error && !editing && (
-          <p role="alert" className="mt-1 text-[11px] text-destructive">
-            {error}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PendingCommentInput({
+function NewCommentBox({
+  kit,
+  slideId,
   quotedText,
   anchor,
-  deckId,
-  slideId,
-  onBeforeSubmit,
   onDone,
-  onCancel,
 }: {
-  quotedText: string;
-  anchor?: SlideCommentAnchor;
-  deckId: string;
+  kit: SlideCommentKit;
   slideId: string;
-  onBeforeSubmit?: () => Promise<void>;
+  quotedText: string;
+  anchor?: SlideCommentAnchor | undefined;
   onDone: () => void;
-  onCancel: () => void;
 }) {
-  const t = useT();
-  const [text, setText] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // Enter repeats while held, so send each comment once until it settles.
-  const submittingRef = useRef(false);
-  const createComment = useCreateSlideComment();
-
-  useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
-
-  const submit = async () => {
-    const trimmed = text.trim();
-    if (!trimmed || submittingRef.current) return;
-    submittingRef.current = true;
-    setError(null);
-    try {
-      await onBeforeSubmit?.();
-      await createComment.mutateAsync({
-        deckId,
-        slideId,
-        content: trimmed,
-        quotedText: quotedText || undefined,
-        ...(anchor ? { anchor } : {}),
-      });
-      setText("");
-      onDone();
-    } catch (err) {
-      setError(actionErrorMessage(err) ?? t("comments.saveCommentFailed"));
-    } finally {
-      submittingRef.current = false;
-    }
+  const { t } = kit;
+  const spot = slideCommentDraftSpot(anchor, quotedText);
+  const draftKey = spot ? `new:${slideId}@${spot}` : `new:${slideId}`;
+  const draft = useSlideCommentDraft(kit, draftKey);
+  const currentDraftKey = useRef(draftKey);
+  currentDraftKey.current = draftKey;
+  const discard = () => {
+    draft.clear();
+    onDone();
   };
-
   return (
-    <div className="border border-border rounded-lg overflow-hidden bg-accent">
+    <div
+      className="rounded-lg border border-border bg-accent p-2"
+      data-slide-comment-new
+    >
       {quotedText && (
-        <div className="px-3 pt-2.5 pb-1.5 border-l-2 border-[#609FF8] mx-3 mt-2.5 mb-1 bg-[#609FF8]/5 rounded-r text-[11px] text-muted-foreground italic truncate">
+        <div className="mb-2 truncate rounded-r border-l-2 border-[hsl(var(--slides-comment-accent))] bg-[hsl(var(--slides-comment-accent)/0.05)] px-2 py-1.5 text-[11px] italic text-muted-foreground">
           "{quotedText}"
         </div>
       )}
-      <textarea
-        ref={textareaRef}
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          if (error) setError(null);
-        }}
-        onKeyDown={(e) => {
-          if (isComposingKey(e)) return;
-          if (isCommentSendKey(e)) {
-            e.preventDefault();
-            void submit();
-          }
-          if (e.key === "Escape") onCancel();
-        }}
+      <SlideCommentComposerBox
+        kit={kit}
+        draft={draft}
+        autoFocus
         placeholder={t("comments.addCommentPlaceholder")}
-        rows={3}
-        className="w-full bg-transparent text-foreground/90 text-[12px] px-3 py-2 outline-none resize-none placeholder:text-muted-foreground"
+        commentLabel={t("comments.comment")}
+        ariaLabel={t("comments.addComment")}
+        failedLabel={t("comments.saveCommentFailed")}
+        onSubmit={(sent) =>
+          kit
+            .createThread({
+              slideId,
+              draft: sent,
+              quotedText: quotedText || null,
+              anchor,
+            })
+            .then(() => {
+              if (currentDraftKey.current === draftKey) onDone();
+            })
+        }
+        onEscape={discard}
+        onCancel={discard}
       />
-      {error && (
-        <div className="px-3 pb-1 text-[11px] text-destructive">{error}</div>
-      )}
-      <div className="flex justify-end gap-1.5 px-3 pb-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="text-[11px] text-muted-foreground hover:text-foreground/80 px-2 py-1 rounded"
-        >
-          {t("comments.cancel")}
-        </button>
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!text.trim() || createComment.isPending}
-          className="text-[11px] bg-[#609FF8] text-black font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-[#7AB2FA]"
-        >
-          {createComment.isPending
-            ? t("comments.saving")
-            : t("comments.comment")}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export function ReplyInput({
-  deckId,
-  slideId,
-  threadId,
-  parentId,
-  onBeforeSubmit,
-  onDone,
-}: {
-  deckId: string;
-  slideId: string;
-  threadId: string;
-  parentId: string;
-  onBeforeSubmit?: () => Promise<void>;
-  onDone: () => void;
-}) {
-  const t = useT();
-  const [text, setText] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // Enter repeats while held, so send each reply once until it settles.
-  const submittingRef = useRef(false);
-  const createComment = useCreateSlideComment();
-
-  useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
-
-  const submit = async () => {
-    const trimmed = text.trim();
-    if (!trimmed || submittingRef.current) return;
-    submittingRef.current = true;
-    setError(null);
-    try {
-      await onBeforeSubmit?.();
-      await createComment.mutateAsync({
-        deckId,
-        slideId,
-        threadId,
-        parentId,
-        content: trimmed,
-      });
-      setText("");
-      onDone();
-    } catch (err) {
-      setError(actionErrorMessage(err) ?? t("comments.saveReplyFailed"));
-    } finally {
-      submittingRef.current = false;
-    }
-  };
-
-  return (
-    <div className="mt-2 border border-border rounded-lg overflow-hidden bg-accent">
-      <textarea
-        ref={textareaRef}
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          if (error) setError(null);
-        }}
-        onKeyDown={(e) => {
-          if (isComposingKey(e)) return;
-          if (isCommentSendKey(e)) {
-            e.preventDefault();
-            void submit();
-          }
-          if (e.key === "Escape") onDone();
-        }}
-        placeholder={t("comments.replyPlaceholder")}
-        rows={2}
-        className="w-full bg-transparent text-foreground/90 text-[12px] px-3 py-2 outline-none resize-none placeholder:text-muted-foreground"
-      />
-      {error && (
-        <div className="px-3 pb-1 text-[11px] text-destructive">{error}</div>
-      )}
-      <div className="flex justify-end gap-1.5 px-3 pb-2">
-        <button
-          type="button"
-          onClick={onDone}
-          className="text-[11px] text-muted-foreground hover:text-foreground/80 px-2 py-1 rounded"
-        >
-          {t("comments.cancel")}
-        </button>
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!text.trim() || createComment.isPending}
-          className="text-[11px] bg-[#609FF8] text-black font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-[#7AB2FA]"
-        >
-          {t("comments.reply")}
-        </button>
-      </div>
     </div>
   );
 }
 
 function ThreadCard({
+  kit,
   thread,
-  deckId,
-  slideId,
   currentSlideId,
-  canComment,
-  canEdit,
-  currentUserEmail,
-  onBeforeCommentSubmit,
   onSelectSlide,
   selected,
   selectionRequestId,
   onThreadResolved,
 }: {
+  kit: SlideCommentKit;
   thread: CommentThread;
-  deckId: string;
-  slideId: string;
   currentSlideId: string | null;
-  canComment: boolean;
-  canEdit: boolean;
-  currentUserEmail: string | null;
-  onBeforeCommentSubmit?: () => Promise<void>;
   onSelectSlide?: (slideId: string) => void;
   selected: boolean;
   selectionRequestId: number;
   onThreadResolved?: (threadId: string) => void;
 }) {
-  const t = useT();
+  const { t, canComment } = kit;
   const [replyOpen, setReplyOpen] = useState(false);
   const [showReplies, setShowReplies] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const resolveComment = useResolveSlideComment();
-  const deleteComment = useDeleteSlideComment();
+  const replyDraft = useSlideCommentDraft(kit, `reply:${thread.threadId}`);
   const cardRef = useRef<HTMLDivElement>(null);
+  const { replies, slideId } = thread;
 
   useEffect(() => {
     if (selected) {
@@ -577,36 +172,14 @@ function ThreadCard({
     }
   }, [selected, selectionRequestId]);
 
-  const rootComment = thread.comments[0];
-  const replies = thread.comments.slice(1);
-
-  if (!rootComment) return null;
-
   const handleResolve = () => {
-    setError(null);
-    resolveComment.mutate(
-      {
-        id: rootComment.id,
-        deckId,
-        resolved: !thread.resolved,
+    const resolving = !thread.resolved;
+    kit.setResolved(thread, resolving).then(
+      () => {
+        if (selected && resolving) onThreadResolved?.(thread.threadId);
       },
-      {
-        onSuccess: () => {
-          if (selected && !thread.resolved) onThreadResolved?.(thread.threadId);
-        },
-        onError: (caught) =>
-          setError(actionErrorMessage(caught) ?? t("comments.updateFailed")),
-      },
-    );
-  };
-  const handleDelete = (commentId: string) => {
-    setError(null);
-    deleteComment.mutate(
-      { id: commentId, deckId },
-      {
-        onError: (caught) =>
-          setError(actionErrorMessage(caught) ?? t("comments.deleteFailed")),
-      },
+      (caught: unknown) =>
+        toast.error(actionErrorMessage(caught) ?? t("comments.updateFailed")),
     );
   };
 
@@ -615,44 +188,32 @@ function ThreadCard({
       ref={cardRef}
       data-slide-comment-thread={thread.threadId}
       data-selected-comment={selected ? "true" : undefined}
-      className={`group rounded-lg border px-3 py-2.5 ${thread.resolved ? "border-border/60 opacity-50" : "border-border bg-card"} ${selected ? "ring-2 ring-primary/70" : ""}`}
+      className={`@container/review group rounded-lg border px-3 py-2.5 ${thread.resolved ? "border-border/60 opacity-50" : "border-border bg-card"} ${selected ? "ring-2 ring-primary/70" : ""}`}
     >
-      {/* Quoted text */}
       {thread.quotedText && (
-        <div className="border-l-2 border-[#609FF8]/50 pl-2 mb-2 text-[11px] text-muted-foreground italic truncate">
+        <div className="mb-2 truncate border-l-2 border-[hsl(var(--slides-comment-accent)/0.5)] pl-2 text-[11px] italic text-muted-foreground">
           "{thread.quotedText}"
         </div>
       )}
-      {onSelectSlide && thread.slideId && thread.slideId !== currentSlideId && (
+      {onSelectSlide && slideId && slideId !== currentSlideId && (
         <button
           type="button"
           data-slide-comment-slide-jump
-          onClick={() => onSelectSlide(thread.slideId!)}
+          onClick={() => onSelectSlide(slideId)}
           className="mb-2 text-[10px] text-primary hover:underline"
         >
           {t("comments.goToSlide")}
         </button>
       )}
 
-      <CommentItem
-        comment={rootComment}
-        deckId={deckId}
-        onDelete={() => handleDelete(rootComment.id)}
-        canManage={
-          canEdit ||
-          rootComment.author_email.trim().toLowerCase() ===
-            currentUserEmail?.trim().toLowerCase()
-        }
-        canReact={canComment}
-      />
+      <SlideCommentEntry kit={kit} comment={thread.root} variant="root" />
 
-      {/* Replies toggle */}
       {replies.length > 0 && (
         <button
           type="button"
           aria-expanded={showReplies}
           onClick={() => setShowReplies(!showReplies)}
-          className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground/80 ml-7"
+          className="mt-2 ml-8 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground/80"
         >
           <IconChevronDown
             size={11}
@@ -664,31 +225,24 @@ function ThreadCard({
         </button>
       )}
 
-      {/* Expanded replies */}
       {showReplies && (
-        <div className="mt-2 ml-7 space-y-2.5">
-          {replies.map((r) => (
-            <CommentItem
-              key={r.id}
-              comment={r}
-              deckId={deckId}
-              onDelete={() => handleDelete(r.id)}
-              canManage={
-                canEdit ||
-                r.author_email.trim().toLowerCase() ===
-                  currentUserEmail?.trim().toLowerCase()
-              }
-              canReact={canComment}
+        <div className="ml-8">
+          {replies.map((reply) => (
+            <SlideCommentEntry
+              key={reply.id}
+              kit={kit}
+              comment={reply}
+              variant="reply"
             />
           ))}
         </div>
       )}
 
-      {/* Reply & resolve actions */}
       {canComment && (
-        <div className="mt-2 ml-7 flex items-center gap-3">
+        <div className="mt-2 ml-8 flex items-center gap-3">
           {!thread.resolved && !replyOpen && (
             <button
+              type="button"
               onClick={() => setReplyOpen(true)}
               className="text-[11px] text-muted-foreground hover:text-foreground/80"
             >
@@ -705,8 +259,9 @@ function ThreadCard({
                       ? t("comments.reopenThread")
                       : t("comments.resolveThread")
                   }
+                  disabled={kit.resolving}
                   onClick={handleResolve}
-                  className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
                 >
                   {thread.resolved ? (
                     <IconRefresh size={12} />
@@ -725,22 +280,29 @@ function ThreadCard({
         </div>
       )}
 
-      {replyOpen && canComment && (
-        <div className="ml-7">
-          <ReplyInput
-            deckId={deckId}
-            slideId={slideId}
-            threadId={thread.threadId}
-            parentId={rootComment.id}
-            onBeforeSubmit={onBeforeCommentSubmit}
-            onDone={() => setReplyOpen(false)}
-          />
-        </div>
-      )}
-      {error && (
-        <p role="alert" className="mt-2 ml-7 text-[11px] text-destructive">
-          {error}
-        </p>
+      {replyOpen && canComment && !thread.resolved && (
+        <SlideCommentComposerBox
+          className="mt-2 ml-8"
+          kit={kit}
+          draft={replyDraft}
+          variant="reply"
+          autoFocus
+          placeholder={t("comments.replyPlaceholder")}
+          commentLabel={t("comments.reply")}
+          ariaLabel={t("comments.reply")}
+          failedLabel={t("comments.saveReplyFailed")}
+          onSubmit={(draft) =>
+            kit.reply(thread, draft).then(() => {
+              setReplyOpen(false);
+              setShowReplies(true);
+            })
+          }
+          onEscape={() => setReplyOpen(false)}
+          onCancel={() => {
+            replyDraft.clear();
+            setReplyOpen(false);
+          }}
+        />
       )}
     </div>
   );
@@ -750,7 +312,6 @@ export function SlideCommentsPanel({
   deckId,
   slideId,
   canComment,
-  canEdit,
   currentUserEmail,
   onBeforeCommentSubmit,
   onSelectSlide,
@@ -769,32 +330,30 @@ export function SlideCommentsPanel({
     readCommentFiltersExpanded,
   );
   const commentsQuery = useSlideComments(deckId, slideId, scope);
-  const threads = commentsQuery.data ?? [];
+  const threads = commentsQuery.data?.threads ?? [];
+  const kit = useSlideCommentKit({
+    deckId: deckId ?? "",
+    surface: "panel",
+    currentUserEmail,
+    canComment,
+    discussion: commentsQuery.data?.discussion,
+    onBeforeCommentSubmit,
+  });
   const [showResolved, setShowResolved] = useState(false);
   const [addingComment, setAddingComment] = useState(false);
 
-  const normalizedCurrentUserEmail = currentUserEmail?.trim().toLowerCase();
   const audienceThreads = threads.filter((thread) => {
+    const comments = threadComments(thread);
     if (audience === "for-you") {
-      // Agent comments carry the viewer's email, so they must be excluded explicitly.
-      const isViewerComment = (comment: (typeof thread.comments)[number]) =>
-        !isAgentAuthoredComment({
-          authorKind: comment.author_kind,
-          authorName: comment.author_name,
-        }) &&
-        comment.author_email.trim().toLowerCase() ===
-          normalizedCurrentUserEmail;
-      const hasViewerComment = thread.comments.some(isViewerComment);
-      const hasNonViewerComment = thread.comments.some(
+      const isViewerComment = (comment: (typeof comments)[number]) =>
+        isOwnSlideComment(comment, currentUserEmail);
+      const hasViewerComment = comments.some(isViewerComment);
+      const hasNonViewerComment = comments.some(
         (comment) => !isViewerComment(comment),
       );
-      const hasViewerMention = normalizedCurrentUserEmail
-        ? thread.comments.some((comment) =>
-            comment.content
-              .toLowerCase()
-              .includes(`@${normalizedCurrentUserEmail}`),
-          )
-        : false;
+      const hasViewerMention = comments.some((comment) =>
+        slideCommentMentionsViewer(comment, currentUserEmail),
+      );
       const hasAttentionItem =
         hasViewerMention || (hasViewerComment && hasNonViewerComment);
       if (!hasAttentionItem) return false;
@@ -803,12 +362,12 @@ export function SlideCommentsPanel({
     const normalizedSearchTerm = searchTerm.trim().toLowerCase();
     return normalizedSearchTerm.length === 0
       ? true
-      : thread.comments.some((comment) =>
+      : comments.some((comment) =>
           [
-            comment.content,
-            comment.quoted_text ?? "",
-            comment.author_name ?? "",
-            comment.author_email,
+            comment.body,
+            thread.quotedText ?? "",
+            comment.authorName ?? "",
+            comment.authorEmail ?? "",
           ].some((value) => value.toLowerCase().includes(normalizedSearchTerm)),
         );
   });
@@ -971,17 +530,12 @@ export function SlideCommentsPanel({
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {/* Pending / manual new comment input */}
         {showInput && deckId && slideId && (
-          <PendingCommentInput
+          <NewCommentBox
+            kit={kit}
+            slideId={slideId}
             quotedText={currentPendingComment?.quotedText ?? ""}
             anchor={currentPendingComment?.anchor}
-            deckId={deckId}
-            slideId={slideId}
-            onBeforeSubmit={onBeforeCommentSubmit}
             onDone={() => {
-              onPendingDone();
-              setAddingComment(false);
-            }}
-            onCancel={() => {
               onPendingDone();
               setAddingComment(false);
             }}
@@ -1007,17 +561,13 @@ export function SlideCommentsPanel({
 
         {/* Thread list */}
         {!showLoadError &&
+          deckId &&
           threadCards.map((thread) => (
             <ThreadCard
               key={thread.threadId}
+              kit={kit}
               thread={thread}
-              deckId={deckId ?? ""}
-              slideId={thread.slideId ?? slideId ?? ""}
               currentSlideId={slideId}
-              canComment={canComment}
-              canEdit={canEdit}
-              currentUserEmail={currentUserEmail}
-              onBeforeCommentSubmit={onBeforeCommentSubmit}
               onSelectSlide={onSelectSlide}
               selected={thread.threadId === selectedThreadId}
               selectionRequestId={selectedThreadRequestId}
@@ -1047,7 +597,7 @@ export function SlideCommentsPanel({
             <button
               type="button"
               onClick={() => setAddingComment(true)}
-              className="w-full text-center py-10 rounded-lg border border-dashed border-border/70 hover:border-[#609FF8]/50 hover:bg-accent transition-colors"
+              className="w-full text-center py-10 rounded-lg border border-dashed border-border/70 hover:border-[hsl(var(--slides-comment-accent)/0.5)] hover:bg-accent transition-colors"
             >
               <IconMessageCircle
                 size={28}

@@ -2215,6 +2215,10 @@ export default {
     flagsUnavailable: "Les indicateurs de fonctionnalités sont indisponibles",
     flagsUnreachable:
       "Le répertoire de l'espace de travail est inaccessible. Réessayez lorsqu'il sera disponible.",
+    verifiedFlagChangeOrg:
+      "Vérifié à {{time}} : {{flag}} dans {{app}} est réglé sur {{availability}} pour cette organisation.",
+    verifiedFlagChangeGlobal:
+      "Vérifié à {{time}} : {{flag}} dans {{app}} est réglé sur {{availability}} pour toutes les organisations.",
     flagsEmpty: "Aucune application n'a signalé d'indicateur",
     flagsEmptyDetail:
       "Les indicateurs enregistrés apparaîtront ici lorsque les applications connectées seront prêtes.",

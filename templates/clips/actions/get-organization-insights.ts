@@ -36,6 +36,7 @@ export default defineAction({
     topN: z.coerce.number().int().min(1).max(50).default(10),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
 

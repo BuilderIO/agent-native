@@ -1,4 +1,8 @@
 export default {
+  responseGuard: {
+    noDesignChangesSaved:
+      "이번 턴에서는 디자인 변경 사항이 저장되지 않았습니다.",
+  },
   journeyCanvas: {
     observedSessionReference: "관찰된 세션 참조",
     sessionsOfAll: "세션 {count}개 · 전체의 {percent}",
