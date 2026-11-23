@@ -1060,16 +1060,21 @@ describe("CommandMenu", () => {
           ...args,
         )) as typeof setTimeout);
       try {
-        act(() =>
-          input!.dispatchEvent(
+        if (!input) throw new Error("Command menu input missing");
+        act(() => {
+          input.dispatchEvent(
             new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-          ),
-        );
-        act(() => vi.advanceTimersByTime(50));
+          );
+        });
+        act(() => {
+          vi.advanceTimersByTime(50);
+        });
         expect(document.activeElement).toBe(
           movesFocus ? target : document.body,
         );
-        act(() => vi.advanceTimersByTime(50));
+        act(() => {
+          vi.advanceTimersByTime(50);
+        });
         expect(events).toEqual(["selected", "closed"]);
         expect(document.activeElement).toBe(movesFocus ? target : opener);
       } finally {
@@ -1112,20 +1117,25 @@ describe("CommandMenu", () => {
       opener.focus();
       opener.click();
     });
-    act(() =>
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Escape",
-          bubbles: true,
-          cancelable: true,
-        }),
-      ),
-    );
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    expect(document.querySelector("[role=dialog]")).toBeNull();
-    expect(document.activeElement).toBe(opener);
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () => {
+        vi.runAllTimers();
+      });
+      expect(document.querySelector("[role=dialog]")).toBeNull();
+      expect(document.activeElement).toBe(opener);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("dismisses a nested dialog before the command dialog", async () => {
