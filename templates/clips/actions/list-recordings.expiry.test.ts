@@ -450,6 +450,33 @@ describe("list recordings expiry with PostgreSQL", () => {
     },
   );
 
+  it("keeps screenshot searches scoped to the root while library searches include folders", async () => {
+    identity.email = "owner@example.test";
+    await db.insert(schema.recordings).values(
+      [
+        { id: "root-image", kind: "image", folderId: null },
+        { id: "filed-image", kind: "image", folderId: "folder-1" },
+        { id: "filed-video", kind: "video", folderId: "folder-1" },
+      ].map((row) => ({
+        ...row,
+        organizationId: "fake-org",
+        ownerEmail: "owner@example.test",
+        title: "Onboarding",
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    const images = await action.run(
+      action.schema.parse({ view: "library", kind: "image", search: "onboarding" }),
+    );
+    expect(images.recordings.map((r) => r.id)).toEqual(["root-image"]);
+    const videos = await action.run(
+      action.schema.parse({ view: "library", kind: "video", search: "onboarding" }),
+    );
+    expect(videos.recordings.map((r) => r.id)).toEqual(["filed-video"]);
+  });
+
   it("filters list-recordings and view-screen case-insensitively across title, description, and transcript", async () => {
     identity.email = "owner@example.test";
     await db.insert(schema.recordings).values([
