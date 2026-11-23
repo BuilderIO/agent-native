@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
+// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: a client without elicitation gets the review page link 1`] = `
 {
   "trace": [
@@ -37,7 +37,6 @@ exports[`direct tools/call wire output > approval: a client without elicitation 
         "parameters": {
           "draftId": "d-6",
         },
-        "resultTextChars": 384,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -80,7 +79,7 @@ After they approve, call publish again with exactly the same arguments before 20
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
+// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: a grant that expired in the store is refused 1`] = `
 {
   "trace": [
@@ -117,7 +116,6 @@ exports[`direct tools/call wire output > approval: a grant that expired in the s
         "parameters": {
           "draftId": "d-8",
         },
-        "resultTextChars": 0,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -141,7 +139,6 @@ exports[`direct tools/call wire output > approval: a grant that expired in the s
         "parameters": {
           "draftId": "d-8",
         },
-        "resultTextChars": 58,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -222,7 +219,7 @@ Draft id: d-8",
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
+// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: a resume after the approval window is refused 1`] = `
 {
   "trace": [
@@ -259,7 +256,6 @@ exports[`direct tools/call wire output > approval: a resume after the approval w
         "parameters": {
           "draftId": "d-9",
         },
-        "resultTextChars": 0,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -283,7 +279,6 @@ exports[`direct tools/call wire output > approval: a resume after the approval w
         "parameters": {
           "draftId": "d-9",
         },
-        "resultTextChars": 58,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -364,7 +359,6 @@ Draft id: d-9",
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > approval: a static-token caller cannot approve 1`] = `
 {
   "trace": [
@@ -375,7 +369,6 @@ exports[`direct tools/call wire output > approval: a static-token caller cannot 
         "parameters": {
           "draftId": "d-5",
         },
-        "resultTextChars": 56,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -411,7 +404,7 @@ exports[`direct tools/call wire output > approval: a static-token caller cannot 
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
+// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: client-fulfilled elicitation round trip 1`] = `
 {
   "trace": [
@@ -448,7 +441,6 @@ exports[`direct tools/call wire output > approval: client-fulfilled elicitation 
         "parameters": {
           "draftId": "d-4",
         },
-        "resultTextChars": 0,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -561,7 +553,6 @@ exports[`direct tools/call wire output > approval: client-fulfilled elicitation 
         "parameters": {
           "draftId": "d-4",
         },
-        "resultTextChars": 9,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -641,7 +632,7 @@ Draft id: d-4",
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
+// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: denied decision and predicate outcomes 1`] = `
 {
   "trace": [
@@ -678,7 +669,6 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
         "parameters": {
           "draftId": "d-3",
         },
-        "resultTextChars": 0,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -703,7 +693,6 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
         "parameters": {
           "draftId": "d-3",
         },
-        "resultTextChars": 25,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -750,7 +739,6 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
         "parameters": {
           "big": true,
         },
-        "resultTextChars": 0,
         "toolCategory": "write",
         "toolDescription": "Approval only for big changes",
         "toolName": "maybe-approve",
@@ -793,7 +781,6 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultTextChars": 0,
         "toolCategory": "write",
         "toolDescription": "Approval predicate throws",
         "toolName": "approval-throws",
@@ -963,7 +950,7 @@ Big: Yes",
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
+// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: elicitation, approved retry, and replay 1`] = `
 {
   "trace": [
@@ -1000,7 +987,6 @@ exports[`direct tools/call wire output > approval: elicitation, approved retry, 
         "parameters": {
           "draftId": "d-1",
         },
-        "resultTextChars": 0,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -1113,7 +1099,6 @@ exports[`direct tools/call wire output > approval: elicitation, approved retry, 
         "parameters": {
           "draftId": "d-1",
         },
-        "resultTextChars": 9,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -1137,7 +1122,6 @@ exports[`direct tools/call wire output > approval: elicitation, approved retry, 
         "parameters": {
           "draftId": "d-1",
         },
-        "resultTextChars": 58,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -1150,7 +1134,6 @@ exports[`direct tools/call wire output > approval: elicitation, approved retry, 
         "parameters": {
           "draftId": "d-2",
         },
-        "resultTextChars": 66,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -1278,7 +1261,7 @@ Draft id: d-1",
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
+// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: the client gives up when its round limit is exhausted 1`] = `
 {
   "trace": [
@@ -1315,7 +1298,6 @@ exports[`direct tools/call wire output > approval: the client gives up when its 
         "parameters": {
           "draftId": "d-7",
         },
-        "resultTextChars": 0,
         "toolCategory": "write",
         "toolDescription": "Publish",
         "toolName": "publish",
@@ -1379,7 +1361,7 @@ Draft id: d-7",
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
+// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: two concurrent resumes of one approval run the action once 1`] = `
 {
   "firstLeg": {
@@ -1417,7 +1399,6 @@ exports[`direct tools/call wire output > approval: two concurrent resumes of one
           "parameters": {
             "draftId": "d-10",
           },
-          "resultTextChars": 0,
           "toolCategory": "write",
           "toolDescription": "Publish",
           "toolName": "publish",
@@ -1542,11 +1523,10 @@ Draft id: d-10",
       {
         "mcpToolCall": {
           "durationMs": "<duration>",
-          "isError": true,
+          "isError": false,
           "parameters": {
             "draftId": "d-10",
           },
-          "resultTextChars": 58,
           "toolCategory": "write",
           "toolDescription": "Publish",
           "toolName": "publish",
@@ -1555,11 +1535,10 @@ Draft id: d-10",
       {
         "mcpToolCall": {
           "durationMs": "<duration>",
-          "isError": false,
+          "isError": true,
           "parameters": {
             "draftId": "d-10",
           },
-          "resultTextChars": 9,
           "toolCategory": "write",
           "toolDescription": "Publish",
           "toolName": "publish",
@@ -1665,7 +1644,7 @@ Draft id: d-10",
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
+// oracle-change: a read-only grant no longer gets cards by default, so the widget returns a plain result
 exports[`direct tools/call wire output > compact catalog, read-only OAuth scope: embed-widget 1`] = `
 {
   "trace": [
@@ -1684,8 +1663,6 @@ exports[`direct tools/call wire output > compact catalog, read-only OAuth scope:
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 68,
-        "resultTextChars": 68,
         "toolCategory": "read",
         "toolDescription": "Opens a widget",
         "toolName": "embed-widget",
@@ -1726,7 +1703,6 @@ exports[`direct tools/call wire output > compact catalog, read-only OAuth scope:
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > compact catalog, read-only OAuth scope: read-thing 1`] = `
 {
   "trace": [
@@ -1737,7 +1713,6 @@ exports[`direct tools/call wire output > compact catalog, read-only OAuth scope:
         "errorType": "unknown_tool",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 24,
         "toolCategory": "read",
         "toolDescription": "Read a thing",
         "toolName": "read-thing",
@@ -1773,7 +1748,6 @@ exports[`direct tools/call wire output > compact catalog, read-only OAuth scope:
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > compact catalog, read-only OAuth scope: write-thing 1`] = `
 {
   "trace": [
@@ -1784,7 +1758,6 @@ exports[`direct tools/call wire output > compact catalog, read-only OAuth scope:
         "errorType": "unknown_tool",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 25,
         "toolCategory": "write",
         "toolDescription": "Write a thing",
         "toolName": "write-thing",
@@ -1820,7 +1793,6 @@ exports[`direct tools/call wire output > compact catalog, read-only OAuth scope:
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > directory catalog: projected results, errors, and widget embeds 1`] = `
 {
   "trace": [
@@ -1865,8 +1837,6 @@ exports[`direct tools/call wire output > directory catalog: projected results, e
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 400,
-        "resultTextChars": 136,
         "toolCategory": "read",
         "toolDescription": "Read a thing",
         "toolName": "dir-read",
@@ -1966,7 +1936,6 @@ exports[`direct tools/call wire output > directory catalog: projected results, e
         "errorType": "Error",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 22,
         "toolCategory": "write",
         "toolDescription": "Always fails",
         "toolName": "dir-fail",
@@ -2017,8 +1986,6 @@ exports[`direct tools/call wire output > directory catalog: projected results, e
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 350,
-        "resultTextChars": 72,
         "toolCategory": "read",
         "toolDescription": "Opens a widget",
         "toolName": "dir-widget",
@@ -2133,8 +2100,6 @@ exports[`direct tools/call wire output > directory catalog: projected results, e
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 355,
-        "resultTextChars": 71,
         "toolCategory": "write",
         "toolDescription": "Opens a widget after a write",
         "toolName": "dir-write-widget",
@@ -2234,7 +2199,6 @@ exports[`direct tools/call wire output > directory catalog: projected results, e
         "durationMs": "<duration>",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 33,
         "toolCategory": "write",
         "toolDescription": "Proxied MCP error",
         "toolName": "dir-proxy-error",
@@ -2247,7 +2211,6 @@ exports[`direct tools/call wire output > directory catalog: projected results, e
         "errorType": "unknown_tool",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 24,
         "toolName": "read-thing",
       },
     },
@@ -2299,7 +2262,6 @@ data: {"result":{"content":[{"type":"text","text":"Unknown tool: read-thing"}],"
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: app-only 1`] = `
 {
   "trace": [
@@ -2388,8 +2350,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: app-only 1`] 
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 43,
-        "resultTextChars": 19,
         "toolCategory": "write",
         "toolDescription": "Widget-only helper",
         "toolName": "app-only",
@@ -2431,7 +2391,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: app-only 1`] 
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: bigint-read 1`] = `
 {
   "trace": [
@@ -2452,7 +2411,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-read 1
         "errorType": "result_not_json",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 68,
         "toolCategory": "read",
         "toolDescription": "Read whose result is not JSON",
         "toolName": "bigint-read",
@@ -2488,7 +2446,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-read 1
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: bigint-write 1`] = `
 {
   "trace": [
@@ -2578,7 +2535,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-write 
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultTextChars": 98,
         "toolCategory": "write",
         "toolDescription": "Write whose result is not JSON",
         "toolName": "bigint-write",
@@ -2613,7 +2569,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-write 
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: contract-empty-code 1`] = `
 {
   "trace": [
@@ -2705,7 +2660,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: contract-empt
         "errorType": "ActionContractError",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 25,
         "toolCategory": "write",
         "toolDescription": "Fails a contract with an empty code",
         "toolName": "contract-empty-code",
@@ -2741,7 +2695,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: contract-empt
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: contract-fail 1`] = `
 {
   "trace": [
@@ -2833,7 +2786,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: contract-fail
         "errorType": "stale_revision",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 53,
         "toolCategory": "write",
         "toolDescription": "Fails a contract",
         "toolName": "contract-fail",
@@ -2869,7 +2821,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: contract-fail
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: contract-generic 1`] = `
 {
   "trace": [
@@ -2961,7 +2912,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: contract-gene
         "errorType": "action_failed",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 23,
         "toolCategory": "write",
         "toolDescription": "Fails generically",
         "toolName": "contract-generic",
@@ -2997,7 +2947,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: contract-gene
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: cycle-read 1`] = `
 {
   "trace": [
@@ -3016,8 +2965,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: cycle-read 1`
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 42,
-        "resultTextChars": 42,
         "toolCategory": "read",
         "toolDescription": "Read whose result is circular",
         "toolName": "cycle-read",
@@ -3056,7 +3003,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: cycle-read 1`
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: cycle-write 1`] = `
 {
   "trace": [
@@ -3146,7 +3092,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: cycle-write 1
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultTextChars": 33,
         "toolCategory": "write",
         "toolDescription": "Write whose result is circular",
         "toolName": "cycle-write",
@@ -3181,7 +3126,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: cycle-write 1
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: embed-empty 1`] = `
 {
   "trace": [
@@ -3200,8 +3144,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-empty 1
         "durationMs": "<duration>",
         "isError": true,
         "parameters": {},
-        "resultStructuredChars": 15,
-        "resultTextChars": 2,
         "toolCategory": "read",
         "toolDescription": "Widget with nothing to show",
         "toolName": "embed-empty",
@@ -3240,7 +3182,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-empty 1
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: embed-leak 1`] = `
 {
   "trace": [
@@ -3259,8 +3200,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-leak 1`
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 102,
-        "resultTextChars": 102,
         "toolCategory": "read",
         "toolDescription": "Returns an embed ticket without a widget",
         "toolName": "embed-leak",
@@ -3307,7 +3246,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-leak 1`
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget 1`] = `
 {
   "trace": [
@@ -3326,8 +3264,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget 
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 68,
-        "resultTextChars": 16,
         "toolCategory": "read",
         "toolDescription": "Opens a widget",
         "toolName": "embed-widget",
@@ -3372,7 +3308,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget 
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget-existing 1`] = `
 {
   "trace": [
@@ -3461,8 +3396,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget-
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 70,
-        "resultTextChars": 11,
         "toolCategory": "write",
         "toolDescription": "Widget with its own ticket",
         "toolName": "embed-widget-existing",
@@ -3506,7 +3439,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget-
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: embed-write-leak 1`] = `
 {
   "trace": [
@@ -3596,7 +3528,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-write-l
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultTextChars": 37,
         "toolCategory": "write",
         "toolDescription": "Write that returns an embed ticket",
         "toolName": "embed-write-leak",
@@ -3631,7 +3562,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-write-l
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: fail-thing 1`] = `
 {
   "trace": [
@@ -3723,7 +3653,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: fail-thing 1`
         "errorType": "Error",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 11,
         "toolCategory": "write",
         "toolDescription": "Always fails",
         "toolName": "fail-thing",
@@ -3759,7 +3688,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: fail-thing 1`
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: image-thing 1`] = `
 {
   "trace": [
@@ -3778,8 +3706,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: image-thing 1
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 28,
-        "resultTextChars": 193,
         "toolCategory": "read",
         "toolDescription": "Returns images",
         "toolName": "image-thing",
@@ -3826,7 +3752,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: image-thing 1
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: list-things 1`] = `
 {
   "trace": [
@@ -3845,8 +3770,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: list-things 1
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 33,
-        "resultTextChars": 23,
         "toolCategory": "read",
         "toolDescription": "List things",
         "toolName": "list-things",
@@ -3891,7 +3814,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: list-things 1
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: long-read 1`] = `
 {
   "trace": [
@@ -3910,8 +3832,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: long-read 1`]
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 2611,
-        "resultTextChars": 2611,
         "toolCategory": "read",
         "toolDescription": "Read a long thing",
         "toolName": "long-read",
@@ -3949,7 +3869,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: long-read 1`]
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: maybe-approve 1`] = `
 {
   "trace": [
@@ -4050,7 +3969,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: maybe-approve
         "parameters": {
           "big": false,
         },
-        "resultTextChars": 24,
         "toolCategory": "write",
         "toolDescription": "Approval only for big changes",
         "toolName": "maybe-approve",
@@ -4085,7 +4003,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: maybe-approve
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: no-such-tool 1`] = `
 {
   "trace": [
@@ -4096,7 +4013,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: no-such-tool 
         "errorType": "unknown_tool",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 26,
         "toolName": "no-such-tool",
       },
     },
@@ -4130,7 +4046,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: no-such-tool 
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: partial-then-fail 1`] = `
 {
   "trace": [
@@ -4225,7 +4140,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: partial-then-
         "errorType": "Error",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 27,
         "toolCategory": "write",
         "toolDescription": "Writes, then fails",
         "toolName": "partial-then-fail",
@@ -4261,7 +4175,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: partial-then-
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: read-thing 1`] = `
 {
   "trace": [
@@ -4280,8 +4193,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: read-thing 1`
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 375,
-        "resultTextChars": 111,
         "toolCategory": "read",
         "toolDescription": "Read a thing",
         "toolName": "read-thing",
@@ -4345,7 +4256,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: read-thing 1`
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: throws-string 1`] = `
 {
   "trace": [
@@ -4437,7 +4347,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: throws-string
         "errorType": "Error",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 16,
         "toolCategory": "write",
         "toolDescription": "Throws a non-Error",
         "toolName": "throws-string",
@@ -4473,7 +4382,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: throws-string
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-error 1`] = `
 {
   "trace": [
@@ -4556,7 +4464,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-error
         "durationMs": "<duration>",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 15,
         "toolCategory": "write",
         "toolDescription": "Proxied MCP error",
         "toolName": "wrapped-error",
@@ -4592,7 +4499,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-error
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-ok 1`] = `
 {
   "trace": [
@@ -4611,8 +4517,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-ok 1`
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 32,
-        "resultTextChars": 19,
         "toolCategory": "read",
         "toolDescription": "Proxied MCP result",
         "toolName": "wrapped-ok",
@@ -4653,7 +4557,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-ok 1`
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-text-reads 1`] = `
 {
   "trace": [
@@ -4675,8 +4578,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-text-
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 11,
-        "resultTextChars": 19,
         "toolCategory": "read",
         "toolDescription": "Proxied MCP result whose text can be read only so often",
         "toolName": "wrapped-text-reads",
@@ -4714,7 +4615,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-text-
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: write-thing 1`] = `
 {
   "trace": [
@@ -4808,7 +4708,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: write-thing 1
         "parameters": {
           "name": "draft",
         },
-        "resultTextChars": 30,
         "toolCategory": "write",
         "toolDescription": "Write a thing",
         "toolName": "write-thing",
@@ -4843,7 +4742,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: write-thing 1
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, OAuth user: write-void 1`] = `
 {
   "trace": [
@@ -4932,7 +4830,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: write-void 1`
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultTextChars": 21,
         "toolCategory": "write",
         "toolDescription": "Write without a result",
         "toolName": "write-void",
@@ -4967,7 +4864,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: write-void 1`
 }
 `;
 
-// oracle-change: each tool call's analytics now carry the result's size: characters in its text blocks, and its structured content as JSON when it has any
 exports[`direct tools/call wire output > full catalog, read-only OAuth scope: a write is refused by scope 1`] = `
 {
   "trace": [
@@ -4978,7 +4874,6 @@ exports[`direct tools/call wire output > full catalog, read-only OAuth scope: a 
         "errorType": "forbidden_scope",
         "isError": true,
         "parameters": {},
-        "resultTextChars": 54,
         "toolCategory": "write",
         "toolDescription": "Write a thing",
         "toolName": "write-thing",
@@ -4999,8 +4894,6 @@ exports[`direct tools/call wire output > full catalog, read-only OAuth scope: a 
         "durationMs": "<duration>",
         "isError": false,
         "parameters": {},
-        "resultStructuredChars": 375,
-        "resultTextChars": 111,
         "toolCategory": "read",
         "toolDescription": "Read a thing",
         "toolName": "read-thing",

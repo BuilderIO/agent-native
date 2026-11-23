@@ -371,7 +371,8 @@ event: `$mcp_tool_name`, `$mcp_tool_description`, `$mcp_tool_category`
   the result has none). Hosts cut or move a result past about 40,000
   characters, and they read different parts: Claude Code and OpenCode show the
   model only the structured content when there is one, Codex shows both. The
-  handler measures the result and passes only the two numbers, so no part of
+  handler measures the result only when MCP analytics are on
+  (`mcpAnalyticsEnabled()`), and passes only the two numbers, so no part of
   the payload reaches `trackMcpToolCall`.
 
 Off switches: `MCP_ANALYTICS=false` (`observability.mcpEvents`) disables the

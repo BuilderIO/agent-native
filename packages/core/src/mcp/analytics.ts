@@ -119,7 +119,7 @@ export function readClientInfoFromRequest(
   };
 }
 
-function analyticsEnabled(): boolean {
+export function mcpAnalyticsEnabled(): boolean {
   if (listTrackingProviders().length === 0) return false;
   return getAppConfig().observability.mcpEvents;
 }
@@ -194,7 +194,7 @@ function emit(
 }
 
 export function trackMcpInitialize(ctx: McpAnalyticsContext): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.initialize, ctx, {});
 }
 
@@ -202,7 +202,7 @@ export function trackMcpToolsList(
   ctx: McpAnalyticsContext,
   args: { toolNames: string[]; durationMs: number },
 ): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.toolsList, ctx, {
     $mcp_listed_tool_names: args.toolNames,
     $mcp_listed_tool_count: args.toolNames.length,
@@ -261,7 +261,7 @@ export function trackMcpToolCall(
     errorMessage?: string;
   } & Partial<McpToolResultSize>,
 ): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.toolCall, ctx, {
     $mcp_tool_name: args.toolName,
     ...(args.toolDescription
@@ -288,7 +288,7 @@ export function trackMcpResourcesList(
   ctx: McpAnalyticsContext,
   args: { resourceCount: number; durationMs: number },
 ): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.resourcesList, ctx, {
     $mcp_listed_resource_count: args.resourceCount,
     $mcp_duration_ms: args.durationMs,
@@ -306,7 +306,7 @@ export function trackMcpResourceRead(
     errorMessage?: string;
   },
 ): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.resourceRead, ctx, {
     ...(args.resourceName ? { $mcp_resource_name: args.resourceName } : {}),
     ...(args.resourceUri ? { $mcp_resource_uri: args.resourceUri } : {}),
@@ -329,7 +329,7 @@ export function trackMcpOAuthAuthorizeOpened(
   ctx: McpAnalyticsContext,
   args: { route: McpOAuthRoute; signedIn: boolean },
 ): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.oauthAuthorizeOpened, ctx, {
     $mcp_oauth_route: args.route,
     $mcp_oauth_signed_in: args.signedIn,
@@ -340,7 +340,7 @@ export function trackMcpOAuthLoginWallShown(
   ctx: McpAnalyticsContext,
   args: { route: McpOAuthRoute },
 ): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.oauthLoginWallShown, ctx, {
     $mcp_oauth_route: args.route,
   });

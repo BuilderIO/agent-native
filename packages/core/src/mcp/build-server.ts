@@ -99,6 +99,7 @@ import {
 import {
   type McpAnalyticsContext,
   describeMcpError,
+  mcpAnalyticsEnabled,
   mcpToolResultSize,
   readClientInfoFromRequest,
   trackMcpResourceRead,
@@ -4988,7 +4989,7 @@ export async function createMCPServerForRequest(
           : {}),
         parameters: analyticsParameters(toolName, calledArgs),
         durationMs: Date.now() - startedAt,
-        ...mcpToolResultSize(result),
+        ...(mcpAnalyticsEnabled() ? mcpToolResultSize(result) : {}),
         isError: (result as { isError?: boolean }).isError === true,
         ...(failure ?? {}),
       });
