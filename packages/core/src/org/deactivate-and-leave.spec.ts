@@ -52,6 +52,7 @@ vi.mock("./track-invite-accepted.js", () => ({
 
 import { isOrgMemberOrInvited } from "../sharing/grant.js";
 import { acceptPendingInvitationsForEmail } from "./accept-pending.js";
+import { defineAppRoles } from "./app-roles.js";
 import {
   inviteOne,
   leaveOrgHandler,
@@ -61,6 +62,8 @@ import {
 } from "./handlers.js";
 import { isOrgMember } from "./membership.js";
 import type { OrgDeactivatedMember } from "./types.js";
+
+defineAppRoles({ appId: "clips", roles: ["viewer", "editor"] });
 
 function pgliteExec(db: Awaited<ReturnType<typeof createTestPglite>>): DbExec {
   const toPg = (sql: string) => {
@@ -113,6 +116,7 @@ describe("deactivating and leaving an organization (real pglite)", () => {
         role TEXT NOT NULL, joined_at BIGINT NOT NULL,
         federation_removal_pending_at BIGINT
       );
+      CREATE UNIQUE INDEX org_members_org_email ON org_members (org_id, LOWER(email));
       CREATE TABLE org_invitations (
         id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL,
         invited_by TEXT NOT NULL, created_at BIGINT NOT NULL,
@@ -205,6 +209,143 @@ describe("deactivating and leaving an organization (real pglite)", () => {
       members: [],
     });
     expect(await isOrgMemberOrInvited("org-1", MEMBER)).toBe(true);
+  }, 30_000);
+
+  it("auto-accept cannot restore a membership that an admin removal committed after the marker check", async () => {
+    const NEWCOMER = "newcomer@example.test";
+    await pglite.exec(
+      `DELETE FROM org_members WHERE id = 'm-2';
+       INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role)
+       VALUES ('inv-1', 'org-1', '${NEWCOMER}', '${MEMBER}', 1, 'pending', 'member')`,
+    );
+    const base = state.exec as DbExec;
+    let interleaved = false;
+    const execute = base.execute.bind(base);
+    // raw-sql-ok: test wrapper forwarding already-bound statements to PGlite.
+    state.exec = {
+      ...base,
+      transaction: base.transaction?.bind(base),
+      async execute(query) {
+        const result = await execute(query);
+        const sql = typeof query === "string" ? query : query.sql;
+        if (
+          !interleaved &&
+          sql.includes("status = 'deactivated'") &&
+          sql.includes("SELECT 1")
+        ) {
+          interleaved = true;
+          await pglite.exec(
+            `INSERT INTO org_members VALUES ('m-9', 'org-1', '${NEWCOMER}', 'member', 5, NULL)`,
+          );
+          state.ctx = {
+            email: OWNER,
+            orgId: "org-1",
+            orgName: "Acme",
+            role: "owner",
+          };
+          state.exec = base;
+          await removeMemberHandler(
+            event(`/_agent-native/org/members/${NEWCOMER}`, {
+              transferTo: OWNER,
+              deactivate: true,
+            }),
+          );
+          state.exec = this as DbExec;
+        }
+        return result;
+      },
+    } as DbExec;
+    const out = await acceptPendingInvitationsForEmail(NEWCOMER);
+    state.exec = base;
+
+    expect(interleaved).toBe(true);
+    expect(out.accepted).toEqual([]);
+    expect(await isOrgMember("org-1", NEWCOMER)).toBe(false);
+  }, 30_000);
+
+  it("auto-accept cannot recreate role grants after an admin removal committed for an existing member", async () => {
+    const NEWCOMER = "newcomer@example.test";
+    await pglite.exec(
+      `CREATE TABLE app_member_roles (
+         id TEXT PRIMARY KEY, org_id TEXT NOT NULL, app_id TEXT NOT NULL,
+         email TEXT NOT NULL, role TEXT NOT NULL, updated_by TEXT, updated_at BIGINT
+       );
+       INSERT INTO org_members VALUES ('m-9', 'org-1', '${NEWCOMER}', 'member', 5, NULL);
+       INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role, app_roles_json)
+       VALUES ('inv-1', 'org-1', '${NEWCOMER}', '${OWNER}', 1, 'pending', 'member', '{"clips":["editor"]}')`,
+    );
+    const base = state.exec as DbExec;
+    let interleaved = false;
+    const execute = base.execute.bind(base);
+    // raw-sql-ok: test wrapper forwarding already-bound statements to PGlite.
+    state.exec = {
+      ...base,
+      transaction: base.transaction?.bind(base),
+      async execute(query) {
+        const result = await execute(query);
+        const sql = typeof query === "string" ? query : query.sql;
+        if (
+          !interleaved &&
+          sql.includes("status = 'deactivated'") &&
+          sql.includes("SELECT 1")
+        ) {
+          interleaved = true;
+          state.ctx = {
+            email: OWNER,
+            orgId: "org-1",
+            orgName: "Acme",
+            role: "owner",
+          };
+          state.exec = base;
+          await removeMemberHandler(
+            event(`/_agent-native/org/members/${NEWCOMER}`, {
+              transferTo: OWNER,
+              deactivate: true,
+            }),
+          );
+          state.exec = this as DbExec;
+        }
+        return result;
+      },
+    } as DbExec;
+    const out = await acceptPendingInvitationsForEmail(NEWCOMER);
+    state.exec = base;
+
+    expect(interleaved).toBe(true);
+    expect(out.accepted).toEqual([]);
+    expect(await isOrgMember("org-1", NEWCOMER)).toBe(false);
+    const roles = await pglite.query(
+      `SELECT 1 FROM app_member_roles WHERE LOWER(email) = '${NEWCOMER}'`,
+    );
+    expect(roles.rows).toEqual([]);
+  }, 30_000);
+
+  it("auto-accept still joins a newcomer whose invitation is live and unremoved", async () => {
+    const NEWCOMER = "newcomer@example.test";
+    await pglite.exec(
+      `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role)
+       VALUES ('inv-1', 'org-1', '${NEWCOMER}', '${OWNER}', 1, 'pending', 'member')`,
+    );
+    const out = await acceptPendingInvitationsForEmail(NEWCOMER);
+    expect(out.accepted).toEqual([{ invitationId: "inv-1", orgId: "org-1" }]);
+    expect(await isOrgMember("org-1", NEWCOMER)).toBe(true);
+  }, 30_000);
+
+  it("auto-accept grants invited app roles together with the membership", async () => {
+    const NEWCOMER = "newcomer@example.test";
+    await pglite.exec(
+      `CREATE TABLE app_member_roles (
+         id TEXT PRIMARY KEY, org_id TEXT NOT NULL, app_id TEXT NOT NULL,
+         email TEXT NOT NULL, role TEXT NOT NULL, updated_by TEXT, updated_at BIGINT
+       );
+       INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role, app_roles_json)
+       VALUES ('inv-1', 'org-1', '${NEWCOMER}', '${OWNER}', 1, 'pending', 'member', '{"clips":["editor"]}')`,
+    );
+    await acceptPendingInvitationsForEmail(NEWCOMER);
+    const roles = await pglite.query(
+      `SELECT role FROM app_member_roles WHERE LOWER(email) = '${NEWCOMER}'`,
+    );
+    expect(roles.rows).toEqual([{ role: "editor" }]);
   }, 30_000);
 
   it("a removal without deactivate leaves no Deactivated row", async () => {

@@ -1,8 +1,8 @@
 import { getDbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { setActiveOrgId } from "./active-org.js";
-import { applyInvitationAppRoles } from "./app-roles.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
+import { acceptLiveInvitation } from "./invitation-acceptance.js";
 import { isMissingOrganizationTableError } from "./membership.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import { trackInviteAccepted } from "./track-invite-accepted.js";
@@ -125,34 +125,25 @@ export async function acceptPendingInvitationsForEmail(
       args: [inv.orgId, email],
     });
     if (removalMarker.rows.length > 0) continue;
-    if (existing.rows.length === 0) {
-      const role = inv.role === "admin" ? "admin" : "member";
-      await db.execute({
-        sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)
-              ON CONFLICT (org_id, LOWER(email)) DO NOTHING`,
-        args: [nanoid(), inv.orgId, email, role, Date.now()],
-      });
-      invalidateMemberOrgCaches();
-    }
+    let completed: boolean;
     try {
-      await applyInvitationAppRoles({
-        appRolesJson: inv.appRolesJson,
+      completed = await acceptLiveInvitation(db, {
+        invitationId: inv.id,
         orgId: inv.orgId,
         email,
+        memberId: nanoid(),
+        joinMember: existing.rows.length === 0,
         updatedBy: inv.invitedBy,
       });
     } catch (error) {
       console.warn(
-        `[org] Could not apply app roles for invitation ${inv.id}; leaving it pending`,
+        `[org] Could not accept invitation ${inv.id}; leaving it pending`,
         error,
       );
       continue;
     }
-    const updated = await db.execute({
-      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ? AND status = 'pending'`,
-      args: [inv.id],
-    });
-    if (Number(updated.rowsAffected ?? 0) !== 1) continue;
+    invalidateMemberOrgCaches();
+    if (!completed) continue;
     accepted.push({ invitationId: inv.id, orgId: inv.orgId });
     telemetryPromises.push(
       trackInviteAccepted({

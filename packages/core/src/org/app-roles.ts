@@ -1,5 +1,5 @@
 import type { ActionRunContext } from "../action.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { effectiveOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import {
   getRequestContext,
@@ -414,23 +414,31 @@ const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 
-export async function setAppMemberRoles(opts: {
-  appId: string;
-  orgId: string;
-  email: string;
-  roles: readonly string[];
-  updatedBy: string;
-}): Promise<void> {
+export async function setAppMemberRoles(
+  opts: {
+    appId: string;
+    orgId: string;
+    email: string;
+    roles: readonly string[];
+    updatedBy: string;
+  },
+  activeTx?: DbExec,
+): Promise<void> {
   const exec = getDbExec();
   const email = normalizeEmail(opts.email);
 
-  if (!exec.transaction)
+  const runInTransaction:
+    | ((fn: (tx: DbExec) => Promise<void>) => Promise<void>)
+    | undefined = activeTx
+    ? (fn) => fn(activeTx)
+    : exec.transaction?.bind(exec);
+  if (!runInTransaction)
     throw new Error(
       "Atomic app role replacement requires database transactions",
     );
   const roles = [...new Set(opts.roles)];
   const now = Date.now();
-  await exec.transaction(async (tx) => {
+  const write = async (tx: DbExec) => {
     await tx.execute({
       sql: `DELETE FROM app_member_roles WHERE org_id = ? AND app_id = ? AND LOWER(email) = ?`,
       args: [opts.orgId, opts.appId, email],
@@ -448,7 +456,8 @@ export async function setAppMemberRoles(opts: {
           now,
         ],
       });
-  });
+  };
+  await runInTransaction(write);
 }
 
 /** @deprecated Use setAppMemberRoles instead. */
@@ -529,12 +538,15 @@ export async function setAppPermissionRoles(opts: {
   });
 }
 
-export async function applyInvitationAppRoles(opts: {
-  appRolesJson: string | null;
-  orgId: string;
-  email: string;
-  updatedBy: string;
-}): Promise<void> {
+export async function applyInvitationAppRoles(
+  opts: {
+    appRolesJson: string | null;
+    orgId: string;
+    email: string;
+    updatedBy: string;
+  },
+  activeTx?: DbExec,
+): Promise<void> {
   if (!opts.appRolesJson) return;
   const assignments = JSON.parse(opts.appRolesJson) as unknown;
   if (
@@ -554,12 +566,15 @@ export async function applyInvitationAppRoles(opts: {
     ) {
       throw new Error(`Invitation contains invalid roles for app ${appId}`);
     }
-    await setAppMemberRoles({
-      appId,
-      orgId: opts.orgId,
-      email: opts.email,
-      roles,
-      updatedBy: opts.updatedBy,
-    });
+    await setAppMemberRoles(
+      {
+        appId,
+        orgId: opts.orgId,
+        email: opts.email,
+        roles,
+        updatedBy: opts.updatedBy,
+      },
+      activeTx,
+    );
   }
 }

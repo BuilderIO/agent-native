@@ -64,7 +64,7 @@ import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
 import { isEmailDerivedName } from "../user-profile/shared.js";
 import { getUserProfiles } from "../user-profile/store.js";
 import { setActiveOrgId } from "./active-org.js";
-import { applyInvitationAppRoles, getRegisteredAppRoles } from "./app-roles.js";
+import { getRegisteredAppRoles } from "./app-roles.js";
 import { setRequiredAuthProvider } from "./auth-policy.js";
 import { invalidateDomainMatchCache } from "./auto-join-domain.js";
 import {
@@ -81,6 +81,7 @@ import {
   syncOrganizationToIdentityHub,
 } from "./federation.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
+import { acceptLiveInvitation } from "./invitation-acceptance.js";
 import {
   canRoleInviteInOrg,
   ORG_INVITE_DENIED_MESSAGE,
@@ -1520,26 +1521,29 @@ export const acceptInvitationHandler = defineEventHandler(
       String(organization?.identity_id ?? "").trim();
 
     if (existingMembership.rows.length > 0) {
-      await applyInvitationAppRoles({
-        appRolesJson: inv.appRolesJson ? String(inv.appRolesJson) : null,
+      const completed = await acceptLiveInvitation(e, {
+        invitationId,
         orgId: invOrgId,
         email,
+        memberId: nanoid(),
+        joinMember: false,
         updatedBy: String(inv.invitedBy ?? inv.invited_by),
       });
-      const updated = await e.execute({
-        sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ? AND status = 'pending'`,
-        args: [invitationId],
-      });
-      if (Number(updated.rowsAffected ?? 0) === 1) {
-        trackInviteAccepted({
-          email,
-          orgId: invOrgId,
-          role: inv.role == null ? null : String(inv.role),
-          invitedBy: String(inv.invitedBy ?? inv.invited_by ?? ""),
-          federated: Boolean(linked),
-          event,
+      invalidateMemberOrgCaches();
+      if (!completed) {
+        throw createError({
+          statusCode: 403,
+          message: "This invitation is no longer available.",
         });
       }
+      void trackInviteAccepted({
+        email,
+        orgId: invOrgId,
+        role: inv.role == null ? null : String(inv.role),
+        invitedBy: String(inv.invitedBy ?? inv.invited_by ?? ""),
+        federated: Boolean(linked),
+        event,
+      });
       await setActiveOrgId(email, invOrgId, "accepted invitation", event);
       return {
         orgId: invOrgId,
@@ -1607,35 +1611,52 @@ export const acceptInvitationHandler = defineEventHandler(
       }
     }
 
-    await e.execute({
-      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT (org_id, LOWER(email)) DO NOTHING`,
-      args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
-    });
-    invalidateMemberOrgCaches();
-
-    await applyInvitationAppRoles({
-      appRolesJson: inv.appRolesJson ? String(inv.appRolesJson) : null,
+    const completed = await acceptLiveInvitation(e, {
+      invitationId,
       orgId: invOrgId,
       email,
+      memberId: nanoid(),
+      joinMember: true,
       updatedBy: inviterEmail,
     });
-
-    const updated = await e.execute({
-      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ? AND status = 'pending'`,
-      args: [invitationId],
-    });
-    if (Number(updated.rowsAffected ?? 0) === 1) {
-      trackInviteAccepted({
-        email,
-        orgId: invOrgId,
-        role: inv.role == null ? null : String(inv.role),
-        invitedBy: inviterEmail,
-        federated: Boolean(linked),
-        event,
+    invalidateMemberOrgCaches();
+    if (!completed) {
+      if (federationEnabled) {
+        try {
+          await revokeFederatedOrganizationMember(event, {
+            orgId: invOrgId,
+            actorEmail: inviterEmail,
+            actorRole:
+              inviterRole === "owner" || inviterRole === "admin"
+                ? inviterRole
+                : "member",
+            memberEmail: email,
+          });
+        } catch (error) {
+          console.error(
+            "[org] invitation: could not undo the identity authority add after a removal won",
+            error,
+          );
+          throw createError({
+            statusCode: 503,
+            message:
+              "Could not synchronize this invitation with the identity authority.",
+          });
+        }
+      }
+      throw createError({
+        statusCode: 403,
+        message: "This invitation is no longer available.",
       });
     }
+    void trackInviteAccepted({
+      email,
+      orgId: invOrgId,
+      role: inv.role == null ? null : String(inv.role),
+      invitedBy: inviterEmail,
+      federated: Boolean(linked),
+      event,
+    });
 
     await setActiveOrgId(email, invOrgId, "accepted invitation", event);
 

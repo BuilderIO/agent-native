@@ -825,6 +825,13 @@ describe("org handlers", () => {
   it("waits for federated invitation approval before inserting local membership", async () => {
     mockExecute.mockImplementation(async (input: { sql: string }) => {
       const sql = input.sql;
+      if (sql.includes("FOR UPDATE")) {
+        return {
+          rows: sql.includes("FROM org_invitations")
+            ? [{ role: "member", appRolesJson: null }]
+            : [],
+        };
+      }
       if (sql.includes("SELECT id, org_id AS")) {
         return {
           rows: [
@@ -924,9 +931,49 @@ describe("org handlers", () => {
     ).toBe(false);
   });
 
+  it("refuses an explicit accept when a removal commits after the pending read", async () => {
+    mockExecute.mockImplementation(async (input: { sql: string }) => {
+      const sql = input.sql;
+      if (sql.includes("SELECT id, org_id AS")) {
+        return {
+          rows: [
+            {
+              id: "invite-1",
+              orgId: "org-1",
+              role: "member",
+              invitedBy: "member@example.test",
+            },
+          ],
+        };
+      }
+      if (sql.includes("FOR UPDATE")) {
+        return { rows: [] };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await expect(
+      acceptInvitationHandler(
+        makeEvent("/_agent-native/org/invitations/invite-1/accept"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(
+      mockExecute.mock.calls.some(([input]) =>
+        input.sql.includes("INSERT INTO org_members"),
+      ),
+    ).toBe(false);
+  });
+
   it("accepts linked invitations locally when federation is disabled", async () => {
     mockExecute.mockImplementation(async (input: { sql: string }) => {
       const sql = input.sql;
+      if (sql.includes("FOR UPDATE")) {
+        return {
+          rows: sql.includes("FROM org_invitations")
+            ? [{ role: "member", appRolesJson: null }]
+            : [],
+        };
+      }
       if (sql.includes("SELECT id, org_id AS")) {
         return {
           rows: [
@@ -975,6 +1022,13 @@ describe("org handlers", () => {
   it("leaves a new member invitation pending when app-role assignment fails", async () => {
     mockExecute.mockImplementation(async (input: { sql: string }) => {
       const sql = input.sql;
+      if (sql.includes("FOR UPDATE")) {
+        return {
+          rows: sql.includes("FROM org_invitations")
+            ? [{ role: "member", appRolesJson: "{invalid" }]
+            : [],
+        };
+      }
       if (sql.includes("SELECT id, org_id AS")) {
         return {
           rows: [
@@ -1010,11 +1064,7 @@ describe("org handlers", () => {
         input.sql.includes("UPDATE org_invitations SET status = 'accepted'"),
       ),
     ).toBe(false);
-    expect(
-      mockExecute.mock.calls.some(([input]) =>
-        input.sql.includes("INSERT INTO org_members"),
-      ),
-    ).toBe(true);
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
   });
 
   it("leaves an existing member invitation pending when app-role assignment fails", async () => {

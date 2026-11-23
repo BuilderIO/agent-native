@@ -5,7 +5,11 @@ const mockPutUserSetting = vi.fn();
 const mockTrackInviteAccepted = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: mockExecute }),
+  getDbExec: () => ({
+    execute: mockExecute,
+    transaction: async (fn: (tx: { execute: typeof mockExecute }) => unknown) =>
+      fn({ execute: mockExecute }),
+  }),
   isLocalDatabase: () => true,
 }));
 vi.mock("../settings/user-settings.js", () => ({
@@ -23,15 +27,39 @@ function queueSelect(...rows: any[][]) {
   }
 }
 
+let appRolesByInvitation: Record<string, string | null> = {};
+let memberExistsAtLock = false;
+
 describe("acceptPendingInvitationsForEmail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockExecute.mockImplementation(async (input: { sql: string }) => ({
-      rows: [],
-      ...(input.sql.includes("UPDATE org_invitations")
-        ? { rowsAffected: 1 }
-        : {}),
-    }));
+    appRolesByInvitation = {};
+    memberExistsAtLock = false;
+    mockExecute.mockImplementation(
+      async (input: { sql: string; args?: unknown[] }) => {
+        const locked = input.sql.includes("FOR UPDATE");
+        let rows: unknown[] = [];
+        if (locked && input.sql.includes("FROM org_invitations")) {
+          rows = [
+            {
+              role: "member",
+              appRolesJson:
+                appRolesByInvitation[String(input.args?.[0])] ?? null,
+            },
+          ];
+        } else if (locked && input.sql.includes("FROM org_members")) {
+          rows = memberExistsAtLock
+            ? [{ federation_removal_pending_at: null }]
+            : [];
+        }
+        return {
+          rows,
+          ...(input.sql.includes("UPDATE org_invitations")
+            ? { rowsAffected: 1 }
+            : {}),
+        };
+      },
+    );
   });
 
   it("returns empty when no pending invitations", async () => {
@@ -54,8 +82,10 @@ describe("acceptPendingInvitationsForEmail", () => {
       "SELECT federation_removal_pending_at FROM org_members",
     );
     expect(calls[2].sql).toContain("status = 'deactivated'");
-    expect(calls[3].sql).toContain("INSERT INTO org_members");
-    expect(calls[4].sql).toContain("UPDATE org_invitations");
+    expect(calls[3].sql).toContain("pg_advisory_xact_lock");
+    expect(calls[4].sql).toContain("FROM org_invitations");
+    expect(calls[7].sql).toContain("INSERT INTO org_members");
+    expect(calls[8].sql).toContain("UPDATE org_invitations");
     expect(out.accepted).toEqual([{ invitationId: "inv1", orgId: "org1" }]);
     expect(mockTrackInviteAccepted).toHaveBeenCalledWith({
       email: "a@b.com",
@@ -105,6 +135,7 @@ describe("acceptPendingInvitationsForEmail", () => {
   });
 
   it("leaves an invitation pending when its app-role assignment fails", async () => {
+    appRolesByInvitation = { inv1: "{invalid" };
     queueSelect(
       [{ id: "inv1", orgId: "org1", appRolesJson: "{invalid" }],
       [], // existing membership check
@@ -122,6 +153,7 @@ describe("acceptPendingInvitationsForEmail", () => {
   });
 
   it("continues accepting later invitations when one app-role assignment fails", async () => {
+    appRolesByInvitation = { inv1: "{invalid" };
     queueSelect(
       [
         { id: "inv1", orgId: "org1", appRolesJson: "{invalid" },
@@ -143,6 +175,7 @@ describe("acceptPendingInvitationsForEmail", () => {
   });
 
   it("skips insert when already a member but still flips invitation", async () => {
+    memberExistsAtLock = true;
     queueSelect(
       [{ id: "inv1", orgId: "org1" }],
       [{ "1": 1 }], // already a member

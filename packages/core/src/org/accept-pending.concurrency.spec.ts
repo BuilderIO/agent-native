@@ -4,10 +4,20 @@ import { createTestPglite } from "../a2a/test-pglite.js";
 
 const mockTrackInviteAccepted = vi.fn();
 
+let transactionQueue: Promise<void> = Promise.resolve();
+
 function createPgliteExec(
   pglite: Awaited<ReturnType<typeof createTestPglite>>,
 ) {
   return {
+    transaction: <T>(run: (tx: unknown) => Promise<T>) => {
+      const result = transactionQueue.then(() => run(createPgliteExec(pglite)));
+      transactionQueue = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
+    },
     async execute(input: string | { sql: string; args?: unknown[] }) {
       const sql = typeof input === "string" ? input : input.sql;
       const args = typeof input === "string" ? [] : (input.args ?? []);
