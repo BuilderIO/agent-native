@@ -186,34 +186,30 @@ function retryAfterMs(header: string | null): number | undefined {
   return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
 }
 
-async function providerErrorReason(
+async function providerErrorCode(
   response: Response,
-): Promise<{ code: string | undefined; message: string | undefined }> {
-  const none = { code: undefined, message: undefined };
+): Promise<string | undefined> {
   let body: unknown;
   try {
     const bytes = await readBoundedResponseBytes(response, 16_000);
     body = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
-    // coercion-ok: an unreadable reply only loses the reason; the status still throws
-    return none;
+    if (response.body && !response.body.locked)
+      void response.body.cancel().catch(() => undefined);
+    // coercion-ok: an unreadable reply only loses its code; the status still throws
+    return undefined;
   }
-  if (!body || typeof body !== "object") return none;
-  const nested = (body as { error?: unknown }).error;
-  const source =
-    nested && typeof nested === "object"
-      ? (nested as Record<string, unknown>)
-      : (body as Record<string, unknown>);
-  const text = (value: unknown, limit: number) =>
-    typeof value === "string" && value.trim()
-      ? value.replace(/\s+/g, " ").trim().slice(0, limit)
+  const nested =
+    body && typeof body === "object"
+      ? (body as { error?: unknown }).error
       : undefined;
-  return {
-    code: text(source.code, 80) ?? text(source.type, 80),
-    message:
-      text(source.message, 200) ??
-      (typeof nested === "string" ? text(nested, 200) : undefined),
-  };
+  const source = nested && typeof nested === "object" ? nested : body;
+  if (!source || typeof source !== "object") return undefined;
+  const { code, type } = source as { code?: unknown; type?: unknown };
+  return [code, type].find(
+    (value): value is string =>
+      typeof value === "string" && /^[\w.-]{1,80}$/.test(value),
+  );
 }
 
 async function postJson(
@@ -240,13 +236,11 @@ async function postJson(
       }),
     );
     if (!response.ok) {
-      const reason = await providerErrorReason(response);
-      const detail = [reason.code, reason.message].filter(Boolean).join(": ");
       throw new EmbeddingProviderError(
-        `Embedding provider ${providerModel} failed with status ${response.status}${detail ? ` (${detail})` : ""}.`,
+        `Embedding provider ${providerModel} failed with status ${response.status}.`,
         response.status,
         retryAfterMs(response.headers.get("retry-after")),
-        reason.code,
+        await providerErrorCode(response),
       );
     }
     const bytes = await readBoundedResponseBytes(response, 1_000_000);
@@ -255,6 +249,7 @@ async function postJson(
       unknown
     >;
   } catch (error) {
+    if (error instanceof EmbeddingProviderError) throw error;
     if (options?.signal?.aborted) throw options.signal.reason ?? error;
     if (controller.signal.aborted)
       throw new Error(`Embedding provider ${providerModel} timed out.`);

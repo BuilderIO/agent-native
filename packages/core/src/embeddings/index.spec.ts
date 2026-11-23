@@ -273,7 +273,7 @@ describe("embedding family availability", () => {
     );
   });
 
-  it("names the gateway's reason for refusing a request", async () => {
+  it("keeps the gateway's code for refusing a request, but not its message", async () => {
     const family = createBuilderEmbeddingFamily({
       authorization: "Bearer builder-session",
       spaceId: null,
@@ -286,8 +286,7 @@ describe("embedding family availability", () => {
           {
             type: "error",
             code: "rate_limit_exceeded",
-            message:
-              "Builder-managed embeddings are temporarily rate limited.\n Retry shortly.",
+            message: "Builder-managed embeddings are temporarily rate limited.",
             severity: "low",
           },
           { status: 429 },
@@ -298,17 +297,13 @@ describe("embedding family availability", () => {
     const failure = await family
       .embed([{ text: "active users" }], "document")
       .catch((error: unknown) => error);
-    expect(failure).toMatchObject({
-      status: 429,
-      code: "rate_limit_exceeded",
-      retryAfterMs: undefined,
-    });
+    expect(failure).toMatchObject({ status: 429, code: "rate_limit_exceeded" });
     expect((failure as Error).message).toBe(
-      "Embedding provider builder/builder-multimodal-embedding failed with status 429 (rate_limit_exceeded: Builder-managed embeddings are temporarily rate limited. Retry shortly.).",
+      "Embedding provider builder/builder-multimodal-embedding failed with status 429.",
     );
   });
 
-  it("reads a reason nested under error, as OpenAI-style APIs send it", async () => {
+  it("reads a code nested under error, and drops one that isn't an identifier", async () => {
     const family = createBuilderEmbeddingFamily({
       authorization: "Bearer builder-session",
       spaceId: null,
@@ -316,24 +311,63 @@ describe("embedding family availability", () => {
     });
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        Response.json(
-          { error: { type: "invalid_request_error", message: "Bad input." } },
-          { status: 400 },
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          Response.json(
+            { error: { type: "invalid_request_error", message: "Bad input." } },
+            { status: 400 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          Response.json({ code: "Bad input: active users" }, { status: 400 }),
         ),
-      ),
     );
 
-    const failure = await family
+    const nested = await family
       .embed([{ text: "active users" }], "document")
       .catch((error: unknown) => error);
-    expect(failure).toMatchObject({
+    expect(nested).toMatchObject({
       status: 400,
       code: "invalid_request_error",
     });
-    expect((failure as Error).message).toBe(
-      "Embedding provider builder/builder-multimodal-embedding failed with status 400 (invalid_request_error: Bad input.).",
+    const prose = await family
+      .embed([{ text: "active users" }], "document")
+      .catch((error: unknown) => error);
+    expect(prose).toBeInstanceOf(EmbeddingProviderError);
+    expect((prose as EmbeddingProviderError).code).toBeUndefined();
+  });
+
+  it("keeps a refusal's status and wait when its reply stalls past the caller's signal", async () => {
+    const family = createBuilderEmbeddingFamily({
+      authorization: "Bearer builder-session",
+      spaceId: null,
+      userId: null,
+    });
+    const caller = new AbortController();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = new ReadableStream<Uint8Array>({
+          start(stream) {
+            init.signal?.addEventListener("abort", () =>
+              stream.error(init.signal?.reason),
+            );
+          },
+        });
+        setTimeout(() => caller.abort(new Error("caller gave up")), 10);
+        return new Response(body, {
+          status: 429,
+          headers: { "Retry-After": "30" },
+        });
+      }),
     );
+
+    const failure = await family
+      .embed([{ text: "active users" }], "document", { signal: caller.signal })
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(EmbeddingProviderError);
+    expect(failure).toMatchObject({ status: 429, retryAfterMs: 30_000 });
   });
 
   it("budgets Builder indexing by its credentials without keeping them", () => {
