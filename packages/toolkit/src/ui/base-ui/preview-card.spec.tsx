@@ -15,7 +15,10 @@ describe("PreviewCard", () => {
     render(
       <PreviewCard defaultOpen>
         <PreviewCardTrigger href="#profile">@agent-native</PreviewCardTrigger>
-        <PreviewCardPopup className="w-80" data-testid="card">
+        <PreviewCardPopup
+          className={({ open }) => (open ? "w-80" : undefined)}
+          data-testid="card"
+        >
           Profile
         </PreviewCardPopup>
       </PreviewCard>,

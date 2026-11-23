@@ -3852,20 +3852,7 @@ describe("document editor layout", () => {
     );
   });
 
-  it("does not steal reply focus when activating a suggestion", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const activation = source.slice(
-      source.indexOf("const activateSuggestion ="),
-      source.indexOf("const handleUtilityPanelChange ="),
-    );
-    expect(activation).not.toContain(".focus(");
-    expect(activation).toContain('block: "nearest"');
-    expect(activation).toContain("rect.top < viewport.top");
-  });
-
+  // oracle-change: suggestion activation scrolling without taking Reply focus is now checked by behavior in suggestion-page-view.test.ts
   it("freezes the suggestion editor while mode exit persists proposals", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),

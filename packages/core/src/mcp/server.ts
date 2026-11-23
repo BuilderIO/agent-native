@@ -10,7 +10,10 @@ import {
 
 import { getAppConfig } from "../app-config/store.js";
 import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
-import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
+import {
+  readBrowserTabIdHeader,
+  readViewportModeHeader,
+} from "../server/agent-run-context.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   describeBearerCredentialRefusal,
@@ -136,10 +139,12 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
   const basePath = getConfiguredAppBasePath();
   const turnGrant = getRequestHeader(event, MCP_TURN_GRANT_HEADER);
   const browserTabId = readBrowserTabIdHeader(event);
+  const viewportMode = readViewportModeHeader(event);
   return {
     origin,
     ...(turnGrant !== undefined ? { turnGrant } : {}),
     ...(browserTabId ? { browserTabId } : {}),
+    ...(viewportMode ? { viewportMode } : {}),
     ...(isAgentTurnGrantContext() ? { turnGrantExcluded: true } : {}),
     ...(basePath ? { basePath } : {}),
     target,

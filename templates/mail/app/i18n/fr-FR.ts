@@ -205,9 +205,19 @@ const messages = {
       markRead: "Marquer comme lu",
       markUnread: "Marquer comme non lu",
       moveTo: "Déplacer vers",
+      labelAs: "Ajouter le libellé",
+      newLabel: "Nouveau libellé…",
       moveToTrash: "Déplacer vers la corbeille",
       star: "Ajouter une étoile",
       unstar: "Retirer l’étoile",
+    },
+    labels: {
+      labelAsPlaceholder: "Ajouter le libellé…",
+      moveToPlaceholder: "Déplacer vers…",
+      newLabelPlaceholder: "Nom du nouveau libellé",
+      create: "Créer le libellé « {{name}} »",
+      empty: "Aucun libellé pour l’instant. Saisissez un nom pour en créer un.",
+      alreadyExists: "« {{name}} » existe déjà.",
     },
     compose: {
       addImage: "Ajouter une image",
@@ -224,6 +234,10 @@ const messages = {
       contentPagesRetry: "Réessayer",
       contentPagesEmpty: "Aucune page trouvée",
       contentFileMarkdown: "Fichier Markdown",
+      contentFilePdf: "Fichier PDF",
+      contentPageFormat: "Joindre les pages en",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "Fichier CSV",
       bold: "Gras",
       cancel: "Annuler",
@@ -476,6 +490,13 @@ const messages = {
       moveSucceeded: "Déplacement vers {{label}} terminé.",
       moveManySucceeded:
         "Déplacement de {{count}} conversations vers {{label}} terminé.",
+      labelSucceeded: "Libellé {{label}} ajouté.",
+      labelManySucceeded: "Libellé {{label}} ajouté à {{count}} conversations.",
+      labelPartialFailed:
+        "Libellé ajouté à {{succeeded}} conversations sur {{total}} ; {{failed}} en échec.",
+      labelFailed: "Impossible d’ajouter le libellé.",
+      labelCreated: "Libellé {{label}} créé.",
+      createLabelFailed: "Impossible de créer le libellé.",
       trashed: "Déplacé vers la corbeille.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programmé envoyé.",
@@ -490,6 +511,12 @@ const messages = {
       scheduledCancelFailed: "Échec de l’annulation de l’email programmé",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Impossible de joindre la page Content",
+      contentPagePdfTextUnsupported:
+        "Cette page contient du texte qu’un PDF ne peut pas encore afficher, comme le chinois, le japonais, le coréen, l’arabe, l’hébreu ou l’hindi. Joignez-la plutôt en Markdown.",
+      contentPagePdfTooLong:
+        "Cette page est trop longue ou trop large pour être jointe en PDF. Joignez-la plutôt en Markdown.",
+      contentPagePdfUnavailable:
+        "Content n’a pas pu créer de PDF pour cette page. Joignez-la plutôt en Markdown.",
       waitForAttachments:
         "Attendez la fin de l’ajout des pièces jointes, puis envoyez.",
       failedToUploadImage: "Échec du téléversement de l’image",

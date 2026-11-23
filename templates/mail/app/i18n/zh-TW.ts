@@ -182,9 +182,19 @@ const messages = {
       markRead: "標為已讀",
       markUnread: "標為未讀",
       moveTo: "行動到",
+      labelAs: "加上標籤",
+      newLabel: "新增標籤…",
       moveToTrash: "移到垃圾桶",
       star: "加上星號",
       unstar: "移除星號",
+    },
+    labels: {
+      labelAsPlaceholder: "加上標籤…",
+      moveToPlaceholder: "移至…",
+      newLabelPlaceholder: "新標籤名稱",
+      create: "建立標籤「{{name}}」",
+      empty: "還沒有標籤。輸入名稱即可建立。",
+      alreadyExists: "「{{name}}」已存在。",
     },
     compose: {
       addImage: "新增圖片",
@@ -201,6 +211,10 @@ const messages = {
       contentPagesRetry: "重試",
       contentPagesEmpty: "找不到頁面",
       contentFileMarkdown: "Markdown 檔案",
+      contentFilePdf: "PDF 檔案",
+      contentPageFormat: "頁面附加格式",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV 檔案",
       bold: "加粗",
       cancel: "取消",
@@ -446,6 +460,13 @@ const messages = {
         "已移動 {{total}} 個工作階段中的 {{succeeded}} 個；{{failed}} 個失敗。",
       moveSucceeded: "已移至「{{label}}」。",
       moveManySucceeded: "已將 {{count}} 個對話移至「{{label}}」。",
+      labelSucceeded: "已加上標籤「{{label}}」。",
+      labelManySucceeded: "已為 {{count}} 個對話加上標籤「{{label}}」。",
+      labelPartialFailed:
+        "已為 {{total}} 個對話中的 {{succeeded}} 個加上標籤，{{failed}} 個失敗。",
+      labelFailed: "無法加上標籤。",
+      labelCreated: "已建立標籤「{{label}}」。",
+      createLabelFailed: "無法建立標籤。",
       trashed: "已移到垃圾桶。",
       trashedMany: "已將 {{count}} 個工作階段移到垃圾桶。",
       scheduledSent: "定時郵件已傳送。",
@@ -458,6 +479,12 @@ const messages = {
       scheduledCancelFailed: "取消定時郵件失敗",
       failedToAttachFile: "附加檔案失敗",
       failedToAttachContentPage: "附加 Content 頁面失敗",
+      contentPagePdfTextUnsupported:
+        "此頁面包含 PDF 暫時無法顯示的文字，例如中文、日文、韓文、阿拉伯文、希伯來文或印地文。請改以 Markdown 格式附加。",
+      contentPagePdfTooLong:
+        "此頁面太長或太寬，無法以 PDF 格式附加。請改以 Markdown 格式附加。",
+      contentPagePdfUnavailable:
+        "Content 無法為此頁面產生 PDF。請改以 Markdown 格式附加。",
       waitForAttachments: "請等待附件新增完成後再傳送。",
       failedToUploadImage: "上傳圖片失敗",
       storageBuilderRefused:

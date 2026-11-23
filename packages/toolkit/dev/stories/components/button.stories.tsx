@@ -6,16 +6,19 @@ import {
 } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { IconBookmark, IconPlus, IconTrash } from "@tabler/icons-react";
+import { useState } from "react";
+import { expect } from "storybook/test";
 
-import { Button } from "../../../src/ui/base-ui/button.js";
+import { Button, IconButton } from "../../../src/ui/base-ui/button.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./button.docs.md?raw";
 
 const controls = propControls(buttonProps);
 
 const meta = {
   title: "Components/Button",
   component: Button,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, children: "Save changes", disabled: false },
   argTypes: controls.argTypes,
 } satisfies Meta<typeof Button>;
@@ -113,4 +116,53 @@ export const Disabled: Story = {
       ))}
     </div>
   ),
+};
+
+function LoadingButtons() {
+  const [loading, setLoading] = useState(false);
+  return (
+    <div className="flex items-center gap-3">
+      <Button onClick={() => setLoading(!loading)}>Toggle loading</Button>
+      <Button loading={loading}>
+        <IconBookmark aria-hidden />
+        <span id="bookmark-label">Save bookmark</span>
+      </Button>
+      <IconButton size="sm" loading={loading} aria-label="Bookmark">
+        <IconBookmark />
+      </IconButton>
+    </div>
+  );
+}
+export const LoadingTransition: Story = {
+  render: () => <LoadingButtons />,
+  play: async ({ canvas, userEvent }) => {
+    const toggle = canvas.getByRole("button", { name: "Toggle loading" });
+    const buttons = ["Save bookmark", "Bookmark"].map((name) =>
+      canvas.getByRole("button", { name }),
+    );
+    const widths = buttons.map(
+      (button) => button.getBoundingClientRect().width,
+    );
+    const children = buttons.map((button) => button.firstElementChild);
+    for (const loading of [true, false]) {
+      await userEvent.click(toggle);
+      for (let i = 0; i < buttons.length; i++) {
+        const button = buttons[i];
+        await expect(button).toHaveAccessibleName(
+          i ? "Bookmark" : "Save bookmark",
+        );
+        await expect(button.firstElementChild).toBe(children[i]);
+        await expect(button.getBoundingClientRect().width).toBe(widths[i]);
+        if (loading) {
+          await expect(button).toBeDisabled();
+          await expect(
+            getComputedStyle(button, "::after").animationName,
+          ).toMatch(/^spinner-/);
+          await expect(getComputedStyle(button, "::after").width).toBe(
+            i ? "12px" : "16px",
+          );
+        } else await expect(button).toBeEnabled();
+      }
+    }
+  },
 };

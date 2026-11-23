@@ -566,6 +566,17 @@ const setImageAltText: BodyWriter = {
   },
 };
 
+const appendToDocument: BodyWriter = {
+  name: "append-to-document",
+  write: async (input) => {
+    const action = (await import("../actions/append-to-document.js")).default;
+    const id = await seedPage("append", EXISTING_BODY);
+    return writeExistingPage(id, () =>
+      action.run({ documentId: id, content: input.body }, browserCtx),
+    );
+  },
+};
+
 /** Every writer in the map a PGlite test can drive, in map order. */
 export const BODY_WRITERS: readonly BodyWriter[] = [
   createDocument,
@@ -583,6 +594,7 @@ export const BODY_WRITERS: readonly BodyWriter[] = [
   setDocumentProperty,
   duplicatePage,
   setImageAltText,
+  appendToDocument,
 ];
 
 export const UNDRIVEN_WRITERS: readonly UndrivenWriter[] = [

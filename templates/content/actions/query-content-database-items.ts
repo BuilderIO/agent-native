@@ -70,6 +70,20 @@ export default defineAction({
           .describe(
             "true leaves out a linked local folder's subfolder rows, for a picker that only takes pages",
           ),
+        group: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "A group ID from a grouped top-level read's groups, with parentId null and that group's cursor; reads the group's next page",
+          ),
+        locate: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "A document ID, with parentId null and no cursor or group; returns the IDs of the groups that list it in locatedGroupIds, and no rows",
+          ),
       })
       .optional()
       .describe(
@@ -147,6 +161,8 @@ export default defineAction({
         cursor: navigation.cursor,
         expand: navigation.expand,
         pagesOnly: navigation.pagesOnly ?? false,
+        group: navigation.group,
+        locate: navigation.locate,
       });
     }
 

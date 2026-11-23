@@ -302,6 +302,7 @@ export default defineAction({
       view: "inbox",
     };
   },
+  mcpTool: "search",
   run: async (args): Promise<ListInboxThreadsResult> => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

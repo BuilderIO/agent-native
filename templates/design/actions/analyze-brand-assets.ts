@@ -1,14 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
-import {
-  buildBrandAnalysisResult,
-  normalizeBrandWebsiteUrl,
-} from "@agent-native/core/brand-kit";
+import { buildBrandAnalysisResult } from "@agent-native/core/brand-kit";
 import { extractRenderedDesignSystemFromUrl } from "@agent-native/creative-context/connectors";
 import { z } from "zod";
 
 import "../server/db/index.js";
-
-export { normalizeBrandWebsiteUrl };
 
 export default defineAction({
   description:

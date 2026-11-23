@@ -190,9 +190,19 @@ const messages = {
       markRead: "पढ़ा हुआ चिह्नित करें",
       markUnread: "अपठित चिह्नित करें",
       moveTo: "यहां ले जाएं",
+      labelAs: "लेबल लगाएं",
+      newLabel: "नया लेबल…",
       moveToTrash: "कूड़ेदान में ले जाएँ",
       star: "स्टार करें",
       unstar: "स्टार हटाएँ",
+    },
+    labels: {
+      labelAsPlaceholder: "लेबल लगाएं…",
+      moveToPlaceholder: "यहां ले जाएं…",
+      newLabelPlaceholder: "नए लेबल का नाम",
+      create: "“{{name}}” लेबल बनाएं",
+      empty: "अभी कोई लेबल नहीं है। बनाने के लिए नाम लिखें।",
+      alreadyExists: "“{{name}}” पहले से मौजूद है।",
     },
     compose: {
       addImage: "छवि जोड़ें",
@@ -209,6 +219,10 @@ const messages = {
       contentPagesRetry: "फिर से कोशिश करें",
       contentPagesEmpty: "कोई पेज नहीं मिला",
       contentFileMarkdown: "Markdown फ़ाइल",
+      contentFilePdf: "PDF फ़ाइल",
+      contentPageFormat: "पेज इस रूप में अटैच करें",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV फ़ाइल",
       bold: "बोल्ड",
       cancel: "रद्द करें",
@@ -458,6 +472,13 @@ const messages = {
         "{{total}} में से {{succeeded}} बातचीत स्थानांतरित हुई; {{failed}} विफल हुईं।",
       moveSucceeded: "{{label}} में ले जाया गया।",
       moveManySucceeded: "{{count}} बातचीत को {{label}} में ले जाया गया।",
+      labelSucceeded: "{{label}} लेबल लगाया गया।",
+      labelManySucceeded: "{{count}} बातचीत पर {{label}} लेबल लगाया गया।",
+      labelPartialFailed:
+        "{{total}} में से {{succeeded}} बातचीत पर लेबल लगाया गया; {{failed}} विफल रहीं।",
+      labelFailed: "लेबल नहीं लगाया जा सका।",
+      labelCreated: "{{label}} लेबल बनाया गया।",
+      createLabelFailed: "लेबल नहीं बनाया जा सका।",
       trashed: "कूड़ेदान में ले जाया गया।",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "शेड्यूल ईमेल भेजा गया।",
@@ -470,6 +491,12 @@ const messages = {
       scheduledCancelFailed: "शेड्यूल ईमेल रद्द करने में विफल",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Content पेज संलग्न नहीं हो सका",
+      contentPagePdfTextUnsupported:
+        "इस पेज में ऐसा टेक्स्ट है जिसे PDF अभी नहीं दिखा सकता, जैसे चीनी, जापानी, कोरियाई, अरबी, हिब्रू या हिंदी। इसके बजाय इसे Markdown के रूप में संलग्न करें।",
+      contentPagePdfTooLong:
+        "यह पेज PDF के रूप में संलग्न करने के लिए बहुत लंबा या बहुत चौड़ा है। इसके बजाय इसे Markdown के रूप में संलग्न करें।",
+      contentPagePdfUnavailable:
+        "Content इस पेज का PDF नहीं बना सका। इसके बजाय इसे Markdown के रूप में संलग्न करें।",
       waitForAttachments: "अटैचमेंट जुड़ने तक प्रतीक्षा करें, फिर भेजें।",
       failedToUploadImage: "छवि अपलोड करने में विफल",
       storageBuilderRefused:

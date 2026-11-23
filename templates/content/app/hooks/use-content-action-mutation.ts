@@ -155,7 +155,24 @@ function navigationBranchListsAny(
   const data = query.state.data as
     | ContentDatabaseNavigationPageResponse
     | undefined;
+  if (
+    data?.groups?.some((group) =>
+      group.page.items.some((item) => documentIds.has(item.documentId)),
+    ) === true
+  ) {
+    return true;
+  }
   return data?.items?.some((item) => documentIds.has(item.documentId)) === true;
+}
+
+function navigationReadIsGrouped(query: Pick<Query, "queryKey" | "state">) {
+  const navigation = queryParams(query)?.navigation as
+    | { group?: unknown }
+    | undefined;
+  const data = query.state.data as
+    | ContentDatabaseNavigationPageResponse
+    | undefined;
+  return navigation?.group !== undefined || data?.groups !== undefined;
 }
 
 /** The cached sidebar branches (parent and collection) that list any of `documentIds`. */
@@ -212,6 +229,13 @@ export function contentNavigationBranchFilter({
             candidate.parentId === branch.parentId &&
             candidate.databaseId === branch.databaseId,
         )
+      ) {
+        return true;
+      }
+      if (
+        parents.size > 0 &&
+        navigationReadIsGrouped(query) &&
+        (!databaseId || branch.databaseId === databaseId)
       ) {
         return true;
       }

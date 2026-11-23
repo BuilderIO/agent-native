@@ -66,11 +66,9 @@
   }
 
   .switch-thumb[data-checked] {
-    translate: calc(var(--_width) - var(--_height));
-  }
-
-  .switch-thumb[data-checked]:dir(rtl) {
-    translate: calc((var(--_width) - var(--_height)) * -1);
+    translate: calc(
+      (var(--_width) - var(--_height)) * var(--_inline-direction, 1)
+    );
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -123,5 +121,42 @@
   .switch[data-disabled] .switch-thumb {
     background-color: var(--gray-2);
     box-shadow: 0 0 0 1px var(--gray-a6);
+  }
+
+  @media (forced-colors: active) {
+    .switch[data-variant] {
+      forced-color-adjust: none;
+      border: 1px solid ButtonText;
+      padding: calc(var(--_inset) - 1px);
+      background-color: Canvas;
+      box-shadow: none;
+    }
+    .switch-thumb {
+      background-color: ButtonText;
+      box-shadow: none;
+    }
+    .switch[data-variant][data-checked] {
+      background-color: Highlight;
+      border-color: Highlight;
+    }
+    .switch[data-checked] .switch-thumb {
+      background-color: HighlightText;
+    }
+    .switch[data-disabled][data-variant] {
+      background-color: Canvas;
+      border-color: GrayText;
+      box-shadow: none;
+    }
+    .switch[data-disabled] .switch-thumb {
+      background-color: GrayText;
+      box-shadow: none;
+    }
+    .switch[data-invalid][data-unchecked] {
+      border-style: dashed;
+      box-shadow: none;
+    }
+    .switch:focus-visible {
+      outline-color: Highlight;
+    }
   }
 }

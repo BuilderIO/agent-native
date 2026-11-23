@@ -24,6 +24,7 @@ export default defineAction({
       .nullish()
       .describe("Emoji glyph rendered next to the space name"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const { organizationId } = await requireOrganizationAccess(

@@ -192,9 +192,19 @@ const messages = {
       markRead: "Mark read",
       markUnread: "Mark unread",
       moveTo: "Move to",
+      labelAs: "Label as",
+      newLabel: "New label…",
       moveToTrash: "Move to Trash",
       star: "Star",
       unstar: "Unstar",
+    },
+    labels: {
+      labelAsPlaceholder: "Label as…",
+      moveToPlaceholder: "Move to…",
+      newLabelPlaceholder: "New label name",
+      create: "Create label “{{name}}”",
+      empty: "No labels yet. Type a name to create one.",
+      alreadyExists: "“{{name}}” already exists.",
     },
     compose: {
       addImage: "Add an image",
@@ -211,6 +221,10 @@ const messages = {
       contentPagesRetry: "Try again",
       contentPagesEmpty: "No pages found",
       contentFileMarkdown: "Markdown file",
+      contentFilePdf: "PDF file",
+      contentPageFormat: "Attach pages as",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV file",
       bold: "Bold",
       cancel: "Cancel",
@@ -458,6 +472,14 @@ const messages = {
         "Moved {{succeeded}} of {{total}} conversations; {{failed}} failed.",
       moveSucceeded: "Moved to {{label}}.",
       moveManySucceeded: "Moved {{count}} conversations to {{label}}.",
+      labelSucceeded: "Added the {{label}} label.",
+      labelManySucceeded:
+        "Added the {{label}} label to {{count}} conversations.",
+      labelPartialFailed:
+        "Labeled {{succeeded}} of {{total}} conversations; {{failed}} failed.",
+      labelFailed: "Couldn't add the label.",
+      labelCreated: "Created the {{label}} label.",
+      createLabelFailed: "Couldn't create the label.",
       trashed: "Moved to Trash.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Scheduled email sent.",
@@ -470,6 +492,12 @@ const messages = {
       uncertainScheduledRetryFailed: "Failed to retry scheduled email.",
       failedToAttachFile: "Failed to attach file",
       failedToAttachContentPage: "Failed to attach Content page",
+      contentPagePdfTextUnsupported:
+        "This page has text a PDF can't show yet, such as Chinese, Japanese, Korean, Arabic, Hebrew or Hindi. Attach it as Markdown instead.",
+      contentPagePdfTooLong:
+        "This page is too long or too wide to attach as a PDF. Attach it as Markdown instead.",
+      contentPagePdfUnavailable:
+        "Content couldn't make a PDF of this page. Attach it as Markdown instead.",
       waitForAttachments: "Wait for attachments to finish, then send.",
       failedToUploadImage: "Failed to upload image",
       storageBuilderRefused:

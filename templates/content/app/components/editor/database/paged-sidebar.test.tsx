@@ -7,11 +7,16 @@ import type {
   ContentDatabaseNavigationPageResponse,
   Document,
 } from "@shared/api";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  defaultScheduler,
+  notifyManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import {
   SidebarPageActionsProvider,
@@ -23,7 +28,7 @@ import {
   type MoveDocumentContext,
 } from "@/hooks/use-pending-moves";
 import { DELETE_DOCUMENT_MUTATION_KEY } from "@/hooks/use-pending-trash";
-import { keepMovedFilesRow } from "@/lib/files-navigation";
+import { type FilesRowMove, keepMovedFilesRow } from "@/lib/files-navigation";
 import type { SidebarRowsHint } from "@/lib/sidebar-layout-hint";
 
 const useFilesNavigationPage = vi.hoisted(() => vi.fn());
@@ -906,6 +911,341 @@ describe("PagedContentFilesSidebarView", () => {
 
     await act(async () => root.unmount());
   });
+
+  it("draws a grouped view's groups with flat rows and pages each group on its own", async () => {
+    useFilesNavigationPage.mockImplementation((args) => ({
+      data: args.navigation.group
+        ? page([navigationItem("draft-3")])
+        : {
+            ...page([navigationItem("root-1", null, true)]),
+            groups: [
+              {
+                id: "stage:draft",
+                label: "Draft",
+                unset: false,
+                count: 3,
+                page: page(
+                  [
+                    navigationItem("nested-1", "root-1", true),
+                    navigationItem("draft-2"),
+                  ],
+                  "draft-cursor",
+                ),
+              },
+              {
+                id: "stage:__ungrouped__",
+                label: "No Stage",
+                unset: true,
+                count: 1,
+                page: page([navigationItem("root-1", null, true)]),
+              },
+            ],
+          },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    }));
+    const { container, root } = await renderHarness({
+      initiallyExpanded: ["root-1"],
+    });
+    const links = () =>
+      Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).map(
+        (link) => link.getAttribute("href"),
+      );
+    const button = (text: string) =>
+      Array.from(container.querySelectorAll("button")).find(
+        (candidate) => candidate.textContent === text,
+      );
+
+    expect(links()).toEqual([
+      "/page/nested-1",
+      "/page/draft-2",
+      "/page/root-1",
+    ]);
+    expect(button("Draft3")).toBeDefined();
+    expect(button("No Stage1")).toBeDefined();
+    expect(
+      container.querySelector('[aria-label="Expand Page root-1"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[aria-label="Collapse Page root-1"]'),
+    ).toBeNull();
+
+    await act(async () => button("Show more")?.click());
+    expect(useFilesNavigationPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        navigation: {
+          parentId: null,
+          cursor: "draft-cursor",
+          group: "stage:draft",
+        },
+      }),
+      undefined,
+    );
+    expect(links()).toEqual([
+      "/page/nested-1",
+      "/page/draft-2",
+      "/page/draft-3",
+      "/page/root-1",
+    ]);
+
+    await act(async () => button("Draft3")?.click());
+    expect(links()).toEqual(["/page/root-1"]);
+
+    await act(async () => root.unmount());
+  });
+
+  it("shows the open page in each group that lists it, even past the group's first page", async () => {
+    const openDocument = {
+      id: "open-page",
+      parentId: "root-1",
+      title: "Open page",
+      content: "",
+      icon: null,
+      position: 99,
+      isFavorite: false,
+      hideFromSearch: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    } satisfies Document;
+    useFilesNavigationPage.mockImplementation((args) => ({
+      data: args.navigation.locate
+        ? { ...page([]), locatedGroupIds: ["stage:draft"] }
+        : args.navigation.group
+          ? page([navigationItem("open-page"), navigationItem("draft-2")])
+          : {
+              ...page([navigationItem("root-1", null, true)]),
+              groups: [
+                {
+                  id: "stage:draft",
+                  label: "Draft",
+                  unset: false,
+                  count: 3,
+                  page: page([navigationItem("draft-1")], "draft-cursor"),
+                },
+                {
+                  id: "stage:live",
+                  label: "Live",
+                  unset: false,
+                  count: 1,
+                  page: page([navigationItem("live-1")]),
+                },
+              ],
+            },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    }));
+    const { container, root } = await renderHarness({
+      activeDocumentId: openDocument.id,
+      activePathDocuments: [openDocument],
+    });
+    const links = () =>
+      Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).map(
+        (link) => link.getAttribute("href"),
+      );
+
+    expect(useFilesNavigationPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        navigation: { parentId: null, cursor: undefined, locate: "open-page" },
+      }),
+      undefined,
+      { enabled: true },
+    );
+    expect(links()).toEqual([
+      "/page/draft-1",
+      "/page/open-page",
+      "/page/live-1",
+    ]);
+    expect(
+      container.querySelector('[aria-label="Expand Open page"]'),
+    ).toBeNull();
+
+    await act(async () =>
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "Show more")
+        ?.click(),
+    );
+    expect(links()).toEqual([
+      "/page/draft-1",
+      "/page/open-page",
+      "/page/draft-2",
+      "/page/live-1",
+    ]);
+
+    await act(async () => root.unmount());
+  });
+
+  it("shows an open page with several values in each of its groups, even when one group's first page lists it", async () => {
+    const openDocument = {
+      id: "open-page",
+      parentId: null,
+      title: "Open page",
+      content: "",
+      icon: null,
+      position: 99,
+      isFavorite: false,
+      hideFromSearch: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    } satisfies Document;
+    useFilesNavigationPage.mockImplementation((args) => ({
+      data: args.navigation.locate
+        ? { ...page([]), locatedGroupIds: ["tags:red", "tags:blue"] }
+        : {
+            ...page([navigationItem("open-page")]),
+            groups: [
+              {
+                id: "tags:red",
+                label: "Red",
+                unset: false,
+                count: 2,
+                page: page([
+                  navigationItem("open-page"),
+                  navigationItem("red-2"),
+                ]),
+              },
+              {
+                id: "tags:blue",
+                label: "Blue",
+                unset: false,
+                count: 2,
+                page: page([navigationItem("blue-1")], "blue-cursor"),
+              },
+            ],
+          },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    }));
+    const { container, root } = await renderHarness({
+      activeDocumentId: openDocument.id,
+      activePathDocuments: [openDocument],
+    });
+
+    expect(
+      Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).map(
+        (link) => link.getAttribute("href"),
+      ),
+    ).toEqual([
+      "/page/open-page",
+      "/page/red-2",
+      "/page/blue-1",
+      "/page/open-page",
+    ]);
+
+    await act(async () => root.unmount());
+  });
+
+  it("takes a page moving to another space out of its groups, and shows one moving in in the no-value group", async () => {
+    useFilesNavigationPage.mockImplementation(() => ({
+      data: {
+        ...page([navigationItem("none-1")]),
+        groups: [
+          {
+            id: "stage:draft",
+            label: "Draft",
+            unset: false,
+            count: 2,
+            page: page([navigationItem("draft-1"), navigationItem("draft-2")]),
+          },
+          {
+            id: "stage:__ungrouped__",
+            label: "No Stage",
+            unset: true,
+            count: 1,
+            page: page([navigationItem("none-1")]),
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    }));
+    const queryClient = new QueryClient();
+    const { container, root } = await renderHarness({ queryClient });
+    const links = () =>
+      Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).map(
+        (link) => link.getAttribute("href"),
+      );
+    const failMoves: Array<(error: Error) => void> = [];
+    const started: Promise<void>[] = [];
+    const moving: Promise<unknown>[] = [];
+    const startMove = (move: FilesRowMove) => {
+      const answer = new Promise<never>((_resolve, reject) => {
+        failMoves.push(reject);
+      });
+      let sent = () => {};
+      started.push(
+        new Promise<void>((resolve) => {
+          sent = resolve;
+        }),
+      );
+      moving.push(
+        queryClient
+          .getMutationCache()
+          .build(queryClient, {
+            mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
+            mutationFn: (_variables: {
+              id: string;
+              parentId: string | null;
+            }) => {
+              sent();
+              return answer;
+            },
+            onMutate: (): MoveDocumentContext => ({ move }),
+          })
+          .execute({ id: move.documentId, parentId: move.parentId })
+          .catch(() => {}),
+      );
+    };
+
+    notifyManager.setScheduler((callback) => callback());
+    onTestFinished(() => notifyManager.setScheduler(defaultScheduler));
+
+    await act(async () => {
+      startMove({
+        documentId: "draft-1",
+        databaseId: "files",
+        parentId: "none-1",
+        from: { databaseId: "files", parentId: null },
+        item: { ...navigationItem("draft-1"), parentId: "none-1" },
+      });
+      startMove({
+        documentId: "draft-2",
+        databaseId: "other-files",
+        parentId: null,
+        from: { databaseId: "files", parentId: null },
+        item: navigationItem("draft-2"),
+      });
+      startMove({
+        documentId: "arriving",
+        databaseId: "files",
+        parentId: null,
+        from: { databaseId: "other-files", parentId: null },
+        item: navigationItem("arriving"),
+      });
+      await Promise.all(started);
+    });
+    expect(links()).toEqual([
+      "/page/draft-1",
+      "/page/none-1",
+      "/page/arriving",
+    ]);
+
+    await act(async () => {
+      for (const fail of failMoves) fail(new Error("Move is unavailable"));
+      await Promise.all(moving);
+    });
+    expect(links()).toEqual(["/page/draft-1", "/page/draft-2", "/page/none-1"]);
+
+    await act(async () => root.unmount());
+  });
+
   describe("a linked local folder", () => {
     const notes = "local-source-directory:vault:notes";
 

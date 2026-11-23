@@ -194,9 +194,19 @@ const messages = {
       markRead: "وضع علامة مقروء",
       markUnread: "وضع علامة غير مقروء",
       moveTo: "نقل إلى",
+      labelAs: "إضافة تصنيف",
+      newLabel: "تصنيف جديد…",
       moveToTrash: "نقل إلى المهملات",
       star: "وضع نجمة",
       unstar: "إزالة النجمة",
+    },
+    labels: {
+      labelAsPlaceholder: "إضافة تصنيف…",
+      moveToPlaceholder: "نقل إلى…",
+      newLabelPlaceholder: "اسم التصنيف الجديد",
+      create: "إنشاء التصنيف «{{name}}»",
+      empty: "لا توجد تصنيفات بعد. اكتب اسمًا لإنشاء تصنيف.",
+      alreadyExists: "«{{name}}» موجود بالفعل.",
     },
     compose: {
       addImage: "إضافة صورة",
@@ -213,6 +223,10 @@ const messages = {
       contentPagesRetry: "إعادة المحاولة",
       contentPagesEmpty: "لم يتم العثور على صفحات",
       contentFileMarkdown: "ملف Markdown",
+      contentFilePdf: "ملف PDF",
+      contentPageFormat: "إرفاق الصفحات بصيغة",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "ملف CSV",
       bold: "غامق",
       cancel: "إلغاء",
@@ -460,6 +474,14 @@ const messages = {
         "تم نقل {{succeeded}} من أصل {{total}} محادثة؛ فشل {{failed}}.",
       moveSucceeded: "تم النقل إلى {{label}}.",
       moveManySucceeded: "تم نقل {{count}} من المحادثات إلى {{label}}.",
+      labelSucceeded: "تمت إضافة التصنيف {{label}}.",
+      labelManySucceeded:
+        "تمت إضافة التصنيف {{label}} إلى {{count}} من المحادثات.",
+      labelPartialFailed:
+        "تمت إضافة التصنيف إلى {{succeeded}} من أصل {{total}} من المحادثات، وتعذّر ذلك في {{failed}}.",
+      labelFailed: "تعذّرت إضافة التصنيف.",
+      labelCreated: "تم إنشاء التصنيف {{label}}.",
+      createLabelFailed: "تعذّر إنشاء التصنيف.",
       trashed: "تم النقل إلى المهملات.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "تم إرسال البريد المجدول.",
@@ -472,6 +494,12 @@ const messages = {
       scheduledCancelFailed: "فشل إلغاء البريد المجدول",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "تعذّر إرفاق صفحة Content",
+      contentPagePdfTextUnsupported:
+        "تحتوي هذه الصفحة على نص لا يمكن لملف PDF عرضه بعد، مثل الصينية أو اليابانية أو الكورية أو العربية أو العبرية أو الهندية. أرفقها بتنسيق Markdown بدلاً من ذلك.",
+      contentPagePdfTooLong:
+        "هذه الصفحة أطول أو أعرض من أن تُرفق كملف PDF. أرفقها بتنسيق Markdown بدلاً من ذلك.",
+      contentPagePdfUnavailable:
+        "تعذّر على Content إنشاء ملف PDF لهذه الصفحة. أرفقها بتنسيق Markdown بدلاً من ذلك.",
       waitForAttachments: "انتظر حتى تكتمل إضافة المرفقات، ثم أرسل.",
       failedToUploadImage: "فشل تحميل الصورة",
       storageBuilderRefused:

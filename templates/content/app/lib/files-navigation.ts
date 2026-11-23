@@ -70,6 +70,8 @@ export function filesNavigationPageParams(args: {
   parentId: string | null;
   cursor?: string;
   pagesOnly?: boolean;
+  group?: string;
+  locate?: string;
 }) {
   return {
     databaseId: args.databaseId,
@@ -78,6 +80,8 @@ export function filesNavigationPageParams(args: {
       parentId: args.parentId,
       cursor: args.cursor,
       ...(args.pagesOnly ? { pagesOnly: true } : {}),
+      ...(args.group === undefined ? {} : { group: args.group }),
+      ...(args.locate === undefined ? {} : { locate: args.locate }),
     },
   };
 }
@@ -88,6 +92,10 @@ export type FilesNavigationPageParams = ReturnType<
 
 export function filesNavigationQueryKey(params: FilesNavigationPageParams) {
   return ["action", "query-content-database-items", params] as const;
+}
+
+function listsBranch({ navigation }: FilesNavigationPageParams) {
+  return navigation.group === undefined && navigation.locate === undefined;
 }
 
 type FilesNavigationRead =
@@ -199,6 +207,7 @@ export function showCreatedFilesRow(
   });
   updateCachedFilesPages(queryClient, (page, params) =>
     params.databaseId === databaseId &&
+    listsBranch(params) &&
     params.navigation.parentId === item.parentId &&
     params.navigation.cursor === undefined &&
     !page.items.some((listed) => listed.documentId === document.id)
@@ -324,7 +333,7 @@ function withCreatedFilesRows(
   readStartMark: number,
 ): ContentDatabaseNavigationPage {
   const rows = createdFilesRows.get(queryClient);
-  if (!rows?.size) return page;
+  if (!rows?.size || !listsBranch(params)) return page;
   const { databaseId, navigation } = params;
   const firstPage = navigation.cursor === undefined;
   const listed = new Set(page.items.map((item) => item.documentId));
@@ -379,9 +388,10 @@ export function cachedFilesRow(
     const params = query.queryKey[2] as FilesNavigationPageParams | undefined;
     const page = query.state.data as FilesNavigationRead | undefined;
     if (!params?.navigation || !page || "available" in page) continue;
-    const item = page.items.find(
-      (candidate) => candidate.documentId === documentId,
-    );
+    const item = [
+      ...page.items,
+      ...(page.groups ?? []).flatMap((group) => group.page.items),
+    ].find((candidate) => candidate.documentId === documentId);
     if (item) return { databaseId: params.databaseId, item };
   }
   return undefined;
@@ -464,7 +474,7 @@ export function moveCachedFilesRow(
 ) {
   const inDestination = (params: FilesNavigationPageParams) =>
     params.databaseId === move.databaseId &&
-    params.navigation.parentId === move.parentId;
+    (!listsBranch(params) || params.navigation.parentId === move.parentId);
   updateCachedFilesPages(queryClient, (page, params) => {
     const listed = page.items.some(
       (item) => item.documentId === move.documentId,
@@ -476,10 +486,35 @@ export function moveCachedFilesRow(
       };
     }
     return !listed &&
+      listsBranch(params) &&
       inDestination(params) &&
       params.navigation.cursor === undefined
       ? { ...page, items: [...page.items, move.item] }
       : undefined;
+  });
+  updateCachedFilesPages(queryClient, (page, params) => {
+    const { groups } = page as ContentDatabaseNavigationPageResponse;
+    if (
+      params.databaseId === move.databaseId ||
+      !groups?.some((group) =>
+        group.page.items.some((item) => item.documentId === move.documentId),
+      )
+    ) {
+      return undefined;
+    }
+    const next: ContentDatabaseNavigationPageResponse = {
+      ...page,
+      groups: groups.map((group) => ({
+        ...group,
+        page: {
+          ...group.page,
+          items: group.page.items.filter(
+            (item) => item.documentId !== move.documentId,
+          ),
+        },
+      })),
+    };
+    return next;
   });
   const oldParentId = move.from.parentId;
   const oldBranch =

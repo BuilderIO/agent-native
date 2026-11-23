@@ -69,6 +69,7 @@ function SyncProbe({
   queryClient,
   actionInvalidatePredicate,
   suppressActionInvalidationFor,
+  queryKeys,
   onEvent,
 }: {
   queryClient: QueryClientProbe;
@@ -77,6 +78,7 @@ function SyncProbe({
     events: readonly { source?: string; key?: string }[],
   ) => boolean;
   suppressActionInvalidationFor?: string[];
+  queryKeys?: string[];
   onEvent?: (data: any) => void;
 }) {
   useDbSync({
@@ -88,6 +90,7 @@ function SyncProbe({
     pauseWhenHidden: false,
     actionInvalidatePredicate,
     suppressActionInvalidationFor,
+    queryKeys,
     onEvent,
   });
   return null;
@@ -145,6 +148,8 @@ function resultlessActionInvalidations(
   );
 }
 
+// oracle-change: Background polling requires opt-in and action invalidation no longer claims a render.
+// oracle-change(packages/core/src/server/active-turn.spec.ts): The global active-turn heartbeat and its server marker are removed.
 describe("useDbSync", () => {
   let roots: Root[] = [];
   let containers: HTMLDivElement[] = [];
@@ -208,6 +213,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: false,
         onEvent: (event) => observedEvents.push(event),
       });
       return null;
@@ -258,7 +264,7 @@ describe("useDbSync", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("invalidates the originating tab's navigation command on local navigate completion", async () => {
+  it("invalidates the originating tab's navigation command on completion of an action that wrote it", async () => {
     const queryClient = new QueryClientProbe();
     const fetchMock = vi.fn();
     const observedEvents: Array<{ source?: string; key?: string }> = [];
@@ -268,6 +274,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: false,
         onEvent: (event) => observedEvents.push(event),
       });
       return null;
@@ -289,7 +296,8 @@ describe("useDbSync", () => {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
           detail: {
-            tool: "navigate",
+            tool: "create-item",
+            navigationKeys: ["navigate:browser-tab-a"],
             completedSideEffect: true,
             tabId: "chat-tab-a",
             browserTabId: "browser-tab-a",
@@ -341,6 +349,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: false,
       });
       return null;
     }
@@ -434,6 +443,7 @@ describe("useDbSync", () => {
         queryClient,
         pollUrl: "/poll",
         sseUrl: false,
+        realtime: false,
         onEvent: (event) => observedEvents.push(event),
       });
       return null;
@@ -527,6 +537,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: false,
       });
       return null;
     }
@@ -1004,6 +1015,7 @@ describe("useDbSync", () => {
   });
 
   it("still refetches action queries when an action event rides alongside app-state churn", async () => {
+    vi.useFakeTimers();
     const queryClient = new QueryClientProbe();
     const fetchMock = vi.fn(
       async () =>
@@ -1036,9 +1048,14 @@ describe("useDbSync", () => {
     containers.push(container);
 
     await act(async () => {
-      root.render(<SyncProbe queryClient={queryClient} />);
+      root.render(
+        <SyncProbe queryClient={queryClient} queryKeys={["sql-chart"]} />,
+      );
       await Promise.resolve();
       await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
     });
 
     const keys = invalidatedQueryKeys(queryClient.calls);
@@ -1261,14 +1278,24 @@ describe("useDbSync", () => {
     containers.push(container);
 
     await act(async () => {
-      root.render(<SyncProbe queryClient={queryClient} />);
+      root.render(
+        <SyncProbe queryClient={queryClient} queryKeys={["sql-chart"]} />,
+      );
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(queryClient.calls).toContain(undefined);
+    expect(
+      queryClient.calls[0]?.predicate?.({ queryKey: ["action", "list-items"] }),
+    ).toBe(true);
+    expect(queryClient.calls[0]?.predicate?.({ queryKey: ["unrelated"] })).toBe(
+      false,
+    );
+    expect(queryClient.calls[0]?.predicate?.({ queryKey: ["sql-chart"] })).toBe(
+      true,
+    );
     expect(urls[1]).toContain("since=0");
   });
 

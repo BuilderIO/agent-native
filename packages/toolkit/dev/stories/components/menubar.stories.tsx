@@ -21,6 +21,7 @@ import {
   MenubarTrigger,
 } from "../../../src/ui/base-ui/menubar.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./menubar.docs.md?raw";
 
 type MenubarMenuProps = MenubarPopupOwnProps;
 
@@ -75,7 +76,11 @@ function MenubarSample(props: MenubarMenuProps) {
 
 const meta = {
   title: "Components/Menubar",
-  parameters: { layout: "fullscreen" },
+  component: MenubarPopup,
+  parameters: {
+    docs: { description: { component: guide } },
+    layout: "fullscreen",
+  },
   args: controls.args,
   argTypes: controls.argTypes,
 } satisfies Meta<MenubarMenuProps>;

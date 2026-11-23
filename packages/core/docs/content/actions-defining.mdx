@@ -130,6 +130,13 @@ The framework auto-discovers every file in `actions/` and mounts it on startup. 
             "When true (or when the predicate returns true), a failure after this action's own write is a known failure the model can correct and retry, instead of blocking the tool for the rest of the current turn. Reserve this for actions that are safe to re-run after any error. A rejection before any write needs no flag. See Retry-safe writes below.",
         },
         {
+          name: "automatic",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            'Marks a write the app makes on its own, with no user gesture: on load, on mount, on a timer, or experiment and usage bookkeeping. Its action_started, action_completed, and action_failed events carry action_kind "automatic" instead of "write", so product-use counts leave it out. A predicate labels only the calls it returns true for. It labels analytics only: never set readOnly to quiet a write.',
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,

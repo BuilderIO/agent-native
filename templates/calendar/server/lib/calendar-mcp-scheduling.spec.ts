@@ -63,6 +63,15 @@ vi.mock("@agent-native/core/settings", async (importOriginal) => ({
   putUserSetting: async (email: string, key: string, value: unknown) => {
     mocks.settings.set(`${email}:${key}`, value);
   },
+  mutateUserSetting: async (
+    email: string,
+    key: string,
+    updater: (current: unknown) => unknown,
+  ) => {
+    const next = await updater(mocks.settings.get(`${email}:${key}`) ?? null);
+    mocks.settings.set(`${email}:${key}`, next);
+    return next;
+  },
 }));
 vi.mock("@agent-native/core/tracking", () => ({ track: vi.fn() }));
 

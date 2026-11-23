@@ -35,6 +35,7 @@ export default defineAction({
     jobId: z.string().trim().min(1),
     summary: z.string().max(2_000),
   }),
+  mcpTool: false,
   run: async ({ jobId, summary }) => {
     const claimantEmail = getCurrentOwnerEmail().trim().toLowerCase();
     const normalizedSummary = validateTransactionalEmailSummary(summary);

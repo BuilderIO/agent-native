@@ -237,3 +237,7 @@ describe("describe-models", () => {
     ).resolves.toMatchObject({ metadata: { state: "not-applicable" } });
   });
 });
+
+it("keeps describe-models in the app, off MCP", () => {
+  expect(action.mcpTool).toBe(false);
+});

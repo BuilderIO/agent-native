@@ -202,9 +202,19 @@ const messages = {
       markRead: "Marcar como leído",
       markUnread: "Marcar como no leído",
       moveTo: "Mover a",
+      labelAs: "Etiquetar como",
+      newLabel: "Nueva etiqueta…",
       moveToTrash: "Mover a la papelera",
       star: "Marcar con estrella",
       unstar: "Quitar estrella",
+    },
+    labels: {
+      labelAsPlaceholder: "Etiquetar como…",
+      moveToPlaceholder: "Mover a…",
+      newLabelPlaceholder: "Nombre de la nueva etiqueta",
+      create: "Crear la etiqueta «{{name}}»",
+      empty: "Aún no hay etiquetas. Escribe un nombre para crear una.",
+      alreadyExists: "«{{name}}» ya existe.",
     },
     compose: {
       addImage: "Añadir una imagen",
@@ -221,6 +231,10 @@ const messages = {
       contentPagesRetry: "Reintentar",
       contentPagesEmpty: "No se encontraron páginas",
       contentFileMarkdown: "Archivo Markdown",
+      contentFilePdf: "Archivo PDF",
+      contentPageFormat: "Adjuntar páginas como",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "Archivo CSV",
       bold: "Negrita",
       cancel: "Cancelar",
@@ -472,6 +486,14 @@ const messages = {
         "Se movieron {{succeeded}} de {{total}} conversaciones; {{failed}} fallaron.",
       moveSucceeded: "Movido a {{label}}.",
       moveManySucceeded: "Se movieron {{count}} conversaciones a {{label}}.",
+      labelSucceeded: "Se añadió la etiqueta {{label}}.",
+      labelManySucceeded:
+        "Se añadió la etiqueta {{label}} a {{count}} conversaciones.",
+      labelPartialFailed:
+        "Se etiquetaron {{succeeded}} de {{total}} conversaciones; {{failed}} fallaron.",
+      labelFailed: "No se pudo añadir la etiqueta.",
+      labelCreated: "Se creó la etiqueta {{label}}.",
+      createLabelFailed: "No se pudo crear la etiqueta.",
       trashed: "Movido a la papelera.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programado enviado.",
@@ -485,6 +507,12 @@ const messages = {
       scheduledCancelFailed: "No se pudo cancelar el email programado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "No se pudo adjuntar la página de Content",
+      contentPagePdfTextUnsupported:
+        "Esta página tiene texto que un PDF aún no puede mostrar, como chino, japonés, coreano, árabe, hebreo o hindi. Adjúntala como Markdown.",
+      contentPagePdfTooLong:
+        "Esta página es demasiado larga o ancha para adjuntarla como PDF. Adjúntala como Markdown.",
+      contentPagePdfUnavailable:
+        "Content no pudo crear un PDF de esta página. Adjúntala como Markdown.",
       waitForAttachments:
         "Espera a que terminen de añadirse los adjuntos y luego envía.",
       failedToUploadImage: "No se pudo subir la imagen",

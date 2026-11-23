@@ -9,6 +9,7 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   persistInBrowser: false,
+  mcpTool: false,
   run: async (_args, ctx) => {
     const email = ctx?.userEmail;
     if (!email) fail("Not authenticated.", { statusCode: 401 });

@@ -97,7 +97,7 @@ const decide = (observedRevision?: number) =>
   );
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetSuggestionTablesForTests();
   access
     .mockReset()
@@ -137,7 +137,7 @@ describe("pending suggestion amendments", () => {
 
   it("adds ownership columns to a preexisting amendment table without removing rows", async () => {
     await pglite.close();
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     await pglite.exec(
       "CREATE TABLE agent_review_suggestion_amendments (idempotency_key TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, revision INTEGER NOT NULL, author_email TEXT NOT NULL, request_json TEXT NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE (suggestion_id, revision))",
     );

@@ -164,7 +164,7 @@ beforeEach(async () => {
   state.profilesIncomplete = false;
   state.sendEmail.mockClear();
 
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`
     CREATE TABLE agent_docs (
       id TEXT PRIMARY KEY,

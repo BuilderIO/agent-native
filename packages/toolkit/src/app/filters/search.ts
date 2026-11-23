@@ -1,6 +1,7 @@
 import {
   FILTER_NOBODY,
   filterDatePresets,
+  filterOperatorsFor,
   type FilterField,
   type FilterOperator,
 } from "./model.js";
@@ -29,6 +30,16 @@ export function matchesFilterQuery(label: string, query: string) {
 }
 
 export function filterValueCandidates(
+  field: FilterField<never>,
+  labels: FilterCandidateLabels,
+): FilterValueCandidate[] {
+  const operators = filterOperatorsFor(field);
+  return typeValueCandidates(field, labels).filter((candidate) =>
+    operators.includes(candidate.operator),
+  );
+}
+
+function typeValueCandidates(
   field: FilterField<never>,
   labels: FilterCandidateLabels,
 ): FilterValueCandidate[] {

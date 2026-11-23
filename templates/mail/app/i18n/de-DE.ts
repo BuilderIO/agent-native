@@ -206,9 +206,19 @@ const messages = {
       markRead: "Als gelesen markieren",
       markUnread: "Als ungelesen markieren",
       moveTo: "Verschieben nach",
+      labelAs: "Label zuweisen",
+      newLabel: "Neues Label…",
       moveToTrash: "In Papierkorb verschieben",
       star: "Markieren",
       unstar: "Markierung entfernen",
+    },
+    labels: {
+      labelAsPlaceholder: "Label zuweisen…",
+      moveToPlaceholder: "Verschieben nach…",
+      newLabelPlaceholder: "Name des neuen Labels",
+      create: "Label „{{name}}“ erstellen",
+      empty: "Noch keine Labels. Gib einen Namen ein, um eines zu erstellen.",
+      alreadyExists: "„{{name}}“ gibt es schon.",
     },
     compose: {
       addImage: "Bild hinzufügen",
@@ -225,6 +235,10 @@ const messages = {
       contentPagesRetry: "Erneut versuchen",
       contentPagesEmpty: "Keine Seiten gefunden",
       contentFileMarkdown: "Markdown-Datei",
+      contentFilePdf: "PDF-Datei",
+      contentPageFormat: "Seiten anhängen als",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV-Datei",
       bold: "Fett",
       cancel: "Abbrechen",
@@ -478,6 +492,14 @@ const messages = {
         "{{succeeded}} von {{total}} Unterhaltungen verschoben; {{failed}} fehlgeschlagen.",
       moveSucceeded: "Nach {{label}} verschoben.",
       moveManySucceeded: "{{count}} Unterhaltungen nach {{label}} verschoben.",
+      labelSucceeded: "Label {{label}} zugewiesen.",
+      labelManySucceeded:
+        "Label {{label}} {{count}} Unterhaltungen zugewiesen.",
+      labelPartialFailed:
+        "Label {{succeeded}} von {{total}} Unterhaltungen zugewiesen; {{failed}} fehlgeschlagen.",
+      labelFailed: "Das Label konnte nicht zugewiesen werden.",
+      labelCreated: "Label {{label}} erstellt.",
+      createLabelFailed: "Das Label konnte nicht erstellt werden.",
       trashed: "In den Papierkorb verschoben.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Geplante E-Mail gesendet.",
@@ -491,6 +513,12 @@ const messages = {
       scheduledCancelFailed: "Geplante E-Mail konnte nicht abgebrochen werden",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Content-Seite konnte nicht angehängt werden",
+      contentPagePdfTextUnsupported:
+        "Diese Seite enthält Text, den ein PDF noch nicht darstellen kann, etwa Chinesisch, Japanisch, Koreanisch, Arabisch, Hebräisch oder Hindi. Hänge sie stattdessen als Markdown an.",
+      contentPagePdfTooLong:
+        "Diese Seite ist zu lang oder zu breit, um sie als PDF anzuhängen. Hänge sie stattdessen als Markdown an.",
+      contentPagePdfUnavailable:
+        "Content konnte aus dieser Seite kein PDF erstellen. Hänge sie stattdessen als Markdown an.",
       waitForAttachments: "Warte, bis die Anhänge fertig sind, und sende dann.",
       failedToUploadImage: "Bild konnte nicht hochgeladen werden",
       storageBuilderRefused:

@@ -249,7 +249,10 @@ async function lockPageForBodyWrite(
         and(
           eq(schema.contentDatabases.ownerDocumentId, documentId),
           eq(schema.contentDatabases.ownerEmail, owner.ownerEmail),
-          isNull(schema.contentDatabases.deletedAt),
+          or(
+            isNull(schema.contentDatabases.deletedAt),
+            isNull(schema.documents.trashedAt),
+          ),
         ),
         requiredCollections.length > 0
           ? inArray(schema.contentDatabases.id, requiredCollections)
