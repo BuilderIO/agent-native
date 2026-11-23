@@ -96,7 +96,9 @@ function useRowPageSources(document: Document): RowPageSources {
   }
   const data =
     available ??
-    (lastRead?.databaseId === databaseId ? lastRead.data : undefined);
+    (!read.data && lastRead?.databaseId === databaseId
+      ? lastRead.data
+      : undefined);
   if (data) {
     return {
       state: "read",

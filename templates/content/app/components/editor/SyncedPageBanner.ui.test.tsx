@@ -229,13 +229,33 @@ describe("Synced page banner", () => {
     },
   );
 
-  it("keeps the banner from the last read when a later read finds the collection unavailable", () => {
+  it.each(["not_found", "deleted"] as const)(
+    "drops the banner from the last read when a later read finds the collection %s",
+    (reason) => {
+      collection.read.mockReturnValue({
+        data: { sources: [builderSource({ writeMode: "read_only" })] },
+      });
+      const { rerender } = renderUi(<SyncedPageBanner document={rowPage()} />);
+      expect(banner()?.dataset.syncedPageBanner).toBe("builder");
+      collection.read.mockReturnValue({
+        data: { available: false, reason, databaseId: "database-1" },
+        refetch: vi.fn(),
+      });
+      rerender(<SyncedPageBanner document={rowPage()} />);
+      expect(banner()?.textContent).toBe(
+        "Couldn’t check where this page comes from. Try again",
+      );
+    },
+  );
+
+  it("keeps the banner from the last read when a later read fails without data", () => {
     collection.read.mockReturnValue({
       data: { sources: [builderSource({ writeMode: "read_only" })] },
     });
     const { rerender } = renderUi(<SyncedPageBanner document={rowPage()} />);
     collection.read.mockReturnValue({
-      data: { available: false, reason: "deleted", databaseId: "database-1" },
+      data: undefined,
+      isError: true,
       refetch: vi.fn(),
     });
     rerender(<SyncedPageBanner document={rowPage()} />);
