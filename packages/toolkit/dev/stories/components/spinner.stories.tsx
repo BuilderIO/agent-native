@@ -4,13 +4,14 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button } from "../../../src/ui/base-ui/button.js";
 import { Spinner } from "../../../src/ui/base-ui/spinner.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./spinner.docs.md?raw";
 
 const controls = propControls(spinnerProps);
 
 const meta = {
   title: "Components/Spinner",
   component: Spinner,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: controls.args,
   argTypes: controls.argTypes,
 } satisfies Meta<typeof Spinner>;

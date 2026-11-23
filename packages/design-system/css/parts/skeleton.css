@@ -30,11 +30,16 @@
     animation: skeleton-pulse 1s var(--ease-standard) infinite alternate-reverse;
   }
 
-  .skeleton:empty {
+  .skeleton:empty:not(img) {
     display: block;
     width: 100%;
     height: 100%;
     min-height: 1lh;
+  }
+
+  img.skeleton {
+    /* Move the artwork outside its box while retaining its intrinsic dimensions. */
+    object-position: calc(infinity * 1px) center;
   }
 
   /* Inline, it adds no height to its line, so wrapped text keeps its rhythm. */
@@ -46,6 +51,14 @@
   .skeleton::before,
   .skeleton::after {
     visibility: hidden;
+  }
+
+  @media (forced-colors: active) {
+    .skeleton {
+      forced-color-adjust: none;
+      background-color: GrayText;
+      animation: none;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {

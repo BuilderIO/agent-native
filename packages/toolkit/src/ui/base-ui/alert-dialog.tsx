@@ -3,10 +3,14 @@ import {
   alertDialogPopupProps,
 } from "@agent-native/design-system";
 import { AlertDialog as BaseAlertDialog } from "@base-ui/react/alert-dialog";
+import { mergeProps } from "@base-ui/react/merge-props";
+import { useRender } from "@base-ui/react/use-render";
 import * as React from "react";
 
 import { cn } from "../../utils.js";
 import { Button, type ButtonProps } from "./button.js";
+import { scopePortal } from "./overlay-scope.js";
+import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
 /**
@@ -32,9 +36,7 @@ export const AlertDialogTrigger = BaseAlertDialog.Trigger;
  *
  * @import import { AlertDialogPortal } from "@agent-native/toolkit/ui/base-ui/alert-dialog";
  */
-export const AlertDialogPortal = BaseAlertDialog.Portal;
-
-type WithClassName<Props> = Omit<Props, "className"> & { className?: string };
+export const AlertDialogPortal = scopePortal(BaseAlertDialog.Portal);
 
 /**
  * The backdrop that dims the page behind the alert dialog. AlertDialogPopup
@@ -44,26 +46,46 @@ type WithClassName<Props> = Omit<Props, "className"> & { className?: string };
  */
 const AlertDialogBackdrop = React.forwardRef<
   HTMLDivElement,
-  WithClassName<BaseAlertDialog.Backdrop.Props>
+  BaseAlertDialog.Backdrop.Props
 >(({ className, ...props }, ref) => (
   <BaseAlertDialog.Backdrop
     ref={ref}
-    className={cn("alert-dialog-backdrop", className)}
+    className={partClassName("alert-dialog-backdrop", className)}
     {...props}
   />
 ));
 AlertDialogBackdrop.displayName = "AlertDialogBackdrop";
 
-type AlertDialogPopupProps = WithClassName<BaseAlertDialog.Popup.Props> &
+type AlertDialogPopupProps = BaseAlertDialog.Popup.Props &
   AlertDialogPopupOwnProps & {
     container?: BaseAlertDialog.Portal.Props["container"];
     keepMounted?: boolean;
-    backdropClassName?: string;
-    backdropStyle?: React.CSSProperties;
-    backdropProps?: WithClassName<BaseAlertDialog.Backdrop.Props> & {
+    backdropClassName?: BaseAlertDialog.Backdrop.Props["className"];
+    backdropStyle?: BaseAlertDialog.Backdrop.Props["style"];
+    backdropProps?: BaseAlertDialog.Backdrop.Props & {
       [dataAttribute: `data-${string}`]: string | undefined;
     };
   };
+
+type BackdropValue<T> =
+  | T
+  | ((state: BaseAlertDialog.Backdrop.State) => T | undefined);
+
+function combineBackdropValues<T extends string | React.CSSProperties>(
+  base: BackdropValue<T> | undefined,
+  override: BackdropValue<T> | undefined,
+  merge: (base: T | undefined, override: T | undefined) => T,
+): BackdropValue<T> | undefined {
+  if (base === undefined) return override;
+  if (override === undefined) return base;
+  if (typeof base !== "function" && typeof override !== "function")
+    return merge(base, override);
+  return (state) =>
+    merge(
+      typeof base === "function" ? base(state) : base,
+      typeof override === "function" ? override(state) : override,
+    );
+}
 
 /**
  * The alert dialog's window, with its backdrop and portal. It is Base UI's
@@ -91,12 +113,20 @@ const AlertDialogPopup = React.forwardRef<
     <AlertDialogPortal container={container} keepMounted={keepMounted}>
       <AlertDialogBackdrop
         {...backdropProps}
-        className={cn(backdropProps?.className, backdropClassName)}
-        style={{ ...backdropProps?.style, ...backdropStyle }}
+        className={combineBackdropValues<string>(
+          backdropProps?.className,
+          backdropClassName,
+          cn,
+        )}
+        style={combineBackdropValues<React.CSSProperties>(
+          backdropProps?.style,
+          backdropStyle,
+          (base, override) => ({ ...base, ...override }),
+        )}
       />
       <BaseAlertDialog.Popup
         ref={ref}
-        className={cn("alert-dialog-popup", className)}
+        className={partClassName("alert-dialog-popup", className)}
         {...rest}
         {...attributes}
       />
@@ -111,11 +141,14 @@ AlertDialogPopup.displayName = "AlertDialogPopup";
  * @import import { AlertDialogHeader } from "@agent-native/toolkit/ui/base-ui/alert-dialog";
  */
 const AlertDialogHeader = ({
-  className,
+  render,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("alert-dialog-header", className)} {...props} />
-);
+}: useRender.ComponentProps<"div">) =>
+  useRender({
+    defaultTagName: "div",
+    render,
+    props: mergeProps<"div">({ className: "alert-dialog-header" }, props),
+  });
 AlertDialogHeader.displayName = "AlertDialogHeader";
 
 /**
@@ -124,11 +157,14 @@ AlertDialogHeader.displayName = "AlertDialogHeader";
  * @import import { AlertDialogFooter } from "@agent-native/toolkit/ui/base-ui/alert-dialog";
  */
 const AlertDialogFooter = ({
-  className,
+  render,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("alert-dialog-footer", className)} {...props} />
-);
+}: useRender.ComponentProps<"div">) =>
+  useRender({
+    defaultTagName: "div",
+    render,
+    props: mergeProps<"div">({ className: "alert-dialog-footer" }, props),
+  });
 AlertDialogFooter.displayName = "AlertDialogFooter";
 
 /**
@@ -138,11 +174,11 @@ AlertDialogFooter.displayName = "AlertDialogFooter";
  */
 const AlertDialogTitle = React.forwardRef<
   HTMLHeadingElement,
-  WithClassName<BaseAlertDialog.Title.Props>
+  BaseAlertDialog.Title.Props
 >(({ className, ...props }, ref) => (
   <BaseAlertDialog.Title
     ref={ref}
-    className={cn("alert-dialog-title", className)}
+    className={partClassName("alert-dialog-title", className)}
     {...props}
   />
 ));
@@ -155,11 +191,11 @@ AlertDialogTitle.displayName = "AlertDialogTitle";
  */
 const AlertDialogDescription = React.forwardRef<
   HTMLParagraphElement,
-  WithClassName<BaseAlertDialog.Description.Props>
+  BaseAlertDialog.Description.Props
 >(({ className, ...props }, ref) => (
   <BaseAlertDialog.Description
     ref={ref}
-    className={cn("alert-dialog-description", className)}
+    className={partClassName("alert-dialog-description", className)}
     {...props}
   />
 ));

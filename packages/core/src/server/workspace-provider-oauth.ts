@@ -2117,13 +2117,7 @@ function resolvePersonalGrant(
   );
   return {
     scopes: held.filter((scope) => allowed.includes(scope)),
-    missingRequired:
-      required.some((scope) => !held.includes(scope)) ||
-      held.some(
-        (scope) =>
-          !provider.oauth.scopes.includes(scope) &&
-          !(provider.id === "slack" && scope === "identify"),
-      ),
+    missingRequired: required.some((scope) => !held.includes(scope)),
   };
 }
 

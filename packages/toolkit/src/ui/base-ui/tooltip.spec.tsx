@@ -89,7 +89,7 @@ describe("TooltipTrigger focus", () => {
     render(
       <TooltipProvider>
         <Tooltip>
-          <TooltipTrigger render={<div />} nativeButton={false}>
+          <TooltipTrigger render={<div />}>
             <Popover open>
               <PopoverTrigger>Look again on</PopoverTrigger>
               <PopoverContent>
@@ -108,6 +108,32 @@ describe("TooltipTrigger focus", () => {
 });
 
 describe("Tooltip", () => {
+  it("merges classes from live popup state when kept mounted", async () => {
+    const view = (open: boolean) => (
+      <TooltipProvider>
+        <Tooltip open={open}>
+          <TooltipTrigger>Rank</TooltipTrigger>
+          <TooltipPopup
+            keepMounted
+            className={(state) => (state.open ? "is-open" : "is-closed")}
+          >
+            Rank order
+          </TooltipPopup>
+        </Tooltip>
+      </TooltipProvider>
+    );
+    const { rerender } = render(view(true));
+    await waitFor(() =>
+      expect(popup()?.classList.contains("is-open")).toBe(true),
+    );
+    rerender(view(false));
+    await waitFor(() =>
+      expect(popup()?.classList.contains("is-closed")).toBe(true),
+    );
+    expect(popup()?.classList.contains("tooltip-popup")).toBe(true);
+    expect(popup()?.classList.contains("is-open")).toBe(false);
+  });
+
   it("renders the part classes and marks the popup", () => {
     focusComesFrom("keyboard");
     const trigger = renderButton();

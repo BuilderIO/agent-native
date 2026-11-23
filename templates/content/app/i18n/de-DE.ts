@@ -987,6 +987,8 @@ const editor = {
     addOption: "Option hinzufügen",
     addProperty: "Eigenschaft hinzufügen",
     addPropertyFailed: "Eigenschaft konnte nicht hinzugefügt werden.",
+    addPropertyTypeUnsupported:
+      "Diese Sammlung kann keine {{type}}-Eigenschaften aufnehmen.",
     addPropertyLink: "{{name}}-Link hinzufügen",
     addPropertyPerson: "{{name}}-Person hinzufügen",
     addPropertyType: "{{type}}-Eigenschaft hinzufügen",

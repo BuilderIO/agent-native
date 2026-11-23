@@ -72,6 +72,28 @@ export const CREATABLE_DOCUMENT_PROPERTY_TYPES = [
   "last_edited_by",
 ] as const satisfies readonly DocumentPropertyType[];
 
+export const FILES_PROPERTY_TYPES = [
+  "text",
+  "number",
+  "select",
+  "multi_select",
+  "status",
+  "date",
+  "person",
+  "place",
+  "checkbox",
+  "url",
+  "email",
+  "phone",
+] as const satisfies readonly DocumentPropertyType[];
+
+export function addablePropertyTypes(
+  systemRole: string | null | undefined,
+): readonly DocumentPropertyType[] {
+  if (!systemRole) return CREATABLE_DOCUMENT_PROPERTY_TYPES;
+  return systemRole === "files" ? FILES_PROPERTY_TYPES : [];
+}
+
 export type EditableDocumentPropertyType =
   (typeof EDITABLE_DOCUMENT_PROPERTY_TYPES)[number];
 

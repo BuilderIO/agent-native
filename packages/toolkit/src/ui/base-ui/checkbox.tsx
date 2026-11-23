@@ -10,6 +10,20 @@ import { checkboxGroupItemProps } from "./checkbox-group.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
+export type CheckboxIndicatorProps = BaseCheckbox.Indicator.Props;
+
+const CheckboxIndicator = React.forwardRef<
+  HTMLSpanElement,
+  CheckboxIndicatorProps
+>(({ className, ...props }, ref) => (
+  <BaseCheckbox.Indicator
+    {...props}
+    ref={ref}
+    className={partClassName("checkbox-indicator", className)}
+  />
+));
+CheckboxIndicator.displayName = "CheckboxIndicator";
+
 export interface CheckboxProps
   extends Omit<BaseCheckbox.Root.Props, "color">, CheckboxOwnProps {}
 
@@ -21,7 +35,7 @@ export interface CheckboxProps
  * @import import { Checkbox } from "@agent-native/toolkit/ui/base-ui/checkbox";
  */
 const Checkbox = React.forwardRef<HTMLElement, CheckboxProps>((props, ref) => {
-  const [attributes, { className, ...rest }] = splitProps(
+  const [attributes, { className, children, ...rest }] = splitProps(
     checkboxProps,
     checkboxGroupItemProps.useGroupProps(props),
   );
@@ -32,17 +46,20 @@ const Checkbox = React.forwardRef<HTMLElement, CheckboxProps>((props, ref) => {
       {...attributes}
       className={partClassName("checkbox", className)}
     >
-      <BaseCheckbox.Indicator
-        className="checkbox-indicator"
-        render={(indicatorProps, state) => (
-          <span {...indicatorProps}>
-            {state.indeterminate ? <IconMinus /> : <IconCheck />}
-          </span>
-        )}
-      />
+      {children === undefined ? (
+        <CheckboxIndicator
+          render={(indicatorProps, state) => (
+            <span {...indicatorProps}>
+              {state.indeterminate ? <IconMinus /> : <IconCheck />}
+            </span>
+          )}
+        />
+      ) : (
+        children
+      )}
     </BaseCheckbox.Root>
   );
 });
 Checkbox.displayName = "Checkbox";
 
-export { Checkbox };
+export { Checkbox, CheckboxIndicator };

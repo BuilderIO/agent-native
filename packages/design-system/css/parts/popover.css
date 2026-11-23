@@ -46,13 +46,17 @@
   .popover-popup[data-side="top"] {
     --_slide-y: var(--space-2);
   }
-  .popover-popup[data-side="left"],
-  .popover-popup[data-side="inline-start"] {
+  .popover-popup[data-side="left"] {
     --_slide-x: var(--space-2);
   }
-  .popover-popup[data-side="right"],
-  .popover-popup[data-side="inline-end"] {
+  .popover-popup[data-side="right"] {
     --_slide-x: calc(var(--space-2) * -1);
+  }
+  .popover-popup[data-side="inline-start"] {
+    --_slide-x: calc(var(--space-2) * var(--_inline-direction, 1));
+  }
+  .popover-popup[data-side="inline-end"] {
+    --_slide-x: calc(var(--space-2) * var(--_inline-direction, 1) * -1);
   }
 
   .popover-popup[data-starting-style] {
@@ -64,6 +68,15 @@
   .popover-popup[data-ending-style] {
     opacity: 0;
     scale: 0.95;
+  }
+
+  /* A nested popup measures its trigger in viewport pixels. Finish the parent
+     scale before that measurement can feed back into the child popup width. */
+  @media (prefers-reduced-motion: no-preference) {
+    .popover-popup:where(:has([data-popup-open])) {
+      scale: none;
+      transition-property: opacity, translate;
+    }
   }
 
   .popover-popup[data-instant] {
@@ -111,14 +124,23 @@
     border-top: 0;
     border-left: 0;
   }
-  .popover-arrow[data-side="left"] {
+  .popover-arrow[data-side="left"],
+  .popover-arrow[data-side="inline-start"]:where(:dir(ltr)),
+  .popover-arrow[data-side="inline-end"]:where(:dir(rtl)) {
     right: calc(var(--_size) / -2 - 1px);
     border-bottom: 0;
     border-left: 0;
   }
-  .popover-arrow[data-side="right"] {
+  .popover-arrow[data-side="right"],
+  .popover-arrow[data-side="inline-end"]:where(:dir(ltr)),
+  .popover-arrow[data-side="inline-start"]:where(:dir(rtl)) {
     left: calc(var(--_size) / -2 - 1px);
     border-top: 0;
     border-right: 0;
+  }
+  @media (forced-colors: active) {
+    .popover-popup {
+      outline: 1px solid CanvasText;
+    }
   }
 }

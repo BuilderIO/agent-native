@@ -3,6 +3,13 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-18
+
+### Added
+
+- New hosted signups now set up a Builder account automatically, so AI features are ready on first load.
+- Workflows can now add a row to an Agent-Native Content collection, or update the row with the same key, with the new "Content: add or update a row" step. It writes as the workflow's owner, so connect Content for yourself first: Settings, Integrations, Add custom integration, with Content's MCP server and "Personal" chosen.
+
 ## 2026-11-05
 
 ### Improved

@@ -8,6 +8,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Field, FieldLabel } from "../../../src/ui/base-ui/field.js";
 import { TextArea } from "../../../src/ui/base-ui/text-area.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./text-area.docs.md?raw";
 
 const controls = propControls(textAreaProps);
 
@@ -16,7 +17,7 @@ const VARIANTS = textAreaProps.variant.values;
 const meta = {
   title: "Components/Text Area",
   component: TextArea,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: {
     ...controls.args,
     placeholder: "Add a note",

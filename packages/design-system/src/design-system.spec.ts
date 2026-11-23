@@ -289,8 +289,10 @@ describe("paletteCss", () => {
 
   it("scopes to the palette id and covers both appearances and P3", () => {
     const css = paletteCss(palette, { id: "acme" });
-    expect(css).toMatch(/^\[data-palette="acme"\],$/m);
-    expect(css).toContain('.dark[data-palette="acme"]');
+    expect(css).toContain(
+      ':scope:where(:root:not(.dark), .light)[data-palette="acme"]',
+    );
+    expect(css).toContain(':scope:where(.dark)[data-palette="acme"]');
     expect(css).toContain("@media (color-gamut: p3)");
   });
 

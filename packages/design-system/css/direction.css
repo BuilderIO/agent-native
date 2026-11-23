@@ -1,0 +1,24 @@
+@layer components {
+  /* Resolve signed offsets at direction boundaries so nested regions and their
+     portals inherit the same motion even when a bundler lowers :dir() to :lang(). */
+  :where(:root, [dir="auto"]) {
+    --_inline-direction: 1;
+    --_inline-start-align: left;
+  }
+  [dir="auto"]:dir(rtl) {
+    --_inline-direction: -1;
+    --_inline-start-align: right;
+  }
+  [dir="ltr"] {
+    --_inline-direction: 1;
+    --_inline-start-align: left;
+  }
+  [dir="rtl"] {
+    --_inline-direction: -1;
+    --_inline-start-align: right;
+  }
+
+  [aria-expanded="false"] > .disclosure-chevron {
+    transform: rotate(calc(-90deg * var(--_inline-direction, 1)));
+  }
+}

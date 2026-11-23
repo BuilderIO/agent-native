@@ -467,6 +467,44 @@ it("offers the reference sources and creates designs with no system link", async
 
 // oracle-change: replace generator loading, cache and timeout states with fixed prompt pools.
 describe("Index skip to editor", () => {
+  it("filters the home list by the search in the URL", async () => {
+    await act(async () => root.unmount());
+    mocks.queryString = "search=checkout";
+    mocks.ownCount = 1;
+    root = createRoot(container);
+
+    await act(async () => root.render(<Index />));
+
+    expect(mocks.listParams).toMatchObject({ search: "checkout" });
+  });
+
+  it("writes typed home search into the URL so the view can be shared and restored", async () => {
+    await act(async () => root.unmount());
+    mocks.ownCount = 1;
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
+    const input = container.querySelector<HTMLInputElement>(
+      "input[data-home-search]",
+    );
+    if (!input) throw new Error("home search input not rendered");
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(input, "checkout");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const written = mocks.setSearchParams.mock.calls
+      .map((call) => call[0])
+      .filter(
+        (value): value is URLSearchParams => value instanceof URLSearchParams,
+      );
+    expect(written.map((params) => params.get("search"))).toContain("checkout");
+  });
+
   it("keeps home suggestions enabled before and after connection", async () => {
     mocks.agentEngine = { state: "missing", missing: true, canChat: false };
     await act(async () => root.render(<Index />));
