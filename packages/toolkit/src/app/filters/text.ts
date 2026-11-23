@@ -9,6 +9,7 @@ import {
   filterToday,
   isFilterRelativeDay,
   parseFilterDateRange,
+  type FilterDateUnit,
   type FilterField,
   type FilterOperator,
   type FilterRule,
@@ -156,6 +157,15 @@ export function useFilterText() {
       );
     };
 
+    const unitName = (count: number, unit: FilterDateUnit) => {
+      const duration = formatNumber(count, {
+        style: "unit",
+        unit,
+        unitDisplay: "long",
+      });
+      return duration.replace(formatNumber(count), "").trim() || duration;
+    };
+
     const optionList = (
       field: FilterField<never>,
       values: readonly string[],
@@ -239,6 +249,7 @@ export function useFilterText() {
       operatorLabel,
       dayLabel,
       rangeLabel,
+      unitName,
       optionList,
       valueLabel,
       ruleValueLabel,

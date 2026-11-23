@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   appCapabilityManifestSchema,
   resolveManifestScreenPath,
@@ -21,6 +23,8 @@ import { getAppConfig } from "@agent-native/core/app-config";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   buildMcpToolName,
+  getMcpOAuthAccessToken,
+  listRemoteServers,
   McpClientManager,
   mcpToolCallWasNotSent,
 } from "@agent-native/core/mcp-client";
@@ -1797,6 +1801,94 @@ async function appActionHeaders(
   return headers;
 }
 
+type RemoteAppOAuth = {
+  serverId?: string;
+  credential?: TargetMcpCredential;
+};
+
+async function findRemoteAppOAuth(
+  mcpUrl: string,
+  ownerEmail: string,
+): Promise<RemoteAppOAuth> {
+  try {
+    const resource = new URL(mcpUrl).href;
+    const servers = await listRemoteServers("user", ownerEmail);
+    let reconnectServerId: string | undefined;
+    for (const server of servers) {
+      if (
+        !server.oauthSecretKey ||
+        !URL.canParse(server.url) ||
+        new URL(server.url).href !== resource
+      )
+        continue;
+      reconnectServerId ??= server.id;
+      const options = {
+        key: server.oauthSecretKey,
+        scope: "user" as const,
+        scopeId: ownerEmail,
+        serverUrl: mcpUrl,
+        throwOnTransientRefreshFailure: true,
+      };
+      const token = await getMcpOAuthAccessToken(options);
+      if (!token) continue;
+      return {
+        serverId: server.id,
+        credential: {
+          strategy: "oauth",
+          token,
+          oauthAccessRefresh: {
+            identity: createHash("sha256")
+              .update(
+                JSON.stringify([ownerEmail, server.oauthSecretKey, resource]),
+              )
+              .digest("hex"),
+            refresh: () =>
+              getMcpOAuthAccessToken({ ...options, forceRefresh: true }),
+          },
+        },
+      };
+    }
+    return reconnectServerId ? { serverId: reconnectServerId } : {};
+  } catch {
+    throw new NoWriteError(
+      "The app's saved connection is unavailable. Try again.",
+      {
+        errorCode: "app_connection_unavailable",
+        statusCode: 503,
+      },
+    );
+  }
+}
+
+function appOAuthStartUrl(
+  target: DispatchMcpAccessibleApp,
+  mcpUrl: string,
+  serverId?: string,
+): string {
+  const params = serverId
+    ? new URLSearchParams({ scope: "user", serverId })
+    : new URLSearchParams({
+        scope: "user",
+        name: `app-${createHash("sha256").update(mcpUrl).digest("hex").slice(0, 16)}`,
+        url: mcpUrl,
+        description: target.name,
+      });
+  return `${dispatchSelfBaseUrl()}/_agent-native/mcp/servers/oauth/start?${params}`;
+}
+
+function appAuthorizationRequired(
+  target: DispatchMcpAccessibleApp,
+  mcpUrl: string,
+  serverId?: string,
+): never {
+  const authorizationUrl = appOAuthStartUrl(target, mcpUrl, serverId);
+  throw new NoWriteError(`Connect ${target.name} to use its actions.`, {
+    errorCode: "authorization_required",
+    statusCode: 401,
+    details: { app: target.id, authorizationUrl },
+  });
+}
+
 // Runs `withClient` against a connected MCP client for the granted app, signed
 // as the requesting user, the way embed sessions reach the same target. Without a
 // header provider no per-turn grant is attached, so a target action that
@@ -1830,14 +1922,35 @@ async function withGrantedAppMcp<T>(
     { id: target.id, url: mcpUrl },
     { nodeEnv: "production", environmentLane: requestEnvironmentLane() },
   );
-  const prepared = await createTargetMcpUserCredentials({
-    mcpUrl,
-    ownerEmail,
-    fullCatalog: true,
-    ...(firstPartyMcp ? { firstPartyMcp: true } : {}),
-    ...(orgId !== undefined ? { orgId } : {}),
-  });
-  const credentials = [...prepared.credentials];
+  let remote: RemoteAppOAuth | undefined;
+  const loadRemote = async () => {
+    remote ??= await findRemoteAppOAuth(mcpUrl, ownerEmail);
+    return remote;
+  };
+  if (
+    !firstPartyMcp &&
+    new URL(mcpUrl).origin !== new URL(dispatchSelfBaseUrl()).origin
+  ) {
+    await loadRemote();
+  }
+  const prepared = remote?.credential
+    ? undefined
+    : await createTargetMcpUserCredentials({
+        mcpUrl,
+        ownerEmail,
+        fullCatalog: true,
+        allowMissing: true,
+        ...(firstPartyMcp ? { firstPartyMcp: true } : {}),
+        ...(orgId !== undefined ? { orgId } : {}),
+      });
+  const credentials = remote?.credential
+    ? [remote.credential]
+    : [...(prepared?.credentials ?? [])];
+  if (credentials.length === 0) {
+    const oauth = await loadRemote();
+    if (oauth.credential) credentials.push(oauth.credential);
+    else appAuthorizationRequired(target, mcpUrl, oauth.serverId);
+  }
   const requestedViewportMode =
     options?.viewportMode ?? getRequestRunContext()?.viewportMode;
   const childBrowserTabId =
@@ -1856,7 +1969,9 @@ async function withGrantedAppMcp<T>(
     ...(orgId !== undefined ? { orgId } : {}),
   });
   const serverId = "target";
-  let orgMemberTried = false;
+  let orgMemberTried = credentials.some(
+    (credential) => credential.strategy === "org-member-delegation",
+  );
   for (const [index, credential] of credentials.entries()) {
     const manager = new McpClientManager(
       {
@@ -1864,6 +1979,9 @@ async function withGrantedAppMcp<T>(
           [serverId]: {
             type: "http",
             url: mcpUrl,
+            ...(credential.oauthAccessRefresh
+              ? { oauthAccessRefresh: credential.oauthAccessRefresh }
+              : {}),
             headers: {
               ...extraHeaders,
               ...(childBrowserTabId
@@ -1886,17 +2004,44 @@ async function withGrantedAppMcp<T>(
       await manager.start();
       const status = manager.getConnectErrorStatus(serverId);
       if (status === 401 || status === 403) {
-        // The org-member fallback is tried once; its own rejection is final.
+        if (credential.strategy === "oauth") {
+          throw new NoWriteError(
+            `The ${target.name} app rejected the saved connection.`,
+            {
+              errorCode: "app_connection_rejected",
+              statusCode: 403,
+              details: {
+                app: target.id,
+                authorizationUrl: appOAuthStartUrl(
+                  target,
+                  mcpUrl,
+                  remote?.serverId,
+                ),
+              },
+            },
+          );
+        }
         if (index === credentials.length - 1 && !orgMemberTried) {
           orgMemberTried = true;
-          const orgMember = await prepared.loadOrgMemberCredential();
+          const orgMember = await prepared?.loadOrgMemberCredential();
           if (orgMember) credentials.push(orgMember);
         }
         if (index < credentials.length - 1) continue;
-        throw new Error(`The ${target.id} app rejected this connection.`);
+        const oauth = await loadRemote();
+        if (oauth.credential) {
+          credentials.push(oauth.credential);
+          continue;
+        }
+        appAuthorizationRequired(target, mcpUrl, oauth.serverId);
       }
       if (!manager.hasServer(serverId)) {
-        throw new Error(`The ${target.id} app's actions are unavailable.`);
+        throw new NoWriteError(
+          `The ${target.name} app's actions are unreachable.`,
+          {
+            errorCode: "app_connection_unreachable",
+            statusCode: 502,
+          },
+        );
       }
       return await withClient(manager, serverId);
     } finally {
@@ -1905,7 +2050,7 @@ async function withGrantedAppMcp<T>(
       });
     }
   }
-  throw new Error(`The ${target.id} app rejected this connection.`);
+  appAuthorizationRequired(target, mcpUrl, remote?.serverId);
 }
 
 export async function listGrantedDispatchMcpAppActions(
@@ -2022,9 +2167,13 @@ export async function callGrantedDispatchMcpAppAction(
 }
 
 type TargetMcpCredential = {
-  strategy: "deployment-user" | "org-member-delegation";
+  strategy: "deployment-user" | "org-member-delegation" | "oauth";
   token: string;
   firstPartyMcp?: boolean;
+  oauthAccessRefresh?: {
+    identity: string;
+    refresh: () => Promise<string | null>;
+  };
 };
 
 async function createTargetMcpUserCredentials(input: {
@@ -2033,6 +2182,7 @@ async function createTargetMcpUserCredentials(input: {
   orgId?: string;
   firstPartyMcp?: boolean;
   fullCatalog?: boolean;
+  allowMissing?: boolean;
   runtime?: "workspace-app-chat";
 }): Promise<{
   credentials: TargetMcpCredential[];
@@ -2120,7 +2270,7 @@ async function createTargetMcpUserCredentials(input: {
     const orgMemberCredential = await loadOrgMemberCredential();
     if (orgMemberCredential) credentials.push(orgMemberCredential);
   }
-  if (credentials.length === 0) {
+  if (credentials.length === 0 && !input.allowMissing) {
     throw new Error(
       "Cross-app embed sessions require a deployment A2A secret or an organization secret with member delegation enabled on the target.",
     );

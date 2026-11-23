@@ -1,5 +1,5 @@
 // oracle-change: diagnostics now live in ActionError.cause; message is catalog copy.
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const analyticsMocks = vi.hoisted(() => ({
   trackEvent: vi.fn(),
@@ -2253,5 +2253,200 @@ describe("the UI capability on writes from the signed-in app", () => {
       MINT,
       "/_agent-native/actions/delete-file",
     ]);
+  });
+});
+
+describe("waiting on another identity's UI capability mint", () => {
+  const MINT = "/_agent-native/ui-capability";
+  const ACTION = "/_agent-native/actions/read-private-record";
+  const json = jsonResponse;
+
+  beforeEach(() => {
+    vi.stubGlobal("window", {});
+  });
+  function startForeignMint() {
+    forgetUiActionCapability();
+    recordSessionIdentity(undefined);
+    let releaseFirstMint!: () => void;
+    const firstMint = new Promise<void>((r) => (releaseFirstMint = r));
+    let mints = 0;
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (url: string) => {
+      calls.push(url);
+      if (url === MINT) {
+        mints += 1;
+        if (mints === 1) await firstMint;
+      }
+      return json({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const early = callAction("read-private-record", undefined, {
+      method: "GET",
+      uiOnly: true,
+    });
+    early.catch(() => undefined);
+    return {
+      calls,
+      releaseFirstMint,
+      mints: () => mints,
+      started: () => vi.waitFor(() => expect(mints).toBe(1)),
+    };
+  }
+
+  function trackAbortControllers() {
+    const created: AbortController[] = [];
+    const added: Array<Parameters<AbortSignal["addEventListener"]>> = [];
+    const removed: Array<Parameters<AbortSignal["removeEventListener"]>> = [];
+    class TrackedAbortController extends AbortController {
+      constructor() {
+        super();
+        created.push(this);
+        const add = this.signal.addEventListener.bind(this.signal);
+        const remove = this.signal.removeEventListener.bind(this.signal);
+        this.signal.addEventListener = (...args: Parameters<typeof add>) => {
+          added.push(args);
+          add(...args);
+        };
+        this.signal.removeEventListener = (
+          ...args: Parameters<typeof remove>
+        ) => {
+          removed.push(args);
+          remove(...args);
+        };
+      }
+    }
+    vi.stubGlobal("AbortController", TrackedAbortController);
+    return { created, added, removed };
+  }
+
+  it("rejects with the abort reason when the caller aborts while waiting on another identity's mint", async () => {
+    const mint = startForeignMint();
+    await mint.started();
+    recordSessionIdentity("synthetic-user-a");
+    const { created, added, removed } = trackAbortControllers();
+    const late = callAction("read-private-record", undefined, {
+      method: "GET",
+      uiOnly: true,
+    });
+    const waiting = created.at(0);
+    if (!waiting) throw new Error("callAction created no controller");
+    const rejection = late.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await Promise.resolve();
+    waiting.abort("synthetic-abort-reason");
+    expect(await rejection).toMatchObject({
+      cause: { cause: "synthetic-abort-reason" },
+    });
+
+    mint.releaseFirstMint();
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    expect(mint.calls.filter((url) => url === ACTION)).toEqual([]);
+    expect(mint.mints()).toBe(1);
+  });
+
+  it("registers one abort listener while waiting and removes it once the mint settles", async () => {
+    const mint = startForeignMint();
+    await mint.started();
+    recordSessionIdentity("synthetic-user-a");
+    const { created, added, removed } = trackAbortControllers();
+    const late = callAction("read-private-record", undefined, {
+      method: "GET",
+      uiOnly: true,
+    });
+    expect(created).not.toHaveLength(0);
+    expect(added.map(([type]) => type)).toEqual(["abort"]);
+    const [, onAbort, options] = added[0] ?? [];
+    expect(options).toEqual({ once: true });
+    expect(removed).toEqual([]);
+
+    mint.releaseFirstMint();
+    await expect(late).resolves.toEqual({ ok: true });
+    expect(removed).toContainEqual(["abort", onAbort]);
+  });
+
+  it("still mints for its own identity when the mint it waited on fails", async () => {
+    forgetUiActionCapability();
+    recordSessionIdentity(undefined);
+    let rejectFirstMint!: (error: Error) => void;
+    const firstMint = new Promise<void>((_, rej) => (rejectFirstMint = rej));
+    let mints = 0;
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        if (url === MINT) {
+          mints += 1;
+          if (mints === 1) await firstMint;
+        }
+        return json({ ok: true });
+      }),
+    );
+    const early = callAction("read-private-record", undefined, {
+      method: "GET",
+      uiOnly: true,
+    });
+    early.catch(() => undefined);
+    await vi.waitFor(() => expect(mints).toBe(1));
+    recordSessionIdentity("synthetic-user-a");
+    const late = callAction("read-private-record", undefined, {
+      method: "GET",
+      uiOnly: true,
+    });
+    await Promise.resolve();
+    rejectFirstMint(new Error("synthetic mint failure"));
+    await expect(late).resolves.toEqual({ ok: true });
+    expect(mints).toBe(2);
+  });
+
+  it("rethrows an abort while minting for a signed-in write, but sends it when the mint merely fails", async () => {
+    forgetUiActionCapability();
+    recordSessionIdentity("synthetic-user-a");
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        if (url === MINT) return new Response("nope", { status: 500 });
+        return json({ ok: true });
+      }),
+    );
+    await expect(
+      callAction("read-private-record", {}, { method: "POST" }),
+    ).resolves.toEqual({ ok: true });
+    expect(calls).toContain(ACTION);
+
+    forgetUiActionCapability();
+    calls.length = 0;
+    const controller = new AbortController();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(url);
+        if (url === MINT) {
+          await new Promise((_, reject) =>
+            init?.signal?.addEventListener("abort", () =>
+              reject(controller.signal.reason),
+            ),
+          );
+        }
+        return json({ ok: true });
+      }),
+    );
+    const write = callAction(
+      "read-private-record",
+      {},
+      { method: "POST", signal: controller.signal },
+    );
+    const rejection = write.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await vi.waitFor(() => expect(calls).toContain(MINT));
+    controller.abort("synthetic-write-abort");
+    expect(await rejection).toMatchObject({ name: "AbortError" });
+    expect(calls).not.toContain(ACTION);
   });
 });

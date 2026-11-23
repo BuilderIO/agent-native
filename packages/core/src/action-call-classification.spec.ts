@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   actionCallEmitsChange,
+  actionCallIsAutomatic,
   actionCallIsRetrySafe,
   actionChangeResource,
 } from "./action-call-classification.js";
@@ -124,6 +125,48 @@ describe("actionCallIsRetrySafe", () => {
           },
         },
         {},
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("actionCallIsAutomatic", () => {
+  const ctx = { caller: "frontend" };
+
+  it("labels only a declaration that is exactly true", () => {
+    expect(actionCallIsAutomatic({ automatic: true }, {}, ctx)).toBe(true);
+    expect(actionCallIsAutomatic({ automatic: false }, {}, ctx)).toBe(false);
+    expect(actionCallIsAutomatic({}, {}, ctx)).toBe(false);
+  });
+
+  it("asks a predicate with the arguments and the call's context", () => {
+    const automatic = vi.fn(
+      (input: { force?: boolean }, call: { caller: string }) =>
+        call.caller === "frontend" && !input.force,
+    );
+    expect(actionCallIsAutomatic({ automatic }, {}, ctx)).toBe(true);
+    expect(actionCallIsAutomatic({ automatic }, { force: true }, ctx)).toBe(
+      false,
+    );
+    expect(actionCallIsAutomatic({ automatic }, {}, { caller: "tool" })).toBe(
+      false,
+    );
+    expect(automatic).toHaveBeenCalledWith({ force: true }, ctx);
+  });
+
+  it("counts a truthy or throwing predicate's call as one someone asked for", () => {
+    expect(
+      actionCallIsAutomatic({ automatic: () => 1 as never }, {}, ctx),
+    ).toBe(false);
+    expect(
+      actionCallIsAutomatic(
+        {
+          automatic: () => {
+            throw new Error("bad input");
+          },
+        },
+        {},
+        ctx,
       ),
     ).toBe(false);
   });

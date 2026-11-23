@@ -117,6 +117,12 @@
     outline-style: none;
   }
 
+  .combobox-chip-label {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .input[data-variant="soft"] .combobox-chip {
     background-color: var(--accent-a4);
     color: var(--accent-12);
@@ -161,6 +167,19 @@
     .input[data-variant="soft"]
       .combobox-chip-remove:not([data-disabled]):hover {
       background-color: var(--accent-a4);
+    }
+  }
+
+  @media (forced-colors: active) {
+    .combobox-chip:not(:focus-visible) {
+      outline: 1px solid ButtonText;
+      outline-offset: -1px;
+    }
+
+    .input .combobox-chip[data-disabled],
+    .combobox-chip-remove[aria-disabled="true"] {
+      color: GrayText;
+      outline-color: GrayText;
     }
   }
 }

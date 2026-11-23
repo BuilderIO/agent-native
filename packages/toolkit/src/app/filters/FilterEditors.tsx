@@ -13,16 +13,21 @@ import { useState } from "react";
 
 import { FilterListbox, type FilterListboxItem } from "./FilterListbox.js";
 import {
+  FILTER_DATE_RANGE_MAX_COUNT,
+  FILTER_DATE_UNITS,
   FILTER_NOBODY,
   FILTER_RELATIVE_DAYS,
+  filterDateRangeToken,
   filterOperatorsAcceptedFor,
   filterOperatorsFor,
   filterOperatorTakesManyValues,
   filterOperatorTakesValue,
   isFilterOperator,
   isFilterRelativeDay,
+  parseFilterDateRange,
   resolveFilterDateBound,
   type FilterCounts,
+  type FilterDateUnit,
   type FilterField,
   type FilterOperator,
   type FilterRule,
@@ -311,6 +316,142 @@ function FilterDateInput({
   );
 }
 
+function FilterChoiceMenu<Choice extends string>({
+  choices,
+  selected,
+  label,
+  onSelect,
+}: {
+  choices: readonly Choice[];
+  selected: Choice;
+  label: (choice: Choice) => string;
+  onSelect: (choice: Choice) => void;
+}) {
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="min-w-0 shrink-0 gap-1 text-muted-foreground"
+        >
+          <span className="truncate">{label(selected)}</span>
+          <IconChevronDown className="size-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" collisionPadding={8}>
+        <DropdownMenuRadioGroup
+          value={selected}
+          onValueChange={(value) => {
+            const choice = choices.find((candidate) => candidate === value);
+            if (choice) onSelect(choice);
+          }}
+        >
+          {choices.map((choice) => (
+            <DropdownMenuRadioItem key={choice} value={choice}>
+              {label(choice)}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function FilterDateRangeForm({
+  field,
+  rule,
+  text,
+  onApply,
+}: {
+  field: FilterField<never>;
+  rule: FilterRule;
+  text: FilterText;
+  onApply: (token: string) => void;
+}) {
+  const fieldDirections: readonly ("past" | "next")[] =
+    field.dates === "past"
+      ? ["past"]
+      : field.dates === "future"
+        ? ["next"]
+        : ["past", "next"];
+  const saved =
+    rule.operator === "is_within"
+      ? parseFilterDateRange(rule.value.at(0) ?? "")
+      : null;
+  const savedDirection =
+    saved && saved.direction !== "this" ? saved.direction : null;
+  const directions =
+    savedDirection && !fieldDirections.includes(savedDirection)
+      ? [...fieldDirections, savedDirection]
+      : fieldDirections;
+  const [direction, setDirection] = useState<"past" | "next">(
+    savedDirection ?? directions.at(0) ?? "past",
+  );
+  const [count, setCount] = useState(
+    saved && saved.direction !== "this" ? String(saved.count) : "7",
+  );
+  const [unit, setUnit] = useState<FilterDateUnit>(
+    saved && saved.direction !== "this" ? saved.unit : "day",
+  );
+  const typed = Number(count);
+  const valid =
+    Number.isInteger(typed) &&
+    typed >= 1 &&
+    typed <= FILTER_DATE_RANGE_MAX_COUNT;
+  const directionLabel = (choice: "past" | "next") =>
+    text.t(`agentChat.filters.date.direction.${choice}`);
+  return (
+    <form
+      className="flex flex-wrap items-center gap-1.5 border-t p-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!valid) return;
+        onApply(filterDateRangeToken({ direction, count: typed, unit }));
+      }}
+    >
+      <span className="w-full text-xs font-medium text-muted-foreground">
+        {text.t("agentChat.filters.relativeRange")}
+      </span>
+      {directions.length > 1 ? (
+        <FilterChoiceMenu
+          choices={directions}
+          selected={direction}
+          label={directionLabel}
+          onSelect={setDirection}
+        />
+      ) : (
+        <span className="px-2 text-sm text-muted-foreground">
+          {directionLabel(direction)}
+        </span>
+      )}
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={FILTER_DATE_RANGE_MAX_COUNT}
+        step={1}
+        value={count}
+        aria-label={text.t("agentChat.filters.enterNumber")}
+        aria-invalid={!valid}
+        onChange={(event) => setCount(event.target.value)}
+        size="sm"
+        className="w-16 shrink-0"
+      />
+      <FilterChoiceMenu
+        choices={FILTER_DATE_UNITS}
+        selected={unit}
+        label={(choice) => text.unitName(valid ? typed : 2, choice)}
+        onSelect={setUnit}
+      />
+      <Button type="submit" size="sm" className="ms-auto" disabled={!valid}>
+        {text.t("agentChat.filters.apply")}
+      </Button>
+    </form>
+  );
+}
+
 export function FilterDateEditor({
   field,
   rule,
@@ -409,55 +550,68 @@ export function FilterDateEditor({
         onDone();
       }}
       footer={
-        exactOperators.length === 0 ? undefined : (
-          <form
-            className="flex flex-wrap items-center gap-1.5 border-t p-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              applyExact();
-            }}
-          >
-            <span className="w-full text-xs font-medium text-muted-foreground">
-              {text.t("agentChat.filters.exactDate")}
-            </span>
-            <FilterOperatorSelect
-              field={field}
-              operator={exactOperator}
-              operators={exactOperators}
-              valueCount={1}
-              text={text}
-              onChange={setExactOperator}
-            />
-            <FilterDateInput
-              value={exactDays[0]}
-              label={text.t(
-                between
-                  ? "agentChat.filters.startDate"
-                  : "agentChat.filters.exactDate",
-              )}
-              asText={asText[0] === true}
-              text={text}
-              onChange={(value) => setExactDay(0, value)}
-            />
-            {between ? (
-              <FilterDateInput
-                value={exactDays[1]}
-                label={text.t("agentChat.filters.endDate")}
-                asText={asText[1] === true}
-                text={text}
-                onChange={(value) => setExactDay(1, value)}
-              />
-            ) : null}
-            <Button
-              type="submit"
-              size="sm"
-              className="ms-auto"
-              disabled={!exactValid}
+        <>
+          {exactOperators.length === 0 ? null : (
+            <form
+              className="flex flex-wrap items-center gap-1.5 border-t p-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                applyExact();
+              }}
             >
-              {text.t("agentChat.filters.apply")}
-            </Button>
-          </form>
-        )
+              <span className="w-full text-xs font-medium text-muted-foreground">
+                {text.t("agentChat.filters.exactDate")}
+              </span>
+              <FilterOperatorSelect
+                field={field}
+                operator={exactOperator}
+                operators={exactOperators}
+                valueCount={1}
+                text={text}
+                onChange={setExactOperator}
+              />
+              <FilterDateInput
+                value={exactDays[0]}
+                label={text.t(
+                  between
+                    ? "agentChat.filters.startDate"
+                    : "agentChat.filters.exactDate",
+                )}
+                asText={asText[0] === true}
+                text={text}
+                onChange={(value) => setExactDay(0, value)}
+              />
+              {between ? (
+                <FilterDateInput
+                  value={exactDays[1]}
+                  label={text.t("agentChat.filters.endDate")}
+                  asText={asText[1] === true}
+                  text={text}
+                  onChange={(value) => setExactDay(1, value)}
+                />
+              ) : null}
+              <Button
+                type="submit"
+                size="sm"
+                className="ms-auto"
+                disabled={!exactValid}
+              >
+                {text.t("agentChat.filters.apply")}
+              </Button>
+            </form>
+          )}
+          {listed.includes("is_within") ? (
+            <FilterDateRangeForm
+              field={field}
+              rule={rule}
+              text={text}
+              onApply={(token) => {
+                onChange({ operator: "is_within", value: [token] });
+                onDone();
+              }}
+            />
+          ) : null}
+        </>
       }
     />
   );
@@ -556,7 +710,7 @@ export function FilterRuleEditor({
     case "multi": {
       const operators = filterOperatorsFor(field);
       return (
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-col">
           {showOperator && operators.length > 1 ? (
             <div className="border-b p-1">
               <FilterOperatorSelect

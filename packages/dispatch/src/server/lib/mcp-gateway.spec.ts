@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   buildEmbedStartPath: vi.fn((ticket: string) => {
     return `/_agent-native/embed/start?ticket=${encodeURIComponent(ticket)}`;
   }),
+  listRemoteServers: vi.fn(),
+  getMcpOAuthAccessToken: vi.fn(),
   managerStart: vi.fn(),
   managerGetConnectErrorStatus: vi.fn(),
   managerStop: vi.fn(),
@@ -120,6 +122,8 @@ vi.mock("@agent-native/core/org", () => ({
 }));
 
 vi.mock("@agent-native/core/mcp-client", () => ({
+  listRemoteServers: mocks.listRemoteServers,
+  getMcpOAuthAccessToken: mocks.getMcpOAuthAccessToken,
   mcpToolCallWasNotSent: (error: unknown) =>
     error instanceof Error && error.name === "NotSentFixture",
   buildMcpToolName: (serverId: string, toolName: string) =>
@@ -227,6 +231,8 @@ beforeEach(() => {
     ticketHash: "hash-123",
     expiresAt: 12345,
   });
+  mocks.listRemoteServers.mockReset().mockResolvedValue([]);
+  mocks.getMcpOAuthAccessToken.mockReset().mockResolvedValue(null);
   mocks.managerStart.mockResolvedValue(undefined);
   mocks.managerGetConnectErrorStatus.mockReturnValue(undefined);
   mocks.managerStop.mockResolvedValue(undefined);
@@ -334,6 +340,241 @@ describe("Dispatch direct app actions", () => {
       },
     });
     expect(mocks.managerStop).toHaveBeenCalled();
+  });
+
+  it("keeps a same-deployment assertion when it is accepted", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "http://localhost:8092/analytics" },
+    ]);
+    mocks.managerCallTool.mockResolvedValue({ content: [] });
+    await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    );
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer signed-token",
+          }),
+        }),
+      },
+    });
+    expect(mocks.listRemoteServers).not.toHaveBeenCalled();
+  });
+
+  it("keeps first-party assertion connections independent of the OAuth store", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://analytics.agent-native.com" },
+    ]);
+    mocks.listRemoteServers.mockRejectedValue(new Error("store unavailable"));
+    mocks.managerCallTool.mockResolvedValue({ content: [] });
+    await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    );
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer signed-token",
+          }),
+        }),
+      },
+    });
+    expect(mocks.listRemoteServers).not.toHaveBeenCalled();
+  });
+
+  it("tries the scoped OAuth connection after a same-origin assertion is rejected", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "http://localhost:8092/analytics" },
+    ]);
+    mocks.listRemoteServers.mockResolvedValue([
+      {
+        id: "connection-1",
+        name: "remote",
+        url: "http://localhost:8092/analytics/mcp",
+        oauthSecretKey: "oauth-key",
+        createdAt: 1,
+      },
+    ]);
+    mocks.getMcpOAuthAccessToken.mockResolvedValue("oauth-token");
+    mocks.managerGetConnectErrorStatus
+      .mockReturnValueOnce(401)
+      .mockReturnValueOnce(undefined);
+    mocks.managerCallTool.mockResolvedValue({ content: [] });
+    await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    );
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.managerConstructor).toHaveBeenLastCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer oauth-token",
+          }),
+        }),
+      },
+    });
+  });
+
+  it("uses a caller's OAuth connection for a different deployment", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    vi.stubEnv("A2A_SECRET", "");
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://remote.example.test/app" },
+    ]);
+    mocks.listRemoteServers.mockResolvedValue([
+      {
+        id: "connection-1",
+        name: "remote",
+        url: "https://remote.example.test/app/mcp",
+        oauthSecretKey: "oauth-key",
+        createdAt: 1,
+      },
+    ]);
+    mocks.getMcpOAuthAccessToken.mockResolvedValue("oauth-token");
+    mocks.managerCallTool.mockResolvedValue({ content: [] });
+
+    await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    );
+    expect(mocks.getMcpOAuthAccessToken).toHaveBeenCalledWith({
+      key: "oauth-key",
+      scope: "user",
+      scopeId: "owner@example.test",
+      serverUrl: "https://remote.example.test/app/mcp",
+      throwOnTransientRefreshFailure: true,
+    });
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer oauth-token",
+          }),
+        }),
+      },
+    });
+    expect(mocks.signA2AToken).not.toHaveBeenCalled();
+  });
+
+  it("returns a connect URL when an assertion is rejected and no OAuth connection exists", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://remote.example.test/app" },
+    ]);
+    mocks.managerGetConnectErrorStatus.mockReturnValue(401);
+    const error = await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    ).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      errorCode: "authorization_required",
+      details: { authorizationUrl: expect.any(String) },
+    });
+    const url = new URL(
+      (error as { details: { authorizationUrl: string } }).details
+        .authorizationUrl,
+    );
+    expect(url.pathname).toBe("/_agent-native/mcp/servers/oauth/start");
+    expect(url.searchParams.get("url")).toBe(
+      "https://remote.example.test/app/mcp",
+    );
+    expect(url.searchParams.get("scope")).toBe("user");
+    expect(mocks.managerCallTool).not.toHaveBeenCalled();
+  });
+
+  it("offers reconnect when the saved credential needs authorization", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://remote.example.test/app" },
+    ]);
+    mocks.listRemoteServers.mockResolvedValue([
+      {
+        id: "connection-1",
+        name: "remote",
+        url: "https://remote.example.test/app/mcp",
+        oauthSecretKey: "oauth-key",
+        createdAt: 1,
+      },
+    ]);
+    mocks.managerGetConnectErrorStatus.mockReturnValue(401);
+    const error = await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    ).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ errorCode: "authorization_required" });
+    const url = new URL(
+      (error as { details: { authorizationUrl: string } }).details
+        .authorizationUrl,
+    );
+    expect(url.searchParams.get("serverId")).toBe("connection-1");
+  });
+
+  it("does not report a connection-store failure as missing authorization", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://remote.example.test/app" },
+    ]);
+    mocks.listRemoteServers.mockRejectedValue(new Error("store unavailable"));
+    await expect(
+      asOwner(() =>
+        callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      ),
+    ).rejects.toMatchObject({ errorCode: "app_connection_unavailable" });
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse a different resource's OAuth token", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://remote.example.test/app" },
+    ]);
+    mocks.listRemoteServers.mockResolvedValue([
+      {
+        id: "other",
+        name: "other",
+        url: "https://remote.example.test/other/mcp",
+        oauthSecretKey: "other-key",
+        createdAt: 1,
+      },
+    ]);
+    mocks.managerGetConnectErrorStatus.mockReturnValue(401);
+    await expect(
+      asOwner(() =>
+        callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      ),
+    ).rejects.toMatchObject({ errorCode: "authorization_required" });
+    expect(mocks.getMcpOAuthAccessToken).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes a rejected OAuth credential from an unreachable app", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://remote.example.test/app" },
+    ]);
+    mocks.listRemoteServers.mockResolvedValue([
+      {
+        id: "connection-1",
+        name: "remote",
+        url: "https://remote.example.test/app/mcp",
+        oauthSecretKey: "oauth-key",
+        createdAt: 1,
+      },
+    ]);
+    mocks.getMcpOAuthAccessToken.mockResolvedValue("oauth-token");
+    mocks.managerGetConnectErrorStatus.mockReturnValue(403);
+    await expect(
+      asOwner(() =>
+        callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      ),
+    ).rejects.toMatchObject({ errorCode: "app_connection_rejected" });
+    mocks.managerGetConnectErrorStatus.mockReturnValue(undefined);
+    mocks.managerHasServer.mockReturnValue(false);
+    await expect(
+      asOwner(() =>
+        callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      ),
+    ).rejects.toMatchObject({ errorCode: "app_connection_unreachable" });
   });
 
   it("calls one action of a granted app and returns its result", async () => {
@@ -478,7 +719,7 @@ describe("Dispatch direct app actions", () => {
         },
         () => callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
       ),
-    ).rejects.toThrow("The analytics app rejected this connection.");
+    ).rejects.toMatchObject({ errorCode: "authorization_required" });
     expect(mocks.signA2AOrgMemberDelegationToken).toHaveBeenCalledTimes(1);
     expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
     expect(mocks.managerCallTool).not.toHaveBeenCalled();

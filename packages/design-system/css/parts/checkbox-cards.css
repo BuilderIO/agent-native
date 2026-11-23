@@ -30,7 +30,7 @@
     display: grid;
     grid-template-columns: var(
       --checkbox-cards-columns,
-      repeat(auto-fit, minmax(200px, 1fr))
+      repeat(auto-fit, minmax(min(100%, 200px), 1fr))
     );
     gap: var(--checkbox-cards-gap, var(--space-4));
   }
@@ -42,7 +42,14 @@
     --_padding-end: calc(var(--_padding-x) * 2 + var(--_box));
   }
 
-  .checkbox-cards-item > .checkbox-cards-checkbox {
+  .checkbox-cards-mark {
+    --_indicator: var(--control-icon-size-1);
+    display: grid;
+    inline-size: var(--_box);
+    place-items: center;
+  }
+
+  .checkbox-cards-item > :is(.checkbox-cards-checkbox, .checkbox-cards-mark) {
     position: absolute;
     top: 50%;
     inset-inline-end: var(--_padding-x);
