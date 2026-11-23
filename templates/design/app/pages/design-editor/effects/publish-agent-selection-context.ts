@@ -163,6 +163,7 @@ export interface PublishAgentSelectionContextArgs {
   activeBreakpointWidthState: number | undefined;
   activeFile: DesignFile | undefined;
   activeLeftPanel: DesignLeftPanel | null;
+  commentsPanelShown: boolean;
   activeTool: DesignTool;
   design: DesignData | null;
   designDataJson: Record<string, unknown>;
@@ -198,6 +199,7 @@ export function runPublishAgentSelectionContext({
   activeBreakpointWidthState,
   activeFile,
   activeLeftPanel,
+  commentsPanelShown,
   activeTool,
   design,
   designDataJson,
@@ -249,6 +251,7 @@ export function runPublishAgentSelectionContext({
         ? { device: interactDevice, theme: interactTheme }
         : null,
     leftPanel: activeLeftPanel,
+    rightPanel: commentsPanelShown ? "comments" : "inspector",
     // The comment thread open on the canvas or highlighted in the Threads
     // panel; null when none is, so the agent never reads a closed thread.
     reviewThreadId,

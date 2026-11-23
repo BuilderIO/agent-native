@@ -56,7 +56,7 @@ test("new Screen W/H commits keep frame and metadata geometry in sync", async ({
   const indexId = existing.files.find(
     (file) => file.filename === "index.html",
   )!.id;
-  await pickFrameMode(app.page, "Screen");
+  await pickFrameMode(app.page, "Page");
   const start = await emptyBoardPoint(app.page);
   await app.page.mouse.move(start.x, start.y);
   await app.page.mouse.down();
