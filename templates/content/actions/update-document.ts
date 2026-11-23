@@ -977,7 +977,7 @@ const updateDocumentAction = defineAction({
         ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
         : parseDocumentFavorite(existing.isFavorite);
       const browserSavePayload = args.browserSaveAttemptId
-        ? browserSavePayloadDigest(args)
+        ? browserSavePayloadDigest({ ...args, editorBlockIds: undefined })
         : undefined;
       const authoredMetadataHash = authoredBase
         ? browserSavePayloadDigest({

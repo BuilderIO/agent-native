@@ -42,6 +42,14 @@ function session(stored: string, browsers = 1) {
   return { server, browsers: copies };
 }
 
+function pair(stored: string) {
+  const {
+    server,
+    browsers: [browser],
+  } = session(stored);
+  return { server, browser };
+}
+
 /** Edits a copy the way the editor does; returns the update it sends. */
 function edit(doc: Y.Doc, change: (current: PMNode) => PMNode) {
   const fragment = doc.getXmlFragment("default");
@@ -50,6 +58,22 @@ function edit(doc: Y.Doc, change: (current: PMNode) => PMNode) {
   doc.transact(() => updateYFragment(doc, fragment, change(current), meta));
   return Y.encodeStateAsUpdate(doc, vector);
 }
+
+function stampIds(current: PMNode) {
+  const transform = new Transform(current);
+  current.forEach((block, offset, index) =>
+    transform.setNodeMarkup(offset, undefined, {
+      ...block.attrs,
+      identityId: `block_${index}`,
+    }),
+  );
+  return transform.doc;
+}
+
+const idsOf = (doc: Y.Doc) =>
+  (
+    yXmlFragmentToProsemirrorJSON(doc.getXmlFragment("default")) as PMJson
+  ).content?.map((block) => block.attrs?.identityId ?? null);
 
 function find(doc: PMNode, text: string, occurrence = 0) {
   const hits: Array<{ from: number; to: number }> = [];
@@ -556,6 +580,38 @@ describe("writeAcceptedSuggestion without a placement", () => {
     }
   });
 
+  it("changes a paragraph whose blocks carry IDs, and keeps its ID", () => {
+    for (const typed of [false, true]) {
+      const stored = "The lazy dog.\nSecond paragraph.";
+      const { server, browser } = pair(stored);
+      Y.applyUpdate(server, edit(browser, stampIds));
+      if (typed)
+        Y.applyUpdate(
+          server,
+          edit(browser, typeAt(" Typed.", endOf("Second"))),
+        );
+      accept(server, stored, "The sleepy dog.\nSecond paragraph.");
+      exchange(server, browser);
+      expect(markdownOf(server)).toBe(
+        typed
+          ? "The sleepy dog.\nSecond paragraph. Typed."
+          : "The sleepy dog.\nSecond paragraph.",
+      );
+      expect(idsOf(server)).toEqual(["block_0", "block_1"]);
+      expect(idsOf(browser)).toEqual(["block_0", "block_1"]);
+    }
+  });
+
+  it("adds a block beside blocks that carry IDs", () => {
+    const stored = "First.\nSecond.";
+    const { server, browser } = pair(stored);
+    Y.applyUpdate(server, edit(browser, stampIds));
+    Y.applyUpdate(server, edit(browser, typeAt(" Typed.", endOf("Second"))));
+    accept(server, stored, "First.\nAdded.\nSecond.");
+    expect(markdownOf(server)).toBe("First.\nAdded.\nSecond. Typed.");
+    expect(idsOf(server)).toEqual(["block_0", null, "block_1"]);
+  });
+
   it("refuses when the live copy changed that paragraph", () => {
     const stored = "The lazy dog.\nSecond paragraph.";
     const {
@@ -623,6 +679,18 @@ describe("liveCopyMarkdown", () => {
   it("keeps the stored text when the live copy holds the same Page", () => {
     const stored = "The *lazy* dog.";
     const { server } = session(stored);
+    expect(
+      liveCopyMarkdown(server, schema, {
+        content: stored,
+        document: page(stored),
+      }),
+    ).toBe(stored);
+  });
+
+  it("keeps the stored text when only block IDs set the live copy apart", () => {
+    const stored = "The _lazy_ dog.";
+    const { server, browser } = pair(stored);
+    Y.applyUpdate(server, edit(browser, stampIds));
     expect(
       liveCopyMarkdown(server, schema, {
         content: stored,

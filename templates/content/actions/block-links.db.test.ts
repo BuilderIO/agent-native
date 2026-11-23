@@ -289,6 +289,31 @@ describe("block links", () => {
     );
   });
 
+  it("replays a retried save whose block IDs arrived after the first try", async () => {
+    const content = "Alpha\nBeta\nGamma";
+    const { documentId, ids } = await rowPage(content);
+    const base = { revision: await revisionOf(documentId), content };
+    const [alpha, beta, gamma] = [idAt(ids, 0), idAt(ids, 1), idAt(ids, 2)];
+    const first = await browserSave({
+      documentId,
+      base,
+      content: "Alpha\nBeta\nGamma, edited",
+      idsByPath: {},
+    });
+
+    await expect(
+      browserSave({
+        documentId,
+        base,
+        content: "Alpha\nBeta\nGamma, edited",
+        idsByPath: byPath(alpha, beta, gamma),
+      }),
+    ).resolves.toMatchObject({
+      content: "Alpha\nBeta\nGamma, edited",
+      revision: (first as { revision: string }).revision,
+    });
+  });
+
   it("follows the merged text when a stale tab's IDs are older than another tab's move", async () => {
     const content = "Alpha\nBeta\nGamma";
     const { documentId, ids } = await rowPage(content);
