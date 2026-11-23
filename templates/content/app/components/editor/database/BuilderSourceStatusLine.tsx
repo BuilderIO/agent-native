@@ -98,7 +98,12 @@ export function builderProgress(
             count: fetchedCountDetail ?? fetchedCount,
           });
   if (status === "error" || hydrationFailed) {
-    return { failed: true as const, detail };
+    return {
+      failed: true as const,
+      // What Retry runs again: reading the rows, or loading their pages' content.
+      retry: status === "error" ? ("rows" as const) : ("content" as const),
+      detail,
+    };
   }
   const label = hydrating
     ? dbText("builderRowsFetchedSyncingBodies")
@@ -150,6 +155,8 @@ export function BuilderSourceStatusLine({
   progressHighWater,
   onSyncNow,
   onRetry,
+  onRetryContent,
+  retryContentPending = false,
   onOpenSource,
   onUnlinked,
 }: {
@@ -161,7 +168,11 @@ export function BuilderSourceStatusLine({
   clientError: boolean;
   progressHighWater?: BuilderSourceProgressHighWater | undefined;
   onSyncNow: () => void;
+  /** Reads the rows again after a failed load. */
   onRetry: () => void;
+  /** Loads the pages' content again after it failed. */
+  onRetryContent?: (() => void) | undefined;
+  retryContentPending?: boolean;
   onOpenSource?: (() => void) | undefined;
   onUnlinked?: (() => void) | undefined;
 }) {
@@ -171,6 +182,12 @@ export function BuilderSourceStatusLine({
     ? null
     : builderProgress(source, clientError, progressHighWater);
   const problem = builderSourceProblem(source, progress, now);
+  const retryContent = progress?.failed && progress.retry === "content";
+  const retry = retryContent
+    ? onRetryContent
+    : progress?.failed
+      ? onRetry
+      : onSyncNow;
 
   return (
     <SourceStatusLine
@@ -220,17 +237,18 @@ export function BuilderSourceStatusLine({
         problem
           ? {
               text: problem,
-              actions: canEdit ? (
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="outline"
-                  disabled={pending}
-                  onClick={progress?.failed ? onRetry : onSyncNow}
-                >
-                  {dbText("retry")}
-                </Button>
-              ) : null,
+              actions:
+                canEdit && retry ? (
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    disabled={retryContent ? retryContentPending : pending}
+                    onClick={retry}
+                  >
+                    {dbText("retry")}
+                  </Button>
+                ) : null,
             }
           : null
       }

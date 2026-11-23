@@ -3833,8 +3833,20 @@ function DatabaseTable({
               builderContinuationClientErrorKeys.includes(continuationKey)
             }
             progressHighWater={builderProgressHighWater[builderSource.id]}
+            onRetryContent={() =>
+              runBuilderHydration(builderSource.id, {}, { retryFailed: true })
+            }
+            retryContentPending={databaseSourceOperationIsPending(
+              sourcePendingOperations,
+              builderSource.id,
+              ["refresh", "hydration", "disconnect"],
+            )}
             onRetry={() => {
-              if (!continuationKey) return;
+              // A failed read with nowhere to continue from starts over.
+              if (!continuationKey) {
+                runSourceRefresh(builderSource.id);
+                return;
+              }
               setBuilderContinuationClientErrorKeys((current) =>
                 current.filter((key) => key !== continuationKey),
               );
@@ -9408,7 +9420,7 @@ export function buildClientBuilderReviewPayload(
   };
 }
 
-function DatabaseSettingsSourcePanel({
+export function DatabaseSettingsSourcePanel({
   source,
   sources,
   databaseId,
@@ -9492,6 +9504,37 @@ function DatabaseSettingsSourcePanel({
     },
   });
   const top = nav[nav.length - 1];
+  const builderDetailsPanel = (detailsSource: ContentDatabaseSource) => (
+    <BuilderDetailsSourcePanel
+      source={detailsSource}
+      documentId={documentId}
+      canEdit={canEdit}
+      pageCount={itemCount}
+      syncPending={sourcePendingOperations.refreshSourceId === detailsSource.id}
+      syncDisabled={
+        sourcePendingOperations.refresh ||
+        databaseSourceOperationIsPending(
+          sourcePendingOperations,
+          detailsSource.id,
+          ["changeRole", "refresh", "disconnect"],
+        )
+      }
+      rolePending={sourceActionPending}
+      onSyncNow={() => onRefreshSource(detailsSource.id)}
+      onChooseDetails={() =>
+        onNavPush({
+          kind: "fieldPicker",
+          sourceId: detailsSource.id,
+          sourceName: detailsSource.sourceName,
+        })
+      }
+      onAddAsItems={async () => {
+        const result = await onChangeSourceRole(detailsSource.id, "items");
+        if (result) onNavReplace([]);
+      }}
+      onUnlinked={() => onSourceUnlinked(detailsSource.id)}
+    />
+  );
 
   if (!top) {
     return (
@@ -9613,31 +9656,7 @@ function DatabaseSettingsSourcePanel({
       secondary?.sourceType === "builder-cms" &&
       sourceAddsDetails(secondary)
     ) {
-      return (
-        <BuilderDetailsSourcePanel
-          source={secondary}
-          documentId={documentId}
-          canEdit={canEdit}
-          pageCount={itemCount}
-          syncPending={sourcePendingOperations.refreshSourceId === secondary.id}
-          syncDisabled={
-            sourcePendingOperations.refresh ||
-            databaseSourceOperationIsPending(
-              sourcePendingOperations,
-              secondary.id,
-              ["changeRole", "refresh", "disconnect"],
-            )
-          }
-          rolePending={sourceActionPending}
-          onSyncNow={() => onRefreshSource(secondary.id)}
-          onChooseDetails={chooseDetails}
-          onAddAsItems={async () => {
-            const result = await onChangeSourceRole(secondary.id, "items");
-            if (result) onNavReplace([]);
-          }}
-          onUnlinked={() => onSourceUnlinked(secondary.id)}
-        />
-      );
+      return builderDetailsPanel(secondary);
     }
     return (
       <SecondarySourceLeaf
@@ -9873,6 +9892,11 @@ function DatabaseSettingsSourcePanel({
         )}
       </div>
     );
+  }
+
+  // A model that adds details gets the panel Sources opens for it, with Choose details.
+  if (sourceAddsDetails(selectedBuilderSource)) {
+    return builderDetailsPanel(selectedBuilderSource);
   }
 
   const selectedSource = selectedBuilderSource;

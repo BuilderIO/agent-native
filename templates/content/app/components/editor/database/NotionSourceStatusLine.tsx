@@ -1,10 +1,12 @@
 import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import type { ContentDatabaseSource } from "@shared/api";
-import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { useRefreshContentDatabaseSource } from "@/hooks/use-content-database";
+import {
+  useContentDatabaseSourceRefreshing,
+  useRefreshContentDatabaseSource,
+} from "@/hooks/use-content-database";
 
 import { sourceRelativeTime, sourceUpdatedText } from "./source-status-text";
 import { NotionLogoMark } from "./SourceLogos";
@@ -22,40 +24,39 @@ function asSentence(reason: string | null) {
   return /[.!?…。！？]$/u.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
+/**
+ * Sync now for a Notion source. A failed sync is stored on the source, so the
+ * status line and Sources show it alike, and after a reload; both also hold
+ * Sync now while either one's sync runs.
+ */
 export function useNotionSyncNow(
   source: ContentDatabaseSource,
   documentId: string,
 ) {
   const refresh = useRefreshContentDatabaseSource(documentId);
-  const [failure, setFailure] = useState<{
-    reason: string | null;
-    asOf: string | null;
-  } | null>(null);
-  const localFailure =
-    failure && failure.asOf === source.lastRefreshedAt ? failure : null;
-  const failed =
-    localFailure !== null || source.syncState === "error" || !!source.lastError;
-  const reason = localFailure ? localFailure.reason : source.lastError;
+  const pending = useContentDatabaseSourceRefreshing(source.id);
+  const failed = source.syncState === "error" || !!source.lastError;
   const syncNow = () =>
     refresh.mutate(
       { documentId, sourceId: source.id, fullRefresh: true },
       {
-        onSuccess: () => {
-          setFailure(null);
-          toast.success(dbText("notionSyncedToast"));
-        },
-        onError: (error) => {
-          setFailure({
-            reason:
-              actionErrorMessage(error) ??
-              (error instanceof Error ? error.message : null),
-            asOf: source.lastRefreshedAt,
-          });
-        },
+        onSuccess: () => toast.success(dbText("notionSyncedToast")),
+        onError: (error) =>
+          toast.error(
+            [
+              dbText("sourceProblemNotion"),
+              asSentence(
+                actionErrorMessage(error) ??
+                  (error instanceof Error ? error.message : null),
+              ),
+            ]
+              .filter(Boolean)
+              .join(" "),
+          ),
       },
     );
 
-  return { refresh, failed, reason, syncNow };
+  return { pending, failed, reason: source.lastError, syncNow };
 }
 
 export function notionSourceProblem(
@@ -90,7 +91,7 @@ export function NotionSourceStatusLine({
   onOpenSource?: (() => void) | undefined;
 }) {
   const now = useNow();
-  const { refresh, failed, reason, syncNow } = useNotionSyncNow(
+  const { pending, failed, reason, syncNow } = useNotionSyncNow(
     source,
     documentId,
   );
@@ -122,7 +123,7 @@ export function NotionSourceStatusLine({
           ]}
         />
       }
-      sync={canEdit ? { pending: refresh.isPending, run: syncNow } : null}
+      sync={canEdit ? { pending, run: syncNow } : null}
       unlink={
         canEdit
           ? {
@@ -142,7 +143,7 @@ export function NotionSourceStatusLine({
                   type="button"
                   size="xs"
                   variant="outline"
-                  disabled={refresh.isPending}
+                  disabled={pending}
                   onClick={syncNow}
                 >
                   {dbText("retry")}

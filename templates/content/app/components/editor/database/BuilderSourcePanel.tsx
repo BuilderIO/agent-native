@@ -285,6 +285,8 @@ export function BuilderSourcePanel({
   const now = useNow();
   const progress = builderProgress(source, false, undefined);
   const problem = builderSourceProblem(source, progress, now);
+  // Page content that failed loads again; anything else reads the rows again.
+  const retryContent = progress?.failed && progress.retry === "content";
   const writeMode = builderSourceWriteMode(source);
   return (
     <SourcePanel provider="builder">
@@ -307,9 +309,9 @@ export function BuilderSourcePanel({
                     size="sm"
                     variant="outline"
                     disabled={
-                      progress?.failed ? retryContentDisabled : syncDisabled
+                      retryContent ? retryContentDisabled : syncDisabled
                     }
-                    onClick={progress?.failed ? onRetryContent : onSyncNow}
+                    onClick={retryContent ? onRetryContent : onSyncNow}
                   >
                     {dbText("retry")}
                   </Button>

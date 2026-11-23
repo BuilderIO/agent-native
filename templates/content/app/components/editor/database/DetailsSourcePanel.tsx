@@ -183,7 +183,7 @@ export function NotionDetailsSourcePanel({
   onUnlinked: () => void;
 }) {
   const now = useNow();
-  const { refresh, failed, reason, syncNow } = useNotionSyncNow(
+  const { pending, failed, reason, syncNow } = useNotionSyncNow(
     source,
     documentId,
   );
@@ -193,7 +193,7 @@ export function NotionDetailsSourcePanel({
       documentId={documentId}
       canEdit={canEdit}
       pageCount={pageCount}
-      sync={{ pending: refresh.isPending, run: syncNow }}
+      sync={{ pending, run: syncNow }}
       problem={failed ? notionSourceProblem(source, reason, now) : null}
       rolePending={rolePending}
       onChooseDetails={onChooseDetails}

@@ -273,6 +273,36 @@ describe("Builder model panel", () => {
     expect(onSyncNow).toHaveBeenCalledTimes(1);
   });
 
+  it("reads the rows again on Retry after a row read failed", async () => {
+    const { onSyncNow, onRetryContent } = renderBuilder(
+      builder({}, { sourceFetchState: "error" }),
+    );
+    expect(panel("builder").querySelector('[role="alert"]')).not.toBe(null);
+    await click(button("Retry"));
+    expect(onSyncNow).toHaveBeenCalledTimes(1);
+    expect(onRetryContent).not.toHaveBeenCalled();
+  });
+
+  it("loads failed page content again on Retry", async () => {
+    const { onSyncNow, onRetryContent } = renderBuilder(
+      builder(
+        {
+          bodyHydration: {
+            total: 3,
+            hydrated: 2,
+            pending: 0,
+            hydrating: 0,
+            error: 1,
+          },
+        } as Partial<ContentDatabaseSource>,
+        { lastReadHasMore: false },
+      ),
+    );
+    await click(button("Retry"));
+    expect(onRetryContent).toHaveBeenCalledTimes(1);
+    expect(onSyncNow).not.toHaveBeenCalled();
+  });
+
   it("keeps the edit modes behind More, and asks before publishing", async () => {
     const { onSetWriteMode } = renderBuilder(builder());
     expect(document.querySelector('[role="radio"]')).toBe(null);

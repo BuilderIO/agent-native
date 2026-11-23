@@ -76,10 +76,15 @@ function button(name: string) {
 
 function renderBuilder(
   builderSource: ContentDatabaseSource,
-  props: { canEdit?: boolean; clientError?: boolean } = {},
+  props: {
+    canEdit?: boolean;
+    clientError?: boolean;
+    canRetryContent?: boolean;
+  } = {},
 ) {
   const onSyncNow = vi.fn();
   const onRetry = vi.fn();
+  const onRetryContent = vi.fn();
   renderUi(
     <BuilderSourceStatusLine
       source={builderSource}
@@ -90,10 +95,24 @@ function renderBuilder(
       clientError={props.clientError ?? false}
       onSyncNow={onSyncNow}
       onRetry={onRetry}
+      onRetryContent={
+        props.canRetryContent === false ? undefined : onRetryContent
+      }
     />,
   );
-  return { onSyncNow, onRetry };
+  return { onSyncNow, onRetry, onRetryContent };
 }
+
+// Every row read, and one page's content of three failed to load.
+const CONTENT_FAILED = {
+  bodyHydration: {
+    total: 3,
+    hydrated: 2,
+    pending: 0,
+    hydrating: 0,
+    error: 1,
+  },
+} as unknown as Partial<ContentDatabaseSource>;
 
 beforeEach(() => {
   refresh.mutate.mockReset();
@@ -101,6 +120,7 @@ beforeEach(() => {
   elsewhere.refreshing = false;
   unlink.mutate.mockReset();
   toasts.toast.success.mockReset();
+  toasts.toast.error.mockReset();
 });
 
 describe("Builder source status line", () => {
@@ -158,6 +178,32 @@ describe("Builder source status line", () => {
     expect(line("builder").textContent).not.toContain("Updated 5 minutes ago");
     await click(button("Retry"));
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads failed page content again on Retry, without reading the rows again", async () => {
+    const { onRetry, onRetryContent, onSyncNow } = renderBuilder(
+      source("builder-cms", CONTENT_FAILED, { lastReadHasMore: false }),
+    );
+    expect(
+      line("builder").querySelector('[role="alert"]')?.textContent,
+    ).toContain("Couldn’t update from Builder.");
+    await click(button("Retry"));
+    expect(onRetryContent).toHaveBeenCalledTimes(1);
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(onSyncNow).not.toHaveBeenCalled();
+  });
+
+  it("offers no Retry for failed page content when nothing can load it again", () => {
+    renderBuilder(
+      source("builder-cms", CONTENT_FAILED, { lastReadHasMore: false }),
+      { canRetryContent: false },
+    );
+    expect(line("builder").querySelector('[role="alert"]')).not.toBe(null);
+    expect(
+      Array.from(document.querySelectorAll("button")).some(
+        (candidate) => candidate.textContent.trim() === "Retry",
+      ),
+    ).toBe(false);
   });
 
   it("says a model adds details, without row progress", () => {
@@ -225,50 +271,48 @@ describe("Notion source status line", () => {
     expect(toasts.toast.success).toHaveBeenCalledWith("Updated from Notion.");
   });
 
-  it("keeps a failed sync on the line until one works", async () => {
-    renderNotion(source("notion-database"));
+  it("says a failed sync at once, and the source keeps it on the line", async () => {
+    const synced = source("notion-database");
+    const { rerender } = renderNotion(synced);
     await click(button("Details"));
     await click(button("Sync now"));
     const [, options] = refresh.mutate.mock.calls[0] as [
       unknown,
       MutateOptions,
     ];
-    await act(async () => options.onError?.(new Error("Notion said no.")));
-    const alert = line("notion").querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain(
+    await act(async () => options.onError?.(new Error("Notion said no")));
+    expect(toasts.toast.error).toHaveBeenCalledWith(
+      "Couldn’t update from Notion. Notion said no.",
+    );
+
+    rerender(
+      notionLine({
+        ...synced,
+        syncState: "error",
+        lastError: "Notion said no",
+      }),
+    );
+    expect(
+      line("notion").querySelector('[role="alert"]')?.textContent,
+    ).toContain(
       "Couldn’t update from Notion. Notion said no. Showing details as of 5 minutes ago.",
     );
     expect(line("notion").textContent).not.toContain("Updated 5 minutes ago");
 
-    await click(button("Retry"));
-    const [, retry] = refresh.mutate.mock.calls[1] as [unknown, MutateOptions];
-    await act(async () => retry.onSuccess?.());
-    expect(line("notion").querySelector('[role="alert"]')).toBe(null);
-  });
-
-  it("drops a failed sync once the source updates elsewhere", async () => {
-    const stale = source("notion-database");
-    const { rerender } = renderNotion(stale);
-    await click(button("Details"));
-    await click(button("Sync now"));
-    const [, options] = refresh.mutate.mock.calls[0] as [
-      unknown,
-      MutateOptions,
-    ];
-    await act(async () => options.onError?.(new Error("Notion said no.")));
-    expect(line("notion").querySelector('[role="alert"]')).not.toBe(null);
-
     const twoMinutesAgo = new Date(Date.now() - 2 * 60_000).toISOString();
-    rerender(notionLine({ ...stale, lastRefreshedAt: twoMinutesAgo }));
+    rerender(notionLine({ ...synced, lastRefreshedAt: twoMinutesAgo }));
     expect(line("notion").querySelector('[role="alert"]')).toBe(null);
     expect(line("notion").textContent).toContain("Updated 2 minutes ago");
   });
 
-  it("holds Unlink… while a sync runs", async () => {
-    refresh.isPending = true;
-    renderNotion(source("notion-database"));
+  it("holds Sync now and Retry while Sources syncs the same source", async () => {
+    elsewhere.refreshing = true;
+    renderNotion(
+      source("notion-database", { syncState: "error", lastError: "Gone" }),
+    );
+    expect(button("Retry").disabled).toBe(true);
     await click(button("Details"));
-    expect(button("Unlink…").disabled).toBe(true);
+    expect(button("Sync now").disabled).toBe(true);
   });
 
   it("holds Unlink… while Sources refreshes the same source", async () => {
