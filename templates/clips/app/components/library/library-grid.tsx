@@ -19,7 +19,6 @@ import {
   useState,
 } from "react";
 import { Link, useSearchParams } from "react-router";
-import { FilterChips, type FilterChip } from "./filter-chips";
 import { toast } from "sonner";
 
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
@@ -64,6 +63,7 @@ import { resolveVideoMimeType } from "@/lib/video-metadata";
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
 import { DroppedUploadCard } from "./dropped-upload-card";
 import { AppEmptyState, EmptyState } from "./empty-state";
+import { FilterChips, type FilterChip } from "./filter-chips";
 import { FolderCard } from "./folder-card";
 import { buildLibraryActionHrefs } from "./library-action-hrefs";
 import {
