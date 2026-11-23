@@ -366,6 +366,8 @@ export default {
       blur: "Desfoque",
       spread: "Espalhamento",
       rotation3d: "Rotação 3D",
+      constraints: "Restrições",
+      absolutePosition: "Posição absoluta",
       rotationX: "Girar X",
       rotationY: "Girar Y",
       perspective: "Perspectiva",

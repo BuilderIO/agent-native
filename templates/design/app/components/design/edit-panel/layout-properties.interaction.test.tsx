@@ -798,8 +798,10 @@ describe("LayoutContextProperties interactions", () => {
     const heading = section?.querySelector(".design-sidebar-section-title");
     expect(heading?.textContent).toBe("editPanel.sections.layout");
     expect(heading?.closest("button")).toBeNull();
-    expect(section?.textContent).toContain("editPanel.labels.width");
-    expect(section?.textContent).toContain("editPanel.labels.height");
+    // oracle-change: ENG-14616 drops the visible Width/Height labels; the W and H fields keep their names.
+    expect(section?.textContent).not.toContain("editPanel.labels.width");
+    // oracle-change: ENG-14616 drops the visible Width/Height labels; the W and H fields keep their names.
+    expect(section?.textContent).not.toContain("editPanel.labels.height");
     expect(section?.textContent).not.toContain("editPanel.labels.flexGrow");
     expect(section?.querySelector('button[aria-label^="W "]')).not.toBeNull();
     expect(section?.querySelector('button[aria-label^="H "]')).not.toBeNull();

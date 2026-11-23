@@ -367,6 +367,8 @@ export default {
       blur: "ブラー",
       spread: "スプレッド",
       rotation3d: "3D 回転",
+      constraints: "制約",
+      absolutePosition: "絶対位置",
       rotationX: "X 軸回転",
       rotationY: "Y 軸回転",
       perspective: "パースペクティブ",

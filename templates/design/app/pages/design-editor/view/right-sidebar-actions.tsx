@@ -92,7 +92,7 @@ export function renderRightSidebarActions({
     >
       <div
         data-design-chrome-region="right-toolbar-actions"
-        className="flex h-[var(--design-column-head-height)] min-w-0 items-center gap-[var(--design-baseline-half)] ps-[var(--design-inspector-section-padding-inline)] pe-[calc(var(--design-baseline-unit)*2)]"
+        className="flex h-[var(--design-column-head-height)] min-w-0 items-center gap-[var(--design-baseline-half)] ps-[var(--design-baseline-unit)] pe-[calc(var(--design-baseline-unit)*2)]"
       >
         {commentsToggle && !commentsLabelVisible ? (
           <Tooltip>
@@ -115,7 +115,7 @@ export function renderRightSidebarActions({
       </div>
 
       {localPreviewRow ? (
-        <div className="min-w-0 px-[var(--design-inspector-section-padding-inline)] pb-[var(--design-baseline-half)]">
+        <div className="min-w-0 px-[var(--design-baseline-unit)] pb-[var(--design-baseline-half)]">
           {localPreviewRow}
         </div>
       ) : null}

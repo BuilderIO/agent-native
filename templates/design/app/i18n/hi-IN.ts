@@ -360,6 +360,8 @@ export default {
       blur: "ब्लर",
       spread: "फैलाव",
       rotation3d: "3D रोटेशन",
+      constraints: "बाधाएँ",
+      absolutePosition: "निरपेक्ष स्थिति",
       rotationX: "X घुमाएं",
       rotationY: "Y घुमाएं",
       perspective: "पर्सपेक्टिव",

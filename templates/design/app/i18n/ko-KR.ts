@@ -363,6 +363,8 @@ export default {
       blur: "흐림",
       spread: "확산",
       rotation3d: "3D 회전",
+      constraints: "제약 조건",
+      absolutePosition: "절대 위치",
       rotationX: "X 회전",
       rotationY: "Y 회전",
       perspective: "원근감",

@@ -189,7 +189,7 @@ export function CornerRadiusControl({
           element={element}
           overrideProperty="border-radius"
           breakpointOverrideContext={breakpointOverrideContext}
-          className="absolute -top-3.5 right-0"
+          className="absolute -top-2 right-0"
         />
       ) : null}
     </div>
@@ -520,15 +520,7 @@ function BlendModeRow({
     MIXED_VALUE;
 
   return (
-    <InspectorGrid
-      className="design-inspector-pair-fields items-center"
-      layout="label-field-action"
-    >
-      <InspectorGridCell span={INSPECTOR_GRID_COLUMNS}>
-        <p className="design-sidebar-field-label min-w-0 truncate text-muted-foreground">
-          {blendModeLabel}
-        </p>
-      </InspectorGridCell>
+    <InspectorGrid className="items-center" layout="field-action">
       <InspectorGridCell
         span={INSPECTOR_GRID_COLUMNS - INSPECTOR_GRID_ACTION_SPAN}
       >
@@ -647,31 +639,7 @@ export function AppearanceProperties({
         </>
       }
     >
-      <InspectorGrid
-        className="design-inspector-pair-fields items-center"
-        layout="label-action-rows"
-      >
-        <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
-          <p className="design-sidebar-field-label min-w-0 truncate text-muted-foreground">
-            {t("editPanel.labels.opacity")}
-          </p>
-        </InspectorGridCell>
-        <InspectorGridCell
-          span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
-          ariaHidden
-        />
-        <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
-          {showCornerRadius ? (
-            <p className="design-sidebar-field-label min-w-0 truncate text-muted-foreground">
-              {t("editPanel.labels.cornerRadius")}
-            </p>
-          ) : null}
-        </InspectorGridCell>
-        <InspectorGridCell
-          span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
-          ariaHidden
-        />
-        <InspectorGridCell span={INSPECTOR_GRID_ACTION_SPAN} ariaHidden />
+      <InspectorGrid className="items-center" layout="action-pair">
         <InspectorGridCell
           span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
           className="group/field relative"
@@ -698,7 +666,7 @@ export function AppearanceProperties({
             element={element}
             overrideProperty="opacity"
             breakpointOverrideContext={breakpointOverrideContext}
-            className="absolute -top-3.5 right-0"
+            className="absolute -top-2 right-0"
           />
         </InspectorGridCell>
         <InspectorGridCell

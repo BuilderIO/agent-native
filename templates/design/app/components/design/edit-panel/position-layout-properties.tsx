@@ -79,7 +79,6 @@ import {
   InspectorGrid,
   InspectorGridCell,
   PanelSection,
-  SubsectionLabel,
 } from "./panel-primitives";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
 import type {
@@ -667,35 +666,61 @@ export function PositionLayoutProperties({
     <PanelSection
       title={t("editPanel.sections.positionLayout")}
       actions={
-        <SectionIconToggle
-          label={"Absolute position" /* i18n-ignore design inspector action */}
-          active={constrainedPosition}
-          disabled={element.svgShapeOffset !== undefined}
-          onClick={() =>
-            commitStylePatch(
-              constrainedPosition
-                ? {
-                    position: "relative",
-                    inset: "auto",
-                    left: "auto",
-                    right: "auto",
-                    top: "auto",
-                    bottom: "auto",
+        <>
+          {constraintsSuppressed ? null : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={t("editPanel.labels.constraints")}
+                  aria-pressed={constraintsExpanded}
+                  onClick={() =>
+                    setConstraintsExpanded((expanded) => !expanded)
                   }
-                : { position: "absolute" },
-              onStyleChange,
-              onStylesChange,
-            )
-          }
-        >
-          <IconLayoutDistributeHorizontal className="size-3.5" />
-        </SectionIconToggle>
+                  className={cn(
+                    "flex size-6 items-center justify-center rounded-md transition-colors",
+                    "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                    "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                    constraintsExpanded
+                      ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  <ConstraintsPreview value={constraintsValue} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("editPanel.labels.constraints")}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          <SectionIconToggle
+            label={t("editPanel.labels.absolutePosition")}
+            active={constrainedPosition}
+            disabled={element.svgShapeOffset !== undefined}
+            onClick={() =>
+              commitStylePatch(
+                constrainedPosition
+                  ? {
+                      position: "relative",
+                      inset: "auto",
+                      left: "auto",
+                      right: "auto",
+                      top: "auto",
+                      bottom: "auto",
+                    }
+                  : { position: "absolute" },
+                onStyleChange,
+                onStylesChange,
+              )
+            }
+          >
+            <IconLayoutDistributeHorizontal className="size-3.5" />
+          </SectionIconToggle>
+        </>
       }
     >
       <div className="design-sidebar-property-group">
-        <SubsectionLabel>
-          {"Alignment" /* i18n-ignore design inspector label */}
-        </SubsectionLabel>
         <InspectorActionPairGrid
           className="items-center"
           left={
@@ -764,10 +789,9 @@ export function PositionLayoutProperties({
       </div>
 
       <div className="design-sidebar-property-group">
-        <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
-        <InspectorGrid className="items-center" layout="action-pair">
+        <InspectorGrid className="items-center" layout="pair">
           <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+            span={INSPECTOR_GRID_PAIR_SPAN}
             className="group/field relative"
           >
             <ScrubStyleInput
@@ -793,15 +817,15 @@ export function PositionLayoutProperties({
               element={element}
               overrideProperty="left"
               breakpointOverrideContext={breakpointOverrideContext}
-              className="absolute -top-3.5 right-0"
+              className="absolute -top-2 right-0"
             />
           </InspectorGridCell>
           <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+            span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
             ariaHidden
           />
           <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+            span={INSPECTOR_GRID_PAIR_SPAN}
             className="group/field relative"
           >
             <ScrubStyleInput
@@ -827,52 +851,9 @@ export function PositionLayoutProperties({
               element={element}
               overrideProperty="top"
               breakpointOverrideContext={breakpointOverrideContext}
-              className="absolute -top-3.5 right-0"
+              className="absolute -top-2 right-0"
             />
           </InspectorGridCell>
-
-          <>
-            <InspectorGridCell
-              span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
-              ariaHidden
-            />
-            <InspectorGridCell
-              span={INSPECTOR_GRID_ACTION_SPAN}
-              className="flex items-center justify-center"
-            >
-              {/* Auto-layout containers position in-flow children. An absolutely
-              positioned descendant leaves that flow and can still use anchors. */}
-              {constraintsSuppressed ? null : (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={
-                        "Constraints" /* i18n-ignore design inspector action */
-                      }
-                      aria-pressed={constraintsExpanded}
-                      onClick={() =>
-                        setConstraintsExpanded((expanded) => !expanded)
-                      }
-                      className={cn(
-                        "flex size-6 items-center justify-center rounded-md transition-colors",
-                        "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                        "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                        constraintsExpanded
-                          ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
-                          : "text-muted-foreground",
-                      )}
-                    >
-                      <ConstraintsPreview value={constraintsValue} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {"Constraints" /* i18n-ignore design inspector tooltip */}
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </InspectorGridCell>
-          </>
         </InspectorGrid>
         {constraintsExpanded && !constraintsSuppressed ? (
           <ConstraintsWidget
@@ -884,7 +865,6 @@ export function PositionLayoutProperties({
       </div>
 
       <div className="design-sidebar-property-group">
-        <SubsectionLabel>{t("editPanel.labels.rotation")}</SubsectionLabel>
         <InspectorGrid className="items-center" layout="action-pair">
           <InspectorGridCell
             span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
@@ -986,7 +966,7 @@ export function PositionLayoutProperties({
                 element={element}
                 overrideProperty="scale"
                 breakpointOverrideContext={breakpointOverrideContext}
-                className="absolute -top-3.5 right-0"
+                className="absolute -top-2 right-0"
               />
             </InspectorGridCell>
             <InspectorGridCell
