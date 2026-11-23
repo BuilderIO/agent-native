@@ -4,6 +4,7 @@ import {
   calendarGetEvent,
   calendarListEvents,
   calendarPatchEvent,
+  calendarUpdateEvent,
   googleFetch,
 } from "./google-api.js";
 
@@ -59,5 +60,38 @@ describe("googleFetch", () => {
     controller.abort();
     expect(signals).toHaveLength(3);
     expect(signals.every((signal) => signal.aborted)).toBe(true);
+  });
+
+  it("sends the revision an event write starts from as If-Match, not in the query", async () => {
+    fetchMock.mockClear();
+
+    await calendarPatchEvent(
+      "token",
+      "primary",
+      "event-1",
+      { summary: "Mine" },
+      { sendUpdates: "none", ifMatch: '"etag-1"' },
+    );
+    await calendarUpdateEvent(
+      "token",
+      "primary",
+      "event-1",
+      { summary: "Mine" },
+      { ifMatch: '"etag-2"' },
+    );
+    await calendarPatchEvent("token", "primary", "event-1", {});
+
+    const requests = fetchMock.mock.calls.map(([url, init]) => ({
+      url: String(url),
+      ifMatch: new Headers((init as RequestInit).headers).get("If-Match"),
+    }));
+    expect(requests).toEqual([
+      {
+        url: expect.stringMatching(/\/events\/event-1\?sendUpdates=none$/),
+        ifMatch: '"etag-1"',
+      },
+      { url: expect.stringMatching(/\/events\/event-1$/), ifMatch: '"etag-2"' },
+      { url: expect.stringMatching(/\/events\/event-1$/), ifMatch: null },
+    ]);
   });
 });

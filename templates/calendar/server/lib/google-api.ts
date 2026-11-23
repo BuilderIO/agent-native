@@ -119,6 +119,13 @@ export function isGoogleNotFoundError(error: unknown): boolean {
   );
 }
 
+export function isGooglePreconditionFailedError(error: unknown): boolean {
+  return (
+    (error instanceof GoogleApiError && error.status === 412) ||
+    (error instanceof Error && /^Google API error \(412\):/.test(error.message))
+  );
+}
+
 export function isGoogleEventAbsentError(error: unknown): boolean {
   return (
     isGoogleNotFoundError(error) ||
@@ -320,27 +327,43 @@ export function calendarGetEvent(
   );
 }
 
+interface EventWriteParams {
+  sendUpdates?: string | undefined;
+  conferenceDataVersion?: number | undefined;
+  supportsAttachments?: boolean | undefined;
+  ifMatch?: string | undefined;
+}
+
+function eventWrite(
+  method: "PATCH" | "PUT",
+  params: EventWriteParams | undefined,
+) {
+  const { ifMatch, ...query } = params ?? {};
+  return {
+    query: qs(query),
+    init: {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(ifMatch ? { "If-Match": ifMatch } : {}),
+      },
+    },
+  };
+}
+
 export function calendarPatchEvent(
   accessToken: string,
   calendarId: string,
   eventId: string,
   body: any,
-  params?: {
-    sendUpdates?: string;
-    conferenceDataVersion?: number;
-    supportsAttachments?: boolean;
-  },
+  params?: EventWriteParams,
   signal?: AbortSignal,
 ) {
+  const { query, init } = eventWrite("PATCH", params);
   return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs(params ?? {})}`,
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${query}`,
     accessToken,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal,
-    },
+    { ...init, body: JSON.stringify(body), ...(signal ? { signal } : {}) },
   );
 }
 
@@ -427,20 +450,13 @@ export function calendarUpdateEvent(
   calendarId: string,
   eventId: string,
   body: any,
-  params?: {
-    sendUpdates?: string;
-    conferenceDataVersion?: number;
-    supportsAttachments?: boolean;
-  },
+  params?: EventWriteParams,
 ) {
+  const { query, init } = eventWrite("PUT", params);
   return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs(params ?? {})}`,
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${query}`,
     accessToken,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
+    { ...init, body: JSON.stringify(body) },
   );
 }
 

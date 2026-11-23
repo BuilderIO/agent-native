@@ -1,6 +1,10 @@
 import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
+import {
+  checkSaveRevision,
+  EXPECTED_REVISION_DESCRIPTION,
+} from "@agent-native/core/save-conflict/server";
 import { buildDeepLink } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
@@ -122,6 +126,10 @@ export default defineAction({
       .describe(
         "Connected Google account email from list-events/search-events",
       ),
+    expectedRevision: z
+      .string()
+      .optional()
+      .describe(EXPECTED_REVISION_DESCRIPTION),
     targetAccountEmail: z
       .string()
       .optional()
@@ -371,6 +379,14 @@ export default defineAction({
     if (attendees !== undefined) updates.attendees = attendees;
     Object.assign(updates, reminderFields);
 
+    const checkReadRevision = (read: CalendarEvent) =>
+      checkSaveRevision({
+        record: googleCalendar.CALENDAR_EVENT_RECORD,
+        expectedRevision: args.expectedRevision,
+        current: { value: read, revision: read.revision ?? null },
+        isSameSave: () => false,
+      });
+
     let existingEvent: CalendarEvent | undefined;
     const loadExistingEvent = async () => {
       existingEvent ??= await googleCalendar.getEvent(googleEventId, {
@@ -396,6 +412,7 @@ export default defineAction({
       }
 
       const existingEvent = await loadExistingEvent();
+      checkReadRevision(existingEvent);
       if (!isCalendarEventOrganizer(existingEvent)) {
         fail("Only the event organizer can move or reschedule this event.");
       }
@@ -638,6 +655,7 @@ export default defineAction({
       updates.workingLocationProperties;
 
     if (replaceRecurringWorkingLocation) {
+      checkReadRevision(await loadExistingEvent());
       const hasUnsupportedReplacementPatch =
         args.title !== undefined ||
         args.description !== undefined ||
@@ -731,6 +749,7 @@ export default defineAction({
         addGoogleMeet: args.addGoogleMeet,
         removeGoogleMeet: args.removeGoogleMeet,
         scope: args.scope,
+        expectedRevision: args.expectedRevision,
       });
     }
 
@@ -808,6 +827,7 @@ export default defineAction({
       hangoutLink: result.meetLink,
       meetingLink: zoomMeetingLink,
       conferenceData: result.conferenceData,
+      ...(result.revision ? { revision: result.revision } : {}),
       ...(args.removeGoogleMeet ? { removedGoogleMeet: true } : {}),
       ...returnedPatch,
       change: eventChange(id, title),

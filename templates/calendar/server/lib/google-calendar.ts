@@ -7,6 +7,11 @@ import {
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
 import {
+  countSaveOutcome,
+  isSameRecord,
+  saveConflict,
+} from "@agent-native/core/save-conflict/server";
+import {
   getOAuthAccounts,
   getCredentialContext,
   getRequestOrgId,
@@ -42,6 +47,7 @@ import {
   calendarPatchEvent,
   calendarUpdateEvent,
   isGoogleEventAbsentError,
+  isGooglePreconditionFailedError,
   peopleGetProfile,
 } from "./google-api.js";
 import { getCalendarProviderApiRuntime } from "./provider-api.js";
@@ -1558,6 +1564,7 @@ export async function listEvents(
             allDay: !event.start?.dateTime,
             source: "google" as const,
             googleEventId: event.id || undefined,
+            revision: event.etag || undefined,
             htmlLink: event.htmlLink || undefined,
             accountEmail: email,
             calendarSourceKey: calendarSource?.sourceKey,
@@ -1902,6 +1909,7 @@ export async function getEvent(
     allDay: !event.start?.dateTime,
     source: "google",
     googleEventId: event.id || undefined,
+    revision: event.etag || undefined,
     htmlLink: event.htmlLink || undefined,
     accountEmail: account.accountEmail,
     calendarSourceKey: calendarSource?.sourceKey,
@@ -2111,6 +2119,85 @@ export async function moveEvent(
   return replacement;
 }
 
+export const CALENDAR_EVENT_RECORD = "calendar_event";
+const MAX_EVENT_REPLACE_ATTEMPTS = 3;
+
+const REPEATABLE_EVENT_FIELDS = new Set<string>([
+  "title",
+  "description",
+  "location",
+  "start",
+  "end",
+  "startTimeZone",
+  "endTimeZone",
+  "allDay",
+  "transparency",
+  "visibility",
+  "status",
+  "colorId",
+  "recurrence",
+]);
+
+function sameEventTime(a: string, b: string, allDay: boolean): boolean {
+  if (allDay) return a.split("T")[0] === b.split("T")[0];
+  const left = Date.parse(a);
+  const right = Date.parse(b);
+  return Number.isNaN(left) || Number.isNaN(right) ? a === b : left === right;
+}
+
+function eventHoldsPatch(
+  current: CalendarEvent,
+  patch: Partial<CalendarEvent>,
+): boolean {
+  const allDay = patch.allDay ?? current.allDay;
+  const stored: Record<string, unknown> = { ...current };
+  const fields: Record<string, unknown> = { ...patch };
+  return Object.entries(fields).every(([key, value]) => {
+    if (key === "accountEmail" || value === undefined) return true;
+    if (!REPEATABLE_EVENT_FIELDS.has(key)) return false;
+    const storedValue = stored[key];
+    if (
+      (key === "start" || key === "end") &&
+      typeof value === "string" &&
+      typeof storedValue === "string"
+    ) {
+      return sameEventTime(value, storedValue, allDay);
+    }
+    return isSameRecord(value, storedValue ?? null);
+  });
+}
+
+export interface EventUpdateResult {
+  htmlLink?: string | undefined;
+  meetLink?: string | undefined;
+  conferenceData?: CalendarEvent["conferenceData"] | undefined;
+  attendees?: CalendarEvent["attendees"] | undefined;
+  revision?: string | undefined;
+}
+
+async function updateResultAfterStaleWrite(
+  googleEventId: string,
+  account: GoogleAccountSelection,
+  patch: Partial<CalendarEvent>,
+): Promise<EventUpdateResult> {
+  const current = await getEvent(googleEventId, account);
+  if (!eventHoldsPatch(current, patch)) {
+    throw saveConflict(
+      CALENDAR_EVENT_RECORD,
+      current,
+      current.revision ?? null,
+    );
+  }
+  countSaveOutcome(CALENDAR_EVENT_RECORD, "already_applied");
+  return {
+    htmlLink: current.htmlLink,
+    meetLink: current.hangoutLink,
+    conferenceData: current.conferenceData,
+    attendees: current.attendees,
+    revision: current.revision,
+  };
+}
+
 export async function updateEvent(
   googleEventId: string,
   event: Partial<CalendarEvent>,
@@ -2120,23 +2207,26 @@ export async function updateEvent(
     addGoogleMeet?: boolean;
     removeGoogleMeet?: boolean;
     scope?: UpdateEventScope;
+    expectedRevision?: string | undefined;
   },
-): Promise<{
-  htmlLink?: string;
-  meetLink?: string;
-  conferenceData?: CalendarEvent["conferenceData"];
-  attendees?: CalendarEvent["attendees"];
-}> {
+): Promise<EventUpdateResult> {
   const client = await getClientForAccount(options.account);
 
   let targetEventId = googleEventId;
   let eventPatch = event;
+  let ifMatch = options.expectedRevision;
   if (options?.scope === "all") {
     const instance = await calendarGetEvent(
       client.accessToken,
       "primary",
       googleEventId,
     );
+    if (
+      options.expectedRevision !== undefined &&
+      instance.etag !== options.expectedRevision
+    ) {
+      return updateResultAfterStaleWrite(googleEventId, options.account, event);
+    }
     const recurringEventId = instance.recurringEventId || googleEventId;
     targetEventId = recurringEventId;
     let master = instance;
@@ -2148,6 +2238,7 @@ export async function updateEvent(
       );
       eventPatch = alignSeriesUpdateToMaster(event, instance, master);
     }
+    if (options.expectedRevision !== undefined) ifMatch = master.etag;
     eventPatch = alignSeriesRecurrenceToStart(eventPatch, {
       startValue: googleEventStartValue(master),
       startTimeZone: master.start?.timeZone,
@@ -2209,42 +2300,60 @@ export async function updateEvent(
     requestBody.conferenceData = null;
   }
 
-  const response = eventPatch.workingLocationProperties
-    ? await calendarUpdateEvent(
+  const writeParams = {
+    sendUpdates: options.sendUpdates,
+    conferenceDataVersion:
+      options.addGoogleMeet || options.removeGoogleMeet ? 1 : undefined,
+    supportsAttachments:
+      eventPatch.attachments !== undefined ? true : undefined,
+  };
+  const replaceStoredEvent = async () => {
+    for (let attempt = 1; ; attempt++) {
+      const stored = await calendarGetEvent(
         client.accessToken,
         "primary",
         targetEventId,
-        {
-          ...(await calendarGetEvent(
-            client.accessToken,
-            "primary",
-            targetEventId,
-          )),
-          ...requestBody,
-        },
-        {
-          sendUpdates: options?.sendUpdates,
-          conferenceDataVersion:
-            options?.addGoogleMeet || options?.removeGoogleMeet ? 1 : undefined,
-          supportsAttachments:
-            eventPatch.attachments !== undefined ? true : undefined,
-        },
-      )
-    : await calendarPatchEvent(
-        client.accessToken,
-        "primary",
-        targetEventId,
-        requestBody,
-        {
-          sendUpdates: options?.sendUpdates,
-          conferenceDataVersion:
-            options?.addGoogleMeet || options?.removeGoogleMeet ? 1 : undefined,
-          supportsAttachments:
-            eventPatch.attachments !== undefined ? true : undefined,
-        },
       );
+      try {
+        return await calendarUpdateEvent(
+          client.accessToken,
+          "primary",
+          targetEventId,
+          { ...stored, ...requestBody },
+          { ...writeParams, ifMatch: ifMatch ?? stored.etag },
+        );
+      } catch (error) {
+        if (
+          ifMatch !== undefined ||
+          attempt >= MAX_EVENT_REPLACE_ATTEMPTS ||
+          !isGooglePreconditionFailedError(error)
+        ) {
+          throw error;
+        }
+      }
+    }
+  };
+
+  let response: Awaited<ReturnType<typeof calendarPatchEvent>>;
+  try {
+    response = eventPatch.workingLocationProperties
+      ? await replaceStoredEvent()
+      : await calendarPatchEvent(
+          client.accessToken,
+          "primary",
+          targetEventId,
+          requestBody,
+          { ...writeParams, ifMatch },
+        );
+  } catch (error) {
+    if (ifMatch === undefined || !isGooglePreconditionFailedError(error)) {
+      throw error;
+    }
+    return updateResultAfterStaleWrite(googleEventId, options.account, event);
+  }
 
   return {
+    revision: response?.etag || undefined,
     htmlLink: response?.htmlLink || undefined,
     meetLink: response?.hangoutLink || undefined,
     conferenceData: mapConferenceData(response?.conferenceData),

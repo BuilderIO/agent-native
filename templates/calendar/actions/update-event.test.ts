@@ -10,6 +10,7 @@ const createEventMock = vi.hoisted(() => vi.fn());
 const deleteEventMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/lib/google-calendar.js", () => ({
+  CALENDAR_EVENT_RECORD: "calendar_event",
   isConnected: isConnectedMock,
   getAuthStatus: getAuthStatusMock,
   getEvent: getEventMock,
@@ -650,6 +651,66 @@ describe("update-event working locations", () => {
       id: "google-event-1",
       removedGoogleMeet: true,
     });
+  });
+
+  it("sends the revision the caller read and returns the new one", async () => {
+    updateEventMock.mockResolvedValue({
+      htmlLink: "https://calendar.google.com/event",
+      revision: '"etag-2"',
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      () =>
+        action.run({
+          id: "google-event-1",
+          title: "Mine",
+          expectedRevision: '"etag-1"',
+        }),
+    );
+
+    expect(updateEventMock).toHaveBeenCalledWith(
+      "event-1",
+      expect.objectContaining({ title: "Mine" }),
+      expect.objectContaining({ expectedRevision: '"etag-1"' }),
+    );
+    expect(result).toMatchObject({ revision: '"etag-2"' });
+  });
+
+  it("refuses to move an event that changed after the caller read it", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [{ email: "secondary@example.com" }],
+    });
+    getEventMock.mockResolvedValue({
+      id: "google-event-1",
+      revision: '"etag-2"',
+      title: "Team meeting",
+      description: "",
+      location: "",
+      start: "2026-07-07T15:00:00.000Z",
+      end: "2026-07-07T15:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "owner@example.com",
+      organizer: { email: "owner@example.com", self: true },
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-event-1",
+          accountEmail: "owner@example.com",
+          targetAccountEmail: "secondary@example.com",
+          expectedRevision: '"etag-1"',
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: { currentRevision: '"etag-2"' },
+    });
+    expect(moveEventMock).not.toHaveBeenCalled();
   });
 
   it("does not try to convert a normal event into a working-location event", async () => {
