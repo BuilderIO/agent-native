@@ -278,6 +278,7 @@ import {
   approvedToolCallContinuationMessage,
   approvedToolCallDidNotRunMessage,
   approvedToolCallFailedMessage,
+  approvedToolCallNotExecutedMessage,
   CONTINUE_UNAVAILABLE_CODE,
   type ContinueTrigger,
 } from "./auto-continue.js";
@@ -6135,6 +6136,8 @@ export type AgentToolCallExecutionResult =
       /** Set when known: a call can fail after its side effect completed. */
       completedSideEffect?: boolean;
       terminalError?: Extract<AgentChatEvent, { type: "error" }>;
+      /** The action never executed: the failure happened before its invocation. */
+      beforeExecution?: true;
     };
 
 export interface ExecuteAgentToolCallOptions {
@@ -6244,6 +6247,11 @@ export async function executeAgentToolCall(
   const controller = options.signal ? null : new AbortController();
   const signal = options.signal ?? controller!.signal;
   const tools = actionsToEngineTools(options.actions);
+  const consumeApproval = options.consumeApproval;
+  // A grant whose consumption throws never executed the action, so its
+  // failure must not be worded as a run that failed. Held on an object so
+  // the async wrapper's assignment is visible to the catch below.
+  const approvalConsumption = { failedBeforeExecution: false };
 
   try {
     await runAgentLoop({
@@ -6284,7 +6292,16 @@ export async function executeAgentToolCall(
       approvedToolCallAskId: options.approvedToolCallAskId,
       auditOverride: options.auditOverride,
       onApprovalRequired: options.onApprovalRequired,
-      consumeApproval: options.consumeApproval,
+      consumeApproval: consumeApproval
+        ? async (binding: AgentApprovalBinding) => {
+            try {
+              return await consumeApproval(binding);
+            } catch (error) {
+              approvalConsumption.failedBeforeExecution = true;
+              throw error;
+            }
+          }
+        : undefined,
       isToolAlwaysAllowed: options.isToolAlwaysAllowed,
       requireWriteApproval: options.requireWriteApproval,
       beforeWrite: options.beforeWrite,
@@ -6307,6 +6324,9 @@ export async function executeAgentToolCall(
     return {
       status: "failed",
       output: sanitizeToolErrorValue(error),
+      ...(approvalConsumption.failedBeforeExecution
+        ? { beforeExecution: true }
+        : {}),
     };
   }
 
@@ -10723,8 +10743,13 @@ export async function runAgentLoop(opts: {
             ? undefined
             : preparedCallApprovalLabel(actionEntry, intent, approvalContext);
           const waitingMessage = `Waiting for your approval to run ${toolCall.name}.`;
-          await send({ type: "text", text: waitingMessage });
-          sentApprovalTranscriptTexts.add(waitingMessage);
+          // Repeated pauses for the same tool must not repeat the waiting
+          // copy; claim the text before the async send so a parallel pause
+          // cannot slip its own send in.
+          if (!sentApprovalTranscriptTexts.has(waitingMessage)) {
+            sentApprovalTranscriptTexts.add(waitingMessage);
+            await send({ type: "text", text: waitingMessage });
+          }
           await send({
             type: "tool_start",
             id: toolCall.id,
@@ -10783,10 +10808,6 @@ export async function runAgentLoop(opts: {
               text: transcriptText,
             });
             approvalTranscriptCallIds.add(toolCall.id);
-          }
-          if (!sentApprovalTranscriptTexts.has(transcriptText)) {
-            await send({ type: "text", text: transcriptText });
-            sentApprovalTranscriptTexts.add(transcriptText);
           }
           requestedActionStopTranscriptSent = true;
           await emitToolDone({
@@ -14811,6 +14832,7 @@ export function resolveAgentModelSelection(options: {
 
 function replaceUserPromptInMessages(
   messages: EngineMessage[],
+  requestContextText: string,
   from: string,
   to: string,
 ): void {
@@ -14821,10 +14843,28 @@ function replaceUserPromptInMessages(
   // earlier user turn can contain the same short text and must stay intact.
   const current = messages.at(-1);
   if (!current || current.role !== "user") return;
-  for (const part of current.content) {
-    if (part.type !== "text" || !part.text.includes(prompt)) continue;
-    part.text = part.text.split(prompt).join(replacement);
-  }
+  const textPart = [...current.content]
+    .reverse()
+    .find(
+      (part): part is Extract<EngineContentPart, { type: "text" }> =>
+        part.type === "text",
+    );
+  if (!textPart) return;
+  // The composed message ends with the request segment followed by injected
+  // screen, file, and attachment context. Rewrite only the last prompt
+  // occurrence before that context, so a short approver note cannot splice
+  // the continuation into unrelated context text.
+  const messageRegion = textPart.text.slice(
+    0,
+    textPart.text.length - requestContextText.length,
+  );
+  const promptAt = messageRegion.lastIndexOf(prompt);
+  if (promptAt < 0) return;
+  textPart.text =
+    messageRegion.slice(0, promptAt) +
+    replacement +
+    messageRegion.slice(promptAt + prompt.length) +
+    textPart.text.slice(textPart.text.length - requestContextText.length);
 }
 
 export function createProductionAgentHandler(
@@ -17693,18 +17733,20 @@ export function createProductionAgentHandler(
         ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
         : "";
 
+    // Everything appended after the request message itself; the
+    // continuation-prompt rewrite must never touch this context.
+    const requestContextText =
+      screenContext +
+      prefetchNote +
+      priorConnectionContextNote(priorConnection) +
+      filesContext +
+      planModeAgentNote +
+      (requestContextAttachments.length > 0
+        ? "\n\n<prior-chat-image-context>Images attached in earlier turns of this chat are included after the current text, in chronological order. Use them as prior references when relevant.</prior-chat-image-context>"
+        : "") +
+      (requestContextNote ? `\n\n${requestContextNote}` : "");
     const userContent = buildUserContentWithAttachments({
-      text:
-        enrichedMessage +
-        screenContext +
-        prefetchNote +
-        priorConnectionContextNote(priorConnection) +
-        filesContext +
-        planModeAgentNote +
-        (requestContextAttachments.length > 0
-          ? "\n\n<prior-chat-image-context>Images attached in earlier turns of this chat are included after the current text, in chronological order. Use them as prior references when relevant.</prior-chat-image-context>"
-          : "") +
-        (requestContextNote ? `\n\n${requestContextNote}` : ""),
+      text: enrichedMessage + requestContextText,
       attachments: [...requestContextAttachments, ...requestAttachments],
       vision: modelSupportsVision,
       textAttachmentStorage,
@@ -19349,6 +19391,7 @@ export function createProductionAgentHandler(
               if (approvedContinuationOriginalPrompt !== undefined) {
                 replaceUserPromptInMessages(
                   messages,
+                  requestContextText,
                   approvedContinuationOriginalPrompt,
                   approvedToolCallDidNotRunMessage(
                     approvedContinuationCallerPrompt,
@@ -19360,18 +19403,27 @@ export function createProductionAgentHandler(
             if (approvedContinuationOriginalPrompt !== undefined) {
               const continuation =
                 approvedExecution.status === "failed"
-                  ? approvedToolCallFailedMessage(
-                      approvedContinuationCallerPrompt,
-                    )
+                  ? approvedExecution.beforeExecution === true
+                    ? approvedToolCallNotExecutedMessage(
+                        approvedContinuationCallerPrompt,
+                      )
+                    : approvedToolCallFailedMessage(
+                        approvedContinuationCallerPrompt,
+                      )
                   : approvedToolCallContinuationMessage(
                       approvedContinuationCallerPrompt,
                     );
               replaceUserPromptInMessages(
                 messages,
+                requestContextText,
                 approvedContinuationOriginalPrompt,
                 continuation,
               );
-              agentLoopOpts.finalResponseGuardRequestText = continuation;
+              // The original request stays the response guard's task context;
+              // only the model-facing message carries the continuation note.
+              // A self-chained successor rebuilds from this body, so the
+              // rewritten message keeps the already-ran instruction in it.
+              mutableBody.message = continuation;
             }
             if (isBackgroundWorker) return;
             if (privateRequestHistory) {

@@ -43,6 +43,10 @@ export const APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT =
 export const APPROVED_TOOL_CALL_FAILED_PROMPT =
   "The approved action ran but failed. Continue from its error result; do not report the action as done.";
 
+// i18n-ignore: Internal continuation instruction sent to the agent when an approved tool call fails before its action executes, never shown as product copy.
+export const APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT =
+  "The approved action did not execute. Do not report that it ran; respond to the tool's error result instead.";
+
 function callerApprovalContinuationPrompt(
   callerPrompt: string | undefined,
 ): string | undefined {
@@ -99,6 +103,20 @@ export function approvedToolCallFailedMessage(
   return prompt
     ? `${prompt}\n\n${APPROVED_TOOL_CALL_FAILED_PROMPT}`
     : APPROVED_TOOL_CALL_FAILED_PROMPT;
+}
+
+/**
+ * Message the model receives when an approved tool call fails before its
+ * action executes. Caller instructions stay first; the outcome note keeps a
+ * side effect that never happened from being reported as done.
+ */
+export function approvedToolCallNotExecutedMessage(
+  callerPrompt: string | undefined,
+): string {
+  const prompt = callerApprovalContinuationPrompt(callerPrompt);
+  return prompt
+    ? `${prompt}\n\n${APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT}`
+    : APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT;
 }
 
 export const AUTO_CONTINUE_REFUSAL_CODES = [
