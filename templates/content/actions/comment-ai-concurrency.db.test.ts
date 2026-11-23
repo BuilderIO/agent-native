@@ -37,6 +37,7 @@ let applyRequest: typeof import("./apply-comment-ai-request.js").default;
 let addComment: typeof import("./add-comment.js").default;
 let commentIdForIdempotency: typeof import("./add-comment.js").commentIdForIdempotency;
 let replyRequest: typeof import("./reply-to-comment-ai-request.js").default;
+let getContext: typeof import("./get-comment-ai-context.js").default;
 
 const asUser = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run);
@@ -114,6 +115,7 @@ beforeAll(async () => {
   addComment = addCommentModule.default;
   commentIdForIdempotency = addCommentModule.commentIdForIdempotency;
   replyRequest = (await import("./reply-to-comment-ai-request.js")).default;
+  getContext = (await import("./get-comment-ai-context.js")).default;
 }, 60_000);
 
 beforeEach(async () => {
@@ -649,6 +651,122 @@ describe("operation-scoped refresh and commits", () => {
       status: "needs-review",
       attemptCount: 2,
       errorCode: "refresh_exhausted",
+    });
+  });
+
+  it("persists exhaustion when context is read after an unavailable retained second attempt", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+    );
+    const first = await runOperation(OP_A, started.agentThreadId, async () => {
+      const request = await commentAi.requireCommentAiRequest("reply");
+      return commentAi.beginCommentAiAttempt(request);
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "First edit. Alpha one. Beta two.", bodyRevision: 2 })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    const refresh = await runOperation(OP_A, started.agentThreadId, () =>
+      replyRequest.run(
+        { attemptId: first.attempt!.id, content: "First stale answer" },
+        { caller: "tool", userEmail: OWNER },
+      ),
+    );
+    expect(refresh).toMatchObject({
+      status: "refreshing",
+      refreshRequired: true,
+      errorCode: "page_changed",
+      nextAction: "get-comment-ai-context",
+    });
+
+    const second = await runOperation(OP_A, started.agentThreadId, async () => {
+      const request = await commentAi.requireCommentAiRequest("reply");
+      return commentAi.beginCommentAiAttempt(request);
+    });
+    const payload = {
+      attemptId: second.attempt!.id,
+      content: "Retained answer",
+    };
+    await runOperation(OP_A, started.agentThreadId, () =>
+      commentAi.retainCommentAiAttemptPayload(
+        second.request,
+        second.attempt!.id,
+        payload,
+      ),
+    );
+    await bindTurn(OP_A);
+    const reconciled = await asUser(() =>
+      commentAi.reconcileCommentAiSession({
+        operationId: OP_A,
+        threadId: started.agentThreadId,
+        turnId: TURN_ID,
+        status: "unavailable",
+      }),
+    );
+    expect(reconciled).toMatchObject({
+      status: "needs-review",
+      attemptCount: 2,
+      errorCode: "run_unavailable",
+    });
+    const [beforeAttempt] = await getDb()
+      .select()
+      .from(schema.commentAiAttempts)
+      .where(eq(schema.commentAiAttempts.id, second.attempt!.id));
+    expect(beforeAttempt).toMatchObject({
+      status: "needs-review",
+      errorCode: "run_unavailable",
+      payloadJson: JSON.stringify(payload),
+    });
+
+    const message =
+      "The Page kept changing while AI worked. Review the retained operation before retrying.";
+    await expect(
+      runOperation(OP_A, started.agentThreadId, () =>
+        getContext.run({}, { caller: "tool", userEmail: OWNER }),
+      ),
+    ).rejects.toMatchObject({
+      name: "CommentAiOperationError",
+      code: "refresh_exhausted",
+      message,
+      recoverable: false,
+    });
+
+    const [request] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    const attempts = await getDb()
+      .select()
+      .from(schema.commentAiAttempts)
+      .where(eq(schema.commentAiAttempts.requestId, OP_A));
+    const [document] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    const replies = await getDb()
+      .select()
+      .from(schema.documentComments)
+      .where(eq(schema.documentComments.parentId, ROOT_A));
+    expect(attempts).toHaveLength(2);
+    expect(
+      attempts.find((attempt) => attempt.id === second.attempt!.id),
+    ).toEqual(beforeAttempt);
+    expect(document.content).toBe("First edit. Alpha one. Beta two.");
+    expect(replies).toEqual([]);
+    expect({
+      status: request.status,
+      activeAttemptId: request.activeAttemptId,
+      attemptCount: request.attemptCount,
+      resultJson: request.resultJson,
+      errorCode: request.errorCode,
+      error: request.error,
+    }).toEqual({
+      status: "needs-review",
+      activeAttemptId: second.attempt!.id,
+      attemptCount: 2,
+      resultJson: null,
+      errorCode: "refresh_exhausted",
+      error: message,
     });
   });
 
