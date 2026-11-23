@@ -482,6 +482,7 @@ export function useSqlQuery(
   const queuedManualRefresh = useRef<{
     token: number;
     queryKeyHash: string;
+    rowsFromMs: number;
   } | null>(null);
   if (
     queuedManualRefresh.current &&
@@ -588,18 +589,29 @@ export function useSqlQuery(
         if (manual && forceRefresh) {
           queuedManualRefresh.current =
             !manual.failed && result.refreshPending === true
-              ? { token: manual.token, queryKeyHash }
+              ? {
+                  token: manual.token,
+                  queryKeyHash,
+                  rowsFromMs: result.fetchedAt
+                    ? Date.parse(result.fetchedAt)
+                    : Number.NEGATIVE_INFINITY,
+                }
               : null;
         } else if (
           queued?.queryKeyHash === queryKeyHash &&
           result.refreshPending !== true
         ) {
           queuedManualRefresh.current = null;
-          completedManualRefresh.current = {
-            token: queued.token,
-            queryKeyHash,
-            completedAt: Date.now(),
-          };
+          if (
+            result.fetchedAt !== undefined &&
+            Date.parse(result.fetchedAt) > queued.rowsFromMs
+          ) {
+            completedManualRefresh.current = {
+              token: queued.token,
+              queryKeyHash,
+              completedAt: Date.now(),
+            };
+          }
         }
       }
       if (options?.snapshots) {

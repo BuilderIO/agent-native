@@ -26,6 +26,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { REFRESH_PENDING_POLL_MS, useSqlQuery } from "./sql-query";
 
 const DESCRIPTOR = JSON.stringify({ programId: "dp_collector" });
+const OLD = {
+  rows: [{ value: "old" }],
+  cached: true,
+  fetchedAt: "2026-11-23T10:00:00.000Z",
+};
+const NEW = {
+  rows: [{ value: "new" }],
+  cached: true,
+  fetchedAt: "2026-11-23T10:05:00.000Z",
+};
 
 function Probe({ refreshToken }: { refreshToken: number }) {
   const query = useSqlQuery(["sql", DESCRIPTOR], DESCRIPTOR, "program", {
@@ -96,14 +106,14 @@ describe("useSqlQuery with a data program refresh still running", () => {
     mocks.callAction.mock.calls.map(([, args]) => args.forceRefresh === true);
 
   it("reads again until the queued run's rows arrive, then confirms the refresh", async () => {
-    answers.push({ rows: [{ value: "old" }], cached: true });
+    answers.push(OLD);
     await render(0);
     expect(shown("rows")).toBe("old");
 
     answers.push(
-      { rows: [{ value: "old" }], cached: true, refreshPending: true },
-      { rows: [{ value: "old" }], cached: true, refreshPending: true },
-      { rows: [{ value: "new" }], cached: true },
+      { ...OLD, refreshPending: true },
+      { ...OLD, refreshPending: true },
+      NEW,
     );
     await render(1);
     expect(forced()).toEqual([false, true]);
@@ -124,8 +134,25 @@ describe("useSqlQuery with a data program refresh still running", () => {
     expect(mocks.callAction).toHaveBeenCalledTimes(4);
   });
 
+  it("stops reading without confirming when the queued run leaves only the old rows", async () => {
+    answers.push(OLD);
+    await render(0);
+
+    answers.push({ ...OLD, refreshPending: true }, OLD);
+    await render(1);
+    expect(shown("completed")).toBe("undefined");
+
+    await advance(REFRESH_PENDING_POLL_MS);
+    expect(forced()).toEqual([false, true, false]);
+    expect(shown("rows")).toBe("old");
+    expect(shown("completed")).toBe("undefined");
+
+    await advance(REFRESH_PENDING_POLL_MS * 4);
+    expect(mocks.callAction).toHaveBeenCalledTimes(3);
+  });
+
   it("doesn't read again when no run is pending", async () => {
-    answers.push({ rows: [{ value: "old" }], cached: true });
+    answers.push(OLD);
     await render(0);
 
     await advance(REFRESH_PENDING_POLL_MS * 4);
