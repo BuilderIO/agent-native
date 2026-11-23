@@ -74,6 +74,13 @@ export function preserveActionFlags(
     out.schema = entry.schema;
   }
   if (
+    entry.outputSchema &&
+    typeof entry.outputSchema === "object" &&
+    "~standard" in entry.outputSchema
+  ) {
+    out.outputSchema = entry.outputSchema as Flag<"outputSchema">;
+  }
+  if (
     entry.agentInputSchema &&
     typeof entry.agentInputSchema === "object" &&
     "~standard" in entry.agentInputSchema
