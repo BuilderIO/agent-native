@@ -2495,6 +2495,13 @@ describe("calendar event revision checks", () => {
         etag: '"master-1"',
         start: { dateTime: "2026-05-06T15:00:00Z" },
         end: { dateTime: "2026-05-06T16:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        etag: '"instance-1"',
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+        end: { dateTime: "2026-05-20T16:00:00Z" },
       });
     calendarPatchEventMock.mockResolvedValue({
       id: "series-1",
@@ -2552,6 +2559,32 @@ describe("calendar event revision checks", () => {
       details: { currentRevision: '"instance-2"' },
     });
     expect(calendarPatchEventMock).not.toHaveBeenCalled();
+  });
+
+  it("counts a resent whole-series update of the event itself that already landed as done", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "event-1",
+      etag: '"etag-2"',
+      summary: "Mine",
+      start: { dateTime: "2026-05-20T15:00:00Z" },
+      end: { dateTime: "2026-05-20T16:00:00Z" },
+    });
+    calendarPatchEventMock.mockRejectedValue(preconditionFailed());
+
+    const result = await updateEvent(
+      "event-1",
+      { accountEmail: "steve@example.com", title: "Mine" },
+      { account, scope: "all", expectedRevision: '"etag-1"' },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "event-1",
+      expect.objectContaining({ summary: "Mine" }),
+      expect.objectContaining({ ifMatch: '"etag-1"' }),
+    );
+    expect(result.revision).toBe('"etag-2"');
   });
 
   it("never counts a refused whole-series update as landed from one occurrence", async () => {

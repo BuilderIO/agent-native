@@ -2241,11 +2241,15 @@ export async function updateEvent(
       );
       eventPatch = alignSeriesUpdateToMaster(event, instance, master);
     }
-    if (options.expectedRevision !== undefined) {
-      const occurrence =
-        recurringEventId === googleEventId
-          ? instance
-          : await calendarGetEvent(client.accessToken, "primary", googleEventId);
+    if (
+      options.expectedRevision !== undefined &&
+      recurringEventId !== googleEventId
+    ) {
+      const occurrence = await calendarGetEvent(
+        client.accessToken,
+        "primary",
+        googleEventId,
+      );
       if (occurrence.etag !== options.expectedRevision) {
         throw eventConflict(await getEvent(googleEventId, options.account));
       }

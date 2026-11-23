@@ -488,6 +488,23 @@ describe("update-event working locations", () => {
     );
   });
 
+  it("names the replacement it could not remove after the instance changed", async () => {
+    getEventMock.mockResolvedValue(recurringWorkingLocationEvent());
+    deleteEventMock
+      .mockRejectedValueOnce(new Error("The instance changed"))
+      .mockRejectedValueOnce(new Error("Google rejected cleanup"));
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-instance-20260707",
+          workingLocationType: "homeOffice",
+          scope: "single",
+        }),
+      ),
+    ).rejects.toThrow('replacement "working-location-override"');
+  });
+
   it("does not cancel the original instance when Google omits the replacement id", async () => {
     getEventMock.mockResolvedValue(recurringWorkingLocationEvent());
     createEventMock.mockResolvedValue({});
