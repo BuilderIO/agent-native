@@ -16,14 +16,6 @@
 // Visual-only evidence is not machine proof. A passing run names each report
 // that still needs a human to inspect its before/after screenshots before merge.
 //
-// A PR whose diff touches only TEST_PATH or DOC_PATH files (a flaky-test fix,
-// a docs page) has no behavior change to revert, so no proof can exist. Each
-// report it covers must say so with a `fix-proof: test-only` or
-// `fix-proof: docs-only` line; the diff alone never clears one.
-//
-// Fleet problem links (`.../fleet/inbox/<n>`) that factory PRs carry are not
-// reports and are skipped.
-//
 //   PR_BODY="$(gh pr view N --json body -q .body)" node scripts/feedback-fix-proof.ts
 //   ... feedback-fix-proof.ts --has-reports   prints has_reports=true|false
 //
@@ -33,9 +25,8 @@
 // Each proof's fix commit must be on this branch and not on its base
 // (BASE_SHA, or the merge-base with origin/main).
 //
-// Exit 0: every report proven, or the PR is test-only or docs-only. Exit 1:
-// a report has no proof, or a proof did not hold on re-run. Exit 2: could
-// not run.
+// Exit 0: every report proven, or the PR is test-only. Exit 1: a report has
+// no proof, or a proof did not hold on re-run. Exit 2: could not run.
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
@@ -45,14 +36,11 @@ import { fileURLToPath } from "node:url";
 export const TEST_PATH =
   /(^|\/)(__tests__|e2e)\/|^tests?\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$|^\.changeset\/.+\.md$/;
 
-// Agent instructions (SKILL.md, AGENTS.md) are behavior, not docs.
 export const DOC_PATH = /(^|\/)(docs|changelog)\/.+\.mdx?$|(^|\/)README\.mdx?$/;
 
 const RIDES_ALONG = /^\.changeset\/|(^|\/)changelog\//;
 
 export function needsNoFixProof(paths: string[]): boolean {
-  // A changeset or changelog entry rides along with a test or docs change;
-  // alone it proves nothing.
   return (
     paths.every((path) => TEST_PATH.test(path) || DOC_PATH.test(path)) &&
     paths.some((path) => !RIDES_ALONG.test(path))
@@ -63,7 +51,6 @@ export type Report = {
   link: string;
   proven: string[];
   visual: [before: string, after: string] | null;
-  /** Set only by a `fix-proof: test-only` or `docs-only` line under the report. */
   nothingToProve?: true;
 };
 type VisualReport = Report & {
@@ -302,7 +289,7 @@ function main() {
   }
   const changed = diff.stdout.split("\n").filter(Boolean);
   // The diff decides that nothing needs proving, the report line says which
-  // reports are test or docs work, so such a diff can't clear a product report.
+  // reports are test work, so a test-only diff can't clear a product report.
   const noProofDiff = needsNoFixProof(changed);
   const exempt = (r: Report) => noProofDiff && r.nothingToProve === true;
   if (noProofDiff && reports.every(exempt)) {

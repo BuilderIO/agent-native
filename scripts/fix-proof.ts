@@ -11,8 +11,7 @@
 // Exit 0: proven (green on HEAD, red on base). Exit 1: not proven (red on
 // HEAD, or the check still passes without the fix). Exit 2: could not run
 // (dirty tree, no source changes, git failure, check missing on base).
-// A test-only or docs-only change has nothing to prove; the feedback gate
-// passes it.
+// A test-only change has nothing to prove; the feedback gate passes it.
 // Only a command the gate can re-run gets a `fix-proof: proven` line.
 import { spawnSync } from "node:child_process";
 import {

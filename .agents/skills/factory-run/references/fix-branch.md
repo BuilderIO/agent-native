@@ -19,6 +19,13 @@ its screenshots show in your prompt. If you need more from the thread, say
 what in your reply; never ask for Slack access, and never name a secret or
 credential as something a person should restore.
 
+Run `node ~/.factory/secret.mjs`, `psql`, and `gh` yourself or in a
+general-purpose sub-agent. Builder's explorer sub-agent has no shell, so a
+replica or GitHub lookup handed to it fails with "helper unavailable"; that
+is not a missing helper. For a Labs fix, every `gh` call needs
+`GH_TOKEN="$GH_TOKEN_AGENT_NATIVE_LABS"`. CI you still can't read is
+pending or unknown in your reply, never something to ask a person for.
+
 1. Work on the branch you are on. Don't create or switch branches.
 
    If the report asks for behavior the app doesn't have (a feature, or
@@ -44,10 +51,10 @@ credential as something a person should restore.
      `<app>` is the template folder (for example `mail`). For a Labs app
      (`templates/<app>-2`, fixed in agent-native-labs) it is always `labs`:
      every Labs app shares that one database, and there is no per-app entry.
-     The replica sleeps when idle, so a timeout on first connect is normal:
-     retry twice, waiting about 10 then 30 seconds. If it still fails or has
-     no entry, it's unavailable: say so in `ROOT CAUSE` and carry on; never
-     ask for it to be restored. Check the reporter's org settings, recent
+     The replica sleeps when idle, so retry a connect timeout once, about
+     30 seconds later. If that fails too, or there's no entry, it's
+     unavailable: say so in `ROOT CAUSE` and carry on; never ask for it to
+     be restored. Check the reporter's org settings, recent
      rows, `agent_runs`. Never print the URL, emails, or user content into
      commits, PRs, or your reply, and never save the URL to a file or env
      var.
@@ -88,12 +95,14 @@ credential as something a person should restore.
    Finish the whole report. If you ship only part of it, say in your reply
    exactly what's left ("Remaining: Auto Label creation"); the factory sends
    that back to a branch, never to a person, so don't phrase it as an ask
-   to implement or investigate. A checkout that is behind or missing what
-   you need is yours to update: `git fetch origin` and work from
-   `origin/<base branch>`, as your target's rules say; never ask anyone to
-   sync the workspace. If a maintainer's word in the thread says something
-   now works (publishing, access, a setting), rely on it and try again
-   before calling it missing.
+   to implement or investigate. Builder merges your base branch in before
+   your first turn, so a checkout a few commits behind is not a blocker.
+   If you need something that landed since, merge it into the branch you
+   are on yourself:
+   `git fetch origin && git merge --no-edit origin/<base branch>`. Never
+   create a branch, and never ask anyone to sync the workspace. If a
+   maintainer's word in the thread says something now works (publishing,
+   access, a setting), rely on it and try again before calling it missing.
 
 4. Commit everything; the tree must be clean. Before sending a PR, search
    `gh pr list --state all --search "<app> <symptom>"`: if a merged PR already
