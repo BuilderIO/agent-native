@@ -130,6 +130,13 @@ Das Framework entdeckt jede Datei in `actions/` automatisch und bindet sie beim 
             "Wenn true (oder wenn das Prädikat true zurückgibt), ist ein Fehler nach dem eigenen Schreibvorgang dieser Action ein bekannter Fehler, den das Modell korrigieren und erneut versuchen kann, statt das Tool für den Rest der aktuellen Runde zu blockieren. Nur setzen, wenn die Action nach jedem Fehler sicher erneut ausgeführt werden kann. Eine Ablehnung, bevor überhaupt geschrieben wurde, braucht diese Option nicht. Siehe Wiederholungssichere Schreibvorgänge unten.",
         },
         {
+          name: "automatic",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            'Kennzeichnet einen Schreibvorgang, den die App von selbst ausführt, ohne Geste des Nutzers: beim Laden, beim Mounten, per Timer oder als Experiment- und Nutzungsbuchhaltung. Seine Events action_started, action_completed und action_failed tragen action_kind "automatic" statt "write", sodass Zählungen der Produktnutzung ihn auslassen. Ein Prädikat kennzeichnet nur die Aufrufe, für die es true zurückgibt. Betrifft nur Analytics: setze nie readOnly, um einen Schreibvorgang stummzuschalten.',
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,

@@ -273,6 +273,8 @@ type SourceMetadataRecord = {
   builderContinuationClaimId?: string;
   builderContinuationClaimOffset?: number;
   builderContinuationClaimedAt?: string;
+  readOnlyRefreshClaimId?: string;
+  readOnlyRefreshClaimedAt?: string;
   allowDraftWrites?: boolean;
   allowPublishWrites?: boolean;
   allowedWriteModes?: ContentDatabaseSourcePushMode[];
@@ -507,6 +509,97 @@ export async function renewBuilderCmsSourceRefreshClaim(args: {
     if (renewed.length > 0) return true;
   }
   return false;
+}
+
+export const READ_ONLY_SOURCE_REFRESH_CLAIM_LEASE_MS = 2 * 60 * 1000;
+
+export async function claimReadOnlySourceRefresh(args: {
+  sourceId: string;
+  now: string;
+}): Promise<{ claimId: string; metadata: Record<string, unknown> } | null> {
+  const db = getDb();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const [current = null] = await db
+      .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+      .limit(1);
+    if (!current) {
+      fail("Content database source not found.", {
+        errorCode: "source_not_found",
+        statusCode: 404,
+      });
+    }
+    const metadata =
+      parseObject<SourceMetadataRecord>(current.metadataJson) ?? {};
+    const claimedAt = metadata.readOnlyRefreshClaimedAt
+      ? Date.parse(metadata.readOnlyRefreshClaimedAt)
+      : Number.NaN;
+    if (
+      metadata.readOnlyRefreshClaimId &&
+      Number.isFinite(claimedAt) &&
+      Date.parse(args.now) - claimedAt < READ_ONLY_SOURCE_REFRESH_CLAIM_LEASE_MS
+    ) {
+      return null;
+    }
+    const claimId = nanoid();
+    const claimed = await db
+      .update(schema.contentDatabaseSources)
+      .set({
+        metadataJson: JSON.stringify({
+          ...metadata,
+          readOnlyRefreshClaimId: claimId,
+          readOnlyRefreshClaimedAt: args.now,
+        }),
+      })
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.id, args.sourceId),
+          eq(schema.contentDatabaseSources.metadataJson, current.metadataJson),
+        ),
+      )
+      .returning({ id: schema.contentDatabaseSources.id });
+    if (claimed.length > 0) return { claimId, metadata };
+  }
+  return null;
+}
+
+function withoutReadOnlyRefreshClaim(
+  metadataJson: string | null,
+  claimId: string,
+): SourceMetadataRecord | null {
+  const metadata = parseObject<SourceMetadataRecord>(metadataJson) ?? {};
+  if (metadata.readOnlyRefreshClaimId !== claimId) return null;
+  delete metadata.readOnlyRefreshClaimId;
+  delete metadata.readOnlyRefreshClaimedAt;
+  return metadata;
+}
+
+export async function recordReadOnlySourceRefreshFailure(args: {
+  sourceId: string;
+  refreshClaimId: string;
+  message: string;
+  now: string;
+}) {
+  await mutateContentDatabaseSourceMetadata({
+    sourceId: args.sourceId,
+    now: args.now,
+    buildPatch: (current) => {
+      const metadata = withoutReadOnlyRefreshClaim(
+        current.metadataJson,
+        args.refreshClaimId,
+      );
+      if (!metadata) return { metadataJson: current.metadataJson };
+      return {
+        metadataJson: JSON.stringify(metadata),
+        syncState: "error",
+        freshness: "stale",
+        lastError: args.message,
+      };
+    },
+    failureMessage:
+      "Source metadata changed repeatedly while saving the error.",
+  });
 }
 
 function parseArray<T>(value: string | null | undefined): T[] {
@@ -9108,16 +9201,57 @@ export async function storeSecondarySourceRows(args: {
   sourceTable: string;
   entries: BuilderCmsSourceEntry[];
   now: string;
+  keepRowsNotRead?: boolean | { syncedSince: string };
+  refreshClaimId?: string;
 }) {
   const db = getDb();
+  const sourceRowIds = args.entries.map(
+    (entry, index) => entry.id || `${args.sourceType}-${index + 1}`,
+  );
+  const keep = args.keepRowsNotRead ?? false;
+  const rowsRead =
+    sourceRowIds.length > 0
+      ? inArray(schema.contentDatabaseSourceRows.sourceRowId, sourceRowIds)
+      : undefined;
   await db.transaction(async (tx) => {
+    if (args.refreshClaimId) {
+      const [claimed = null] = await tx
+        .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+        .from(schema.contentDatabaseSources)
+        .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+        .for("update");
+      if (
+        !claimed ||
+        !withoutReadOnlyRefreshClaim(claimed.metadataJson, args.refreshClaimId)
+      ) {
+        fail("Source refresh claim was lost before completion.", {
+          errorCode: "source_refresh_claim_lost",
+          statusCode: 409,
+        });
+      }
+    }
+    if (keep === true && !rowsRead) return;
+    const replaced =
+      keep === false
+        ? eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId)
+        : and(
+            eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+            keep === true
+              ? rowsRead
+              : or(
+                  rowsRead,
+                  isNull(schema.contentDatabaseSourceRows.lastSyncedAt),
+                  lt(
+                    schema.contentDatabaseSourceRows.lastSyncedAt,
+                    keep.syncedSince,
+                  ),
+                ),
+          );
     const oldRows = await tx
       .select({ documentId: schema.contentDatabaseSourceRows.documentId })
       .from(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
-    await tx
-      .delete(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
+      .where(replaced);
+    await tx.delete(schema.contentDatabaseSourceRows).where(replaced);
     const [source = null] = await tx
       .select({ databaseId: schema.contentDatabaseSources.databaseId })
       .from(schema.contentDatabaseSources)
@@ -9165,7 +9299,7 @@ export async function seedSecondarySourceFields(args: {
   ownerEmail: string;
   sourceType?: ContentDatabaseSourceType;
   modelFields: BuilderCmsModelFieldSummary[];
-  sampleEntry?: BuilderCmsSourceEntry;
+  sampleEntry?: BuilderCmsSourceEntry | undefined;
   now: string;
 }) {
   const db = getDb();
@@ -9366,24 +9500,36 @@ export async function updateReadOnlySourceMetadata(args: {
   fetchedAt: string;
   now: string;
   message: string | null;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> | undefined;
   syncState?: ContentDatabaseSourceSyncState;
+  refreshClaimId?: string;
 }) {
   await mutateContentDatabaseSourceMetadata({
     sourceId: args.sourceId,
     now: args.now,
-    buildPatch: (current) => ({
-      syncState: args.syncState ?? (args.message ? "refreshing" : "linked"),
-      freshness: args.message ? "stale" : "fresh",
-      capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
-      metadataJson: JSON.stringify({
-        ...(parseObject<Record<string, unknown>>(current.metadataJson) ?? {}),
-        ...(args.metadata ?? {}),
-      }),
-      lastRefreshedAt: args.now,
-      lastSourceUpdatedAt: args.fetchedAt,
-      lastError: null,
-    }),
+    buildPatch: (current) => {
+      const currentMetadata = args.refreshClaimId
+        ? withoutReadOnlyRefreshClaim(current.metadataJson, args.refreshClaimId)
+        : (parseObject<Record<string, unknown>>(current.metadataJson) ?? {});
+      if (!currentMetadata) {
+        fail("Source refresh claim was lost before completion.", {
+          errorCode: "source_refresh_claim_lost",
+          statusCode: 409,
+        });
+      }
+      return {
+        syncState: args.syncState ?? (args.message ? "refreshing" : "linked"),
+        freshness: args.message ? "stale" : "fresh",
+        capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
+        metadataJson: JSON.stringify({
+          ...currentMetadata,
+          ...(args.metadata ?? {}),
+        }),
+        lastRefreshedAt: args.now,
+        lastSourceUpdatedAt: args.fetchedAt,
+        lastError: null,
+      };
+    },
     failureMessage:
       "Source metadata changed repeatedly while saving read state.",
   });

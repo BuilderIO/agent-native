@@ -202,6 +202,7 @@ vi.mock("@/hooks/use-emails", () => {
   return {
     EMPTY_LABELS: [],
     MoveEmailPartialFailure: class MoveEmailPartialFailure extends Error {},
+    LabelEmailPartialFailure: class LabelEmailPartialFailure extends Error {},
     releaseSuppressionClaims: vi.fn(),
     useEmails: () => ({ data: [] }),
     useLabels: () => ({ data: [] }),
@@ -222,6 +223,8 @@ vi.mock("@/hooks/use-emails", () => {
     useBulkToggleStar: mutation,
     useBulkMarkRead: mutation,
     useMoveEmail: mutation,
+    useLabelEmail: mutation,
+    useCreateLabel: mutation,
   };
 });
 

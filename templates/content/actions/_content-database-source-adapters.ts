@@ -29,6 +29,7 @@ export interface ContentDatabaseSourceAdapter {
     limit: number;
     offset: number;
     fullRefresh?: boolean;
+    continueFrom?: string | undefined;
   }): Promise<ContentDatabaseSourceReadResult>;
 }
 

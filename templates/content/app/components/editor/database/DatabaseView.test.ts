@@ -12,6 +12,12 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import {
+  builderSourceContinuationFetchedCountDetail,
+  builderSourceContinuationKey,
+  builderSourceContinuationProgressPercent,
+  builderSourceRowFetchStatus,
+} from "./builder-source-progress";
+import {
   acquireDatabaseSourceOperation,
   defaultDatabaseViewConfig,
   duplicateDatabaseView,
@@ -26,13 +32,9 @@ import {
   databaseBulkMultiSelectOptionPresence,
   databaseBulkMultiSelectToggleOperation,
   databaseBulkMultiSelectValueAfterOperation,
-  builderSourceContinuationKey,
-  builderSourceContinuationFetchedCountDetail,
   builderSourceContinuationFailureDecision,
   builderSourceContinuationWatchdogDelay,
-  builderSourceContinuationProgressPercent,
   builderSourceContinuationWatchdogDecision,
-  builderSourceRowFetchStatus,
   builderMissingRequiredFields,
   builderReviewExecutableRows,
   builderReviewSelectionFingerprint,

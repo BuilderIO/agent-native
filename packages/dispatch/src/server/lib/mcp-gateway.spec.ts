@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   buildEmbedStartPath: vi.fn((ticket: string) => {
     return `/_agent-native/embed/start?ticket=${encodeURIComponent(ticket)}`;
   }),
+  listRemoteServers: vi.fn(),
+  getMcpOAuthAccessToken: vi.fn(),
   managerStart: vi.fn(),
   managerGetConnectErrorStatus: vi.fn(),
   managerStop: vi.fn(),
@@ -120,6 +122,8 @@ vi.mock("@agent-native/core/org", () => ({
 }));
 
 vi.mock("@agent-native/core/mcp-client", () => ({
+  listRemoteServers: mocks.listRemoteServers,
+  getMcpOAuthAccessToken: mocks.getMcpOAuthAccessToken,
   mcpToolCallWasNotSent: (error: unknown) =>
     error instanceof Error && error.name === "NotSentFixture",
   buildMcpToolName: (serverId: string, toolName: string) =>
@@ -162,18 +166,22 @@ vi.mock("@agent-native/core/mcp-client", () => ({
 import { runWithRequestContext } from "@agent-native/core/server";
 
 import {
+  appHomeBaseUrl,
   callGrantedDispatchMcpAppAction,
+  clearGrantedAppManifestCache,
   createGrantedDispatchMcpEmbedSession,
   createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat,
   createWorkspaceSsoEmbedSession,
   createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
   askGrantedDispatchMcpApp,
   getGrantedDispatchMcpAppTask,
+  joinAppBaseUrlAndPath,
   listDispatchMcpApps,
   listGrantedDispatchMcpAppActions,
   listGrantedDispatchMcpApps,
   listGrantedDispatchMcpAppOrigins,
   openGrantedDispatchMcpApp,
+  registerGrantedAppManifest,
   resolveGrantedDispatchMcpApp,
   setDispatchAppActionHeaderProvider,
 } from "./mcp-gateway.js";
@@ -223,6 +231,8 @@ beforeEach(() => {
     ticketHash: "hash-123",
     expiresAt: 12345,
   });
+  mocks.listRemoteServers.mockReset().mockResolvedValue([]);
+  mocks.getMcpOAuthAccessToken.mockReset().mockResolvedValue(null);
   mocks.managerStart.mockResolvedValue(undefined);
   mocks.managerGetConnectErrorStatus.mockReturnValue(undefined);
   mocks.managerStop.mockResolvedValue(undefined);
@@ -330,6 +340,241 @@ describe("Dispatch direct app actions", () => {
       },
     });
     expect(mocks.managerStop).toHaveBeenCalled();
+  });
+
+  it("keeps a same-deployment assertion when it is accepted", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "http://localhost:8092/analytics" },
+    ]);
+    mocks.managerCallTool.mockResolvedValue({ content: [] });
+    await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    );
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer signed-token",
+          }),
+        }),
+      },
+    });
+    expect(mocks.listRemoteServers).not.toHaveBeenCalled();
+  });
+
+  it("keeps first-party assertion connections independent of the OAuth store", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://analytics.agent-native.com" },
+    ]);
+    mocks.listRemoteServers.mockRejectedValue(new Error("store unavailable"));
+    mocks.managerCallTool.mockResolvedValue({ content: [] });
+    await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    );
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer signed-token",
+          }),
+        }),
+      },
+    });
+    expect(mocks.listRemoteServers).not.toHaveBeenCalled();
+  });
+
+  it("tries the scoped OAuth connection after a same-origin assertion is rejected", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "http://localhost:8092/analytics" },
+    ]);
+    mocks.listRemoteServers.mockResolvedValue([
+      {
+        id: "connection-1",
+        name: "remote",
+        url: "http://localhost:8092/analytics/mcp",
+        oauthSecretKey: "oauth-key",
+        createdAt: 1,
+      },
+    ]);
+    mocks.getMcpOAuthAccessToken.mockResolvedValue("oauth-token");
+    mocks.managerGetConnectErrorStatus
+      .mockReturnValueOnce(401)
+      .mockReturnValueOnce(undefined);
+    mocks.managerCallTool.mockResolvedValue({ content: [] });
+    await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    );
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.managerConstructor).toHaveBeenLastCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer oauth-token",
+          }),
+        }),
+      },
+    });
+  });
+
+  it("uses a caller's OAuth connection for a different deployment", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    vi.stubEnv("A2A_SECRET", "");
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://remote.example.test/app" },
+    ]);
+    mocks.listRemoteServers.mockResolvedValue([
+      {
+        id: "connection-1",
+        name: "remote",
+        url: "https://remote.example.test/app/mcp",
+        oauthSecretKey: "oauth-key",
+        createdAt: 1,
+      },
+    ]);
+    mocks.getMcpOAuthAccessToken.mockResolvedValue("oauth-token");
+    mocks.managerCallTool.mockResolvedValue({ content: [] });
+
+    await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    );
+    expect(mocks.getMcpOAuthAccessToken).toHaveBeenCalledWith({
+      key: "oauth-key",
+      scope: "user",
+      scopeId: "owner@example.test",
+      serverUrl: "https://remote.example.test/app/mcp",
+      throwOnTransientRefreshFailure: true,
+    });
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer oauth-token",
+          }),
+        }),
+      },
+    });
+    expect(mocks.signA2AToken).not.toHaveBeenCalled();
+  });
+
+  it("returns a connect URL when an assertion is rejected and no OAuth connection exists", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://remote.example.test/app" },
+    ]);
+    mocks.managerGetConnectErrorStatus.mockReturnValue(401);
+    const error = await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    ).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      errorCode: "authorization_required",
+      details: { authorizationUrl: expect.any(String) },
+    });
+    const url = new URL(
+      (error as { details: { authorizationUrl: string } }).details
+        .authorizationUrl,
+    );
+    expect(url.pathname).toBe("/_agent-native/mcp/servers/oauth/start");
+    expect(url.searchParams.get("url")).toBe(
+      "https://remote.example.test/app/mcp",
+    );
+    expect(url.searchParams.get("scope")).toBe("user");
+    expect(mocks.managerCallTool).not.toHaveBeenCalled();
+  });
+
+  it("offers reconnect when the saved credential needs authorization", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://remote.example.test/app" },
+    ]);
+    mocks.listRemoteServers.mockResolvedValue([
+      {
+        id: "connection-1",
+        name: "remote",
+        url: "https://remote.example.test/app/mcp",
+        oauthSecretKey: "oauth-key",
+        createdAt: 1,
+      },
+    ]);
+    mocks.managerGetConnectErrorStatus.mockReturnValue(401);
+    const error = await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    ).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ errorCode: "authorization_required" });
+    const url = new URL(
+      (error as { details: { authorizationUrl: string } }).details
+        .authorizationUrl,
+    );
+    expect(url.searchParams.get("serverId")).toBe("connection-1");
+  });
+
+  it("does not report a connection-store failure as missing authorization", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://remote.example.test/app" },
+    ]);
+    mocks.listRemoteServers.mockRejectedValue(new Error("store unavailable"));
+    await expect(
+      asOwner(() =>
+        callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      ),
+    ).rejects.toMatchObject({ errorCode: "app_connection_unavailable" });
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse a different resource's OAuth token", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://remote.example.test/app" },
+    ]);
+    mocks.listRemoteServers.mockResolvedValue([
+      {
+        id: "other",
+        name: "other",
+        url: "https://remote.example.test/other/mcp",
+        oauthSecretKey: "other-key",
+        createdAt: 1,
+      },
+    ]);
+    mocks.managerGetConnectErrorStatus.mockReturnValue(401);
+    await expect(
+      asOwner(() =>
+        callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      ),
+    ).rejects.toMatchObject({ errorCode: "authorization_required" });
+    expect(mocks.getMcpOAuthAccessToken).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes a rejected OAuth credential from an unreachable app", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://remote.example.test/app" },
+    ]);
+    mocks.listRemoteServers.mockResolvedValue([
+      {
+        id: "connection-1",
+        name: "remote",
+        url: "https://remote.example.test/app/mcp",
+        oauthSecretKey: "oauth-key",
+        createdAt: 1,
+      },
+    ]);
+    mocks.getMcpOAuthAccessToken.mockResolvedValue("oauth-token");
+    mocks.managerGetConnectErrorStatus.mockReturnValue(403);
+    await expect(
+      asOwner(() =>
+        callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      ),
+    ).rejects.toMatchObject({ errorCode: "app_connection_rejected" });
+    mocks.managerGetConnectErrorStatus.mockReturnValue(undefined);
+    mocks.managerHasServer.mockReturnValue(false);
+    await expect(
+      asOwner(() =>
+        callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      ),
+    ).rejects.toMatchObject({ errorCode: "app_connection_unreachable" });
   });
 
   it("calls one action of a granted app and returns its result", async () => {
@@ -474,7 +719,7 @@ describe("Dispatch direct app actions", () => {
         },
         () => callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
       ),
-    ).rejects.toThrow("The analytics app rejected this connection.");
+    ).rejects.toMatchObject({ errorCode: "authorization_required" });
     expect(mocks.signA2AOrgMemberDelegationToken).toHaveBeenCalledTimes(1);
     expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
     expect(mocks.managerCallTool).not.toHaveBeenCalled();
@@ -4696,4 +4941,205 @@ it("withholds first-party MCP claims for granted document embeds to unregistered
     undefined,
     expect.not.objectContaining({ extraClaims: expect.anything() }),
   );
+});
+
+describe("A2A tab/viewport propagation, double-prefix prevention, and manifest v2 open_app validation", () => {
+  afterEach(() => {
+    clearGrantedAppManifestCache();
+  });
+
+  it("forwards childBrowserTabId and foreground viewportMode on ask_app when the target app is bound in the pane", async () => {
+    mocks.resolveChildBrowserTab.mockResolvedValueOnce(
+      "a1b2c3d4-5678-4abc-9def-1234567890ab",
+    );
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-tab-1",
+      status: {
+        state: "completed",
+        message: { role: "agent", parts: [{ type: "text", text: "opened" }] },
+        timestamp: "2026-11-23T00:00:00Z",
+      },
+    });
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () => askGrantedDispatchMcpApp("analytics", "switch to revenue"),
+    );
+
+    expect(mocks.a2aConstructor).toHaveBeenCalledWith(
+      analyticsAgent.url,
+      undefined,
+      expect.objectContaining({
+        transportHeaders: {
+          "x-agent-native-browser-tab": "a1b2c3d4-5678-4abc-9def-1234567890ab",
+          "x-agent-native-viewport-mode": "foreground",
+        },
+      }),
+    );
+    expect(mocks.a2aSend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          browserTabId: "a1b2c3d4-5678-4abc-9def-1234567890ab",
+          viewportMode: "foreground",
+        }),
+      }),
+    );
+  });
+
+  it("forwards viewportMode=background on ask_app without binding the foreground child tab", async () => {
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-bg-1",
+      status: {
+        state: "completed",
+        message: { role: "agent", parts: [{ type: "text", text: "found" }] },
+        timestamp: "2026-11-23T00:00:00Z",
+      },
+    });
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        askGrantedDispatchMcpApp("analytics", "look up metric", {
+          viewportMode: "background",
+        }),
+    );
+
+    expect(mocks.resolveChildBrowserTab).not.toHaveBeenCalled();
+    expect(mocks.a2aConstructor).toHaveBeenCalledWith(
+      analyticsAgent.url,
+      undefined,
+      expect.objectContaining({
+        transportHeaders: {
+          "x-agent-native-viewport-mode": "background",
+        },
+      }),
+    );
+    expect(mocks.a2aSend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          viewportMode: "background",
+        }),
+      }),
+    );
+  });
+
+  it("prevents /<app>/<app> double base-path prefixing in appHomeBaseUrl, joinAppBaseUrlAndPath, and open_app", async () => {
+    expect(
+      appHomeBaseUrl({
+        url: "https://workspace.example.test/decks-2/decks-2",
+      }),
+    ).toBe("https://workspace.example.test/decks-2");
+    expect(
+      joinAppBaseUrlAndPath(
+        "https://workspace.example.test/decks-2",
+        "/decks-2",
+      ),
+    ).toBe("https://workspace.example.test/decks-2/");
+    expect(
+      joinAppBaseUrlAndPath(
+        "https://workspace.example.test/decks-2",
+        "/decks-2/docs/deck-1?slide=2",
+      ),
+    ).toBe("https://workspace.example.test/decks-2/docs/deck-1?slide=2");
+
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "decks-2",
+        name: "Decks",
+        description: "Slide decks",
+        url: "https://workspace.example.test/decks-2",
+        color: "#222222",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "decks-2",
+        name: "Decks",
+        path: "/decks-2",
+        url: "https://workspace.example.test/decks-2",
+      },
+    ]);
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "decks-2",
+          path: "/decks-2/docs/q4",
+          focus: true,
+        }),
+    );
+
+    expect(result.url).toBe("https://workspace.example.test/decks-2/docs/q4");
+    expect(result.focus).toBe(true);
+  });
+
+  it("validates open_app routes and expands { screen, params } against a v2 manifest", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "decks-2",
+        name: "Decks",
+        description: "Slide decks",
+        url: "https://workspace.example.test/decks-2",
+        color: "#222222",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "decks-2",
+        name: "Decks",
+        path: "/decks-2",
+        url: "https://workspace.example.test/decks-2",
+      },
+    ]);
+    registerGrantedAppManifest("decks-2", {
+      version: 2,
+      screens: {
+        home: { route: "/", action: "navigate" },
+        deck: { route: "/docs/:deckId", action: "navigate" },
+      },
+      supportsViewOverlay: true,
+    });
+
+    const validPath = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "decks-2",
+          path: "/docs/deck-42",
+        }),
+    );
+    expect(validPath.url).toBe(
+      "https://workspace.example.test/decks-2/docs/deck-42",
+    );
+
+    const byScreen = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "decks-2",
+          screen: "deck",
+          params: { deckId: "deck-42", slide: 3 },
+        }),
+    );
+    expect(byScreen.path).toBe("/docs/deck-42");
+    expect(byScreen.url).toBe(
+      "https://workspace.example.test/decks-2/docs/deck-42?slide=3",
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "owner@example.test", orgId: "org-1" },
+        () =>
+          openGrantedDispatchMcpApp({
+            app: "decks-2",
+            path: "/totally/invalid",
+          }),
+      ),
+    ).rejects.toThrow(
+      /Invalid route "\/totally\/invalid" for app "decks-2".*deck \(\/docs\/:deckId\)/,
+    );
+  });
 });

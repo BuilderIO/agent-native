@@ -2378,6 +2378,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageDescription":
     "S’applique sur tous vos appareils.",
   "settingsShell.account.appearance": "Apparence",
+  "settingsShell.account.theme": "Thème",
+  "settingsShell.account.themeSystem": "Système",
+  "settingsShell.account.themeLight": "Clair",
+  "settingsShell.account.themeDark": "Sombre",
   "settingsShell.account.themeFamily": "Famille de thème",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal":
@@ -4211,6 +4215,7 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.typeValue": "Saisir une valeur",
   "filters.enterNumber": "Saisir un nombre",
   "filters.exactDate": "Date exacte",
+  "filters.relativeRange": "Période relative",
   "filters.startDate": "Date de début",
   "filters.endDate": "Date de fin",
   "filters.dateBetween": "{{start}} – {{end}}",
@@ -4250,6 +4255,8 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.date.this.year": "Cette année",
   "filters.date.past": "{{duration}} passés",
   "filters.date.next": "{{duration}} à venir",
+  "filters.date.direction.past": "Derniers",
+  "filters.date.direction.next": "Prochains",
   "filters.views.notSaved": "Non enregistré",
   "filters.views.save": "Enregistrer",
   "filters.views.saveForMe": "Enregistrer pour moi",

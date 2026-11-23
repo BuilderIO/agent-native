@@ -113,6 +113,13 @@ gained `lease.revoked`, split `LeaseRevoke` from `LeaseLapse`, widened
 than liveness. Claims, the reaper and `ClaimRespectsLiveOwner` still key on a
 live lease, so a lapsed lease can be taken over exactly as before.
 
+The reaper also leaves a run alone while `ownsLapsedTurnLease` holds and the
+lease lapsed less than one lease TTL ago. Foreground runs used a stale window
+equal to the lease, so the reaper revoked every lapse at once and the worker's
+lapsed-lease renewal could never win. This only removes reaper steps; the
+model has no clock, and `ReapOrFailUnowned` (any non-live lease) still allows
+every reap the code can make once that window passes.
+
 ## Coverage review for MCP automation approval
 
 The coverage refresh at `bc6ca396161a` re-read `beginAgentExecutionStep`,

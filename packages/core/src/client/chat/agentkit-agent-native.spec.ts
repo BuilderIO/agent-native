@@ -294,6 +294,138 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
+  it.each([
+    "activity.started",
+    "activity.updated",
+    "activity.completed",
+    "message.completed",
+    "x-agent-native.persisted-event-omission",
+  ])(
+    "restores a redacted %s event at the historical index",
+    async (eventType) => {
+      const events = Array.from({ length: 19 }, (_, index) => ({
+        id: `event-${index}`,
+        threadId: "thread-redacted",
+        runId: "run-1",
+        sequence: index + 1,
+        occurredAt: "2026-11-20T00:00:00.000Z",
+        ...(index === 18
+          ? { type: eventType, omitFromPersistedHistory: true }
+          : {
+              type: "x-agent-native.persisted-event-omission",
+              payload: { sourceType: "legacy" },
+            }),
+      }));
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active: false, status: "idle" })
+            : json({
+                id: "thread-redacted",
+                threadData: JSON.stringify({
+                  agentKit: { messages: [], events },
+                }),
+              }),
+        ) as typeof fetch,
+      });
+      const snapshot = await transport.getThreadSnapshot?.({
+        threadId: "thread-redacted",
+      });
+      expect(snapshot?.events?.[18]).toMatchObject({
+        type: "x-agent-native.persisted-event-omission",
+        sequence: 19,
+      });
+      await transport.dispose();
+    },
+  );
+
+  it.each([
+    { type: "activity.updated" },
+    {
+      type: "activity.updated",
+      omitFromPersistedHistory: true,
+      activity: null,
+    },
+  ])(
+    "rejects malformed activity without a valid redaction omission",
+    async (event) => {
+      const storedEvent = {
+        id: "e1",
+        threadId: "thread-corrupt",
+        runId: "r1",
+        sequence: 1,
+        occurredAt: "2026-11-20T00:00:00.000Z",
+        ...event,
+      };
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active: false, status: "idle" })
+            : json({
+                id: "thread-corrupt",
+                threadData: JSON.stringify({
+                  agentKit: { messages: [], events: [storedEvent] },
+                }),
+              }),
+        ) as typeof fetch,
+      });
+      await expect(
+        transport.getThreadSnapshot?.({ threadId: "thread-corrupt" }),
+      ).rejects.toMatchObject({
+        name: "AgentProtocolValidationError",
+        path: "threadSnapshot.events[0].activity",
+      });
+      await transport.dispose();
+    },
+  );
+
+  it("omits a redacted tool call after validating its remaining fields", async () => {
+    const threadData = {
+      agentKit: {
+        messages: [],
+        toolCalls: [
+          {
+            id: "tool-1",
+            status: "completed",
+            runId: "run-1",
+            messageId: "m1",
+            omitFromPersistedHistory: true,
+          },
+        ],
+      },
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "idle" })
+          : json({
+              id: "thread-redacted",
+              threadData: JSON.stringify(threadData),
+            }),
+      ) as typeof fetch,
+    });
+    expect(
+      (await transport.getThreadSnapshot?.({ threadId: "thread-redacted" }))
+        ?.toolCalls,
+    ).toEqual([]);
+    threadData.agentKit.toolCalls[0].status = "invalid";
+    await expect(
+      transport.getThreadSnapshot?.({ threadId: "thread-redacted" }),
+    ).rejects.toMatchObject({
+      name: "AgentProtocolValidationError",
+      path: "threadSnapshot.toolCalls[0].status",
+    });
+    threadData.agentKit.toolCalls[0].status = "completed";
+    threadData.agentKit.toolCalls[0].omitFromPersistedHistory = false;
+    await expect(
+      transport.getThreadSnapshot?.({ threadId: "thread-redacted" }),
+    ).rejects.toMatchObject({
+      name: "AgentProtocolValidationError",
+      path: "threadSnapshot.toolCalls[0].name",
+    });
+    await transport.dispose();
+  });
+
   it.each([null, "bad", {}])(
     "rejects corrupt stored message parts: %s",
     async (parts) => {

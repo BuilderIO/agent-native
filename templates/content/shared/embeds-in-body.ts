@@ -7,6 +7,16 @@ function walk(node: PMNode | undefined, visit: (node: PMNode) => void) {
   for (const child of node.content ?? []) walk(child, visit);
 }
 
+export function embedTagsInBody(content: string, blockType: string): string[] {
+  const raws: string[] = [];
+  walk(nfmToDoc(content), (node) => {
+    if (node.type === "registryBlock" && node.attrs?.blockType === blockType) {
+      raws.push(typeof node.attrs.__raw === "string" ? node.attrs.__raw : "");
+    }
+  });
+  return raws;
+}
+
 export async function embedsInBody<T>(
   content: string | null | undefined,
   kind: { tag: string; blockType: string; read: (data: unknown) => T | null },
@@ -14,15 +24,7 @@ export async function embedsInBody<T>(
   if (!content || !content.includes(`<${kind.tag}`)) {
     return { found: [], unreadable: 0 };
   }
-  const raws: string[] = [];
-  walk(nfmToDoc(content), (node) => {
-    if (
-      node.type === "registryBlock" &&
-      node.attrs?.blockType === kind.blockType
-    ) {
-      raws.push(typeof node.attrs.__raw === "string" ? node.attrs.__raw : "");
-    }
-  });
+  const raws = embedTagsInBody(content, kind.blockType);
   const parsed = await Promise.all(
     raws.map(async (raw) => {
       try {
