@@ -273,6 +273,69 @@ describe("embedding family availability", () => {
     );
   });
 
+  it("names the gateway's reason for refusing a request", async () => {
+    const family = createBuilderEmbeddingFamily({
+      authorization: "Bearer builder-session",
+      spaceId: null,
+      userId: null,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            type: "error",
+            code: "rate_limit_exceeded",
+            message:
+              "Builder-managed embeddings are temporarily rate limited.\n Retry shortly.",
+            severity: "low",
+          },
+          { status: 429 },
+        ),
+      ),
+    );
+
+    const failure = await family
+      .embed([{ text: "active users" }], "document")
+      .catch((error: unknown) => error);
+    expect(failure).toMatchObject({
+      status: 429,
+      code: "rate_limit_exceeded",
+      retryAfterMs: undefined,
+    });
+    expect((failure as Error).message).toBe(
+      "Embedding provider builder/builder-multimodal-embedding failed with status 429 (rate_limit_exceeded: Builder-managed embeddings are temporarily rate limited. Retry shortly.).",
+    );
+  });
+
+  it("reads a reason nested under error, as OpenAI-style APIs send it", async () => {
+    const family = createBuilderEmbeddingFamily({
+      authorization: "Bearer builder-session",
+      spaceId: null,
+      userId: null,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: { type: "invalid_request_error", message: "Bad input." } },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    const failure = await family
+      .embed([{ text: "active users" }], "document")
+      .catch((error: unknown) => error);
+    expect(failure).toMatchObject({
+      status: 400,
+      code: "invalid_request_error",
+    });
+    expect((failure as Error).message).toBe(
+      "Embedding provider builder/builder-multimodal-embedding failed with status 400 (invalid_request_error: Bad input.).",
+    );
+  });
+
   it("budgets Builder indexing by its credentials without keeping them", () => {
     const credentials = {
       authorization: "Bearer bpk-space-key",

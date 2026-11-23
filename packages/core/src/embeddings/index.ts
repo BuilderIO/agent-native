@@ -170,6 +170,7 @@ export class EmbeddingProviderError extends Error {
     readonly status: number,
     /** How long the provider's Retry-After asked callers to wait. */
     readonly retryAfterMs?: number,
+    readonly code?: string,
   ) {
     super(message);
     this.name = "EmbeddingProviderError";
@@ -183,6 +184,36 @@ function retryAfterMs(header: string | null): number | undefined {
   if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
   const at = Date.parse(header);
   return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
+}
+
+async function providerErrorReason(
+  response: Response,
+): Promise<{ code: string | undefined; message: string | undefined }> {
+  const none = { code: undefined, message: undefined };
+  let body: unknown;
+  try {
+    const bytes = await readBoundedResponseBytes(response, 16_000);
+    body = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    // coercion-ok: an unreadable reply only loses the reason; the status still throws
+    return none;
+  }
+  if (!body || typeof body !== "object") return none;
+  const nested = (body as { error?: unknown }).error;
+  const source =
+    nested && typeof nested === "object"
+      ? (nested as Record<string, unknown>)
+      : (body as Record<string, unknown>);
+  const text = (value: unknown, limit: number) =>
+    typeof value === "string" && value.trim()
+      ? value.replace(/\s+/g, " ").trim().slice(0, limit)
+      : undefined;
+  return {
+    code: text(source.code, 80) ?? text(source.type, 80),
+    message:
+      text(source.message, 200) ??
+      (typeof nested === "string" ? text(nested, 200) : undefined),
+  };
 }
 
 async function postJson(
@@ -208,12 +239,16 @@ async function postJson(
         signal,
       }),
     );
-    if (!response.ok)
+    if (!response.ok) {
+      const reason = await providerErrorReason(response);
+      const detail = [reason.code, reason.message].filter(Boolean).join(": ");
       throw new EmbeddingProviderError(
-        `Embedding provider ${providerModel} failed with status ${response.status}.`,
+        `Embedding provider ${providerModel} failed with status ${response.status}${detail ? ` (${detail})` : ""}.`,
         response.status,
         retryAfterMs(response.headers.get("retry-after")),
+        reason.code,
       );
+    }
     const bytes = await readBoundedResponseBytes(response, 1_000_000);
     return JSON.parse(new TextDecoder().decode(bytes)) as Record<
       string,
