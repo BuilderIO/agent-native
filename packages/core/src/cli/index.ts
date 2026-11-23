@@ -263,6 +263,13 @@ function runTypeScriptCompiler(args: string[]): void {
         );
         process.exit(1);
       }
+      if (error.code === "EACCES") {
+        console.error(error.message);
+        console.error(
+          "Permission denied while executing the TypeScript compiler. Check executable and directory permissions, the compiler location on PATH, and mount options such as noexec.",
+        );
+        process.exit(1);
+      }
       throw error;
     },
   });

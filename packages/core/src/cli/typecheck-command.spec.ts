@@ -396,30 +396,40 @@ describe("agent-native typecheck compiler lookup", () => {
     );
   });
 
-  it("preserves a non-executable PATH compiler's permission error", () => {
+  it("reports a non-executable PATH compiler's permission error", () => {
     if (process.platform === "win32") return;
     const { cwd, pathDir } = fixture();
     compiler(pathDir, "tsc", "not-executable", 0o644);
     const result = run(cwd, pathDir);
+    expect(result.error).toBeUndefined();
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toMatch(/EACCES/);
-    expect(result.stderr).toMatch(/Unexpected error/);
-    expect(result.stderr).not.toMatch(/(?:install|add).*typescript/i);
+    expect(result.stderr).toMatch(/spawn tsc EACCES/);
+    expect(result.stderr).toMatch(/permissions/i);
+    expect(result.stderr).toMatch(/PATH/);
+    expect(result.stderr).toMatch(/mount/i);
+    expect(result.stderr).not.toMatch(/installed|(?:install|add).*typescript/i);
+    expect(result.stderr).not.toMatch(
+      /Unexpected error|Report this bug|Send feedback/i,
+    );
   });
 
-  it("preserves other spawn errors instead of reporting a missing compiler", () => {
+  it("reports a non-executable ancestor compiler without choosing a PATH compiler", () => {
     if (process.platform === "win32") return;
-    const { cwd, pathDir } = fixture();
-    compiler(
-      path.join(cwd, "node_modules/.bin"),
-      "tsc",
-      "not-executable",
-      0o644,
-    );
+    const { cwd, parent, pathDir } = fixture();
+    const compilerPath = path.join(parent, "node_modules/.bin/tsc");
+    compiler(path.dirname(compilerPath), "tsc", "not-executable", 0o644);
+    compiler(pathDir, "tsc", "unexpected-path-compiler");
     const result = run(cwd, pathDir);
+    expect(result.error).toBeUndefined();
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toMatch(/EACCES/);
-    expect(result.stderr).toMatch(/Unexpected error/);
-    expect(result.stderr).not.toMatch(/(?:install|add).*typescript/i);
+    expect(result.stderr).toContain(`spawn ${compilerPath} EACCES`);
+    expect(result.stderr).toMatch(/permissions/i);
+    expect(result.stderr).toMatch(/PATH/);
+    expect(result.stderr).toMatch(/mount/i);
+    expect(result.stderr).not.toMatch(/installed|(?:install|add).*typescript/i);
+    expect(result.stderr).not.toMatch(
+      /Unexpected error|Report this bug|Send feedback/i,
+    );
+    expect(result.stdout).not.toContain("unexpected-path-compiler");
   });
 });
