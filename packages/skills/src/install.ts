@@ -388,12 +388,12 @@ function runCommand(
   options: RunCommandOptions = {},
 ): Promise<number> {
   return new Promise((resolve, reject) => {
-    const [spawnCmd, spawnArgs, shell] = shimSpawnTarget(cmd, args);
+    const [spawnCmd, spawnArgs, shell, shimEnv] = shimSpawnTarget(cmd, args);
     const child = spawn(spawnCmd, spawnArgs, {
       cwd: options.cwd,
       stdio: "inherit",
       shell,
-      env: process.env,
+      env: { ...process.env, ...shimEnv },
     });
     child.on("error", reject);
     child.on("exit", (code, signal) => {
