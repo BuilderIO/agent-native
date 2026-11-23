@@ -464,6 +464,7 @@ describe("Content view dashboard", () => {
         ('y2', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y2', 'https://www.youtube.com/watch?v=y2', 'New Builder video', 'Builder', '${daysAgo(1)}T15:00:00Z', '{"channelId":"UCbuilder","durationSeconds":3723}', '2026-09-01', '2026-09-01'),
         ('y3', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y3', 'https://www.youtube.com/watch?v=y3', 'Codevolution video', 'Codevolution', '2026-09-01T12:00:00Z', '{"channelId":"UCcodevolution","durationSeconds":null}', '2026-09-01', '2026-09-01'),
         ('y4', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y4', 'https://www.youtube.com/watch?v=y4', 'Other Builder channel video', 'Builder', '${daysAgo(2)}T12:00:00Z', '{"channelId":"UCotherbuilder","durationSeconds":60}', '2026-09-01', '2026-09-01'),
+        ('y5', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y5', 'https://www.youtube.com/watch?v=y5', 'Removed channel video', 'Old channel', '2026-09-01T12:00:00Z', '{"channelId":"UCremoved","durationSeconds":30}', '2026-09-01', '2026-09-01'),
         ('yb', 'org:org_b', 'carol@example.test', 'org_b', 'youtube', 'yb', 'https://www.youtube.com/watch?v=yb', 'Other org video', 'Builder', '2026-09-01T12:00:00Z', '{"channelId":"UCbuilder","durationSeconds":60}', '2026-09-01', '2026-09-01');
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
       SELECT reads.item_id || reads.metric || reads.days_ago, items.tenant_key, items.owner_email, items.org_id, reads.item_id, to_char(CURRENT_DATE - reads.days_ago, 'YYYY-MM-DD'), reads.metric, reads.value, 'youtube', 'ry', '2026-09-01'
@@ -477,6 +478,9 @@ describe("Content view dashboard", () => {
         ('y2', 'youtube_views', 0, 50),
         ('y3', 'youtube_views', 2, 1000),
         ('y3', 'youtube_views', 1, 1007),
+        ('y3', 'youtube_views', 0, 1010),
+        ('y5', 'youtube_views', 3, 10),
+        ('y5', 'youtube_views', 2, 20),
         ('y4', 'youtube_views', 1, 400),
         ('y4', 'youtube_views', 0, 404),
         ('yb', 'youtube_views', 3, 5000),
@@ -496,8 +500,9 @@ describe("Content view dashboard", () => {
       { date: daysAgo(2), channel: "Codevolution", views: 7 },
       { date: daysAgo(1), channel: "Builder (UCbuilder)", views: 55 },
       { date: daysAgo(1), channel: "Builder (UCotherbuilder)", views: 4 },
+      { date: daysAgo(1), channel: "Codevolution", views: 3 },
     ]);
-    expect(await runPanel("youtube-views-per-day", "7d")).toHaveLength(5);
+    expect(await runPanel("youtube-views-per-day", "7d")).toHaveLength(6);
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
 
@@ -532,8 +537,8 @@ describe("Content view dashboard", () => {
         channel: "Codevolution",
         published: "2026-09-01",
         length: null,
-        views_gained: 7,
-        views: 1007,
+        views_gained: 10,
+        views: 1010,
         likes: null,
         comments: null,
       },
