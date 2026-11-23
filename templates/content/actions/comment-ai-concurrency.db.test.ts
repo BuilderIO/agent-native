@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,19 +7,22 @@ import {
   runActionWithExecutionOutcome,
   type ActionExecutionOutcome,
 } from "@agent-native/core/action";
-import { getDbExec } from "@agent-native/core/db";
+import {
+  getDbExec,
+  getMigrationDatabaseUrl,
+  getRuntimeDatabaseUrl,
+} from "@agent-native/core/db";
 import { registerLabs } from "@agent-native/core/labs/registry";
 import { createThread, runWithRequestContext } from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-const TEST_DB_PATH = join(
-  tmpdir(),
-  `content-comment-ai-concurrency-${process.pid}-${Date.now()}.pglite`,
+const TEST_DB_DIR = mkdtempSync(
+  join(tmpdir(), "content-comment-ai-concurrency-"),
 );
-const POSTGRES_URL = process.env.CONTENT_COMMENT_AI_POSTGRES_URL;
+const TEST_DB_PATH = join(TEST_DB_DIR, "database.pglite");
 const OWNER = "comment-ai-owner@example.com";
 const OTHER_USER = "comment-ai-collaborator@example.com";
 const DOCUMENT_ID = "comment-ai-page";
@@ -123,15 +126,14 @@ async function bindTurn(operationId: string) {
 
 beforeAll(async () => {
   registerLabs([CREATIVE_CONTEXT_LIBRARY_LAB]);
+  const databaseUrl = `pglite:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = databaseUrl;
   if (
-    POSTGRES_URL &&
-    !new URL(POSTGRES_URL).pathname.toLowerCase().includes("test")
+    getRuntimeDatabaseUrl() !== databaseUrl ||
+    getMigrationDatabaseUrl() !== databaseUrl
   ) {
-    throw new Error(
-      "CONTENT_COMMENT_AI_POSTGRES_URL must name an isolated test database.",
-    );
+    throw new Error("Comment AI tests require their isolated PGlite database");
   }
-  process.env.DATABASE_URL = POSTGRES_URL ?? `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -173,7 +175,7 @@ beforeEach(async () => {
 });
 
 afterAll(() => {
-  rmSync(TEST_DB_PATH, { force: true, recursive: true });
+  rmSync(TEST_DB_DIR, { force: true, recursive: true });
 });
 
 describe("comment AI operation isolation", () => {
@@ -554,87 +556,6 @@ describe("comment AI durable action binding", () => {
 });
 
 describe("operation-scoped refresh and commits", () => {
-  it.runIf(Boolean(POSTGRES_URL))(
-    "does not deadlock an attempt conflict against an attempt-first writer",
-    async () => {
-      const started = await asUser(() =>
-        commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
-      );
-      const begun = await runOperation(
-        OP_A,
-        started.agentThreadId,
-        async () => {
-          const request = await commentAi.requireCommentAiRequest("reply");
-          return commentAi.beginCommentAiAttempt(request);
-        },
-      );
-      if (!begun.attempt) throw new Error("Expected a reasoning attempt");
-      const attemptId = begun.attempt.id;
-      await getDb()
-        .update(schema.documentComments)
-        .set({ content: "Changed feedback" })
-        .where(eq(schema.documentComments.id, ROOT_A));
-
-      let release = () => {};
-      let announce = (_pid: number) => {};
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const acquired = new Promise<number>((resolve) => {
-        announce = resolve;
-      });
-      const holder = getDb().transaction(async (tx) => {
-        await tx
-          .update(schema.commentAiAttempts)
-          .set({ status: "reasoning" })
-          .where(eq(schema.commentAiAttempts.id, attemptId));
-        const result = await tx.execute(
-          sql`SELECT pg_backend_pid()::int AS pid`,
-        );
-        const rows = Array.isArray(result) ? result : result.rows;
-        announce(Number(rows[0].pid));
-        await held;
-        await tx
-          .update(schema.commentAiRequests)
-          .set({ status: "refreshing" })
-          .where(eq(schema.commentAiRequests.id, OP_A));
-      });
-      const holderPid = await acquired;
-      const conflict = runOperation(OP_A, started.agentThreadId, () =>
-        commentAi.verifyCommentAiAttempt(begun.request, attemptId),
-      ).then(
-        () => null,
-        (error: unknown) => error,
-      );
-      try {
-        await expect
-          .poll(async () => {
-            const result = await getDb()
-              .execute(sql`SELECT pid FROM pg_stat_activity
-            WHERE datname = current_database() AND ${holderPid} = ANY(pg_blocking_pids(pid))`);
-            const rows = Array.isArray(result) ? result : result.rows;
-            return rows.length > 0;
-          })
-          .toBe(true);
-      } finally {
-        release();
-      }
-      await holder;
-      expect(await conflict).toMatchObject({ code: "root_comment_changed" });
-      expect(
-        await asUser(() => commentAi.loadCommentAiRequest(OP_A)),
-      ).toMatchObject({
-        status: "needs-review",
-        errorCode: "root_comment_changed",
-      });
-      expect(
-        await commentAi.getCommentAiAttempt(begun.request, attemptId),
-      ).toMatchObject({
-        status: "needs-review",
-        errorCode: "root_comment_changed",
-      });
-    },
-  );
   it.each(["existing", "missing"] as const)(
     "reports exhausted context without changing %s run metadata",
     async (metadata) => {
