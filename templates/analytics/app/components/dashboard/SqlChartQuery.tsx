@@ -331,13 +331,22 @@ function SqlChartContent({
     queryResult !== undefined &&
     queryIsPlaceholderData;
   const isFetching = resultOverride ? false : queryIsFetching && !isUpdating;
-  const error =
-    rawRows.length === 0
+  const failedOnNewFilters =
+    isShowingPreviousFilters && queryError && !isUpdating
+      ? queryError
+      : undefined;
+  const error = failedOnNewFilters
+    ? formatSqlChartError(failedOnNewFilters)
+    : rawRows.length === 0
       ? (result?.error ??
         (queryError ? formatSqlChartError(queryError) : undefined))
       : undefined;
   const refreshError =
-    shouldQuery && rawRows.length > 0 && queryError && !isUpdating
+    shouldQuery &&
+    rawRows.length > 0 &&
+    queryError &&
+    !isUpdating &&
+    !isShowingPreviousFilters
       ? formatSqlChartError(queryError)
       : undefined;
   const requestRefresh = () => {
@@ -533,12 +542,6 @@ function SqlChartContent({
             role="alert"
           >
             <p className="min-w-0 break-words text-xs text-destructive">
-              {isShowingPreviousFilters ? (
-                <span className="font-medium">
-                  {t("sqlDashboard.previousFilters")}
-                  {" · "}
-                </span>
-              ) : null}
               {refreshError}
             </p>
             <Button
@@ -596,7 +599,17 @@ function SqlChartContent({
           : "flex h-full min-h-0 flex-col"
       }
     >
-      <div data-dashboard-report-chart-body className="h-full min-h-0 min-w-0">
+      <div
+        data-dashboard-report-chart-body
+        data-dashboard-report-previous-filters={
+          isShowingPreviousFilters ? "" : undefined
+        }
+        className={
+          isShowingPreviousFilters
+            ? "h-full min-h-0 min-w-0 opacity-40 transition-opacity"
+            : "h-full min-h-0 min-w-0 transition-opacity"
+        }
+      >
         {node}
       </div>
       {showStandaloneStatus ? (

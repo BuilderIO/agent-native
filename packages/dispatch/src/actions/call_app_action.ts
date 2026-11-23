@@ -1,8 +1,14 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  noteExternalWrite,
+  NoWriteError,
+} from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
   appActionErrorCode,
+  appActionRefusedBeforeRun,
   appActionResultText,
 } from "../server/lib/app-action-result.js";
 import { callGrantedDispatchMcpAppAction } from "../server/lib/mcp-gateway.js";
@@ -32,6 +38,7 @@ export default defineAction({
   }),
   mcpApp: { structuredContent: true },
   run: async ({ app, action, args }) => {
+    noteExternalWrite("app-action");
     const result = await callGrantedDispatchMcpAppAction(
       app,
       action,
@@ -50,6 +57,12 @@ export default defineAction({
     const message = appCode
       ? text.replace(/(\s*\(errorCode: [a-z0-9_]+\))+\s*$/i, "")
       : text || "The app action failed.";
+    if (appActionRefusedBeforeRun(message)) {
+      throw new NoWriteError(`${message} Nothing was changed.`, {
+        errorCode: appCode ?? "app_action_invalid_parameters",
+        statusCode: 400,
+      });
+    }
     // A failed write can still have landed part of its change in the app.
     fail(
       `${message} Its write outcome may be unknown; inspect the app before retrying.`,

@@ -36,6 +36,8 @@ export interface SandboxRunResult {
   stderr: string;
   exitCode: number | null;
   timedOut: boolean;
+  /** The adapter stopped the run for printing past its limit, so stdout is cut off. */
+  stdoutTruncated?: boolean;
 }
 
 export interface SandboxAdapter {

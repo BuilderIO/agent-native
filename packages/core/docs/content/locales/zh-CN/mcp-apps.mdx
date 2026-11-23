@@ -266,9 +266,9 @@ Claude 和 ChatGPT 可以缓存现有自定义连接器的工具和资源元数�
 
 ## 谁会收到卡片 {#who-gets-cards}
 
-只有当已连接聊天应用所登录的用户在 设置 → 实验室 中开启了 **聊天应用中的应用卡片** 实验功能时，该聊天应用才会收到 MCP App 卡片（`_meta.ui` 工具元数据及其 `ui://` 资源）。该实验功能默认关闭，每个人的选择只作用于自己的连接。更改后，请在聊天应用中重新连接此应用，以便重新加载工具列表。实验功能关闭时，工具返回带有 `link` 深层链接的普通结果。未以个人身份登录的连接同样只会收到普通结果，例如没有 `AGENT_NATIVE_OWNER_EMAIL` 的共享 `ACCESS_TOKEN`、服务主体，或独立运行的 stdio 服务器。
+已连接的聊天应用如果像 Claude 和 ChatGPT 那样，通过应用自身的 OAuth 登录或连接令牌以个人身份登录，且其访问权限包含写入（`mcp:write`），就会默认收到 MCP App 卡片（`_meta.ui` 工具元数据及其 `ui://` 资源），无需开启任何设置。在卡片仍是实验功能时连接的聊天应用，可能会继续使用旧的工具列表，直到你在其中重新连接此应用。卡片可以打开整个应用，因此其他连接只会收到带有 `link` 深层链接的普通结果，例如只读连接、共享的 `ACCESS_TOKEN`（即使设置了 `AGENT_NATIVE_OWNER_EMAIL`）、A2A 令牌、独立运行的 stdio 服务器，或服务主体。
 
-ChatGPT 应用目录的目录（`/mcp/directory`）以及发送 `x-agent-native-mcp-inline-apps` 请求头的 Agent-Native 自有第一方客户端，无论是否开启实验功能都会收到卡片。系统不再读取 `AGENT_NATIVE_MCP_APPS_INLINE` 和 `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` 环境变量；如果设置了其中任何一个，服务器会记录一次警告。
+ChatGPT 应用目录的目录（`/mcp/directory`）以及发送 `x-agent-native-mcp-inline-apps` 请求头的 Agent-Native 自有第一方客户端也会收到卡片。系统不再读取 `AGENT_NATIVE_MCP_APPS_INLINE` 和 `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` 环境变量，因此它们都无法关闭卡片；如果设置了其中任何一个，服务器会记录一次警告。
 
 ## 测试 {#testing}
 

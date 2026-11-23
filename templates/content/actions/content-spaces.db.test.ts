@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { ActionContractError } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, sql } from "drizzle-orm";
@@ -366,9 +367,31 @@ describe("Content space provisioning", () => {
         }),
     );
     await runWithRequestContext({ userEmail: WORKSPACE_OWNER }, async () => {
+      const deleteReference = deleteDocumentAction.run({
+        id: first.catalogDocumentId,
+      });
+      await expect(deleteReference).rejects.toMatchObject({
+        message: "Workspace references cannot be deleted as pages",
+        errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED",
+        statusCode: 409,
+      });
+      await expect(deleteReference).rejects.toBeInstanceOf(ActionContractError);
+      const [reference] = await getDb()
+        .select({ trashedAt: schema.documents.trashedAt })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, first.catalogDocumentId));
+      expect(reference).toEqual({ trashedAt: null });
       await expect(
-        deleteDocumentAction.run({ id: first.catalogDocumentId }),
-      ).rejects.toThrow("Workspace references cannot be deleted as pages");
+        getDb()
+          .select()
+          .from(schema.contentSpaceCatalogItems)
+          .where(
+            eq(
+              schema.contentSpaceCatalogItems.databaseItemId,
+              first.catalogItemId,
+            ),
+          ),
+      ).resolves.toHaveLength(1);
       await expect(
         removeDatabaseItemsAction.run({
           databaseId: first.catalogDatabaseId,
@@ -971,6 +994,43 @@ describe("Content space provisioning", () => {
     );
   });
 
+  it("gives organization-space management to organization owners and admins only", async () => {
+    const orgId = "org-space-roles";
+    const people = {
+      owner: "space-roles-owner@example.com",
+      admin: "space-roles-admin@example.com",
+      member: "space-roles-member@example.com",
+    } as const;
+    await addOrganization(orgId, "Space Roles", people.owner);
+    for (const [role, email] of Object.entries(people)) {
+      await addMember(`space-roles-${role}`, orgId, email, role);
+    }
+    const spaceId = organizationContentSpaceId(orgId);
+
+    for (const [orgRole, spaceRole, managing] of [
+      ["owner", "owner", "owner"],
+      ["admin", "editor", "editor"],
+      ["member", "viewer", 403],
+    ] as const) {
+      await runWithRequestContext({ userEmail: people[orgRole] }, async () => {
+        await provisionContentSpaces(getDb(), people[orgRole]);
+        await expect(
+          resolveContentSpaceAccess(spaceId, "contributor"),
+        ).resolves.toMatchObject({ role: spaceRole });
+        await expect(
+          resolveContentSpaceAccess(spaceId, "editor").then(
+            (access) => access.role,
+            (error) => error.statusCode,
+          ),
+        ).resolves.toBe(managing);
+        const listed = await listContentSpacesAction.run({});
+        expect(
+          listed.spaces.find((space) => space.id === spaceId),
+        ).toMatchObject({ role: spaceRole, canCreateDatabase: true });
+      });
+    }
+  });
+
   // Favorites tests share a fixture because the database is created once
   // for the whole file.
   let orgFavorites:
@@ -1119,6 +1179,61 @@ describe("Content space provisioning", () => {
       expect(listed.documents.map((document) => document.id)).not.toContain(id);
       expect(favoriteIds).not.toContain(id);
     }
+  });
+
+  it("pins another member's private legacy favorite for an organization admin only when it is shared with them", async () => {
+    const orgId = "org-favorites-admin";
+    const admin = "favorites-org-admin@example.com";
+    const member = "favorites-private-member@example.com";
+    await addOrganization(orgId, "Favorites Admin", admin);
+    await addMember("favorites-admin-admin", orgId, admin, "admin");
+    await addMember("favorites-admin-member", orgId, member);
+    await runWithRequestContext({ userEmail: member }, () =>
+      provisionContentSpaces(getDb(), member),
+    );
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documents)
+      .values(
+        ["favorites-admin-private", "favorites-admin-shared"].map((id) => ({
+          id,
+          ownerEmail: member,
+          orgId,
+          spaceId: organizationContentSpaceId(orgId),
+          title: "Member's private favorite",
+          isFavorite: 1,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    await getDb().insert(schema.documentShares).values({
+      id: "favorites-admin-shared-admin-share",
+      resourceId: "favorites-admin-shared",
+      principalType: "user",
+      principalId: admin,
+      role: "viewer",
+      createdBy: member,
+      createdAt: now,
+    });
+
+    const adminProvisioned = await runWithRequestContext(
+      { userEmail: admin },
+      () => provisionContentSpaces(getDb(), admin),
+    );
+
+    const pinned = await getDb()
+      .select({ documentId: schema.contentDatabaseItems.documentId })
+      .from(schema.contentDatabaseItems)
+      .where(
+        eq(
+          schema.contentDatabaseItems.databaseId,
+          adminProvisioned.favoritesDatabaseId,
+        ),
+      );
+    expect(pinned.map((item) => item.documentId)).toEqual([
+      "favorites-admin-shared",
+    ]);
   });
 
   it("lists favorites across every authorized organization", async () => {

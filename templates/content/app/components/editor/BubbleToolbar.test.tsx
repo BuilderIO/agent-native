@@ -740,6 +740,88 @@ describe("BubbleToolbar", () => {
     );
   });
 
+  it("applies the link on Enter and keeps the key out of the editor", () => {
+    const host = document.createElement("div");
+    const toolbar = document.createElement("div");
+    editorElement = host;
+    toolbarElement = toolbar;
+    document.body.append(host, toolbar);
+    const view = new Editor({
+      element: host,
+      extensions: [StarterKit],
+      content: "<p>Builder link</p>",
+    });
+    editor = view;
+    view.commands.setTextSelection({ from: 1, to: 8 });
+    const mount = createRoot(toolbar);
+    root = mount;
+    act(() => mount.render(<BubbleToolbar editor={view} />));
+    const linkInput = () =>
+      toolbar.querySelector<HTMLInputElement>(
+        'input[aria-label="editor.pasteLink"]',
+      );
+    const openLinkInput = () => {
+      act(() =>
+        defined(
+          toolbar.querySelector<HTMLButtonElement>(
+            'button[aria-label="editor.link"]',
+          ),
+        ).click(),
+      );
+      return defined(linkInput());
+    };
+    const press = (
+      input: HTMLInputElement,
+      key: string,
+      init: KeyboardEventInit = {},
+    ) => {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      });
+      act(() => {
+        input.dispatchEvent(event);
+      });
+      return event;
+    };
+    const setValue = defined(
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set,
+    );
+
+    const input = openLinkInput();
+    act(() => {
+      setValue.call(input, "https://www.builder.io/");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const composing = [{ isComposing: true }, { keyCode: 229 }].map((init) =>
+      press(input, "Enter", init),
+    );
+
+    expect(composing.map((event) => event.defaultPrevented)).toEqual([
+      false,
+      false,
+    ]);
+    expect(linkInput()).toBe(input);
+    expect(view.getHTML()).toBe("<p>Builder link</p>");
+
+    const enter = press(input, "Enter");
+
+    expect(enter.defaultPrevented).toBe(true);
+    expect(view.getHTML()).toBe(
+      '<p><a target="_blank" rel="noopener noreferrer nofollow" href="https://www.builder.io/">Builder</a> link</p>',
+    );
+    expect(linkInput()).toBeNull();
+
+    const escape = press(openLinkInput(), "Escape");
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(linkInput()).toBeNull();
+    expect(view.getAttributes("link").href).toBe("https://www.builder.io/");
+  });
+
   it("saves a link removal made while the link input has focus", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");

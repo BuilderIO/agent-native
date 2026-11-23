@@ -20,6 +20,7 @@ const mockGetUserEmail = vi.hoisted(() =>
 );
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockIsOrgMember = vi.hoisted(() => vi.fn());
+const mirrored = vi.hoisted(() => [] as unknown[][]);
 vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
@@ -35,6 +36,13 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/org", () => ({
   isOrgMember: (...args: unknown[]) => mockIsOrgMember(...args),
+}));
+
+vi.mock("../server/lib/recording-comment-mirror.js", () => ({
+  prepareRecordingCommentMirror: async () => {},
+  mirrorRecordingComments: async (...args: unknown[]) => {
+    mirrored.push(args);
+  },
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
@@ -86,6 +94,7 @@ vi.mock("../server/db/index.js", () => {
   };
 
   const db = {
+    transaction: async (run: (tx: unknown) => unknown) => run(db),
     select: () => ({
       from: () => ({
         where: (condition: unknown) => ({
@@ -121,6 +130,7 @@ async function run(args: { id: string; content: string }) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mirrored.length = 0;
   mockAssertAccess.mockResolvedValue({
     role: "viewer",
     resource: { enableComments: true },
@@ -191,6 +201,9 @@ describe("update-comment", () => {
     expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
       ts: expect.any(Number),
     });
+    expect(mirrored).toEqual([
+      [expect.anything(), "recording-1", ["comment-1"]],
+    ]);
   });
 
   it("rejects blank comment text", () => {
@@ -224,5 +237,6 @@ describe("update-comment", () => {
     ).rejects.toThrow("changed before this edit could be saved");
     expect(state.rows[0]?.content).toBe("Original text");
     expect(mockWriteAppState).not.toHaveBeenCalled();
+    expect(mirrored).toEqual([]);
   });
 });

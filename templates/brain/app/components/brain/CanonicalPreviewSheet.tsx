@@ -24,6 +24,7 @@ export interface CanonicalPreviewData {
   markdown: string;
   canPublish: boolean;
   alreadyPublishedPath?: string | null;
+  revision?: string;
   warnings?: string[];
 }
 

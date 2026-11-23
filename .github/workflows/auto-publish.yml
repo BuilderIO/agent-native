@@ -36,6 +36,7 @@ on:
       - "packages/agentkit/**"
       - "packages/core/**"
       - "packages/creative-context/**"
+      - "packages/design-system/**"
       - "packages/dispatch/**"
       - "packages/otel/**"
       - "packages/pinpoint/**"
@@ -188,6 +189,7 @@ jobs:
             packages/agentkit/**
             packages/core/**
             packages/creative-context/**
+            packages/design-system/**
             packages/dispatch/**
             packages/otel/**
             packages/pinpoint/**
@@ -626,6 +628,7 @@ jobs:
                 . == "@agent-native/core" or
                 . == "@agent-native/core-corpus" or
                 . == "@agent-native/creative-context" or
+                . == "@agent-native/design-system" or
                 . == "@agent-native/dispatch" or
                 . == "@agent-native/otel" or
                 . == "@agent-native/pinpoint" or
@@ -650,6 +653,7 @@ jobs:
           --filter '@agent-native/core...'
           --filter '@agent-native/core-corpus...'
           --filter '@agent-native/creative-context...'
+          --filter '@agent-native/design-system...'
           --filter '@agent-native/dispatch...'
           --filter '@agent-native/otel...'
           --filter '@agent-native/pinpoint...'

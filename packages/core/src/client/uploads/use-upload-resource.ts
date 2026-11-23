@@ -1,7 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { agentNativePath } from "../api-path.js";
-import type { Resource } from "../resources/use-resources.js";
+import {
+  resourceWriteError,
+  type Resource,
+} from "../resources/use-resources.js";
 
 export function useUploadResource() {
   const queryClient = useQueryClient();
@@ -14,7 +17,9 @@ export function useUploadResource() {
           body: formData,
         },
       );
-      if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
+      if (!res.ok) {
+        throw await resourceWriteError(res, `Upload failed: ${res.statusText}`);
+      }
       return res.json() as Promise<Resource>;
     },
     onSuccess: () => {

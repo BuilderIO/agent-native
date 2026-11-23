@@ -44,7 +44,7 @@ const designLeftPanelSchema = z.enum([
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or path. Views: list, templates, editor, present, settings. Use --templateId with templates, --designId with editor/present views. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use leftPanel=file|agent|assets|tools|tokens|threads to focus the left rail (file is the panel labeled Layers, with screens and the layer tree; threads is the review comment threads panel). The inspector has no tabs, so inspectorTab is accepted and ignored; the legacy value extensions still opens Tools. Use tool to activate a design editor tool. In Interact mode, use interactDevice to pick the preview device and interactTheme=light|dark|system to pick the preview color scheme.",
+    "Navigate the UI to a specific view or path. Views: list, templates, editor, present, settings. Use --templateId with templates, --designId with editor/present views. Use view=list with --search to land on Design home filtered by that text (for example to show the designs matching a name), from any screen including an open editor. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use leftPanel=file|agent|assets|tools|tokens|threads to focus the left rail (file is the panel labeled Layers, with screens and the layer tree; threads is the review comment threads panel). The inspector has no tabs, so inspectorTab is accepted and ignored; the legacy value extensions still opens Tools. Use tool to activate a design editor tool. In Interact mode, use interactDevice to pick the preview device and interactTheme=light|dark|system to pick the preview color scheme.",
   schema: z
     .object({
       view: z
@@ -116,6 +116,14 @@ export default defineAction({
         .optional()
         .describe("Saved or built-in template ID for templates view"),
       path: z.string().optional().describe("URL path to navigate to"),
+      search: z
+        .string()
+        .trim()
+        .max(200)
+        .optional()
+        .describe(
+          "With view=list: filter Design home by this text (case-insensitive match on design titles)",
+        ),
       intent: navigationIntentSchema,
     })
     .superRefine((args, ctx) => {
@@ -172,6 +180,7 @@ export default defineAction({
     if (args.interactTheme) nav.interactTheme = args.interactTheme;
     if (args.templateId) nav.templateId = args.templateId;
     if (args.path) nav.path = args.path;
+    if (args.search) nav.search = args.search;
     await writeAppStateForCurrentTab("navigate", nav);
     return `Navigating to ${args.view || args.path}${
       args.designId ? ` (design: ${args.designId})` : ""
@@ -181,7 +190,7 @@ export default defineAction({
       args.fileId || args.screenId || args.filename || args.screen
         ? ` (screen: ${args.fileId ?? args.screenId ?? args.filename ?? args.screen})`
         : ""
-    }${args.tool ? ` (${args.tool} tool)` : ""}${
+    }${args.search ? ` (search: ${JSON.stringify(args.search)})` : ""}${args.tool ? ` (${args.tool} tool)` : ""}${
       args.interactDevice ? ` (device: ${args.interactDevice})` : ""
     }${args.interactTheme ? ` (theme: ${args.interactTheme})` : ""}`;
   },

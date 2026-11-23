@@ -1,6 +1,7 @@
 import type { ContentCollectionStepId } from "../config.js";
 import {
   lastSucceededContentRun,
+  listContentRunWindows,
   type ContentCollection,
   type ContentSnapshotInput,
   type StoredContentItem,
@@ -43,6 +44,62 @@ export async function collectionWindow(
     startDate: utcDate(new Date(start)),
     endDate: utcDate(end),
   };
+}
+
+export function daysFrom(startDate: string, endDate: string): number {
+  return Math.round(
+    (new Date(`${endDate}T00:00:00Z`).getTime() -
+      new Date(`${startDate}T00:00:00Z`).getTime()) /
+      DAY_MS,
+  );
+}
+
+export function addDays(date: string, days: number): string {
+  return utcDate(
+    new Date(new Date(`${date}T00:00:00Z`).getTime() + days * DAY_MS),
+  );
+}
+
+export function monthsEndingOn(endDate: string, months: number): string {
+  const end = new Date(`${endDate}T00:00:00Z`);
+  const year = end.getUTCFullYear();
+  const month = end.getUTCMonth() - months;
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const start = new Date(
+    Date.UTC(year, month, Math.min(end.getUTCDate(), lastDay)),
+  );
+  return addDays(utcDate(start), 1);
+}
+
+export async function coveredSince(
+  collection: ContentCollection,
+  step: ContentCollectionStepId,
+  configFingerprint: string,
+  anchorStart: string,
+): Promise<string> {
+  const runs = await listContentRunWindows(collection, step);
+  const changedAt = runs
+    .filter((run) => run.configFingerprint !== configFingerprint)
+    .reduce(
+      (latest, run) => (run.startedAt > latest ? run.startedAt : latest),
+      "",
+    );
+  const windows = runs.filter(
+    (run) =>
+      run.configFingerprint === configFingerprint && run.startedAt > changedAt,
+  );
+  let start = anchorStart;
+  for (let joined = true; joined; ) {
+    joined = false;
+    const dayBefore = addDays(start, -1);
+    for (const window of windows) {
+      if (window.windowStart < start && window.windowEnd >= dayBefore) {
+        start = window.windowStart;
+        joined = true;
+      }
+    }
+  }
+  return start;
 }
 
 function datesThrough(startDate: string, endDate: string): string[] {

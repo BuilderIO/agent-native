@@ -21,6 +21,7 @@ export default defineAction({
       .nullish()
       .describe("New emoji glyph — pass null to clear"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const [existing] = await db

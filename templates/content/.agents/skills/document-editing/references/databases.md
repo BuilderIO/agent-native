@@ -418,6 +418,34 @@ Use `create-content-database`, `create-inline-content-database`,
 `duplicate-document-property`, and `delete-document-property`; do not edit
 property rows or view config via raw SQL when an action can do it.
 
+A page table's block menu offers "Turn into collection". It sends the table's
+text to `create-inline-content-database` as `table`: `properties` names one
+text property per column after the first (from the header row, or "Column N"),
+and each entry of `rows` is one row page's title followed by one plain-text
+cell per property. The editor then puts the new inline collection block where
+the table was, in one step that one undo takes back; undoing it leaves the
+collection unlinked, so the page's next save moves it to Trash.
+
+An inline collection's block menu offers the reverse, "Turn into table". It
+reads, as text, every row its current view's filters and search keep, in the
+view's sort order. The view's layout doesn't narrow them: rows in collapsed
+groups, and a calendar's or timeline's rows outside the dates on screen, are
+included. The table has a "Name" column with each row's title, then one column
+per property the view shows, except `blocks` properties, whose rich content a
+cell can't hold. It puts a plain table where the block was, in one undoable
+step, and the page's next save moves the collection to Trash. A view with more
+than 500 rows or 49 properties stays a collection. An agent does the same
+with `export-document` (format `csv`) or `get-content-database`, then
+`edit-document`.
+
+A save whose body brings back a removed inline collection's block (one block
+with the same block ID, `databaseId` and `databaseDocumentId`) takes that
+collection back out of Trash, if it went there because a save dropped its
+block. A collection deleted on purpose, whose page is in Trash, stays there;
+restore it with `restore-content-database`. If the block still shows
+"Collection unavailable" after the page saves, restore the collection the same
+way.
+
 Read `get-content-database.mutationContract` immediately before a single-row
 mutation. Pass its exact target and schema revision to create, exact item and
 document IDs plus the current row revision to sparse update, and a fresh

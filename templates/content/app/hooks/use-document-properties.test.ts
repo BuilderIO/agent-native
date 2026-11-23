@@ -219,7 +219,7 @@ describe("useUpdateDatabaseItems", () => {
     useActionMutation.mockImplementation((_name, options) => options);
   });
 
-  it("refreshes active filtered memberships without fetching inactive or unrelated results", async () => {
+  it("refreshes active filtered memberships and the Files sidebar without fetching inactive or unrelated results", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
     });
@@ -247,28 +247,38 @@ describe("useUpdateDatabaseItems", () => {
       "query-content-database-items",
       { documentId: "other-database", tableQuery: { filters: ["matching"] } },
     ] as const;
-    const reads = [boundedKey, legacyKey, inactiveKey, unrelatedKey].map(
-      (queryKey) => {
-        const queryFn = vi.fn(async () => returnedPage);
-        queryClient.setQueryData(queryKey, { items: [] });
-        const observer = new QueryObserver(queryClient, { queryKey, queryFn });
-        return { queryKey, queryFn, observer };
-      },
-    );
-    const subscriptions = [reads[0], reads[1], reads[3]].map(({ observer }) =>
-      observer.subscribe(() => {}),
-    );
+    const sidebarKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "database-1", limit: 50, navigation: { parentId: null } },
+    ] as const;
+    const reads = [
+      boundedKey,
+      legacyKey,
+      inactiveKey,
+      unrelatedKey,
+      sidebarKey,
+    ].map((queryKey) => {
+      const queryFn = vi.fn(async () => returnedPage);
+      queryClient.setQueryData(queryKey, { items: [] });
+      const observer = new QueryObserver(queryClient, { queryKey, queryFn });
+      return { queryKey, queryFn, observer };
+    });
+    const subscriptions = reads
+      .filter((_, index) => index !== 2)
+      .map(({ observer }) => observer.subscribe(() => {}));
 
     try {
       useUpdateDatabaseItems("database-page");
       const mutation = useActionMutation.mock.calls.find(
         ([name]) => name === "update-database-items",
       )![1];
-      mutation.onSuccess();
+      mutation.onSuccess({ databaseId: "database-1" });
 
       await vi.waitFor(() => {
         expect(queryClient.getQueryData(boundedKey)).toEqual(returnedPage);
         expect(queryClient.getQueryData(legacyKey)).toEqual(returnedPage);
+        expect(queryClient.getQueryData(sidebarKey)).toEqual(returnedPage);
       });
       expect(reads[0].queryFn).toHaveBeenCalledTimes(1);
       expect(reads[1].queryFn).toHaveBeenCalledTimes(1);
@@ -903,6 +913,55 @@ describe("useSetDocumentProperty", () => {
         },
       ]),
     );
+  });
+
+  it("rereads the collection's Files sidebar after a saved value, except a Blocks field's", () => {
+    const queryClient = {
+      cancelQueries: vi.fn(),
+      getQueriesData: vi.fn(() => []),
+      getQueryState: vi.fn(),
+      setQueriesData: vi.fn(),
+      setQueryData: vi.fn(),
+      invalidateQueries: vi.fn(),
+    };
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+    useSetDocumentProperty("row-1", "database-1", "database-page-1");
+    const options = useActionMutation.mock.lastCall?.[1];
+    const rereadsSidebar = (databaseId: string) =>
+      queryClient.invalidateQueries.mock.calls.some(
+        ([filters]) =>
+          filters.queryKey[1] === "query-content-database-items" &&
+          filters.predicate?.({
+            queryKey: [
+              "action",
+              "query-content-database-items",
+              { databaseId, limit: 50, navigation: { parentId: null } },
+            ],
+          }) === true,
+      );
+
+    options.onSuccess(
+      {
+        properties: [
+          { definition: { id: "stage", type: "select" }, value: "done" },
+        ],
+      },
+      { documentId: "row-1", propertyId: "stage", value: "done" },
+    );
+    expect(rereadsSidebar("database-1")).toBe(true);
+    expect(rereadsSidebar("database-2")).toBe(false);
+
+    queryClient.invalidateQueries.mockClear();
+    options.onSuccess(
+      {
+        properties: [
+          { definition: { id: "notes", type: "blocks" }, value: [] },
+        ],
+      },
+      { documentId: "row-1", propertyId: "notes", value: [] },
+    );
+    expect(rereadsSidebar("database-1")).toBe(false);
   });
 
   it("refetches the field revision after a rejected stale write", () => {

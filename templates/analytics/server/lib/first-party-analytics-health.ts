@@ -18,7 +18,7 @@ import type { AnalyticsScope } from "./first-party-analytics.js";
 import { resolveBigQueryOAuthCredential } from "./provider-credentials.js";
 
 const FIRST_PARTY_ANALYTICS_HEALTH_WINDOW_DAYS = 30;
-const FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED = 100_000_000;
+export const FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED = 100_000_000;
 
 export const FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS = {
   slowQueryMs: 5_000,

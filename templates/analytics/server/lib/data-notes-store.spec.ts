@@ -2,7 +2,15 @@ import { createRequire } from "node:module";
 
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -21,6 +29,7 @@ import * as dbModule from "../db/index.js";
 import { lockAnnotationScope } from "./annotation-scope.js";
 import { DATA_NOTES_MIGRATION_SQL } from "./data-notes-migration.js";
 import * as store from "./data-notes-store.js";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 const alice = { email: "alice@example.test", orgId: "org-1" };
 const bob = { email: "bob@example.test", orgId: "org-1" };
@@ -41,8 +50,16 @@ describe("data-notes store", () => {
   let client: PGliteClient;
   let queries: { query: string; params: unknown[] }[];
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     getDbMock.mockReset();
     queries = [];
     getDbMock.mockReturnValue(
@@ -58,10 +75,6 @@ describe("data-notes store", () => {
         await client.exec(statement);
       }
     }
-  });
-
-  afterEach(async () => {
-    await client.close();
   });
 
   it("adds an ongoing note, then marks it fixed by changing only those fields", async () => {

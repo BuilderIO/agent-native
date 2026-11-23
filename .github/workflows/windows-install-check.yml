@@ -16,6 +16,8 @@ on:
       - "scripts/lib/pnpm-command.test.ts"
       - "packages/*/package.json"
       - "packages/*/scripts/**"
+      - "packages/core/src/**"
+      - "packages/core/bin/**"
       - ".github/actions/setup-pnpm/**"
       - ".github/workflows/windows-install-check.yml"
   workflow_dispatch:
@@ -41,3 +43,6 @@ jobs:
       # pnpm didn't start would, which no Linux job can check.
       - name: Test the pnpm helper on Windows
         run: node --experimental-strip-types --test scripts/lib/pnpm-command.test.ts
+
+      - name: Test CLI compiler lookup on Windows
+        run: pnpm --filter @agent-native/core exec vitest run src/cli/typecheck-ancestor.spec.ts src/cli/typecheck-command.spec.ts

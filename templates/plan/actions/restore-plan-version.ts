@@ -1,10 +1,12 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { ensureReviewTables } from "@agent-native/core/review";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import { mirrorPlanComments } from "../server/lib/plan-comment-mirror.js";
 import {
   createPlanVersionSnapshot,
   parsePlanVersionSnapshot,
@@ -67,6 +69,7 @@ export default defineAction({
     const now = nowIso();
 
     let lostSaveRace = false;
+    await ensureReviewTables();
     const restoreWrite = db.transaction(async (tx) => {
       const updatedRows = await tx
         .update(schema.plans)
@@ -169,6 +172,8 @@ export default defineAction({
             );
         }
       }
+
+      await mirrorPlanComments(tx, planId, "all");
 
       await tx.insert(schema.planEvents).values({
         id: newId("evt"),
