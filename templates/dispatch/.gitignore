@@ -1,9 +1,0 @@
-build
-.output/
-
-data/pglite/
-data/*.lock
-
-.generated/
-
-.vercel/
