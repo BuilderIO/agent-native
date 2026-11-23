@@ -10,12 +10,18 @@ import {
 
 export type { EvaluatedFeatureFlags } from "./helpers.js";
 
+const retryUnavailableFlags = (query: { state: { status: string } }) =>
+  query.state.status === "error" ? 60_000 : false;
+
 export function useFeatureFlag(key: string): boolean {
   const { status } = useSession();
   const query = useActionQuery<EvaluatedFeatureFlags>(
     "get-feature-flags" as never,
     undefined,
-    { enabled: status === "authenticated" },
+    {
+      enabled: status === "authenticated",
+      refetchInterval: retryUnavailableFlags,
+    },
   );
   if (RETIRED_ENABLED_FLAG_KEYS.has(key)) return true;
   if (query.isError) return false;
@@ -53,6 +59,7 @@ export function useFeatureFlagState(
     undefined,
     {
       enabled: status === "authenticated",
+      refetchInterval: retryUnavailableFlags,
       ...(options?.freshOnMount
         ? {
             staleTime: 0,
@@ -87,7 +94,10 @@ export function useFeatureFlags(): Record<string, boolean> {
   const query = useActionQuery<EvaluatedFeatureFlags>(
     "get-feature-flags" as never,
     undefined,
-    { enabled: status === "authenticated" },
+    {
+      enabled: status === "authenticated",
+      refetchInterval: retryUnavailableFlags,
+    },
   );
   return query.isError ? {} : evaluatedFeatureFlagValues(query.data);
 }

@@ -142,6 +142,78 @@ describe("useFeatureFlag / useFeatureFlags session gating", () => {
     expect(flags).toEqual({ composer: true });
   });
 
+  it.each(["flag", "flags", "state", "fresh state"])(
+    "automatically retries a failed refresh for %s",
+    async (kind) => {
+      sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ composer: true }))
+        .mockResolvedValueOnce(new Response("unavailable", { status: 500 }))
+        .mockResolvedValueOnce(jsonResponse({ composer: true }));
+      vi.stubGlobal("fetch", fetchMock);
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      let value: unknown;
+      function FlagProbe() {
+        value = useFeatureFlag("composer");
+        return null;
+      }
+      function FlagsProbe() {
+        value = useFeatureFlags();
+        return null;
+      }
+      function StateProbe() {
+        value = useFeatureFlagState("composer", {
+          freshOnMount: kind === "fresh state",
+        });
+        return null;
+      }
+      const Probe =
+        kind === "flag"
+          ? FlagProbe
+          : kind === "flags"
+            ? FlagsProbe
+            : StateProbe;
+      const enabled =
+        kind === "flag"
+          ? true
+          : kind === "flags"
+            ? { composer: true }
+            : { status: "ready", enabled: true };
+      const disabled =
+        kind === "flag"
+          ? false
+          : kind === "flags"
+            ? {}
+            : { status: "unavailable", enabled: false };
+      await mountProbe(Probe, client);
+      await vi.waitFor(() => expect(value).toEqual(enabled));
+      vi.useFakeTimers();
+      try {
+        await act(async () => {
+          await client.invalidateQueries({
+            queryKey: ["action", "get-feature-flags"],
+          });
+          await vi.advanceTimersByTimeAsync(1);
+        });
+        expect(value).toEqual(disabled);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(60_001);
+        });
+        expect(value).toEqual(enabled);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(60_000);
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("does not fire while the session is still loading", async () => {
     sessionMocks.useSession.mockReturnValue({ status: "loading" });
     const fetchMock = vi.fn();
