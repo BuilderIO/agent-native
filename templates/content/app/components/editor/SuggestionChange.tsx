@@ -213,6 +213,16 @@ function readsInPieces(runs: readonly Run[]) {
   return true;
 }
 
+function changedStretches(runs: readonly Run[]) {
+  let stretches = 0;
+  let changing = false;
+  for (const run of runs) {
+    if (run.changed && !changing) stretches += 1;
+    changing = run.changed;
+  }
+  return stretches;
+}
+
 function operationChange(
   operation: Operations[number],
   { wordLevel, whole }: { wordLevel: boolean; whole: boolean },
@@ -320,6 +330,8 @@ function operationChange(
     const markedInserted = pieces("insert", insertedContext);
     const piecewise =
       !!marked &&
+      changedStretches(markedRemoved) < 2 &&
+      changedStretches(markedInserted) < 2 &&
       (!markdown ||
         (readsInPieces(markedRemoved) && readsInPieces(markedInserted)));
     let removed = piecewise ? markedRemoved : said(removedText, removedContext);

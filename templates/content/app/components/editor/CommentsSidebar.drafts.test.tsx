@@ -1516,6 +1516,31 @@ it("marks whole words, not scattered letters, when a suggestion rewrites words",
     },
   );
   await card(
+    "rewritten-clause",
+    [
+      replacement(
+        0,
+        "be on by default for existing users, or opt-in until January",
+        "stay opt-in for existing users until the January release",
+      ),
+    ],
+    (rewritten) => {
+      expect(rewritten.textContent).toContain(
+        "Replace “be on by default for existing users, or opt-in until January” with “stay opt-in for existing users until the January release”",
+      );
+      expect(
+        [
+          ...rewritten.querySelectorAll(
+            '[data-suggestion-change-text="removed"] .line-through',
+          ),
+        ].map((span) => span.textContent),
+      ).toEqual([
+        "be on by default for existing users, or opt-in until January",
+      ]);
+      expect(marked(rewritten)).toEqual([]);
+    },
+  );
+  await card(
     "swapped-word",
     [replacement(0, "The quick brown fox jumps", "The quick red fox jumps")],
     (swapped) => {
