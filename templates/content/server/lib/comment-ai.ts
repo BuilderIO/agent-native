@@ -1311,7 +1311,7 @@ export async function beginCommentAiAttempt(request: RequestRow) {
   const threadDigest = currentThreadDigest(request, source.comments);
   const now = new Date().toISOString();
 
-  const outcome = await getDb().transaction(async (tx) => {
+  return getDb().transaction(async (tx) => {
     const [locked] = await tx
       .select()
       .from(schema.commentAiRequests)
@@ -1321,9 +1321,8 @@ export async function beginCommentAiAttempt(request: RequestRow) {
     if (terminalSuccess(locked.status)) {
       return { request: locked, attempt: null, source };
     }
-    let active: CommentAiAttemptRow | undefined;
     if (locked.activeAttemptId) {
-      [active] = await tx
+      const [active] = await tx
         .select()
         .from(schema.commentAiAttempts)
         .where(eq(schema.commentAiAttempts.id, locked.activeAttemptId))
@@ -1374,12 +1373,20 @@ export async function beginCommentAiAttempt(request: RequestRow) {
       }
     }
     if (locked.attemptCount >= MAX_ATTEMPTS) {
-      return {
-        kind: "review-required" as const,
-        request: locked,
-        attempt: active ?? null,
-        source,
-      };
+      const exhausted = operationError(
+        "refresh_exhausted",
+        "The Page kept changing while AI worked. Review the retained operation before retrying.",
+      );
+      await tx
+        .update(schema.commentAiRequests)
+        .set({
+          status: "needs-review",
+          errorCode: exhausted.code,
+          error: exhausted.message,
+          updatedAt: now,
+        })
+        .where(eq(schema.commentAiRequests.id, locked.id));
+      throw exhausted;
     }
     if (locked.activeAttemptId) {
       await tx
@@ -1418,7 +1425,6 @@ export async function beginCommentAiAttempt(request: RequestRow) {
       .returning();
     return { request: updated, attempt, source };
   });
-  return outcome;
 }
 
 export async function verifyCommentAiAttempt(

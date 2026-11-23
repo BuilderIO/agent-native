@@ -26,21 +26,11 @@ export default defineAction({
     if (["replied", "suggested", "resolved"].includes(request.status)) {
       return { request: receipt, operationCompleted: true, nextAction: null };
     }
-    const outcome = await beginCommentAiAttempt(request);
-    if ("kind" in outcome && outcome.kind === "review-required") {
-      return {
-        request: serializeCommentAiRequest(outcome.request),
-        operationCompleted: false,
-        reviewRequired: true,
-        reason: "attempt_limit_reached",
-        nextAction: null,
-        retainedOperation:
-          outcome.attempt?.payloadJson == null
-            ? null
-            : JSON.parse(outcome.attempt.payloadJson),
-      };
-    }
-    const { request: currentRequest, attempt, source } = outcome;
+    const {
+      request: currentRequest,
+      attempt,
+      source,
+    } = await beginCommentAiAttempt(request);
     if (!attempt) {
       return {
         request: serializeCommentAiRequest(currentRequest),
