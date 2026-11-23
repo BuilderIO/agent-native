@@ -1265,9 +1265,30 @@ async function recordConflict(
   request: RequestRow,
   attempt: CommentAiAttemptRow | null,
   error: CommentAiOperationError,
+  options?: { recordRun?: boolean },
 ) {
   const now = new Date().toISOString();
-  await getDb().transaction(async (tx) => {
+  const recorded = await getDb().transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, request.id))
+      .for("update");
+    if (rows.length === 0) throw new Error("Comment AI operation not found");
+    const [locked] = rows;
+    if (
+      options?.recordRun &&
+      (terminalSuccess(locked.status) ||
+        locked.status === "cancelled" ||
+        locked.status === "failed" ||
+        (locked.status === "needs-review" &&
+          request.status !== "needs-review") ||
+        locked.runId !== request.runId ||
+        locked.attemptCount !== request.attemptCount ||
+        locked.activeAttemptId !== request.activeAttemptId)
+    ) {
+      return false;
+    }
     if (attempt) {
       await tx
         .update(schema.commentAiAttempts)
@@ -1282,14 +1303,16 @@ async function recordConflict(
     await tx
       .update(schema.commentAiRequests)
       .set({
+        ...(options?.recordRun ? commentAiRunBookkeeping(locked) : {}),
         status: "needs-review",
         errorCode: error.code,
         error: error.message,
         updatedAt: now,
       })
-      .where(eq(schema.commentAiRequests.id, request.id));
+      .where(eq(schema.commentAiRequests.id, locked.id));
+    return true;
   });
-  await writeAppState("refresh-signal", { ts: Date.now() });
+  if (recorded) await writeAppState("refresh-signal", { ts: Date.now() });
 }
 
 export async function beginCommentAiAttempt(
@@ -1315,7 +1338,7 @@ export async function beginCommentAiAttempt(
               ? error.message
               : "Comment context could not be read",
           );
-    await recordConflict(request, null, typed);
+    await recordConflict(request, null, typed, options);
     throw typed;
   }
 

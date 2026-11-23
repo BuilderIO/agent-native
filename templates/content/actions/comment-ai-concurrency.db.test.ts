@@ -60,7 +60,7 @@ function runOperation<T>(
   operationId: string,
   agentThreadId: string,
   run: () => Promise<T>,
-  metadata: { runId: string; model: string } = {
+  metadata: { runId: string; model: string; engine?: string } = {
     runId: `run-${operationId}`,
     model: "openai/gpt-5.6-sol",
   },
@@ -73,6 +73,24 @@ function runOperation<T>(
         threadId: agentThreadId,
         runId: metadata.runId,
         model: metadata.model,
+        ...(metadata.engine
+          ? {
+              engine: {
+                name: metadata.engine,
+                label: metadata.engine,
+                defaultModel: metadata.model,
+                supportedModels: [metadata.model],
+                capabilities: {
+                  thinking: false,
+                  promptCaching: false,
+                  vision: false,
+                  computerUse: false,
+                  parallelToolCalls: false,
+                },
+                async *stream() {},
+              },
+            }
+          : {}),
       },
     },
     run,
@@ -667,18 +685,26 @@ describe("operation-scoped refresh and commits", () => {
         .set({ content: "Changed feedback" })
         .where(eq(schema.documentComments.id, ROOT_A));
       const conflictOutcome: ActionExecutionOutcome = { refused: false };
-      const conflict = await runOperation(OP_A, started.agentThreadId, () =>
-        runActionWithExecutionOutcome(
-          getContext.run,
-          {},
-          {
-            caller: "tool",
-            userEmail: OWNER,
-            actionName: "get-comment-ai-context",
-          },
-          conflictOutcome,
-          getContext,
-        ),
+      const conflict = await runOperation(
+        OP_A,
+        started.agentThreadId,
+        () =>
+          runActionWithExecutionOutcome(
+            getContext.run,
+            {},
+            {
+              caller: "tool",
+              userEmail: OWNER,
+              actionName: "get-comment-ai-context",
+            },
+            conflictOutcome,
+            getContext,
+          ),
+        {
+          runId: "conflict-run",
+          model: "example/conflict-model",
+          engine: "example-engine",
+        },
       ).then(
         () => undefined,
         (thrown: unknown) => thrown,
@@ -698,12 +724,89 @@ describe("operation-scoped refresh and commits", () => {
         status: "needs-review",
         errorCode: "root_comment_changed",
         attemptCount: 2,
+        runId: "conflict-run",
+        model: "example/conflict-model",
+        engine: "example-engine",
       });
       expect(await getDb().select().from(schema.commentAiAttempts)).toEqual(
         beforeAttempts,
       );
     },
   );
+
+  it.each(["replied", "newer-attempt", "newer-run"] as const)(
+    "does not overwrite a %s when stale context validation fails",
+    async (change) => {
+      const started = await asUser(() =>
+        commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+      );
+      const stale = await runOperation(OP_A, started.agentThreadId, () =>
+        commentAi.requireCommentAiRequest(undefined, {
+          deferBookkeeping: true,
+        }),
+      );
+      await getDb()
+        .update(schema.documentComments)
+        .set({ content: "Changed feedback" })
+        .where(eq(schema.documentComments.id, ROOT_A));
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set(
+          change === "replied"
+            ? { status: "replied", runId: "winning-run" }
+            : change === "newer-run"
+              ? { runId: "winning-run" }
+              : {
+                  status: "running",
+                  attemptCount: 1,
+                  activeAttemptId: `${OP_A}:attempt:1`,
+                },
+        )
+        .where(eq(schema.commentAiRequests.id, OP_A));
+      const before = await asUser(() => commentAi.loadCommentAiRequest(OP_A));
+      await expect(
+        runOperation(OP_A, started.agentThreadId, () =>
+          commentAi.beginCommentAiAttempt(stale, { recordRun: true }),
+        ),
+      ).rejects.toMatchObject({ code: "root_comment_changed" });
+      expect(await asUser(() => commentAi.loadCommentAiRequest(OP_A))).toEqual(
+        before,
+      );
+    },
+  );
+
+  it("uses the latest locked metadata when the executing run omits an engine", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+    );
+    const stale = await runOperation(OP_A, started.agentThreadId, () =>
+      commentAi.requireCommentAiRequest(undefined, { deferBookkeeping: true }),
+    );
+    await getDb()
+      .update(schema.documentComments)
+      .set({ content: "Changed feedback" })
+      .where(eq(schema.documentComments.id, ROOT_A));
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ engine: "latest-engine" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    await expect(
+      runOperation(
+        OP_A,
+        started.agentThreadId,
+        () => commentAi.beginCommentAiAttempt(stale, { recordRun: true }),
+        { runId: "conflict-run", model: "example/conflict-model" },
+      ),
+    ).rejects.toMatchObject({ code: "root_comment_changed" });
+    expect(
+      await asUser(() => commentAi.loadCommentAiRequest(OP_A)),
+    ).toMatchObject({
+      status: "needs-review",
+      runId: "conflict-run",
+      model: "example/conflict-model",
+      engine: "latest-engine",
+    });
+  });
 
   it("records the executing run when the request changes before attempt locking", async () => {
     const started = await asUser(() =>
@@ -1024,11 +1127,16 @@ describe("operation-scoped refresh and commits", () => {
         return commentAi.beginCommentAiAttempt(request);
       }),
     ]);
+    if (!attemptA.attempt || !attemptB.attempt) {
+      throw new Error("Both operations must have a reasoning attempt");
+    }
+    const attemptAId = attemptA.attempt.id;
+    const attemptBId = attemptB.attempt.id;
 
     const appliedA = await runOperation(OP_A, startedA.agentThreadId, () =>
       applyRequest.run(
         {
-          attemptId: attemptA.attempt!.id,
+          attemptId: attemptAId,
           edits: [{ find: "Alpha one", replace: "Alpha changed" }],
           summary: "Changed Alpha",
         },
@@ -1038,7 +1146,7 @@ describe("operation-scoped refresh and commits", () => {
     const appliedB = await runOperation(OP_B, startedB.agentThreadId, () =>
       applyRequest.run(
         {
-          attemptId: attemptB.attempt!.id,
+          attemptId: attemptBId,
           edits: [{ find: "Beta two", replace: "Beta changed" }],
           summary: "Changed Beta",
         },
@@ -1080,10 +1188,15 @@ describe("operation-scoped refresh and commits", () => {
         return commentAi.beginCommentAiAttempt(request);
       }),
     ]);
+    if (!attemptA.attempt || !attemptB.attempt) {
+      throw new Error("Both operations must have a reasoning attempt");
+    }
+    const attemptAId = attemptA.attempt.id;
+    const attemptBId = attemptB.attempt.id;
     await runOperation(OP_A, startedA.agentThreadId, () =>
       applyRequest.run(
         {
-          attemptId: attemptA.attempt!.id,
+          attemptId: attemptAId,
           edits: [{ find: "Alpha one", replace: "Alpha changed" }],
           summary: "Changed Alpha",
         },
@@ -1095,7 +1208,7 @@ describe("operation-scoped refresh and commits", () => {
       runOperation(OP_B, startedB.agentThreadId, () =>
         applyRequest.run(
           {
-            attemptId: attemptB.attempt!.id,
+            attemptId: attemptBId,
             edits: [{ find: "Alpha one", replace: "Another Alpha" }],
             summary: "Changed Alpha again",
           },
@@ -1120,7 +1233,7 @@ describe("operation-scoped refresh and commits", () => {
       status: "needs-review",
       errorCode: "target_deleted",
     });
-    expect(root?.resolved).toBe(0);
+    expect(root.resolved).toBe(0);
   });
 
   it("resumes receipt and resolve after a verified edit without spending another reasoning attempt", async () => {
