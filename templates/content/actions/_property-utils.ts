@@ -151,6 +151,18 @@ export async function readDatabasePropertySchema(
   };
 }
 
+export function sourceSavesValueEdits(
+  schema: Pick<DatabasePropertySchema, "sourceWritebackPropertyIds">,
+  propertyId: string,
+  type: string,
+) {
+  return (
+    schema.sourceWritebackPropertyIds.has(propertyId) &&
+    type !== "relation" &&
+    !isBlocksPropertyType(type as DocumentPropertyType)
+  );
+}
+
 export function sourceAllowsValueEdit(
   schema: Pick<
     DatabasePropertySchema,
@@ -159,11 +171,9 @@ export function sourceAllowsValueEdit(
   propertyId: string,
   type: string,
 ) {
-  if (!schema.sourceManagedPropertyIds.has(propertyId)) return true;
   return (
-    schema.sourceWritebackPropertyIds.has(propertyId) &&
-    type !== "relation" &&
-    !isBlocksPropertyType(type as DocumentPropertyType)
+    !schema.sourceManagedPropertyIds.has(propertyId) ||
+    sourceSavesValueEdits(schema, propertyId, type)
   );
 }
 
@@ -841,6 +851,13 @@ export async function listPropertiesForDatabase(
           definition.id,
           type,
         ),
+      ...(sourceSavesValueEdits(
+        { sourceWritebackPropertyIds },
+        definition.id,
+        type,
+      )
+        ? { sourceWriteback: true }
+        : {}),
       ...(valueDocument && isBlocksPropertyType(type)
         ? {
             blocksField: blocksFieldIdentityById.get(
@@ -1063,6 +1080,13 @@ export async function listPropertiesForDatabaseDocuments(
             definition.id,
             propertyDefinition.type,
           ),
+        ...(sourceSavesValueEdits(
+          { sourceWritebackPropertyIds },
+          definition.id,
+          propertyDefinition.type,
+        )
+          ? { sourceWriteback: true }
+          : {}),
         ...(blocksFieldIdentityById &&
         isBlocksPropertyType(propertyDefinition.type)
           ? {

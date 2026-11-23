@@ -12,7 +12,9 @@ import {
 } from "../shared/properties.js";
 import {
   contentDatabaseSourceFieldAllowsValueEdit,
+  contentDatabaseSourceFieldSavesEditsToSource,
   contentDatabaseSourceFieldsAllowLocalWrite,
+  contentDatabaseSourceWritebackValueError,
 } from "../shared/source-field-policy.js";
 import { persistBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import { nanoid } from "./_property-utils.js";
@@ -21,6 +23,7 @@ export async function assertPropertyWritableByRowMutation(
   db: ReturnType<typeof getDb>,
   databaseId: string,
   definition: typeof schema.documentPropertyDefinitions.$inferSelect,
+  write?: { value: unknown },
 ) {
   const sourceFields = await db
     .select({
@@ -50,10 +53,29 @@ export async function assertPropertyWritableByRowMutation(
     !isBlocksPropertyType(definition.type as DocumentPropertyType);
   if (
     plainValue
-      ? sourceFields.every(contentDatabaseSourceFieldAllowsValueEdit)
+      ? sourceFields
+          .map(contentDatabaseSourceFieldAllowsValueEdit)
+          .every(Boolean)
       : contentDatabaseSourceFieldsAllowLocalWrite(sourceFields)
   ) {
-    return;
+    const reason =
+      write && sourceFields.some(contentDatabaseSourceFieldSavesEditsToSource)
+        ? contentDatabaseSourceWritebackValueError(definition.type, write.value)
+        : null;
+    if (!reason) return;
+    throw new ActionContractError(
+      `Invalid value for property "${definition.name}": ${reason}`,
+      {
+        errorCode: "INVALID_PROPERTY_VALUE",
+        details: {
+          propertyId: definition.id,
+          propertyName: definition.name,
+          propertyType: definition.type,
+          reason,
+        },
+        statusCode: 400,
+      },
+    );
   }
   throw new ActionContractError(
     `Property "${definition.name}" is not writable by database row mutations.`,

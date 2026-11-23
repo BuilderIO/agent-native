@@ -40,6 +40,7 @@ import {
 import {
   contentDatabaseSourceManagedPropertyIds,
   contentDatabaseSourceWritebackPropertyIds,
+  contentDatabaseSourceWritebackValueError,
 } from "../shared/source-field-policy.js";
 import {
   lockContentDatabaseMutation,
@@ -78,7 +79,11 @@ import {
   unguardablePropertyIds,
   type PropertyGenerations,
 } from "./_property-generations.js";
-import { nanoid, sourceAllowsValueEdit } from "./_property-utils.js";
+import {
+  nanoid,
+  sourceAllowsValueEdit,
+  sourceSavesValueEdits,
+} from "./_property-utils.js";
 import { lockDocumentRows } from "./_row-lock-order.js";
 
 const databaseMutationAuthorityScopeSchema = z.discriminatedUnion("kind", [
@@ -352,7 +357,7 @@ function schemaPayload(
         visibility: definition.visibility,
         options: parsePropertyOptions(definition.optionsJson),
         sourceManaged: sets.sourceManagedPropertyIds.has(definition.id),
-        ...(sets.sourceWritebackPropertyIds.has(definition.id)
+        ...(sourceSavesValueEdits(sets, definition.id, definition.type)
           ? { sourceWriteback: true }
           : {}),
       }))
@@ -780,10 +785,12 @@ async function normalizePatch(
         },
       );
     }
-    normalized.set(
-      propertyId,
-      serializePropertyValue(await strictValue(definition, input)),
-    );
+    const value = await strictValue(definition, input);
+    const writebackReason = context.sourceWritebackPropertyIds.has(propertyId)
+      ? contentDatabaseSourceWritebackValueError(type, value)
+      : null;
+    if (writebackReason) invalidProperty(definition, writebackReason);
+    normalized.set(propertyId, serializePropertyValue(value));
     if (
       propertyId === context.database.naturalKeyPropertyId &&
       (typeof input !== "string" || !input.trim())

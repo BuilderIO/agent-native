@@ -6,6 +6,7 @@ import {
   contentDatabaseSourceManagedPropertyIds,
   contentDatabaseSourceFieldsAllowLocalWrite,
   contentDatabaseSourceWritebackPropertyIds,
+  contentDatabaseSourceWritebackValueError,
   parseContentDatabaseSourceFieldReadOnly,
   parseContentDatabaseSourceWriteOwner,
 } from "./source-field-policy";
@@ -125,5 +126,37 @@ describe("Content source field write policy", () => {
         { propertyId: "notes", writeOwner: "local", readOnly: 0 },
       ]),
     ).toEqual(new Set(["author"]));
+  });
+
+  it("accepts only values Builder can store for a field that saves to Builder", () => {
+    const link = "https://cdn.builder.io/api/v1/image/assets%2Fcover";
+    expect(
+      contentDatabaseSourceWritebackValueError("files_media", [link]),
+    ).toBe(null);
+    expect(contentDatabaseSourceWritebackValueError("files_media", null)).toBe(
+      null,
+    );
+    expect(
+      contentDatabaseSourceWritebackValueError("files_media", [link, link]),
+    ).toMatch(/single link/);
+    expect(
+      contentDatabaseSourceWritebackValueError("files_media", [
+        "/api/private-media/cover.png",
+      ]),
+    ).toMatch(/single link/);
+    expect(
+      contentDatabaseSourceWritebackValueError("date", {
+        start: "2026-11-23",
+        includeTime: false,
+      }),
+    ).toBe(null);
+    expect(
+      contentDatabaseSourceWritebackValueError("date", {
+        start: "2026-11-23",
+        end: "2026-11-24",
+        includeTime: false,
+      }),
+    ).toMatch(/not a range/);
+    expect(contentDatabaseSourceWritebackValueError("text", "x")).toBe(null);
   });
 });

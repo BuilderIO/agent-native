@@ -64,6 +64,8 @@ import {
 } from "../shared/builder-mdx.js";
 import { keepRuledOptions } from "../shared/column-rules.js";
 import {
+  documentPropertyDateIncludesTime,
+  isDocumentPropertyDateValue,
   normalizePropertyValueWithOptions,
   parsePropertyOptions,
   parsePropertyValue,
@@ -1201,10 +1203,25 @@ function builderPageTitleRead(args: {
 function builderSourceFieldComparisonValue(
   field: { sourceFieldKey: string; sourceFieldType?: string | null },
   values: Record<string, DocumentPropertyValue>,
+  localValue?: unknown,
 ) {
   const value = values[field.sourceFieldKey];
-  return field.sourceFieldType?.trim().toLowerCase() === "reference"
-    ? (values[builderReferenceIdSourceValueKey(field.sourceFieldKey)] ?? value)
+  const sourceFieldType = field.sourceFieldType?.trim().toLowerCase();
+  if (sourceFieldType === "reference") {
+    return (
+      values[builderReferenceIdSourceValueKey(field.sourceFieldKey)] ?? value
+    );
+  }
+  const date = typeof value === "number" ? new Date(value) : null;
+  const day =
+    date && !Number.isNaN(date.getTime())
+      ? date.toISOString().slice(0, 10)
+      : "";
+  return (sourceFieldType === "date" || sourceFieldType === "datetime") &&
+    day &&
+    isDocumentPropertyDateValue(localValue) &&
+    !documentPropertyDateIncludesTime(localValue)
+    ? day
     : value;
 }
 
@@ -4711,7 +4728,11 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         if (
           sameMappedSourceFieldValue(
             localValue,
-            builderSourceFieldComparisonValue(field, rowSourceValues),
+            builderSourceFieldComparisonValue(
+              field,
+              rowSourceValues,
+              localValue,
+            ),
             field.propertyType,
             field.propertyOptions,
           )
@@ -4750,8 +4771,8 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       // Any open change for the row carries its staged publish or unpublish.
       if (transitionOnly) return true;
       return (
-        changeSet.fieldChanges.some((stored) =>
-          fieldChanges.some((change) => {
+        fieldChanges.every((change) =>
+          changeSet.fieldChanges.some((stored) => {
             if (change.localFieldKey !== stored.localFieldKey) return false;
             const writableField = args.writableFields?.find(
               (field) => field.localFieldKey === change.localFieldKey,
@@ -4770,8 +4791,8 @@ export function buildBuilderLocalOutboundChangeSets(args: {
               sameStoredValue(change.proposedValue, stored.proposedValue)
             );
           }),
-        ) ||
-        (!!bodyChange && !!changeSet.bodyChange)
+        ) &&
+        (!bodyChange || !!changeSet.bodyChange)
       );
     });
     if (matchesStoredChange) continue;
@@ -7543,6 +7564,7 @@ async function sourceFieldValueWrites(
         const previousValue = builderSourceFieldComparisonValue(
           field,
           previousSourceValues,
+          localValue,
         );
         const editedInContent =
           existing.valueJson !==
@@ -7558,6 +7580,7 @@ async function sourceFieldValueWrites(
           const nextValue = builderSourceFieldComparisonValue(
             field,
             sourceValues,
+            localValue,
           );
           const flaggedBefore =
             previousConflicts?.state === "invalid" ||

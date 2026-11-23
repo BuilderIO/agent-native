@@ -339,6 +339,7 @@ export interface DocumentProperty {
   definition: DocumentPropertyDefinition;
   value: DocumentPropertyValue;
   editable: boolean;
+  sourceWriteback?: boolean;
   blocksField?: BlocksFieldIdentity;
   /**
    * Relation properties only: the linked rows this viewer may see, in value

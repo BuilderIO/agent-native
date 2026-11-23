@@ -2,6 +2,7 @@ import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type ContentDatabaseSourceWriteOwner,
 } from "./api.js";
+import { isDocumentPropertyDateValue } from "./properties.js";
 
 export function parseContentDatabaseSourceWriteOwner(
   value: unknown,
@@ -56,6 +57,32 @@ export function contentDatabaseSourceFieldSavesEditsToSource(field: {
     parseContentDatabaseSourceWriteOwner(field.writeOwner) === "source" &&
     !parseContentDatabaseSourceFieldReadOnly(field.readOnly)
   );
+}
+
+function isWebLink(value: unknown) {
+  if (typeof value !== "string") return false;
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+export function contentDatabaseSourceWritebackValueError(
+  type: string,
+  value: unknown,
+) {
+  if (type === "files_media") {
+    const links = Array.isArray(value) ? value : value == null ? [] : [value];
+    return links.length === 0 || (links.length === 1 && isWebLink(links[0]))
+      ? null
+      : "Builder takes a single link that starts with https://";
+  }
+  if (type === "date" && isDocumentPropertyDateValue(value) && value.end) {
+    return "Builder takes a single date, not a range";
+  }
+  return null;
 }
 
 export function contentDatabaseSourceFieldAllowsValueEdit(
