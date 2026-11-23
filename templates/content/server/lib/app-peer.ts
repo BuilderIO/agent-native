@@ -39,12 +39,6 @@ export function resolvePeerAppUrl(appId: PeerAppId): string | null {
   ).replace(/\/+$/, "");
 }
 
-/**
- * Where Content's calls to a peer app go. Asking for the app by name reaches
- * the catalog's production URL, so beta Content would be answered by
- * production Analytics or Design, which can lag beta by days. On beta it is
- * the beta app's own URL; everywhere else, the name, as before.
- */
 function peerAppTarget(appId: PeerAppId): string {
   const builtinUrl = builtinPeerAppUrl(appId);
   const appUrl = resolvePeerAppUrl(appId);

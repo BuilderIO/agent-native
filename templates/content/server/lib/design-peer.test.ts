@@ -18,6 +18,7 @@ vi.mock("@agent-native/core/server/agent-discovery", () => ({
 }));
 
 import { resetAppConfigForTests } from "@agent-native/core/server";
+
 import { requestDesign } from "./design-peer.js";
 
 const schema = z.object({ value: z.number() });
