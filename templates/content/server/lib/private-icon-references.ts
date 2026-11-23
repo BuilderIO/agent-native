@@ -4,6 +4,7 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 
 import { docToNfm, nfmToDoc } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
+import { syncAnalyticsChartCitations } from "./analytics-chart-citations.js";
 import { firstRow } from "./first-row.js";
 import {
   assertPrivateIconOwner,
@@ -311,6 +312,11 @@ export async function syncPrivateBodyReferences(
     userEmail: input.userEmail,
   });
   await syncPrivateCalloutReferences(db, input);
+  await syncAnalyticsChartCitations(db, {
+    documentId: input.documentId,
+    before: input.before,
+    after: input.after,
+  });
 }
 
 export async function registerPrivateCalloutIcon(input: {

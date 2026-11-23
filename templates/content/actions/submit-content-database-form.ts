@@ -11,6 +11,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import type {
@@ -705,6 +706,10 @@ export default defineAction({
       await syncPrivateMediaReferences(
         tx as unknown as ReturnType<typeof getDb>,
         { documentId, after: documentContent, userEmail: actor },
+      );
+      await syncAnalyticsChartCitations(
+        tx as unknown as ReturnType<typeof getDb>,
+        { documentId, after: documentContent },
       );
       await tx.insert(schema.contentDatabaseItems).values({
         id: itemId,

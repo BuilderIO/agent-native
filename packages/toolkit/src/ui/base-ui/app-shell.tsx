@@ -8,6 +8,7 @@ import {
 import * as React from "react";
 
 import { type ButtonProps, IconButton } from "./button.js";
+import { DialogPortal } from "./dialog.js";
 import { useToastAnchor } from "./toast.js";
 
 interface ShellContextValue {
@@ -28,18 +29,20 @@ export function useAppShell(component: string): ShellContextValue {
   return context;
 }
 
-function useMediaQuery(query: string): boolean {
+function useMediaQuery(host: HTMLElement | null, query: string): boolean {
+  const win = host?.ownerDocument.defaultView;
+  const list = React.useMemo(() => win?.matchMedia(query), [win, query]);
   const subscribe = React.useCallback(
     (onChange: () => void) => {
-      const list = window.matchMedia(query);
+      if (!list) return () => {};
       list.addEventListener("change", onChange);
       return () => list.removeEventListener("change", onChange);
     },
-    [query],
+    [list],
   );
   return React.useSyncExternalStore(
     subscribe,
-    () => window.matchMedia(query).matches,
+    () => list?.matches ?? false,
     () => false,
   );
 }
@@ -83,6 +86,7 @@ export interface AppShellProps extends useRender.ComponentProps<"div"> {
  */
 function AppShell({
   render,
+  ref,
   sidebarCollapsed,
   defaultSidebarCollapsed = false,
   onSidebarCollapsedChange,
@@ -101,7 +105,14 @@ function AppShell({
     false,
     onSidebarOpenChange,
   );
-  const mobile = useMediaQuery(mobileQuery);
+  const [host, setHost] = React.useState<HTMLDivElement | null>(null);
+  const mobile = useMediaQuery(host, mobileQuery);
+  const wasMobile = React.useRef(mobile);
+  React.useLayoutEffect(() => {
+    const leftMobile = wasMobile.current && !mobile;
+    wasMobile.current = mobile;
+    if (leftMobile && drawerOpen) setDrawerOpen(false);
+  }, [mobile, drawerOpen, setDrawerOpen]);
   const context = React.useMemo(
     () => ({ collapsed, setCollapsed, mobile, drawerOpen, setDrawerOpen }),
     [collapsed, setCollapsed, mobile, drawerOpen, setDrawerOpen],
@@ -112,9 +123,10 @@ function AppShell({
     "data-sidebar-collapsed": collapsed && !mobile ? "" : undefined,
     "data-mobile": mobile ? "" : undefined,
   };
-  const element = useRender({
+  const element = useRender<Record<string, never>, HTMLDivElement>({
     defaultTagName: "div",
     render,
+    ref: ref ? [setHost, ref] : setHost,
     props: mergeProps<"div">(own, props),
   });
   return (
@@ -208,9 +220,11 @@ function SidebarToggle({
 function SidebarDrawer({
   children,
   label,
+  "aria-labelledby": labelledBy,
 }: {
   children: React.ReactNode;
-  label: string | undefined;
+  label?: string;
+  "aria-labelledby"?: string;
 }) {
   const shell = useAppShell("Sidebar");
   return (
@@ -218,12 +232,16 @@ function SidebarDrawer({
       open={shell.drawerOpen}
       onOpenChange={(open) => shell.setDrawerOpen(open)}
     >
-      <BaseDialog.Portal>
+      <DialogPortal>
         <BaseDialog.Backdrop className="sidebar-backdrop" />
-        <BaseDialog.Popup className="sidebar-drawer" aria-label={label}>
+        <BaseDialog.Popup
+          className="sidebar-drawer"
+          aria-label={label}
+          aria-labelledby={labelledBy}
+        >
           {children}
         </BaseDialog.Popup>
-      </BaseDialog.Portal>
+      </DialogPortal>
     </BaseDialog.Root>
   );
 }

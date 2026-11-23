@@ -2316,6 +2316,32 @@ describe("primary Blocks body writers on a page that takes body writes through i
     expect(await blocksDefinitions(databaseId)).toEqual([]);
   });
 
+  it("drops the chart citations of the pages a primary Blocks property's deletion empties", async () => {
+    const { databaseId, primaryId, rowDocumentIds } =
+      await primaryRows("Charted body");
+    const [rowDocumentId] = rowDocumentIds;
+    const db = getDb();
+    await db
+      .insert(schema.analyticsChartCitations)
+      .values({ documentId: rowDocumentId, dashboardId: "dash-cited" });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId,
+        propertyId: primaryId,
+      }),
+    );
+
+    expect((await pageState(rowDocumentId)).content).toBe("");
+    await expect(
+      db
+        .select()
+        .from(schema.analyticsChartCitations)
+        .where(eq(schema.analyticsChartCitations.documentId, rowDocumentId)),
+    ).resolves.toEqual([]);
+  });
+
   it("refuses a direct primary Blocks body write to a page that takes body writes through its live copy", async () => {
     const { rowDocumentIds } = await primaryRows("Before");
     const [rowDocumentId] = rowDocumentIds;

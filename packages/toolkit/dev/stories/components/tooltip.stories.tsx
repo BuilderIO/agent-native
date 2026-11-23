@@ -8,6 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../../../src/ui/base-ui/tooltip.js";
+import guide from "./tooltip.docs.md?raw";
 
 interface TooltipCase {
   id: string;
@@ -62,7 +63,11 @@ function TooltipSection() {
 
 const meta = {
   title: "Components/Tooltip",
-  parameters: { layout: "fullscreen" },
+  component: TooltipPopup,
+  parameters: {
+    docs: { description: { component: guide } },
+    layout: "fullscreen",
+  },
 } satisfies Meta;
 
 export default meta;

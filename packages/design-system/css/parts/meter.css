@@ -19,11 +19,18 @@
 @layer components {
   .meter {
     --_meter-height: calc(var(--space-2) * 0.75);
-    display: grid;
-    grid-template-columns: 1fr auto;
+    display: flex;
+    flex-wrap: wrap;
+    min-inline-size: 0;
     align-items: baseline;
     gap: var(--space-1) var(--space-2);
     width: 100%;
+  }
+
+  .meter-label,
+  .meter-value {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
   }
 
   .meter-label {
@@ -34,7 +41,7 @@
   }
 
   .meter-value {
-    grid-column: 2;
+    margin-inline-start: auto;
     font-size: var(--font-size-1);
     line-height: var(--line-height-1);
     font-variant-numeric: tabular-nums;
@@ -43,7 +50,7 @@
 
   .meter-track {
     position: relative;
-    grid-column: 1 / -1;
+    flex: 0 0 100%;
     height: var(--_meter-height);
     overflow: hidden;
     border-radius: var(--radius-full);
@@ -94,6 +101,21 @@
   .meter[data-high-contrast] .meter-indicator {
     background-color: var(--accent-12);
     background-image: none;
+  }
+
+  @media (forced-colors: active) {
+    .meter[data-variant] .meter-track {
+      background-color: Canvas;
+    }
+
+    .meter-track::after {
+      border: 1px solid CanvasText;
+    }
+
+    .meter[data-variant] .meter-indicator {
+      forced-color-adjust: none;
+      background: Highlight;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {

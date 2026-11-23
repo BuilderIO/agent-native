@@ -12,6 +12,7 @@ export * from "./checkbox.js";
 export * from "./checkbox-cards.js";
 export * from "./checkbox-group.js";
 export * from "./code.js";
+export * from "./color-swatch.js";
 export * from "./combobox.js";
 export * from "./context-menu.js";
 export * from "./data-list.js";

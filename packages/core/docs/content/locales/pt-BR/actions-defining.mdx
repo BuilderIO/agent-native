@@ -131,6 +131,13 @@ O framework descobre automaticamente cada arquivo em `actions/` e o monta na ini
             "Quando true (ou quando o predicado retorna true), uma falha após a própria escrita desta action é uma falha conhecida que o modelo pode corrigir e tentar de novo, em vez de bloquear a ferramenta pelo resto do turno atual. Reserve para actions seguras de executar de novo após qualquer erro. Uma recusa antes de qualquer escrita não precisa desta opção. Veja Escritas seguras para retentativa abaixo.",
         },
         {
+          name: "automatic",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            'Marca uma escrita que o app faz por conta própria, sem gesto do usuário: ao carregar, ao montar, por timer ou como registro de experimentos e uso. Seus eventos action_started, action_completed e action_failed levam action_kind "automatic" em vez de "write", então as contagens de uso do produto a deixam de fora. Um predicado marca só as chamadas para as quais retorna true. Afeta só a analytics: nunca defina readOnly para silenciar uma escrita.',
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,

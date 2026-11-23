@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Button, type ButtonProps, IconButton } from "./button.js";
@@ -54,11 +55,48 @@ describe("Button part", () => {
     const button = screen.getByRole("button", { name: "Save" });
     expect(button.getAttribute("aria-busy")).toBe("true");
     expect(button.hasAttribute("disabled")).toBe(true);
-    expect(button.querySelector(".button-content")?.textContent).toBe("Save");
-    expect(button.querySelector(".button-spinner .spinner")).not.toBeNull();
+    expect(button.textContent).toBe("Save");
     fireEvent.click(button);
     expect(onClick).not.toHaveBeenCalled();
   });
+
+  it.each([Button, IconButton])(
+    "preserves a stateful child and its accessible name across loading",
+    (Component) => {
+      const subscribe = vi.fn(),
+        unsubscribe = vi.fn();
+      function Label() {
+        useEffect(() => {
+          subscribe();
+          return unsubscribe;
+        }, []);
+        return <span id="save-label">Save changes</span>;
+      }
+      const { rerender, container, unmount } = render(
+        <Component>
+          <Label />
+        </Component>,
+      );
+      const button = screen.getByRole("button", { name: "Save changes" });
+      const label = button.firstElementChild;
+      for (const loading of [true, false, true]) {
+        rerender(
+          <Component loading={loading}>
+            <Label />
+          </Component>,
+        );
+        expect(screen.getByRole("button", { name: "Save changes" })).toBe(
+          button,
+        );
+        expect(button.firstElementChild).toBe(label);
+        expect(container.querySelectorAll("#save-label")).toHaveLength(1);
+        expect(subscribe).toHaveBeenCalledTimes(1);
+        expect(unsubscribe).not.toHaveBeenCalled();
+      }
+      unmount();
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("draws an icon button as its own part, named by its label", () => {
     render(

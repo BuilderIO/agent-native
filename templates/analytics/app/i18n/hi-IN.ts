@@ -2262,6 +2262,15 @@ export default {
     more: "+{{count}} और",
     flagLabel: "डेटा नोट्स",
   },
+  citedIn: {
+    menu: "यहाँ उद्धृत",
+    menuTooltip: "इस डैशबोर्ड के चार्ट वाले Content पेज",
+    empty:
+      "अभी तक ऐसा कोई Content पेज नहीं है जिसे आप खोल सकें और जिसमें इस डैशबोर्ड के चार्ट हों",
+    unavailable: "Content से संपर्क नहीं हो सका। एक मिनट में फिर से कोशिश करें।",
+    untitledPage: "शीर्षकहीन",
+    more: "Content ने केवल हाल ही में संपादित पेज जाँचे हैं, इसलिए और पेज हो सकते हैं।",
+  },
   annotations: {
     menu: "एनोटेशन",
     menuTooltip: "मुख्य तिथियाँ और डेटा नोट्स",

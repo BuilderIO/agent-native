@@ -2442,6 +2442,92 @@ function parseGfmPipeTable(
   };
 }
 
+export interface NfmTableSource {
+  startLine: number;
+  endLine: number;
+  indent: number;
+}
+
+function containerCloseLine(
+  lines: readonly string[],
+  start: number,
+  indent: number,
+  tagKey: string,
+): number {
+  const closeTag = CONTAINER_CLOSE[tagKey];
+  let depth = 1;
+  let fence: string | undefined;
+  for (const [i, line] of lines.entries()) {
+    if (i <= start) continue;
+    const tabs = leadingTabs(line);
+    const dedent = line.slice(tabs);
+    if (fence !== undefined) {
+      if (closesFence(dedent.match(FENCE_CLOSE), fence)) fence = undefined;
+      continue;
+    }
+    if (matchFenceOpen(dedent)) {
+      fence = dedent.replace(FENCE_OPEN, "$1");
+      continue;
+    }
+    if (tabs !== indent) continue;
+    if (matchContainerOpen(dedent) === tagKey) depth++;
+    else if (dedent === closeTag && --depth === 0) return i;
+  }
+  return -1;
+}
+
+export function locateNfmTables(lines: readonly string[]): NfmTableSource[] {
+  const source = [...lines];
+  const tables: NfmTableSource[] = [];
+  let fence: { marker: string; indent: number } | undefined;
+  let next = 0;
+  let ends: number[] = [];
+  for (const [i, line] of source.entries()) {
+    ends = ends.filter((end) => end > i);
+    if (i < next) continue;
+    const indent = leadingTabs(line);
+    const dedent = line.slice(indent);
+    if (fence) {
+      if (
+        indent >= fence.indent &&
+        closesFence(dedent.trim().match(FENCE_CLOSE), fence.marker)
+      ) {
+        fence = undefined;
+      }
+      continue;
+    }
+    const open = matchFenceOpen(dedent);
+    if (open) {
+      fence = { marker: dedent.replace(FENCE_OPEN, "$1"), indent };
+      continue;
+    }
+    const container = matchContainerOpen(dedent);
+    if (container === "<table") {
+      const bound = Math.min(source.length, ...ends);
+      const close = source.findIndex(
+        (candidate, at) =>
+          at > i && at < bound && candidate.trim() === "</table>",
+      );
+      if (close === -1) continue;
+      tables.push({ startLine: i, endLine: close + 1, indent });
+      next = close + 1;
+      continue;
+    }
+    if (container) {
+      const close = containerCloseLine(source, i, indent, container);
+      if (close !== -1 && container === "<meeting-notes>") next = close + 1;
+      else if (close !== -1) ends.push(close);
+      continue;
+    }
+    const pipeTable = parseGfmPipeTable(source, i, indent, 0);
+    if (pipeTable) {
+      tables.push({ startLine: i, endLine: pipeTable.end, indent });
+      next = pipeTable.end;
+    }
+  }
+  return tables;
+}
+
 type ListKind = "bullet" | "ordered" | "task";
 function listKindOf(dedent: string): ListKind | null {
   if (/^- \[[ xX]\]\s/.test(dedent)) return "task";

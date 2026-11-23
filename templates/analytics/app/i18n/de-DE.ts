@@ -2382,6 +2382,16 @@ export default {
     more: "+{{count}} weitere",
     flagLabel: "Datenhinweise",
   },
+  citedIn: {
+    menu: "Zitiert in",
+    menuTooltip: "Content-Seiten mit Diagrammen aus diesem Dashboard",
+    empty:
+      "Noch keine Content-Seiten, die Sie öffnen können, enthalten Diagramme aus diesem Dashboard",
+    unavailable:
+      "Content war nicht erreichbar. Versuchen Sie es in einer Minute erneut.",
+    untitledPage: "Ohne Titel",
+    more: "Content hat nur die zuletzt bearbeiteten Seiten geprüft, es kann also weitere geben.",
+  },
   annotations: {
     menu: "Anmerkungen",
     menuTooltip: "Wichtige Termine und Datenhinweise",
