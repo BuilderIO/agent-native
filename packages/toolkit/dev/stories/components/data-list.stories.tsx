@@ -10,6 +10,7 @@ import {
   DataListValue,
 } from "../../../src/ui/base-ui/data-list.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./data-list.docs.md?raw";
 
 const controls = propControls(dataListProps);
 
@@ -50,7 +51,7 @@ function RunDetails() {
 const meta = {
   title: "Components/Data List",
   component: DataList,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, children: <RunDetails /> },
   argTypes: controls.argTypes,
   decorators: [

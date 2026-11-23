@@ -9,13 +9,14 @@ import { IconStar } from "@tabler/icons-react";
 
 import { IconButton } from "../../../src/ui/base-ui/button.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./icon-button.docs.md?raw";
 
 const controls = propControls(iconButtonProps);
 
 const meta = {
   title: "Components/Icon Button",
   component: IconButton,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: {
     ...controls.args,
     "aria-label": "Star",

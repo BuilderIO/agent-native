@@ -5,13 +5,14 @@ import { Code } from "../../../src/ui/base-ui/code.js";
 import { Link } from "../../../src/ui/base-ui/link.js";
 import { Text } from "../../../src/ui/base-ui/text.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./code.docs.md?raw";
 
 const controls = propControls(codeProps);
 
 const meta = {
   title: "Typography/Code",
   component: Code,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, children: "pnpm install" },
   argTypes: controls.argTypes,
 } satisfies Meta<typeof Code>;

@@ -1,0 +1,78 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Patterns/Design Controls" />
+
+# Design template controls
+
+| Editing task                                       | Shared controls                                                                    | Interactive example                                                                                                                                                                                                      |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Edit across layers, canvas, and properties         | Three resizable panes sharing one selection and undo history                       | [Design workspace](?path=/story/patterns-editor-workspace--design) · [Auto layout](?path=/story/patterns-editor-workspace--auto-layout) · [100 selected layers](?path=/story/patterns-editor-workspace--mixed-selection) |
+| Compose the File panel                             | Design File Panel with controlled tabs, pages, sections, and a windowed layer tree | [File panel](?path=/story/patterns-design-file-panel--design)                                                                                                                                                            |
+| Inspect a selection                                | Design Property Inspector with ordered sections and an editable selection          | [Nav inspector](?path=/story/patterns-design-property-inspector--nav) · [Auto layout](?path=/story/patterns-design-property-inspector--auto-layout)                                                                      |
+| Resize workspace panels                            | Split Pane with pointer capture, keyboard resizing, and collapse                   | [Window splitter](?path=/story/layout-split-pane--inline-start)                                                                                                                                                          |
+| Organize layers                                    | Layer Tree with disclosure, selection, rename, visibility, lock, and move controls | [Layers panel](?path=/story/patterns-layer-tree--design-panel)                                                                                                                                                           |
+| Edit mixed dimensions and undo a gesture           | Layout Dimensions, Property Number, resizeLayout                                   | [Mixed selection](?path=/story/patterns-layout-properties--mixed-selection)                                                                                                                                              |
+| Change frame dimensions, padding, or gap           | Layout Dimensions, Auto Layout Controls                                            | [Frame inspector](?path=/story/patterns-inspector--design-frame)                                                                                                                                                         |
+| Toggle Auto layout and set direction and alignment | Toggle, Segmented Control, Alignment Picker                                        | [Keyboard editing](?path=/story/patterns-inspector--keyboard-editing)                                                                                                                                                    |
+| Choose grid dimensions                             | Grid Size Picker                                                                   | [Grid settings](?path=/story/components-grid-size-picker--open)                                                                                                                                                          |
+| Edit type, tracking, leading, weight, or alignment | Select, Number Field, Input, Segmented Control                                     | [Text inspector](?path=/story/patterns-inspector--text-layer)                                                                                                                                                            |
+| Edit, reorder, or bind document fills              | Paint Editor, Paint Color Field, Paint Gradient Stops                              | [Fill inspector](?path=/story/patterns-paint-editor--fill)                                                                                                                                                               |
+| Navigate an expanded 10,000-layer document         | Layer Tree with a bounded viewport                                                 | [Large document](?path=/story/patterns-layer-tree--large-document)                                                                                                                                                       |
+| Customize density, typography, and nested popups   | Inspector, Layout Dimensions, Overlay Scope                                        | [Two applications](?path=/story/patterns-themed-inspector--two-applications)                                                                                                                                             |
+| Adjust gradient stop positions                     | Slider Control, Track, individually named Thumbs                                   | [Three-stop gradient](?path=/story/components-slider--gradient)                                                                                                                                                          |
+| Fit a property editor into a narrow panel          | Property Row, Label, Value                                                         | [Narrow property list](?path=/story/patterns-property-list--narrow)                                                                                                                                                      |
+
+## Using the controls in another app
+
+Use `DesignFilePanel` from `@agent-native/toolkit/ui/base-ui/design-file-panel` for the left panel and pass `DesignFileContents` as its File tab. This composes page navigation above the editable, windowed layer tree. Use `DesignFileSection`, `DesignFilePageList`, and `DesignFileTreeViewport` for custom tabs. The host controls the active tab, page, expanded sections, and document selection. Header actions and footer content are slots.
+
+Use `DesignSelectionProperties` from `@agent-native/toolkit/ui/base-ui/design-property-inspector` for the assembled property panel. The host supplies selected layer identities, current property values, and edit and history callbacks. Use `DesignPropertyInspector` and `DesignPropertySection` to customize the section contents or add an application-specific group.
+
+Pass the selected objects’ common width and height to `LayoutDimensions`. Use `null` for a mixed dimension and `"mixed"` when only some aspect ratios are locked. During a preview, apply `resizeLayout` to each original object so its own aspect ratio is preserved. On commit, write the result once to the document’s undo history. On cancel, discard the preview. Key the editor by selection identity when changing targets mid-edit.
+
+Pass an ordered array to `PaintEditor`, with the topmost paint first. Keep layer, stop, and token IDs stable. Use `paintBackground` to render the same values on the canvas. The host supplies token definitions, localized labels, undo history, and any additional fields through `renderFields`. For a custom inspector, compose `PaintList`, `PaintRow`, `PaintGradientStops`, and `PaintColorField` separately.
+
+Use `OverlayScope` from `@agent-native/toolkit/ui/base-ui/overlay-scope` when an inspector sits inside a nested app theme. Pass a container in that theme, outside scrolling or clipped panels. The outer popup mounts there and nested popups inherit its portal. An explicit popup container takes precedence. The two-application example uses the same controls with different font, density, section insets, heading height, and action-column width. The `--inspector-*` variables are inherited CSS properties.
+
+For large layer trees, set `viewportHeight` in CSS pixels. The tree measures the theme’s row height and preserves focus, range selection, and keyboard moves across the window. Run `node packages/toolkit/scripts/layer-tree-benchmark.ts` from the repository root to compare mounted rows and dispatch-to-next-animation-frame time in production React. The windowed run also scrolls for six seconds at 120 rows per second and reports frame intervals, peak mounted rows, and frames where either viewport edge lacked a row. Add `--browser=webkit` to run the same fixture and 5,000-layer move in WebKit.
+
+For an editor shell, compose two `SplitPane` instances with the inspector on the end side of the inner split. Each handle takes an accessible `label`. Set `minContentSize` to reserve room for the canvas. A pointer drag previews pane geometry locally. Persist the size on the `commit` phase of `onSizeChange`. Use `Stack`, `Inline`, and `Grid` from `@agent-native/toolkit/ui/base-ui/layout` inside either pane. Their numeric gap follows the current theme’s spacing scale.
+
+A continuously resized inspector only needs a size query container when its children query that container. The workspace uses `container-type: normal` on its inspector. Its `PropertyList` instances still adapt independently because each list owns its size query container. Keep the default Inspector container when a custom child relies on it.
+
+## Checking the panels against the Design prototype
+
+The Design artifact defines the panel regions, section order, indentation hierarchy, and selection states. The toolkit supplies control variants, Tabler icons, type styles, density, and theme colors. The reference state has File active, Home open, and Nav selected. Use the Design artifact in this checkout. Build it with `node prototypes/kit/build.ts design`. Pass that build to `node packages/toolkit/dev/visual-regression/design-panel-check.ts <storybook-url> <path-to-dist/index.html>`. Turn on **Panel spacing** in the Storybook toolbar to inspect the measured control edges over the 8 px grid. The check compares equal-width crops of the reference, each standalone pattern, and the assembled workspace. See `.tmp/design-fidelity/current/` for panel images and measured geometry.
+
+## Checking an editor theme
+
+Run `pnpm --filter @agent-native/toolkit test:storybook` for Chromium, or prefix the command with `STORYBOOK_TEST_BROWSER=webkit` for WebKit. Both run the light and dark interaction and accessibility cases.
+
+With Storybook running locally, run `node packages/toolkit/dev/visual-regression/editor-check.ts http://127.0.0.1:6006` from the repository root, substituting its actual port. The check drives nested overlays and offscreen tree navigation in Chromium and WebKit, compares the compact inspector with the built Design artifact, and writes screenshots to `.tmp/design-system-proof/`. It also exercises forced colors in Chromium and reflow at the viewport equivalent of 200% zoom. The Storybook visual workflow compares light and dark captures with the main branch baseline.
+
+## Measuring sustained interactions
+
+Run `node packages/toolkit/scripts/workspace-benchmark.ts` from the repository root. The default run resizes a divider and scrubs width with 10,000 layers loaded and 100 selected.
+
+| Option                     | Use it to                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------- |
+| `--scrub-only`             | Compare the workspace with the isolated width control.                                      |
+| `--all-selected`           | Edit all 10,000 layers with Home visible. Verify the full export after commit and one undo. |
+| `--headed --target-hz=120` | Test a 120 Hz display. The default target is 60 Hz.                                         |
+
+A run is **unverified** if idle refresh or trusted pointer input falls below 99% of the target rate, or if input pauses for more than 100 ms. On a qualifying run, drag frames must also reach 99% of the target. The drag fails if it misses at least 1% of frame opportunities or loses two or more opportunities before cadence recovers. Frame measurements include the first and last partial intervals of the drag.
+
+`scrubCaptureMs` measures synchronous pointer handling between window and document capture. Frame intervals also include time outside those handlers. Commit and undo feedback measure the time until an animation-frame callback observes the Undo button change.
+
+Find raw samples and Chromium traces in `.tmp/workspace-benchmark/`. Headed and 120 Hz runs use separate subdirectories.
+
+[Constraint Controls](?path=/docs/patterns-constraint-controls--docs) provides physical edge pins and independent horizontal and vertical resize modes.
+
+## Controls still owned by the Design template
+
+| Surface                       | Behavior to preserve when extracting a shared control                                                    |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Additional paints and strokes | Image fills, shader fills, stroke placement, and dashed outlines                                         |
+| Effects                       | Ordered shadow, blur, and shader properties with live canvas previews                                    |
+| Vector editing                | Point and handle selection, endpoints, and mirroring                                                     |
+| Canvas tools                  | Scale-aware hit targets, selection handles, zoom and pan, and interaction with the editor's undo history |

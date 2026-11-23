@@ -1150,7 +1150,7 @@
 }
 
 @scope ([data-app-theme="agent-native"]) {
-  :scope {
+  :where(:scope)[data-app-theme="agent-native"] {
     --surface-app: hsl(var(--theme-background));
     --surface-nav: hsl(var(--theme-sidebar-background));
     --surface-canvas: hsl(var(--theme-background));
@@ -1264,6 +1264,7 @@
     --sidebar-ring: var(--theme-sidebar-ring);
     --theme-radius: 0.75rem;
     --radius: var(--theme-radius);
+    --success: initial;
     --font-sans: var(--font-family-sans);
     --font-wordmark: var(--font-family-wordmark);
     --radius-xl: var(--radius-5);
@@ -1272,8 +1273,22 @@
     --agent-kit-composer-elevation: var(--shadow-composer);
   }
 
-  :scope.dark,
-  .dark {
+  :where(:scope)[data-app-theme="agent-native"] {
+    --focus-ring-width: 2px;
+    --focus-ring-offset: 2px;
+    --shape-control: calc(var(--theme-radius) - 2px);
+    --shape-popup: calc(var(--theme-radius) - 2px);
+    --shape-card: calc(var(--theme-radius) + 4px);
+    --shape-panel: var(--theme-radius);
+    --shape-dialog: var(--theme-radius);
+    --shape-pill: var(--radius-full);
+  }
+}
+
+@scope ([data-app-theme="agent-native"], .light, .dark) {
+  :scope:where([data-app-theme="agent-native"]) .dark,
+  :scope:where(.dark) [data-app-theme="agent-native"],
+  :scope:where(.dark)[data-app-theme="agent-native"] {
     --surface-app: hsl(var(--theme-background));
     --surface-nav: hsl(var(--theme-sidebar-background));
     --surface-canvas: hsl(var(--theme-background));
@@ -1389,10 +1404,12 @@
     --radius: var(--theme-radius);
     --shadow-composer: 0 8px 30px var(--shadow-tint-a2);
     --agent-kit-composer-elevation: var(--shadow-composer);
+    --success: initial;
   }
 
-  :scope.light,
-  .light {
+  :scope:where([data-app-theme="agent-native"]) .light,
+  :scope:where(.light) [data-app-theme="agent-native"],
+  :scope:where(.light)[data-app-theme="agent-native"] {
     --surface-app: hsl(var(--theme-background));
     --surface-nav: hsl(var(--theme-sidebar-background));
     --surface-canvas: hsl(var(--theme-background));
@@ -1506,22 +1523,15 @@
     --sidebar-ring: var(--theme-sidebar-ring);
     --theme-radius: 0.75rem;
     --radius: var(--theme-radius);
+    --shadow-composer: 0 8px 15px var(--shadow-tint-a1);
+    --agent-kit-composer-elevation: var(--shadow-composer);
+    --success: initial;
   }
 
-  :scope {
-    --focus-ring-width: 2px;
-    --focus-ring-offset: 2px;
-    --shape-control: calc(var(--theme-radius) - 2px);
-    --shape-popup: calc(var(--theme-radius) - 2px);
-    --shape-card: calc(var(--theme-radius) + 4px);
-    --shape-panel: var(--theme-radius);
-    --shape-dialog: var(--theme-radius);
-    --shape-pill: var(--radius-full);
-  }
-
-  :scope:not([data-palette], [data-palette] *),
-  :scope.light:not([data-palette], [data-palette] *),
-  .light:not([data-palette], [data-palette] *) {
+  :where(:scope)[data-app-theme="agent-native"]:not([data-palette], [data-palette] *),
+  :scope:where([data-app-theme="agent-native"]) .light:not([data-palette], [data-palette] *),
+  :scope:where(.light) [data-app-theme="agent-native"]:not([data-palette], [data-palette] *),
+  :scope:where(.light)[data-app-theme="agent-native"]:not([data-palette], [data-palette] *) {
     --gray-1: #fcfcfc;
     --gray-2: #f9f9f9;
     --gray-3: #f0f0f0;
@@ -1750,8 +1760,9 @@
     --accent-track: var(--brand-track, var(--brand-9));
   }
 
-  :scope.dark:not([data-palette], [data-palette] *),
-  .dark:not([data-palette], [data-palette] *) {
+  :scope:where([data-app-theme="agent-native"]) .dark:not([data-palette], [data-palette] *),
+  :scope:where(.dark) [data-app-theme="agent-native"]:not([data-palette], [data-palette] *),
+  :scope:where(.dark)[data-app-theme="agent-native"]:not([data-palette], [data-palette] *) {
     --gray-1: #212121;
     --gray-2: #272727;
     --gray-3: #303030;
@@ -1982,9 +1993,10 @@
 
   @supports (color: color(display-p3 1 1 1)) {
     @media (color-gamut: p3) {
-      :scope:not([data-palette], [data-palette] *),
-      :scope.light:not([data-palette], [data-palette] *),
-      .light:not([data-palette], [data-palette] *) {
+      :where(:scope)[data-app-theme="agent-native"]:not([data-palette], [data-palette] *),
+      :scope:where([data-app-theme="agent-native"]) .light:not([data-palette], [data-palette] *),
+      :scope:where(.light) [data-app-theme="agent-native"]:not([data-palette], [data-palette] *),
+      :scope:where(.light)[data-app-theme="agent-native"]:not([data-palette], [data-palette] *) {
         --gray-1: oklch(99.2% 0 none);
         --gray-2: oklch(98.1% 0 none);
         --gray-3: oklch(95.5% 0 none);
@@ -2147,8 +2159,9 @@
         --info-track: oklch(66% 0.1217 221.7);
       }
   
-      :scope.dark:not([data-palette], [data-palette] *),
-      .dark:not([data-palette], [data-palette] *) {
+      :scope:where([data-app-theme="agent-native"]) .dark:not([data-palette], [data-palette] *),
+      :scope:where(.dark) [data-app-theme="agent-native"]:not([data-palette], [data-palette] *),
+      :scope:where(.dark)[data-app-theme="agent-native"]:not([data-palette], [data-palette] *) {
         --gray-1: oklch(24.8% 0 none);
         --gray-2: oklch(27.3% 0 none);
         --gray-3: oklch(30.7% 0 none);

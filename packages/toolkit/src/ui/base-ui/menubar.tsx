@@ -11,6 +11,7 @@ import {
   createMenuItem,
   Menu,
   MenuCheckboxItem,
+  MenuLinkItem,
   MenuGroup,
   MenuGroupLabel,
   MenuPortal,
@@ -24,6 +25,11 @@ import {
   type MenuPopupProps,
 } from "./menu.js";
 import { partClassName } from "./part-class.js";
+
+/** A menu row that navigates to its href.
+ * @import import { MenubarLinkItem } from "@agent-native/toolkit/ui/base-ui/menubar";
+ */
+export const MenubarLinkItem = MenuLinkItem;
 
 /**
  * A row of menus along the top of an app or window, on Base UI's Menubar,
@@ -105,8 +111,7 @@ export const MenubarMenu = Menu;
 export const MenubarSeparator = MenuSeparator;
 
 /**
- * A heading between items. To label a group, use `BaseMenu.GroupLabel` inside
- * it.
+ * Labels its enclosing MenubarGroup or MenubarRadioGroup.
  *
  * @import import { MenubarGroupLabel } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
@@ -157,7 +162,7 @@ export const MenubarSubmenuPopup = MenuSubmenuPopup;
 export const MenubarSubmenuTrigger = MenuSubmenuTrigger;
 
 /**
- * Groups related items, labelled by a `BaseMenu.GroupLabel` inside it.
+ * Groups related items under a MenubarGroupLabel.
  *
  * @import import { MenubarGroup } from "@agent-native/toolkit/ui/base-ui/menubar";
  */

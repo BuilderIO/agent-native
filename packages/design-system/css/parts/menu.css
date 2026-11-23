@@ -18,8 +18,8 @@
  *       <div class="menu-submenu-trigger">      [data-popup-open]; same slots as an item
  *       <div class="menu-separator">
  *
- * Radix Themes' DropdownMenu.Content on the system's scale: md and sm
- * are 24 and 20px rows. The variant decides how the highlighted row fills:
+ * Menu actions follow the system’s 32px row grid. The variant decides how
+ * the highlighted row fills:
  * soft (the default, in gray) is the scale's a3 tint under the row's own
  * text, solid is the scale's solid fill under its contrast text. The scale
  * is the popup's `data-color`; an item's own `data-color` re-binds it for
@@ -49,8 +49,11 @@
 
     box-sizing: border-box;
     z-index: var(--layer-popup);
-    min-width: 128px;
-    overflow: hidden;
+    min-width: min(var(--menu-min-width, 10rem), var(--available-width, 100vi));
+    max-width: var(--available-width, 100vi);
+    max-height: var(--available-height, 100vb);
+    overflow: auto;
+    overflow-wrap: anywhere;
     padding: var(--space-1);
     border: 0;
     border-radius: calc(var(--shape-popup) * var(--corner-scale, 1));
@@ -59,9 +62,9 @@
     color: var(--fg-default);
     box-shadow: var(--shadow-4);
     transform-origin: var(--transform-origin);
-    /* compositing-ok: the popup mounts and unmounts with its enter/exit
-       animation. */
-    will-change: transform, opacity;
+    transition-property: opacity, scale, translate;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-enter);
     outline: none;
   }
 
@@ -71,27 +74,34 @@
   .menu-popup[data-side="top"] {
     --_slide-y: var(--space-1);
   }
-  .menu-popup[data-side="left"],
-  .menu-popup[data-side="inline-start"] {
+  .menu-popup[data-side="left"] {
     --_slide-x: var(--space-1);
   }
-  .menu-popup[data-side="right"],
-  .menu-popup[data-side="inline-end"] {
+  .menu-popup[data-side="right"] {
     --_slide-x: calc(var(--space-1) * -1);
   }
-
-  .menu-popup[data-open] {
-    animation: menu-enter var(--duration-2) var(--ease-enter);
+  .menu-popup[data-side="inline-start"] {
+    --_slide-x: calc(var(--space-1) * var(--_inline-direction, 1));
+  }
+  .menu-popup[data-side="inline-end"] {
+    --_slide-x: calc(var(--space-1) * var(--_inline-direction, 1) * -1);
   }
 
-  .menu-popup[data-closed] {
-    animation: menu-exit var(--duration-1) var(--ease-enter);
+  .menu-popup[data-starting-style] {
+    opacity: 0;
+    scale: 0.95;
+    translate: var(--_slide-x) var(--_slide-y);
+  }
+
+  .menu-popup[data-ending-style] {
+    opacity: 0;
+    scale: 0.95;
+    transition-duration: var(--duration-1);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .menu-popup[data-open],
-    .menu-popup[data-closed] {
-      animation: none;
+    .menu-popup {
+      transition-property: none;
     }
   }
 
@@ -126,10 +136,14 @@
     transition-timing-function: var(--ease-standard);
   }
 
+  a.menu-item {
+    text-decoration: none;
+  }
+
   /* ---- sizes ---- */
 
   .menu-popup {
-    --_row-height: var(--control-height-3);
+    --_row-height: var(--menu-row-height, var(--size-4));
     --_icon-size: var(--control-icon-size-3);
   }
 
@@ -297,6 +311,7 @@
     justify-content: center;
     gap: var(--control-gap);
     margin-inline-start: auto;
+    padding-inline-start: var(--space-2);
   }
 
   .menu-item-trailing svg {
@@ -305,8 +320,8 @@
     height: var(--_icon-size);
   }
 
-  .menu-item-trailing svg[data-direction-aware]:dir(rtl) {
-    scale: -1 1;
+  .menu-item-trailing svg[data-direction-aware] {
+    scale: var(--_inline-direction, 1) 1;
   }
 
   .menu-group-label {
@@ -319,22 +334,14 @@
 
   .menu-separator {
     height: 1px;
-    margin: var(--space-1) calc(var(--space-1) * -1);
+    /* Include the hairline in the two spacing steps between groups. */
+    margin-block: var(--space-1) calc(var(--space-1) - 1px);
+    margin-inline: calc(var(--space-2) + var(--_leading-column)) var(--space-2);
     background-color: var(--line-subtle);
   }
-}
-
-@keyframes menu-enter {
-  from {
-    opacity: 0;
-    scale: 0.95;
-    translate: var(--_slide-x) var(--_slide-y);
-  }
-}
-
-@keyframes menu-exit {
-  to {
-    opacity: 0;
-    scale: 0.95;
+  @media (forced-colors: active) {
+    .menu-popup {
+      outline: 1px solid CanvasText;
+    }
   }
 }

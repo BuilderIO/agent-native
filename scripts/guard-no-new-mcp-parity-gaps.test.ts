@@ -7,6 +7,7 @@ import { after, afterEach, beforeEach, describe, it } from "node:test";
 
 import {
   BASELINE_PATH,
+  EMPTY_SECTIONS_PATH,
   GUARD_PATH,
   readParityGaps,
   runParityGapGuard,
@@ -124,5 +125,37 @@ describe("MCP parity baseline guard in a repository", () => {
     const outcome = runParityGapGuard(root);
     assert.equal(outcome.code, 1);
     assert.match(outcome.message, /baseline path is fixed/);
+  });
+
+  void it("adds an empty section for each app a downstream workspace lists", () => {
+    const root = repo({ baseline: BASE, guard: true });
+    write(root, EMPTY_SECTIONS_PATH, JSON.stringify(["notes", "boards"]));
+    assert.deepEqual(readParityGaps(root), {
+      core: ["list-widgets"],
+      mail: ["archive-label"],
+      notes: [],
+      boards: [],
+    });
+    assert.equal(runParityGapGuard(root).code, 0);
+  });
+
+  void it("refuses an empty-sections file that could carry ids or shadow a section", () => {
+    for (const text of [
+      "",
+      "{}",
+      '{ "notes": ["drop-notes"] }',
+      '[["drop-notes"]]',
+      '[""]',
+      '["notes", "notes"]',
+      '["mail"]',
+      '["core"]',
+    ]) {
+      const root = repo({ baseline: BASE, guard: true });
+      write(root, EMPTY_SECTIONS_PATH, text);
+      assert.throws(() => readParityGaps(root), undefined, text);
+      const outcome = runParityGapGuard(root);
+      assert.equal(outcome.code, 2, text);
+      assert.match(outcome.message, /mcp-parity-gaps\.json/);
+    }
   });
 });

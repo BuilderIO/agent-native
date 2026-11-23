@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { Blockquote } from "../../../src/ui/base-ui/blockquote.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./blockquote.docs.md?raw";
 
 const controls = propControls(blockquoteProps);
 
@@ -12,7 +13,7 @@ const SAMPLE =
 const meta = {
   title: "Typography/Blockquote",
   component: Blockquote,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, children: SAMPLE },
   argTypes: controls.argTypes,
   decorators: [
