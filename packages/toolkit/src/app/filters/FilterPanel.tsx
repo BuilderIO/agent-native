@@ -34,6 +34,7 @@ import {
   createFilterState,
   hasIncompleteFilterRules,
   isDefaultFilterState,
+  incompleteFilterRuleIds,
   pruneFilterState,
   setFilterMode,
   setPinnedFilter,
@@ -194,14 +195,31 @@ export function FilterButton({
   const [open, setOpen] = useState(false);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const unfinishedAtOpen = useRef<ReadonlySet<string>>(new Set());
   const active = activeFilterRuleCount(state, fields);
   const canClear = clearable ?? !isDefaultFilterState(state, fields);
   const matching = shownCounts?.matching;
   const changeOpen = (next: boolean) => {
     setOpen(next);
-    if (next) return;
+    if (next) {
+      unfinishedAtOpen.current = incompleteFilterRuleIds(
+        stateRef.current,
+        fields,
+      );
+      return;
+    }
     if (hasIncompleteFilterRules(stateRef.current, fields)) {
-      onChange(pruneFilterState(stateRef.current, fields));
+      const pruned = pruneFilterState(
+        stateRef.current,
+        fields,
+        unfinishedAtOpen.current,
+      );
+      if (
+        incompleteFilterRuleIds(pruned, fields).size !==
+        incompleteFilterRuleIds(stateRef.current, fields).size
+      ) {
+        onChange(pruned);
+      }
     }
   };
   const handleChange = (next: typeof state) => {

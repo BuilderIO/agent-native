@@ -359,40 +359,62 @@ export function hasIncompleteFilterRules(
   );
 }
 
+export function incompleteFilterRuleIds(
+  state: FilterState,
+  fields: readonly FilterField<never>[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const item of state.items) {
+    for (const rule of filterItemRules(item)) {
+      if (!isFilterRuleComplete(rule, findFilterField(fields, rule.field))) {
+        ids.add(rule.id);
+      }
+    }
+  }
+  return ids;
+}
+
 function pruneItems(
   items: readonly FilterItem[],
   fields: readonly FilterField<never>[],
+  keep: ReadonlySet<string>,
 ): FilterItem[] {
   const kept: FilterItem[] = [];
   for (const item of items) {
     if (item.kind === "rule") {
-      if (isFilterRuleComplete(item, findFilterField(fields, item.field))) {
+      if (
+        keep.has(item.id) ||
+        isFilterRuleComplete(item, findFilterField(fields, item.field))
+      ) {
         kept.push(item);
       }
       continue;
     }
-    const rules = pruneItems(item.rules, fields);
+    const rules = pruneItems(item.rules, fields, keep);
     if (rules.length > 0) kept.push({ ...item, rules });
   }
   return kept;
 }
 
+/** Drops unfinished rules and the groups they leave empty; rules whose ids are in `keep` stay. */
 export function pruneFilterState(
   state: FilterState,
   fields: readonly FilterField<never>[],
+  keep: ReadonlySet<string> = new Set(),
 ): FilterState {
-  return { ...state, items: pruneItems(state.items, fields) };
+  return { ...state, items: pruneItems(state.items, fields, keep) };
 }
 
 export function pruneFilterGroup(
   state: FilterState,
   groupId: string,
   fields: readonly FilterField<never>[],
+  keep: ReadonlySet<string> = new Set(),
 ): FilterState {
   return {
     ...state,
     items: state.items.flatMap((item) =>
-      item.id === groupId ? pruneItems([item], fields) : [item],
+      item.id === groupId ? pruneItems([item], fields, keep) : [item],
     ),
   };
 }
@@ -519,7 +541,11 @@ export function patchFilterRule(
       field.type === "date" &&
       dateValueShape(operator) !== dateValueShape(rule.operator)
     ) {
-      value = [];
+      value =
+        dateValueShape(rule.operator) === "pair" &&
+        dateValueShape(operator) === "date"
+          ? value.filter((day) => day.trim() !== "").slice(0, 1)
+          : [];
     } else if (!filterOperatorTakesManyValues(field, operator)) {
       value = value.slice(0, filterOperatorValueCount(operator));
     }

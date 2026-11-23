@@ -170,10 +170,29 @@ function contentValue(rule: FilterRule): string {
   return databaseFilterEncodeSelectedValues(rule.value);
 }
 
+function optionIds(
+  values: string[],
+  field: FilterField<never> | undefined,
+): string[] {
+  const options = field?.options ?? [];
+  return values.map((value) => {
+    if (options.some((option) => option.id === value)) return value;
+    const wanted = value.trim().toLowerCase();
+    return (
+      options.find(
+        (option) =>
+          option.id.toLowerCase() === wanted ||
+          option.label.trim().toLowerCase() === wanted,
+      )?.id ?? value
+    );
+  });
+}
+
 export function contentFiltersToKitState(
   filters: readonly DatabaseFilter[],
   filterMode: DatabaseFilterMode,
   properties: readonly DocumentProperty[],
+  fields: readonly FilterField<never>[] = [],
 ): FilterState {
   const places = new Map(filters.map((filter, index) => [filter, index]));
   const rule = (filter: DatabaseFilter): FilterRule => {
@@ -186,7 +205,10 @@ export function contentFiltersToKitState(
       id: `content-${places.get(filter) ?? 0}`,
       field: filter.key,
       operator,
-      value: kitValue(filter.value, operator),
+      value: optionIds(
+        kitValue(filter.value, operator),
+        fields.find((field) => field.id === filter.key),
+      ),
     };
   };
   const items = (group: ContentDatabaseFilterGroup<DatabaseFilter>) => [
@@ -277,12 +299,14 @@ export function useContentFilterKitState({
   filters,
   filterMode,
   properties,
+  fields,
   nameLabel,
   onChange,
 }: {
   filters: readonly DatabaseFilter[];
   filterMode: DatabaseFilterMode;
   properties: readonly DocumentProperty[];
+  fields: readonly FilterField<never>[];
   nameLabel: string;
   onChange: (filters: DatabaseFilter[], filterMode: DatabaseFilterMode) => void;
 }) {
@@ -292,8 +316,8 @@ export function useContentFilterKitState({
   } | null>(null);
   const key = contentFilterQueryKey(filters, filterMode, properties, nameLabel);
   const saved = useMemo(
-    () => contentFiltersToKitState(filters, filterMode, properties),
-    [filters, filterMode, properties],
+    () => contentFiltersToKitState(filters, filterMode, properties, fields),
+    [filters, filterMode, properties, fields],
   );
   const state = edited?.key === key ? edited.state : saved;
   const setState = (next: FilterState) => {

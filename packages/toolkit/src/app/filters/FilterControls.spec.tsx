@@ -738,6 +738,24 @@ describe("FilterBar", () => {
     expect(hasButtonNamed("Add group")).toBe(false);
   });
 
+  it("keeps a group's rule that was unfinished before the group opened", () => {
+    const onStateChange = vi.fn();
+    const group = createFilterGroup([
+      createFilterRule(ownerField, ["alice"]),
+      createFilterRule(tagsField),
+    ]);
+    render(
+      <Bar
+        onStateChange={onStateChange}
+        initial={addFilterGroup(createFilterState(fields), group)}
+      />,
+    );
+    click(buttonStartingWith("(Made by: Alice"));
+    click(buttonStartingWith("(Made by: Alice"));
+    const last: FilterState = onStateChange.mock.lastCall?.[0];
+    expect(last.items).toEqual([group]);
+  });
+
   it("leaves another group's unfinished rule alone when a group closes", () => {
     const onStateChange = vi.fn();
     const unfinished = createFilterRule(tagsField);
@@ -874,6 +892,37 @@ describe("FilterButton", () => {
       "Choose a field",
     );
     expect(addRule.closest('[aria-hidden="true"]')).toBeNull();
+  });
+
+  it("keeps rules that were unfinished before the panel opened", () => {
+    const unfinished = createFilterRule(tagsField);
+    let latest = createFilterState(fields);
+    function Saved() {
+      const [state, setState] = useState(() =>
+        addFilterRule(
+          addFilterRule(
+            createFilterState(fields),
+            createFilterRule(ownerField, ["alice"]),
+          ),
+          unfinished,
+        ),
+      );
+      latest = state;
+      return (
+        <FilterButton
+          fields={fields}
+          state={state}
+          onChange={setState}
+          nouns={nouns}
+        />
+      );
+    }
+    render(<Saved />);
+    click(buttonStartingWith("Filter"));
+    expect(hasButtonNamed("Add rule")).toBe(true);
+    click(buttonStartingWith("Filter"));
+    expect(hasButtonNamed("Add rule")).toBe(false);
+    expect(latest.items.map((item) => item.id)).toContain(unfinished.id);
   });
 
   it("starts each group the user adds in the app's mode", () => {

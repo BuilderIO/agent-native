@@ -27,6 +27,7 @@ import {
   findFilterRule,
   isDefaultFilterState,
   isFilterRuleComplete,
+  incompleteFilterRuleIds,
   pruneFilterGroup,
   removeFilterItem,
   setFilterMode,
@@ -232,6 +233,7 @@ function GroupChip({
 }) {
   const stateRef = useRef(state);
   stateRef.current = state;
+  const unfinishedAtOpen = useRef<ReadonlySet<string>>(new Set());
   const label = groupLabel(group, fields, text);
   return (
     <span className={CHIP_CLASS}>
@@ -239,8 +241,21 @@ function GroupChip({
         modal
         onOpenChange={(next) => {
           onOpenChange(next);
-          if (!next)
-            onChange(pruneFilterGroup(stateRef.current, group.id, fields));
+          if (next) {
+            unfinishedAtOpen.current = incompleteFilterRuleIds(
+              stateRef.current,
+              fields,
+            );
+            return;
+          }
+          onChange(
+            pruneFilterGroup(
+              stateRef.current,
+              group.id,
+              fields,
+              unfinishedAtOpen.current,
+            ),
+          );
         }}
       >
         <PopoverTrigger asChild>

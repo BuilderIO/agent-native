@@ -146,6 +146,38 @@ describe("contentFiltersToKitState", () => {
     ]);
   });
 
+  it("reads a saved option name as that option, whatever its case", () => {
+    const fields = contentFilterFields(properties, {
+      nameLabel,
+      choices: (candidate) =>
+        candidate.definition.id === "status"
+          ? [
+              { id: "opt-active", name: "Active" },
+              { id: "opt-done", name: "Done" },
+            ]
+          : [],
+    });
+    const state = contentFiltersToKitState(
+      [
+        {
+          key: "status",
+          label: "Status",
+          operator: "contains",
+          value: '["done","opt-active","Gone"]',
+        },
+      ],
+      "and",
+      properties,
+      fields,
+    );
+    const rule = state.items.at(0);
+    expect(rule?.kind === "rule" ? rule.value : null).toEqual([
+      "opt-done",
+      "opt-active",
+      "Gone",
+    ]);
+  });
+
   it("reads a range by its two ends and keeps a half-filled one", () => {
     const state = contentFiltersToKitState(
       [

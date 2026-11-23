@@ -73,6 +73,7 @@ function renderBar(
       filters: query.filters,
       filterMode: query.filterMode,
       properties,
+      fields,
       nameLabel: "Name",
       onChange: (filters, filterMode) => setQuery({ filters, filterMode }),
     });

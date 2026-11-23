@@ -900,6 +900,25 @@ describe("date ranges and times", () => {
     );
   });
 
+  it("keeps a range's first date when it changes to a single date", () => {
+    const range = createFilterRule(
+      createdField,
+      ["2026-10-01", "2026-10-31"],
+      "between",
+    );
+    expect(
+      patchFilterRule(range, { operator: "before" }, fields).value,
+    ).toEqual(["2026-10-01"]);
+    const endOnly = createFilterRule(
+      createdField,
+      ["", "2026-10-31"],
+      "between",
+    );
+    expect(
+      patchFilterRule(endOnly, { operator: "after" }, fields).value,
+    ).toEqual(["2026-10-31"]);
+  });
+
   it("resets the value when the operator needs another shape", () => {
     const rule = createFilterRule(createdField, ["2026-10-01"], "before");
     expect(

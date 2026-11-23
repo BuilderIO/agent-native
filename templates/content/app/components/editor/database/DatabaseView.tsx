@@ -1406,6 +1406,7 @@ function DatabaseTable({
     filters,
     filterMode,
     properties: orderedProperties,
+    fields: filterFields,
     nameLabel: DATABASE_NAME_PICKER_OPTION.label,
     onChange: setActiveFiltersAndMode,
   });
