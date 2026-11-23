@@ -1252,6 +1252,27 @@ export async function getCommentAiAttempt(
   return attempt;
 }
 
+type CommentAiTx = Parameters<
+  Parameters<ReturnType<typeof getDb>["transaction"]>[0]
+>[0];
+
+async function runAttemptsSpent(
+  db: Pick<CommentAiTx, "select">,
+  request: RequestRow,
+) {
+  if (!request.runId) return request.attemptCount >= MAX_ATTEMPTS;
+  const [row] = await db
+    .select({ attempts: sql<number>`count(*)` })
+    .from(schema.commentAiAttempts)
+    .where(
+      and(
+        eq(schema.commentAiAttempts.requestId, request.id),
+        eq(schema.commentAiAttempts.runId, request.runId),
+      ),
+    );
+  return Number(row?.attempts ?? 0) >= MAX_ATTEMPTS;
+}
+
 async function recordConflict(
   request: RequestRow,
   attempt: CommentAiAttemptRow | null,
@@ -1372,10 +1393,10 @@ export async function beginCommentAiAttempt(request: RequestRow) {
         return { request: locked, attempt: active, source };
       }
     }
-    if (locked.attemptCount >= MAX_ATTEMPTS) {
+    if (await runAttemptsSpent(tx, locked)) {
       const exhausted = operationError(
         "refresh_exhausted",
-        "The Page kept changing while AI worked. Review the retained operation before retrying.",
+        "AI tried twice without finishing. Retry to try again.",
       );
       await tx
         .update(schema.commentAiRequests)
@@ -1472,7 +1493,7 @@ export async function markCommentAiRefreshRequired(
   attempt: CommentAiAttemptRow,
 ) {
   const now = new Date().toISOString();
-  if (request.attemptCount >= MAX_ATTEMPTS) {
+  if (await runAttemptsSpent(getDb(), request)) {
     const exhausted = operationError(
       "refresh_exhausted",
       "The Page kept changing while AI worked. Review the retained operation before retrying.",

@@ -60,6 +60,7 @@ function runOperation<T>(
   operationId: string,
   agentThreadId: string,
   run: () => Promise<T>,
+  runId = `run-${operationId}`,
 ) {
   return runWithRequestContext(
     {
@@ -67,7 +68,7 @@ function runOperation<T>(
       run: {
         actionScope: { kind: "content-comment-ai", requestId: operationId },
         threadId: agentThreadId,
-        runId: `run-${operationId}`,
+        runId,
         model: "openai/gpt-5.6-sol",
       },
     },
@@ -649,6 +650,51 @@ describe("operation-scoped refresh and commits", () => {
       status: "needs-review",
       attemptCount: 2,
       errorCode: "refresh_exhausted",
+    });
+  });
+
+  it("gives a new run, such as a Retry, its own two reasoning attempts", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+    );
+    const begin = (runId?: string) =>
+      runOperation(
+        OP_A,
+        started.agentThreadId,
+        async () => {
+          const request = await commentAi.requireCommentAiRequest("reply");
+          return commentAi.beginCommentAiAttempt(request);
+        },
+        runId,
+      );
+    const endInReview = async (attemptId: string) => {
+      await commentAi.completeCommentAiAttempt(attemptId, "needs-review");
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set({ status: "needs-review" })
+        .where(eq(schema.commentAiRequests.id, OP_A));
+    };
+
+    const first = await begin();
+    await endInReview(first.attempt!.id);
+    const second = await begin();
+    await endInReview(second.attempt!.id);
+    await expect(begin()).rejects.toMatchObject({ code: "refresh_exhausted" });
+
+    const retried = await begin("run-retry");
+
+    expect(retried.attempt).toMatchObject({
+      attemptNumber: 3,
+      status: "reasoning",
+    });
+    const [request] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    expect(request).toMatchObject({
+      status: "running",
+      attemptCount: 3,
+      errorCode: null,
     });
   });
 
