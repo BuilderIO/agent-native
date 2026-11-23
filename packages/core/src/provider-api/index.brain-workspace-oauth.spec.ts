@@ -163,6 +163,21 @@ describe("workspace OAuth runtime", () => {
     },
   );
 
+  it("rejects an operation missing from the app grant despite a broader token", async () => {
+    const { resolve, connection, tokens } = setup("slack");
+    tokens.scope = [...slackScopes, "identify", "users:read"].join(" ");
+    mocks.resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        ...connection,
+        explicitGrant: { scopes: ["channels:read"] },
+      },
+    });
+    await expect(resolve(undefined, ["channels:history"])).rejects.toThrow();
+    expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("keeps ordinary requests on the configured bot credential and rejects unscoped personal requests", async () => {
     const { connection } = setup("slack");
     const botCredential = "synthetic-legacy-credential";
