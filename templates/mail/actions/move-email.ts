@@ -27,6 +27,7 @@ export default defineAction({
       .describe("Current label to remove after applying the destination"),
   }),
   outputSchema: emailLabelChangeOutputSchema,
+  mcpTool: "search",
   run: async (args) =>
     runEmailLabelChange(args, {
       remove: ["inbox", args.removeLabel ?? ""],

@@ -1685,6 +1685,7 @@ export default defineAction({
       .optional()
       .describe("Upload generation that owns the scratch data being finalized"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();

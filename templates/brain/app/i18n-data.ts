@@ -484,9 +484,14 @@ const enUS = {
     manualSync: "Manual sync",
     manualImportTitle: "Import documents into {{source}}",
     manualImportDescription:
-      "Choose a folder or files of Markdown or plain text. Each file becomes a searchable document capture and follows this source's access setting.",
+      "Choose Markdown or plain-text files. Imports follow this source's access setting.",
+    manualImportKind: "Import as",
+    manualImportDocument: "Documents",
+    manualImportTranscript: "Meeting transcripts",
     chooseMarkdownFolder: "Choose folder",
     importMarkdownFiles: "Import documents",
+    manualImportConcurrent:
+      "The capture changed during import. Retry the import.",
     manualImportScreeningUnavailable:
       "Brain could not screen this import. It was not stored or queued. Retry when screening is available.",
     distillationHandoffCancelled:
@@ -499,6 +504,10 @@ const enUS = {
     companyContextOpenFailed:
       "Couldn't open the company context upload. Try again.",
     manualImportNoFiles: "No documents selected",
+    importCaptureTime: "Capture time (optional)",
+    importTranscript: "This file is a transcript",
+    importParticipants:
+      "Participants, comma-separated (only the count is saved; no access is granted)",
     manualImportFilesSelected: "{{count}} documents selected",
     manualImportFileLimit:
       "Supports .md, .markdown, and .txt. Imports are limited to 100 files and 4 million characters.",
@@ -3291,9 +3300,13 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "اتصالات مساحة العمل",
       workspaceConnection: "اتصال مساحة العمل",
       manualImportDescription:
-        "اختر مجلدًا أو ملفات Markdown أو نصًا عاديًا. يصبح كل ملف مستندًا قابلاً للبحث ويتبع إعداد الوصول لهذا المصدر.",
+        "اختر ملفات Markdown أو ملفات نصية. تتبع الواردات إعداد الوصول لهذا المصدر.",
+      manualImportKind: "استيراد كـ",
+      manualImportDocument: "مستندات",
+      manualImportTranscript: "نصوص اجتماعات",
       chooseMarkdownFolder: "اختيار مجلد",
       importMarkdownFiles: "استيراد المستندات",
+      manualImportConcurrent: "تغير الالتقاط أثناء الاستيراد. أعد المحاولة.",
       manualImportScreeningUnavailable:
         "تعذر على Brain فحص هذا الاستيراد. لم يتم حفظه أو وضعه في قائمة الانتظار. أعد المحاولة عند توفر الفحص.",
       distillationHandoffCancelled: "أُلغي تسليم مهمة الاستخلاص قبل إرسالها.",
@@ -3304,6 +3317,10 @@ const exactEnglishDebtOverrides: Partial<
         "يمكن فقط لمالكي المؤسسة ومسؤوليها رفع سياق الشركة.",
       companyContextOpenFailed: "تعذّر فتح رفع سياق الشركة. حاول مرة أخرى.",
       manualImportNoFiles: "لم يتم اختيار مستندات",
+      importCaptureTime: "وقت التسجيل (اختياري)",
+      importTranscript: "هذا الملف نص محادثة",
+      importParticipants:
+        "المشاركون، مفصولون بفواصل (يُحفظ العدد فقط؛ لا يُمنح وصول)",
       manualImportFileLimit:
         "يدعم .md و.markdown و.txt. يقتصر الاستيراد على 100 ملف و4 ملايين حرف.",
       chooseDocumentFiles: "اختيار ملفات",
@@ -3729,9 +3746,14 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "Arbeitsbereichsverbindungen",
       workspaceConnection: "Arbeitsbereichsverbindung",
       manualImportDescription:
-        "Wählen Sie einen Ordner oder Dateien mit Markdown oder reinem Text aus. Jede Datei wird zu einem durchsuchbaren Dokument und folgt der Zugriffseinstellung dieser Quelle.",
+        "Wählen Sie Markdown- oder Textdateien. Importe folgen den Zugriffseinstellungen dieser Quelle.",
+      manualImportKind: "Importieren als",
+      manualImportDocument: "Dokumente",
+      manualImportTranscript: "Besprechungstranskripte",
       chooseMarkdownFolder: "Ordner auswählen",
       importMarkdownFiles: "Dokumente importieren",
+      manualImportConcurrent:
+        "Die Erfassung wurde während des Imports geändert. Versuchen Sie es erneut.",
       manualImportScreeningUnavailable:
         "Brain konnte diesen Import nicht prüfen. Er wurde weder gespeichert noch eingereiht. Versuche es erneut, sobald die Prüfung verfügbar ist.",
       distillationHandoffCancelled:
@@ -3744,6 +3766,10 @@ const exactEnglishDebtOverrides: Partial<
       companyContextOpenFailed:
         "Der Upload für Unternehmenskontext konnte nicht geöffnet werden. Versuche es erneut.",
       manualImportNoFiles: "Keine Dokumente ausgewählt",
+      importCaptureTime: "Aufnahmezeit (optional)",
+      importTranscript: "Diese Datei ist ein Transkript",
+      importParticipants:
+        "Teilnehmende, durch Kommas getrennt (nur die Anzahl wird gespeichert; kein Zugriff wird gewährt)",
       manualImportFileLimit:
         "Unterstützt .md, .markdown und .txt. Importe sind auf 100 Dateien und 4 Millionen Zeichen begrenzt.",
       chooseDocumentFiles: "Dateien auswählen",
@@ -4164,9 +4190,14 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "Conexiones del espacio de trabajo",
       workspaceConnection: "Conexión del espacio de trabajo",
       manualImportDescription:
-        "Elige una carpeta o archivos de Markdown o texto sin formato. Cada archivo se convierte en un documento consultable y sigue la configuración de acceso de esta fuente.",
+        "Elige archivos Markdown o de texto. Las importaciones respetan el acceso de esta fuente.",
+      manualImportKind: "Importar como",
+      manualImportDocument: "Documentos",
+      manualImportTranscript: "Transcripciones de reuniones",
       chooseMarkdownFolder: "Elegir carpeta",
       importMarkdownFiles: "Importar documentos",
+      manualImportConcurrent:
+        "La captura cambió durante la importación. Vuelve a intentarlo.",
       manualImportScreeningUnavailable:
         "Brain no pudo revisar esta importación. No se guardó ni se puso en cola. Inténtalo de nuevo cuando la revisión esté disponible.",
       distillationHandoffCancelled:
@@ -4179,6 +4210,10 @@ const exactEnglishDebtOverrides: Partial<
       companyContextOpenFailed:
         "No se pudo abrir la subida de contexto de la empresa. Inténtalo de nuevo.",
       manualImportNoFiles: "No se han seleccionado documentos",
+      importCaptureTime: "Hora de captura (opcional)",
+      importTranscript: "Este archivo es una transcripción",
+      importParticipants:
+        "Participantes separados por comas (solo se guarda el número; no se concede acceso)",
       manualImportFileLimit:
         "Admite .md, .markdown y .txt. Las importaciones están limitadas a 100 archivos y 4 millones de caracteres.",
       chooseDocumentFiles: "Elegir archivos",
@@ -4604,9 +4639,14 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "Connexions à l'espace de travail",
       workspaceConnection: "Connexion à l'espace de travail",
       manualImportDescription:
-        "Choisissez un dossier ou des fichiers Markdown ou texte brut. Chaque fichier devient un document consultable et respecte le paramètre d’accès de cette source.",
+        "Choisissez des fichiers Markdown ou texte. Les imports respectent les accès de cette source.",
+      manualImportKind: "Importer comme",
+      manualImportDocument: "Documents",
+      manualImportTranscript: "Transcriptions de réunions",
       chooseMarkdownFolder: "Choisir un dossier",
       importMarkdownFiles: "Importer des documents",
+      manualImportConcurrent:
+        "La capture a changé pendant l’import. Réessayez.",
       manualImportScreeningUnavailable:
         "Brain n’a pas pu examiner cet import. Il n’a été ni enregistré ni mis en attente. Réessayez lorsque la vérification sera disponible.",
       distillationHandoffCancelled:
@@ -4619,6 +4659,10 @@ const exactEnglishDebtOverrides: Partial<
       companyContextOpenFailed:
         "Impossible d'ouvrir l'import du contexte d'entreprise. Réessayez.",
       manualImportNoFiles: "Aucun document sélectionné",
+      importCaptureTime: "Date et heure de capture (facultatif)",
+      importTranscript: "Ce fichier est une transcription",
+      importParticipants:
+        "Participants séparés par des virgules (seul le nombre est enregistré ; aucun accès n’est accordé)",
       manualImportFileLimit:
         "Formats pris en charge : .md, .markdown et .txt. Les imports sont limités à 100 fichiers et 4 millions de caractères.",
       chooseDocumentFiles: "Choisir des fichiers",
@@ -5009,9 +5053,13 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "कार्यस्थल कनेक्शन",
       workspaceConnection: "कार्यस्थल कनेक्शन",
       manualImportDescription:
-        "Markdown या सादे टेक्स्ट वाला फ़ोल्डर या फ़ाइलें चुनें। हर फ़ाइल खोजे जा सकने वाले दस्तावेज़ में बदलती है और इस स्रोत की एक्सेस सेटिंग का पालन करती है।",
+        "Markdown या सादे टेक्स्ट की फ़ाइलें चुनें। आयात इस स्रोत की एक्सेस सेटिंग का पालन करते हैं।",
+      manualImportKind: "इस रूप में आयात करें",
+      manualImportDocument: "दस्तावेज़",
+      manualImportTranscript: "बैठक के प्रतिलेख",
       chooseMarkdownFolder: "फ़ोल्डर चुनें",
       importMarkdownFiles: "दस्तावेज़ आयात करें",
+      manualImportConcurrent: "आयात के दौरान कैप्चर बदल गया। फिर से आयात करें।",
       manualImportScreeningUnavailable:
         "Brain इस आयात की जाँच नहीं कर सका। इसे न सहेजा गया और न ही कतार में रखा गया। जाँच उपलब्ध होने पर फिर से कोशिश करें।",
       distillationHandoffCancelled:
@@ -5023,6 +5071,10 @@ const exactEnglishDebtOverrides: Partial<
         "केवल संगठन के स्वामी और व्यवस्थापक ही कंपनी संदर्भ अपलोड कर सकते हैं।",
       companyContextOpenFailed: "कंपनी संदर्भ अपलोड नहीं खुल सका। फिर से कोशिश करें।",
       manualImportNoFiles: "कोई दस्तावेज़ नहीं चुना गया",
+      importCaptureTime: "कैप्चर समय (वैकल्पिक)",
+      importTranscript: "यह फ़ाइल एक प्रतिलेख है",
+      importParticipants:
+        "प्रतिभागी, अल्पविराम से अलग (केवल संख्या सहेजी जाती है; पहुँच नहीं दी जाती)",
       manualImportFileLimit:
         ".md, .markdown और .txt समर्थित हैं। आयात 100 फ़ाइलों और 40 लाख वर्णों तक सीमित हैं।",
       chooseDocumentFiles: "फ़ाइलें चुनें",
@@ -5430,9 +5482,14 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "ワークスペース接続",
       workspaceConnection: "ワークスペース接続",
       manualImportDescription:
-        "Markdownまたはプレーンテキストのフォルダーやファイルを選択します。各ファイルは検索可能なドキュメントになり、このソースのアクセス設定に従います。",
+        "Markdownまたはプレーンテキストのファイルを選択します。インポートにはこのソースのアクセス設定が適用されます。",
+      manualImportKind: "インポート形式",
+      manualImportDocument: "ドキュメント",
+      manualImportTranscript: "会議の文字起こし",
       chooseMarkdownFolder: "フォルダーを選択",
       importMarkdownFiles: "ドキュメントをインポート",
+      manualImportConcurrent:
+        "インポート中にキャプチャが変更されました。もう一度お試しください。",
       manualImportScreeningUnavailable:
         "Brain はこのインポートを検査できませんでした。保存もキューへの追加もされていません。検査が利用可能になったら再試行してください。",
       distillationHandoffCancelled:
@@ -5445,6 +5502,10 @@ const exactEnglishDebtOverrides: Partial<
       companyContextOpenFailed:
         "会社コンテキストのアップロードを開けませんでした。もう一度お試しください。",
       manualImportNoFiles: "ドキュメントが選択されていません",
+      importCaptureTime: "記録日時（任意）",
+      importTranscript: "このファイルは文字起こしです",
+      importParticipants:
+        "参加者（カンマ区切り。人数のみ保存され、アクセス権は付与されません）",
       manualImportFileLimit:
         ".md、.markdown、.txtに対応しています。インポートは100ファイル、400万文字までです。",
       chooseDocumentFiles: "ファイルを選択",
@@ -5844,9 +5905,14 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "작업 공간 연결",
       workspaceConnection: "작업공간 연결",
       manualImportDescription:
-        "Markdown 또는 일반 텍스트 폴더나 파일을 선택하세요. 각 파일은 검색 가능한 문서가 되며 이 소스의 액세스 설정을 따릅니다.",
+        "Markdown 또는 일반 텍스트 파일을 선택하세요. 가져온 항목에는 이 소스의 접근 설정이 적용됩니다.",
+      manualImportKind: "가져오기 유형",
+      manualImportDocument: "문서",
+      manualImportTranscript: "회의 녹취록",
       chooseMarkdownFolder: "폴더 선택",
       importMarkdownFiles: "문서 가져오기",
+      manualImportConcurrent:
+        "가져오는 동안 캡처가 변경되었습니다. 다시 시도하세요.",
       manualImportScreeningUnavailable:
         "Brain에서 이 가져오기를 검사하지 못했습니다. 저장되거나 대기열에 추가되지 않았습니다. 검사를 사용할 수 있을 때 다시 시도하세요.",
       distillationHandoffCancelled:
@@ -5859,6 +5925,10 @@ const exactEnglishDebtOverrides: Partial<
       companyContextOpenFailed:
         "회사 컨텍스트 업로드를 열 수 없습니다. 다시 시도하세요.",
       manualImportNoFiles: "선택한 문서 없음",
+      importCaptureTime: "기록 시간 (선택 사항)",
+      importTranscript: "이 파일은 대화록입니다",
+      importParticipants:
+        "참가자 (쉼표로 구분, 인원만 저장되며 접근 권한은 부여되지 않음)",
       manualImportFileLimit:
         ".md, .markdown, .txt를 지원합니다. 가져오기는 파일 100개와 400만 자로 제한됩니다.",
       chooseDocumentFiles: "파일 선택",
@@ -6274,9 +6344,14 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "Conexões do espaço de trabalho",
       workspaceConnection: "Conexão do espaço de trabalho",
       manualImportDescription:
-        "Escolha uma pasta ou arquivos de Markdown ou texto simples. Cada arquivo se torna um documento pesquisável e segue a configuração de acesso desta fonte.",
+        "Escolha arquivos Markdown ou de texto. As importações seguem as configurações de acesso desta fonte.",
+      manualImportKind: "Importar como",
+      manualImportDocument: "Documentos",
+      manualImportTranscript: "Transcrições de reuniões",
       chooseMarkdownFolder: "Escolher pasta",
       importMarkdownFiles: "Importar documentos",
+      manualImportConcurrent:
+        "A captura mudou durante a importação. Tente novamente.",
       manualImportScreeningUnavailable:
         "O Brain não conseguiu verificar esta importação. Ela não foi salva nem adicionada à fila. Tente novamente quando a verificação estiver disponível.",
       distillationHandoffCancelled:
@@ -6289,6 +6364,10 @@ const exactEnglishDebtOverrides: Partial<
       companyContextOpenFailed:
         "Não foi possível abrir o envio de contexto da empresa. Tente novamente.",
       manualImportNoFiles: "Nenhum documento selecionado",
+      importCaptureTime: "Data e hora da captura (opcional)",
+      importTranscript: "Este arquivo é uma transcrição",
+      importParticipants:
+        "Participantes separados por vírgulas (apenas a quantidade é salva; nenhum acesso é concedido)",
       manualImportFileLimit:
         "Compatível com .md, .markdown e .txt. As importações são limitadas a 100 arquivos e 4 milhões de caracteres.",
       chooseDocumentFiles: "Escolher arquivos",
@@ -6645,9 +6724,13 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "工作区连接",
       workspaceConnection: "工作区连接",
       manualImportDescription:
-        "选择 Markdown 或纯文本的文件夹或文件。每个文件都会成为可搜索的文档，并遵循此来源的访问设置。",
+        "选择 Markdown 或纯文本文件。导入内容遵循此来源的访问设置。",
+      manualImportKind: "导入类型",
+      manualImportDocument: "文档",
+      manualImportTranscript: "会议转录",
       chooseMarkdownFolder: "选择文件夹",
       importMarkdownFiles: "导入文档",
+      manualImportConcurrent: "导入时捕获内容发生变化。请重试。",
       manualImportScreeningUnavailable:
         "Brain 无法检查此次导入。内容未保存，也未加入队列。请在检查服务可用后重试。",
       distillationHandoffCancelled: "蒸馏任务交接已在送达前取消。",
@@ -6657,6 +6740,9 @@ const exactEnglishDebtOverrides: Partial<
       companyContextAdminOnly: "只有组织所有者和管理员可以上传公司上下文。",
       companyContextOpenFailed: "无法打开公司上下文上传。请重试。",
       manualImportNoFiles: "未选择文档",
+      importCaptureTime: "记录时间（可选）",
+      importTranscript: "此文件是转录文本",
+      importParticipants: "参与者，以逗号分隔（仅保存人数，不授予访问权限）",
       manualImportFileLimit:
         "支持 .md、.markdown 和 .txt。每次导入最多 100 个文件、400 万个字符。",
       chooseDocumentFiles: "选择文件",

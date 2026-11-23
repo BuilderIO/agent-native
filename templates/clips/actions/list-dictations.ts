@@ -13,6 +13,7 @@ export default defineAction({
     offset: z.coerce.number().int().min(0).default(0),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const rows = await db

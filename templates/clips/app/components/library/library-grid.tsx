@@ -18,7 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
@@ -63,6 +63,7 @@ import { resolveVideoMimeType } from "@/lib/video-metadata";
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
 import { DroppedUploadCard } from "./dropped-upload-card";
 import { AppEmptyState, EmptyState } from "./empty-state";
+import { FilterChips, type FilterChip } from "./filter-chips";
 import { FolderCard } from "./folder-card";
 import { buildLibraryActionHrefs } from "./library-action-hrefs";
 import {
@@ -203,6 +204,8 @@ export function LibraryGrid({
   extraActions,
 }: LibraryGridProps) {
   const t = useT();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchQuery = searchParams.get("q")?.trim() || "";
   const recordingsHeading =
     kind === "image" ? t("navigation.screenshots") : t("navigation.recordings");
   const [sort, setSort] = useState<SortKey>("recent");
@@ -254,7 +257,7 @@ export function LibraryGrid({
   useEffect(() => {
     setSelected(new Set());
     setLastSelectedId(null);
-  }, [view, kind, folderId, spaceId, filterQuery, sort]);
+  }, [view, kind, folderId, spaceId, filterQuery, searchQuery, sort]);
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
@@ -282,8 +285,9 @@ export function LibraryGrid({
       folderId: folderId ?? null,
       spaceId: spaceId ?? null,
       ...(filterQuery === undefined ? {} : { filters: filterQuery }),
+      ...(searchQuery ? { search: searchQuery } : {}),
     }),
-    [view, kind, folderId, spaceId, filterQuery],
+    [view, kind, folderId, spaceId, filterQuery, searchQuery],
   );
   const { data: totalCount } = useRecordingsCount(countArgs);
   const { data: filterSummary } = useLibraryFilterSummary(countArgs, {
@@ -302,10 +306,11 @@ export function LibraryGrid({
       folderId: folderId ?? null,
       spaceId: spaceId ?? null,
       ...(filterQuery === undefined ? {} : { filters: filterQuery }),
+      ...(searchQuery ? { search: searchQuery } : {}),
       sort,
       limit: PAGE_SIZE,
     }),
-    [view, kind, folderId, spaceId, filterQuery, sort],
+    [view, kind, folderId, spaceId, filterQuery, searchQuery, sort],
   );
 
   const totalKnown = typeof totalCount === "number";
@@ -441,12 +446,16 @@ export function LibraryGrid({
     () =>
       (view === "library" || view === "space") && !filtering
         ? ((scopedFolders?.folders ?? []) as FolderTargetRow[]).filter(
-            (folder) => (folder.parentId ?? null) === (folderId ?? null),
+            (folder) =>
+              (folder.parentId ?? null) === (folderId ?? null) &&
+              (!searchQuery ||
+                folder.name.toLowerCase().includes(searchQuery.toLowerCase())),
           )
         : [],
-    [filtering, folderId, scopedFolders, view],
+    [filtering, folderId, scopedFolders, searchQuery, view],
   );
   const isEmptyState =
+    !searchQuery &&
     !isLoading &&
     !(view !== "shared" && isFoldersLoading) &&
     !isError &&
@@ -658,19 +667,38 @@ export function LibraryGrid({
     }
   };
 
-  const resolvedEmptyKind =
-    emptyKind ??
-    (view === "archive"
-      ? "archive"
-      : view === "trash"
-        ? "trash"
-        : view === "shared"
-          ? "shared"
-          : view === "space"
-            ? "space"
-            : folderId
-              ? "folder"
-              : "library");
+  const chips: FilterChip[] = searchQuery
+    ? [
+        {
+          key: `search:${searchQuery}`,
+          label: `"${searchQuery}"`,
+          active: true,
+          onRemove: () =>
+            setSearchParams(
+              (prev) => {
+                const next = new URLSearchParams(prev);
+                next.delete("q");
+                return next;
+              },
+              { replace: true },
+            ),
+        },
+      ]
+    : [];
+  const resolvedEmptyKind = searchQuery
+    ? "search"
+    : (emptyKind ??
+      (view === "archive"
+        ? "archive"
+        : view === "trash"
+          ? "trash"
+          : view === "shared"
+            ? "shared"
+            : view === "space"
+              ? "space"
+              : folderId
+                ? "folder"
+                : "library"));
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
@@ -761,6 +789,12 @@ export function LibraryGrid({
           tags={filterSummary?.tags}
         />
       ) : null}
+
+      {chips.length > 0 && (
+        <div className="px-4">
+          <FilterChips chips={chips} />
+        </div>
+      )}
 
       {/* Grid body */}
       <div

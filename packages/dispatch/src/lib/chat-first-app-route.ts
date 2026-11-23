@@ -2,6 +2,11 @@ export type ChatFirstAppRouteAnswer =
   | {
       status: "ok";
       app: string;
+      confidence?: number;
+      explicit?: true;
+      /** Until app screen bindings are discoverable, only the registered home is routable. */
+      screen?: "home";
+      params?: Record<string, string>;
       cached?: boolean;
       latencyMs?: number;
       model?: string;
@@ -14,6 +19,7 @@ export type ChatFirstAppRouteAnswer =
 
 export type ChatFirstAppRouteSkip =
   | "none"
+  | "low_confidence"
   | "not_configured"
   | "failed"
   | "timeout"
@@ -23,13 +29,12 @@ export type ChatFirstAppRouteSkip =
   | "stale";
 
 export type ChatFirstAppRoutePlan<Target = { appId: string }> =
-  | { kind: "open"; target: Target }
+  | { kind: "open" | "warm"; target: Target }
   | { kind: "skip"; reason: ChatFirstAppRouteSkip };
 
 /**
- * What an early route answer may do to the pane. It opens only an installed
- * app other than Dispatch and the one already shown, and only while nothing has
- * changed the pane since the send.
+ * Warm a likely installed app while the pane still matches the send. Only
+ * an explicit choice can commit a visible pane before the tool handoff.
  */
 export function planChatFirstAppRoute<Target extends { appId: string }>(input: {
   answer: ChatFirstAppRouteAnswer | "timeout";
@@ -44,6 +49,13 @@ export function planChatFirstAppRoute<Target extends { appId: string }>(input: {
   const { answer } = input;
   if (answer === "timeout") return { kind: "skip", reason: "timeout" };
   if (answer.status !== "ok") return { kind: "skip", reason: answer.status };
+  if (
+    typeof answer.confidence !== "number" ||
+    !Number.isFinite(answer.confidence) ||
+    answer.confidence < 0.85 ||
+    answer.confidence > 1
+  )
+    return { kind: "skip", reason: "low_confidence" };
   if (answer.app === "none") return { kind: "skip", reason: "none" };
   const object = answer.pointer
     ? { url: answer.url, objectId: answer.objectId }
@@ -60,7 +72,7 @@ export function planChatFirstAppRoute<Target extends { appId: string }>(input: {
     return { kind: "skip", reason: "shown" };
   }
   if (input.stale) return { kind: "skip", reason: "stale" };
-  return { kind: "open", target };
+  return { kind: answer.explicit === true ? "open" : "warm", target };
 }
 
 export type ChatFirstAppRouteRecord = {
@@ -77,11 +89,11 @@ export type ChatFirstAppRouteRecord = {
  * closed or switched since the send, by the agent or the person, changes it.
  */
 export function chatFirstPaneSignature(snapshot: {
-  tabs: ReadonlyArray<{ id: string }>;
+  tabs: ReadonlyArray<{ id: string; path?: string; view?: string }>;
   activeTabId: string | null;
 }): string {
   return JSON.stringify([
     snapshot.activeTabId,
-    snapshot.tabs.map((tab) => tab.id),
+    snapshot.tabs.map((tab) => [tab.id, tab.path, tab.view]),
   ]);
 }

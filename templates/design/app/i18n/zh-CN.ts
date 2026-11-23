@@ -1,4 +1,5 @@
 export default {
+  responseGuard: { noDesignChangesSaved: "本轮未保存任何设计更改。" },
   journeyCanvas: {
     observedSessionReference: "已观察会话参考",
     sessionsOfAll: "{count} 个会话 · 占全部 {percent}",

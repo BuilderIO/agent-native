@@ -19,7 +19,7 @@ vi.mock("./reaped-run-thread.js", () => ({
   foldReapedRunIntoThread: foldReapedRunIntoThreadMock,
 }));
 
-const pglite = await createTestPglite();
+const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
 let afterStaleCandidateScan: (() => Promise<void>) | undefined;
 
 afterAll(async () => {

@@ -40,6 +40,7 @@ export default defineAction({
       .optional()
       .describe("Connected Gmail account email to import from"),
   }),
+  mcpTool: false,
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

@@ -35,6 +35,7 @@ const INITIAL_TOOL_NAMES = [
   "upsert-destination",
   "list-dreams",
   "start-workspace-app-creation",
+  "propose-action-suggestions",
   "list-dispatch-usage-metrics",
   "list-available-workspace-templates",
   "provider-api-catalog",
@@ -142,20 +143,18 @@ Use the standard workspace primitives:
 - For broad provider searches, joins, classification, corpus counts, or absence claims, fetch every relevant page or an explicitly bounded cohort, stage/save large responses with stageAs/saveToFile/fetchAllPages, and reduce them with query-staged-dataset or run-code. Report source, filters, row counts, pagination, truncation, failed pages, and uncovered gaps.
 - Use list-dispatch-usage-metrics only for this workspace's own members' agent/LLM usage and spend, or aggregate adoption of an accessible workspace app. For agent/LLM usage or spend, call it with scope=workspace and the requested sinceDays; it reports workspace-member usage only. For app adoption, call it with scope=app and appId; app creators can see aggregate daily/weekly active users and tracked actions for their own app, while organization owners/admins can inspect any accessible app. App scope omits individual users and prompt previews. External customer, account, or company usage, credits, activity, or product data belongs to the relevant app: use its identity in <relevant-apps> when clear, or call describe-workspace-apps with a query when ownership is unclear. Do not use this action for external customer/account/company data.
 
+After answering or showing the requested work in Dispatch chat, use propose-action-suggestions only when there is a grounded, useful persistent improvement for the user to consider. Pass the installed app's exact ID and a real action with its required inputs for a filter, saved view, or automation. Use customize-app for a specific missing control. If no installed app fits a durable new workflow, offer create-app with appId="dispatch" and a short specification, even if no app was opened or called this turn. Offer at most two suggestions per turn. Only propose the improvement; wait for the user's selection to execute it.
+
 When a user asks for something like a digest, reminder, routing rule, or saved behavior:
 - First decide whether it should be a resource, a recurring job, a destination, or a delegated task.
 - Keep responses concise and operational.
 - Avoid inventing integrations or destinations that are not configured yet.${builderManagedAppsNote()}`,
 });
 
-/**
- * A Builder-linked workspace builds its apps in Builder; app-creation actions
- * return a link there, and the agent should offer it rather than retry.
- */
 function builderManagedAppsNote(): string {
   const url = getBuilderWorkspaceUrl();
   if (!url) return "";
   return `
 
-This workspace is managed in Builder. Never create, scaffold, remix, or install workspace apps from here. When someone asks for a new app, point them to ${url} and tell them to use New app there.`;
+This workspace is managed in Builder. App creation here hands off to the configured workspace. A create-app suggestion allows the user to open that workspace. For an explicit creation request, use the normal creation action and report the handoff it returns.`;
 }

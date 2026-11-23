@@ -9,6 +9,9 @@ export const CHUNK_RECOVERY_CACHE_BUSTER_PARAM =
 export const CHUNK_RECOVERY_PATH_SUFFIX = "/__agent-native-chunk-recovery";
 export const CHUNK_RECOVERY_ORIGINAL_HASH_PARAM =
   "__agentNativeRecoveryOriginalHash";
+export const OFFLINE_RETRY_KEY = "__agentNativeChunkOfflineRetry";
+export const OFFLINE_RETRY_LISTENING_KEY =
+  "__agentNativeChunkOfflineRetryListening";
 export const ROUTE_WARMUP_PRELOAD_ATTRIBUTE = "data-agent-native-route-warmup";
 // Set by embedApp's transplant path, which runs the app document inside the MCP
 // host's sandbox frame. There, every recovery URL is on the host's origin, so
@@ -49,6 +52,8 @@ const reloadKey=${JSON.stringify(STALE_CHUNK_RELOAD_AT_KEY)};
 const navigatingKey=${JSON.stringify(STALE_CHUNK_NAVIGATING_AT_KEY)};
 const warmupAttr=${JSON.stringify(ROUTE_WARMUP_PRELOAD_ATTRIBUTE)};
 const externalEmbedKey=${JSON.stringify(EXTERNAL_EMBED_WINDOW_KEY)};
+const offlineKey=${JSON.stringify(OFFLINE_RETRY_KEY)};
+const offlineListeningKey=${JSON.stringify(OFFLINE_RETRY_LISTENING_KEY)};
 const exhaustedKey=${JSON.stringify(STALE_CHUNK_EXHAUSTED_KEY)};
 const exhaustedEvent=${JSON.stringify(STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT)};
 document.addEventListener("error",event=>{
@@ -72,6 +77,20 @@ return;
 }
 if(/^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/.test(location.hostname))return;
 if(url.pathname.endsWith(pathSuffix)||url.pathname.endsWith(pathSuffix+"/")||url.searchParams.get(queryParam)===queryValue)return;
+if(navigator.onLine===false){
+if(!window[offlineKey])window[offlineKey]={href:url.href,from:location.href,at:Date.now()};
+if(!window[offlineListeningKey]){
+window[offlineListeningKey]=true;
+window.addEventListener("online",()=>{
+const pending=window[offlineKey];
+delete window[offlineKey];
+if(!pending||location.href!==pending.from)return;
+if(pending.href.split("#")[0]===location.href.split("#")[0])location.reload();
+else location.assign(pending.href);
+});
+}
+return;
+}
 const now=Date.now();
 let last=Number(window[reloadKey])||0;
 try{
