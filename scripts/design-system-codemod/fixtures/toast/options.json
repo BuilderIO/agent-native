@@ -1,1 +1,0 @@
-{ "toasterProps": "closeLabel={t(\"toast.close\")} regionLabel={t(\"toast.region\")}" }
