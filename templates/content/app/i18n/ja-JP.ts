@@ -470,6 +470,68 @@ const database = {
   unfreezeColumns: "列の固定を解除",
   selectAllLoadedRows: "読み込み済みの行をすべて選択",
   clearSelectedRows: "行の選択を解除",
+  fillWithAi: "AIで入力",
+  fillWithAiTitle: "{{name}} をAIで入力",
+  fillWithAiDescription:
+    "行ごとに AI が個別に実行され、その行のページを読み取って、その行のセルだけに書き込みます。",
+  fillWithAiDescriptionOptions:
+    "行ごとに AI が個別に実行され、その行のページを読み取って、この列のオプションから選びます。",
+  fillWithAiInstructionLabel: "各セルに何を入れますか？",
+  fillWithAiInstructionPlaceholder: "例: 検索結果用に、ページを1文で説明する文",
+  fillWithAiRewrite: "値が入っているセルも書き直す",
+  fillWithAiCount_zero: "このビューの空のセル {{count}} 件に入力します",
+  fillWithAiCount_one: "このビューの空のセル {{count}} 件に入力します",
+  fillWithAiCount_two: "このビューの空のセル {{count}} 件に入力します",
+  fillWithAiCount_few: "このビューの空のセル {{count}} 件に入力します",
+  fillWithAiCount_many: "このビューの空のセル {{count}} 件に入力します",
+  fillWithAiCount_other: "このビューの空のセル {{count}} 件に入力します",
+  fillWithAiRewriteCount_zero: "このビューのセル {{count}} 件に入力します",
+  fillWithAiRewriteCount_one: "このビューのセル {{count}} 件に入力します",
+  fillWithAiRewriteCount_two: "このビューのセル {{count}} 件に入力します",
+  fillWithAiRewriteCount_few: "このビューのセル {{count}} 件に入力します",
+  fillWithAiRewriteCount_many: "このビューのセル {{count}} 件に入力します",
+  fillWithAiRewriteCount_other: "このビューのセル {{count}} 件に入力します",
+  fillWithAiNothingEmpty: "このビューのすべてのセルにすでに値があります。",
+  fillWithAiNoRows: "このビューには入力する行がありません。",
+  fillWithAiTooMany:
+    "AIで入力できるのは一度に {{max}} セルまでです。ビューを絞り込んで行を減らしてください。",
+  fillWithAiAlreadyRunning: "この列はすでに入力中です。",
+  fillWithAiNeedsSetup: "セルに入力するには AI を設定してください。",
+  fillWithAiSetUp: "AI を設定",
+  fillWithAiStart: "入力",
+  fillWithAiStartFailed: "入力を開始できませんでした。",
+  fillProgress: "{{total}} 件中 {{done}} 件を入力中",
+  fillStopping: "停止しています…",
+  fillStop: "停止",
+  fillStopLabel: "{{name}} の入力を停止",
+  fillStopFailed: "入力を停止できませんでした。",
+  fillCellWaiting: "待機中",
+  fillCellRunning: "入力中…",
+  fillCellFailed: "入力できませんでした",
+  fillTryAgain: "再試行",
+  fillRetryFailed: "再試行できませんでした。",
+  fillOpenChat: "チャットを開く",
+  fillEditInChat: "チャットで編集",
+  fillStarted_zero: "{{name}} のセル {{count}} 件に入力しています。",
+  fillStarted_one: "{{name}} のセル {{count}} 件に入力しています。",
+  fillStarted_two: "{{name}} のセル {{count}} 件に入力しています。",
+  fillStarted_few: "{{name}} のセル {{count}} 件に入力しています。",
+  fillStarted_many: "{{name}} のセル {{count}} 件に入力しています。",
+  fillStarted_other: "{{name}} のセル {{count}} 件に入力しています。",
+  fillFinished: "{{name}} の入力が完了しました。",
+  fillFinishedWithFailures_zero:
+    "{{name}} の入力が完了しました。{{count}} 件のセルに入力できませんでした。",
+  fillFinishedWithFailures_one:
+    "{{name}} の入力が完了しました。{{count}} 件のセルに入力できませんでした。",
+  fillFinishedWithFailures_two:
+    "{{name}} の入力が完了しました。{{count}} 件のセルに入力できませんでした。",
+  fillFinishedWithFailures_few:
+    "{{name}} の入力が完了しました。{{count}} 件のセルに入力できませんでした。",
+  fillFinishedWithFailures_many:
+    "{{name}} の入力が完了しました。{{count}} 件のセルに入力できませんでした。",
+  fillFinishedWithFailures_other:
+    "{{name}} の入力が完了しました。{{count}} 件のセルに入力できませんでした。",
+  fillStoppedAnnouncement: "{{name}} の入力を停止しました。",
 };
 
 const databaseExactEnglish = {

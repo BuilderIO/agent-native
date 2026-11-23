@@ -474,6 +474,70 @@ const database = {
   unfreezeColumns: "Desafixar colunas",
   selectAllLoadedRows: "Selecionar todas as linhas carregadas",
   clearSelectedRows: "Desmarcar linhas",
+  fillWithAi: "Preencher com IA",
+  fillWithAiTitle: "Preencher {{name}} com IA",
+  fillWithAiDescription:
+    "Cada linha tem sua própria execução de IA, que lê a página dessa linha e escreve apenas na célula dela.",
+  fillWithAiDescriptionOptions:
+    "Cada linha tem sua própria execução de IA, que lê a página dessa linha e escolhe entre as opções desta coluna.",
+  fillWithAiInstructionLabel: "O que deve ir em cada célula?",
+  fillWithAiInstructionPlaceholder:
+    "Por exemplo: uma descrição da página em uma frase para resultados de busca",
+  fillWithAiRewrite: "Reescrever também as células que têm um valor",
+  fillWithAiCount_zero: "Preenche {{count}} célula vazia nesta visualização",
+  fillWithAiCount_one: "Preenche {{count}} célula vazia nesta visualização",
+  fillWithAiCount_two: "Preenche {{count}} células vazias nesta visualização",
+  fillWithAiCount_few: "Preenche {{count}} células vazias nesta visualização",
+  fillWithAiCount_many: "Preenche {{count}} células vazias nesta visualização",
+  fillWithAiCount_other: "Preenche {{count}} células vazias nesta visualização",
+  fillWithAiRewriteCount_zero: "Preenche {{count}} célula nesta visualização",
+  fillWithAiRewriteCount_one: "Preenche {{count}} célula nesta visualização",
+  fillWithAiRewriteCount_two: "Preenche {{count}} células nesta visualização",
+  fillWithAiRewriteCount_few: "Preenche {{count}} células nesta visualização",
+  fillWithAiRewriteCount_many: "Preenche {{count}} células nesta visualização",
+  fillWithAiRewriteCount_other: "Preenche {{count}} células nesta visualização",
+  fillWithAiNothingEmpty:
+    "Todas as células desta visualização já têm um valor.",
+  fillWithAiNoRows: "Não há linhas para preencher nesta visualização.",
+  fillWithAiTooMany:
+    "Preencher com IA preenche até {{max}} células por vez. Filtre a visualização para ter menos linhas.",
+  fillWithAiAlreadyRunning: "Esta coluna já está sendo preenchida.",
+  fillWithAiNeedsSetup: "Configure a IA para preencher células.",
+  fillWithAiSetUp: "Configurar IA",
+  fillWithAiStart: "Preencher",
+  fillWithAiStartFailed: "Não foi possível iniciar o preenchimento.",
+  fillProgress: "Preenchendo {{done}} de {{total}}",
+  fillStopping: "Parando…",
+  fillStop: "Parar",
+  fillStopLabel: "Parar de preencher {{name}}",
+  fillStopFailed: "Não foi possível parar o preenchimento.",
+  fillCellWaiting: "Aguardando",
+  fillCellRunning: "Preenchendo…",
+  fillCellFailed: "Não foi possível preencher",
+  fillTryAgain: "Tentar novamente",
+  fillRetryFailed: "Não foi possível tentar novamente.",
+  fillOpenChat: "Abrir chat",
+  fillEditInChat: "Editar no chat",
+  fillStarted_zero: "Preenchendo {{count}} célula em {{name}}.",
+  fillStarted_one: "Preenchendo {{count}} célula em {{name}}.",
+  fillStarted_two: "Preenchendo {{count}} células em {{name}}.",
+  fillStarted_few: "Preenchendo {{count}} células em {{name}}.",
+  fillStarted_many: "Preenchendo {{count}} células em {{name}}.",
+  fillStarted_other: "Preenchendo {{count}} células em {{name}}.",
+  fillFinished: "Preenchimento de {{name}} concluído.",
+  fillFinishedWithFailures_zero:
+    "Preenchimento de {{name}} concluído. Não foi possível preencher {{count}} célula.",
+  fillFinishedWithFailures_one:
+    "Preenchimento de {{name}} concluído. Não foi possível preencher {{count}} célula.",
+  fillFinishedWithFailures_two:
+    "Preenchimento de {{name}} concluído. Não foi possível preencher {{count}} células.",
+  fillFinishedWithFailures_few:
+    "Preenchimento de {{name}} concluído. Não foi possível preencher {{count}} células.",
+  fillFinishedWithFailures_many:
+    "Preenchimento de {{name}} concluído. Não foi possível preencher {{count}} células.",
+  fillFinishedWithFailures_other:
+    "Preenchimento de {{name}} concluído. Não foi possível preencher {{count}} células.",
+  fillStoppedAnnouncement: "Preenchimento de {{name}} interrompido.",
 };
 
 const databaseExactEnglish = {

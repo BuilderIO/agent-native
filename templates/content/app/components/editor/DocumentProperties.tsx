@@ -77,6 +77,7 @@ import {
   IconPlus,
   IconPlugConnected,
   IconSearch,
+  IconSparkles,
   IconSquareCheck,
   IconUpload,
   IconX,
@@ -167,6 +168,11 @@ import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
 import { BuilderArticleAutosavePanel } from "./database-sources/BuilderArticleAutosave";
+import {
+  ColumnFillCellActions,
+  columnFillCellLabel,
+  useColumnFillCell,
+} from "./database/column-fill";
 import { ColumnPresentationMenuItems } from "./database/DatabaseColumnPresentation";
 import {
   clearDatabaseFiltersForColumn,
@@ -1628,6 +1634,7 @@ export function PropertyManagementPopover({
   onMoveRight,
   onHide,
   hideDisabled,
+  onFillWithAi,
   popoverContainer,
 }: {
   property: DocumentProperty;
@@ -1649,6 +1656,7 @@ export function PropertyManagementPopover({
   onMoveRight?: () => void | Promise<void>;
   onHide?: () => void | Promise<void>;
   hideDisabled?: boolean;
+  onFillWithAi?: (() => void) | undefined;
   popoverContainer?: HTMLElement | null | undefined;
 }) {
   const t = useT();
@@ -2002,6 +2010,17 @@ export function PropertyManagementPopover({
               >
                 {t("editor.properties.editField")}
               </DropdownMenuItem>
+              {onFillWithAi ? (
+                <DropdownMenuItem
+                  data-column-fill-menu-item
+                  onSelect={() => {
+                    requestAnimationFrame(() => onFillWithAi());
+                  }}
+                >
+                  <IconSparkles className="size-4" aria-hidden="true" />
+                  {t("database.fillWithAi")}
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuSeparator />
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
@@ -2723,10 +2742,16 @@ export function PropertyValuePopover({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const fillStatusId = useId();
+  const fillCell = useColumnFillCell(property.definition.id, documentId);
+  const fillStatus = fillCell
+    ? columnFillCellLabel(t, fillCell.cell.status)
+    : null;
 
   const editLabel = t("editor.properties.editProperty", {
     name: property.definition.name,
   });
+  const describedBy = fillStatus ? fillStatusId : undefined;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -2749,6 +2774,7 @@ export function PropertyValuePopover({
               <button
                 type="button"
                 aria-label={editLabel}
+                aria-describedby={describedBy}
                 className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
               >
                 <IconEdit className="size-3.5" />
@@ -2761,12 +2787,18 @@ export function PropertyValuePopover({
           <button
             type="button"
             aria-label={editLabel}
+            aria-describedby={describedBy}
             className="flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {children}
           </button>
         </PopoverTrigger>
       )}
+      {fillStatus ? (
+        <span id={fillStatusId} className="sr-only">
+          {fillStatus}
+        </span>
+      ) : null}
       <PopoverContent
         align="start"
         portalled={portalled}
@@ -2777,6 +2809,11 @@ export function PropertyValuePopover({
           property={property}
           documentId={documentId}
           databaseDocumentId={databaseDocumentId}
+          onDone={() => setOpen(false)}
+        />
+        <ColumnFillCellActions
+          propertyId={property.definition.id}
+          documentId={documentId}
           onDone={() => setOpen(false)}
         />
       </PopoverContent>

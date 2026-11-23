@@ -480,6 +480,69 @@ const database = {
   unfreezeColumns: "Libérer les colonnes",
   selectAllLoadedRows: "Sélectionner toutes les lignes chargées",
   clearSelectedRows: "Désélectionner les lignes",
+  fillWithAi: "Remplir avec l'IA",
+  fillWithAiTitle: "Remplir {{name}} avec l'IA",
+  fillWithAiDescription:
+    "Chaque ligne a sa propre exécution de l'IA, qui lit la page de cette ligne et n'écrit que dans sa cellule.",
+  fillWithAiDescriptionOptions:
+    "Chaque ligne a sa propre exécution de l'IA, qui lit la page de cette ligne et choisit parmi les options de cette colonne.",
+  fillWithAiInstructionLabel: "Que mettre dans chaque cellule ?",
+  fillWithAiInstructionPlaceholder:
+    "Par exemple : une description de la page en une phrase pour les résultats de recherche",
+  fillWithAiRewrite: "Réécrire aussi les cellules qui ont une valeur",
+  fillWithAiCount_zero: "Remplit {{count}} cellule vide dans cette vue",
+  fillWithAiCount_one: "Remplit {{count}} cellule vide dans cette vue",
+  fillWithAiCount_two: "Remplit {{count}} cellules vides dans cette vue",
+  fillWithAiCount_few: "Remplit {{count}} cellules vides dans cette vue",
+  fillWithAiCount_many: "Remplit {{count}} cellules vides dans cette vue",
+  fillWithAiCount_other: "Remplit {{count}} cellules vides dans cette vue",
+  fillWithAiRewriteCount_zero: "Remplit {{count}} cellule dans cette vue",
+  fillWithAiRewriteCount_one: "Remplit {{count}} cellule dans cette vue",
+  fillWithAiRewriteCount_two: "Remplit {{count}} cellules dans cette vue",
+  fillWithAiRewriteCount_few: "Remplit {{count}} cellules dans cette vue",
+  fillWithAiRewriteCount_many: "Remplit {{count}} cellules dans cette vue",
+  fillWithAiRewriteCount_other: "Remplit {{count}} cellules dans cette vue",
+  fillWithAiNothingEmpty: "Chaque cellule de cette vue a déjà une valeur.",
+  fillWithAiNoRows: "Aucune ligne à remplir dans cette vue.",
+  fillWithAiTooMany:
+    "Remplir avec l'IA remplit jusqu'à {{max}} cellules à la fois. Filtrez la vue pour avoir moins de lignes.",
+  fillWithAiAlreadyRunning: "Cette colonne est déjà en cours de remplissage.",
+  fillWithAiNeedsSetup: "Configurez l'IA pour remplir les cellules.",
+  fillWithAiSetUp: "Configurer l'IA",
+  fillWithAiStart: "Remplir",
+  fillWithAiStartFailed: "Impossible de lancer le remplissage.",
+  fillProgress: "Remplissage : {{done}} sur {{total}}",
+  fillStopping: "Arrêt…",
+  fillStop: "Arrêter",
+  fillStopLabel: "Arrêter le remplissage de {{name}}",
+  fillStopFailed: "Impossible d'arrêter le remplissage.",
+  fillCellWaiting: "En attente",
+  fillCellRunning: "Remplissage…",
+  fillCellFailed: "Échec du remplissage",
+  fillTryAgain: "Réessayer",
+  fillRetryFailed: "Impossible de réessayer.",
+  fillOpenChat: "Ouvrir le chat",
+  fillEditInChat: "Modifier dans le chat",
+  fillStarted_zero: "Remplissage de {{count}} cellule dans {{name}}.",
+  fillStarted_one: "Remplissage de {{count}} cellule dans {{name}}.",
+  fillStarted_two: "Remplissage de {{count}} cellules dans {{name}}.",
+  fillStarted_few: "Remplissage de {{count}} cellules dans {{name}}.",
+  fillStarted_many: "Remplissage de {{count}} cellules dans {{name}}.",
+  fillStarted_other: "Remplissage de {{count}} cellules dans {{name}}.",
+  fillFinished: "Remplissage de {{name}} terminé.",
+  fillFinishedWithFailures_zero:
+    "Remplissage de {{name}} terminé. {{count}} cellule n'a pas pu être remplie.",
+  fillFinishedWithFailures_one:
+    "Remplissage de {{name}} terminé. {{count}} cellule n'a pas pu être remplie.",
+  fillFinishedWithFailures_two:
+    "Remplissage de {{name}} terminé. {{count}} cellules n'ont pas pu être remplies.",
+  fillFinishedWithFailures_few:
+    "Remplissage de {{name}} terminé. {{count}} cellules n'ont pas pu être remplies.",
+  fillFinishedWithFailures_many:
+    "Remplissage de {{name}} terminé. {{count}} cellules n'ont pas pu être remplies.",
+  fillFinishedWithFailures_other:
+    "Remplissage de {{name}} terminé. {{count}} cellules n'ont pas pu être remplies.",
+  fillStoppedAnnouncement: "Remplissage de {{name}} arrêté.",
 };
 
 const databaseExactEnglish = {
