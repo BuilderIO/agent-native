@@ -199,7 +199,7 @@ function stripOptionalToolPlaceholders(
         placeholders.push(key);
         continue;
       }
-      if (entry === null && depth === 0 && emptyValues.safeEmptyFields.length) {
+      if (entry === null && emptyValues.safeEmptyFields.length) {
         emptyValues.unsafeValid = true;
       }
       // A valid `false` sets a value, and `[]` on an action that says an empty
@@ -299,9 +299,9 @@ export function normalizeOptionalToolPlaceholders(
   // Only a declared read is exempt: a dynamic plan-mode effect classifies the
   // raw input, which defaults can turn into a write.
   if (
-    emptyValues.valid &&
     emptyValues.invalid &&
-    (emptyValues.invalidNonNull || emptyValues.unsafeValid) &&
+    (emptyValues.unsafeValid ||
+      (emptyValues.valid && emptyValues.invalidNonNull)) &&
     !(entry.readOnly === true && entry.planMode === undefined)
   ) {
     return {

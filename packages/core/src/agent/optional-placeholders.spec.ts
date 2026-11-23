@@ -125,6 +125,43 @@ describe("normalizeOptionalToolPlaceholders", () => {
         expect(result.changed).toBe(false);
       });
 
+      it("refuses a nullable clear with a default-valued safe empty", () => {
+        const input = { id: "a", title: null, note: null, items: [] };
+        const result = normalizeOptionalToolPlaceholders(
+          schema,
+          input,
+          { readOnly: false, nullPaddingSafeEmptyFields: ["items"] },
+          options,
+        );
+        expect(result.error).toBeInstanceOf(AmbiguousToolPlaceholdersError);
+        expect(result.input).toBe(input);
+        expect(result.changed).toBe(false);
+      });
+
+      it("refuses a nested nullable clear alongside a safe empty", () => {
+        const nested: AgentNativeJsonSchema = {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            tags: { type: "array", items: { type: "string" } },
+            details: {
+              type: "object",
+              properties: { note: { type: ["string", "null"] } },
+            },
+          },
+        };
+        const input = { title: null, tags: [], details: { note: null } };
+        const result = normalizeOptionalToolPlaceholders(
+          nested,
+          input,
+          { readOnly: false, nullPaddingSafeEmptyFields: ["tags"] },
+          options,
+        );
+        expect(result.error).toBeInstanceOf(AmbiguousToolPlaceholdersError);
+        expect(result.input).toBe(input);
+        expect(result.changed).toBe(false);
+      });
+
       it("refuses a mix of allowlisted and other valid empty fields", () => {
         const input = { id: "a", title: null, tags: [], label: "" };
         const entry = { readOnly: false, nullPaddingSafeEmptyFields: ["tags"] };
