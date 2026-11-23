@@ -1,4 +1,5 @@
 import { listYouTubeChannelVideos, type YouTubeVideo } from "../../youtube.js";
+import { youtubeConfigFingerprint } from "../config.js";
 import { ContentStepStop, type ContentStep } from "../step.js";
 import type { ContentItemInput, ContentSnapshotInput } from "../store.js";
 import { utcDate } from "./daily-metrics.js";
@@ -69,6 +70,7 @@ export const youtubeStep: ContentStep = {
         rowCount: snapshots.length,
         windowStart: readDate,
         windowEnd: readDate,
+        configFingerprint: youtubeConfigFingerprint(channels),
         detail: `${result.videos.length} videos from ${result.channels
           .map((channel) => channel.title)
           .join(", ")}.`,

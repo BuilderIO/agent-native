@@ -174,6 +174,21 @@ describe("daily.dev and YouTube", () => {
     expect(fingerprint(null)).toBeNull();
   });
 
+  it("fingerprints YouTube's channels, so a read for an earlier list isn't saved", () => {
+    const fingerprint = (channels: string[]) =>
+      contentStepConfigFingerprint(
+        "youtube",
+        contentCollectionConfigSchema.parse({
+          youtube: { enabled: true, channels },
+        }),
+      );
+    expect(fingerprint(["@Builderio"])).toEqual(expect.any(String));
+    expect(fingerprint(["@Builderio"])).toBe(fingerprint(["@Builderio"]));
+    expect(fingerprint(["@Builderio"])).not.toBe(
+      fingerprint(["@Builderio", "UC80PWRj_ZU8Zu0HSMNVwKWw"]),
+    );
+  });
+
   it("takes a channel ID or an @handle and nothing else", () => {
     expect(youtubeChannelSchema.parse(" @Builderio ")).toBe("@Builderio");
     expect(youtubeChannelSchema.parse("UCAN7TYzCJm1yd-QXbwKfoOg")).toBe(

@@ -15,7 +15,7 @@ const LOOKBACK_DAYS = 3;
 const MAX_REPORT_ROWS = 100_000;
 
 const TAGGED_LANDING = "[?&]via=dailydev(&|#|$)";
-const DAILY_DEV_SOURCE = "daily[.-]?dev";
+export const DAILY_DEV_SOURCE = "([a-z0-9-]+[.])*daily[.-]?dev";
 
 export const dailyDevStep: ContentStep = {
   id: "daily_dev",
@@ -93,7 +93,7 @@ export const dailyDevStep: ContentStep = {
                     filter: {
                       fieldName: "sessionSource",
                       stringFilter: {
-                        matchType: "PARTIAL_REGEXP",
+                        matchType: "FULL_REGEXP",
                         value: DAILY_DEV_SOURCE,
                         caseSensitive: false,
                       },

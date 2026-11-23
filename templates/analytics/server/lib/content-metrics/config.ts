@@ -224,6 +224,10 @@ export function ga4ConfigFingerprint(propertyId: string): string {
   return sha256(propertyId);
 }
 
+export function youtubeConfigFingerprint(channels: string[]): string {
+  return sha256(JSON.stringify(channels));
+}
+
 export function agentNativeSignupsConfigFingerprint(
   eventsTable: string,
 ): string {
@@ -282,9 +286,10 @@ export function contentStepConfigFingerprint(
             config.agentNativeSignups.eventsTable,
           )
         : null;
+    case "youtube":
+      return youtubeConfigFingerprint(config.youtube.channels);
     case "builder_blog":
     case "signups":
-    case "youtube":
       return null;
   }
 }

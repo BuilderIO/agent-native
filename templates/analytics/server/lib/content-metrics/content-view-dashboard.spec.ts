@@ -259,6 +259,8 @@ describe("Content view dashboard", () => {
               "gains",
               "ranked",
               "per_video",
+              "channels",
+              "named",
             ].includes(name),
         );
       expect(tables.length).toBeGreaterThan(0);
@@ -489,12 +491,13 @@ describe("Content view dashboard", () => {
   it("draws views each channel gained per day, from one day's read to the next, counting a new video from 0", async () => {
     await insertVideos();
     expect(await runPanel("youtube-views-per-day")).toEqual([
-      { date: daysAgo(3), channel: "Builder", views: 10 },
-      { date: daysAgo(2), channel: "Builder", views: 15 },
+      { date: daysAgo(3), channel: "Builder (UCbuilder)", views: 10 },
+      { date: daysAgo(2), channel: "Builder (UCbuilder)", views: 15 },
       { date: daysAgo(2), channel: "Codevolution", views: 7 },
-      { date: daysAgo(1), channel: "Builder", views: 59 },
+      { date: daysAgo(1), channel: "Builder (UCbuilder)", views: 55 },
+      { date: daysAgo(1), channel: "Builder (UCotherbuilder)", views: 4 },
     ]);
-    expect(await runPanel("youtube-views-per-day", "7d")).toHaveLength(4);
+    expect(await runPanel("youtube-views-per-day", "7d")).toHaveLength(5);
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
 

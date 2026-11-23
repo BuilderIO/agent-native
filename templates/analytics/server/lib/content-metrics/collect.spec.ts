@@ -2863,6 +2863,26 @@ describe("content collection", () => {
       ]);
     });
 
+    it("takes daily.dev's own session sources, not names that only contain it", async () => {
+      const { DAILY_DEV_SOURCE } = await import("./steps/daily-dev.js");
+      const source = new RegExp(`^(?:${DAILY_DEV_SOURCE})$`, "i");
+      for (const value of [
+        "daily.dev",
+        "app.daily.dev",
+        "dailydev",
+        "Daily-Dev",
+      ]) {
+        expect(source.test(value)).toBe(true);
+      }
+      for (const value of [
+        "notdailydev",
+        "daily.dev.example.com",
+        "dailydevotional.com",
+      ]) {
+        expect(source.test(value)).toBe(false);
+      }
+    });
+
     it("waits for a GA4 property without querying the shared one", async () => {
       const collection = await onlySteps({ dailyDev: true });
       await writeContentCollection(ORG_A, {
@@ -3023,6 +3043,38 @@ describe("content collection", () => {
         ["2026-10-15", 100],
         ["2026-10-16", 130],
       ]);
+    });
+
+    it("saves nothing from a read whose channels changed mid-request", async () => {
+      const collection = await onlySteps({ youtube: true });
+      mocks.listYouTubeChannelVideos.mockImplementationOnce(async () => {
+        await writeContentCollection(ORG_A, {
+          enabled: true,
+          config: {
+            ...collection.config,
+            youtube: { enabled: true, channels: ["UC80PWRj_ZU8Zu0HSMNVwKWw"] },
+          },
+        });
+        return {
+          channels: [
+            {
+              id: "UCAN7TYzCJm1yd-QXbwKfoOg",
+              title: "Builder",
+              uploadsPlaylistId: "UUAN7TYzCJm1yd-QXbwKfoOg",
+            },
+          ],
+          videos: [youtubeVideo("v1")],
+        };
+      });
+
+      expect(ran(await collectContentForAllTenants())).toEqual([
+        expect.objectContaining({
+          step: "youtube",
+          status: "failed",
+          reason: "content_config_changed",
+        }),
+      ]);
+      expect(await rows("SELECT id FROM analytics_content_items")).toEqual([]);
     });
 
     it("records YouTube without channels, or without a saved key, as not set up", async () => {
