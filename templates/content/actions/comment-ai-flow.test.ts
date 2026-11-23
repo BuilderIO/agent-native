@@ -732,7 +732,7 @@ describe("comment AI dedicated action boundaries", () => {
       state.request.intent = "suggest";
       state.source.document.content = "Bed one. Water. Bed two. Water.";
 
-      const error = await run(createSuggestion as any, {
+      const error = await run(createSuggestion as never, {
         summary: "Mulch the beds",
         edits,
       }).catch((thrown: unknown) => thrown);
@@ -747,7 +747,7 @@ describe("comment AI dedicated action boundaries", () => {
       expect(state.request.status).toBe("running");
       expect(mocks.createSuggestion).not.toHaveBeenCalled();
 
-      const result = await run(createSuggestion as any, {
+      const result = await run(createSuggestion as never, {
         summary: "Mulch bed two",
         edits: [{ find: "Bed two. Water.", replace: "Bed two. Mulch." }],
       });
@@ -788,7 +788,7 @@ describe("comment AI dedicated action boundaries", () => {
     state.request.intent = "apply-resolve";
     state.source.document.content = "Bed one. Water. Bed two. Water.";
 
-    const error = await run(applyRequest as any, {
+    const error = await run(applyRequest as never, {
       summary: "Mulched the beds",
       edits: [{ find: "Water.", replace: "Mulch." }],
     }).catch((thrown: unknown) => thrown);
@@ -805,7 +805,7 @@ describe("comment AI dedicated action boundaries", () => {
     state.sourceRevisionMatches = false;
 
     await expect(
-      run(createSuggestion as any, {
+      run(createSuggestion as never, {
         summary: "Clarify this",
         edits: [{ find: "Gone text", replace: "New text" }],
       }),
