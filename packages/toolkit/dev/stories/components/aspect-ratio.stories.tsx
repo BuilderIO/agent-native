@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { AspectRatio } from "../../../src/ui/base-ui/aspect-ratio.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./aspect-ratio.docs.md?raw";
 
 const controls = propControls(aspectRatioProps);
 
@@ -18,7 +19,7 @@ function Media() {
 const meta = {
   title: "Components/Aspect Ratio",
   component: AspectRatio,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ratio: 16 / 9, children: <Media /> },
   argTypes: {
     ...controls.argTypes,

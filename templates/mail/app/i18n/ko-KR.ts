@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "나에게 보내는 메모",
     },
     inbox: {
-      atLeastCount: "최소 {{count}}",
+      conversationsCount: "대화: {{count}}개",
+      conversationsAtLeastCount: "대화: {{count}}개 이상",
+      unreadCount: "읽지 않은 대화: {{count}}개",
+      draftsToReviewCount: "검토할 초안: {{count}}개",
       syncing: "받은편지함 동기화 중…",
     },
     sort: {
@@ -146,8 +149,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "사이드바 고정",
-      unpinSidebar: "사이드바 고정 해제",
       closeSidebar: "사이드바 닫기",
       settings: "설정",
       aiSettings: "태그 및 규칙 관리",
@@ -165,7 +166,7 @@ const messages = {
       filtersLimitReached: "필터는 최대 20개까지 저장할 수 있습니다.",
     },
     tabSettings: {
-      splitInbox: "분할 받은편지함",
+      splitInbox: "받은편지함을 탭으로 나누기",
       views: "조회수",
       categories: "카테고리",
       rename: "이름 변경",
@@ -173,7 +174,7 @@ const messages = {
       savedFilters: "저장된 필터",
       combinedInbox: "통합 받은편지함",
       allTab: "전체 탭",
-      help: "통합 받은편지함은 모든 계정을 함께 표시합니다. 끄면 메일이 탭으로 나뉩니다.",
+      help: "선택한 보기, 라벨, 저장된 필터를 받은편지함의 별도 탭으로 표시합니다. 끄면 받은편지함의 모든 메일을 하나의 탭에서 봅니다.",
       aiSetup: "AI 태그 및 규칙 설정",
     },
     accounts: {
@@ -189,9 +190,19 @@ const messages = {
       markRead: "읽음으로 표시",
       markUnread: "읽지 않음으로 표시",
       moveTo: "이동",
+      labelAs: "라벨 지정",
+      newLabel: "새 라벨…",
       moveToTrash: "휴지통으로 이동",
       star: "별표 표시",
       unstar: "별표 제거",
+    },
+    labels: {
+      labelAsPlaceholder: "라벨 지정…",
+      moveToPlaceholder: "이동할 위치…",
+      newLabelPlaceholder: "새 라벨 이름",
+      create: "'{{name}}' 라벨 만들기",
+      empty: "아직 라벨이 없습니다. 이름을 입력해 새로 만드세요.",
+      alreadyExists: "'{{name}}' 라벨이 이미 있습니다.",
     },
     compose: {
       addImage: "이미지 추가",
@@ -208,6 +219,10 @@ const messages = {
       contentPagesRetry: "다시 시도",
       contentPagesEmpty: "페이지를 찾을 수 없습니다",
       contentFileMarkdown: "Markdown 파일",
+      contentFilePdf: "PDF 파일",
+      contentPageFormat: "페이지 첨부 형식",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV 파일",
       bold: "굵게",
       cancel: "취소",
@@ -457,6 +472,13 @@ const messages = {
         "{{total}}개 중 {{succeeded}}개의 대화를 이동했고 {{failed}}개가 실패했습니다.",
       moveSucceeded: "{{label}}(으)로 이동했습니다.",
       moveManySucceeded: "{{count}}개의 대화를 {{label}}(으)로 이동했습니다.",
+      labelSucceeded: "{{label}} 라벨을 지정했습니다.",
+      labelManySucceeded: "{{count}}개의 대화에 {{label}} 라벨을 지정했습니다.",
+      labelPartialFailed:
+        "{{total}}개 중 {{succeeded}}개의 대화에 라벨을 지정했습니다. {{failed}}개는 실패했습니다.",
+      labelFailed: "라벨을 지정하지 못했습니다.",
+      labelCreated: "{{label}} 라벨을 만들었습니다.",
+      createLabelFailed: "라벨을 만들지 못했습니다.",
       trashed: "휴지통으로 이동했습니다.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "예약 이메일을 보냈습니다.",
@@ -470,6 +492,12 @@ const messages = {
       scheduledCancelFailed: "예약 이메일 취소 실패",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Content 페이지를 첨부하지 못했습니다",
+      contentPagePdfTextUnsupported:
+        "이 페이지에는 중국어, 일본어, 한국어, 아랍어, 히브리어, 힌디어처럼 PDF에서 아직 표시할 수 없는 텍스트가 있습니다. 대신 Markdown으로 첨부하세요.",
+      contentPagePdfTooLong:
+        "이 페이지는 너무 길거나 너무 넓어서 PDF로 첨부할 수 없습니다. 대신 Markdown으로 첨부하세요.",
+      contentPagePdfUnavailable:
+        "Content에서 이 페이지의 PDF를 만들지 못했습니다. 대신 Markdown으로 첨부하세요.",
       waitForAttachments: "첨부 파일 추가가 끝난 후 보내세요.",
       failedToUploadImage: "이미지 업로드 실패",
       storageBuilderRefused:

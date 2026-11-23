@@ -283,11 +283,24 @@ describe("Menu on Base UI", () => {
             <MenuGroupLabel>Danger zone</MenuGroupLabel>
             <MenuItem>Delete</MenuItem>
           </MenuGroup>
+          <MenuRadioGroup defaultValue="name">
+            <MenuGroupLabel>Sort by</MenuGroupLabel>
+            <MenuRadioItem value="name">Name</MenuRadioItem>
+          </MenuRadioGroup>
         </MenuPopup>
       </Menu>,
     );
     expect(await screen.findByRole("menu")).toBeTruthy();
-    expect(screen.getByRole("group")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("group", { name: "Danger zone" })
+        .contains(screen.getByRole("menuitem", { name: "Delete" })),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole("group", { name: "Sort by" })
+        .contains(screen.getByRole("menuitemradio", { name: "Name" })),
+    ).toBe(true);
   });
 });
 

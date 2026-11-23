@@ -40,7 +40,7 @@ const attachContentPageOutputSchema = z.object({
 
 export default defineAction({
   description:
-    "Turn a Content page into an email attachment: a page as a Markdown file, a collection as a CSV. Content reads it under the user's own access, and Mail stores the file. Then pass the returned attachment in manage-draft's attachments to put it on a draft. Find pages with list-content-pages. Attaching does not send email.",
+    "Turn a Content page into an email attachment: a page as a PDF or Markdown file, a collection as a CSV. Content reads it under the user's own access, and Mail stores the file. Then pass the returned attachment in manage-draft's attachments to put it on a draft. Find pages with list-content-pages. Attaching does not send email.",
   schema: z.object({
     id: z
       .string()
@@ -52,7 +52,7 @@ export default defineAction({
       .enum(CONTENT_FILE_FORMATS)
       .optional()
       .describe(
-        "markdown for a page, csv for a collection. Defaults to the one that fits.",
+        "pdf or markdown for a page, csv for a collection. Defaults to markdown for a page and csv for a collection.",
       ),
   }),
   outputSchema: attachContentPageOutputSchema,
@@ -77,7 +77,7 @@ export default defineAction({
       stored = await storeMediaUpload({
         ownerEmail,
         ...(orgId ? { orgId } : {}),
-        data: new TextEncoder().encode(file.content),
+        data: file.data,
         filename: nanoid(12) + extensionForUpload(originalName),
         originalName,
       });

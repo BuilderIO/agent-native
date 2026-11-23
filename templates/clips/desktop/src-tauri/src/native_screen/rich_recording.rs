@@ -13,6 +13,8 @@
 //! the flattened file only), so a folder left behind would never be read
 //! again; the screen file runs to gigabytes.
 //!
+//! The tracks are the input, the mic and the sound of the Mac when the
+//! recording has them, the camera when the bubble shows it, and the screen.
 //! Tracks are kept only for display and region recordings on the custom
 //! capture pipeline with live upload. Track times are that pipeline's:
 //! milliseconds from the flattened recording's first frame on the host clock
@@ -28,6 +30,10 @@ use super::*;
 use std::collections::BTreeMap;
 use std::sync::MutexGuard;
 
+use super::audio_track::{audio_track_finish, AudioSource, AUDIO_TRACK_CONTENT_TYPE};
+use super::camera_track::{
+    camera_track_finish, CAMERA_TRACK_CONTENT_TYPE, CAMERA_TRACK_FILE, CAMERA_TRACK_ID,
+};
 use super::input_track::{
     event_host_nanos, input_capture_allowed, recording_ms, start_input_capture, DisplayGeometry,
     InputCapture, INPUT_TRACK_CONTENT_TYPE, INPUT_TRACK_FILE, INPUT_TRACK_ID, MOVE_INTERVAL_MS,
@@ -39,7 +45,11 @@ use super::track_upload::{
     post_tracks_finalize, spawn_track_uploader, TrackSendGate, TrackUpload, TrackUploadCtrl,
     TrackUploadOutcome, TrackUploadTarget,
 };
-use super::ScreenCapture;
+use super::{
+    start_audio_capture, start_camera_capture, AudioCapture, CameraCapture, RichAudioTaps,
+    ScreenCapture,
+};
+use tauri::{EventId, Listener};
 
 /// How long a track's upload may go without storing a byte before the end of
 /// the recording gives up on it.
@@ -79,25 +89,19 @@ fn host_timebase() -> (u32, u32) {
 /// The recording's pauses on the host clock.
 #[derive(Debug, Default)]
 struct PauseLog {
-    /// The pause under way: the host time it began at, and the recording
-    /// position it holds.
-    current: Option<(u64, f64)>,
+    /// The pause under way.
+    current: Option<CurrentPause>,
     /// Pauses that have ended, `[began, ended)` in host time.
     ended: Vec<(u64, u64)>,
 }
 
-impl PauseLog {
-    /// Whether something captured at `host_nanos` belongs to no recording
-    /// time: anything while paused, and anything from inside a pause that has
-    /// ended, however late its callback runs. After the resume the pipeline's
-    /// offset has grown, and would give it a time in the stretch after.
-    fn covers(&self, host_nanos: u64) -> bool {
-        self.current.is_some()
-            || self
-                .ended
-                .iter()
-                .any(|&(began, ended)| (began..ended).contains(&host_nanos))
-    }
+#[derive(Clone, Copy, Debug)]
+struct CurrentPause {
+    began_nanos: u64,
+    /// The recording position it holds.
+    position_ms: f64,
+    /// The pipeline's pause offset when it began; a resume grows it.
+    offset_bits: u64,
 }
 
 /// Recording time, read from the capture pipeline's own clock state: the
@@ -146,30 +150,74 @@ impl RecordingClock {
     /// The capture pipeline paused at `host_nanos`. Returns the recording
     /// position the pause holds; a second call keeps the first one's.
     pub(super) fn pause_at(&self, host_nanos: u64) -> f64 {
-        let position = recording_ms(
+        let offset_bits = self.pause_offset_bits.load(Ordering::SeqCst);
+        let position_ms = recording_ms(
             host_nanos,
             self.session_start_secs(),
-            self.pause_offset_secs(),
+            f64::from_bits(offset_bits),
         )
         .unwrap_or(0.0);
         self.pause_log()
             .current
-            .get_or_insert((host_nanos, position))
-            .1
+            .get_or_insert(CurrentPause {
+                began_nanos: host_nanos,
+                position_ms,
+                offset_bits,
+            })
+            .position_ms
     }
 
     /// The capture pipeline resumed at `host_nanos`. Returns the position the
     /// pause held, or `None` when it wasn't paused.
     pub(super) fn resume_at(&self, host_nanos: u64) -> Option<f64> {
         let mut log = self.pause_log();
-        let (began, position) = log.current.take()?;
-        log.ended.push((began, host_nanos.max(began)));
-        Some(position)
+        let pause = log.current.take()?;
+        let ended = self
+            .resumed_at_nanos(&pause)
+            .unwrap_or(host_nanos)
+            .min(host_nanos)
+            .max(pause.began_nanos);
+        log.ended.push((pause.began_nanos, ended));
+        Some(pause.position_ms)
+    }
+
+    /// Where the resumed recording begins on the host clock: the host time
+    /// the pipeline's grown offset puts at the position the pause holds.
+    /// `None` until the pipeline has applied the resume's offset, which it
+    /// does before its new stream starts and so before the session ends the
+    /// pause here. It puts the offset back if the new stream fails to start.
+    fn resumed_at_nanos(&self, pause: &CurrentPause) -> Option<u64> {
+        let offset_bits = self.pause_offset_bits.load(Ordering::SeqCst);
+        if offset_bits == pause.offset_bits {
+            return None;
+        }
+        let secs =
+            pause.position_ms / 1000.0 + self.session_start_secs() + f64::from_bits(offset_bits);
+        secs.is_finite().then(|| (secs.max(0.0) * 1e9) as u64)
+    }
+
+    /// Whether something captured at `host_nanos` belongs to no recording
+    /// time: anything from inside a pause, however late its callback runs.
+    /// After the resume the pipeline's offset has grown, and would give it a
+    /// time in the stretch after.
+    fn in_pause(&self, host_nanos: u64, resume_from: ResumeFrom) -> bool {
+        let log = self.pause_log();
+        let in_current = log.current.is_some_and(|pause| {
+            resume_from == ResumeFrom::Session
+                || self
+                    .resumed_at_nanos(&pause)
+                    .is_none_or(|resumed| host_nanos < resumed)
+        });
+        in_current
+            || log
+                .ended
+                .iter()
+                .any(|&(began, ended)| (began..ended).contains(&host_nanos))
     }
 
     /// The position the pause under way holds; `None` while not paused.
     pub(super) fn paused_position_ms(&self) -> Option<f64> {
-        self.pause_log().current.map(|(_, position)| position)
+        self.pause_log().current.map(|pause| pause.position_ms)
     }
 
     fn session_start_secs(&self) -> f64 {
@@ -183,7 +231,7 @@ impl RecordingClock {
     /// Recording milliseconds of a host time; `None` before the first frame,
     /// while paused and for a time inside an earlier pause.
     pub(super) fn at_host_nanos(&self, nanos: u64) -> Option<f64> {
-        if self.pause_log().covers(nanos) {
+        if self.in_pause(nanos, ResumeFrom::Session) {
             return None;
         }
         recording_ms(nanos, self.session_start_secs(), self.pause_offset_secs())
@@ -218,16 +266,28 @@ impl RecordingClock {
         self.resume_at(self.host_now_nanos())
     }
 
-    /// Recording seconds of a ScreenCaptureKit frame stamped `pts_secs`: the
+    /// Recording seconds of a frame stamped `pts_secs` on the host clock: the
     /// first frame's time and the pause offset taken off, as the flattened
     /// writer retimes its own frames. Negative for a frame captured before
     /// the first one.
     pub(super) fn frame_time(&self, pts_secs: f64) -> FrameTime {
+        self.place_frame(pts_secs, ResumeFrom::Session)
+    }
+
+    /// `frame_time` for a buffer of the flattened recording's own stream,
+    /// which counts from the resume as the flattened writer does: once the
+    /// pipeline applies the resume's offset, since its new stream sends
+    /// nothing unless it starts.
+    pub(super) fn stream_frame_time(&self, pts_secs: f64) -> FrameTime {
+        self.place_frame(pts_secs, ResumeFrom::Offset)
+    }
+
+    fn place_frame(&self, pts_secs: f64, resume_from: ResumeFrom) -> FrameTime {
         let host_nanos = (pts_secs.max(0.0) * 1e9) as u64;
         if self.after_stop(host_nanos) {
             return FrameTime::AfterStop;
         }
-        if self.pause_log().covers(host_nanos) {
+        if self.in_pause(host_nanos, resume_from) {
             return FrameTime::Paused;
         }
         let start = self.session_start_secs();
@@ -241,6 +301,17 @@ impl RecordingClock {
         let (numer, denom) = self.timebase;
         (u128::from(host_ticks()) * u128::from(numer) / u128::from(denom.max(1))) as u64
     }
+}
+
+/// From when something captured after a resume, but handled before the
+/// session ends the pause, has a recording time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResumeFrom {
+    /// Once the pipeline applies the resume's offset.
+    Offset,
+    /// Once the session ends the pause, so a capture that runs through the
+    /// pause keeps nothing from a resume that fails.
+    Session,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -393,6 +464,41 @@ impl TrackSource for InputCapture {
     }
 }
 
+impl TrackSource for AudioCapture {
+    fn stop(&self) {
+        AudioCapture::stop(self);
+    }
+
+    fn finish(&self, duration_ms: u64) -> TrackFinish {
+        audio_track_finish(&self.report(), duration_ms)
+    }
+}
+
+/// The camera track, which also stops when the bubble lets go of the camera,
+/// at Stop or when the bubble closes before it, so the camera never stays on
+/// for the track alone. It then ends there, holding all the camera showed.
+struct CameraTrack {
+    capture: Arc<CameraCapture>,
+    app: AppHandle,
+    release_listener: EventId,
+}
+
+impl TrackSource for CameraTrack {
+    fn stop(&self) {
+        self.capture.stop();
+    }
+
+    fn finish(&self, duration_ms: u64) -> TrackFinish {
+        camera_track_finish(&self.capture.report(), duration_ms)
+    }
+}
+
+impl Drop for CameraTrack {
+    fn drop(&mut self) {
+        self.app.unlisten(self.release_listener);
+    }
+}
+
 impl TrackSource for ScreenCapture {
     fn stop(&self) {
         ScreenCapture::stop(self);
@@ -452,6 +558,7 @@ pub(super) fn attach_rich_recording(
     auth_token: Option<&str>,
     cookie: Option<&str>,
     has_camera: bool,
+    camera_label: Option<&str>,
 ) {
     let skip = |reason: &str| {
         eprintln!("[rich-tracks] {recording_id}: no tracks for this recording: {reason}");
@@ -459,9 +566,9 @@ pub(super) fn attach_rich_recording(
     if session.rich_recording.is_some() {
         return;
     }
-    let clock_bits = match session.backend.as_ref() {
+    let (clock_bits, audio_taps) = match session.backend.as_ref() {
         Some(NativeFullscreenBackend::CustomScreenCaptureKit { writer, .. }) => {
-            writer.recording_clock_bits()
+            (writer.recording_clock_bits(), writer.rich_audio_taps())
         }
         _ => return skip("it is not on the custom capture pipeline"),
     };
@@ -507,21 +614,35 @@ pub(super) fn attach_rich_recording(
     let (session_start_bits, pause_offset_bits) = clock_bits;
     let clock = RecordingClock::new(session_start_bits, pause_offset_bits, host_timebase());
 
-    // Input first: tracks send their last chunks in this order, small first.
-    let started = start_sources(
-        recording_id,
-        &folder,
-        vec![
-            input_track_start(&clock, &capture),
-            screen_track_start(&clock, &capture, recording_id),
-        ],
-        || {
-            Arc::new(TrackUploadCtrl::new(
-                Arc::clone(&tracks_stopped),
-                Arc::clone(&gate),
-            ))
-        },
-    );
+    // Tracks send their last chunks in this order, small first.
+    let mut starts = vec![input_track_start(&clock, &capture)];
+    if session.restart.include_audio {
+        starts.push(audio_track_start(
+            &clock,
+            &audio_taps,
+            AudioSource::Mic,
+            recording_id,
+        ));
+    }
+    if session.restart.capture_system_audio {
+        starts.push(audio_track_start(
+            &clock,
+            &audio_taps,
+            AudioSource::System,
+            recording_id,
+        ));
+    }
+    let camera_bubble = has_camera && session.restart.include_camera_overlay;
+    if camera_bubble {
+        starts.push(camera_track_start(app, &clock, camera_label, recording_id));
+    }
+    starts.push(screen_track_start(&clock, &capture, recording_id));
+    let started = start_sources(recording_id, &folder, starts, || {
+        Arc::new(TrackUploadCtrl::new(
+            Arc::clone(&tracks_stopped),
+            Arc::clone(&gate),
+        ))
+    });
     if started.is_empty() {
         return skip("no track could start");
     }
@@ -542,7 +663,7 @@ pub(super) fn attach_rich_recording(
         gate,
         clock,
         capture,
-        camera_bubble: has_camera && session.restart.include_camera_overlay,
+        camera_bubble,
         app_version: app.package_info().version.to_string(),
         pauses: Vec::new(),
         stopped_at: None,
@@ -589,6 +710,71 @@ fn input_track_start(clock: &RecordingClock, capture: &CaptureInfo) -> TrackStar
             let source: Arc<dyn TrackSource> =
                 Arc::new(start_input_capture(path, clock, space, ctrl)?);
             Ok(source)
+        }),
+    }
+}
+
+fn audio_track_start(
+    clock: &RecordingClock,
+    taps: &Arc<RichAudioTaps>,
+    source: AudioSource,
+    recording_id: &str,
+) -> TrackStart {
+    let clock = clock.clone();
+    let taps = Arc::clone(taps);
+    let recording_id = recording_id.to_string();
+    TrackStart {
+        id: source.track_id(),
+        file: source.file(),
+        content_type: AUDIO_TRACK_CONTENT_TYPE,
+        start: Box::new(move |path, ctrl| {
+            let track: Arc<dyn TrackSource> = Arc::new(start_audio_capture(
+                path,
+                source,
+                &taps,
+                clock,
+                ctrl,
+                &recording_id,
+            )?);
+            Ok(track)
+        }),
+    }
+}
+
+fn camera_track_start(
+    app: &AppHandle,
+    clock: &RecordingClock,
+    camera_label: Option<&str>,
+    recording_id: &str,
+) -> TrackStart {
+    let app = app.clone();
+    let clock = clock.clone();
+    let camera_label = camera_label.map(str::to_string);
+    let recording_id = recording_id.to_string();
+    TrackStart {
+        id: CAMERA_TRACK_ID,
+        file: CAMERA_TRACK_FILE,
+        content_type: CAMERA_TRACK_CONTENT_TYPE,
+        start: Box::new(move |path, ctrl| {
+            let capture = Arc::new(start_camera_capture(
+                path,
+                camera_label.as_deref(),
+                clock,
+                ctrl,
+                &recording_id,
+            )?);
+            let released = Arc::downgrade(&capture);
+            let release_listener = app.listen(crate::clips::RELEASE_CAMERA_EVENT, move |_| {
+                if let Some(capture) = released.upgrade() {
+                    capture.stop();
+                }
+            });
+            let track: Arc<dyn TrackSource> = Arc::new(CameraTrack {
+                capture,
+                app,
+                release_listener,
+            });
+            Ok(track)
         }),
     }
 }
@@ -1778,6 +1964,56 @@ mod tests {
         assert_eq!(clock.at_event_stamp(secs(106.0)), None);
         assert_eq!(clock.at_event_stamp(secs(111.0)), None);
         assert_eq!(clock.at_event_stamp(secs(113.0)), Some(6000.0));
+    }
+
+    #[test]
+    fn what_the_resumed_stream_sends_before_the_pause_ends_here_keeps_its_time() {
+        let start = Arc::new(AtomicU64::new(100.0_f64.to_bits()));
+        let offset = Arc::new(AtomicU64::new(0.0_f64.to_bits()));
+        let clock = RecordingClock::new(start, Arc::clone(&offset), (1, 1));
+        let secs = |s: f64| (s * 1e9) as u64;
+        assert_eq!(clock.pause_at(secs(103.0)), 3000.0);
+        assert_eq!(clock.stream_frame_time(105.0), FrameTime::Paused);
+        // The pipeline applies the resume's 5 s and starts its new stream
+        // before the session ends the pause here at 108.5 s.
+        offset.store(5.0_f64.to_bits(), Ordering::SeqCst);
+        assert_eq!(clock.stream_frame_time(107.5), FrameTime::Paused);
+        assert_eq!(clock.stream_frame_time(108.25), FrameTime::At(3.25));
+        // The camera and input run through the pause, so they wait for the
+        // session, in case the new stream fails to start.
+        assert_eq!(clock.frame_time(108.25), FrameTime::Paused);
+        assert_eq!(clock.at_host_nanos(secs(108.25)), None);
+        assert_eq!(clock.paused_position_ms(), Some(3000.0));
+        assert_eq!(clock.resume_at(secs(108.5)), Some(3000.0));
+        // However late their callbacks run, the new stream's first buffers
+        // keep their times, and what came from inside the pause has none.
+        assert_eq!(clock.stream_frame_time(108.25), FrameTime::At(3.25));
+        assert_eq!(clock.frame_time(108.25), FrameTime::At(3.25));
+        assert_eq!(clock.at_host_nanos(secs(108.25)), Some(3250.0));
+        assert_eq!(clock.at_host_nanos(secs(107.5)), None);
+    }
+
+    #[test]
+    fn a_resume_whose_stream_fails_to_start_leaves_the_recording_paused() {
+        let start = Arc::new(AtomicU64::new(100.0_f64.to_bits()));
+        let offset = Arc::new(AtomicU64::new(0.0_f64.to_bits()));
+        let clock = RecordingClock::new(start, Arc::clone(&offset), (1, 1));
+        let secs = |s: f64| (s * 1e9) as u64;
+        assert_eq!(clock.pause_at(secs(103.0)), 3000.0);
+        // The pipeline applies 5 s, its new stream fails to start, and it puts
+        // the offset back while the camera and input go on.
+        offset.store(5.0_f64.to_bits(), Ordering::SeqCst);
+        assert_eq!(clock.frame_time(108.25), FrameTime::Paused);
+        assert_eq!(clock.at_host_nanos(secs(108.25)), None);
+        offset.store(0.0_f64.to_bits(), Ordering::SeqCst);
+        assert_eq!(clock.stream_frame_time(108.25), FrameTime::Paused);
+        assert_eq!(clock.frame_time(108.25), FrameTime::Paused);
+        // A later resume that works goes on from where the pause began.
+        offset.store(10.0_f64.to_bits(), Ordering::SeqCst);
+        assert_eq!(clock.resume_at(secs(113.5)), Some(3000.0));
+        assert_eq!(clock.frame_time(108.25), FrameTime::Paused);
+        assert_eq!(clock.frame_time(113.25), FrameTime::At(3.25));
+        assert_eq!(clock.at_host_nanos(secs(113.25)), Some(3250.0));
     }
 
     #[test]

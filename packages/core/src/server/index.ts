@@ -617,8 +617,10 @@ export {
   getRequestRunContext,
   getCredentialContext,
   isIntegrationCallerRequest,
+  normalizeViewportMode,
   type RequestContext,
   type RequestRunContext,
+  type ViewportMode,
 } from "./request-context.js";
 export {
   loadFirstRunBuilderCreditsV2Assignment,
@@ -994,6 +996,7 @@ export {
   runRecurringSweepHandlers,
   type RecurringSweepContext,
   type RecurringSweepHandler,
+  type RecurringSweepHandlerOptions,
 } from "../jobs/sweep-hooks.js";
 export {
   hasJobRunner,

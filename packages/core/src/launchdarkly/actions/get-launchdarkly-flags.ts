@@ -12,6 +12,7 @@ export default defineAction({
     defaultValue: z.boolean().optional(),
   }),
   http: { method: "GET" },
+  mcpTool: false,
   run: async ({ keys, defaultValue = false }, ctx) => {
     const { isLaunchDarklyFlagEnabled } = await import("../evaluate.js");
     const actor = { userEmail: ctx?.userEmail, orgId: ctx?.orgId };

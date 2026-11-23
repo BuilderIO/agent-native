@@ -1,10 +1,13 @@
 import { COLORS, CONTROL_SIZES, inputProps } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { IconAt, IconSearch, IconX } from "@tabler/icons-react";
+import { useRef, useState } from "react";
+import { expect } from "storybook/test";
 
 import { IconButton } from "../../../src/ui/base-ui/button.js";
 import { Input, InputSlot } from "../../../src/ui/base-ui/input.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./input.docs.md?raw";
 
 const controls = propControls(inputProps);
 
@@ -13,7 +16,7 @@ const VARIANTS = inputProps.variant.values;
 const meta = {
   title: "Components/Input",
   component: Input,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: {
     ...controls.args,
     "aria-label": "Email",
@@ -86,29 +89,80 @@ export const Variants: Story = {
  * An unmarked slot goes before the text; `side="right"` puts one after it.
  */
 export const Slots: Story = {
+  render: function Render(args) {
+    const handle = useRef<HTMLInputElement>(null);
+    const [value, setValue] = useState("ada");
+    return (
+      <div className="flex flex-col gap-3">
+        <Input {...args} aria-label="Search" placeholder="Search">
+          <InputSlot>
+            <IconSearch aria-hidden />
+          </InputSlot>
+          <InputSlot side="right">⌘K</InputSlot>
+        </Input>
+        <Input
+          ref={handle}
+          {...args}
+          aria-label="Handle"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        >
+          <InputSlot>
+            <IconAt aria-hidden />
+          </InputSlot>
+          <InputSlot side="right">
+            <IconButton
+              aria-label="Clear handle"
+              type="button"
+              disabled={args.disabled}
+              onClick={() => {
+                setValue("");
+                handle.current?.focus();
+              }}
+              size="sm"
+              variant="ghost"
+              color="gray"
+            >
+              <IconX />
+            </IconButton>
+          </InputSlot>
+        </Input>
+        <Input {...args} aria-label="Width" defaultValue="320">
+          <InputSlot side="right">px</InputSlot>
+        </Input>
+      </div>
+    );
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Clear handle" }));
+    const input = canvas.getByRole("textbox", { name: "Handle" });
+    await expect(input).toHaveValue("");
+    await expect(input).toHaveFocus();
+  },
+};
+
+/** A focusable slot keeps its own keyboard interaction inside the field. */
+export const InteractiveSlot: Story = {
   render: (args) => (
-    <div className="flex flex-col gap-3">
-      <Input {...args} aria-label="Search" placeholder="Search">
-        <InputSlot>
-          <IconSearch aria-hidden />
-        </InputSlot>
-        <InputSlot side="right">⌘K</InputSlot>
-      </Input>
-      <Input {...args} aria-label="Handle" defaultValue="ada">
-        <InputSlot>
-          <IconAt aria-hidden />
-        </InputSlot>
-        <InputSlot side="right">
-          <IconButton aria-label="Clear" size="sm" variant="ghost" color="gray">
-            <IconX />
-          </IconButton>
-        </InputSlot>
-      </Input>
-      <Input {...args} aria-label="Width" defaultValue="320">
-        <InputSlot side="right">px</InputSlot>
-      </Input>
-    </div>
+    <Input {...args} aria-label="Distance" defaultValue="20">
+      <InputSlot side="right">
+        <select aria-label="Unit" defaultValue="px">
+          <option>px</option>
+          <option>em</option>
+        </select>
+      </InputSlot>
+    </Input>
   ),
+  play: async ({ canvas, userEvent }) => {
+    const unit = canvas.getByRole("combobox", { name: "Unit" });
+    await userEvent.click(unit);
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => resolve()),
+    );
+    await expect(unit).toHaveFocus();
+    await userEvent.selectOptions(unit, "em");
+    await expect(unit).toHaveValue("em");
+  },
 };
 
 /** Empty, filled, invalid and disabled, in each variant. */

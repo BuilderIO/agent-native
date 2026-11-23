@@ -389,10 +389,13 @@ export async function resolveCredential(
  * Two distinct causes produce the same "the key is right there and it still
  * says it's missing" report:
  *
- *  - Non-interactive runs — integration/webhook deliveries, scheduled jobs,
- *    automations, and inbound A2A calls — resolve credentials as an owner
- *    identity rather than as the person who triggered them, so a teammate's
- *    Personal key is invisible to them even though the vault visibly holds it.
+ *  - The key exists only as teammates' Personal keys, which no one else's
+ *    run can read. The message names only that and the shared-key fix: who
+ *    reads the error (the run's own person, a job's other readers, a Slack
+ *    channel) and whether Settings lets a member save that key as Personal
+ *    are both unknown here, so "the integration did it" and "save your own"
+ *    are each wrong for some runs. The fix comes first, so a chat stop's
+ *    240-character headline keeps it for every key name.
  *  - The key is saved in a DIFFERENT organization the caller also belongs to.
  *    Credentials are per-organization, so gaining a second organization (or
  *    having `active-org-id` repointed at one) orphans every key synced under
@@ -438,11 +441,9 @@ export async function describeCredentialScopeGap(
   for (const key of keys) {
     if (await hasForeignPersonalCredentialInOrg(key, scopedCtx)) {
       return (
-        `A "${key}" key is saved in this workspace with Personal scope. ` +
-        `Personal keys are readable only by their own owner's signed-in sessions, ` +
-        `and this run resolves credentials as the owner identity behind the ` +
-        `integration, job, or automation — so it needs "${key}" saved with ` +
-        `Workspace or Organization scope instead.`
+        `Ask an organization owner or admin to save "${key}" with ` +
+        `Workspace or Organization scope. This workspace has it only as a ` +
+        `Personal key, which works only for the member who saved it.`
       );
     }
 

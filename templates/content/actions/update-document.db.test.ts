@@ -2639,6 +2639,101 @@ describe("update-document compare-and-swap", () => {
     );
   });
 
+  it("keeps alt text the user typed after a quiet alt text request started", async () => {
+    const setImageAltText = (await import("./set-image-alt-text.js")).default;
+    const content = [
+      "![](/uploads/twice.png)",
+      "![Typed \\] by hand](/uploads/twice.png)",
+      '<img src="/uploads/html.png" alt="Mine &amp; theirs" />',
+    ].join("\n\n");
+    const documentId = await createDocument({ content });
+    const set = (args: {
+      imageUrl: string;
+      imageOccurrence?: number;
+      expectedAltText: string;
+    }) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        setImageAltText.run(
+          { documentId, altText: "A bar chart", ...args },
+          { caller: "mcp", userEmail: OWNER },
+        ),
+      );
+
+    await expect(
+      set({
+        imageUrl: "/uploads/twice.png",
+        imageOccurrence: 1,
+        expectedAltText: "",
+      }),
+    ).resolves.toMatchObject({
+      altTextUpdated: false,
+      keptCurrentAltText: true,
+    });
+    await expect(
+      set({ imageUrl: "/uploads/html.png", expectedAltText: "" }),
+    ).resolves.toMatchObject({ altTextUpdated: false });
+    await expect(
+      set({ imageUrl: "/uploads/html.png", expectedAltText: "Mine & theirs " }),
+    ).resolves.toMatchObject({ altTextUpdated: false });
+    expect((await documentRow(documentId)).content).toBe(content);
+
+    await expect(
+      set({ imageUrl: "/uploads/html.png", expectedAltText: "Mine & theirs" }),
+    ).resolves.toMatchObject({ altTextUpdated: true });
+    await expect(
+      set({
+        imageUrl: "/uploads/twice.png",
+        imageOccurrence: 0,
+        expectedAltText: "",
+      }),
+    ).resolves.toMatchObject({ altTextUpdated: true });
+    expect((await documentRow(documentId)).content).toBe(
+      [
+        "![A bar chart](/uploads/twice.png)",
+        "![Typed \\] by hand](/uploads/twice.png)",
+        '<img src="/uploads/html.png" alt="A bar chart" />',
+      ].join("\n\n"),
+    );
+  });
+
+  it("reads and writes alt text the way the editor saves it", async () => {
+    const setImageAltText = (await import("./set-image-alt-text.js")).default;
+    const documentId = await createDocument({
+      content: [
+        "![A \\*red\\* bird on a \\[draft\\] page](/uploads/escaped.png)",
+        `<img src="/uploads/sized.png" alt="Alice's cat" width="320" />`,
+      ].join("\n\n"),
+    });
+    const set = (imageUrl: string, expectedAltText: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        setImageAltText.run(
+          {
+            documentId,
+            imageUrl,
+            altText: "Costs $1 *each*_now",
+            expectedAltText,
+          },
+          { caller: "mcp", userEmail: OWNER },
+        ),
+      );
+
+    await expect(
+      set("/uploads/escaped.png", "A *red* bird on a [draft] page"),
+    ).resolves.toMatchObject({ altTextUpdated: true });
+    await expect(set("/uploads/sized.png", "Alice")).resolves.toMatchObject({
+      altTextUpdated: false,
+    });
+    await expect(
+      set("/uploads/sized.png", "Alice's cat"),
+    ).resolves.toMatchObject({ altTextUpdated: true });
+    expect((await documentRow(documentId)).content).toBe(
+      [
+        "![Costs $1 \\*each\\*\\_now](/uploads/escaped.png)",
+        '<img src="/uploads/sized.png" alt="Costs $1 *each*_now" width="320" />',
+      ].join("\n\n"),
+    );
+  });
+
   it("uses a canonical Files database rename as the workspace name", async () => {
     const { provisionContentSpaces, systemIdsForContentSpace } =
       await import("./_content-spaces.js");

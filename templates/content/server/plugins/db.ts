@@ -1801,6 +1801,45 @@ export const runContentMigrations = runMigrations(
       name: "content-comment-attachments",
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS attachments_json TEXT`,
     },
+    {
+      version: 142,
+      name: "content-database-builder-autosaves",
+      sql: `CREATE TABLE IF NOT EXISTS content_database_builder_autosaves (
+        id TEXT PRIMARY KEY,
+        source_id TEXT NOT NULL,
+        database_item_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        state TEXT NOT NULL DEFAULT 'idle',
+        reason TEXT,
+        last_error TEXT,
+        attempt_id TEXT,
+        saved_edit_at TEXT,
+        last_saved_at TEXT,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_database_builder_autosaves_source_item_unique
+        ON content_database_builder_autosaves (source_id, database_item_id)`,
+    },
+    {
+      version: 143,
+      name: "content-database-builder-autosave-claimed-edit",
+      sql: `ALTER TABLE content_database_builder_autosaves ADD COLUMN IF NOT EXISTS claimed_edit_at TEXT`,
+    },
+    {
+      version: 144,
+      name: "content-analytics-chart-citations",
+      sql: `CREATE TABLE IF NOT EXISTS content_analytics_chart_citations (
+        document_id TEXT NOT NULL,
+        dashboard_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_analytics_chart_citation_unique
+        ON content_analytics_chart_citations (document_id, dashboard_id);
+      CREATE INDEX IF NOT EXISTS content_analytics_chart_citation_dashboard_idx
+        ON content_analytics_chart_citations (dashboard_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

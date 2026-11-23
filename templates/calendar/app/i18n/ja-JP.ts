@@ -151,6 +151,10 @@ export default {
     googleCalendarSettings: "Google Calendar 設定",
     hideCalendar: "カレンダーを非表示",
     myCalendars: "マイカレンダー",
+    calendarDescription: "説明",
+    calendarDescriptionPlaceholder: "このカレンダーの用途は？",
+    calendarDescriptionHint:
+      "エージェントはこれを読んで適切なカレンダーを選びます。",
     feedsGroup: "フィード",
     managePeerAvailability: "共有の空き時間を管理",
     nextYear: "翌年",
@@ -554,6 +558,15 @@ export default {
     connectZoom: "Zoomを接続する",
     copyBookingLink: "予約リンクをコピーする",
     copyLink: "リンクをコピー",
+    copySingleUseLink: "1回限りのリンクをコピー",
+    singleUseLinkCopied:
+      "1回限りのリンクをコピーしました。予約は1件だけできます。",
+    singleUseLinkReady: "1回限りのリンクを作成しました",
+    singleUseLinkCreateFailed: "1回限りのリンクを作成できませんでした",
+    singleUseLinkUsed: "このリンクはすでに使用されています",
+    singleUseLinkInvalid: "このリンクは無効になりました",
+    singleUseLinkAskForNew:
+      "このリンクは1件の予約専用でした。送信者に新しいリンクを依頼してください。",
     createFirstLink: "最初のリンクを作成する",
     createLink: "リンクの作成",
     custom: "カスタム",

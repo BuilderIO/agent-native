@@ -538,6 +538,9 @@ export const PENDING_COMMENT_LAYOUT_ID = "pending-comment";
 const PENDING_COMMENT_CARD_ESTIMATE = 112;
 /** How much of a new entry must show in a capped card to count as in view. */
 const NEW_ENTRY_MIN_VISIBLE = 64;
+const CAPPED_THREAD_BODY_HEIGHT = 384;
+const THREAD_CARD_VIEWPORT_MARGIN = 16;
+const THREAD_BODY_ROOM_SETTLE_MS = 120;
 /** An open stack's Collapse row, laid out like a card above its threads. */
 const STACK_HEADER_LAYOUT_ID = "comment-stack-header";
 const STACK_HEADER_HEIGHT = 28;
@@ -909,6 +912,21 @@ export function useCommentReplyDrafts(
     end?: number;
     direction?: "forward" | "backward" | "none";
   } | null>(null);
+  useEffect(() => {
+    const saved = focus.current;
+    if (
+      saved &&
+      saved.documentId !== documentId &&
+      !draftStore.drafts
+        .get(`reply:${saved.documentId}:${saved.threadId}`)
+        ?.text.trim()
+    )
+      focus.current = null;
+  }, [documentId]);
+  const linkedThread = useRef<string | null>(null);
+  const markLinkedThread = useCallback((threadId: string) => {
+    linkedThread.current = threadId;
+  }, []);
   const setOpenReply = useCallback(
     (
       threadId: string | null,
@@ -954,6 +972,8 @@ export function useCommentReplyDrafts(
     openReply: openReplies[documentId],
     setOpenReply,
     focus,
+    linkedThread,
+    markLinkedThread,
     get: (threadId: string) =>
       draftStore.drafts.get(`reply:${documentId}:${threadId}`) ?? {
         text: "",
@@ -1216,6 +1236,7 @@ interface CommentsSidebarOptions {
     /** Decide just these, as one review unit, not all that's pending by then. */
     exactMembers?: boolean,
   ) => void | Promise<void>;
+  onStepThreadSuggestion?: (threadId: string, suggestionId: string) => void;
   visibleThreadId?: string | null;
   presentation?: "inline" | "history";
   /** Card treatment: margin rail, anchored popover, or the comments panel. */
@@ -1312,6 +1333,7 @@ export function CommentsSidebar({
   decidingSuggestion = () => false,
   onDecideSuggestion,
   onDecideSuggestionProposal,
+  onStepThreadSuggestion,
   visibleThreadId,
   presentation = "inline",
   surface: surfaceProp,
@@ -1518,9 +1540,6 @@ export function CommentsSidebar({
       ),
     [threadSuggestions],
   );
-  // A suggestion whose text is gone has nothing to point at in the margin; it
-  // stays reviewable in the comments panel. Under a Property, only its own
-  // threads show: a suggested edit to the Page's text isn't about it.
   const inlineSuggestions = useMemo(
     () =>
       underSubject
@@ -1529,17 +1548,13 @@ export function CommentsSidebar({
             (suggestion) =>
               suggestion.status === "pending" &&
               !embeddedSuggestionIds.has(suggestion.id) &&
-              (alignToAnchors || suggestion.id === activeSuggestionId) &&
-              (suggestion.id === activeSuggestionId ||
-                !anchoredSuggestionIds ||
-                anchoredSuggestionIds.includes(suggestion.id)),
+              (alignToAnchors || suggestion.id === activeSuggestionId),
           ),
     [
       suggestions,
       underSubject,
       alignToAnchors,
       activeSuggestionId,
-      anchoredSuggestionIds,
       embeddedSuggestionIds,
     ],
   );
@@ -1633,13 +1648,24 @@ export function CommentsSidebar({
     openThreads.some((thread) => thread.threadId === selectedThreadId);
 
   useLayoutEffect(() => {
+    const linked = replyDrafts.linkedThread.current;
+    if (linked && linked !== selectedThreadId)
+      replyDrafts.linkedThread.current = null;
     if (
       presentation === "inline" &&
       canComment &&
+      selectedThreadId &&
       selectedThreadIsOpen &&
       selectedThreadId !== replyingThreadId
-    )
-      setReplyingThreadId(selectedThreadId);
+    ) {
+      if (linked === selectedThreadId) replyDrafts.linkedThread.current = null;
+      setReplyingThreadId(
+        selectedThreadId,
+        null,
+        linked !== selectedThreadId ||
+          !!replyDrafts.get(selectedThreadId).text.trim(),
+      );
+    }
   }, [canComment, presentation, selectedThreadId, selectedThreadIsOpen]);
 
   // In the margin, a block with two or more open threads folds into one
@@ -2917,69 +2943,6 @@ export function CommentsSidebar({
     );
   };
 
-  // Accept and resolve resolves only once its accepts land: a thread resolved
-  // first would send its still-pending edits out to cards of their own. While
-  // a decision is in flight its edits already show the status it asked for,
-  // so only a finished decision tells whether the accept landed.
-  const [resolveOnAccept, setResolveOnAccept] = useState<
-    ReadonlyMap<string, readonly string[]>
-  >(() => new Map());
-  const settledResolveOnAccept = [...resolveOnAccept]
-    .filter(([, requested]) =>
-      suggestions.every(
-        (suggestion) =>
-          !requested.includes(suggestion.id) || !suggestionBusy(suggestion),
-      ),
-    )
-    .map(([threadId]) => threadId)
-    .join(" ");
-  // No hook may follow the empty-sidebar return, and the resolve handler is
-  // defined below it, so it reaches this effect through a ref.
-  const resolveAcceptedRef = useRef<((thread: CommentThread) => void) | null>(
-    null,
-  );
-  useEffect(() => {
-    if (!settledResolveOnAccept) return;
-    const settled = settledResolveOnAccept.split(" ");
-    setResolveOnAccept((current) => {
-      const next = new Map(current);
-      for (const threadId of settled) next.delete(threadId);
-      return next;
-    });
-    for (const threadId of settled) {
-      const thread = threads.find((item) => item.threadId === threadId);
-      const requested = resolveOnAccept.get(threadId) ?? [];
-      // A failed or refused accept leaves an edit pending, and an edit can
-      // also end rejected or withdrawn; the thread then stays open. So does
-      // an edit its AI made while the accept was in flight, loaded or still
-      // loading.
-      const undecided =
-        (threadSuggestions.get(threadId) ?? []).some(
-          (suggestion) => suggestion.status === "pending",
-        ) ||
-        Boolean(
-          commentAi &&
-          loadingThreadSuggestionIds(
-            commentAi.requests,
-            threadId,
-            awaitedSuggestionIds,
-          ).length > 0,
-        );
-      if (
-        thread &&
-        !thread.resolved &&
-        requested.every((id) =>
-          suggestions.some(
-            (suggestion) =>
-              suggestion.id === id && suggestion.status === "accepted",
-          ),
-        ) &&
-        !undecided
-      )
-        resolveAcceptedRef.current?.(thread);
-    }
-  }, [settledResolveOnAccept]);
-
   const hasContent =
     presentation === "history"
       ? threads.length > 0 ||
@@ -3215,7 +3178,6 @@ export function CommentsSidebar({
   const handleResolve = (thread: CommentThread) => {
     void changeResolution(thread, true);
   };
-  resolveAcceptedRef.current = handleResolve;
 
   const handleReopen = (thread: CommentThread) => {
     void changeResolution(thread, false);
@@ -3299,16 +3261,15 @@ export function CommentsSidebar({
           awaitedSuggestionIds,
         )
       : [];
+    const decidedGroups = [...receipts.values(), ...receiptless].filter(
+      (members) =>
+        members.some(
+          ({ status }) => status === "accepted" || status === "rejected",
+        ),
+    );
+    const resolvingGroup = decidedGroups[decidedGroups.length - 1];
     const suggestionProps = (members: ResourceSuggestion[]) => {
       const proposalId = members.length > 1 ? members[0]?.proposalId : null;
-      const pendingMembers = suggestions.filter(
-        (suggestion) =>
-          members.some((member) => member.id === suggestion.id) &&
-          suggestion.status === "pending",
-      );
-      // Resolving takes the thread's other pending edits out of it, so only
-      // the last group with any left offers to resolve, and none while an
-      // edit is still loading.
       const pendingElsewhere =
         loadingSuggestionIds.length > 0 ||
         embedded.some(
@@ -3345,30 +3306,23 @@ export function CommentsSidebar({
                   ),
                 )
             : undefined,
-        onAcceptAndResolve:
-          !thread.resolved && threadCanResolve(thread) && !pendingElsewhere
-            ? () => {
-                const requested =
-                  proposalId && onDecideSuggestionProposal
-                    ? suggestions.filter(
-                        (suggestion) =>
-                          suggestion.proposalId === proposalId &&
-                          suggestion.status === "pending",
-                      )
-                    : pendingMembers;
-                setResolveOnAccept((current) =>
-                  new Map(current).set(
-                    thread.threadId,
-                    requested.map(({ id }) => id),
-                  ),
-                );
-                if (proposalId && onDecideSuggestionProposal)
-                  onDecideSuggestionProposal(proposalId, "accepted", requested);
-                else
-                  for (const member of requested)
-                    onDecideSuggestion?.(member, "accepted");
-              }
+        onResolve:
+          members === resolvingGroup &&
+          !thread.resolved &&
+          threadCanResolve(thread) &&
+          !pendingElsewhere &&
+          !members.some(suggestionBusy)
+            ? () => handleResolve(thread)
             : undefined,
+        onStep: (suggestion: ResourceSuggestion) => {
+          if (selectedThreadId !== thread.threadId) {
+            onActivateThread?.(thread.threadId);
+            if (presentation === "inline" && threadCanComment(thread))
+              setReplyingThreadId(thread.threadId, null, false);
+          }
+          onStepThreadSuggestion?.(thread.threadId, suggestion.id);
+        },
+        stickyDecision: surface !== "panel",
       };
     };
     const showsRequestSuggestion =
@@ -3509,6 +3463,12 @@ export function CommentsSidebar({
         thread={thread}
         marginTop={marginTop}
         isActive={isActive}
+        pendingSuggestionGroups={[...receipts.values(), ...receiptless]
+          .filter((members) =>
+            members.some((suggestion) => suggestion.status === "pending"),
+          )
+          .map((members) => members[0]?.id)
+          .join(" ")}
         canExpand={threadCanComment(thread) || !!thread.clip}
         isExpanded={replyingThreadId === thread.threadId}
         isSubmitting={
@@ -5097,6 +5057,177 @@ function SuggestionThreadView({
   );
 }
 
+function useThreadBodyRoomInViewport(
+  enabled: boolean,
+  cardRef: RefObject<HTMLDivElement | null>,
+  bodyRef: RefObject<HTMLDivElement | null>,
+) {
+  const [room, setRoom] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    const body = bodyRef.current;
+    if (!enabled || !card || !body) {
+      setRoom(null);
+      return;
+    }
+    const measure = () => {
+      const bodyBox = body.getBoundingClientRect();
+      const cardBelowBody =
+        card.getBoundingClientRect().bottom - bodyBox.bottom;
+      const viewportBottom = document.documentElement.clientHeight;
+      setRoom(
+        Math.max(
+          CAPPED_THREAD_BODY_HEIGHT,
+          Math.floor(
+            viewportBottom -
+              bodyBox.top -
+              cardBelowBody -
+              THREAD_CARD_VIEWPORT_MARGIN,
+          ),
+        ),
+      );
+    };
+    measure();
+    let settleTimer = 0;
+    const measureOnceSettled = (event: Event) => {
+      if (event.target instanceof Node && card.contains(event.target)) return;
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(measure, THREAD_BODY_ROOM_SETTLE_MS);
+    };
+    window.addEventListener("resize", measureOnceSettled);
+    window.addEventListener("scroll", measureOnceSettled, {
+      capture: true,
+      passive: true,
+    });
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measure);
+    observer?.observe(card);
+    return () => {
+      window.clearTimeout(settleTimer);
+      window.removeEventListener("resize", measureOnceSettled);
+      window.removeEventListener("scroll", measureOnceSettled, {
+        capture: true,
+      });
+      observer?.disconnect();
+    };
+  }, [enabled]);
+  return room;
+}
+
+const READER_SCROLL_INTENT_EVENTS = [
+  "wheel",
+  "touchstart",
+  "pointerdown",
+  "keydown",
+] as const;
+
+function bringEntryStartIntoView(
+  body: HTMLElement,
+  entryId: string,
+  behavior: "smooth" | "instant",
+) {
+  if (body.scrollHeight <= body.clientHeight) return;
+  const entry = body.querySelector<HTMLElement>(
+    `[data-comment-entry="${cssEscape(entryId)}"]`,
+  );
+  if (!entry) return;
+  const entryTop =
+    entry.getBoundingClientRect().top - body.getBoundingClientRect().top;
+  if (entryTop >= 0 && entryTop <= body.clientHeight - NEW_ENTRY_MIN_VISIBLE)
+    return;
+  const padding = Number.parseFloat(getComputedStyle(body).paddingTop) || 0;
+  const top = body.scrollTop + entryTop - padding;
+  if (behavior === "instant") body.scrollTop = top;
+  else body.scrollTo({ top, behavior });
+}
+
+function revealLastPendingSuggestionGroup(body: HTMLElement) {
+  const decision = [
+    ...body.querySelectorAll("[data-suggestion-group-decision]"),
+  ].pop();
+  const group = decision?.previousElementSibling;
+  if (!decision || !group) return;
+  const groupBox = group.getBoundingClientRect();
+  const hiddenUnderDecision =
+    groupBox.bottom - decision.getBoundingClientRect().top;
+  const scrollableAboveGroup = groupBox.top - body.getBoundingClientRect().top;
+  body.scrollTop += Math.max(
+    0,
+    Math.min(hiddenUnderDecision, scrollableAboveGroup),
+  );
+}
+
+function useRevealThreadArrivals({
+  bodyRef,
+  open,
+  revealsPendingGroup,
+  room,
+  entryCount,
+  latestEntryId,
+  pendingSuggestionGroups,
+}: {
+  bodyRef: RefObject<HTMLDivElement | null>;
+  open: boolean;
+  revealsPendingGroup: boolean;
+  room: number | null;
+  entryCount: number;
+  latestEntryId: string | undefined;
+  pendingSuggestionGroups: string;
+}) {
+  const readerTookOver = useRef(false);
+  const seen = useRef({ entryCount, open });
+  const arrivedEntryId = useRef<string | null>(null);
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const stopRevealing = () => {
+      readerTookOver.current = true;
+    };
+    for (const type of READER_SCROLL_INTENT_EVENTS) {
+      body.addEventListener(type, stopRevealing, { passive: true });
+    }
+    return () => {
+      for (const type of READER_SCROLL_INTENT_EVENTS) {
+        body.removeEventListener(type, stopRevealing);
+      }
+    };
+  }, [bodyRef]);
+  useLayoutEffect(() => {
+    const entryArrived = entryCount > seen.current.entryCount;
+    const opened = open && !seen.current.open;
+    seen.current = { entryCount, open };
+    if (entryArrived || opened) {
+      readerTookOver.current = false;
+      arrivedEntryId.current = entryArrived ? (latestEntryId ?? null) : null;
+    }
+    const body = bodyRef.current;
+    if (!body || readerTookOver.current) {
+      arrivedEntryId.current = null;
+      return;
+    }
+    if (revealsPendingGroup && room === null) return;
+    const entryId = arrivedEntryId.current;
+    arrivedEntryId.current = null;
+    if (entryId)
+      bringEntryStartIntoView(
+        body,
+        entryId,
+        revealsPendingGroup ? "instant" : "smooth",
+      );
+    if (revealsPendingGroup) revealLastPendingSuggestionGroup(body);
+  }, [
+    bodyRef,
+    entryCount,
+    latestEntryId,
+    open,
+    revealsPendingGroup,
+    room,
+    pendingSuggestionGroups,
+  ]);
+}
+
 function ThreadView({
   renderEntry,
   surface = "rail",
@@ -5115,6 +5246,7 @@ function ThreadView({
   thread,
   marginTop,
   isActive,
+  pendingSuggestionGroups = "",
   canExpand,
   isExpanded,
   isSubmitting,
@@ -5182,6 +5314,7 @@ function ThreadView({
   };
   marginTop: number;
   isActive: boolean;
+  pendingSuggestionGroups?: string;
   canExpand: boolean;
   isExpanded: boolean;
   isSubmitting: boolean;
@@ -5224,40 +5357,12 @@ function ThreadView({
   const cardRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const replyBoxRef = useRef<HTMLDivElement>(null);
-  const seenEntryCount = useRef(thread.comments.length);
   const leftAlone = useLeftAloneCountdown({
     ref: cardRef,
     enabled: collapsesWhenLeftAlone,
     holdMs: AI_RESULT_LEFT_ALONE_MS,
     onGone: onCollapse,
   });
-
-  // A capped card hides what arrives below the fold, such as the AI's revised
-  // suggestion after a follow-up, so bring a new entry into view from its
-  // start: a long suggestion opens on its reason, not its last edit.
-  useEffect(() => {
-    const added = thread.comments.length > seenEntryCount.current;
-    seenEntryCount.current = thread.comments.length;
-    const body = bodyRef.current;
-    const latest = thread.comments.slice(-1).pop();
-    if (!added || !body || !latest || body.scrollHeight <= body.clientHeight)
-      return;
-    const entry = body.querySelector<HTMLElement>(
-      `[data-comment-entry="${cssEscape(latest.id)}"]`,
-    );
-    if (!entry) return;
-    const entryTop =
-      entry.getBoundingClientRect().top - body.getBoundingClientRect().top;
-    // Its start already shows, under the comment that asked for it: leave
-    // the reader where they are.
-    if (entryTop >= 0 && entryTop <= body.clientHeight - NEW_ENTRY_MIN_VISIBLE)
-      return;
-    const padding = Number.parseFloat(getComputedStyle(body).paddingTop) || 0;
-    body.scrollTo({
-      top: body.scrollTop + entryTop - padding,
-      behavior: "smooth",
-    });
-  }, [thread.comments.length]);
 
   useEffect(() => {
     if (isExpanded && canComment && replyDrafts) {
@@ -5296,6 +5401,23 @@ function ThreadView({
   const timestamp = useCommentTimestamp();
   const isRail = surface === "rail";
   const isPanel = surface === "panel";
+  const bodyFitsSuggestionReview =
+    !isPanel && !!pendingSuggestionGroups && (isExpanded || isActive);
+  const railBodyFitsSuggestionReview = bodyFitsSuggestionReview && isRail;
+  const railBodyRoom = useThreadBodyRoomInViewport(
+    railBodyFitsSuggestionReview,
+    cardRef,
+    bodyRef,
+  );
+  useRevealThreadArrivals({
+    bodyRef,
+    open: isExpanded || isActive,
+    revealsPendingGroup: railBodyFitsSuggestionReview,
+    room: railBodyRoom,
+    entryCount: thread.comments.length,
+    latestEntryId: thread.comments[thread.comments.length - 1]?.id,
+    pendingSuggestionGroups,
+  });
 
   // A reply box opening low in Discussion comes fully into view, its Send
   // included; one already in view stays where it is.
@@ -5498,8 +5620,10 @@ function ThreadView({
             ? "px-4 py-3.5"
             : // Scrolling past either end of a long thread stays in the card
               // instead of moving the page behind it.
-              "max-h-96 min-h-0 overflow-y-auto overscroll-y-contain px-4 pb-3.5 pt-3.5",
+              "min-h-0 overflow-y-auto overscroll-y-contain px-4 pb-3.5 pt-3.5",
+          !isPanel && (isRail || !bodyFitsSuggestionReview) && "max-h-96",
         )}
+        style={railBodyRoom === null ? undefined : { maxHeight: railBodyRoom }}
         data-comment-thread-body
       >
         {subject}

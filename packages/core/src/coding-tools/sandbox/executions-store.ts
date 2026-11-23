@@ -111,6 +111,8 @@ export interface FinalizeSandboxExecutionInput {
   status: Extract<SandboxExecutionStatus, "succeeded" | "failed" | "timed_out">;
   stdout?: string;
   stderr?: string;
+  /** The evaluator already dropped stdout past the execution's cap. */
+  stdoutTruncated?: boolean;
   exitCode?: number | null;
   timedOut?: boolean;
   error?: string | null;
@@ -118,7 +120,7 @@ export interface FinalizeSandboxExecutionInput {
 }
 
 export const SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS = 2;
-export const SANDBOX_EXECUTION_MAX_STORED_OUTPUT_CHARS = 200_000;
+export const SANDBOX_EXECUTION_MAX_STORED_OUTPUT_CHARS = 5 * 1024 * 1024;
 
 const TABLE = "sandbox_executions";
 
@@ -475,6 +477,7 @@ export async function finalizeSandboxExecution(
   if (!row) return false;
   const stdout = capOutput(input.stdout, row.maxOutputChars);
   const stderr = capOutput(input.stderr, row.maxOutputChars);
+  // raw-sql-ok: TABLE is this module's fixed table name; every value is a bound ? arg
   const result = await client.execute({
     sql: `UPDATE ${TABLE}
       SET status = ?,
@@ -494,7 +497,7 @@ export async function finalizeSandboxExecution(
       input.status,
       stdout.text,
       stderr.text,
-      stdout.truncated ? 1 : 0,
+      stdout.truncated || input.stdoutTruncated ? 1 : 0,
       stderr.truncated ? 1 : 0,
       input.exitCode ?? null,
       input.timedOut ? 1 : 0,
@@ -507,6 +510,25 @@ export async function finalizeSandboxExecution(
     ],
   });
   return (result.rowsAffected ?? 0) === 1;
+}
+
+/**
+ * Empty a finished execution's stored output once its caller has kept what it
+ * needed, so a large result isn't stored twice. A running execution is left
+ * alone.
+ */
+export async function discardSandboxExecutionOutput(
+  id: string,
+  now = Date.now(),
+): Promise<void> {
+  await ensureTable();
+  // raw-sql-ok: TABLE is this module's fixed table name; every value is a bound ? arg
+  await getDbExec().execute({
+    sql: `UPDATE ${TABLE}
+      SET stdout = '', stderr = '', updated_at = ?
+      WHERE id = ? AND status IN ('succeeded', 'failed', 'timed_out')`,
+    args: [now, id],
+  });
 }
 
 export async function failExpiredSandboxExecution(

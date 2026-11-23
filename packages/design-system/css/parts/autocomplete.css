@@ -57,7 +57,12 @@
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
-    min-width: max(128px, var(--anchor-width, 0px));
+    min-width: min(
+      max(128px, var(--anchor-width, 0px)),
+      var(--available-width, 100vi)
+    );
+    max-width: var(--available-width, 100vi);
+    overflow-wrap: anywhere;
     max-height: min(24rem, var(--available-height, 24rem));
     border: 0;
     border-radius: calc(var(--shape-popup) * var(--corner-scale, 1));
@@ -91,17 +96,17 @@
   :is(.autocomplete-popup, .combobox-popup)[data-side="top"] {
     --_slide-y: var(--space-2);
   }
-  :is(.autocomplete-popup, .combobox-popup):is(
-    [data-side="left"],
-    [data-side="inline-start"]
-  ) {
+  :is(.autocomplete-popup, .combobox-popup)[data-side="left"] {
     --_slide-x: var(--space-2);
   }
-  :is(.autocomplete-popup, .combobox-popup):is(
-    [data-side="right"],
-    [data-side="inline-end"]
-  ) {
+  :is(.autocomplete-popup, .combobox-popup)[data-side="right"] {
     --_slide-x: calc(var(--space-2) * -1);
+  }
+  :is(.autocomplete-popup, .combobox-popup)[data-side="inline-start"] {
+    --_slide-x: calc(var(--space-2) * var(--_inline-direction, 1));
+  }
+  :is(.autocomplete-popup, .combobox-popup)[data-side="inline-end"] {
+    --_slide-x: calc(var(--space-2) * var(--_inline-direction, 1) * -1);
   }
 
   :is(.autocomplete-popup, .combobox-popup)[data-starting-style] {
@@ -110,9 +115,10 @@
     translate: var(--_slide-x) var(--_slide-y);
   }
 
+  /* Base UI 1.9 keeps focus guards mounted for the exit transition. */
   :is(.autocomplete-popup, .combobox-popup)[data-ending-style] {
     opacity: 0;
-    scale: 0.95;
+    transition: none;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -126,8 +132,8 @@
   :is(
     .autocomplete-popup,
     .combobox-popup,
-    .autocomplete-list,
-    .combobox-list
+    .autocomplete-list[data-size],
+    .combobox-list[data-size]
   ) {
     --control-font-size: var(--control-font-size-3);
     --control-line-height: var(--control-line-height-3);
@@ -277,5 +283,18 @@
     height: 1px;
     margin: var(--space-1) calc(var(--space-1) * -1);
     background-color: var(--line-subtle);
+  }
+
+  @media (forced-colors: active) {
+    :is(.autocomplete-popup, .combobox-popup) {
+      border: 1px solid ButtonText;
+    }
+
+    :is(.autocomplete-item, .combobox-item)[data-highlighted]:not(
+        [data-disabled]
+      ) {
+      outline: 1px solid Highlight;
+      outline-offset: -1px;
+    }
   }
 }

@@ -1212,6 +1212,10 @@ export default {
     loading: "載入中",
     flagsUnavailable: "功能旗標無法使用",
     flagsUnreachable: "無法連線到工作區目錄。連線可用後請重試。",
+    verifiedFlagChangeOrg:
+      "已於 {{time}} 驗證：{{app}} 中的 {{flag}} 已為此組織設定為 {{availability}}。",
+    verifiedFlagChangeGlobal:
+      "已於 {{time}} 驗證：{{app}} 中的 {{flag}} 已為所有組織設定為 {{availability}}。",
     flagsEmpty: "沒有應用程式回報功能旗標",
     flagsEmptyDetail: "連線的應用程式準備就緒後，已註冊旗標會顯示在這裡。",
     flagsNotReady: "此應用程式為 {{status}}，不會假定旗標已關閉。",
@@ -2191,6 +2195,14 @@ export default {
     addedBy: "新增者：{{email}}",
     more: "另外 {{count}} 則",
     flagLabel: "資料備註",
+  },
+  citedIn: {
+    menu: "引用位置",
+    menuTooltip: "包含此儀表板圖表的 Content 頁面",
+    empty: "還沒有你能開啟的 Content 頁面包含此儀表板的圖表",
+    unavailable: "無法連線到 Content。請一分鐘後再試一次。",
+    untitledPage: "未命名",
+    more: "Content 只檢查了最近編輯的頁面，因此可能還有更多。",
   },
   annotations: {
     menu: "標註",

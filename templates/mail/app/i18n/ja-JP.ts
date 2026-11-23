@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "自分へのメモ",
     },
     inbox: {
-      atLeastCount: "少なくとも{{count}}",
+      conversationsCount: "会話: {{count}}件",
+      conversationsAtLeastCount: "会話: {{count}}件以上",
+      unreadCount: "未読の会話: {{count}}件",
+      draftsToReviewCount: "確認待ちの下書き: {{count}}件",
       syncing: "受信トレイを同期中…",
     },
     sort: {
@@ -149,8 +152,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "サイドバーを固定",
-      unpinSidebar: "サイドバーの固定を解除",
       closeSidebar: "サイドバーを閉じる",
       settings: "設定",
       aiSettings: "タグとルールを管理",
@@ -169,7 +170,7 @@ const messages = {
       filtersLimitReached: "保存できるフィルターは最大20件です。",
     },
     tabSettings: {
-      splitInbox: "受信トレイを分割",
+      splitInbox: "受信トレイをタブに分割",
       views: "ビュー",
       categories: "カテゴリ",
       rename: "名前を変更",
@@ -177,7 +178,7 @@ const messages = {
       savedFilters: "保存したフィルター",
       combinedInbox: "統合受信トレイ",
       allTab: "すべてタブ",
-      help: "統合受信トレイでは全アカウントをまとめて表示します。オフにするとタブに分かれます。",
+      help: "選んだビュー、ラベル、保存済みフィルタを受信トレイの個別のタブとして表示します。オフにすると、受信トレイのメールをすべて1つのタブで表示します。",
       aiSetup: "AI タグとルールを設定",
     },
     accounts: {
@@ -193,9 +194,19 @@ const messages = {
       markRead: "既読にする",
       markUnread: "未読にする",
       moveTo: "移動先",
+      labelAs: "ラベルを付ける",
+      newLabel: "新しいラベル…",
       moveToTrash: "ゴミ箱へ移動",
       star: "スターを付ける",
       unstar: "スターを外す",
+    },
+    labels: {
+      labelAsPlaceholder: "ラベルを付ける…",
+      moveToPlaceholder: "移動先…",
+      newLabelPlaceholder: "新しいラベルの名前",
+      create: "ラベル「{{name}}」を作成",
+      empty: "ラベルはまだありません。名前を入力すると作成できます。",
+      alreadyExists: "「{{name}}」はすでにあります。",
     },
     compose: {
       addImage: "画像を追加",
@@ -212,6 +223,10 @@ const messages = {
       contentPagesRetry: "再試行",
       contentPagesEmpty: "ページが見つかりません",
       contentFileMarkdown: "Markdown ファイル",
+      contentFilePdf: "PDF ファイル",
+      contentPageFormat: "ページの添付形式",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV ファイル",
       bold: "太字",
       cancel: "キャンセル",
@@ -462,6 +477,14 @@ const messages = {
       moveSucceeded: "「{{label}}」に移動しました。",
       moveManySucceeded:
         "{{count}} 件のスレッドを「{{label}}」に移動しました。",
+      labelSucceeded: "ラベル「{{label}}」を付けました。",
+      labelManySucceeded:
+        "{{count}} 件のスレッドにラベル「{{label}}」を付けました。",
+      labelPartialFailed:
+        "{{total}} 件中 {{succeeded}} 件にラベルを付けました（{{failed}} 件失敗）。",
+      labelFailed: "ラベルを付けられませんでした。",
+      labelCreated: "ラベル「{{label}}」を作成しました。",
+      createLabelFailed: "ラベルを作成できませんでした。",
       trashed: "ゴミ箱へ移動しました。",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "予約メールを送信しました。",
@@ -476,6 +499,12 @@ const messages = {
       scheduledCancelFailed: "予約メールのキャンセルに失敗しました",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Content のページを添付できませんでした",
+      contentPagePdfTextUnsupported:
+        "このページには、中国語、日本語、韓国語、アラビア語、ヘブライ語、ヒンディー語など、PDF でまだ表示できない文字が含まれています。代わりに Markdown として添付してください。",
+      contentPagePdfTooLong:
+        "このページは長すぎるか幅が広すぎるため、PDF として添付できません。代わりに Markdown として添付してください。",
+      contentPagePdfUnavailable:
+        "Content でこのページの PDF を作成できませんでした。代わりに Markdown として添付してください。",
       waitForAttachments: "添付ファイルの追加が終わってから送信してください。",
       failedToUploadImage: "画像のアップロードに失敗しました",
       storageBuilderRefused:

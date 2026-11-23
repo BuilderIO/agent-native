@@ -517,3 +517,8 @@ describe("list-model-providers", () => {
     expect(listing.providers.every((item) => item.org === null)).toBe(true);
   });
 });
+
+it("keeps list-model-providers in the app, off MCP", async () => {
+  const { default: action } = await import("./list-model-providers.js");
+  expect(action.mcpTool).toBe(false);
+});

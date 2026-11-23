@@ -14,6 +14,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { trackRecordingCreated } from "../../server/lib/recording-created.js";
+import { recordingMadeBy } from "../../server/lib/recording-made-by.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -125,7 +126,9 @@ function playerDimensions(oembed: YouTubeOembed): {
  */
 export async function importYouTubeVideo(
   args: YouTubeImportArgs,
-  actionContext: Pick<ActionRunContext, "userEmail" | "caller"> | undefined,
+  actionContext:
+    | Pick<ActionRunContext, "userEmail" | "caller" | "mcpClient">
+    | undefined,
 ) {
   const videoId = extractYouTubeVideoId(args.url);
   if (!videoId) {
@@ -177,6 +180,7 @@ export async function importYouTubeVideo(
     title,
     titleSource: args.title ? "manual" : "upload",
     recordingPlatform: "import",
+    ...recordingMadeBy(actionContext),
     storageMode: null,
     failureCode: null,
     failureReason: null,

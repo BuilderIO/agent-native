@@ -31,6 +31,7 @@ export default defineAction({
       .min(0)
       .describe("End of the trim range in milliseconds (original time)"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     if (args.endMs <= args.startMs) {
       throw new Error("endMs must be greater than startMs");

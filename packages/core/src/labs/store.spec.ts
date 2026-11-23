@@ -183,6 +183,18 @@ describe("user labs", () => {
     expect(mocks.getOrgSetting).toHaveBeenCalledTimes(2);
   });
 
+  it("isolates transient legacy failures for ordinary lab callers", async () => {
+    registerLabs([{ key: "clips.resilient", legacyFlagKeys: ["capture"] }]);
+    mocks.getUserSetting.mockResolvedValue(null);
+    mocks.getSetting.mockRejectedValue(
+      Object.assign(new Error("Database unavailable"), {
+        code: "CONNECT_TIMEOUT",
+      }),
+    );
+    const states = await getUserLabStates("alice@example.com");
+    expect(states["clips.resilient"]).toEqual({ error: "legacy-unavailable" });
+  });
+
   it("surfaces unreadable preferences instead of substituting legacy state", async () => {
     registerLabs([{ key: "design.builder", legacyFlagKeys: ["builder"] }]);
     mocks.getUserSetting.mockRejectedValue(new Error("storage unavailable"));

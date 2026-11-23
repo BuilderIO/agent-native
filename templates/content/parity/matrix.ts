@@ -285,6 +285,7 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/DocumentDatabase.tsx",
       "app/components/editor/extensions/ImageBlock.tsx",
       "app/components/editor/SlashCommandMenu.tsx",
+      "app/components/editor/BlockActionsMenu.tsx",
     ],
     durableEffect:
       "Document content, title, icon, image metadata, and text replacements are saved to the same document source.",
@@ -293,6 +294,7 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "adopt-document-snapshot",
+      "append-to-document",
       "convert-page-to-live-copy-if-due",
       "edit-document",
       "get-document-save-attempt",
@@ -307,7 +309,7 @@ export const parityMatrix: ParityRow[] = [
       "update-document",
     ],
     exception:
-      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open are browser-only editor support actions hidden from agent tools with agentTool: false.",
+      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open, and the block menu's Move to, which adds a block to the end of another page before the editor removes it, are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -315,6 +317,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/content-database-lifecycle.db.test.ts",
       "actions/update-document.db.test.ts",
+      "actions/append-to-document.db.test.ts",
       "actions/_local-file-documents.test.ts",
       "actions/record-editor-merge.test.ts",
       "actions/record-editor-mount.test.ts",
@@ -484,15 +487,16 @@ export const parityMatrix: ParityRow[] = [
       "app/routes/p.$id.tsx",
     ],
     durableEffect:
-      "The page body stores an AnalyticsChart tag holding the panel's numbers as Analytics ran them for the editor who added or refreshed it, plus the dashboard's sharing at that moment. Readers see only those numbers; Content never queries a data source.",
+      "The page body stores an AnalyticsChart tag holding the panel's numbers as Analytics ran them for the editor who added or refreshed it, plus the dashboard's sharing at that moment. Readers see only those numbers; Content never queries a data source. A citation row per page and dashboard lets the dashboard list the pages that hold its charts.",
     uiImplementation:
-      "Pasting a panel link reads where Analytics lives through get-analytics-links, then capture-analytics-chart checks edit access and has Analytics run the panel as the editor; the editor confirms first when more people can open the page than the dashboard. Refresh calls capture-analytics-chart again and replaces the block's data. get-analytics-chart-status reads each dashboard's sharing and panel fingerprints for the editor's changed mark. Sharing a page with charts from narrower dashboards asks first; making it public also weighs the charts in the sub-pages that go public with it, read through list-sub-page-analytics-charts. A table never goes wider than its dashboard, in the page or its sub-pages. Agents call capture-analytics-chart and write the returned tag with edit-document.",
+      "Pasting a panel link reads where Analytics lives through get-analytics-links, then capture-analytics-chart checks edit access and has Analytics run the panel as the editor; the editor confirms first when more people can open the page than the dashboard. Refresh calls capture-analytics-chart again and replaces the block's data. get-analytics-chart-status reads each dashboard's sharing and panel fingerprints for the editor's changed mark. Sharing a page with charts from narrower dashboards asks first; making it public also weighs the charts in the sub-pages that go public with it, read through list-sub-page-analytics-charts. A table never goes wider than its dashboard, in the page or its sub-pages. Every save of a page body records which dashboards its charts come from; Analytics' Cited in list reads list-analytics-chart-citations as the signed-in person, which keeps only pages they can open that still hold a chart from the dashboard. Agents call capture-analytics-chart and write the returned tag with edit-document.",
     status: "action-backed",
     actions: [
       "get-analytics-links",
       "capture-analytics-chart",
       "get-analytics-chart-status",
       "list-sub-page-analytics-charts",
+      "list-analytics-chart-citations",
     ],
     exception:
       "get-analytics-links, get-analytics-chart-status and list-sub-page-analytics-charts are hidden with agentTool: false because they serve the editor's paste handler, changed mark and share dialog; agents read the chart's numbers from the AnalyticsChart tag with get-document and refresh it with capture-analytics-chart.",
@@ -506,6 +510,43 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/analytics-chart/AnalyticsChartBlock.test.tsx",
       "app/components/editor/analytics-chart/analytics-chart-paste.test.ts",
       "app/components/editor/analytics-chart/analytics-chart-share.test.ts",
+      "actions/analytics-chart-citations.db.test.ts",
+    ],
+  },
+  {
+    id: "editor.design-screens",
+    surface: "editor",
+    label:
+      "Turn a pasted Design screen link into a pinned picture of the screen, refresh it, and see when the screen changed or has open comments",
+    uiEntrypoints: [
+      "app/components/editor/design-screen/design-screen-paste.ts",
+      "app/components/editor/design-screen/DesignScreenBlock.tsx",
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/routes/p.$id.tsx",
+    ],
+    durableEffect:
+      "The page body stores a DesignScreen tag naming the design and screen, the width and fingerprint it was captured at, the design's sharing at that moment, and who pinned it when. The picture Design rendered for that editor is kept as one of the page's private images, so it loads only for people who can open the page.",
+    uiImplementation:
+      "Pasting a screen link reads where Design lives through get-design-links, then capture-design-screen checks edit access, has Design render the screen as the editor, and keeps the picture with the page's private images; the editor confirms first when more people can open the page than the design, and a public page only takes screens from public designs. Refresh calls capture-design-screen again at the same width and replaces the block's data. get-design-screen-status reads the design's sharing, each screen's fingerprint and its open comments for signed-in readers who can open the design. Sharing a page with screens from narrower designs asks first; making it public also weighs the screens in the sub-pages that go public with it, read through list-sub-page-design-screens. Agents call capture-design-screen and write the returned tag with edit-document.",
+    status: "action-backed",
+    actions: [
+      "get-design-links",
+      "capture-design-screen",
+      "get-design-screen-status",
+      "list-sub-page-design-screens",
+    ],
+    exception:
+      "get-design-links, get-design-screen-status and list-sub-page-design-screens are hidden with agentTool: false because they serve the editor's paste handler, the block's changed and comments marks and the share dialog; agents read the screen from the DesignScreen tag with get-document and refresh it with capture-design-screen.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/design-screen-actions.test.ts",
+      "server/lib/design-peer.test.ts",
+      "app/components/editor/design-screen/DesignScreenBlock.test.tsx",
+      "app/components/editor/design-screen/design-screen-paste.test.ts",
+      "app/components/editor/design-screen/design-screen-share.test.ts",
     ],
   },
   {
@@ -571,6 +612,32 @@ export const parityMatrix: ParityRow[] = [
     spinePriority: "P1",
     testCoverage: "none",
     followUpPR: null,
+  },
+  {
+    id: "editor.inline-table-structure",
+    surface: "editor",
+    label:
+      "Change an inline table's rows, columns, cells, headers, page width and colours",
+    uiEntrypoints: [
+      "app/components/editor/TableHoverControls.tsx",
+      "app/components/editor/BlockActionsMenu.tsx",
+      "app/components/editor/table-commands.ts",
+    ],
+    durableEffect:
+      "The page body's table changes: rows and columns inserted, deleted, moved, duplicated or cleared, cell text, the header row and column, fit to page width, and row, column and cell colours.",
+    uiImplementation:
+      "The row, column and block menus and the drag handles change the table in the editor transaction, which the document save row persists; agents call edit-table, which changes only that table's lines through the revisioned edit-document mutation.",
+    status: "action-backed",
+    actions: ["edit-table"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "shared/table-edits.spec.ts",
+      "actions/edit-table.db.test.ts",
+    ],
   },
   {
     id: "editor.agent-assist-prompts",
@@ -778,6 +845,32 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/content-database-lifecycle.db.test.ts",
       "app/hooks/use-content-database.test.ts",
+    ],
+  },
+  {
+    id: "database.collection-to-table",
+    surface: "database",
+    label: "Turn an inline collection into a table",
+    uiEntrypoints: [
+      "app/components/editor/BlockActionsMenu.tsx",
+      "app/components/editor/use-turn-collection-into-table.ts",
+    ],
+    durableEffect:
+      "The page body swaps the inline collection's block for a table of its rows; the save that drops the block soft-deletes the collection, and one that brings the block back restores it.",
+    uiImplementation:
+      "The block menu reads the rows the inline view shows through a read-only action, builds a table in the editor and saves the page.",
+    status: "action-backed",
+    actions: ["read-collection-table"],
+    exception:
+      "This UI-only read is hidden with agentTool: false; agents read a collection with get-content-database or a CSV from export-document, and write the table into the page with edit-document.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/read-collection-table.db.test.ts",
+      "actions/content-database-lifecycle.db.test.ts",
+      "e2e/table-controls.spec.ts",
     ],
   },
   {
@@ -1041,6 +1134,38 @@ export const parityMatrix: ParityRow[] = [
       "actions/stage-builder-source-bulk-update.db.test.ts",
     ],
     evalScenarioIds: ["builder-source-review-readonly"],
+  },
+  {
+    id: "source-sync.builder-article-autosave",
+    surface: "source-sync",
+    label:
+      "Save a new Builder article to Builder on its own while it is a draft",
+    uiEntrypoints: [
+      "app/components/editor/DocumentProperties.tsx",
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/components/editor/database-sources/BuilderArticleAutosave.tsx",
+    ],
+    durableEffect:
+      "An article created in a Builder collection keeps a per-article switch and the outcome of its last automatic save; each save goes through the same review and guarded execution as Review Builder update.",
+    uiImplementation:
+      "The collection and row page poll list-builder-article-autosaves, call run-builder-article-autosave for rows whose edits have sat still, and flip the switch with set-builder-article-autosave.",
+    status: "action-backed",
+    actions: [
+      "list-builder-article-autosaves",
+      "run-builder-article-autosave",
+      "set-builder-article-autosave",
+    ],
+    exception:
+      "These actions are hidden from the model with agentTool: false because they drive an open editor's automatic saves; agents push the same changes through prepare-builder-source-review and execute-builder-source-execution.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/builder-article-autosave.db.test.ts",
+      "actions/_builder-article-autosave-rules.test.ts",
+      "app/components/editor/database-sources/BuilderArticleAutosave.ui.test.tsx",
+    ],
   },
   {
     id: "source-sync.builder-body-hydration-worker",

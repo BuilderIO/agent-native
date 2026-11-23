@@ -127,6 +127,7 @@ import {
   contentDatabaseItemsContainingDocumentFilter,
   contentDatabaseNavigationQueryFilter,
   invalidateContentDatabaseNavigationQueries,
+  isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
   removeTrashedPagesFromCachedCollections,
   useRestoreContentDatabase,
@@ -477,7 +478,7 @@ export function patchDocumentInDatabaseCache<
   documentId: string,
   patch: Partial<Document>,
 ): T | undefined {
-  if (!current) return current;
+  if (!current || isContentDatabaseUnavailable(current)) return current;
   let changed = false;
   const items = current.items.map((item) => {
     if (!("document" in item)) {

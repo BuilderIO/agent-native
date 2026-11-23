@@ -34,6 +34,7 @@ export default defineAction({
     "Navigate the Tasks UI to a view, optionally selecting a task or custom field.",
   schema: navigateSchema,
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const view = resolveNavView(args.view);
     const nav: Record<string, string | boolean> = { view };

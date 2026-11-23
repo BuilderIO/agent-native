@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "Nota para mim",
     },
     inbox: {
-      atLeastCount: "Pelo menos {{count}}",
+      conversationsCount: "Conversas: {{count}}",
+      conversationsAtLeastCount: "Conversas: pelo menos {{count}}",
+      unreadCount: "Conversas não lidas: {{count}}",
+      draftsToReviewCount: "Rascunhos para revisar: {{count}}",
       syncing: "Sincronizando caixa de entrada…",
     },
     sort: {
@@ -158,8 +161,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "Fixar barra lateral",
-      unpinSidebar: "Desafixar barra lateral",
       closeSidebar: "Fechar barra lateral",
       settings: "Configurações",
       aiSettings: "Gerenciar tags e regras",
@@ -177,7 +178,7 @@ const messages = {
       filtersLimitReached: "Você pode salvar até 20 filtros.",
     },
     tabSettings: {
-      splitInbox: "Caixa de entrada dividida",
+      splitInbox: "Dividir a caixa de entrada em abas",
       views: "Visualizações",
       categories: "Categorias",
       rename: "Renomear",
@@ -185,7 +186,7 @@ const messages = {
       savedFilters: "Filtros salvos",
       combinedInbox: "Caixa de entrada combinada",
       allTab: "Aba Todas",
-      help: "A caixa combinada reúne todas as contas; desative-a para separar os e-mails em abas.",
+      help: "Mostra as visualizações, marcadores e filtros salvos que você escolheu como abas separadas da caixa de entrada. Desative para ver todos os e-mails da caixa de entrada em uma só aba.",
       aiSetup: "Configurar tags e regras de IA",
     },
     accounts: {
@@ -201,9 +202,19 @@ const messages = {
       markRead: "Marcar como lido",
       markUnread: "Marcar como não lido",
       moveTo: "Mover para",
+      labelAs: "Marcar com",
+      newLabel: "Novo marcador…",
       moveToTrash: "Mover para a lixeira",
       star: "Marcar com estrela",
       unstar: "Remover estrela",
+    },
+    labels: {
+      labelAsPlaceholder: "Marcar com…",
+      moveToPlaceholder: "Mover para…",
+      newLabelPlaceholder: "Nome do novo marcador",
+      create: "Criar o marcador “{{name}}”",
+      empty: "Ainda não há marcadores. Digite um nome para criar um.",
+      alreadyExists: "“{{name}}” já existe.",
     },
     compose: {
       addImage: "Adicionar uma imagem",
@@ -220,6 +231,10 @@ const messages = {
       contentPagesRetry: "Tentar novamente",
       contentPagesEmpty: "Nenhuma página encontrada",
       contentFileMarkdown: "Arquivo Markdown",
+      contentFilePdf: "Arquivo PDF",
+      contentPageFormat: "Anexar páginas como",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "Arquivo CSV",
       bold: "Negrito",
       cancel: "Cancelar",
@@ -470,6 +485,14 @@ const messages = {
         "{{succeeded}} de {{total}} conversas movidas; {{failed}} falharam.",
       moveSucceeded: "Movido para {{label}}.",
       moveManySucceeded: "{{count}} conversas movidas para {{label}}.",
+      labelSucceeded: "Marcador {{label}} adicionado.",
+      labelManySucceeded:
+        "Marcador {{label}} adicionado a {{count}} conversas.",
+      labelPartialFailed:
+        "{{succeeded}} de {{total}} conversas marcadas; {{failed}} falharam.",
+      labelFailed: "Não foi possível adicionar o marcador.",
+      labelCreated: "Marcador {{label}} criado.",
+      createLabelFailed: "Não foi possível criar o marcador.",
       trashed: "Movido para a lixeira.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email agendado enviado.",
@@ -482,6 +505,12 @@ const messages = {
       scheduledCancelFailed: "Falha ao cancelar email agendado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Falha ao anexar a página do Content",
+      contentPagePdfTextUnsupported:
+        "Esta página tem texto que um PDF ainda não consegue mostrar, como chinês, japonês, coreano, árabe, hebraico ou hindi. Anexe-a como Markdown.",
+      contentPagePdfTooLong:
+        "Esta página é longa ou larga demais para anexar como PDF. Anexe-a como Markdown.",
+      contentPagePdfUnavailable:
+        "O Content não conseguiu criar um PDF desta página. Anexe-a como Markdown.",
       waitForAttachments: "Aguarde os anexos terminarem e depois envie.",
       failedToUploadImage: "Falha ao enviar imagem",
       storageBuilderRefused:

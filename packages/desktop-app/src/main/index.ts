@@ -351,7 +351,10 @@ import {
   createOAuthPopupCloser,
   watchOAuthSystemBrowserReturnForContents,
 } from "./oauth-popup-close";
-import { routeOAuthToBoundSession } from "./oauth-session";
+import {
+  isTrustedBuilderConnectUrl,
+  routeOAuthToBoundSession,
+} from "./oauth-session";
 import { registerOnboardingIdentityIpc } from "./onboarding-identity.js";
 import {
   isQuickPromptActive,
@@ -372,6 +375,11 @@ import {
 } from "./webview-background-throttling.js";
 import { installWebviewNavigationListeners } from "./webview-navigation";
 import { installWindowDragController } from "./window-drag";
+import {
+  createWindowStateStore,
+  installWindowStateTracker,
+  resolveInitialWindowBounds,
+} from "./window-state";
 import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
 
 initializeDesktopStartup({
@@ -1930,9 +1938,24 @@ function createWindow(): BrowserWindow {
 
   const isMac = process.platform === "darwin";
 
+  const windowStateStore = createWindowStateStore(
+    path.join(app.getPath("userData"), "window-state.json"),
+  );
+  const savedWindowState = windowStateStore.read();
+  if (savedWindowState.status === "unreadable") {
+    console.warn(
+      "[window-state] ignoring unreadable saved window state:",
+      savedWindowState.reason,
+    );
+  }
+  const initialBounds = resolveInitialWindowBounds(
+    savedWindowState.status === "ok" ? savedWindowState.state : null,
+    screen.getAllDisplays().map((display) => display.workArea),
+    { width: 1280, height: 800, minWidth: 960, minHeight: 600 },
+  );
+
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    ...initialBounds,
     minWidth: 960,
     minHeight: 600,
 
@@ -1963,7 +1986,19 @@ function createWindow(): BrowserWindow {
   desktopDesignPreviewManager?.destroy();
   desktopDesignPreviewManager = new DesktopDesignPreviewManager(win);
 
-  win.once("ready-to-show", () => win.show());
+  installWindowStateTracker(win, windowStateStore, (error) => {
+    console.warn(
+      "[window-state] could not save window state:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+  });
+  win.once("ready-to-show", () => {
+    if (savedWindowState.status === "ok") {
+      if (savedWindowState.state.isMaximized) win.maximize();
+      if (savedWindowState.state.isFullScreen) win.setFullScreen(true);
+    }
+    win.show();
+  });
   win.webContents.on("will-navigate", (event, url) => {
     if (IS_DEV || isDesktopRendererEntryUrl(url)) return;
     let protocol: string;
@@ -13168,14 +13203,9 @@ const OAUTH_PROVIDERS: OAuthProvider[] = [
   },
   {
     name: "builder",
-    matches: (u) => {
+    matches: (u, context) => {
       const host = u.hostname.toLowerCase();
-      const isLocalhost =
-        host === "localhost" || host === "127.0.0.1" || host === "[::1]";
-      if (
-        isLocalhost &&
-        u.pathname.endsWith("/_agent-native/builder/connect")
-      ) {
+      if (isTrustedBuilderConnectUrl(u, context?.sourceUrl)) {
         return true;
       }
       return isBuilderAppHost(host) && u.pathname.startsWith("/cli-auth");

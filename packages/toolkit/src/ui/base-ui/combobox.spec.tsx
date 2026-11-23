@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   Combobox,
+  ComboboxClear,
   ComboboxChip,
   ComboboxChips,
   ComboboxEmpty,
@@ -24,6 +25,7 @@ import {
   type ComboboxPopupProps,
   ComboboxTrigger,
 } from "./combobox.js";
+import { Field, FieldLabel } from "./field.js";
 import { InputSlot } from "./input.js";
 
 afterEach(cleanup);
@@ -50,8 +52,14 @@ function Single({
 }: {
   onValueChange?: (value: string | null) => void;
   defaultValue?: string | null;
-  input?: Pick<ComboboxInputProps, "size" | "variant" | "color" | "radius">;
-  popup?: Pick<ComboboxPopupProps, "variant" | "color" | "highContrast">;
+  input?: Pick<
+    ComboboxInputProps,
+    "className" | "style" | "size" | "variant" | "color" | "radius"
+  >;
+  popup?: Pick<
+    ComboboxPopupProps,
+    "variant" | "color" | "highContrast" | "className"
+  >;
 }) {
   return (
     <Combobox
@@ -74,13 +82,16 @@ function Single({
 
 function Multiple({
   onValueChange,
+  readOnly,
 }: {
   onValueChange?: (value: string[]) => void;
+  readOnly?: boolean;
 }) {
   return (
     <Combobox
       items={LANGUAGES}
       multiple
+      readOnly={readOnly}
       defaultValue={["Go", "Rust"]}
       onValueChange={onValueChange}
     >
@@ -88,8 +99,8 @@ function Multiple({
         <ComboboxChips>
           {(value: string[]) =>
             value.map((language) => (
-              <ComboboxChip key={language} removeLabel={`Remove ${language}`}>
-                {language}
+              <ComboboxChip key={language} aria-labelledby={undefined}>
+                <strong>{language}</strong>
               </ComboboxChip>
             ))
           }
@@ -130,6 +141,166 @@ function options() {
 }
 
 describe("Combobox", () => {
+  it("keeps a controlled search popup usable when the host defers dismissal", async () => {
+    const onOpenChange = vi.fn();
+    const onOpenChangeComplete = vi.fn();
+    const picker = (open: boolean) => (
+      <Combobox
+        items={LANGUAGES}
+        open={open}
+        onOpenChange={onOpenChange}
+        onOpenChangeComplete={onOpenChangeComplete}
+      >
+        <ComboboxTrigger>Choose language</ComboboxTrigger>
+        <ComboboxPopup aria-label="Languages">
+          <ComboboxInput aria-label="Language" />
+          <Rows />
+        </ComboboxPopup>
+      </Combobox>
+    );
+    const { rerender } = render(picker(true));
+    const field = input();
+    await type("Py");
+    expect(options()).toEqual(["Python"]);
+    await key("Escape");
+    expect(onOpenChange).toHaveBeenCalledWith(false, expect.anything());
+    expect(input()).toBe(field);
+    await type("Ru");
+    expect(options()).toEqual(["Rust"]);
+    expect(onOpenChangeComplete).not.toHaveBeenCalledWith(false);
+    await act(async () => rerender(picker(false)));
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(onOpenChangeComplete).toHaveBeenCalledWith(false);
+  });
+
+  it("updates frame classes and styles as the popup opens and closes", async () => {
+    render(
+      <Single
+        input={{
+          className: (state) => (state.open ? "expanded" : undefined),
+          style: (state) => ({ opacity: state.open ? 1 : 0.9 }),
+        }}
+      />,
+    );
+    const field = screen.getByRole("combobox");
+    const frame = field.closest<HTMLElement>(".input");
+    expect(frame?.style.opacity).toBe("0.9");
+    await act(async () => {
+      fireEvent.keyDown(field, { key: "ArrowDown" });
+    });
+    await screen.findByRole("listbox");
+    expect(frame?.classList.contains("expanded")).toBe(true);
+    expect(frame?.style.opacity).toBe("1");
+    await act(async () => {
+      fireEvent.keyDown(field, { key: "Escape" });
+    });
+    expect(frame?.classList.contains("expanded")).toBe(false);
+    expect(frame?.style.opacity).toBe("0.9");
+  });
+
+  it("keeps default action names when an optional label is undefined", () => {
+    render(
+      <Combobox items={["Rust"]} defaultValue="Rust">
+        <ComboboxInput aria-label="Language">
+          <ComboboxTrigger aria-label={undefined} />
+          <ComboboxClear aria-label={undefined} />
+        </ComboboxInput>
+      </Combobox>,
+    );
+    expect(screen.getByRole("button", { name: "Show options" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDefined();
+  });
+
+  it("preserves the accessible names of rendered action buttons", () => {
+    render(
+      <Combobox items={["Rust"]} defaultValue="Rust">
+        <ComboboxInput aria-label="Language">
+          <ComboboxTrigger render={<button>Choose language</button>} />
+          <ComboboxClear render={<button title="Reset language" />} />
+        </ComboboxInput>
+      </Combobox>,
+    );
+    expect(
+      screen.getByRole("button", { name: "Choose language" }),
+    ).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: "Reset language" }),
+    ).toBeDefined();
+  });
+
+  it("uses the visible names of custom trigger and clear actions", () => {
+    render(
+      <Combobox items={["Rust"]} defaultValue="Rust">
+        <ComboboxInput aria-label="Language">
+          <ComboboxTrigger render={<button />}>
+            <span>Choose language</span>
+          </ComboboxTrigger>
+          <ComboboxClear render={<button />}>
+            <span>Reset language</span>
+          </ComboboxClear>
+        </ComboboxInput>
+      </Combobox>,
+    );
+    expect(
+      screen.getByRole("button", { name: "Choose language" }),
+    ).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: "Reset language" }),
+    ).toBeDefined();
+  });
+
+  it("shares the field label with the portaled list and honors a list-specific name", async () => {
+    function Picker({ listLabel }: { listLabel?: string }) {
+      return (
+        <Field>
+          <FieldLabel id="language-label">Language</FieldLabel>
+          <Combobox
+            aria-labelledby="language-label"
+            items={LANGUAGES}
+            defaultOpen
+          >
+            <ComboboxInput />
+            <ComboboxPopup>
+              <ComboboxList aria-label={listLabel}>
+                {(item: string) => (
+                  <ComboboxItem key={item} value={item}>
+                    {item}
+                  </ComboboxItem>
+                )}
+              </ComboboxList>
+            </ComboboxPopup>
+          </Combobox>
+        </Field>
+      );
+    }
+    const { rerender } = render(<Picker />);
+    expect(input().getAttribute("aria-controls")).toBe(
+      (await screen.findByRole("listbox", { name: "Language" })).id,
+    );
+    rerender(<Picker listLabel="Supported languages" />);
+    expect(
+      screen
+        .getByRole("listbox", { name: "Supported languages" })
+        .hasAttribute("aria-labelledby"),
+    ).toBe(false);
+  });
+  it("dismisses the popup when focus leaves the document without a destination", async () => {
+    const change = vi.fn();
+    render(<Single onValueChange={change} />);
+    const field = input();
+    await act(async () => field.focus());
+    await key("ArrowDown");
+    expect(field.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.blur(window);
+    expect(field.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => {
+      field.blur();
+      window.dispatchEvent(new FocusEvent("blur"));
+    });
+    expect(field.getAttribute("aria-expanded")).toBe("false");
+    expect(change).not.toHaveBeenCalled();
+  });
+
   it("draws the field as the input part with Input's defaults", () => {
     render(<Single />);
     const frame = input().parentElement;
@@ -184,7 +355,12 @@ describe("Combobox", () => {
   it("writes the popup's variant, color and high contrast", async () => {
     render(
       <Single
-        popup={{ variant: "solid", color: "accent", highContrast: true }}
+        popup={{
+          variant: "solid",
+          color: "accent",
+          highContrast: true,
+          className: ({ open }) => (open ? "is-open" : undefined),
+        }}
       />,
     );
     await type("r");
@@ -194,6 +370,7 @@ describe("Combobox", () => {
     expect(popup?.dataset.variant).toBe("solid");
     expect(popup?.dataset.color).toBe("accent");
     expect(popup?.dataset.highContrast).toBe("");
+    expect(popup?.classList.contains("is-open")).toBe(true);
   });
 
   it("filters as you type and selects with the arrow keys and Enter", async () => {
@@ -287,6 +464,17 @@ describe("Combobox", () => {
       const labels = [...(chips?.querySelectorAll(".combobox-chip") ?? [])];
       expect(labels.map((chip) => chip.textContent)).toEqual(["Go", "Rust"]);
       expect(chips?.lastElementChild).toBe(input("Languages"));
+    });
+
+    it("keeps read-only chips named and prevents removal", () => {
+      const onValueChange = vi.fn();
+      render(<Multiple readOnly onValueChange={onValueChange} />);
+      const chip = screen.getByRole("group", { name: "Rust" });
+      expect(input("Languages").readOnly).toBe(true);
+      expect(chip.hasAttribute("aria-readonly")).toBe(false);
+      fireEvent.keyDown(chip, { key: "Delete" });
+      fireEvent.click(screen.getByRole("button", { name: "Remove Rust" }));
+      expect(onValueChange).not.toHaveBeenCalled();
     });
 
     it("adds a value from the list and keeps the list open", async () => {

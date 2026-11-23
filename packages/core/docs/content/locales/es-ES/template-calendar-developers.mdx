@@ -75,6 +75,8 @@ Calendario guarda esto en su propio almacén de secretos, no en un archivo
 `.env`, así que este paso es idéntico en Windows y macOS. Los tokens se
 renuevan automáticamente una vez conectado.
 
+En un despliegue, define `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` en su entorno. Así, **Iniciar sesión con Google** pide acceso al calendario en la misma pantalla de Google, de modo que iniciar sesión también conecta esa cuenta; las demás cuentas siguen pasando por **Agregar cuenta**. El inicio de sesión vuelve a la misma dirección `/_agent-native/google/callback` que la conexión, así que ese único URI de redirección sirve para ambos. Sin estas variables, el inicio de sesión solo pregunta quién eres y la gente conecta Google después.
+
 ### Conecta Zoom (opcional)
 
 A diferencia de Google, Zoom no tiene un formulario en Configuración. Crea
