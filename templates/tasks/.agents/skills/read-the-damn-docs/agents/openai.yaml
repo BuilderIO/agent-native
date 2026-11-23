@@ -1,4 +1,0 @@
-interface:
-  display_name: "Read The Damn Docs"
-  short_description: "Make agents web-search docs before guessing."
-  default_prompt: "Use $read-the-damn-docs to web-search for official docs before implementation."
