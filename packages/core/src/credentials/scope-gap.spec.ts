@@ -191,6 +191,7 @@ describe("describeCredentialScopeGap across organizations", () => {
       { userEmail: "tim@example.com", orgId: "coach-org" },
     );
 
+    // oracle-change: the message was reworded fix-first; one exact match replaces three partial matches on the old wording
     expect(message).toBe(
       'Switch your active organization to "Builder.io", where ' +
         '"ACADEMY_CONVEX_SITE_URL" is saved, or save it in this ' +
