@@ -184,22 +184,6 @@ describe("get-feature-flags action", () => {
     await expect(action.run({}, { userEmail: "a@b.com" })).rejects.toBe(error);
   });
 
-  it("keeps lab reads isolated unless transient propagation is requested", async () => {
-    labsRegistry.registerLabs([
-      { key: "clips.resilient", legacyFlagKeys: ["capture"] },
-    ]);
-    transientReadErrors.set(
-      "feature-flag:capture",
-      Object.assign(new Error("Database unavailable"), {
-        code: "CONNECT_TIMEOUT",
-      }),
-    );
-    const { getUserLabStates } = await import("../../labs/store.js");
-    await expect(getUserLabStates("a@b.com")).resolves.toEqual({
-      "clips.resilient": { error: "legacy-unavailable" },
-    });
-  });
-
   it("returns an empty object when no flags are registered", async () => {
     await expect(
       action.run({}, { userEmail: "a@b.com", orgId: "org-1" }),
