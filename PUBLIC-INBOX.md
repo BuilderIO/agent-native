@@ -1,0 +1,6 @@
+CHECKOUT COMPLETE: controller own gitworktreeadd exited0, HEADdc0b85bb89 freshpublicmain. Earlier checkout-wait notice below is resolved; proceed scoped sourcework.
+
+Root review: compiled Core/Toolkit and workspace aliases MUST resolve inside this fresh public callback tree, never auth9399 unmerged types/dist. Third-party pnpmstore reuse read-only is fine. Detach ONLY owned caches/dist symlinks before builds, preserve peer trees; verify actual import realpaths. Otherwise hidden OrgInfo coupling could pass falsely. Exact6 callback files +callback metadata/docs only. Source already admitted genuine Max2 normal23%; no quota sample needed.
+
+Controller gitworktreeaddcheckout stillRUNNING slowIO, OWNsession31789 whenworkerstarted. WaituntilHEAD/index/worktreereadyandlockgone before anygitmutation/install; controllerwillupdate completionhere. Do notstop peerprocesses ordeleteindex.lock. NormalfullrosterMax2admitted23%, no needphase sample.
+Controller owns coordination. Read before everygate/commit/push/reviewcheck. Rootauthwriter owns org/role/brain ONLY. Your exact6ToolkitChatfiles+callbackonlymetadata, no policycoupling. No sharedPINuntilactualpublicmerge. ContinuepublicPRthroughreviews+requiredCI/adminmerge, thenprivateChatonlyworktree. No originalnames/assets/secrets/coauthors.
