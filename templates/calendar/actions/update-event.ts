@@ -731,8 +731,13 @@ export default defineAction({
             "Failed to clean up a working-location replacement after the original occurrence could not be cancelled.",
             cleanupError,
           );
-          throw new Error(
+          fail(
             `The working location wasn't changed, and its replacement "${replacement.id}" couldn't be removed. Delete it before trying again.`,
+            {
+              errorCode: "replacement_not_removed",
+              statusCode: 409,
+              details: { replacementId: replacement.id },
+            },
           );
         }
         throw error;

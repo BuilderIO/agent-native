@@ -502,7 +502,10 @@ describe("update-event working locations", () => {
           scope: "single",
         }),
       ),
-    ).rejects.toThrow('replacement "working-location-override"');
+    ).rejects.toMatchObject({
+      errorCode: "replacement_not_removed",
+      details: { replacementId: "working-location-override" },
+    });
   });
 
   it("does not cancel the original instance when Google omits the replacement id", async () => {
