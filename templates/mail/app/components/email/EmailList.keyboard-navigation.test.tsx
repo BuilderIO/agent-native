@@ -1448,7 +1448,8 @@ describe("EmailList keyboard navigation interactions", () => {
 
   it("keeps the current row where it is when the pointer passes over others", () => {
     render(<Harness />);
-    const lastRow = rows()[2];
+    const lastRow = rows()[2] as HTMLElement | undefined;
+    if (!lastRow) throw new Error("missing row");
     fireEvent.mouseEnter(lastRow);
     fireEvent.mouseMove(lastRow);
 
@@ -1472,7 +1473,8 @@ describe("EmailList keyboard navigation interactions", () => {
 
   it("makes a row the current row when it takes keyboard focus", () => {
     render(<Harness />);
-    const lastRow = rows()[2];
+    const lastRow = rows()[2] as HTMLElement | undefined;
+    if (!lastRow) throw new Error("missing row");
     fireEvent.focus(lastRow);
 
     expect(screen.getByLabelText("Focused id").textContent).toBe("last");
