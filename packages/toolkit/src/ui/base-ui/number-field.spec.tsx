@@ -44,6 +44,22 @@ describe("Number Field part", () => {
     expect(frame?.dataset.color).toBeUndefined();
   });
 
+  it("honors explicit minimum precision for unit values", () => {
+    render(
+      <NumberField
+        aria-label="Angle"
+        locale="en-US"
+        unit="degree"
+        defaultValue={1.25}
+        format={{ minimumFractionDigits: 4 }}
+      />,
+    );
+    expect(screen.getByRole("textbox", { name: "Angle" })).toHaveProperty(
+      "value",
+      "1.2500°",
+    );
+  });
+
   it("keeps degree units inline and commits typed fractions at two-place precision", () => {
     const commit = vi.fn();
     render(

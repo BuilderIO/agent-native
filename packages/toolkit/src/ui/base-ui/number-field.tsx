@@ -62,7 +62,6 @@ export interface NumberFieldProps
 
 const DEFAULT_FORMAT: Intl.NumberFormatOptions = { maximumFractionDigits: 2 };
 
-// Grouped clipboard text still needs its locale's separator even when display grouping is off.
 const groupingSeparators = new Map<string, string>();
 function groupingSeparator(
   locale: Intl.LocalesArgument,
@@ -122,7 +121,12 @@ const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
     const { onValueChange, onValueCommitted } = root;
     const format = React.useMemo<Intl.NumberFormatOptions>(
       () => ({
-        ...(unit || !root.format ? DEFAULT_FORMAT : undefined),
+        ...(!root.format ||
+        (unit &&
+          root.format.minimumFractionDigits === undefined &&
+          root.format.maximumFractionDigits === undefined)
+          ? DEFAULT_FORMAT
+          : undefined),
         ...(unit
           ? ({ style: "unit", unit, unitDisplay: "narrow" } as const)
           : undefined),
@@ -215,7 +219,6 @@ const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
                 separator &&
                 event.clipboardData.getData("text/plain").includes(separator)
               ) {
-                // Native paste preserves selection and feeds the result through onChange.
                 event.preventBaseUIHandler();
               }
             }}
@@ -350,7 +353,6 @@ const NumberFieldScrubArea = React.forwardRef<
             cancel();
             return;
           }
-          // Zoom and high-resolution pointers can deliver a fraction of a CSS pixel.
           const fallback =
             direction === "vertical" ? move.clientY - y : move.clientX - x;
           const movement =
