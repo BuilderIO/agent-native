@@ -999,7 +999,11 @@ export function isStandaloneE2eRunner(
     const { tokens } = tokenizeE2eSource(source);
     for (let index = 0; index < tokens.length; index += 1) {
       const token = tokens[index];
-      if (token.kind === "string" && token.uncertain) return false;
+      if (
+        (token.kind === "string" && token.uncertain) ||
+        (token.kind === "punctuation" && token.value === "/")
+      )
+        return false;
       if (
         token.kind === "identifier" &&
         token.value === "process" &&

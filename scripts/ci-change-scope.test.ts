@@ -182,6 +182,7 @@ test("keeps standalone end-to-end runners on their own checks and retains helper
     "console.log('loaded');",
     "console.log('process.argv');",
     "/* process.argv */ console.log('loaded');",
+    "console.log(/process.argv/);",
   ]) {
     const helper = "templates/mail/e2e/helper.ts";
     writeFileSync(join(root, helper), source);
