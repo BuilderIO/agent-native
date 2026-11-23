@@ -235,8 +235,6 @@ export default defineAction({
             fullRefresh: args.fullRefresh === true,
           });
           const capped = read.metadata?.hasMore === true;
-          const sampleEntry: (typeof read.entries)[number] | undefined =
-            read.entries[0];
           await storeSecondarySourceRows({
             sourceId: source.id,
             ownerEmail: database.ownerEmail,
@@ -252,7 +250,7 @@ export default defineAction({
             ownerEmail: database.ownerEmail,
             sourceType: "notion-database",
             modelFields: read.fields,
-            ...(sampleEntry ? { sampleEntry } : {}),
+            sampleEntry: read.entries[0],
             now,
           });
           await updateReadOnlySourceMetadata({

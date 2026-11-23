@@ -555,12 +555,7 @@ export async function claimReadOnlySourceRefresh(args: {
       .where(
         and(
           eq(schema.contentDatabaseSources.id, args.sourceId),
-          current.metadataJson === null
-            ? isNull(schema.contentDatabaseSources.metadataJson)
-            : eq(
-                schema.contentDatabaseSources.metadataJson,
-                current.metadataJson,
-              ),
+          eq(schema.contentDatabaseSources.metadataJson, current.metadataJson),
         ),
       )
       .returning({ id: schema.contentDatabaseSources.id });
@@ -9289,7 +9284,7 @@ export async function seedSecondarySourceFields(args: {
   ownerEmail: string;
   sourceType?: ContentDatabaseSourceType;
   modelFields: BuilderCmsModelFieldSummary[];
-  sampleEntry?: BuilderCmsSourceEntry;
+  sampleEntry?: BuilderCmsSourceEntry | undefined;
   now: string;
 }) {
   const db = getDb();
@@ -9490,7 +9485,7 @@ export async function updateReadOnlySourceMetadata(args: {
   fetchedAt: string;
   now: string;
   message: string | null;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> | undefined;
   syncState?: ContentDatabaseSourceSyncState;
   refreshClaimId?: string;
 }) {
