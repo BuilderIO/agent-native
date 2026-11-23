@@ -2491,6 +2491,39 @@ describe("getOnboardingJourney", () => {
     }
   });
 
+  it("gives the follow-ups a whole number of milliseconds when the clock reads fractions", async () => {
+    // A first-party query refuses a timeout that isn't a whole number of
+    // milliseconds, which failed every follow-up the event read left 1 to 20
+    // seconds for.
+    let clockMs = 0.4;
+    const clock = vi
+      .spyOn(performance, "now")
+      .mockImplementation(() => clockMs);
+    mocks.queryFirstPartyAnalytics.mockImplementation(async () => {
+      if (mocks.queryFirstPartyAnalytics.mock.calls.length === 1) {
+        clockMs = 18_000.9;
+        return { rows: journeyRows(), schema: [] };
+      }
+      return { rows: [], schema: [] };
+    });
+
+    try {
+      await getOnboardingJourney(scope, {
+        ...ARGS,
+        followUpMode: "person",
+        format: "summary",
+      });
+
+      const followups = mocks.queryFirstPartyAnalytics.mock.calls.slice(1);
+      expect(followups).toHaveLength(2);
+      for (const [, , options] of followups) {
+        expect(options).toMatchObject({ timeoutMs: 3_999 });
+      }
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it.each([
     {
       name: "says how to continue when a follow-up was cut short by the budget",
