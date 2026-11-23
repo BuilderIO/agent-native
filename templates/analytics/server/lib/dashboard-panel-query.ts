@@ -383,7 +383,7 @@ async function runProgramPanel(
       truncated: result.truncated,
       cached: result.cacheHit,
       fetchedAt: new Date(result.asOfMs).toISOString(),
-      ...(result.stale ? { refreshPending: true } : {}),
+      ...(result.refreshPending ? { refreshPending: true } : {}),
     };
   }
 

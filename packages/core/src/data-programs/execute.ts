@@ -94,6 +94,7 @@ export interface DataProgramSuccess {
   schema: DataProgramColumn[];
   truncated: boolean;
   stale: boolean;
+  refreshPending?: boolean;
   cacheHit: boolean;
   asOfMs: number;
   runId: string;
@@ -1258,7 +1259,11 @@ async function runBackgroundProgram(
       );
     }
     const cached = await resolveCacheHit(program, paramsHash);
-    if (cached) return stillRunning ? { ...cached, stale: true } : cached;
+    if (cached) {
+      return stillRunning
+        ? { ...cached, stale: true, refreshPending: true }
+        : cached;
+    }
   }
 
   const stillActive = await getActiveRun(program.id, paramsHash);
@@ -1266,6 +1271,7 @@ async function runBackgroundProgram(
   const shouldEnqueue =
     !stillActive || Date.now() - stillActive.startedAt >= staleWindowMs;
 
+  let enqueued = false;
   if (shouldEnqueue && args.ctx.userEmail) {
     const prelude = buildDataProgramPrelude(args.params);
     const paramsJson = JSON.stringify(args.params ?? {});
@@ -1288,6 +1294,7 @@ async function runBackgroundProgram(
         executionId: execution.id,
         triggeredBy: args.triggeredBy,
       });
+      enqueued = true;
     } catch (err) {
       console.error(
         `[data-programs] failed to enqueue background run for ${program.id}:`,
@@ -1296,8 +1303,14 @@ async function runBackgroundProgram(
     }
   }
 
+  const activeUnseen = statusUnknown && stillActive?.id === active?.id;
+  const pending =
+    enqueued || (!shouldEnqueue && !activeUnseen)
+      ? { refreshPending: true }
+      : {};
+
   const cached = await resolveCacheHit(program, paramsHash);
-  if (cached) return { ...cached, stale: true };
+  if (cached) return { ...cached, stale: true, ...pending };
 
   const latestSuccess = await getLatestSuccessfulRun(program.id, paramsHash);
   if (latestSuccess?.rowsJson) {
@@ -1309,6 +1322,7 @@ async function runBackgroundProgram(
         schema: stale.schema,
         truncated: stale.truncated,
         stale: true,
+        ...pending,
         cacheHit: true,
         asOfMs: stale.asOfMs,
         runId: latestSuccess.id,

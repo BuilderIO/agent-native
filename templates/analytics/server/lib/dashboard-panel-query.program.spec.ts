@@ -226,17 +226,19 @@ describe("dashboard-panel-query: program source", () => {
     });
 
     it.each([
-      { stale: true, refreshPending: true },
-      { stale: false, refreshPending: false },
+      { stale: true, pending: true, refreshPending: true },
+      { stale: true, pending: false, refreshPending: false },
+      { stale: false, pending: false, refreshPending: false },
     ])(
-      "says a newer run is pending when the program's rows are stale: $stale",
-      async ({ stale, refreshPending }) => {
+      "says a newer run is pending only when the program says one is: stale $stale, pending $pending",
+      async ({ stale, pending, refreshPending }) => {
         mocks.runDataProgram.mockResolvedValue({
           ok: true,
           rows: [{ n: 1 }],
           schema: [{ name: "n", type: "number" }],
           truncated: false,
           stale,
+          ...(pending ? { refreshPending: true } : {}),
           cacheHit: true,
           asOfMs: Date.now() - 60_000,
           runId: "run_1",
