@@ -3519,6 +3519,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "에이전트를 사용하려면 AI 모델을 연결하세요",
       startFailed: "에이전트를 시작할 수 없습니다",
+      hostChatUnconfirmed:
+        "메시지가 호스트 채팅에 도착했는지 확인할 수 없습니다. 다시 시도하기 전에 호스트 채팅을 확인하세요.",
       cancelFailed: "에이전트를 중지할 수 없습니다",
       busy: "이 스레드에서 이미 에이전트가 작업 중입니다",
       error: {

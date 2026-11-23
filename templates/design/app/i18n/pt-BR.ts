@@ -3573,6 +3573,8 @@ export default {
       fallbackName: "IA",
       setupRequired: "Conecte um modelo de IA para usar agentes",
       startFailed: "Não foi possível iniciar o agente",
+      hostChatUnconfirmed:
+        "Não foi possível confirmar se a mensagem chegou ao chat anfitrião. Confira esse chat antes de tentar novamente.",
       cancelFailed: "Não foi possível interromper o agente",
       busy: "Um agente já está trabalhando nesta conversa",
       error: {

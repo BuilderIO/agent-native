@@ -3406,6 +3406,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "连接 AI 模型后才能使用智能体",
       startFailed: "无法启动智能体",
+      hostChatUnconfirmed:
+        "无法确认消息是否已送达宿主聊天。请先检查宿主聊天，再重试。",
       cancelFailed: "无法停止智能体",
       busy: "已有智能体正在处理此讨论",
       error: {
