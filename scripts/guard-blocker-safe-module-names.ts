@@ -28,11 +28,6 @@ import { pathToFileURL } from "node:url";
 
 import type * as TypeScript from "typescript";
 
-import {
-  PROVIDED_ROOTS_FILE,
-  readProvidedRoots,
-} from "./guard-no-untracked-imports.mjs";
-
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 
 interface BlockedWords {
@@ -420,6 +415,31 @@ export function findBlockedModuleNames(modules: string[]): BlockedModuleName[] {
 }
 
 const SCAN_ROOTS = ["packages", "templates", "community-templates"] as const;
+const PROVIDED_ROOTS_FILE = "guard-allowlists/untracked-import-roots.json";
+const PROVIDED_ROOT_SKIP_RE =
+  /(^|\/)(?:node_modules|dist|build|\.output|\.nitro|corpus)\//;
+
+function readOverlayProvidedRoots(repoRoot: string): string[] {
+  const file = path.join(repoRoot, PROVIDED_ROOTS_FILE);
+  if (!existsSync(file)) return [];
+  const roots: unknown = JSON.parse(readFileSync(file, "utf8"));
+  if (
+    !Array.isArray(roots) ||
+    roots.some(
+      (root) =>
+        typeof root !== "string" ||
+        !root.endsWith("/") ||
+        root.startsWith("/") ||
+        root.split("/").includes("..") ||
+        PROVIDED_ROOT_SKIP_RE.test(root),
+    )
+  ) {
+    throw new Error(
+      `${PROVIDED_ROOTS_FILE} must be a JSON array of repo-relative source directories ending in "/", outside node_modules and build output.`,
+    );
+  }
+  return roots as string[];
+}
 
 const OVERLAY_SKIP_DIRS = new Set([
   "node_modules",
@@ -461,7 +481,9 @@ export function collectOverlaidFiles(repoRoot: string): string[] {
   const hasProvidedRoots = existsSync(path.join(repoRoot, PROVIDED_ROOTS_FILE));
   if (!hasPublicPin && !hasProvidedRoots) return [];
 
-  const providedRoots = hasProvidedRoots ? readProvidedRoots(repoRoot) : [];
+  const providedRoots = hasProvidedRoots
+    ? readOverlayProvidedRoots(repoRoot)
+    : [];
   const files = new Set<string>();
   if (hasPublicPin) {
     for (const root of SCAN_ROOTS) {
