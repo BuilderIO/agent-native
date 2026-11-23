@@ -749,6 +749,7 @@ const editorPropertiesMessages = {
   addOption: "Add option",
   addProperty: "Add property",
   addPropertyFailed: "Could not add property.",
+  addPropertyTypeUnsupported: "This collection can’t take {{type}} properties.",
   addPropertyLink: "Add {{name}} link",
   addPropertyPerson: "Add {{name}} person",
   addPropertyType: "Add {{type}} property",

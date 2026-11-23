@@ -901,6 +901,8 @@ const editor = {
     addOption: "オプションを追加",
     addProperty: "プロパティの追加",
     addPropertyFailed: "プロパティを追加できませんでした。",
+    addPropertyTypeUnsupported:
+      "このコレクションには {{type}} プロパティを追加できません。",
     addPropertyLink: "{{name}} リンクを追加",
     addPropertyPerson: "{{name}} 人を追加",
     addPropertyType: "{{type}}プロパティを追加",

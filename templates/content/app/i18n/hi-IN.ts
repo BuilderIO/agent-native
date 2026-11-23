@@ -866,6 +866,7 @@ const editor = {
     addOption: "विकल्प जोड़ें",
     addProperty: "संपत्ति जोड़ें",
     addPropertyFailed: "प्रॉपर्टी नहीं जोड़ी जा सकी।",
+    addPropertyTypeUnsupported: "यह संग्रह {{type}} प्रॉपर्टी नहीं ले सकता।",
     addPropertyLink: "{{name}} लिंक जोड़ें",
     addPropertyPerson: "{{name}} व्यक्ति जोड़ें",
     addPropertyType: "{{type}} गुण जोड़ें",

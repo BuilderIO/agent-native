@@ -840,6 +840,7 @@ const editor = {
     addOption: "添加选项",
     addProperty: "添加属性",
     addPropertyFailed: "无法添加属性。",
+    addPropertyTypeUnsupported: "此集合不能添加{{type}}属性。",
     addPropertyLink: "添加 {{name}} 链接",
     addPropertyPerson: "添加 {{name}} 人",
     addPropertyType: "添加 {{type}} 属性",
