@@ -312,6 +312,80 @@ describe("workspace OAuth consent", () => {
     );
   });
 
+  it("accepts additional Zoom scopes while recording only the requested scopes", async () => {
+    const extraScopes = [
+      "meeting:update:meeting",
+      "meeting:read:meeting",
+      "meeting:read:list_meetings",
+      "cloud_recording:read:meeting_transcript",
+      "user:read:email",
+    ];
+    fetchMock
+      .mockResolvedValueOnce(
+        Response.json({
+          ...fixture,
+          scope: [...zoomScopes, ...extraScopes].join(" "),
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ id: "zoom-fixture-user" }));
+    const result = await handleWorkspaceProviderOAuthCallback(
+      callbackEvent("zoom"),
+      "zoom",
+    );
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).headers.get("location")).toContain(
+      "connected=zoom",
+    );
+    expect(mocks.upsertWorkspaceConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ scopes: zoomScopes }),
+    );
+    expect(mocks.upsertWorkspaceConnectionGrant).toHaveBeenCalledWith(
+      expect.objectContaining({ scopes: zoomScopes }),
+    );
+  });
+
+  it("rejects a Zoom grant missing a required scope even with extra scopes", async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        ...fixture,
+        scope: [zoomScopes[0], zoomScopes[1], "meeting:read:meeting"].join(" "),
+      }),
+    );
+    const event = callbackEvent("zoom");
+    await handleWorkspaceProviderOAuthCallback(event, "zoom");
+    expect(event.res.status).toBe(400);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mocks.saveOAuthTokens).not.toHaveBeenCalled();
+    expect(mocks.upsertWorkspaceConnection).not.toHaveBeenCalled();
+    expect(mocks.upsertWorkspaceConnectionGrant).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { extraScopes: ["identify"] },
+    { extraScopes: ["identify", "users:read"] },
+  ])(
+    "accepts extra Slack scopes %j without recording them",
+    async ({ extraScopes }) => {
+      fetchMock.mockResolvedValueOnce(
+        Response.json(slackGrant([...slackScopes, ...extraScopes])),
+      );
+      const result = await handleWorkspaceProviderOAuthCallback(
+        callbackEvent("slack"),
+        "slack",
+      );
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).headers.get("location")).toContain(
+        "connected=slack",
+      );
+      expect(mocks.upsertWorkspaceConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ scopes: slackScopes }),
+      );
+      expect(mocks.upsertWorkspaceConnectionGrant).toHaveBeenCalledWith(
+        expect.objectContaining({ scopes: slackScopes }),
+      );
+    },
+  );
+
   it.each(["wrong user", "wrong org", "wrong scope", "expired state"] as const)(
     "rejects callback with %s before provider access",
     async (failure) => {
