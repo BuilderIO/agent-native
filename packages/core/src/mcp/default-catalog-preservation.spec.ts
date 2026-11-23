@@ -104,7 +104,7 @@ describe("default template catalogs when organization tools opt in", () => {
   );
 
   it("makes every template's declaration-based curated policy explicit", () => {
-    const implicit = apps.filter((app) => {
+    const implicit = apps.filter((app) => { if (app.appId==="brain") console.log("BRAINCFG", Object.keys(app.surfaces[0].config), app.surfaces[0].config.connectorCatalog, [...app.templateActionNames].filter(n=>app.surfaces[0].entries[n]?.mcpTool===true));
       const { config, entries } = app.surfaces[0]!;
       return (
         config.connectorCatalog === undefined &&
