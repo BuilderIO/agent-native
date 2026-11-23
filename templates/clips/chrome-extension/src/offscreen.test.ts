@@ -92,9 +92,9 @@ describe("offscreen phone-like microphone correction", () => {
     try {
       const systemDefault = micStream("ipad", "iPad Mic");
 
-      await expect(correctMicStreamIfNeeded(systemDefault, "", "")).resolves.toBe(
-        replacement,
-      );
+      await expect(
+        correctMicStreamIfNeeded(systemDefault, "", ""),
+      ).resolves.toBe(replacement);
       expect(getUserMedia).toHaveBeenCalledWith(
         expect.objectContaining({
           audio: expect.objectContaining({ deviceId: { exact: "built-in" } }),
