@@ -1,4 +1,9 @@
-import type { ReactElement } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 
 import { AgentNativeMenuMark } from "@/components/design/editor/AgentNativeMenuMark";
 import { SidebarResizeHandle } from "@/components/design/editor/SidebarResizeHandle";
@@ -54,6 +59,7 @@ export function renderRightRail({
     rightSidebarWidth,
     setRightSidebarWidth,
     startSidebarResize,
+    setFloatingTopChromeHeight,
   } = editorHistory;
   const { uiHidden } = editorContentAndComponents;
   const showComments = commentsPanel !== null;
@@ -113,13 +119,10 @@ export function renderRightRail({
       ) : null}
 
       {floatingBarVisible || floatingHeadVisible ? (
-        <div
-          data-design-floating-top
-          className="pointer-events-none absolute top-0 z-[90] flex items-start gap-3 px-3 pt-3"
-          style={{
-            left: leftInset,
-            right: rightSidebarVisible ? rightSidebarWidth : 0,
-          }}
+        <FloatingTopChrome
+          left={leftInset}
+          right={rightSidebarVisible ? rightSidebarWidth : 0}
+          onHeightChange={setFloatingTopChromeHeight}
         >
           {floatingBarVisible ? (
             <div
@@ -139,7 +142,7 @@ export function renderRightRail({
               {rightSidebarActions}
             </div>
           ) : null}
-        </div>
+        </FloatingTopChrome>
       ) : null}
 
       {minimalUi && !hostOwnsChrome ? (
@@ -176,5 +179,42 @@ export function renderRightRail({
         </div>
       ) : null}
     </>
+  );
+}
+
+function FloatingTopChrome({
+  left,
+  right,
+  onHeightChange,
+  children,
+}: {
+  left: number;
+  right: number;
+  onHeightChange: (height: number) => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const report = () => onHeightChange(Math.ceil(element.offsetHeight));
+    report();
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(report);
+    observer?.observe(element);
+    return () => {
+      observer?.disconnect();
+      onHeightChange(0);
+    };
+  }, [onHeightChange]);
+  return (
+    <div
+      ref={ref}
+      data-design-floating-top
+      className="pointer-events-none absolute top-0 z-[90] flex items-start gap-3 px-3 pt-3"
+      style={{ left, right }}
+    >
+      {children}
+    </div>
   );
 }

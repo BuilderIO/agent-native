@@ -200,6 +200,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     [],
   );
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
+  const [floatingTopChromeHeight, setFloatingTopChromeHeight] = useState(0);
   const setActiveLeftPanel = useCallback(
     (next: SetStateAction<DesignLeftPanel | null>) => {
       if (next === "threads") {
@@ -1254,6 +1255,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     collapseLeftPanel,
     commentsPanelOpen,
     setCommentsPanelOpen,
+    floatingTopChromeHeight,
+    setFloatingTopChromeHeight,
     leftSidebarWidth,
     setLeftSidebarWidth,
     rightSidebarWidth,

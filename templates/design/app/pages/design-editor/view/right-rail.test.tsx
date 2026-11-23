@@ -45,6 +45,7 @@ function railArgs(overrides: {
       rightSidebarWidth: 240,
       setRightSidebarWidth: vi.fn(),
       startSidebarResize: vi.fn(),
+      setFloatingTopChromeHeight: vi.fn(),
       commentsPanelOpen: overrides.commentsPanelOpen ?? false,
     } as unknown as EditorHistory,
     editorContentAndComponents: {

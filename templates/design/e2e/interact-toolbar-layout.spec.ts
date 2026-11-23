@@ -293,6 +293,23 @@ test("Interact controls stay inside the floating bar at Damian's 1456×410 viewp
   await cdpScreenshot(page, testInfo.outputPath("damian-interact.png"));
 });
 
+test("the Interact page starts below the floating bar and the right column head", async ({
+  app,
+  page,
+}) => {
+  await enterInteractAndSampleImmediately(app, 1280, 720);
+
+  await expect
+    .poll(async () => {
+      const chrome = await page
+        .locator("[data-design-floating-top]")
+        .boundingBox();
+      const frame = await page.locator(INTERACTIVE_FRAME).boundingBox();
+      return chrome && frame ? frame.y - (chrome.y + chrome.height) : null;
+    })
+    .toBeGreaterThanOrEqual(0);
+});
+
 test("Interact keeps the mode switch, device, theme and screen on a 390px viewport", async ({
   app,
   page,
