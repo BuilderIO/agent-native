@@ -92,6 +92,11 @@ runs:
           libgif-dev \
           librsvg2-dev
 
+    - name: Skip native canvas prebuild when native canvas deps are disabled
+      if: runner.os == 'Linux' && inputs.install == 'full' && inputs.native-canvas-deps != 'true'
+      shell: bash
+      run: printf '{"version":true}\n' > "$HOME/.prebuild-installrc"
+
     - name: Install dependencies
       shell: bash
       run: |
@@ -104,3 +109,8 @@ runs:
         else
           pnpm install --frozen-lockfile "${filter[@]}"
         fi
+
+    - name: Clean up prebuild-install override
+      if: always() && runner.os == 'Linux' && inputs.install == 'full' && inputs.native-canvas-deps != 'true'
+      shell: bash
+      run: rm -f "$HOME/.prebuild-installrc"

@@ -251,14 +251,16 @@ function validateCleanupPreflight(
     ? preflight.steps.map(asRecord)
     : [];
   const checkStep = preflightSteps.find((step) => step?.id === "check");
-  const checkEnv = asRecord(checkStep?.env);
   const checkScript = String(asRecord(checkStep?.with)?.script ?? "");
   const cleanup = asRecord(jobs?.cleanup);
   const cleanupIf = String(cleanup?.if ?? "");
+  const eligibleSitesMatch = /const eligibleSites = (\[[^\]]+\]);/.exec(
+    checkScript,
+  );
   let eligibleSitesJson = "";
   try {
     eligibleSitesJson = JSON.stringify(
-      JSON.parse(String(checkEnv?.ELIGIBLE_SITES ?? "null")),
+      JSON.parse(eligibleSitesMatch?.[1] ?? "null"),
     );
   } catch {
     eligibleSitesJson = "";

@@ -392,7 +392,6 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
-          ELIGIBLE_SITES: '["analytics","assets","calendar","clips","content","design","dispatch","forms","mail","plan","slides","starter","fw"]'
         with:
           github-token: ${{ github.token }}
           script: |
@@ -401,7 +400,7 @@ jobs:
               core.setOutput('has_preview', 'true');
               return;
             }
-            const eligibleSites = JSON.parse(process.env.ELIGIBLE_SITES);
+            const eligibleSites = ["analytics","assets","calendar","clips","content","design","dispatch","forms","mail","plan","slides","starter","fw"];
             const { owner, repo } = context.repo;
 
             const deploymentChecks = await Promise.all(
