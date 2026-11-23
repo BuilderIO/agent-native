@@ -777,6 +777,40 @@ describe("suggest-document-edit", () => {
           .update(schema.documentComments)
           .set({ fieldId: "field-notes" })
           .where(eq(schema.documentComments.id, inTab.id));
+        const onProperty = (await addComment.run(
+          { documentId: id, content: "On the Status Property." },
+          ctx,
+        )) as { id: string; threadId: string };
+        await getDb()
+          .update(schema.documentComments)
+          .set({ propertyId: "prop-status" })
+          .where(eq(schema.documentComments.id, onProperty.id));
+        const propertyReply = (await addComment.run(
+          {
+            documentId: id,
+            content: "Still on the Property.",
+            threadId: onProperty.threadId,
+            parentId: onProperty.id,
+          },
+          ctx,
+        )) as { id: string };
+        const closed = (await addComment.run(
+          { documentId: id, content: "Closed before replies were." },
+          ctx,
+        )) as { id: string; threadId: string };
+        const openReply = (await addComment.run(
+          {
+            documentId: id,
+            content: "A reply left open.",
+            threadId: closed.threadId,
+            parentId: closed.id,
+          },
+          ctx,
+        )) as { id: string };
+        await getDb()
+          .update(schema.documentComments)
+          .set({ resolved: 1 })
+          .where(eq(schema.documentComments.id, closed.id));
         const suggest = (commentId: string) =>
           suggestDocumentEdit.run(
             {
@@ -801,6 +835,15 @@ describe("suggest-document-edit", () => {
         );
         await expect(suggest(inTab.id)).rejects.toThrow(
           /another Blocks field tab/,
+        );
+        await expect(suggest(onProperty.id)).rejects.toThrow(
+          /is on a Property/,
+        );
+        await expect(suggest(propertyReply.id)).rejects.toThrow(
+          /is on a Property/,
+        );
+        await expect(suggest(openReply.id)).rejects.toThrow(
+          /thread is resolved/,
         );
         const listed = (await listResourceSuggestions.run(
           { resourceType: "document", resourceId: id },

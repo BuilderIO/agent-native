@@ -48,35 +48,43 @@ async function answeredComment(
   ownerEmail: string,
   commentId: string,
 ) {
-  const rows = await getDb()
-    .select({
-      threadId: schema.documentComments.threadId,
-      fieldId: schema.documentComments.fieldId,
-      resolved: schema.documentComments.resolved,
-    })
-    .from(schema.documentComments)
-    .where(
-      and(
-        eq(schema.documentComments.id, commentId),
-        eq(schema.documentComments.documentId, documentId),
-        eq(schema.documentComments.ownerEmail, ownerEmail),
-      ),
-    )
-    .limit(1);
-  const comment = rows.shift();
-  if (!comment) {
+  const onPage = async (rowId: string) => {
+    const rows = await getDb()
+      .select({
+        threadId: schema.documentComments.threadId,
+        fieldId: schema.documentComments.fieldId,
+        propertyId: schema.documentComments.propertyId,
+        resolved: schema.documentComments.resolved,
+      })
+      .from(schema.documentComments)
+      .where(
+        and(
+          eq(schema.documentComments.id, rowId),
+          eq(schema.documentComments.documentId, documentId),
+          eq(schema.documentComments.ownerEmail, ownerEmail),
+        ),
+      )
+      .limit(1);
+    return rows.shift();
+  };
+  const comment = await onPage(commentId);
+  const root =
+    comment && comment.threadId !== commentId
+      ? await onPage(comment.threadId)
+      : comment;
+  if (!root) {
     throw new ActionContractError(
       `Comment "${commentId}" is not on this page. Pass a comment's id from list-comments.`,
       { errorCode: "SUGGESTION_COMMENT_NOT_FOUND", statusCode: 404 },
     );
   }
-  if (comment.fieldId) {
+  if (root.fieldId || root.propertyId) {
     throw new ActionContractError(
-      "That comment is in another Blocks field tab, and suggest-document-edit suggests on the page body only.",
+      "That comment is on a Property or in another Blocks field tab, and suggest-document-edit suggests on the page body only.",
       { errorCode: "SUGGESTION_COMMENT_NOT_ON_BODY", statusCode: 400 },
     );
   }
-  if (comment.resolved) {
+  if (root.resolved) {
     throw new ActionContractError(
       "That comment's thread is resolved. Answer an open comment, or leave commentId off.",
       { errorCode: "SUGGESTION_COMMENT_RESOLVED", statusCode: 409 },
@@ -84,8 +92,8 @@ async function answeredComment(
   }
   return {
     sourceCommentId: commentId,
-    sourceThreadId: comment.threadId,
-    sourceUrl: `/page/${encodeURIComponent(documentId)}?comment=${encodeURIComponent(comment.threadId)}`,
+    sourceThreadId: root.threadId,
+    sourceUrl: `/page/${encodeURIComponent(documentId)}?comment=${encodeURIComponent(root.threadId)}`,
   };
 }
 

@@ -280,9 +280,10 @@ When an edit answers a comment, as when the user asks you to address a page's
 open comments, pass that comment's `id` from `list-comments` as `commentId`, so
 its suggestion card links to the comment. Make a separate call for each comment.
 The comment must be open and on the page body: a resolved one fails with
-`SUGGESTION_COMMENT_RESOLVED`, one in another Blocks field tab with
-`SUGGESTION_COMMENT_NOT_ON_BODY`, and an id not on the page with
-`SUGGESTION_COMMENT_NOT_FOUND`.
+`SUGGESTION_COMMENT_RESOLVED`, one on a Property or in another Blocks field tab
+with `SUGGESTION_COMMENT_NOT_ON_BODY`, and an id not on the page with
+`SUGGESTION_COMMENT_NOT_FOUND`. If the edit answers such a comment anyway, leave
+`commentId` off.
 
 Use `suggest-document-edit` for every suggested body edit. The generic
 `create-resource-suggestion` action remains for advanced proposals that build
