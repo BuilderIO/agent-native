@@ -64,7 +64,7 @@ import {
 } from "../shared/builder-mdx.js";
 import { keepRuledOptions } from "../shared/column-rules.js";
 import {
-  documentPropertyDateIncludesTime,
+  documentPropertyDateTimestamp,
   isDocumentPropertyDateValue,
   normalizePropertyValueWithOptions,
   parsePropertyOptions,
@@ -1212,17 +1212,39 @@ function builderSourceFieldComparisonValue(
       values[builderReferenceIdSourceValueKey(field.sourceFieldKey)] ?? value
     );
   }
-  const date = typeof value === "number" ? new Date(value) : null;
-  const day =
-    date && !Number.isNaN(date.getTime())
-      ? date.toISOString().slice(0, 10)
-      : "";
-  return (sourceFieldType === "date" || sourceFieldType === "datetime") &&
-    day &&
-    isDocumentPropertyDateValue(localValue) &&
-    !documentPropertyDateIncludesTime(localValue)
-    ? day
-    : value;
+  // Builder keeps a date as a timestamp and a link in its canonical form, so a
+  // local value that Builder holds in that form compares as itself.
+  if (
+    (sourceFieldType === "date" || sourceFieldType === "datetime") &&
+    typeof value === "number" &&
+    isDocumentPropertyDateValue(localValue)
+  ) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    const start = localValue.start.trim();
+    // A date without a time matches any moment of that UTC day; a time
+    // matches the moment the save sends for it.
+    const same = /^\d{4}-\d{2}-\d{2}$/.test(start)
+      ? date.toISOString().slice(0, 10) === start
+      : documentPropertyDateTimestamp(start) === value;
+    return same ? localValue : value;
+  }
+  if (sourceFieldType === "file" && typeof value === "string") {
+    const links = Array.isArray(localValue) ? localValue : [localValue];
+    return links.length === 1 && canonicalWebLink(links[0]) === value
+      ? localValue
+      : value;
+  }
+  return value;
+}
+
+function canonicalWebLink(value: unknown) {
+  if (typeof value !== "string") return null;
+  try {
+    return new URL(value).toString();
+  } catch {
+    return null;
+  }
 }
 
 function stringSourceValue(
@@ -4758,20 +4780,21 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     const bodyChange = args.bodyChangeByDocumentId?.get(row.documentId) ?? null;
     const transitionOnly = fieldChanges.length === 0 && !bodyChange;
     if (transitionOnly && !stagedTransition) continue;
-    const matchesStoredChange = args.storedChangeSets.some((changeSet) => {
-      if (
-        changeSet.direction !== "outbound" ||
-        changeSet.documentId !== row.documentId ||
-        changeSet.pushMode !== "autosave" ||
-        changeSet.state === "rejected" ||
-        changeSet.state === "applied"
-      ) {
-        return false;
-      }
-      // Any open change for the row carries its staged publish or unpublish.
-      if (transitionOnly) return true;
-      return (
-        fieldChanges.every((change) =>
+    const openChangeSets = args.storedChangeSets.filter(
+      (changeSet) =>
+        changeSet.direction === "outbound" &&
+        changeSet.documentId === row.documentId &&
+        changeSet.pushMode === "autosave" &&
+        changeSet.state !== "rejected" &&
+        changeSet.state !== "applied",
+    );
+    // Any open change for the row carries its staged publish or unpublish.
+    if (transitionOnly && openChangeSets.length > 0) continue;
+    // A change an open change already sends stays with that change, so no
+    // field goes to Builder twice; a corrected value still surfaces on its own.
+    const pendingFieldChanges = fieldChanges.filter(
+      (change) =>
+        !openChangeSets.some((changeSet) =>
           changeSet.fieldChanges.some((stored) => {
             if (change.localFieldKey !== stored.localFieldKey) return false;
             const writableField = args.writableFields?.find(
@@ -4791,11 +4814,20 @@ export function buildBuilderLocalOutboundChangeSets(args: {
               sameStoredValue(change.proposedValue, stored.proposedValue)
             );
           }),
-        ) &&
-        (!bodyChange || !!changeSet.bodyChange)
-      );
-    });
-    if (matchesStoredChange) continue;
+        ),
+    );
+    const pendingBodyChange = openChangeSets.some(
+      (changeSet) => changeSet.bodyChange,
+    )
+      ? null
+      : bodyChange;
+    if (
+      !transitionOnly &&
+      pendingFieldChanges.length === 0 &&
+      !pendingBodyChange
+    ) {
+      continue;
+    }
 
     const now = new Date().toISOString();
     const displayTitle = localTitle || sourceTitle;
@@ -4805,7 +4837,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       documentId: row.documentId,
       kind: transitionOnly
         ? "metadata_update"
-        : bodyChange && fieldChanges.length === 0
+        : pendingBodyChange && pendingFieldChanges.length === 0
           ? "body_update"
           : "field_update",
       direction: "outbound",
@@ -4814,16 +4846,16 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       localOnly: true,
       summary: transitionOnly
         ? `Pending local Builder CMS ${stagedTransition} for "${displayTitle}".`
-        : bodyChange && fieldChanges.length === 0
+        : pendingBodyChange && pendingFieldChanges.length === 0
           ? `Pending local Builder CMS body change for "${displayTitle}".`
-          : fieldChanges.length === 1 &&
-              fieldChanges[0]?.localFieldKey === "title"
+          : pendingFieldChanges.length === 1 &&
+              pendingFieldChanges[0]?.localFieldKey === "title"
             ? `Pending local Builder CMS title change for "${localTitle}".`
             : `Pending local Builder CMS changes for "${displayTitle}".`,
-      fieldChanges,
-      bodyChange,
+      fieldChanges: pendingFieldChanges,
+      bodyChange: pendingBodyChange,
       riskLevel: "low",
-      riskReasons: bodyChange ? ["body diff"] : ["single field diff"],
+      riskReasons: pendingBodyChange ? ["body diff"] : ["single field diff"],
       conflictState: "none",
       reviewEvents: [],
       executions: [],

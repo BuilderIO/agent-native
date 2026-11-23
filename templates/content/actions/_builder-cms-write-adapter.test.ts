@@ -664,6 +664,91 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
+  it("empties a date, image or reference cleared in Content", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      builderModelFields: [
+        { name: "title", type: "string", required: true },
+        { name: "date", type: "date", required: false },
+        { name: "thumbnail", type: "file", required: false },
+        {
+          name: "author",
+          type: "reference",
+          model: "blog-author",
+          required: false,
+        },
+      ],
+    });
+    const cleared = (name: string) => ({
+      propertyId: `${name}-property`,
+      propertyName: name,
+      localFieldKey: `${name}-property`,
+      sourceFieldKey: `data.${name}`,
+      currentValue: null,
+      proposedValue: null,
+      builderValueJson: "null",
+    });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: { ...builderSource, rows: [] },
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+        fieldChanges: [
+          ...approvedChangeSet().fieldChanges,
+          cleared("date"),
+          cleared("thumbnail"),
+          cleared("author"),
+        ],
+      },
+      pushModeConfirmation: "draft",
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      payload: {
+        request: {
+          body: {
+            data: { date: null, thumbnail: null, author: null },
+          },
+        },
+        safety: { blockers: [] },
+      },
+    });
+  });
+
+  it("saves a time without a zone as that time in UTC", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: {
+        ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+          builderModelFields: [
+            { name: "title", type: "string", required: true },
+            { name: "date", type: "date", required: false },
+          ],
+        }),
+        rows: [],
+      },
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+        fieldChanges: [
+          ...approvedChangeSet().fieldChanges,
+          {
+            propertyId: "date-property",
+            propertyName: "Date",
+            localFieldKey: "date-property",
+            sourceFieldKey: "data.date",
+            currentValue: null,
+            proposedValue: { start: "2026-11-23T17:00", includeTime: true },
+          },
+        ],
+      },
+      pushModeConfirmation: "draft",
+    });
+
+    expect(plan.payload.request.body).toMatchObject({
+      data: { date: Date.UTC(2026, 10, 23, 17) },
+    });
+  });
+
   it("passes through trimmed labels for free-form Builder Tags fields", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: {

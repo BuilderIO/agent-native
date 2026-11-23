@@ -3998,18 +3998,25 @@ function DateValueEditor({
           onSelect={(_selected, day) => pickDay(day)}
         />
       )}
-      <div className="grid grid-cols-2 gap-2">
-        <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
-          <input
-            type="checkbox"
-            checked={showEnd}
-            onChange={(event) => {
-              setShowEnd(event.target.checked);
-              if (!event.target.checked) setEndValue("");
-            }}
-          />
-          {t("database.endDate")}
-        </label>
+      <div
+        className={
+          property.sourceWriteback ? "grid gap-2" : "grid grid-cols-2 gap-2"
+        }
+      >
+        {/* Builder's date field holds one date, so it offers no range. */}
+        {property.sourceWriteback ? null : (
+          <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={showEnd}
+              onChange={(event) => {
+                setShowEnd(event.target.checked);
+                if (!event.target.checked) setEndValue("");
+              }}
+            />
+            {t("database.endDate")}
+          </label>
+        )}
         <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
           <input
             name="property-include-time"

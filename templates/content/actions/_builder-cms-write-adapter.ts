@@ -10,6 +10,7 @@ import type {
   DocumentPropertyValue,
 } from "../shared/api.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.js";
+import { documentPropertyDateTimestamp } from "../shared/properties.js";
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_ENTRY_NAME_KEY,
@@ -189,6 +190,18 @@ function builderNativeFieldValue(args: {
   const field = builderModelFieldForOperation(args);
   const fieldLabel = field?.label?.trim() || field?.name || args.sourceFieldKey;
   const kind = normalizedBuilderFieldKind(field);
+  const cleared =
+    args.value === null ||
+    args.value === undefined ||
+    args.value === "" ||
+    (Array.isArray(args.value) && args.value.length === 0);
+  // A field cleared in Content empties the draft's field in Builder.
+  if (
+    cleared &&
+    /\b(date|datetime|file|image|reference|relation)\b/.test(kind)
+  ) {
+    return { value: null };
+  }
 
   if (/\b(date|datetime)\b/.test(kind)) {
     const raw =
@@ -199,7 +212,7 @@ function builderNativeFieldValue(args: {
       return { blocker: `${fieldLabel} must be a valid Builder date.` };
     }
     const timestamp =
-      typeof raw === "number" ? raw : new Date(raw.trim()).getTime();
+      typeof raw === "number" ? raw : documentPropertyDateTimestamp(raw);
     if (!Number.isFinite(timestamp)) {
       return { blocker: `${fieldLabel} must be a valid Builder date.` };
     }

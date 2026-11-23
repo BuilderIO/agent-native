@@ -8,6 +8,7 @@ import { syncPrivateMediaReferences } from "../server/lib/private-media-referenc
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import {
   isBlocksPropertyType,
+  parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import {
@@ -60,7 +61,11 @@ export async function assertPropertyWritableByRowMutation(
   ) {
     const reason =
       write && sourceFields.some(contentDatabaseSourceFieldSavesEditsToSource)
-        ? contentDatabaseSourceWritebackValueError(definition.type, write.value)
+        ? contentDatabaseSourceWritebackValueError(
+            definition.type,
+            write.value,
+            parsePropertyOptions(definition.optionsJson).options,
+          )
         : null;
     if (!reason) return;
     throw new ActionContractError(

@@ -454,6 +454,18 @@ export function documentPropertyDatePart(
   return "";
 }
 
+/**
+ * The moment a stored date or time names. One without a zone reads as UTC,
+ * the zone a timestamp is normalized in when it's stored.
+ */
+export function documentPropertyDateTimestamp(start: string) {
+  const trimmed = start.trim();
+  const zoneless = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(
+    trimmed,
+  );
+  return new Date(zoneless ? `${trimmed}Z` : trimmed).getTime();
+}
+
 export function documentPropertyDateIncludesTime(value: unknown) {
   if (isDocumentPropertyDateValue(value)) return value.includeTime === true;
   if (typeof value !== "string") return false;

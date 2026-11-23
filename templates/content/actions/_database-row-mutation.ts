@@ -787,7 +787,11 @@ async function normalizePatch(
     }
     const value = await strictValue(definition, input);
     const writebackReason = context.sourceWritebackPropertyIds.has(propertyId)
-      ? contentDatabaseSourceWritebackValueError(type, value)
+      ? contentDatabaseSourceWritebackValueError(
+          type,
+          value,
+          parsePropertyOptions(definition.optionsJson).options,
+        )
       : null;
     if (writebackReason) invalidProperty(definition, writebackReason);
     normalized.set(propertyId, serializePropertyValue(value));

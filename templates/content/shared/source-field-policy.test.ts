@@ -158,5 +158,23 @@ describe("Content source field write policy", () => {
       }),
     ).toMatch(/not a range/);
     expect(contentDatabaseSourceWritebackValueError("text", "x")).toBe(null);
+
+    const options = [{ id: "author_1" }, { id: "author_2" }];
+    expect(
+      contentDatabaseSourceWritebackValueError("select", "author_1", options),
+    ).toBe(null);
+    expect(
+      contentDatabaseSourceWritebackValueError("select", null, options),
+    ).toBe(null);
+    expect(
+      contentDatabaseSourceWritebackValueError("select", "made_up", options),
+    ).toMatch(/options this field already lists/);
+    expect(
+      contentDatabaseSourceWritebackValueError(
+        "multi_select",
+        ["author_1", "made_up"],
+        options,
+      ),
+    ).toMatch(/options this field already lists/);
   });
 });

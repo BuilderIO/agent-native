@@ -72,7 +72,15 @@ function isWebLink(value: unknown) {
 export function contentDatabaseSourceWritebackValueError(
   type: string,
   value: unknown,
+  options: ReadonlyArray<{ id: string }> = [],
 ) {
+  if (type === "select" || type === "multi_select") {
+    const picked = Array.isArray(value) ? value : value == null ? [] : [value];
+    const known = new Set(options.map((option) => option.id));
+    return picked.every((id) => typeof id === "string" && known.has(id))
+      ? null
+      : "Builder takes only the options this field already lists";
+  }
   if (type === "files_media") {
     const links = Array.isArray(value) ? value : value == null ? [] : [value];
     return links.length === 0 || (links.length === 1 && isWebLink(links[0]))
