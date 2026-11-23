@@ -400,7 +400,9 @@ export async function resolveCredential(
  *    Credentials are per-organization, so gaining a second organization (or
  *    having `active-org-id` repointed at one) orphans every key synced under
  *    the first. Without this, the only symptom is a missing-env-var error that
- *    names the key rather than the org mismatch that actually caused it.
+ *    names the key rather than the org mismatch that actually caused it. Its
+ *    two fixes come first too, ahead of the explanation, so the same
+ *    headline keeps both.
  *
  * SECURITY: both probes are bounded to organizations the caller is a member
  * of, report only the scope kind (and, for the cross-org case, the name of an
@@ -451,13 +453,11 @@ export async function describeCredentialScopeGap(
       ? null
       : await findMemberOrgHoldingCredential(key, scopedCtx);
     if (holder) {
+      const target = holder.name ? `"${holder.name}", where` : "one where";
       return (
-        `A "${key}" key is saved in the ${holder} organization, but this ` +
-        `request resolved to a different organization you also belong to. ` +
-        `Credentials are scoped per organization and are not shared between ` +
-        `them, so this is an organization mismatch rather than a missing key. ` +
-        `Either switch your active organization back to ${holder}, or save ` +
-        `"${key}" in the organization this request runs in.`
+        `Switch your active organization to ${target} "${key}" is saved, ` +
+        `or save it in this organization. Credentials aren't shared between ` +
+        `organizations.`
       );
     }
   }
@@ -489,7 +489,7 @@ async function hasForeignPersonalCredentialInOrg(
 async function findMemberOrgHoldingCredential(
   key: string,
   ctx: CredentialContext,
-): Promise<string | null> {
+): Promise<{ name: string | null } | null> {
   try {
     const { rows } = await getDbExec().execute({
       sql: `SELECT o.name AS org_name
@@ -506,9 +506,9 @@ async function findMemberOrgHoldingCredential(
     });
     if (rows.length === 0) return null;
     const name = (rows[0] as { org_name?: unknown }).org_name;
-    return typeof name === "string" && name.trim()
-      ? `"${name.trim()}"`
-      : "another";
+    return {
+      name: typeof name === "string" && name.trim() ? name.trim() : null,
+    };
   } catch {
     return null;
   }

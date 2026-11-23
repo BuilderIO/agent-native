@@ -183,7 +183,7 @@ describe("describeCredentialScopeGap across organizations", () => {
     resolveOrgIdForEmailResult = null;
   });
 
-  it("names the organization holding the key and the mismatch as the cause", async () => {
+  it("leads with both fixes, naming the organization holding the key, then the cause", async () => {
     onlyAnotherMemberOrgHasKey("Builder.io");
 
     const message = await describeCredentialScopeGap(
@@ -191,10 +191,10 @@ describe("describeCredentialScopeGap across organizations", () => {
       { userEmail: "tim@example.com", orgId: "coach-org" },
     );
 
-    expect(message).toContain("ACADEMY_CONVEX_SITE_URL");
-    expect(message).toContain('"Builder.io" organization');
-    expect(message).toContain(
-      "organization mismatch rather than a missing key",
+    expect(message).toBe(
+      'Switch your active organization to "Builder.io", where ' +
+        '"ACADEMY_CONVEX_SITE_URL" is saved, or save it in this ' +
+        "organization. Credentials aren't shared between organizations.",
     );
   });
 
@@ -226,7 +226,9 @@ describe("describeCredentialScopeGap across organizations", () => {
       orgId: "org-1",
     });
 
-    expect(message).toContain("another organization");
+    expect(message).toMatch(
+      /^Switch your active organization to one where "STRIPE_SECRET_KEY" is saved, or save it in this organization\. /,
+    );
     expect(message).not.toContain("org-1");
   });
 

@@ -18530,6 +18530,22 @@ describe("runAgentLoop", () => {
         'save "GOOGLE_APPLICATION_CREDENTIALS_JSON" with Workspace or ' +
         "Organization scope. That needs to be fixed outside this chat",
     },
+    {
+      label:
+        "keeps both cross-organization fixes when a long key and organization name push the cause past the limit",
+      thrown:
+        "bigquery credential not configured. Switch your active organization " +
+        'to "Builder.io Developer Relations and Community Programs", where ' +
+        '"GOOGLE_APPLICATION_CREDENTIALS_JSON" is saved, or save it in this ' +
+        "organization. Credentials aren't shared between organizations. " +
+        "Tried: BIGQUERY_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS_JSON",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: bigquery " +
+        "credential not configured. Switch your active organization to " +
+        '"Builder.io Developer Relations and Community Programs", where ' +
+        '"GOOGLE_APPLICATION_CREDENTIALS_JSON" is saved, or save it in this ' +
+        "organization. That needs to be fixed outside this chat",
+    },
   ])("$label in the stop headline", async ({ thrown, headline }) => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
