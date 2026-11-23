@@ -2222,6 +2222,10 @@ function DispatchLayout({
     scope: chatFirstSurfaceScope,
     tabsStore: chatFirstSurfaceTabsStore,
     shownAppId: chatFirstPaneAppId ?? null,
+    openPath:
+      visibleChatFirstSurfaceTab?.kind === "app"
+        ? visibleChatFirstSurfaceTab.path
+        : undefined,
     registrations: chatFirstAppRegistrations,
     openPane: openChatFirstPane,
     prefetch: prefetchChatFirstEmbedSession,
@@ -2274,6 +2278,7 @@ function DispatchLayout({
         {
           text: detail.text.slice(0, 4000),
           ...(sent.shownAppId ? { openApp: sent.shownAppId } : {}),
+          ...(sent.openPath ? { openPath: sent.openPath } : {}),
           ...(detail.previousTurn ? { previousTurn: detail.previousTurn } : {}),
         },
         { timeoutMs: CHAT_FIRST_ROUTE_TIMEOUT_MS },

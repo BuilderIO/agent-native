@@ -14,12 +14,13 @@ const QUESTION = "app";
 const NONE = "none";
 // Bump when the question or choice wording changes so cached answers to the
 // old wording are not replayed.
-const CACHE_KEY = "dispatch.route-app-intent.v3";
+const CACHE_KEY = "dispatch.route-app-intent.v4";
 
 type RouteAppIntentResult =
   | {
       status: "ok";
       app: string;
+      confidence: number;
       provider: string;
       model: string;
       cached: boolean;
@@ -55,6 +56,8 @@ export default defineAction({
       .max(200)
       .optional()
       .describe("Id of the app currently on screen, if any."),
+    openPath: z.string().max(2000).optional(),
+    selection: z.unknown().optional(),
     previousTurn: z
       .union([z.string().max(4000), z.record(z.string(), z.unknown())])
       .optional()
@@ -66,6 +69,7 @@ export default defineAction({
     z.object({
       status: z.literal("ok"),
       app: z.string(),
+      confidence: z.number().min(0).max(1),
       provider: z.string(),
       model: z.string(),
       cached: z.boolean(),
@@ -88,6 +92,8 @@ export default defineAction({
   run: async ({
     text,
     openApp,
+    openPath,
+    selection,
     previousTurn,
   }): Promise<RouteAppIntentResult> => {
     const ownerEmail = getRequestUserEmail();
@@ -123,6 +129,7 @@ export default defineAction({
       return {
         status: "ok",
         app: hit.appId,
+        confidence: 1,
         provider: "pointer",
         model: "alias-match",
         cached: false,
@@ -138,6 +145,9 @@ export default defineAction({
     ];
     if (openApp) {
       input.push({ type: "text", text: `App currently on screen: ${openApp}` });
+    }
+    if (openPath !== undefined || selection !== undefined) {
+      input.push({ type: "json", value: { openPath, selection } });
     }
     if (grantedPointers.length > 0) {
       input.push({
@@ -206,6 +216,12 @@ export default defineAction({
     return {
       status: "ok",
       app,
+      confidence:
+        answer?.type === "choice" &&
+        typeof answer.confidence === "number" &&
+        Number.isFinite(answer.confidence)
+          ? Math.max(0, Math.min(1, answer.confidence))
+          : 0,
       provider: result.provider,
       model: result.model,
       cached: result.cached === true,

@@ -690,6 +690,24 @@ export interface AgentUploadProgress {
   total: number;
 }
 
+export interface ActionSuggestion {
+  id: string;
+  kind: "filter" | "saved-view" | "automation" | "customize-app" | "create-app";
+  trigger:
+    | "ai-narrowing"
+    | "repeated-query"
+    | "missing-control"
+    | "cross-app-workflow"
+    | "new-domain";
+  label: string;
+  rationale: string;
+  appId: string;
+  execution:
+    | { type: "action"; action: string; params: Record<string, unknown> }
+    | { type: "customize"; targetAppId: string; editSpec: string }
+    | { type: "create-app"; domainSpec: string };
+}
+
 export interface AgentSuggestion {
   id: string;
   label: string;

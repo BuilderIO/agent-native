@@ -28,6 +28,7 @@ import {
   getConfiguredAppBasePath,
   getRequestContext,
   getRequestOrgId,
+  getRequestRunContext,
   getRequestUserEmail,
   resolveAppRuntimeUrl,
 } from "@agent-native/core/server";
@@ -1608,6 +1609,12 @@ async function withGrantedAppMcp<T>(
             url: mcpUrl,
             headers: {
               ...extraHeaders,
+              ...(getRequestRunContext()?.browserTabId
+                ? {
+                    "x-agent-native-browser-tab": getRequestRunContext()
+                      ?.browserTabId as string,
+                  }
+                : {}),
               Authorization: `Bearer ${credential.token}`,
               ...(credential.firstPartyMcp
                 ? { "x-agent-native-mcp-inline-apps": "1" }
