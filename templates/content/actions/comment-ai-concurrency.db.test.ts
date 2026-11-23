@@ -568,6 +568,48 @@ describe("comment AI durable action binding", () => {
     });
   });
 
+  it("lets one of two racing Retry turns take a stopped request and refuses the other", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    await bindTurn(OP_A);
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "needs-review" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    const turns = ["retry-turn-a", "retry-turn-b"];
+
+    const outcomes = await Promise.allSettled(
+      turns.map((requestedTurnId) =>
+        asUser(() =>
+          commentAi.resolveCommentAiActionSurface({
+            ownerEmail: OWNER,
+            threadId: started.agentThreadId,
+            queuedMessageId: `${requestedTurnId}-operation`,
+            requestedTurnId,
+            actionScope: { kind: "content-comment-ai", requestId: OP_A },
+          }),
+        ),
+      ),
+    );
+
+    expect(outcomes.map((outcome) => outcome.status).sort()).toEqual([
+      "fulfilled",
+      "rejected",
+    ]);
+    expect(
+      outcomes.find((outcome) => outcome.status === "rejected"),
+    ).toMatchObject({ reason: { errorCode: "comment_ai_turn_conflict" } });
+    const [request] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    expect(request).toMatchObject({
+      agentTurnId:
+        turns[outcomes.findIndex((outcome) => outcome.status === "fulfilled")],
+    });
+  });
+
   it("keeps a working request on its own turn when another turn on its thread starts", async () => {
     const started = await asUser(() =>
       commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),

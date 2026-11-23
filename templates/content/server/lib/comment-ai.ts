@@ -1105,7 +1105,7 @@ export async function resolveCommentAiActionSurface(
     details.requestedTurnId !== request.agentTurnId &&
     RESTARTABLE.includes(request.status as (typeof RESTARTABLE)[number])
   ) {
-    await getDb()
+    const bound = await getDb()
       .update(schema.commentAiRequests)
       .set({
         agentTurnId: details.requestedTurnId,
@@ -1117,7 +1117,20 @@ export async function resolveCommentAiActionSurface(
           eq(schema.commentAiRequests.agentTurnId, request.agentTurnId),
           inArray(schema.commentAiRequests.status, [...RESTARTABLE]),
         ),
+      )
+      .returning({ id: schema.commentAiRequests.id });
+    if (bound.length === 0) {
+      const current = await loadCommentAiRequest(
+        request.id,
+        details.ownerEmail ?? undefined,
       );
+      if (current.agentTurnId !== details.requestedTurnId) {
+        fail("This agent turn is not bound to the selected comment operation", {
+          statusCode: 409,
+          errorCode: "comment_ai_turn_conflict",
+        });
+      }
+    }
   }
   const operation = {
     reply: "reply-to-comment-ai-request",
