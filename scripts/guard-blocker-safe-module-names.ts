@@ -21,12 +21,17 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type * as TypeScript from "typescript";
+
+import {
+  PROVIDED_ROOTS_FILE,
+  readProvidedRoots,
+} from "./guard-no-untracked-imports.mjs";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -414,27 +419,92 @@ export function findBlockedModuleNames(modules: string[]): BlockedModuleName[] {
   return violations;
 }
 
+const SCAN_ROOTS = ["packages", "templates", "community-templates"] as const;
+
+const OVERLAY_SKIP_DIRS = new Set([
+  "node_modules",
+  "dist",
+  "build",
+  ".git",
+  ".output",
+  ".turbo",
+  ".react-router",
+  ".netlify",
+  ".vercel",
+  ".wrangler",
+  ".nitro",
+  "coverage",
+  "test-results",
+  "playwright-report",
+]);
+
+function walkOverlayDir(
+  repoRoot: string,
+  relDir: string,
+  out: Set<string>,
+): void {
+  const absDir = path.join(repoRoot, relDir);
+  if (!existsSync(absDir)) return;
+  for (const entry of readdirSync(absDir, { withFileTypes: true })) {
+    const child = path.posix.join(relDir, entry.name);
+    if (entry.isDirectory()) {
+      if (OVERLAY_SKIP_DIRS.has(entry.name)) continue;
+      walkOverlayDir(repoRoot, child, out);
+    } else if (entry.isFile()) {
+      out.add(child);
+    }
+  }
+}
+
+export function collectOverlaidFiles(repoRoot: string): string[] {
+  const hasPublicPin = existsSync(path.join(repoRoot, "PUBLIC_PIN"));
+  const hasProvidedRoots = existsSync(path.join(repoRoot, PROVIDED_ROOTS_FILE));
+  if (!hasPublicPin && !hasProvidedRoots) return [];
+
+  const providedRoots = hasProvidedRoots ? readProvidedRoots(repoRoot) : [];
+  const files = new Set<string>();
+  if (hasPublicPin) {
+    for (const root of SCAN_ROOTS) {
+      walkOverlayDir(repoRoot, root, files);
+    }
+  } else {
+    for (const root of providedRoots) {
+      const relDir = root.replace(/\/+$/, "");
+      if (
+        SCAN_ROOTS.some((top) => relDir === top || relDir.startsWith(`${top}/`))
+      ) {
+        walkOverlayDir(repoRoot, relDir, files);
+      }
+    }
+  }
+  return [...files];
+}
+
+export function listRepoFiles(repoRoot: string): string[] {
+  const gitFiles = execFileSync(
+    "git",
+    [
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "--",
+      ...SCAN_ROOTS,
+    ],
+    { cwd: repoRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  )
+    .split("\n")
+    .filter(Boolean);
+
+  const overlaid = collectOverlaidFiles(repoRoot);
+  if (overlaid.length === 0) return gitFiles;
+  return [...new Set([...gitFiles, ...overlaid])];
+}
+
 function main(): void {
   let files: string[];
   try {
-    files = execFileSync(
-      "git",
-      [
-        "ls-files",
-        "--cached",
-        "--others",
-        "--exclude-standard",
-        "--",
-        // All of every package and template, so one whose modules moved out
-        // of BROWSER_ROOTS still shows up in uncheckedUnits.
-        "packages",
-        "templates",
-        "community-templates",
-      ],
-      { cwd: REPO_ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-    )
-      .split("\n")
-      .filter(Boolean);
+    files = listRepoFiles(REPO_ROOT);
   } catch (error) {
     console.error(
       `guard-blocker-safe-module-names: could not run: cannot list files — ${error instanceof Error ? error.message : String(error)}`,
