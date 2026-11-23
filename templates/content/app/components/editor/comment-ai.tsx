@@ -774,24 +774,25 @@ export function useCommentAiRequests(
   useEffect(() => {
     for (const request of serverRequests) {
       const receipt = sessionReceipt(request);
-      if (
-        !ACTIVE_STATUSES.has(request.status) ||
-        !receipt ||
-        monitoredRequestsRef.current.has(request.operationId)
-      )
-        continue;
-      monitoredRequestsRef.current.add(request.operationId);
+      if (!ACTIVE_STATUSES.has(request.status) || !receipt) continue;
+      // A Retry restarts the request on a new turn. Watch each turn on its
+      // own, and stop once the request has moved past it: the ended turn's
+      // finish says nothing about the new try.
+      const monitorKey = `${request.operationId}:${receipt.turnId}`;
+      if (monitoredRequestsRef.current.has(monitorKey)) continue;
+      monitoredRequestsRef.current.add(monitorKey);
+      const watching = () =>
+        mountedRef.current &&
+        serverRequestsRef.current.some(
+          (current) =>
+            current.operationId === request.operationId &&
+            ACTIVE_STATUSES.has(current.status) &&
+            sessionReceipt(current)?.turnId === receipt.turnId,
+        );
       void (async () => {
         let retryDelay = ACTIVE_REQUEST_REFETCH_INTERVAL_MS;
         try {
-          while (
-            mountedRef.current &&
-            serverRequestsRef.current.some(
-              (current) =>
-                current.operationId === request.operationId &&
-                ACTIVE_STATUSES.has(current.status),
-            )
-          ) {
+          while (watching()) {
             let snapshot;
             try {
               snapshot = await getBackgroundAgentSessionStatus(receipt);
@@ -802,6 +803,7 @@ export function useCommentAiRequests(
               continue;
             }
             if (shouldReconcileCommentAiSnapshot(snapshot)) {
+              if (!watching()) return;
               await reconcile(
                 request,
                 receipt.threadId,
@@ -817,7 +819,7 @@ export function useCommentAiRequests(
             );
           }
         } finally {
-          monitoredRequestsRef.current.delete(request.operationId);
+          monitoredRequestsRef.current.delete(monitorKey);
         }
       })();
     }

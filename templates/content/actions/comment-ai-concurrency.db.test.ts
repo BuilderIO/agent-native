@@ -503,6 +503,94 @@ describe("comment AI durable action binding", () => {
     });
   });
 
+  it("binds a Retry's turn, so the turn that ended can't send the new try to review", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    await bindTurn(OP_A);
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "needs-review" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+
+    await asUser(() =>
+      commentAi.resolveCommentAiActionSurface({
+        ownerEmail: OWNER,
+        threadId: started.agentThreadId,
+        queuedMessageId: "retry-operation",
+        requestedTurnId: "retry-turn",
+        actionScope: { kind: "content-comment-ai", requestId: OP_A },
+      }),
+    );
+    await runOperation(
+      OP_A,
+      started.agentThreadId,
+      async () => {
+        const request = await commentAi.requireCommentAiRequest("reply");
+        return commentAi.beginCommentAiAttempt(request);
+      },
+      "run-retry",
+    );
+
+    await expect(
+      asUser(() =>
+        commentAi.reconcileCommentAiSession({
+          operationId: OP_A,
+          threadId: started.agentThreadId,
+          turnId: TURN_ID,
+          status: "completed",
+          runId: "run-first",
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_turn_conflict" });
+    const [restarted] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    expect(restarted).toMatchObject({
+      agentTurnId: "retry-turn",
+      status: "running",
+      runId: "run-retry",
+    });
+
+    const finished = await asUser(() =>
+      commentAi.reconcileCommentAiSession({
+        operationId: OP_A,
+        threadId: started.agentThreadId,
+        turnId: "retry-turn",
+        status: "completed",
+        runId: "run-retry",
+      }),
+    );
+    expect(finished).toMatchObject({
+      status: "needs-review",
+      errorCode: "run_unavailable",
+    });
+  });
+
+  it("keeps a working request on its own turn when another turn on its thread starts", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    await bindTurn(OP_A);
+
+    await asUser(() =>
+      commentAi.resolveCommentAiActionSurface({
+        ownerEmail: OWNER,
+        threadId: started.agentThreadId,
+        queuedMessageId: "follow-up-operation",
+        requestedTurnId: "follow-up-turn",
+        actionScope: { kind: "content-comment-ai", requestId: OP_A },
+      }),
+    );
+
+    const [request] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    expect(request).toMatchObject({ status: "queued", agentTurnId: TURN_ID });
+  });
+
   it("fails closed when protected thread scope has no request binding", async () => {
     const agentThreadId = `agent-thread-${crypto.randomUUID()}`;
     await createThread(OWNER, {

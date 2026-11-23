@@ -42,6 +42,8 @@ import { resolveCommentBlocksField } from "./comment-blocks-field.js";
 import { documentContentHash } from "./document-revision.js";
 
 const TERMINAL_SUCCESS = ["replied", "suggested", "resolved"] as const;
+/** Statuses a later turn on the request's thread, such as Retry, restarts. */
+const RESTARTABLE = ["needs-review", "failed", "cancelled"] as const;
 const MAX_ATTEMPTS = 2;
 
 export const commentAiIntentSchema = z.enum([
@@ -1099,6 +1101,27 @@ export async function resolveCommentAiActionSurface(
       statusCode: 409,
       errorCode: "comment_ai_binding_missing",
     });
+  } else if (
+    details.requestedTurnId &&
+    details.requestedTurnId !== request.agentTurnId &&
+    RESTARTABLE.includes(request.status as (typeof RESTARTABLE)[number])
+  ) {
+    // A Retry resumes a stopped request on a new turn of its thread. Bind that
+    // turn, so tabs check the run now working on the request: the ended turn's
+    // finish would otherwise mark the new try Needs review.
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({
+        agentTurnId: details.requestedTurnId,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(
+        and(
+          eq(schema.commentAiRequests.id, request.id),
+          eq(schema.commentAiRequests.agentTurnId, request.agentTurnId),
+          inArray(schema.commentAiRequests.status, [...RESTARTABLE]),
+        ),
+      );
   }
   const operation = {
     reply: "reply-to-comment-ai-request",
