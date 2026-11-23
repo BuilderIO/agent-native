@@ -1414,12 +1414,7 @@ describe("migrate-content-database-rows", () => {
         truncated: false,
         capturedAt: "2026-11-07T16:40:00.000Z",
       });
-    const seed = await fixture(
-      1,
-      `# Before
-
-${chart("dash_before")}`,
-    );
+    const seed = await fixture(1, `# Before\n\n${chart("dash_before")}`);
     const [row] = seed.rows;
     await db.insert(schema.analyticsChartCitations).values({
       documentId: row.documentId,
@@ -1432,10 +1427,10 @@ ${chart("dash_before")}`,
           .from(schema.analyticsChartCitations)
           .where(eq(schema.analyticsChartCitations.documentId, documentId))
       ).map(({ dashboardId }: { dashboardId: string }) => dashboardId);
-    const migrationPlan: any = structuredClone(plan(seed));
-    const applied: any = await runWithRequestContext({ userEmail: OWNER }, () =>
+    const migrationPlan = plan(seed);
+    const applied = (await runWithRequestContext({ userEmail: OWNER }, () =>
       action.run({ phase: "apply", plan: migrationPlan }),
-    );
+    )) as { postDigest: string };
     expect(await cited(row.documentId)).toEqual([]);
     await runWithRequestContext({ userEmail: OWNER }, () =>
       terminalAction.run({
@@ -1448,15 +1443,21 @@ ${chart("dash_before")}`,
     expect(await cited(row.documentId)).toEqual(["dash_before"]);
 
     const added = await fixture(1);
-    const addedPlan: any = structuredClone(plan(added));
-    addedPlan.rows[0].content += `
-
-${chart("dash_added")}`;
-    const addedApplied: any = await runWithRequestContext(
+    const [addedRow] = added.rows;
+    const addedPlan = {
+      ...plan(added),
+      rows: [
+        {
+          ...addedRow,
+          content: `${addedRow.content}\n\n${chart("dash_added")}`,
+        },
+      ],
+    };
+    const addedApplied = (await runWithRequestContext(
       { userEmail: OWNER },
       () => action.run({ phase: "apply", plan: addedPlan }),
-    );
-    expect(await cited(added.rows[0].documentId)).toEqual(["dash_added"]);
+    )) as { postDigest: string };
+    expect(await cited(addedRow.documentId)).toEqual(["dash_added"]);
     await runWithRequestContext({ userEmail: OWNER }, () =>
       terminalAction.run({
         phase: "rollback",
@@ -1465,7 +1466,7 @@ ${chart("dash_added")}`;
         expectedPostDigest: addedApplied.postDigest,
       }),
     );
-    expect(await cited(added.rows[0].documentId)).toEqual([]);
+    expect(await cited(addedRow.documentId)).toEqual([]);
   });
 
   it("performs guarded rollback/finalize and refuses drift", async () => {

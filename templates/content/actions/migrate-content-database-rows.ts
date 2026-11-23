@@ -774,7 +774,7 @@ export async function runMigration(
             tx as unknown as ReturnType<typeof getDb>,
             {
               documentId: prior.documentId,
-              before: applied?.content ?? "",
+              before: applied.content,
               after: version.content,
             },
           );
