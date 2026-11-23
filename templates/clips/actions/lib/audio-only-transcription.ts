@@ -14,6 +14,11 @@ const AUDIO_EXTRACTION_MIN_TIMEOUT_MS = 30_000;
 const AUDIO_EXTRACTION_MAX_TIMEOUT_MS = 90_000;
 const AUDIO_EXTRACTION_BASE_TIMEOUT_MS = 25_000;
 const AUDIO_EXTRACTION_PER_50MB_MS = 10_000;
+// Recordings are fragmented MP4, about one fragment per second. Over HTTP,
+// ffmpeg skips each fragment's media with a new range request unless the skip
+// is under this size, so a 34-minute clip took over 2,000 requests and timed
+// out. Skips this small are read through on the open connection instead.
+const STREAM_READ_THROUGH_BYTES = 16 * 1024 * 1024;
 const SILENCE_MAX_VOLUME_DB = -60;
 export const TRANSCRIPTION_CHUNK_SECONDS = 15 * 60;
 const STDERR_LIMIT = 16 * 1024;
@@ -170,6 +175,8 @@ function ffmpegInputArgs(source: AudioExtractionSource): string[] {
     "5",
     "-rw_timeout",
     "30000000",
+    "-short_seek_size",
+    String(STREAM_READ_THROUGH_BYTES),
     "-i",
     source.url,
   ];
