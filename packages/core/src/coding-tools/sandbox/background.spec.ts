@@ -83,6 +83,7 @@ function okRunner(
     exitCode: number | null;
     timedOut: boolean;
     bridgeToolsUsed: string[];
+    stdoutTruncated: boolean;
   }> = {},
 ) {
   const execute = vi.fn(async () => ({
@@ -232,6 +233,20 @@ describe("processQueuedSandboxExecution", () => {
     expect(done!.stdout).toBe("42");
     expect(done!.bridgeToolsUsed).toEqual(["provider-api-request"]);
     expect(done!.finishedAt).not.toBeNull();
+  });
+
+  it("gives the runner the execution's output budget and keeps its truncation flag", async () => {
+    const execute = okRunner({ stdout: "cut", stdoutTruncated: true });
+    const row = await makeExecution({ maxOutputChars: 4_000_000 });
+
+    await processQueuedSandboxExecution(row.id);
+
+    const input = execute.mock.calls[0][0] as { maxOutputChars?: number };
+    expect(input.maxOutputChars).toBe(4_000_000);
+    expect(await getSandboxExecutionInternal(row.id)).toMatchObject({
+      stdout: "cut",
+      stdoutTruncated: true,
+    });
   });
 
   it("runs the code as the caller that queued it, over the same protocol", async () => {

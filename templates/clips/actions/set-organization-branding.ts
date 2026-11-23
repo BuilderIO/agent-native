@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { organizations } from "@agent-native/core/org";
 import { eq } from "drizzle-orm";
@@ -37,6 +37,8 @@ export default defineAction({
       "Default visibility for new recordings",
     ),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args) => {
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,

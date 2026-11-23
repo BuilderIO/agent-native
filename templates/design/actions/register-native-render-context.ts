@@ -7,6 +7,7 @@ export default defineAction({
   agentTool: false,
   description:
     "Register a short-lived local native export capability for this authenticated, already-open Design editor tab. Returns metadata only.",
+  automatic: true,
   schema: z
     .object({
       designId: z.string().min(1).max(128),

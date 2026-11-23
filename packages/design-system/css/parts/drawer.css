@@ -61,6 +61,11 @@
     z-index: var(--layer-drawer-over-dialog);
   }
 
+  .drawer-popup:where(:not([hidden])) {
+    display: flex;
+    flex-direction: column;
+  }
+
   .drawer-popup {
     --_x: 0px;
     --_y: 0px;
@@ -103,8 +108,6 @@
   .drawer-popup[data-side="bottom"] {
     inset-inline: 0;
     bottom: 0;
-    display: flex;
-    flex-direction: column;
     height: auto;
     margin-top: var(--space-9);
     border-top-left-radius: calc(var(--shape-dialog) * var(--corner-scale, 1));
@@ -115,8 +118,6 @@
   .drawer-popup[data-side="top"] {
     inset-inline: 0;
     top: 0;
-    display: flex;
-    flex-direction: column;
     gap: var(--space-4);
     padding: var(--space-5);
   }
@@ -125,8 +126,6 @@
     inset-block: 0;
     right: 0;
     width: 75%;
-    display: flex;
-    flex-direction: column;
     gap: var(--space-4);
     padding: var(--space-5);
   }
@@ -135,8 +134,6 @@
     inset-block: 0;
     left: 0;
     width: 75%;
-    display: flex;
-    flex-direction: column;
     gap: var(--space-4);
     padding: var(--space-5);
   }
@@ -201,7 +198,8 @@
 
   .drawer-footer {
     display: flex;
-    flex-direction: column-reverse;
+    flex-direction: column;
+    min-inline-size: 0;
     gap: var(--space-2);
   }
 
@@ -211,7 +209,6 @@
   }
 
   .drawer-popup[data-side="bottom"] .drawer-footer {
-    flex-direction: column;
     margin-top: auto;
   }
 
@@ -222,6 +219,7 @@
 
     .drawer-popup:not([data-side="bottom"]) .drawer-footer {
       flex-direction: row;
+      flex-wrap: wrap;
       justify-content: flex-end;
     }
   }

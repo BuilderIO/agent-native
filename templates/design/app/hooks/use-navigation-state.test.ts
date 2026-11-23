@@ -4,14 +4,36 @@ import { describe, expect, it } from "vitest";
 import { DESIGN_EDITOR_TOOLS } from "@/pages/design-editor/tool-state";
 
 import {
+  commandPathFromNavigation,
   designEditorCommandKeysForTab,
   designSelectionCleanupKeysForTab,
   designSelectionStateKeysForTab,
   editorCommandFromNavigate,
   editorPathFromCommand,
+  homeSearchFromSearchParams,
 } from "./use-navigation-state";
 
 describe("design navigation state", () => {
+  it("sends a list navigation with a search to Design home filtered by it", () => {
+    expect(
+      commandPathFromNavigation({ view: "list", search: "checkout" }),
+    ).toBe("/home?search=checkout");
+    expect(commandPathFromNavigation({ view: "list", search: "a b&c" })).toBe(
+      "/home?search=a+b%26c",
+    );
+    expect(commandPathFromNavigation({ view: "list", search: "  " })).toBe(
+      "/home",
+    );
+    expect(commandPathFromNavigation({ view: "list" })).toBe("/home");
+  });
+
+  it("reports the home search back in the navigation state", () => {
+    expect(
+      homeSearchFromSearchParams(new URLSearchParams("search=checkout")),
+    ).toBe("checkout");
+    expect(homeSearchFromSearchParams(new URLSearchParams(""))).toBeUndefined();
+  });
+
   it("defaults focused screen navigation to a readable zoom", () => {
     const command = {
       view: "editor",

@@ -22,6 +22,7 @@ export default defineAction({
     kind: z.enum(CLIPS_AI_REQUEST_KINDS).describe("Queued request kind"),
     requestedAt: z.string().datetime(),
   }),
+  mcpTool: false,
   run: async ({ recordingId, kind, requestedAt }) => {
     await assertAccess("recording", recordingId, "editor");
     const requestKey = `clips-ai-request-${recordingId}`;

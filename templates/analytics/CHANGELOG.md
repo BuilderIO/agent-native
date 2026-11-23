@@ -3,6 +3,34 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-21
+
+### Improved
+
+- When connected MCP agents reach your first $1 of BigQuery for the day, Analytics now asks you once on its review page to allow up to $5 until 00:00 UTC, instead of stopping them.
+
+## 2026-11-19
+
+### Fixed
+
+- Connected agents can capture saved dashboard panels within existing BigQuery budgets and receive cost details or a clear refusal.
+
+## 2026-11-18
+
+### Added
+
+- New hosted signups now set up a Builder account automatically, so AI features are ready on first load.
+
+### Fixed
+
+- Fixed dbt metric queries failing with an empty response on some OpenAI models.
+
+## 2026-11-17
+
+### Added
+
+- BigQuery jobs started by connected MCP agents now count against daily limits ($1 per person without asking, $5 per person, $50 per organization, 50 GB per job), and the onboarding journey and health tools report what each call cost and what is left today; organization admins can raise the limits from Analytics' agent.
+
 ## 2026-11-16
 
 ### Added
@@ -21,6 +49,11 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - Dashboard panel descriptions stay condensed to a single subtext line by default and expand on click.
+
+### Fixed
+
+- Analytics opens reliably without a first-run page error.
+- Sentry issue events allow more time to load before timing out.
 
 ## 2026-11-10
 
@@ -85,6 +118,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - The Content dashboard shows each article's pageviews, search clicks and impressions, and charts pageviews and search clicks per day.
+
+## 2026-10-30
+
+### Fixed
+
+- Your light/dark theme choice now stays yours instead of being shared with your whole organization.
 
 ## 2026-10-29
 
@@ -1385,114 +1424,5 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - The Ask composer no longer carries dashboard or panel context after leaving a dashboard.
 - The Ask section stays highlighted while its chat history is expanded.
 - Timed-out BigQuery jobs are now cancelled so they stop consuming warehouse quota.
-
-## 2026-07-09
-
-### Added
-
-- Dashboard charts, tables, and extensions can be selected and discussed directly with the agent.
-
-### Improved
-
-- Uptime check history now shows timing diagnostics so slow or timed-out probes are easier to debug.
-
-### Fixed
-
-- Analytics no longer forgets successful data queries when a long request continues in the background.
-- Dashboard action menus now close cleanly before opening history, email, archive, or delete dialogs.
-- Dashboard charts keep consistent spacing when they stack vertically
-- Dashboard email report screenshots load reliably after dashboard URL redirects.
-- Long-running Analytics requests now recover automatically when a background handoff is interrupted.
-- Uptime alerts now suppress recovery noise during flapping and confirm slow-response spikes before emailing.
-- Uptime monitors now skip in-process sweeps in production serverless runtimes and rely on scheduled workers to avoid false timeout alerts.
-- Uptime recovery alerts now send when the original outage notification reached email, Slack, or webhook channels.
-
-## 2026-07-08
-
-### Added
-
-- Add uptime monitors that ping your URLs and alert you when they go down or return the wrong content
-- Admins can audit dashboard usage, ownership, and cleanup signals from a new Admin view.
-- Create public status pages that share the live health of chosen monitors at a shareable link
-- Capture JavaScript errors automatically and jump straight to the session replay where each one happened.
-- Publish a public uptime status page with colorful uptime timelines and overall uptime stats
-
-### Improved
-
-- Alert rules are easier to scan, expand, and edit from Settings.
-- Analytics alert forms remember your last email recipients when creating the next rule.
-- Analytics alert rules can now use per-rule Slack and webhook URLs.
-- Analytics chats keep large data dictionaries compact so provider investigations start faster.
-- Console details expand inline under each row, and the event timeline highlights, auto-scrolls, and supports search
-- Dashboard extension panels use clearer menu wording when opening an embedded extension.
-- Dashboards and saved analyses now keep restorable history, and the active dashboard or database table appears as context in chat.
-- Error issue details now show Sentry-style stack frames, source snippets, and a recent frequency bar chart.
-- Error issue detail now shows the latest occurrence message and metadata for faster triage.
-- Jump straight from an error in a session recording to its full error detail
-- Monitor detail and list now show colorful uptime timelines, response-time charts, and 24h/7d/30d/90d uptime cards
-- Session replay keeps a usable stage when Dev Tools is open and shows the event timeline on medium screens
-- Session replay resumes after scrubbing and expands console rows without jumping the playhead
-- Settings are cleaner and searchable, and alert rules now live in their own dedicated Alerts tab.
-- Sidebar sections stay quieter by default, while Ask, dashboards, and analyses can each be expanded or collapsed manually.
-- Team settings now show organization access controls next to long member lists when there is room.
-- The uptime monitor list now has a current-status overview with up/degraded/down counts, overall uptime, and open incidents
-- Uptime alerting clarifies in-app inbox vs email and lets you paste Slack or webhook URLs per monitor.
-- Uptime checks reuse one keep-alive connection, so recorded latency reflects the real response time instead of a fresh handshake each probe.
-- Uptime monitors now use a 10-second request timeout by default and update existing short-timeout checks.
-
-### Fixed
-
-- Agent monitoring stays available to non-admin users while admin-only dashboard and database tools remain restricted.
-- Alert emails now show the message without raw metadata JSON.
-- Dashboard charts and tables keep their layout steady while loading.
-- Dashboard usage now counts explorer dashboard traffic and links to explorer dashboards correctly.
-- Demo mode now filters session replay data to Builder sessions and anonymizes session email addresses everywhere sessions are shown.
-- Fixed single-panel dashboard drags so they no longer rewrite unchanged extension dashboards.
-- Monitoring errors only shows the test-error action when no errors have been captured yet.
-- Monitoring Uptime and Errors tabs now clearly show which view is active.
-- Pinned Ask chats now show a pin icon in the sidebar.
-- Production session replay now requires private blob storage when full snapshot playback is enabled.
-- Session replay uses stock rrweb sizing again so recorded pages reassemble correctly instead of showing a blank stage
-- Session replays wait for full load, keep a normal viewport, and scrub the timeline reliably
-- Sessions now hide visitor emails in demo mode and show cleaner replay row details.
-- Shared extension links now show a clear message when you do not have access.
-- Sidebar dashboard menus now open above the dashboard canvas
-- Uptime checks no longer count SSRF setup time against the request timeout, cutting false timeout alerts
-- Uptime monitors now confirm transient timeout failures before alerting, reducing noisy false alarms.
-
-## 2026-07-07
-
-### Improved
-
-- Session replays load sooner, show clearer activity timelines, and keep Dev Tools fast on large recordings.
-
-### Fixed
-
-- Analytics now recovers from stale route chunks after deploys instead of leaving dashboards stuck on failed module loads.
-- Metric dashboard cards now show warehouse-backed numeric values correctly when query results return numbers as strings.
-
-## 2026-07-06
-
-### Added
-
-- Dashboards can now chart data programs — saved server-side scripts that join data from any connected provider
-
-### Fixed
-
-- Dashboard lists and headers stay compact by keeping owner and sharing details out of always-visible labels.
-- Extension pages and mobile headers now share one consistent app background shade.
-- Mobile chat now has a tighter matching header, stable Safari viewport sizing, working navigation menu, and New chat action in the top bar.
-
-## 2026-07-03
-
-### Added
-
-- Added an Agents page that brings monitoring, evals, experiments, feedback, and advanced database tools into one organized admin surface.
-- The Agent-Native dashboard now shows model cost, token usage, latency, and error tracking.
-- Analytics admins can now connect other agent-native app databases from Agents and inspect or repair those target databases without exposing Analytics data to all users.
-
-### Improved
-
-- Session recordings now include response bodies for 5xx errors so agents can see the actual server error
 
 For the full list of updates, see the [changelog folder](./changelog/).

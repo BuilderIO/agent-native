@@ -1091,6 +1091,19 @@
       ]
     },
     {
+      "id": "toolkit/app-filters",
+      "label": "Toolkit app Filters",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["app-filters"],
+      "entrypoints": ["./app/filters"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/app/filters"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": ["@agent-native/core", "@tabler/icons-react", "react"],
+      "verification": ["pnpm typecheck"],
+      "protectedImports": ["@agent-native/core/client/i18n"]
+    },
+    {
       "id": "toolkit/app-integrations",
       "label": "Toolkit app Integrations",
       "catalog": "toolkit-ui",
@@ -2134,6 +2147,7 @@
         "next-themes",
         "react",
         "react-day-picker",
+        "react-dom",
         "react-hook-form",
         "react-resizable-panels",
         "recharts",
@@ -2177,6 +2191,38 @@
       "sourceEntries": ["src/markdown-block-split.ts"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [],
+      "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/craft",
+      "label": "Craft UI primitives and semantic tokens",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["craft"],
+      "entrypoints": ["./craft", "./craft/*"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/craft"],
+      "styles": [
+        {
+          "entrypoint": "./craft-tokens.css",
+          "source": "src/app/styles/craft-tokens.css"
+        },
+        {
+          "entrypoint": "./app/styles/craft-tokens.css",
+          "source": "src/app/styles/craft-tokens.css"
+        }
+      ],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@radix-ui/react-alert-dialog",
+        "@radix-ui/react-dialog",
+        "@radix-ui/react-slot",
+        "@tabler/icons-react",
+        "class-variance-authority",
+        "clsx",
+        "culori",
+        "react",
+        "tailwind-merge"
+      ],
       "verification": ["pnpm typecheck"]
     },
     {

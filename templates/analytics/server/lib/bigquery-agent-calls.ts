@@ -156,6 +156,7 @@ export interface OutsideAgentBigQueryCallOptions {
   source: string;
   reservation: "full-cap" | "dry-run";
   leaseMs: number;
+  askVia?: string;
 }
 
 export interface OutsideAgentBigQueryCall {

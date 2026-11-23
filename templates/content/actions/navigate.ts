@@ -59,6 +59,7 @@ export default defineAction({
     intent: navigationIntentSchema,
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const path = await resolveNavigatePath(args);
 

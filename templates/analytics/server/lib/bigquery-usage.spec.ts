@@ -1,6 +1,15 @@
 import { createRequire } from "node:module";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 function present<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("Expected fixture observation");
@@ -70,6 +79,7 @@ import {
   usageBytes,
   withBigQueryUsageAttribution,
 } from "./bigquery-usage";
+import { resetPublicSchema } from "./testing/pglite-reset";
 
 const ctx = { userEmail: "caller@example.test", orgId: "org-1" };
 const makeUsage = () => newBigQueryJobUsage("test-project", "job-1", ctx);
@@ -245,15 +255,18 @@ describe("warehouse job observations", () => {
 
 describe("durable warehouse ledger", () => {
   let client: Awaited<ReturnType<typeof PGlite.create>>;
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
+  });
+  afterAll(async () => {
+    await client.close();
+  });
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     await client.exec(BIGQUERY_USAGE_MIGRATION_SQL);
     execute
       .mockReset()
       .mockImplementation(({ sql, args }) => client.query(sql, args));
-  });
-  afterEach(async () => {
-    await client.close();
   });
 
   it("upserts observations of one job once, preserves exact bytes and cannot regress complete usage", async () => {

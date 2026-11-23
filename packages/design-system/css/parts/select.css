@@ -23,7 +23,7 @@
  *
  * Radix Themes' select on the system's scale. The size is the root's, so
  * the trigger and the popup carry the same one: the trigger is the 24 or 20px
- * control height, and the popup's rows are as tall. A surface
+ * control height, and its popup uses 32 or 24px rows. A surface
  * trigger keeps neutral edges in every color; soft and ghost take the
  * color. The popup's variant fills the highlighted row: solid with the
  * color, soft with a tint of it.
@@ -206,12 +206,17 @@
     --control-line-height: var(--control-line-height-3);
     --_slide-x: 0px;
     --_slide-y: 0px;
-    --_row: var(--control-height-3);
+    --_row: var(--menu-row-height, var(--size-4));
     --_icon: var(--control-icon-size-3);
     --_inset: calc(var(--space-2) + var(--_icon) + var(--control-gap));
 
     box-sizing: border-box;
-    min-width: max(128px, var(--anchor-width, 0px));
+    min-width: min(
+      max(var(--menu-min-width, 10rem), var(--anchor-width, 0px)),
+      var(--available-width, 100vi)
+    );
+    max-width: var(--available-width, 100vi);
+    overflow-wrap: anywhere;
     max-height: min(24rem, var(--available-height, 24rem));
     overflow-y: auto;
     padding: var(--space-1);
@@ -231,7 +236,7 @@
   .select-popup[data-size="sm"] {
     --control-font-size: var(--control-font-size-1);
     --control-line-height: var(--control-line-height-1);
-    --_row: var(--control-height-2);
+    --_row: var(--menu-compact-row-height, var(--size-3));
     --_icon: var(--control-icon-size-2);
   }
 
@@ -241,13 +246,17 @@
   .select-popup[data-side="top"] {
     --_slide-y: var(--space-2);
   }
-  .select-popup[data-side="left"],
-  .select-popup[data-side="inline-start"] {
+  .select-popup[data-side="left"] {
     --_slide-x: var(--space-2);
   }
-  .select-popup[data-side="right"],
-  .select-popup[data-side="inline-end"] {
+  .select-popup[data-side="right"] {
     --_slide-x: calc(var(--space-2) * -1);
+  }
+  .select-popup[data-side="inline-start"] {
+    --_slide-x: calc(var(--space-2) * var(--_inline-direction, 1));
+  }
+  .select-popup[data-side="inline-end"] {
+    --_slide-x: calc(var(--space-2) * var(--_inline-direction, 1) * -1);
   }
 
   .select-popup[data-starting-style] {
@@ -359,7 +368,19 @@
 
   .select-separator {
     height: 1px;
-    margin: var(--space-1) calc(var(--space-1) * -1);
+    /* Include the hairline in the two spacing steps between groups. */
+    margin-block: var(--space-1) calc(var(--space-1) - 1px);
+    margin-inline: var(--_inset) var(--space-2);
     background-color: var(--line-subtle);
+  }
+  @media (forced-colors: active) {
+    .select-trigger,
+    .select-popup {
+      border: 1px solid ButtonText;
+    }
+    .select-item[data-highlighted] {
+      outline: 1px solid Highlight;
+      outline-offset: -1px;
+    }
   }
 }

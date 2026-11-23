@@ -32,6 +32,10 @@ import {
   recordServicePrincipalDenial,
   ServicePrincipalRefusedError,
 } from "../org/service-principal-guard.js";
+import {
+  readBrowserTabIdHeader,
+  readViewportModeHeader,
+} from "../server/agent-run-context.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
@@ -1283,6 +1287,14 @@ export function mountA2A(
       if (servicePrincipalAllowedActions !== undefined) {
         event.context.__a2aServicePrincipalAllowedActions =
           servicePrincipalAllowedActions;
+      }
+      const browserTabId = readBrowserTabIdHeader(event);
+      if (browserTabId) {
+        event.context.__a2aBrowserTabId = browserTabId;
+      }
+      const viewportMode = readViewportModeHeader(event);
+      if (viewportMode) {
+        event.context.__a2aViewportMode = viewportMode;
       }
 
       const body = await readBody(event);

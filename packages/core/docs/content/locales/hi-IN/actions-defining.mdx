@@ -130,6 +130,13 @@ description: "defineAction() की संरचना: schema, run, और HTTP
             "जब true हो (या predicate true लौटाए), तो इस action की अपनी write के बाद का failure एक ज्ञात failure होता है जिसे model सुधारकर दोबारा आज़मा सकता है, वर्तमान टर्न के बाकी समय tool को block करने के बजाय। इसे उन actions के लिए आरक्षित रखें जो किसी भी error के बाद सुरक्षित रूप से फिर चल सकें। किसी भी write से पहले के इनकार के लिए इस विकल्प की ज़रूरत नहीं। नीचे पुनःप्रयास-सुरक्षित लेखन देखें।",
         },
         {
+          name: "automatic",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            'ऐसी write को चिह्नित करता है जो app बिना किसी user gesture के अपने आप करता है: load पर, mount पर, timer पर, या experiment और usage की bookkeeping के लिए। इसके action_started, action_completed और action_failed events में "write" की जगह action_kind "automatic" होता है, इसलिए product-use की गिनती इसे छोड़ देती है। predicate केवल उन calls को चिह्नित करता है जिनके लिए वह true लौटाता है। यह केवल analytics को प्रभावित करता है: किसी write को चुप कराने के लिए कभी readOnly सेट न करें।',
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,

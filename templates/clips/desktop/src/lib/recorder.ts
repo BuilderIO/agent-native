@@ -249,6 +249,7 @@ export interface StartParams {
   mode: CaptureMode;
   source?: CaptureSource;
   cameraId?: string;
+  cameraLabel?: string;
   micId?: string;
   micLabel?: string;
   authToken?: string;
@@ -3989,6 +3990,11 @@ async function startNativeFullscreenRecording(
       localOnly,
       hasCamera: wantsCamera,
       richTracks: params.richTracks === true,
+      cameraLabel:
+        params.richTracks === true && wantsCamera
+          ? params.preAcquiredCameraStream?.getVideoTracks()[0]?.label ||
+            params.cameraLabel
+          : undefined,
     });
     await guardRecordingStart(beginPromise, { signal: params.signal });
     assertStartupActive();

@@ -45,6 +45,10 @@ interface ContentPageList {
   hasMore: boolean;
 }
 
+type PageFormat = "pdf" | "markdown";
+
+const PAGE_FORMATS: readonly PageFormat[] = ["pdf", "markdown"];
+
 const SEARCH_DELAY_MS = 250;
 
 export function AttachFromContentButton({
@@ -64,6 +68,7 @@ export function AttachFromContentButton({
   const [query, setQuery] = useState("");
   const [attachingId, setAttachingId] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState("");
+  const [pageFormat, setPageFormat] = useState<PageFormat>("pdf");
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -86,6 +91,19 @@ export function AttachFromContentButton({
     retry: false,
   });
 
+  const pdfRefusal = (errorCode: unknown) => {
+    switch (errorCode) {
+      case "document_file_pdf_text_unsupported":
+        return t("mail.toasts.contentPagePdfTextUnsupported");
+      case "document_file_pdf_too_long":
+        return t("mail.toasts.contentPagePdfTooLong");
+      case "content_page_pdf_unavailable":
+        return t("mail.toasts.contentPagePdfUnavailable");
+      default:
+        return undefined;
+    }
+  };
+
   const close = () => {
     setOpen(false);
     setSearch("");
@@ -100,14 +118,17 @@ export function AttachFromContentButton({
     try {
       const result = (await callAction("attach-content-page", {
         id: item.id,
-        format: item.format,
+        format: item.kind === "collection" ? item.format : pageFormat,
       })) as { attachment: ComposeAttachment };
       onAttach(result.attachment);
       close();
     } catch (error) {
       const reason = storageSetupReasonOf(error);
+      const { errorCode } = (error ?? {}) as { errorCode?: unknown };
       const message =
-        actionErrorMessage(error) ?? t("mail.toasts.failedToAttachContentPage");
+        pdfRefusal(errorCode) ??
+        actionErrorMessage(error) ??
+        t("mail.toasts.failedToAttachContentPage");
       toastUploadFailure(
         reason ? new UploadError(message, reason) : new Error(message),
         t("mail.toasts.failedToAttachContentPage"),
@@ -209,9 +230,11 @@ export function AttachFromContentButton({
                         {item.title}
                       </span>
                       <span className="ms-2 shrink-0 text-xs text-muted-foreground">
-                        {item.format === "csv"
+                        {item.kind === "collection"
                           ? t("mail.compose.contentFileCsv")
-                          : t("mail.compose.contentFileMarkdown")}
+                          : pageFormat === "pdf"
+                            ? t("mail.compose.contentFilePdf")
+                            : t("mail.compose.contentFileMarkdown")}
                       </span>
                     </CommandItem>
                   );
@@ -220,6 +243,32 @@ export function AttachFromContentButton({
             )}
           </CommandList>
         </Command>
+        <div
+          role="group"
+          aria-label={t("mail.compose.contentPageFormat")}
+          className="flex items-center justify-between gap-2 border-t border-border px-3 py-2"
+        >
+          <span className="text-xs text-muted-foreground">
+            {t("mail.compose.contentPageFormat")}
+          </span>
+          <div className="flex items-center gap-1">
+            {PAGE_FORMATS.map((format) => (
+              <Button
+                key={format}
+                type="button"
+                size="xs"
+                variant={pageFormat === format ? "secondary" : "ghost"}
+                aria-pressed={pageFormat === format}
+                disabled={Boolean(attachingId)}
+                onClick={() => setPageFormat(format)}
+              >
+                {format === "pdf"
+                  ? t("mail.compose.contentFormatPdf")
+                  : t("mail.compose.contentFormatMarkdown")}
+              </Button>
+            ))}
+          </div>
+        </div>
       </PopoverContent>
     </Popover>
   );

@@ -2,11 +2,13 @@ import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { defineAction } from "../action.js";
 import {
   getCurrentRequestBrowserTabId,
   readAppStateForCurrentTab,
   writeAppStateForCurrentTab,
 } from "../application-state/script-helpers.js";
+import { getRequestRunContext } from "../server/request-context.js";
 import {
   createMCPServerForRequest,
   type MCPCallerIdentity,
@@ -84,6 +86,15 @@ function config(): MCPConfig {
         readOnly: true,
         run: async () => "pong",
       } as any,
+      "inspect-context": defineAction({
+        description: "Inspect viewport mode and run context",
+        readOnly: true,
+        mcpTool: true,
+        run: async () => ({
+          viewportMode: getRequestRunContext()?.viewportMode ?? null,
+          hasRunContext: getRequestRunContext() !== undefined,
+        }),
+      }),
     },
   };
 }
@@ -268,5 +279,64 @@ describe("MCP tool calls and the user's last-used tab", () => {
     });
     expect(texts_).toHaveLength(1);
     expect(listUpdatedAt.calls).toBe(0);
+  });
+
+  it("propagates requestMeta.viewportMode with or without a browser tab target and omits runContext when both are absent", async () => {
+    const userBackgroundClient = await clientFor(userIdentity, {
+      browserTabId: "tab-requested",
+      viewportMode: "background",
+    });
+    const userBackground = await userBackgroundClient.callTool({
+      name: "inspect-context",
+    });
+    expect(JSON.parse(texts(userBackground)[0] ?? "")).toEqual({
+      viewportMode: "background",
+      hasRunContext: true,
+    });
+
+    const serviceIdentity: MCPCallerIdentity = {
+      userEmail: USER,
+      identityAssurance: "service",
+      orgId: "org_1",
+      orgDomain: undefined,
+    };
+    const serviceBackgroundClient = await clientFor(serviceIdentity, {
+      viewportMode: "background",
+    });
+    const serviceBackground = await serviceBackgroundClient.callTool({
+      name: "inspect-context",
+    });
+    expect(JSON.parse(texts(serviceBackground)[0] ?? "")).toEqual({
+      viewportMode: "background",
+      hasRunContext: true,
+    });
+
+    const servicePlainClient = await clientFor(serviceIdentity);
+    const servicePlain = await servicePlainClient.callTool({
+      name: "inspect-context",
+    });
+    expect(JSON.parse(texts(servicePlain)[0] ?? "")).toEqual({
+      viewportMode: null,
+      hasRunContext: false,
+    });
+
+    const serverWithoutMeta = await createMCPServerForRequest(
+      config(),
+      serviceIdentity,
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const plainClient = new Client({ name: "test-client", version: "1.0.0" });
+    await Promise.all([
+      plainClient.connect(clientTransport),
+      serverWithoutMeta.connect(serverTransport),
+    ]);
+    const withoutMeta = await plainClient.callTool({
+      name: "inspect-context",
+    });
+    expect(JSON.parse(texts(withoutMeta)[0] ?? "")).toEqual({
+      viewportMode: null,
+      hasRunContext: false,
+    });
   });
 });

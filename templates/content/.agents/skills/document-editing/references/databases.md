@@ -258,10 +258,10 @@ browser and on the server. A wall-clock time a daylight-saving change skips
 moves forward by the change, and one it repeats is the first of the two. A
 `between` whose start comes after its end is read the other way round.
 
-Filters can be grouped. Rules with `filterGroupId: "advanced"` and no parent
-form the UI's advanced filter; rules with `parentFilterGroupId: "advanced"` and
-their own `filterGroupId` (the UI uses `advanced-<id>`) form a group nested one
-level inside it. The view's `filterMode` combines ungrouped rules with each
+Filters can be grouped. Rules that share a `filterGroupId` and have no parent
+form a group (views saved before the shared filter kit use `advanced`); rules
+whose `parentFilterGroupId` names a group, with their own `filterGroupId`, form
+a group nested one level inside it. Groups go no deeper. The view's `filterMode` combines ungrouped rules with each
 top-level group as one member. A group's And/Or lives on its rules:
 `filterGroupMode` is the mode of the rule's `filterGroupId`, and
 `parentFilterGroupMode` (nested rules only) is the mode of its parent. Write a
@@ -417,6 +417,34 @@ Use `create-content-database`, `create-inline-content-database`,
 `list-content-database-blocks`, `mutate-content-database-block`,
 `duplicate-document-property`, and `delete-document-property`; do not edit
 property rows or view config via raw SQL when an action can do it.
+
+A page table's block menu offers "Turn into collection". It sends the table's
+text to `create-inline-content-database` as `table`: `properties` names one
+text property per column after the first (from the header row, or "Column N"),
+and each entry of `rows` is one row page's title followed by one plain-text
+cell per property. The editor then puts the new inline collection block where
+the table was, in one step that one undo takes back; undoing it leaves the
+collection unlinked, so the page's next save moves it to Trash.
+
+An inline collection's block menu offers the reverse, "Turn into table". It
+reads, as text, every row its current view's filters and search keep, in the
+view's sort order. The view's layout doesn't narrow them: rows in collapsed
+groups, and a calendar's or timeline's rows outside the dates on screen, are
+included. The table has a "Name" column with each row's title, then one column
+per property the view shows, except `blocks` properties, whose rich content a
+cell can't hold. It puts a plain table where the block was, in one undoable
+step, and the page's next save moves the collection to Trash. A view with more
+than 500 rows or 49 properties stays a collection. An agent does the same
+with `export-document` (format `csv`) or `get-content-database`, then
+`edit-document`.
+
+A save whose body brings back a removed inline collection's block (one block
+with the same block ID, `databaseId` and `databaseDocumentId`) takes that
+collection back out of Trash, if it went there because a save dropped its
+block. A collection deleted on purpose, whose page is in Trash, stays there;
+restore it with `restore-content-database`. If the block still shows
+"Collection unavailable" after the page saves, restore the collection the same
+way.
 
 Read `get-content-database.mutationContract` immediately before a single-row
 mutation. Pass its exact target and schema revision to create, exact item and

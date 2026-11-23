@@ -12,7 +12,12 @@ const analyticsMocks = vi.hoisted(() => ({ trackEvent: vi.fn() }));
 vi.mock("../analytics.js", () => analyticsMocks);
 
 import { setAgentNativeApiDisabled } from "../api-surface.js";
-import { useFeatureFlagState, type FeatureFlagState } from "./index.js";
+import {
+  useFeatureFlag,
+  useFeatureFlags,
+  useFeatureFlagState,
+  type FeatureFlagState,
+} from "./index.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -212,6 +217,95 @@ describe("useFeatureFlagState", () => {
       expect(states.at(-1)).toEqual({ status: "unavailable", enabled: false });
     },
   );
+
+  it("fails closed on a failed refresh of cached flags and recovers", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ "example-flag": true }))
+        .mockResolvedValueOnce(jsonResponse({ error: "unavailable" }, 500))
+        .mockResolvedValueOnce(jsonResponse({ "example-flag": true })),
+    );
+    const results: Array<{
+      flag: boolean;
+      state: FeatureFlagState;
+      flags: Record<string, boolean>;
+      retiredFlag: boolean;
+      retiredState: FeatureFlagState;
+    }> = [];
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    cleanups.push(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+    function Probe() {
+      results.push({
+        flag: useFeatureFlag("example-flag"),
+        state: useFeatureFlagState("example-flag"),
+        flags: useFeatureFlags(),
+        retiredFlag: useFeatureFlag("settings-redesign"),
+        retiredState: useFeatureFlagState("settings-redesign"),
+      });
+      return null;
+    }
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <Probe />
+        </QueryClientProvider>,
+      ),
+    );
+    await vi.waitFor(() => expect(results.at(-1)?.flag).toBe(true));
+    expect(results.at(-1)).toEqual({
+      flag: true,
+      state: { status: "ready", enabled: true },
+      flags: { "example-flag": true },
+      retiredFlag: true,
+      retiredState: { status: "ready", enabled: true },
+    });
+
+    const refresh = async (expected: boolean) => {
+      await act(async () => {
+        await client.invalidateQueries({
+          queryKey: ["action", "get-feature-flags"],
+        });
+      });
+      await vi.waitFor(() => expect(results.at(-1)?.flag).toBe(expected));
+    };
+    await refresh(false);
+    expect(
+      client.getQueryData(["action", "get-feature-flags", undefined]),
+    ).toEqual({
+      "example-flag": true,
+    });
+    expect.soft(results.at(-1)?.flag).toBe(false);
+    expect.soft(results.at(-1)?.state).toEqual({
+      status: "unavailable",
+      enabled: false,
+    });
+    expect.soft(results.at(-1)?.flags).toEqual({});
+    expect(results.at(-1)?.retiredFlag).toBe(true);
+    expect(results.at(-1)?.retiredState).toEqual({
+      status: "ready",
+      enabled: true,
+    });
+
+    await refresh(true);
+    expect(results.at(-1)).toEqual({
+      flag: true,
+      state: { status: "ready", enabled: true },
+      flags: { "example-flag": true },
+      retiredFlag: true,
+      retiredState: { status: "ready", enabled: true },
+    });
+  });
 
   it("does not reuse a verified flag for a different viewer", async () => {
     sessionMocks.useSession.mockReturnValue({

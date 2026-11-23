@@ -64,11 +64,15 @@ import {
   SidebarHeader,
 } from "../../../src/ui/base-ui/sidebar.js";
 import { Toolbar, ToolbarButton } from "../../../src/ui/base-ui/toolbar.js";
+import guide from "./sidebar.docs.md?raw";
 
 const meta = {
   title: "Patterns/Sidebar",
   component: Sidebar,
-  parameters: { layout: "fullscreen" },
+  parameters: {
+    docs: { description: { component: guide } },
+    layout: "fullscreen",
+  },
 } satisfies Meta;
 
 export default meta;

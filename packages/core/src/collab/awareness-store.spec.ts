@@ -739,7 +739,7 @@ describe("awareness-store", () => {
       "_collab_awareness_anonymous_expiry_idx",
     ]);
 
-    const pglite = await createTestPglite();
+    const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await pglite.exec(`
         CREATE TABLE _collab_awareness (
@@ -928,7 +928,7 @@ describe("awareness-store", () => {
       actor_email: "owner@example.com",
     });
 
-    const pglite = await createTestPglite();
+    const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await pglite.exec(`
         CREATE TABLE _collab_awareness (

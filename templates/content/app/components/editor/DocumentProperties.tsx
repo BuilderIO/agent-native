@@ -154,7 +154,7 @@ import {
 import {
   documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
-  useCollectionRefusesNewProperties,
+  useCollectionAddablePropertyTypes,
   useConfigureDocumentProperty,
   useContentDatabaseRowSearch,
   useDeleteDocumentProperty,
@@ -166,6 +166,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
+import { BuilderArticleAutosavePanel } from "./database-sources/BuilderArticleAutosave";
 import { ColumnPresentationMenuItems } from "./database/DatabaseColumnPresentation";
 import {
   clearDatabaseFiltersForColumn,
@@ -1210,6 +1211,7 @@ export function DocumentProperties({
             databaseDocumentId={databaseDocumentId ?? documentId}
             documentId={documentId}
             databaseId={databaseId}
+            propertyTypes={loaded ? data.addablePropertyTypes : undefined}
             popoversPortalled={popoversPortalled}
             popoverContainer={popoverContainer}
           />
@@ -1445,10 +1447,28 @@ function PropertyRow({
       )}
     </div>
   );
-  if (!commentState.enabled || !commentState.inlineThreads) return row;
+  const builderAutosave =
+    property.definition.systemRole === "builder_status" ? (
+      <BuilderArticleAutosavePanel
+        documentId={documentId}
+        databaseId={property.definition.databaseId}
+        canEdit={canEditValues}
+      />
+    ) : null;
+  if (!commentState.enabled || !commentState.inlineThreads) {
+    return builderAutosave ? (
+      <>
+        {row}
+        {builderAutosave}
+      </>
+    ) : (
+      row
+    );
+  }
   return (
     <>
       {row}
+      {builderAutosave}
       <PropertyThreadsBox propertyId={property.definition.id}>
         {commentState.inlineThreads}
       </PropertyThreadsBox>
@@ -1658,6 +1678,11 @@ export function PropertyManagementPopover({
   const { data: propertiesData } = useDocumentProperties(
     documentId,
     databaseId,
+  );
+  const addableTypes = useCollectionAddablePropertyTypes(
+    databaseDocumentId,
+    databaseId,
+    propertiesData?.addablePropertyTypes,
   );
   const bindSourceField = useContentActionMutation<
     ContentDatabaseResponsePayload,
@@ -2200,8 +2225,9 @@ export function PropertyManagementPopover({
                     // Converting into a relation needs a target database;
                     // relations are added from "Add property" instead.
                     (propertyType) =>
-                      propertyType !== "relation" ||
-                      property.definition.type === "relation",
+                      propertyType === property.definition.type ||
+                      (propertyType !== "relation" &&
+                        addableTypes.includes(propertyType)),
                   ).map((propertyType) => {
                     const selected = property.definition.type === propertyType;
                     const disabled = typeIsLocked && !selected;
@@ -4443,13 +4469,24 @@ function OptionValueEditor({
   );
 }
 
-/** Nothing on a system collection such as Files, which refuses new properties. */
-export function AddProperty(props: ComponentProps<typeof AddPropertyPicker>) {
-  const refused = useCollectionRefusesNewProperties(
+export function AddProperty({
+  propertyTypes,
+  ...props
+}: ComponentProps<typeof AddPropertyPicker>) {
+  const types = useCollectionAddablePropertyTypes(
     props.databaseDocumentId ?? props.documentId,
     props.databaseId,
+    propertyTypes,
   );
-  return refused ? null : <AddPropertyPicker {...props} />;
+  if (types.length === 0) return null;
+  const partial = types.length < CREATABLE_DOCUMENT_PROPERTY_TYPES.length;
+  return (
+    <AddPropertyPicker
+      {...props}
+      {...(partial ? { source: null, sources: [] } : {})}
+      propertyTypes={types}
+    />
+  );
 }
 
 function AddPropertyPicker({
@@ -4465,6 +4502,7 @@ function AddPropertyPicker({
   onConnectSource,
   openRequestId = 0,
   onOpenRequestHandled,
+  propertyTypes,
 }: {
   documentId: string;
   databaseDocumentId?: string;
@@ -4478,6 +4516,7 @@ function AddPropertyPicker({
   onConnectSource?: () => void;
   openRequestId?: number;
   onOpenRequestHandled?: (requestId: number) => void;
+  propertyTypes?: readonly DocumentPropertyType[];
 }) {
   const t = useT();
   const configure = useConfigureDocumentProperty(
@@ -4491,7 +4530,10 @@ function AddPropertyPicker({
   const [sourceHandoffClosing, setSourceHandoffClosing] = useState(false);
   const handledOpenRequestId = useRef(0);
   const [typeQuery, setTypeQuery] = useState("");
-  const filteredPropertyTypes = filterDocumentPropertyTypes(typeQuery);
+  const filteredPropertyTypes = filterDocumentPropertyTypes(
+    typeQuery,
+    propertyTypes,
+  );
   const firstFilteredPropertyType = filteredPropertyTypes[0] ?? null;
   const allSources =
     sources && sources.length > 0 ? sources : source ? [source] : [];
@@ -4615,7 +4657,16 @@ function AddPropertyPicker({
       setRelationDatabaseQuery("");
       setOpen(false);
     } catch (error) {
-      setAddPropertyError(error instanceof Error ? error.message : "");
+      setAddPropertyError(
+        (error as { errorCode?: unknown } | null)?.errorCode ===
+          "SYSTEM_DATABASE_UNSUPPORTED"
+          ? t("editor.properties.addPropertyTypeUnsupported", {
+              type: t(`editor.propertyTypes.${type}`),
+            })
+          : error instanceof Error
+            ? error.message
+            : "",
+      );
     } finally {
       setPendingPropertyType(null);
     }
