@@ -13,7 +13,7 @@ import {
 } from "@agent-native/core/shared";
 import { z } from "zod";
 
-import { peerLinkOrigins } from "../server/lib/app-peer.js";
+import { peerAppTarget, peerLinkOrigins } from "../server/lib/app-peer.js";
 
 const MAX_LINKS = 60;
 
@@ -62,6 +62,7 @@ export default defineAction({
             app,
             links: batch.map((entry) => entry.link),
             selfAppId: "content",
+            target: peerAppTarget(app),
           }).then((answers) => {
             batch.forEach((entry, position) => {
               summaries[entry.index] =

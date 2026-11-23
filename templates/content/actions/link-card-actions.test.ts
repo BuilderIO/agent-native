@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   reader: undefined as string | undefined,
   invoke: vi.fn(),
+  laneTargets: {} as Record<string, string>,
 }));
 
 vi.mock("../../../packages/core/src/a2a/caller-auth.js", () => ({
@@ -22,6 +23,7 @@ vi.mock(
   () => import("../../../packages/core/src/a2a/link-summary.js"),
 );
 vi.mock("../server/lib/app-peer.js", () => ({
+  peerAppTarget: (app: string) => mocks.laneTargets[app] ?? app,
   peerLinkOrigins: (app: string) =>
     ({
       design: [
@@ -78,6 +80,7 @@ function owningApp(down: string[] = []) {
 
 beforeEach(() => {
   mocks.invoke.mockReset();
+  mocks.laneTargets = {};
   mocks.reader = "alice@example.test";
   vi.spyOn(console, "warn").mockImplementation(() => {});
   owningApp();
@@ -129,6 +132,20 @@ describe("read-link-summaries", () => {
         input: { links: [DESIGN, DESIGN_BETA] },
         userEmail: "alice@example.test",
       }),
+    );
+  });
+
+  it("asks an owning app on Content's own lane when the catalog names another", async () => {
+    mocks.laneTargets = { design: "https://design.beta.example.test" };
+    await readLinkSummaries.run({ links: [DESIGN, SLIDES] });
+    expect(mocks.invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: "https://design.beta.example.test",
+        input: { links: [DESIGN] },
+      }),
+    );
+    expect(mocks.invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ target: "slides", input: { links: [SLIDES] } }),
     );
   });
 

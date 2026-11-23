@@ -67,6 +67,21 @@ describe("readPeerLinkSummaries", () => {
     });
   });
 
+  it("asks the given target in place of the app's name", async () => {
+    answer({ summaries: [available] });
+    await expect(
+      readPeerLinkSummaries({
+        app: "design",
+        links: [DESIGN],
+        selfAppId: "content",
+        target: "https://design.beta.example.com",
+      }),
+    ).resolves.toEqual([available]);
+    expect(mocks.invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ target: "https://design.beta.example.com" }),
+    );
+  });
+
   it("makes no call for a signed-out reader", async () => {
     mocks.auth.mockResolvedValue({ metadata: {} });
     await expect(

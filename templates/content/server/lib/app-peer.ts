@@ -39,7 +39,7 @@ export function resolvePeerAppUrl(appId: PeerAppId): string | null {
   ).replace(/\/+$/, "");
 }
 
-function peerAppTarget(appId: PeerAppId): string {
+export function peerAppTarget(appId: PeerAppId): string {
   const builtinUrl = builtinPeerAppUrl(appId);
   const appUrl = resolvePeerAppUrl(appId);
   return appUrl && appUrl !== builtinUrl ? appUrl : appId;

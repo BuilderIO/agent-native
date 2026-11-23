@@ -32,6 +32,7 @@ export async function readPeerLinkSummaries(options: {
   app: LinkSummaryApp;
   links: readonly string[];
   selfAppId: string;
+  target?: string;
   timeoutMs?: number;
 }): Promise<LinkSummary[]> {
   const { app, links, selfAppId } = options;
@@ -45,7 +46,7 @@ export async function readPeerLinkSummaries(options: {
     const auth = await resolveA2ACallerAuth();
     if (!auth.userEmail) return "signed-out" as const;
     return invokeAgentAction({
-      target: app,
+      target: options.target ?? app,
       selfAppId,
       action: READ_LINK_SUMMARY_ACTION,
       input: { links: [...links] },
