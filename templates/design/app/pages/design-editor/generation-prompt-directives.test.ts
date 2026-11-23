@@ -286,7 +286,7 @@ describe("the intake and generation turns against the response guard", () => {
       executionMode: "act",
     }) as Parameters<typeof designFinalResponseGuard>[0];
 
-  it("lets the intake turn answer a greeting, and holds the generation turn to a save", () => {
+  it("lets the intake turn answer a greeting, and holds the generation turn to a save", async () => {
     const intake = appendAgentChatContextToMessage(
       "hi",
       designIntakeQuestionDirectives("design-1").join("\n"),
@@ -296,7 +296,9 @@ describe("the intake and generation turns against the response guard", () => {
       designGenerationDirectives("design-1").join("\n"),
     );
 
-    expect(designFinalResponseGuard(guardContext(intake))).toBeNull();
-    expect(designFinalResponseGuard(guardContext(generation))).not.toBeNull();
+    expect(await designFinalResponseGuard(guardContext(intake))).toBeNull();
+    expect(
+      await designFinalResponseGuard(guardContext(generation)),
+    ).not.toBeNull();
   });
 });
