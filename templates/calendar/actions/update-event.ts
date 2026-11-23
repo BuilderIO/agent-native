@@ -1,6 +1,7 @@
 import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
+import { isSaveConflict } from "@agent-native/core/save-conflict";
 import {
   checkSaveRevision,
   EXPECTED_REVISION_DESCRIPTION,
@@ -13,7 +14,11 @@ import {
   normalizeGuestNotificationMessage,
   sendEventGuestNotificationNote,
 } from "../server/lib/event-guest-notifications.js";
-import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
+import {
+  discardZoomMeeting,
+  prepareZoomMeetingPatch,
+  type CreatedZoomMeeting,
+} from "../server/lib/event-video-conferencing.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
 import { isCalendarEventOrganizer } from "../shared/event-permissions.js";
@@ -611,6 +616,7 @@ export default defineAction({
 
     let zoomMeetingLink: string | undefined;
     let zoomAlreadyPresent = false;
+    let zoomCreated: CreatedZoomMeeting | undefined;
     if (args.addZoom) {
       const existingEvent = await loadExistingEvent();
       checkReadRevision(existingEvent);
@@ -626,6 +632,7 @@ export default defineAction({
       const zoom = await prepareZoomMeetingPatch(ownerEmail, eventForZoom);
       zoomMeetingLink = zoom.meetingLink;
       zoomAlreadyPresent = zoom.alreadyPresent;
+      zoomCreated = zoom.created;
       Object.assign(updates, zoom.patch);
     }
 
@@ -749,18 +756,25 @@ export default defineAction({
         conferenceData: replacement.conferenceData,
       };
     } else {
-      result = await googleCalendar.updateEvent(googleEventId, updates, {
-        account: { ownerEmail, accountEmail },
-        sendUpdates:
-          args.sendUpdates ??
-          (guestNotificationMessage || (attendeesToAdd?.length ?? 0) > 0
-            ? "all"
-            : undefined),
-        addGoogleMeet: args.addGoogleMeet,
-        removeGoogleMeet: args.removeGoogleMeet,
-        scope: args.scope,
-        expectedRevision: args.expectedRevision,
-      });
+      try {
+        result = await googleCalendar.updateEvent(googleEventId, updates, {
+          account: { ownerEmail, accountEmail },
+          sendUpdates:
+            args.sendUpdates ??
+            (guestNotificationMessage || (attendeesToAdd?.length ?? 0) > 0
+              ? "all"
+              : undefined),
+          addGoogleMeet: args.addGoogleMeet,
+          removeGoogleMeet: args.removeGoogleMeet,
+          scope: args.scope,
+          expectedRevision: args.expectedRevision,
+        });
+      } catch (error) {
+        if (zoomCreated && isSaveConflict(error)) {
+          await discardZoomMeeting(zoomCreated);
+        }
+        throw error;
+      }
     }
 
     const returnedPatch: Partial<CalendarEvent> = {};
