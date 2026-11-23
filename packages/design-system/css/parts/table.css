@@ -1,0 +1,162 @@
+/*
+ * Part: table
+ *
+ *   <div class="table-root" data-variant="surface|ghost"
+ *        data-layout="auto|fixed">
+ *     <div class="scroll-area">                  ScrollArea, for wide tables
+ *       <table class="table">
+ *         <thead class="table-header">
+ *           <tr class="table-row">
+ *             <th class="table-cell table-column-header-cell" scope="col"
+ *                 data-justify="start|center|end">
+ *         <tbody class="table-body">
+ *           <tr class="table-row" data-align="start|center|end|baseline"
+ *               [tabindex] [role="button|link"] [aria-pressed|aria-selected]>
+ *             <th class="table-cell table-row-header-cell" scope="row">
+ *             <td class="table-cell" data-justify>
+ *
+ * Radix Themes' table on the system's scale. Surface frames the table on the raised
+ * surface with a tinted header; ghost is bare rows divided by hairlines.
+ * A row takes the hover fill only when it is a control (focusable, or a
+ * button or link), and a pressed or selected row keeps the fill: a button
+ * row takes `aria-pressed`, a grid row `aria-selected`. In a Card's Inset the
+ * first and last cells line up with the card's padding.
+ *
+ * `table` is on the <table> itself: Tailwind ships a `.table` utility that
+ * sets `display: table`, which would break the scrolling frame.
+ */
+
+@layer components {
+  .table-root {
+    --_table-cell-padding-y: var(--space-2);
+    --_table-cell-padding-x: var(--space-3);
+    --_table-cell-min-height: var(--size-5);
+    --_table-font-size: var(--font-size-2);
+    --_table-line-height: var(--line-height-2);
+    --_table-radius: calc(var(--shape-panel) * var(--corner-scale, 1));
+
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    min-width: 0;
+  }
+
+  .table {
+    --_table-row-background-color: transparent;
+    --_table-row-box-shadow: inset 0 -1px var(--line-subtle);
+
+    box-sizing: border-box;
+    width: 100%;
+    height: 0;
+    border-collapse: collapse;
+    border-spacing: 0;
+    color: var(--fg-default);
+    font-size: var(--_table-font-size);
+    line-height: var(--_table-line-height);
+    text-align: start;
+    vertical-align: top;
+  }
+
+  .table-root[data-layout="fixed"] .table {
+    table-layout: fixed;
+  }
+
+  .table-header,
+  .table-body,
+  .table-row {
+    vertical-align: inherit;
+  }
+
+  .table-cell {
+    box-sizing: border-box;
+    height: var(--_table-cell-min-height);
+    padding: var(--_table-cell-padding-y) var(--_table-cell-padding-x);
+    background-color: var(--_table-row-background-color);
+    box-shadow: var(--_table-row-box-shadow);
+    vertical-align: inherit;
+    text-align: start;
+    transition: background-color var(--duration-1) var(--ease-standard);
+  }
+
+  .table-column-header-cell {
+    color: var(--fg-muted);
+    font-weight: var(--font-weight-medium);
+  }
+
+  .table-row-header-cell {
+    font-weight: var(--font-weight-regular);
+  }
+
+  .table-cell[data-justify="center"] {
+    text-align: center;
+  }
+
+  .table-cell[data-justify="end"] {
+    text-align: end;
+  }
+
+  .table-row[data-align="start"] {
+    vertical-align: top;
+  }
+
+  .table-row[data-align="center"] {
+    vertical-align: middle;
+  }
+
+  .table-row[data-align="end"] {
+    vertical-align: bottom;
+  }
+
+  .table-row[data-align="baseline"] {
+    vertical-align: baseline;
+  }
+
+  .inset .table-cell:first-child {
+    padding-left: var(--inset-padding-left, var(--_table-cell-padding-x));
+  }
+
+  .inset .table-cell:last-child {
+    padding-right: var(--inset-padding-right, var(--_table-cell-padding-x));
+  }
+
+  /* ---- sizes ---- */
+
+  /* ---- variants ---- */
+
+  .table-root[data-variant="surface"] {
+    overflow: hidden;
+    border: 1px solid var(--line-subtle);
+    border-radius: var(--_table-radius);
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--surface-raised);
+  }
+
+  .table-root[data-variant="surface"] .table-header {
+    --_table-row-background-color: var(--gray-a2);
+  }
+
+  .table-root[data-variant="surface"] .table-body .table-row:last-child {
+    --_table-row-box-shadow: none;
+  }
+
+  /* ---- a row that is a control ---- */
+
+  .table-row:is([tabindex], [role="button"], [role="link"]) {
+    outline-style: none;
+  }
+
+  @media (hover: hover) {
+    .table-row:is([tabindex], [role="button"], [role="link"]):hover {
+      --_table-row-background-color: var(--fill-hover);
+    }
+  }
+
+  .table-row:is([aria-pressed="true"], [aria-selected="true"]) {
+    --_table-row-background-color: var(--fill-selected);
+  }
+
+  .table-row:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: calc(var(--focus-ring-width) * -1);
+  }
+}

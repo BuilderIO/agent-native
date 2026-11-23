@@ -271,6 +271,8 @@ const messages = {
         "Links werden während der Überprüfung deaktiviert, sodass das Dokument erhalten bleibt.",
       visualPromptCopied: "Visuelle Aufnahmeaufforderung kopiert",
       sentAnswers: "Antworten an den Agenten gesendet",
+      sendAnswersPrompt: "Antworten an den Agenten senden?",
+      sendAnswersAction: "Senden",
       recapLinkCopied: "Zusammenfassungslink kopiert",
       planLinkCopied: "Plan Link kopiert",
       localPathCopied: "Lokaler Pfad kopiert",

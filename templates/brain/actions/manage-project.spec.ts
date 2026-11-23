@@ -34,6 +34,8 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
+  getOrgSetting: async () => null,
+  mutateOrgSetting: async () => undefined,
   putUserSetting: vi.fn(),
 }));
 

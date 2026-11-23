@@ -116,7 +116,7 @@ const IMAGE_BODY = [
 // Icons, and controls the stylesheet takes out of the flow, take no part in
 // where a block sits.
 const OUT_OF_FLOW =
-  "svg, input[type=file], .media-block__toolbar, .media-block__resize-handle, .media-block__alt-badge, [style*='position: absolute']";
+  "svg, input[type=file], .media-block__toolbar, .media-block__resize-handle, .media-block__alt-badge, .sr-only, [style*='position: absolute']";
 
 const laidOut = (element: Element) =>
   !element.matches(OUT_OF_FLOW) &&

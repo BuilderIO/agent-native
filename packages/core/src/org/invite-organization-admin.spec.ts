@@ -98,8 +98,8 @@ beforeEach(() => {
   });
 });
 describe("public authenticated admin invitation", () => {
-  it("exports a callable supported helper", () =>
-    expect(inviteOrganizationAdmin).toBeTypeOf("function"));
+  // oracle-change: removed the typeof-function export check; every test below calls inviteOrganizationAdmin through invoke(), which fails if the export is missing
+
   it("uses actual membership, actor org/name, canonical email and fixed admin with one audit", async () => {
     const result = await invoke(input);
     expect(result).toMatchObject({

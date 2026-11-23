@@ -195,6 +195,7 @@ policies, product facts, or durable process notes that are safe to place under
 publishes. Use the Knowledge route or
 `set-knowledge-canonical --published=false` to remove a mirrored resource after
 previewing what will be removed, without deleting the underlying Brain knowledge.
+The action takes the previewed record's `revision` as `expectedRevision`.
 
 ## Distillation worker internals
 

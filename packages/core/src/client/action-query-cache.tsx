@@ -28,7 +28,11 @@ import {
 import type { AuthSession } from "../server/auth.js";
 import { actionErrorStatus } from "./action-failure-circuit.js";
 import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
-import { readMutationEpoch } from "./action-query-cache-mutation.js";
+import {
+  ACTION_CACHE_FLUSH_EVENT,
+  type ActionCacheFlushDetail,
+  readMutationEpoch,
+} from "./action-query-cache-mutation.js";
 import { clientBuildId } from "./build-compatibility.js";
 import {
   getAccessDeniedActionQueryBinding,
@@ -407,8 +411,7 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
   let restoreAccepted = false;
   let restoreBlocked = false;
   let restoreRevision = 0;
-  // Never adopt a later epoch: another tab may have written data this client has not read.
-  const mutationEpoch = readMutationEpoch();
+  let mutationEpoch = readMutationEpoch();
   const writesInFlight = new Set<Promise<void>>();
 
   const clearRestoredState = () => {
@@ -464,9 +467,44 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
     typeof window.addEventListener === "function"
       ? window
       : undefined;
+  const flushPending = (event?: Event) => {
+    const settledEpoch =
+      event instanceof CustomEvent
+        ? (event.detail as ActionCacheFlushDetail).settledEpoch
+        : undefined;
+    if (
+      typeof settledEpoch === "string" &&
+      settledEpoch !== mutationEpoch &&
+      readMutationEpoch() === settledEpoch
+    ) {
+      mutationEpoch = settledEpoch;
+      if (latest) {
+        const restamped: PersistedClient & { mutationEpoch: string } = {
+          ...latest,
+          mutationEpoch,
+        };
+        latest = restamped;
+      }
+    }
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    flush();
+  };
+  const flushWhenHidden = () => {
+    if (document.visibilityState === "hidden") flushPending();
+  };
   storageEvents?.addEventListener("storage", onStorage);
-  const stopWatchingStorage = () =>
+  storageEvents?.addEventListener(ACTION_CACHE_FLUSH_EVENT, flushPending);
+  storageEvents?.addEventListener("pagehide", flushPending);
+  if (typeof document !== "undefined")
+    document.addEventListener("visibilitychange", flushWhenHidden);
+  const stopWatchingStorage = () => {
     storageEvents?.removeEventListener("storage", onStorage);
+    storageEvents?.removeEventListener(ACTION_CACHE_FLUSH_EVENT, flushPending);
+    storageEvents?.removeEventListener("pagehide", flushPending);
+    if (typeof document !== "undefined")
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+  };
 
   const flush = () => {
     timer = undefined;

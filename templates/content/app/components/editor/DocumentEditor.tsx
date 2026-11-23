@@ -169,6 +169,7 @@ import {
 } from "@/hooks/use-optimistic-document-title";
 import { usePageTabTitle } from "@/hooks/use-page-tab-title";
 import { usePendingTrash } from "@/hooks/use-pending-trash";
+import { workspaceReferenceErrorMessage } from "@/lib/content-action-errors";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
@@ -265,6 +266,7 @@ import { ContentImportDialog } from "./ContentImportDialog";
 import { convergedContentNeedsSave } from "./converged-remote-save";
 import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
 import { prepareInitialCreationSave } from "./creation-save-baseline";
+import { BuilderArticleRowAutosaveRunner } from "./database-sources/BuilderArticleAutosave";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import {
   type DatabaseRowView,
@@ -347,6 +349,7 @@ import {
   localSourceRevisionForSave,
   type PendingLocalSourceWrite,
 } from "./local-source-write-state";
+import { NewPageStartingPoints } from "./NewPageStartingPoints";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournalGeneration,
@@ -390,6 +393,7 @@ import {
   useSuggestionDecisionView,
   type QueuedSuggestionDecision,
 } from "./suggestion-decision-queue";
+import { scrollSuggestionIntoPageView } from "./suggestion-page-view";
 import {
   createSuggestionAutosave,
   markSuggestionAutosaveSaved,
@@ -422,6 +426,8 @@ import {
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
 import { useRememberedEditorMode } from "./suggestions/editor-mode-memory";
 import {
+  carryOwnSuggestions,
+  laterPage,
   readPageOnLiveCopyChange,
   suggestionPageFollow,
 } from "./suggestions/follow-page";
@@ -510,8 +516,9 @@ export function observeAcceptedCanonicalSettlement(args: {
 
 export function shouldResumeSelectedSuggestionFromPageActions(
   capturedSelection: VisualEditorSelectionSnapshot | null,
+  fromSelectionToolbar = false,
 ) {
-  return capturedSelection == null;
+  return capturedSelection == null && !fromSelectionToolbar;
 }
 
 export function restoreCapturedEditorSelection(
@@ -2345,6 +2352,13 @@ export function isSavedContentLocalEcho(
   return sentContent !== undefined && sentContent === savedContent;
 }
 
+export function newerMergedLocalSave<T extends { sequence: number }>(
+  current: T | null,
+  next: T,
+): T {
+  return current && current.sequence > next.sequence ? current : next;
+}
+
 export function resolveAcknowledgedDocumentSnapshot<
   T extends { id: string; updatedAt: string },
 >(args: {
@@ -3452,6 +3466,11 @@ function PageEditorSessionBody({
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<
     string | null
   >(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [steppedSuggestion, setSteppedSuggestion] = useState<{
+    threadId: string;
+    suggestionId: string;
+  } | null>(null);
   const [unplaceableSuggestionRevisions, setUnplaceableSuggestionRevisions] =
     useState<ReadonlyMap<string, number>>(() => new Map());
   const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(
@@ -3499,6 +3518,11 @@ function PageEditorSessionBody({
   const suggestionDraftChangedAtRef = useRef<number | null>(null);
   const suggestionDraftSaveFailedRef = useRef(suggestionDraftSaveFailed);
   suggestionDraftSaveFailedRef.current = suggestionDraftSaveFailed;
+  const refusedForOlderPageRef = useRef<{
+    page: Pick<Document, "content" | "revision" | "updatedAt">;
+    sentRevision: string;
+    refuse: () => void;
+  } | null>(null);
   const suggestionFlushRef = useRef<Promise<Map<
     string,
     ResourceSuggestion
@@ -3768,7 +3792,11 @@ function PageEditorSessionBody({
       }
       toast.error(t("sidebar.failedDeletePage"), {
         description:
-          error instanceof Error ? error.message : t("empty.genericError"),
+          workspaceReferenceErrorMessage(
+            error,
+            t("sidebar.workspaceReferenceProtected"),
+          ) ??
+          (error instanceof Error ? error.message : t("empty.genericError")),
       });
     }
   }, [
@@ -3943,6 +3971,12 @@ function PageEditorSessionBody({
     sequence: number;
   } | null>(null);
   const acknowledgedLocalSnapshotSequenceRef = useRef(0);
+  const [mergedLocalSave, setMergedLocalSave] = useState<{
+    sent: string;
+    value: string;
+    revision: string;
+    sequence: number;
+  } | null>(null);
   const getLinkedLocalEditorSnapshot = useCallback(
     () => ({
       title: localTitleRef.current,
@@ -4797,7 +4831,8 @@ function PageEditorSessionBody({
   );
   const persistDocumentUpdates = useCallback(
     (updates: DocumentUpdates, options: DocumentSaveOptions = {}) => {
-      options.persistenceSequence = ++persistenceSequenceRef.current;
+      const persistenceSequence = ++persistenceSequenceRef.current;
+      options.persistenceSequence = persistenceSequence;
       const persistenceIdentity = {
         editorSessionId: options.editorSessionId ?? editorSessionIdRef.current!,
         editGeneration:
@@ -4842,6 +4877,16 @@ function PageEditorSessionBody({
                 !current || snapshot.sequence > current.sequence
                   ? snapshot
                   : current,
+              );
+            } else if (updates.content !== undefined && result.revision) {
+              const merged = {
+                sent: updates.content,
+                value: result.content,
+                revision: result.revision,
+                sequence: persistenceSequence,
+              };
+              setMergedLocalSave((current) =>
+                newerMergedLocalSave(current, merged),
               );
             }
             if (
@@ -6867,6 +6912,8 @@ function PageEditorSessionBody({
       ),
     [allSavedSuggestions],
   );
+  const savedSuggestionsRef = useRef(savedSuggestions);
+  savedSuggestionsRef.current = savedSuggestions;
   const rememberFieldSuggestions = useCallback(
     (saved: ResourceSuggestion[]) => {
       setLocallyCreatedSuggestions((current) => {
@@ -6953,7 +7000,13 @@ function PageEditorSessionBody({
     [documentId, savedSuggestions],
   );
   const activeSuggestionOnPage =
-    hoveredSuggestionId ?? editingSuggestionId ?? selectedSuggestionId;
+    hoveredSuggestionId ??
+    editingSuggestionId ??
+    selectedSuggestionId ??
+    (steppedSuggestion &&
+    (!selectedThreadId || selectedThreadId === steppedSuggestion.threadId)
+      ? steppedSuggestion.suggestionId
+      : null);
   // Whichever word of a unit is active, all of its words light up.
   const activeUnitIds = useMemo(
     () =>
@@ -7087,6 +7140,70 @@ function PageEditorSessionBody({
     resetSuggestionAutosave(suggestionAutosaveRef.current);
   }, []);
 
+  const refuseUnlessDraftFollowsPage = useCallback(
+    async (base: SuggestionDraftSession, refuse: () => void) => {
+      const editorClosed = () => suggestionAutosaveRef.current.disposed;
+      if (editorClosed()) {
+        refuse();
+        return;
+      }
+      const readPage = () =>
+        callAction(
+          "get-document",
+          {
+            id: documentId,
+            ...(databaseId ? { databaseId } : {}),
+            ...(databaseDocumentId ? { databaseDocumentId } : {}),
+          },
+          { method: "GET" },
+        );
+      let refreshedDocument: Awaited<ReturnType<typeof readPage>>;
+      try {
+        const [readDocument, readSuggestions] = await Promise.all([
+          readPage(),
+          suggestionsQuery.refetch(),
+        ]);
+        if (readSuggestions.isError) throw readSuggestions.error;
+        refreshedDocument = readDocument;
+      } catch {
+        refuse();
+        return;
+      }
+      if (editorClosed() || suggestionBaseRef.current?.id !== base.id) {
+        refuse();
+        return;
+      }
+      const newestPage = [
+        currentDocumentRef.current,
+        ...queryClient
+          .getQueriesData<Pick<Document, "content" | "revision" | "updatedAt">>(
+            documentQueryFilter(documentId),
+          )
+          .flatMap(([, cached]) => (cached ? [cached] : [])),
+      ].reduce<Pick<Document, "content" | "revision" | "updatedAt">>(
+        (newest, held) => laterPage(held, newest),
+        refreshedDocument,
+      );
+      if (newestPage === refreshedDocument)
+        patchDocumentCaches(queryClient, documentId, {
+          content: refreshedDocument.content,
+          revision: refreshedDocument.revision,
+          updatedAt: refreshedDocument.updatedAt,
+          bodyRevision: refreshedDocument.bodyRevision,
+          contentHash: refreshedDocument.contentHash,
+        });
+      refusedForOlderPageRef.current = {
+        page: newestPage,
+        sentRevision: base.baseRevision,
+        refuse,
+      };
+      suggestionDraftSaveFailedRef.current = false;
+      setSuggestionDraftSaveFailed(false);
+      setSuggestionPersistenceRevision((revision) => revision + 1);
+    },
+    [databaseDocumentId, databaseId, documentId, queryClient, suggestionsQuery],
+  );
+
   const persistSuggestionDraft = useCallback(
     async ({
       keepMode,
@@ -7096,12 +7213,13 @@ function PageEditorSessionBody({
       autosave: boolean;
     }): Promise<Map<string, ResourceSuggestion> | null> => {
       const base = suggestionBaseRef.current;
-      if (!base) return null;
+      if (!base || (autosave && refusedForOlderPageRef.current)) return null;
       const draft = suggestionDraftRef.current;
       const endSession = () => {
         clearSuggestionAutosave();
         setIsSuggesting(false);
         suggestionBaseRef.current = null;
+        refusedForOlderPageRef.current = null;
         setEditingSuggestionId(null);
         setSuggestionInitialSelection(null);
         setSuggestionAmendmentConflict(false);
@@ -7113,6 +7231,7 @@ function PageEditorSessionBody({
           suggestionAutosaveRef.current,
           suggestionDraftRef.current === draft,
         );
+        refusedForOlderPageRef.current = null;
         setSuggestionDraftSaveFailed(false);
         if (!keepMode) endSession();
         return persisted;
@@ -7268,6 +7387,7 @@ function PageEditorSessionBody({
         // amended elsewhere: writing this draft over it would discard that
         // change, so the author resolves the draft from the conflict banner.
         let changedElsewhere = false;
+        let amendmentRefused = false;
         for (const { key, suggestion } of plan.withdraw) {
           const withdrawn = await saveUnlessSuggestionChanged(
             suggestion,
@@ -7306,16 +7426,23 @@ function PageEditorSessionBody({
           const amended = await saveUnlessSuggestionChanged(
             target,
             async () => {
+              const baseRevision =
+                target.baseRevision === base.baseRevision
+                  ? undefined
+                  : base.baseRevision;
               const idempotencyKey = suggestionAmendmentIdempotencyKey(
                 suggestionAmendmentKeysRef.current,
                 target,
-                amendment.key,
+                baseRevision === undefined
+                  ? amendment.key
+                  : JSON.stringify([amendment.key, baseRevision]),
               );
               const suggestion = await updateSuggestion.mutateAsync({
                 id: target.id,
                 observedRevision: target.revision,
                 idempotencyKey,
                 operations: [amendment.operation],
+                ...(baseRevision === undefined ? {} : { baseRevision }),
               });
               return { idempotencyKey, suggestion };
             },
@@ -7323,6 +7450,7 @@ function PageEditorSessionBody({
           );
           if (amended.status === "changed") {
             changedElsewhere = true;
+            amendmentRefused = true;
             break;
           }
           entries.delete(amendment.previousKey);
@@ -7340,8 +7468,19 @@ function PageEditorSessionBody({
         }
         if (changedElsewhere) {
           adoptConfirmedSuggestions();
-          setSuggestionAmendmentConflict(true);
-          void queryClient.invalidateQueries(documentQueryFilter(documentId));
+          const conflict = () => {
+            if (suggestionAutosaveRef.current.disposed) {
+              if (!suggestionDraftSaveFailedRef.current)
+                toast.error(t("editor.suggestionAmendmentFailed"));
+              suggestionDraftSaveFailedRef.current = true;
+              return;
+            }
+            setSuggestionAmendmentConflict(true);
+            void queryClient.invalidateQueries(documentQueryFilter(documentId));
+          };
+          if (amendmentRefused && autosave)
+            await refuseUnlessDraftFollowsPage(base, conflict);
+          else conflict();
           return null;
         }
         if (create.length > 0) {
@@ -7420,25 +7559,35 @@ function PageEditorSessionBody({
           void queryClient.invalidateQueries(documentQueryFilter(documentId));
           return null;
         }
-        const alreadyFailed = suggestionDraftSaveFailedRef.current;
-        setSuggestionDraftSaveFailed(true);
-        if (autosave && !clientError) {
-          retrySuggestionAutosave(
-            suggestionAutosaveRef.current,
-            autosaveSuggestionDraft,
+        const refuse = () => {
+          const alreadyFailed = suggestionDraftSaveFailedRef.current;
+          suggestionDraftSaveFailedRef.current = true;
+          setSuggestionDraftSaveFailed(true);
+          if (autosave && !clientError) {
+            retrySuggestionAutosave(
+              suggestionAutosaveRef.current,
+              autosaveSuggestionDraft,
+            );
+          }
+          if (autosave && alreadyFailed) return;
+          toast.error(
+            t(
+              base.existingSuggestion
+                ? "editor.suggestionAmendmentFailed"
+                : "editor.suggestionCreateFailed",
+            ),
+            {
+              description: actionErrorMessage(error) ?? t("empty.genericError"),
+            },
           );
-        }
-        if (autosave && alreadyFailed) return null;
-        toast.error(
-          t(
-            base.existingSuggestion
-              ? "editor.suggestionAmendmentFailed"
-              : "editor.suggestionCreateFailed",
-          ),
-          {
-            description: actionErrorMessage(error) ?? t("empty.genericError"),
-          },
-        );
+        };
+        if (
+          autosave &&
+          !base.existingSuggestion &&
+          isSuggestionConflictActionError(error)
+        )
+          await refuseUnlessDraftFollowsPage(base, refuse);
+        else refuse();
         return null;
       } finally {
         if (!autosave) setIsSubmittingSuggestions(false);
@@ -7454,6 +7603,7 @@ function PageEditorSessionBody({
       documentId,
       amendmentTargetIsResolved,
       queryClient,
+      refuseUnlessDraftFollowsPage,
       suggestionAmendmentConflict,
       suggestionsQuery,
       t,
@@ -7554,9 +7704,12 @@ function PageEditorSessionBody({
     autosave.disposed = false;
     return () => {
       const unsaved = autosave.dirtySince !== null;
+      const refused = refusedForOlderPageRef.current;
+      refusedForOlderPageRef.current = null;
       clearSuggestionAutosave();
       autosave.disposed = true;
-      if (unsaved)
+      if (refused) refused.refuse();
+      else if (unsaved)
         void flushSuggestionDraftRef.current({
           keepMode: true,
           autosave: true,
@@ -7591,6 +7744,7 @@ function PageEditorSessionBody({
         : null;
       if (suggestion && !existing) return false;
       clearSuggestionAutosave();
+      refusedForOlderPageRef.current = null;
       createdSuggestionOperationsRef.current.clear();
       suggestionAmendmentKeysRef.current.clear();
       setSuggestionAmendmentConflict(false);
@@ -7683,18 +7837,44 @@ function PageEditorSessionBody({
   ]);
 
   const continueSuggestionModeFrom = useCallback(
-    (nextDocument: Document) => {
-      clearSuggestionAutosave();
-      createdSuggestionOperationsRef.current.clear();
-      suggestionAmendmentKeysRef.current.clear();
+    (
+      nextDocument: Pick<Document, "content" | "revision" | "updatedAt">,
+      options?: { keepOwnSuggestions?: boolean },
+    ) => {
+      const refused = refusedForOlderPageRef.current;
+      refusedForOlderPageRef.current = null;
       const initial = createDocumentSuggestionDraftSession({
         id: globalThis.crypto.randomUUID(),
         baseContent: nextDocument.content,
         baseRevision: canonicalSuggestionRevision(nextDocument),
         startedAt: new Date().toISOString(),
       });
+      const previous = suggestionBaseRef.current;
+      const carried =
+        options?.keepOwnSuggestions && previous
+          ? carryOwnSuggestions({
+              session: previous,
+              draft: suggestionDraftRef.current,
+              next: initial.session,
+              entries: createdSuggestionOperationsRef.current,
+              latest: (id) =>
+                savedSuggestionsRef.current.find(
+                  (suggestion) => suggestion.id === id,
+                ),
+              unsaved: refused !== null,
+            })
+          : null;
+      if (refused && options?.keepOwnSuggestions && !carried) {
+        refused.refuse();
+        return;
+      }
+      clearSuggestionAutosave();
+      createdSuggestionOperationsRef.current.clear();
+      for (const [key, entry] of carried?.entries ?? [])
+        createdSuggestionOperationsRef.current.set(key, entry);
+      suggestionAmendmentKeysRef.current.clear();
       suggestionBaseRef.current = initial.session;
-      setSuggestionDraft(initial.content);
+      setSuggestionDraft(carried?.content ?? initial.content);
       setSuggestionDraftUpdatedAt(nextDocument.updatedAt);
       setEditingSuggestionId(null);
       setSuggestionInitialSelection(null);
@@ -7702,8 +7882,9 @@ function PageEditorSessionBody({
       setCreationCollaborationSelection(null);
       setIsSuggesting(true);
       setSuggestionPersistenceRevision((revision) => revision + 1);
+      if (refused && carried) scheduleSuggestionAutosave();
     },
-    [clearSuggestionAutosave],
+    [clearSuggestionAutosave, scheduleSuggestionAutosave],
   );
 
   // Someone else's change moves the Page past the draft's start, and the
@@ -7724,16 +7905,24 @@ function PageEditorSessionBody({
     const check = () => {
       timer = null;
       const session = suggestionBaseRef.current;
+      const refused = refusedForOlderPageRef.current;
+      const page = refused
+        ? laterPage<Pick<Document, "content" | "revision" | "updatedAt">>(
+            document,
+            refused.page,
+          )
+        : document;
       const follow = suggestionPageFollow({
         session,
         page: {
-          content: document.content,
-          revision: canonicalSuggestionRevision(document),
-          updatedAt: document.updatedAt,
+          content: page.content,
+          revision: canonicalSuggestionRevision(page),
+          updatedAt: page.updatedAt,
         },
         draftUpdatedAt: suggestionDraftUpdatedAt,
         settled:
-          suggestionAutosaveRef.current.dirtySince === null &&
+          (suggestionAutosaveRef.current.dirtySince === null ||
+            refused !== null) &&
           !suggestionFlushRef.current &&
           !unresolvedProposalCreationRef.current &&
           !suggestionDecisionInFlightRef.current &&
@@ -7743,12 +7932,22 @@ function PageEditorSessionBody({
         now: Date.now(),
       });
       if (follow.kind === "wait") timer = setTimeout(check, follow.ms);
-      else if (follow.kind === "rebase" && session)
+      else if (follow.kind === "stay" && refused) {
+        refusedForOlderPageRef.current = null;
+        const movedToSameText =
+          session !== null && session.baseRevision !== refused.sentRevision;
+        if (movedToSameText) scheduleSuggestionAutosave();
+        else refused.refuse();
+      } else if (follow.kind === "rebase" && session) {
         suggestionBaseRef.current = {
           ...session,
           baseRevision: follow.baseRevision,
         };
-      else if (follow.kind === "restart") {
+        if (refused) {
+          refusedForOlderPageRef.current = null;
+          scheduleSuggestionAutosave();
+        }
+      } else if (follow.kind === "restart") {
         // The editor reports typing to the draft on its next task, so a key
         // pressed just before this check hasn't arrived yet. Move only after
         // that report has had its turn and changed nothing.
@@ -7756,7 +7955,7 @@ function PageEditorSessionBody({
         timer = setTimeout(() => {
           timer = null;
           if (suggestionDraftChangedAtRef.current === changedAt)
-            continueSuggestionModeFrom(document);
+            continueSuggestionModeFrom(page, { keepOwnSuggestions: true });
           else check();
         }, 0);
       }
@@ -7772,6 +7971,7 @@ function PageEditorSessionBody({
     isSuggesting,
     pendingProposalDecision,
     pendingSuggestionDecision,
+    scheduleSuggestionAutosave,
     suggestionAmendmentConflict,
     suggestionDraftSaveFailed,
     suggestionDraftUpdatedAt,
@@ -8083,7 +8283,7 @@ function PageEditorSessionBody({
   ]);
 
   const handleSuggestionModeChange = useCallback(
-    async (next: boolean) => {
+    async (next: boolean, { fromSelectionToolbar = false } = {}) => {
       if (next) {
         if (!canSuggest || startingSuggestionRef.current) return;
         const initialSelection = pageActionsSelectionRef.current;
@@ -8124,7 +8324,10 @@ function PageEditorSessionBody({
             return;
           }
           if (
-            !shouldResumeSelectedSuggestionFromPageActions(initialSelection)
+            !shouldResumeSelectedSuggestionFromPageActions(
+              initialSelection,
+              fromSelectionToolbar,
+            )
           ) {
             if (
               !startSuggestionDraft(readyDocument, undefined, initialSelection)
@@ -8178,6 +8381,14 @@ function PageEditorSessionBody({
     canResume: documentFresh && canSuggest && (!canEdit || editorCanEdit),
     resume: resumeSuggestionMode,
   });
+
+  const handleSuggestEdit = useCallback(
+    (selection: VisualEditorSelectionSnapshot | null) => {
+      pageActionsSelectionRef.current = selection;
+      void handleSuggestionModeChange(true, { fromSelectionToolbar: true });
+    },
+    [handleSuggestionModeChange],
+  );
 
   const capturePageActionsSelection = useCallback(
     (includeRemembered = false) => {
@@ -8927,7 +9138,6 @@ function PageEditorSessionBody({
       !!pendingComment.text.trim() ||
       pendingComment.mentions.length > 0 ||
       !!pendingComment.aiDraft);
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   // The Property whose threads, or new Comment, Info shows under its row.
   const [infoPropertyId, setInfoPropertyId] = useState<string | null>(null);
@@ -9183,6 +9393,9 @@ function PageEditorSessionBody({
     ? pagePropertiesQuery.data
     : undefined;
   const pageProperties = pagePropertiesInScope?.properties;
+  const builderArticleRow = pageProperties?.find(
+    (property) => property.definition.systemRole === "builder_status",
+  );
   const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
   const pendingHeld = pendingCommentHeld(
     { propertyId: pendingPropertyId, written: pendingWritten },
@@ -9256,14 +9469,9 @@ function PageEditorSessionBody({
       (thread) => !thread.resolved && !isPageCommentThread(thread),
     ) ??
       false);
-  // A suggestion whose text is gone lives in the comments panel only, so it
-  // must not hold open an otherwise empty margin.
   const hasOpenSuggestions =
     presentedSuggestions.some(
-      (suggestion) =>
-        suggestion.status === "pending" &&
-        (!anchoredSuggestionIds ||
-          anchoredSuggestionIds.includes(suggestion.id)),
+      (suggestion) => suggestion.status === "pending",
     ) ||
     draftSuggestions.length > 0 ||
     fieldSuggestions.hasOpen;
@@ -9481,7 +9689,6 @@ function PageEditorSessionBody({
     threads,
     suggestions: reviewSuggestions,
     draftSuggestions: reviewDraftSuggestions,
-    anchoredSuggestionIds: reviewAnchoredSuggestionIds,
     selectedThreadId,
     selectedSuggestionId,
     focusSuggestionId,
@@ -9712,6 +9919,7 @@ function PageEditorSessionBody({
     setHoveredThreadId(null);
     setSelectedSuggestionId(null);
     setHoveredSuggestionId(null);
+    setSteppedSuggestion(null);
   }, []);
 
   const dismissCommentFocus = useCallback(() => {
@@ -9732,6 +9940,12 @@ function PageEditorSessionBody({
     showCommentsHistoryDrawer,
   ]);
 
+  const revealSuggestionOnPage = useCallback((suggestionId: string) => {
+    requestAnimationFrame(() =>
+      scrollSuggestionIntoPageView(suggestionId, scrollContainerRef.current),
+    );
+  }, []);
+
   const holdsPropertyComment = !!heldPropertyCommentId;
   const activateSuggestion = useCallback(
     (suggestionId: string) => {
@@ -9743,26 +9957,18 @@ function PageEditorSessionBody({
       setCommentsBrowseOpen(false);
       setDiscussionPeekThreadId(null);
       setUtilityPanel("comments");
-      requestAnimationFrame(() => {
-        const targets = globalThis.document.querySelectorAll<HTMLElement>(
-          `[data-suggestion-id="${CSS.escape(suggestionId)}"]`,
-        );
-        const pageTarget = Array.from(targets).find((target) =>
-          target.closest(".content-editor"),
-        );
-        if (pageTarget) {
-          const rect = pageTarget.getBoundingClientRect();
-          const viewport = scrollContainerRef.current?.getBoundingClientRect();
-          if (
-            viewport &&
-            (rect.top < viewport.top || rect.bottom > viewport.bottom)
-          ) {
-            pageTarget.scrollIntoView({ behavior: "smooth", block: "nearest" });
-          }
-        }
-      });
+      revealSuggestionOnPage(suggestionId);
     },
-    [holdsPropertyComment, setPendingComment],
+    [holdsPropertyComment, revealSuggestionOnPage, setPendingComment],
+  );
+
+  const stepThreadSuggestion = useCallback(
+    (threadId: string, suggestionId: string) => {
+      setSteppedSuggestion({ threadId, suggestionId });
+      setSelectedSuggestionId((current) => (current ? suggestionId : current));
+      revealSuggestionOnPage(suggestionId);
+    },
+    [revealSuggestionOnPage],
   );
 
   // An AI suggestion asked for from a comment is reviewed inside that thread.
@@ -10241,6 +10447,7 @@ function PageEditorSessionBody({
     }
     const sourceThreadId = suggestionThreadOnPage(suggestion.id);
     if (sourceThreadId) {
+      replyDrafts.markLinkedThread(sourceThreadId);
       activateCommentThread(sourceThreadId);
       return;
     }
@@ -10261,6 +10468,7 @@ function PageEditorSessionBody({
     clearCommentFocus,
     holdsPropertyComment,
     replyDrafts.setOpenReply,
+    replyDrafts.markLinkedThread,
     activateCommentThread,
     suggestionThreadOnPage,
     commentsLoading,
@@ -10281,8 +10489,15 @@ function PageEditorSessionBody({
       return;
     }
     handledCommentDeepLinkRef.current = deepLinkKey;
+    replyDrafts.markLinkedThread(threadId);
     activateCommentThread(threadId, true);
-  }, [activateCommentThread, documentId, location.search, threads]);
+  }, [
+    activateCommentThread,
+    documentId,
+    location.search,
+    replyDrafts.markLinkedThread,
+    threads,
+  ]);
 
   // A Collection that opens rows as full pages links here to start a comment
   // on one Property, as the row's peek does on a touch screen.
@@ -11227,6 +11442,7 @@ function PageEditorSessionBody({
             decideSuggestionProposal.isPending ||
             queuedDecisions.length > 0)
       }
+      onStepThreadSuggestion={stepThreadSuggestion}
       onDecideSuggestionProposal={async (
         proposalId,
         decision,
@@ -11445,6 +11661,17 @@ function PageEditorSessionBody({
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
   const isDatabasePage = Boolean(document.database);
+  const showNewPageStartingPoints =
+    host === "page" &&
+    !isDatabasePage &&
+    editorCanEdit &&
+    !isSuggesting &&
+    !isStartingSuggestion &&
+    !mcpDirectoryWidgetReadOnly &&
+    !bodyHydrationError &&
+    !awaitingLiveCopy &&
+    isEffectivelyEmptyDocumentContent(localContent) &&
+    isEffectivelyEmptyDocumentContent(document.content);
   const iconRow: DocumentEditorIconRow = document.icon
     ? "icon"
     : canEdit && !isSuggesting
@@ -11978,6 +12205,13 @@ function PageEditorSessionBody({
                     )}
                   />
                 </div>
+                {builderArticleRow ? (
+                  <BuilderArticleRowAutosaveRunner
+                    documentId={documentId}
+                    databaseId={builderArticleRow.definition.databaseId}
+                    canEdit={editorCanEdit}
+                  />
+                ) : null}
                 {host === "preview" &&
                 document.databaseMembership &&
                 !isLocalFileDocument ? (
@@ -12035,7 +12269,10 @@ function PageEditorSessionBody({
                 {!isDatabasePage ? (
                   <div
                     {...(host === "page" ? startupAnchor("body") : {})}
-                    className={documentEditorBodyClassName(host)}
+                    className={cn(
+                      documentEditorBodyClassName(host),
+                      showNewPageStartingPoints && "content-new-page-body",
+                    )}
                     onClick={(e) => {
                       if (e.target === e.currentTarget) {
                         cancelPaddingScrollRestore();
@@ -12058,6 +12295,13 @@ function PageEditorSessionBody({
                       }
                     }}
                   >
+                    {showNewPageStartingPoints ? (
+                      <NewPageStartingPoints
+                        documentId={documentId}
+                        title={localTitle}
+                        onImport={canImportPages ? openImport : undefined}
+                      />
+                    ) : null}
                     {(() => {
                       if (bodyHydrationPending) {
                         return (
@@ -12285,6 +12529,7 @@ function PageEditorSessionBody({
                                 acknowledgedLocalSnapshot={
                                   acknowledgedLocalSnapshot
                                 }
+                                mergedLocalSave={mergedLocalSave}
                                 onBaseAwareReconcile={
                                   suggestionEditorIsolation.reconcileCanonical
                                     ? handleBaseAwareReconcile
@@ -12349,6 +12594,11 @@ function PageEditorSessionBody({
                                 onComment={
                                   canComment ? handleComment : undefined
                                 }
+                                onSuggestEdit={
+                                  canSuggest && !mcpDirectoryWidgetReadOnly
+                                    ? handleSuggestEdit
+                                    : undefined
+                                }
                                 onBlockComment={
                                   canComment ? handleBlockComment : undefined
                                 }
@@ -12381,6 +12631,11 @@ function PageEditorSessionBody({
                                   handleSuggestionAnchorsChange
                                 }
                                 showCommentIndicators={showCommentIndicators}
+                                emptyDocumentPlaceholder={
+                                  showNewPageStartingPoints
+                                    ? t("editor.newPagePlaceholder")
+                                    : null
+                                }
                                 onJoinTitle={joinFirstBodyBlockToTitle}
                                 onOpenNotionPageLink={handleOpenNotionPageLink}
                                 notionPageId={document.notionPageId}

@@ -9,7 +9,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/decisions", () => ({
   getDecisionsStatus: mocks.getDecisionsStatus,
 }));
-vi.mock("@agent-native/core/application-state", () => ({
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
   writeAppStateForCurrentTab,
 }));
 vi.mock("@agent-native/core/server", () => ({

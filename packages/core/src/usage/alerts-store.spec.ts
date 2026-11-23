@@ -88,7 +88,7 @@ const { __resetStoreLedgerSnapshotForTests } =
 
 beforeEach(async () => {
   __resetSchemaSnapshotForTests();
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetStoreLedgerSnapshotForTests();
   await pglite.exec(`CREATE TABLE token_usage (
     id BIGINT PRIMARY KEY,

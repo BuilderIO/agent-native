@@ -20,6 +20,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: false,
   run: async (args, ctx) => {
     if (!ctx?.userEmail) fail("Not authenticated.", { statusCode: 401 });
     return previewSecretRemoval({

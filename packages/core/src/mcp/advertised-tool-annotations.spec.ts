@@ -380,7 +380,10 @@ function mutatingToolNames(app: AppCatalog): string[] {
         )
         .map(({ tool }) => tool.name),
     ),
-  ].filter((name) => !Object.hasOwn(SERVER_DECIDED_TOOLS, name));
+  ].filter(
+    (name) =>
+      !Object.hasOwn(SERVER_DECIDED_TOOLS, name) && name !== "call-tool",
+  );
 }
 
 // Only annotations the action itself declares count as a decision. The server
@@ -717,5 +720,19 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
       readOnlyMismatches(app).map((name) => `${app.appId}/${name}`),
     );
     expect(mismatches).toEqual([]);
+  });
+
+  it("marks every search-served view-screen read-only, so tool-search serves it where writes go through ask_app", () => {
+    const writes = apps.flatMap((app) =>
+      advertisements(app)
+        .filter(
+          ({ tool, entry }) =>
+            tool.name === "view-screen" &&
+            entry.mcpTool === "search" &&
+            !isReadOnlyAction(entry),
+        )
+        .map(() => app.appId),
+    );
+    expect([...new Set(writes)].sort()).toEqual([]);
   });
 });

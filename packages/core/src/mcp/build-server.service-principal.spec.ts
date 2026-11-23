@@ -1,8 +1,13 @@
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createToolSearchEntry } from "../agent/tool-search.js";
+import { defineAppConfig } from "../app-config/store.js";
+import {
+  APP_CAPABILITIES_META_KEY,
+  defineAppManifest,
+} from "../manifest/index.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   createMCPServerForRequest,
@@ -26,26 +31,6 @@ vi.mock("../org/service-principal-policy.js", async (importActual) => ({
   evaluateServicePrincipal: (...a: any[]) => evaluateServicePrincipalMock(...a),
 }));
 const recordActionAuditMock = vi.fn(async (_input: any) => {});
-// People who turned on the "App cards in chat apps" lab. Other labs read the
-// real store.
-const appCardsLab = vi.hoisted(() => ({ optedIn: new Set<string>() }));
-
-vi.mock("../labs/store.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../labs/store.js")>();
-  return {
-    ...actual,
-    getUserLabEnabled: vi.fn(
-      async (...args: Parameters<typeof actual.getUserLabEnabled>) => {
-        const [email, lab] = args;
-        const key = typeof lab === "string" ? lab : lab.key;
-        return key === "mcp-app-cards"
-          ? appCardsLab.optedIn.has(email)
-          : actual.getUserLabEnabled(...args);
-      },
-    ),
-  };
-});
-
 vi.mock("../audit/record.js", () => ({
   recordActionAudit: (input: any) => recordActionAuditMock(input),
 }));
@@ -133,7 +118,46 @@ beforeEach(() => {
   observedVerifiedServiceIdentity = undefined;
 });
 
+// oracle-change: Grant coverage moved from standalone manifest surfaces to tools/list.
 describe("MCP tools/list for a service principal", () => {
+  it("projects registered capabilities through the current action grant", async () => {
+    const removeConfig = defineAppConfig({
+      manifest: defineAppManifest({
+        version: 1,
+        screens: {
+          library: { route: "/library", action: "list-docs" },
+          document: { route: "/document", action: "read-doc" },
+          missing: { route: "/missing", action: "unregistered" },
+        },
+        suggestions: { "saved-view": "delete-doc" },
+      }),
+    });
+    activeWithGrant(["list-docs", "delete-doc", "unregistered"]);
+    const base = config();
+    const client = await clientFor(serviceIdentity, {
+      ...base,
+      externalAgents: { denyActions: ["delete-doc"] },
+    });
+    try {
+      expect(
+        (await client.listTools())._meta?.[APP_CAPABILITIES_META_KEY],
+      ).toEqual({
+        version: 1,
+        screens: { library: { route: "/library", action: "list-docs" } },
+      });
+      activeWithGrant(["read-doc"]);
+      expect(
+        (await client.listTools())._meta?.[APP_CAPABILITIES_META_KEY],
+      ).toEqual({
+        version: 1,
+        screens: { document: { route: "/document", action: "read-doc" } },
+      });
+    } finally {
+      removeConfig();
+      await client.close();
+    }
+  });
+
   it("lists everything for an ungoverned principal", async () => {
     evaluateServicePrincipalMock.mockResolvedValue({
       status: "ungoverned",
@@ -664,17 +688,10 @@ describe("MCP App resources for a service principal", () => {
     };
   }
 
-  // Cards on for the request, as on the directory catalog. The lab never
-  // turns them on for a service principal.
   const cards = { inlineMcpApps: true };
 
-  afterEach(() => {
-    appCardsLab.optedIn.clear();
-  });
-
-  it("never gives a service principal cards from the lab", async () => {
+  it("never gives a service principal cards by default", async () => {
     activeWithGrant(null);
-    appCardsLab.optedIn = new Set([SVC]);
     const client = await clientFor(serviceIdentity, widgetConfig());
 
     expect((await client.listResources()).resources).toEqual([]);

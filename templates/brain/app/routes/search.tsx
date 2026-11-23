@@ -1,5 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconBook2,
@@ -427,6 +427,7 @@ function SearchResultRow({
   query: string;
 }) {
   const t = useT();
+  const format = useFormatters();
   const [params] = useSearchParams();
   const body = result.snippet ?? result.summary ?? t("searchPage.noExcerpt");
   const whyMatched = explainMatch(result, query);
@@ -499,6 +500,16 @@ function SearchResultRow({
           <span className="truncate">
             {t("searchPage.citation")}: {sourceLabel}
           </span>
+          {result.type === "capture" &&
+          result.citation?.capturedAt &&
+          !Number.isNaN(Date.parse(result.citation.capturedAt)) ? (
+            <time dateTime={result.citation.capturedAt}>
+              {format.formatDate(result.citation.capturedAt, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </time>
+          ) : null}
           {result.updatedAt ? (
             <span>
               {t("searchPage.updated")} {result.updatedAt}
@@ -536,6 +547,7 @@ function SearchResultDetails({
   query: string;
 }) {
   const t = useT();
+  const format = useFormatters();
   const body = result.snippet ?? result.summary ?? t("searchPage.noExcerpt");
   const summary = result.summary ?? result.snippet ?? null;
   const sourceProvider =
@@ -607,6 +619,18 @@ function SearchResultDetails({
               <IconQuote className="size-4" />
               {t("searchPage.citationQuote")}
             </h3>
+            {result.citation?.capturedAt &&
+            !Number.isNaN(Date.parse(result.citation.capturedAt)) ? (
+              <time
+                className="text-xs text-muted-foreground"
+                dateTime={result.citation.capturedAt}
+              >
+                {format.formatDate(result.citation.capturedAt, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
+              </time>
+            ) : null}
             {quote ? (
               <blockquote className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
                 {quote}
@@ -997,14 +1021,16 @@ function formatScore(score: number) {
   return Math.round(score).toString();
 }
 
+const DATE_TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  return DATE_TIME_FORMAT.format(date);
 }
 
 function displayLabel(value: string) {

@@ -26,6 +26,7 @@ import deleteVaultSecret from "./delete-vault-secret.js";
 import deleteWorkspaceResource from "./delete-workspace-resource.js";
 import denyVaultRequest from "./deny-vault-request.js";
 import ensureDreamJob from "./ensure-dream-job.js";
+import executeActionSuggestion from "./execute-action-suggestion.js";
 import getAgentThreadDebug from "./get-agent-thread-debug.js";
 import getAppCreationSettings from "./get-app-creation-settings.js";
 import getDispatchSettings from "./get-dispatch-settings.js";
@@ -78,6 +79,7 @@ import navigate from "./navigate.js";
 import openApp from "./open_app.js";
 import previewDreamProposal from "./preview-dream-proposal.js";
 import previewWorkspaceResourceChange from "./preview-workspace-resource-change.js";
+import proposeActionSuggestions from "./propose-action-suggestions.js";
 import providerApiCatalog from "./provider-api-catalog.js";
 import providerApiDocs from "./provider-api-docs.js";
 import providerApiRegister from "./provider-api-register.js";
@@ -87,10 +89,12 @@ import readSlackThreadContext from "./read-slack-thread-context.js";
 import readView from "./read_view.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
 import rejectDreamProposal from "./reject-dream-proposal.js";
+import rememberPointer from "./remember-pointer.js";
 import remixWorkspaceTemplate from "./remix-workspace-template.js";
 import removePendingWorkspaceApp from "./remove-pending-workspace-app.js";
 import requestVaultSecret from "./request-vault-secret.js";
 import resolveIntegrationSourceContext from "./resolve-integration-source-context.js";
+import resolvePointer from "./resolve-pointer.js";
 import restoreStarterWorkspaceResources from "./restore-starter-workspace-resources.js";
 import revokeVaultGrant from "./revoke-vault-grant.js";
 import revokeWorkspaceResourceGrant from "./revoke-workspace-resource-grant.js";
@@ -189,6 +193,8 @@ export const dispatchActions: Record<string, ActionEntry> = {
   navigate: navigate,
   open_app: openApp,
   "apply-dream-proposal": applyDreamProposal,
+  "execute-action-suggestion": executeActionSuggestion,
+  "propose-action-suggestions": proposeActionSuggestions,
   "preview-dream-proposal": previewDreamProposal,
   "preview-workspace-resource-change": previewWorkspaceResourceChange,
   "provider-api-catalog": providerApiCatalog,
@@ -205,6 +211,8 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "request-vault-secret": requestVaultSecret,
   "revoke-vault-grant": revokeVaultGrant,
   "revoke-workspace-resource-grant": revokeWorkspaceResourceGrant,
+  "remember-pointer": rememberPointer,
+  "resolve-pointer": resolvePointer,
   "route-app-intent": routeAppIntent,
   "restore-starter-workspace-resources": restoreStarterWorkspaceResources,
   "scaffold-workspace-app": scaffoldWorkspaceApp,

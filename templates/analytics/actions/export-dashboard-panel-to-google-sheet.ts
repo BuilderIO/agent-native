@@ -55,6 +55,12 @@ export default defineAction({
     filters: z.record(z.string(), z.string()).optional().default({}),
   }),
   http: { method: "POST" },
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   needsApproval: true,
   toolCallable: false,
   run: async ({ dashboardId, panelId, filters }) => {

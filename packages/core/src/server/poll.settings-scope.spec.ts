@@ -567,18 +567,43 @@ describe("settings change feed scope", () => {
         2,
       ],
     });
+    await rawClient.execute({
+      sql: `INSERT INTO sync_events (id, version, event_json, source, type, owner, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "invalid-json",
+        3,
+        "{invalid",
+        "action",
+        "change",
+        "alice@example.test",
+        3,
+      ],
+    });
+    await rawClient.execute({
+      sql: `INSERT INTO sync_events (id, version, event_json, source, type, owner, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "other-private",
+        4,
+        "{invalid",
+        "action",
+        "change",
+        "bob@example.test",
+        4,
+      ],
+    });
     const { AppSyncState } = await import("./poll.js");
     const state = new AppSyncState({
       getDb: () => ({ execute: rawClient.execute }) as never,
     });
 
-    await expect(
-      state.getDurableChangesSinceForUser(1, "alice@example.test", undefined),
-    ).rejects.toMatchObject({
-      name: "SyncEventReadError",
-      code: "SYNC_EVENT_READ_UNAVAILABLE",
-      message:
-        "A sync event could not be read; clients must refresh their data.",
+    const result = await state.getDurableChangesSinceForUser(
+      1,
+      "alice@example.test",
+      undefined,
+    );
+    expect(result).toMatchObject({
+      unreadable: [{ type: "unknown-scope" }],
+      events: [],
     });
   });
 

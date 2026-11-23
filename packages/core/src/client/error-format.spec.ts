@@ -476,11 +476,11 @@ describe("Builder gateway internal-error envelope", () => {
     ).toEqual({ message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
   });
 
-  it("is recognized by its envelope on any accompanying code", () => {
+  it("recognizes the envelope when the gateway sends no specific error code", () => {
     const reported =
       "Sorry, this was caused by an internal error. " +
       "ERROR ID: 64e08217e3f547c1a20311ef7cfecacf";
-    const normalized = normalizeChatError(reported, "invalid_request");
+    const normalized = normalizeChatError(reported, "builder_gateway_error");
 
     expect(normalized.message).not.toContain("ERROR ID");
     expect(normalized.message).toContain("model gateway");
@@ -498,6 +498,20 @@ describe("Builder gateway internal-error envelope", () => {
 });
 
 describe("malformed provider request", () => {
+  it.each(["invalid_request", "invalid_request_error"])(
+    "shows request rejection for %s even with a generic gateway envelope",
+    (code) => {
+      const raw =
+        "Sorry, this was caused by an internal error. " +
+        "ERROR ID: 64e08217e3f547c1a20311ef7cfecacf";
+      const normalized = normalizeChatError(raw, code);
+
+      expect(normalized.message).toMatch(/rejected this request as malformed/i);
+      expect(normalized.message).not.toContain("ERROR ID");
+      expect(normalized.details).toBe(raw);
+    },
+  );
+
   it("gives a typed attachment rejection smaller and supported-format guidance", () => {
     const normalized = normalizeChatError(
       "Invalid 'input[0].content[1].image_url': image size exceeds limit.",

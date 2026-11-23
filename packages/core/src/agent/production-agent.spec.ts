@@ -18,6 +18,11 @@ import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import {
+  currentActionApproval,
+  currentActionApprovalAskedAt,
+} from "../action-frame.js";
+import {
+  actionCallIntent,
   AgentActionStopError,
   AgentConnectionRequiredError,
   defineAction,
@@ -968,10 +973,21 @@ describe("resolveAgentModelSelection", () => {
     expect(
       resolveAgentModelSelection({
         requestModel: "gpt-5-6-terra",
+        configuredModel: "claude-sonnet-5-5",
         storedModel: "gpt-5-6-sol",
         defaultModel,
       }),
     ).toEqual({ model: "gpt-5-6-terra", source: "request" });
+  });
+
+  it("uses the deployment's Claude model ahead of the app and Builder defaults", () => {
+    expect(
+      resolveAgentModelSelection({
+        configuredModel: "claude-sonnet-5-5",
+        storedModel: "gpt-5-6-sol",
+        defaultModel: BUILDER_MODEL_CONFIG.defaultModel,
+      }),
+    ).toEqual({ model: "claude-sonnet-5-5", source: "configured" });
   });
 
   it("treats auto as a sentinel and uses the stored AN default", () => {
@@ -5131,101 +5147,113 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
-  it("uses trusted private-thread history for model input even when the client strips markers", async () => {
-    const secret = "private-prior-sentinel";
-    const snapshot = {
-      messages: [
-        {
-          message: {
-            id: "u1",
-            role: "user",
-            content: [{ type: "text", text: "public question" }],
-          },
-        },
-        {
-          message: {
-            id: "a1",
-            role: "assistant",
-            content: [{ type: "text", text: "public answer" }],
-          },
-        },
-        {
-          message: {
-            id: "a2",
-            role: "assistant",
-            metadata: { runId: "private-run" },
-            content: [{ type: "text", text: secret }],
-          },
-        },
-      ],
-    };
-    const access = vi
-      .spyOn(chatThreadStore, "resolveThreadAccess")
-      .mockResolvedValue({
-        id: "private-thread",
-        threadData: JSON.stringify(snapshot),
-      } as never);
-    const provenance = vi
-      .spyOn(runStore, "getThreadPrivateHistoryState")
-      .mockResolvedValue({
-        hasPrivateHistory: true,
-        projectionPending: false,
-        privateRunIds: ["private-run"],
-      });
-    const inputs: string[] = [];
-    const engine: AgentEngine = {
-      ...engineWithUncalledStream(),
-      async *stream(opts) {
-        inputs.push(JSON.stringify(opts.messages));
-        yield {
-          type: "assistant-content",
-          parts: [{ type: "text", text: "done" }],
-        };
-        yield { type: "stop", reason: "end_turn" };
+  it.each([
+    { label: "direct", metadata: { runId: "private-run" } },
+    {
+      label: "folded",
+      metadata: {
+        runId: "later-run",
+        custom: { foldedRunIds: ["private-run", "later-run"] },
       },
-    };
-    const handler = createProductionAgentHandler({
-      systemPrompt: "Test",
-      engine,
-      actions: {},
-      prepareRequest: () => ({ followUpSuggestions: false }),
-    });
-    const event = mockEvent(
-      new Request("http://app.example.com/_agent-native/agent-chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          message: "new request",
-          threadId: "private-thread",
-          history: [{ role: "assistant", content: secret }],
-          structuredHistory: [
-            { role: "assistant", content: [{ type: "text", text: secret }] },
-          ],
-          loadedSkillSlugs: [secret],
+    },
+  ])(
+    "uses trusted private-thread history for model input when the client strips markers ($label)",
+    async ({ metadata }) => {
+      const secret = "private-prior-sentinel";
+      const snapshot = {
+        messages: [
+          {
+            message: {
+              id: "u1",
+              role: "user",
+              content: [{ type: "text", text: "public question" }],
+            },
+          },
+          {
+            message: {
+              id: "a1",
+              role: "assistant",
+              content: [{ type: "text", text: "public answer" }],
+            },
+          },
+          {
+            message: {
+              id: "a2",
+              role: "assistant",
+              metadata,
+              content: [{ type: "text", text: secret }],
+            },
+          },
+        ],
+      };
+      const access = vi
+        .spyOn(chatThreadStore, "resolveThreadAccess")
+        .mockResolvedValue({
+          id: "private-thread",
+          threadData: JSON.stringify(snapshot),
+        } as never);
+      const provenance = vi
+        .spyOn(runStore, "getThreadPrivateHistoryState")
+        .mockResolvedValue({
+          hasPrivateHistory: true,
+          projectionPending: false,
+          privateRunIds: ["private-run"],
+        });
+      const inputs: string[] = [];
+      const engine: AgentEngine = {
+        ...engineWithUncalledStream(),
+        async *stream(opts) {
+          inputs.push(JSON.stringify(opts.messages));
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: {},
+        prepareRequest: () => ({ followUpSuggestions: false }),
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "new request",
+            threadId: "private-thread",
+            history: [{ role: "assistant", content: secret }],
+            structuredHistory: [
+              { role: "assistant", content: [{ type: "text", text: secret }] },
+            ],
+            loadedSkillSlugs: [secret],
+          }),
         }),
-      }),
-    );
-    try {
-      const response = await runWithRequestContext(
-        { userEmail: "alice@example.com", orgId: "acme", run: {} },
-        () => handler(event),
       );
-      if (response instanceof ReadableStream) {
-        const reader = response.getReader();
-        while (!(await reader.read()).done) {}
+      try {
+        const response = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        );
+        if (response instanceof ReadableStream) {
+          const reader = response.getReader();
+          while (!(await reader.read()).done) {}
+        }
+        expect(inputs.length).toBeGreaterThan(0);
+        expect(inputs.join("")).not.toContain(secret);
+        expect(inputs.join("")).toContain("public answer");
+        expect(inputs.join("")).toContain("new request");
+        expect(access.mock.invocationCallOrder[0]).toBeLessThan(
+          provenance.mock.invocationCallOrder[0],
+        );
+      } finally {
+        access.mockRestore();
+        provenance.mockRestore();
       }
-      expect(inputs.length).toBeGreaterThan(0);
-      expect(inputs.join("")).not.toContain(secret);
-      expect(inputs.join("")).toContain("public answer");
-      expect(inputs.join("")).toContain("new request");
-      expect(access.mock.invocationCallOrder[0]).toBeLessThan(
-        provenance.mock.invocationCallOrder[0],
-      );
-    } finally {
-      access.mockRestore();
-      provenance.mockRestore();
-    }
-  });
+    },
+  );
 
   it("omits stripped private history from durable dispatch payloads", async () => {
     const secret = "private-dispatch-sentinel";
@@ -7321,6 +7349,88 @@ describe("createProductionAgentHandler", () => {
     },
   );
 
+  it("requires the approval's ask id even when the paused call is in history", async () => {
+    const input = { to: "other@example.com" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-key-only");
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const runAction = vi.fn(async () => "sent");
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved.",
+          approvedToolCalls: [approvalKey],
+          structuredHistory: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  id: "call-key-only",
+                  name: "send-email",
+                  input,
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-key-only",
+                  toolName: "send-email",
+                  toolInput: JSON.stringify(input),
+                  content: "Awaiting human approval.",
+                  approvalPause: true,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "owner@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      if (result instanceof ReadableStream) {
+        await new Response(result).text();
+      }
+
+      expect(event.res.status).toBe(409);
+      expect(result).toEqual({
+        error: "The agent run failed.",
+        code: "approved_tool_call_not_pending",
+        retryable: false,
+      });
+      expect(runAction).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveApproval.mockRestore();
+      consumeApproval.mockRestore();
+    }
+  });
+
   it("fails explicitly when an approved call is missing from structured history", async () => {
     const engine = engineWithUncalledStream();
     const handler = createProductionAgentHandler({
@@ -8416,6 +8526,14 @@ describe("createProductionAgentHandler", () => {
     const consumeApproval = vi
       .spyOn(toolApprovalStore, "consumeAgentToolApproval")
       .mockResolvedValue(true);
+    const approvalId =
+      "agent-tool-approval-00000000-0000-4000-8000-000000000001";
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-publish");
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: "thread-publish", threadData: "{}" } as never);
     const onRunComplete = vi.fn();
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
@@ -8442,7 +8560,9 @@ describe("createProductionAgentHandler", () => {
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({
                   message: "Approved. Continue.",
+                  threadId: "thread-publish",
                   approvedToolCalls: [approvalKey],
+                  approvedToolCallAskIds: [approvalId],
                   structuredHistory: [
                     {
                       role: "assistant",
@@ -8452,6 +8572,7 @@ describe("createProductionAgentHandler", () => {
                           id: "call-publish",
                           name: "publish",
                           input,
+                          approvalAskId: approvalId,
                         },
                       ],
                     },
@@ -8465,6 +8586,7 @@ describe("createProductionAgentHandler", () => {
                           toolInput: "{}",
                           content: "Awaiting human approval.",
                           approvalPause: true,
+                          approvalAskId: approvalId,
                         },
                       ],
                     },
@@ -8498,6 +8620,8 @@ describe("createProductionAgentHandler", () => {
       expect(outerStream).not.toHaveBeenCalled();
     } finally {
       consumeApproval.mockRestore();
+      resolveApproval.mockRestore();
+      resolveThreadAccess.mockRestore();
     }
   });
 
@@ -18124,7 +18248,19 @@ describe("runAgentLoop", () => {
     const long = "x".repeat(300);
     expect(
       permanentPreconditionReason("t", `Error running t: ${long}`)?.length,
-    ).toBeLessThanOrEqual(241);
+    ).toBeLessThanOrEqual(240);
+    expect(
+      permanentPreconditionReason("t", `Error running t: ${"y".repeat(240)}`),
+    ).toBe(`${"y".repeat(239)}…`);
+    expect(
+      permanentPreconditionReason(
+        "t",
+        "Save a shared key that every member of the organization can read, " +
+          "the way a team saves its other provider keys in Settings, e.g. a " +
+          "bot token " +
+          "owned by the organization rather than by any one member ".repeat(3),
+      ),
+    ).toMatch(/e\.g\. a bot token owned .*…$/);
     expect(
       permanentPreconditionReason(
         "mutate-dashboard",
@@ -18333,6 +18469,123 @@ describe("runAgentLoop", () => {
     expect((stop as { error: string }).error).toContain(
       "needs to be fixed outside this chat",
     );
+  });
+
+  it.each([
+    {
+      label:
+        "ends the reason Dispatch cut to 'as the ow….' on Nov 20 on its last whole sentence",
+      thrown:
+        'github credential not configured. Tried: GITHUB_TOKEN. A "GITHUB_TOKEN" ' +
+        "key is saved in this workspace with Personal scope. Personal keys are " +
+        "readable only by their own owner's signed-in sessions, and this run " +
+        "resolves credentials as the owner identity behind the integration, job, " +
+        'or automation — so it needs "GITHUB_TOKEN" saved with Workspace or ' +
+        "Organization scope instead.",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: github " +
+        'credential not configured. Tried: GITHUB_TOKEN. A "GITHUB_TOKEN" ' +
+        "key is saved in this workspace with Personal scope. That needs to " +
+        "be fixed outside this chat",
+    },
+    {
+      label:
+        "ends a long single sentence on a whole word, without a stray period",
+      thrown:
+        "github credential not configured for " +
+        "the repository workspace ".repeat(12).trim(),
+      headline:
+        "I stopped because github-repo-list-files can't run yet: github " +
+        "credential not configured for " +
+        "the repository workspace ".repeat(8).trimEnd() +
+        "… That needs to be fixed outside this chat",
+    },
+    {
+      label: "keeps the longest missing-key error's fix and drops its key list",
+      thrown:
+        "hubspot credential not configured. Ask an organization owner or " +
+        'admin to save "HUBSPOT_PRIVATE_APP_TOKEN" with Workspace or ' +
+        "Organization scope. This workspace has it only as a Personal key, " +
+        "which works only for the member who saved it. Tried: " +
+        "HUBSPOT_PRIVATE_APP_TOKEN, HUBSPOT_ACCESS_TOKEN",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: hubspot " +
+        "credential not configured. Ask an organization owner or admin to " +
+        'save "HUBSPOT_PRIVATE_APP_TOKEN" with Workspace or Organization ' +
+        "scope. This workspace has it only as a Personal key, which works " +
+        "only for the member who saved it. That needs to be fixed outside " +
+        "this chat",
+    },
+    {
+      label:
+        "keeps the fix and drops the cause when the longest key name pushes the cause past the limit",
+      thrown:
+        "bigquery credential not configured. Ask an organization owner or " +
+        'admin to save "GOOGLE_APPLICATION_CREDENTIALS_JSON" with Workspace ' +
+        "or Organization scope. This workspace has it only as a Personal " +
+        "key, which works only for the member who saved it. Tried: " +
+        "BIGQUERY_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS_JSON",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: bigquery " +
+        "credential not configured. Ask an organization owner or admin to " +
+        'save "GOOGLE_APPLICATION_CREDENTIALS_JSON" with Workspace or ' +
+        "Organization scope. That needs to be fixed outside this chat",
+    },
+  ])("$label in the stop headline", async ({ thrown, headline }) => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      throw new Error(thrown);
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `github-${streamCalls}`,
+              name: "github-repo-list-files",
+              input: { repo: "BuilderIO/agent-native" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "github-repo-list-files": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const stop = events.find((e) => e.type === "error") as {
+      error: string;
+      details: string;
+    };
+    expect(stop.error).toContain(headline);
+    expect(stop.error).not.toContain("….");
+    expect(stop.details).toContain(thrown);
   });
 
   function importFileEngine(): AgentEngine {
@@ -21886,6 +22139,41 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("never reports a review-page approval from a dispatcher's audit label alone", async () => {
+    const seen: unknown[] = [];
+    const action = defineAction({
+      description: "Read the warehouse",
+      schema: z.object({}),
+      needsApproval: true,
+      run: async () => {
+        seen.push([currentActionApproval(), currentActionApprovalAskedAt()]);
+        return "read";
+      },
+    });
+    const entry = action as unknown as ActionEntry;
+    const prepared = await actionCallIntent(entry, {});
+    if (!prepared.valid) throw prepared.error;
+
+    const result = await executeAgentToolCall({
+      actions: { "read-warehouse": entry },
+      name: "read-warehouse",
+      callId: "labelled-review",
+      input: {},
+      ownerEmail: "alice@example.com",
+      orgId: "acme",
+      approvedToolCalls: [
+        approvalKeyWithArguments(
+          toolCallCacheKey("read-warehouse", {}),
+          prepared.argumentsHash,
+        ),
+      ],
+      auditOverride: { approval: "mcp-review" },
+    });
+
+    expect(result.status).toBe("completed");
+    expect(seen).toEqual([[undefined, undefined]]);
+  });
+
   it("strips null placeholders beside a chosen false and runs the tool", async () => {
     const optionSchema = z.object({
       label: z.string().min(1),
@@ -23455,7 +23743,11 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBe(2);
-    expect(seenMessages.at(-1)).toContain("output-token cap");
+    expect(seenMessages.at(-1)).toContain(
+      JSON.stringify(
+        `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: The previous LLM call ended without an answer.`,
+      ),
+    );
     expect(guard).toHaveBeenCalledTimes(1);
     expect(guard.mock.calls[0]?.[0]).toMatchObject({
       requestText: "go",
@@ -23982,7 +24274,7 @@ describe("runAgentLoop", () => {
       finalResponseGuard: guard,
     });
 
-    expect(seenReasoningEfforts).toEqual(["medium", "low", "minimal"]);
+    expect(seenReasoningEfforts).toEqual(["medium", "low", "low"]);
     expect(guard).toHaveBeenCalledTimes(1);
     expect(guard.mock.calls[0]?.[0].requestText).toBe("hello");
     expect(events).toContainEqual({
@@ -24100,6 +24392,82 @@ describe("runAgentLoop", () => {
     expect(errorEvents).toHaveLength(1);
     expect(errorEvents[0].error).toMatch(/empty response/i);
   });
+
+  it.each(["end_turn", "max_tokens"] as const)(
+    "reduces Luna’s automatic Builder reasoning after a %s with no answer",
+    async (stopReason) => {
+      const model = "gpt-6-luna";
+      const streamCalls: EngineStreamOptions[] = [];
+      const sentUserText: Array<string | undefined> = [];
+      const engine: AgentEngine = {
+        name: "builder",
+        label: "Builder",
+        defaultModel: model,
+        supportedModels: [model],
+        capabilities: {
+          thinking: true,
+          promptCaching: true,
+          vision: true,
+          computerUse: false,
+          parallelToolCalls: true,
+        },
+        async *stream(opts): AsyncIterable<EngineEvent> {
+          streamCalls.push(opts);
+          sentUserText.push(
+            opts.messages.at(-1)?.content.find((part) => part.type === "text")
+              ?.text,
+          );
+          if (streamCalls.length === 3 && opts.reasoningEffort === "low") {
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text", text: "Web is the largest channel." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+            return;
+          }
+          yield { type: "stop", reason: stopReason };
+        },
+      };
+      const send = vi.fn();
+
+      await runAgentLoop({
+        engine,
+        model,
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send,
+        signal: new AbortController().signal,
+        maxOutputTokens: 64_000,
+      });
+
+      expect(streamCalls.map((opts) => opts.maxOutputTokens)).toEqual([
+        64_000, 128_000, 128_000,
+      ]);
+      expect(streamCalls.map((opts) => opts.reasoningEffort)).toEqual([
+        undefined,
+        "low",
+        "low",
+      ]);
+      expect(sentUserText[0]).toBe("go");
+      const expectedNote =
+        stopReason === "max_tokens"
+          ? "reached the model output-token cap"
+          : "ended without an answer";
+      expect(sentUserText.slice(1)).toEqual([
+        expect.stringContaining(expectedNote),
+        expect.stringContaining(expectedNote),
+      ]);
+      expect(send).toHaveBeenCalledWith({
+        type: "text",
+        text: "Web is the largest channel.",
+      });
+      expect(send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "error" }),
+      );
+    },
+  );
 
   it("bounds empty max-token turns without stepping reasoning effort down", async () => {
     const seenOpts: EngineStreamOptions[] = [];

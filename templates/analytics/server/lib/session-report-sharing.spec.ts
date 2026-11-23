@@ -1,7 +1,16 @@
 import { createRequire } from "node:module";
 
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 
@@ -13,6 +22,7 @@ vi.mock("../db/index.js", async () => ({
 import { runWithRequestContext } from "@agent-native/core/server";
 
 import { assertSessionReportSharingChange } from "./session-report-sharing";
+import { resetPublicSchema } from "./testing/pglite-reset";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -27,8 +37,16 @@ describe("session report sharing", () => {
   type Client = Awaited<ReturnType<typeof PGlite.create>>;
   let client: Client;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create();
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     await client.exec(`
       CREATE TABLE session_recordings (
         id TEXT PRIMARY KEY, org_id TEXT, visibility TEXT NOT NULL,
@@ -41,7 +59,6 @@ describe("session report sharing", () => {
 
   afterEach(async () => {
     vi.clearAllMocks();
-    await client.close();
   });
 
   async function recording(row: {

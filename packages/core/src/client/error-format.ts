@@ -205,6 +205,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     "agentChat.errorMessages.builderModelUnauthorized",
   ],
   [
+    "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
+    "agentChat.errorMessages.emailVerificationRequired",
+  ],
+  [
     BUILDER_AUTHENTICATION_ERROR,
     "agentChat.errorMessages.builderAuthentication",
   ],
@@ -442,6 +446,7 @@ export function normalizeChatError(
   const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
   const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
   const credential = chatCredentialState(text, code);
+  const rejectedRequest = isRejectedRequestErrorCode(code);
 
   if (credential?.kind === "exhausted") {
     return { message: CREDITS_LIMIT_REACHED_MESSAGE };
@@ -468,7 +473,7 @@ export function normalizeChatError(
 
   if (
     code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
-    isBuilderGatewayInternalErrorMessage(text)
+    (!rejectedRequest && isBuilderGatewayInternalErrorMessage(text))
   ) {
     return { message: GATEWAY_INTERNAL_ERROR_MESSAGE, details: text };
   }
@@ -562,7 +567,7 @@ export function normalizeChatError(
     return { message: REQUEST_NOT_READ_MESSAGE, details: text };
   }
 
-  if (isRejectedRequestErrorCode(code) && !isContextOverflowMessage(text)) {
+  if (rejectedRequest && !isContextOverflowMessage(text)) {
     return {
       message: ATTACHMENT_REJECTION_PATTERN.test(text)
         ? MALFORMED_REQUEST_ATTACHMENT_MESSAGE

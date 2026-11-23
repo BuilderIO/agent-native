@@ -257,7 +257,7 @@ beforeEach(async () => {
   afterCommit = null;
   memberReads = 0;
   memberHooks = new Map();
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   currentExec = buildExec();
   await ensureWorkspaceConnectionsTable();
   await pglite.exec(ORG_MEMBERS_DDL);

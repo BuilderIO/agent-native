@@ -14,13 +14,16 @@ import {
 } from "../../shared/rich-recording.js";
 import {
   HOSTED_MAX_RICH_BYTES,
+  MAX_UPLOAD_BYTES,
   resolveMaxRichBytes,
 } from "../../shared/upload-limits.js";
 import { getDb, schema } from "../db/index.js";
 import { deleteStoredMediaUrl } from "./recording-media-cleanup.js";
+import { withRecordingMediaProduction } from "./recording-media-lifecycle.js";
 import { ownerEmailMatches } from "./recordings.js";
 import type { StoredResumableSession } from "./resumable-session.js";
 import { abortResumableUploadSession } from "./resumable-upload-cleanup.js";
+import { resolveResumableUploadProvider } from "./resumable-upload-provider.js";
 import { deleteRejectedHostedUpload } from "./upload-recording-media.js";
 
 /**
@@ -115,6 +118,10 @@ export function richBytesLimit(storageMode: "own" | "hosted" | null): number {
     : resolveMaxRichBytes();
 }
 
+export function trackBytesLimit(storageMode: "own" | "hosted" | null): number {
+  return Math.min(richBytesLimit(storageMode), MAX_UPLOAD_BYTES);
+}
+
 /**
  * The name a track's upload is stored under. Storage only reads a recording's
  * files when they are named for it (`clips/<id>.<suffix>`, see
@@ -147,6 +154,35 @@ export async function listRecordingTracks(
     );
 }
 
+export async function completeClosedTrackUpload(input: {
+  recordingId: string;
+  ownerEmail: string;
+  session: StoredResumableSession;
+}): Promise<string | null> {
+  const { session } = input;
+  const provider = await resolveResumableUploadProvider(session.providerId);
+  if (!provider?.resumable) return null;
+  const completeSession = provider.resumable.completeSession.bind(
+    provider.resumable,
+  );
+  const produced = await withRecordingMediaProduction(
+    {
+      recordingId: input.recordingId,
+      ownerEmail: input.ownerEmail,
+      recordAsset: false,
+    },
+    async () => ({
+      provider: provider.id,
+      url: await completeSession(
+        { sessionId: session.sessionId, meta: session.meta },
+        typeof session.meta.filename === "string" ? session.meta.filename : "",
+        { stableUrl: true, recordAsset: false },
+      ),
+    }),
+  );
+  return produced.url;
+}
+
 /**
  * Removes a track upload the recording won't keep. One already completed is a
  * stored file by now, so it is deleted rather than cancelled. True once
@@ -158,11 +194,25 @@ export async function discardTrackUpload(input: {
   storageMode: "own" | "hosted" | null;
   session: StoredResumableSession;
 }): Promise<boolean> {
-  const completedUrl = input.session.meta.completedUrl;
-  if (typeof completedUrl !== "string" || !completedUrl) {
-    return abortResumableUploadSession(input.session, {
-      label: `track-${input.recordingId}`,
-    });
+  const storedUrl = input.session.meta.completedUrl;
+  let completedUrl: string | null =
+    typeof storedUrl === "string" && storedUrl ? storedUrl : null;
+  if (!completedUrl) {
+    if (!input.session.providerClosed) {
+      return abortResumableUploadSession(input.session, {
+        label: `track-${input.recordingId}`,
+      });
+    }
+    try {
+      completedUrl = await completeClosedTrackUpload(input);
+    } catch (err) {
+      console.warn(
+        `[track-upload] closed track upload of ${input.recordingId} was not completed to delete it:`,
+        err instanceof Error ? err.message : String(err),
+      );
+      return false;
+    }
+    if (!completedUrl) return false;
   }
   // Bytes already counted stay counted, as they do when a burn deletes a
   // finalized track; the count only ever errs high.

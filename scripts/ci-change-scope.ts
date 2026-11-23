@@ -190,10 +190,6 @@ const DESIGN_BROAD_WORKFLOW_SHARDS = new Map([
     "music-app-workflow",
   ],
   [
-    "templates/design/e2e/home-system-selection.spec.ts",
-    "home-system-selection",
-  ],
-  [
     "templates/design/e2e/interaction-landing-page-build.spec.ts",
     "landing-page-build",
   ],
@@ -624,6 +620,7 @@ const CHECK_NAMES = [
   "slides_text_surface_e2e",
   "slides_authoring_e2e",
   "slides_oracle",
+  "storybook_tests",
   "changeset",
   "verify_execution_lease",
   "core_mutation",
@@ -653,6 +650,7 @@ const SLOW_APP_CHECKS = [
   "slides_text_surface_e2e",
   "slides_authoring_e2e",
   "slides_oracle",
+  "storybook_tests",
 ] as const;
 
 const QUERY_BUDGET_UNRELATED_SCRIPTS = new Set([
@@ -728,10 +726,18 @@ const BRAIN_EVAL_RUNTIME_PATHS = [
   "templates/brain/package.json",
   "templates/brain/server/db/index.ts",
   "templates/brain/server/db/schema.ts",
+  "templates/brain/server/lib/audiences.ts",
   "templates/brain/server/lib/brain-health.ts",
   "templates/brain/server/lib/brain.ts",
   "templates/brain/server/lib/demo.ts",
+  "templates/brain/server/lib/intelligence.ts",
+  "templates/brain/server/lib/knowledge-access.integration.test.ts",
+  "templates/brain/server/lib/knowledge-access.ts",
+  "templates/brain/server/lib/knowledge-provenance.integration.test.ts",
+  "templates/brain/server/lib/knowledge-provenance.ts",
+  "templates/brain/server/lib/knowledge-write.postgres.integration.test.ts",
   "templates/brain/server/lib/search.ts",
+  "templates/brain/server/plugins/db.ts",
   "templates/brain/shared/types.ts",
   "templates/brain/vitest.config.ts",
 ] as const;
@@ -974,6 +980,48 @@ export function normalizeChangedPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\/+/, "");
 }
 
+export function isStandaloneE2eRunner(
+  path: string,
+  repositoryRoot = process.cwd(),
+): boolean {
+  const normalized = normalizeChangedPath(path);
+  if (
+    !/^(?:templates|packages|community-templates)\/[^/]+\/e2e\//u.test(
+      normalized,
+    ) ||
+    !/\.[cm]?[jt]sx?$/u.test(normalized) ||
+    /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(normalized)
+  )
+    return false;
+  try {
+    const source = readFileSync(join(repositoryRoot, normalized), "utf8");
+    if (/\bexport\b/u.test(source)) return false;
+    const { tokens } = tokenizeE2eSource(source);
+    for (let index = 0; index < tokens.length; index += 1) {
+      const token = tokens[index];
+      if (
+        (token.kind === "string" && token.uncertain) ||
+        (token.kind === "punctuation" && token.value === "/")
+      )
+        return false;
+      if (
+        token.kind === "identifier" &&
+        token.value === "process" &&
+        tokens[index + 1]?.value === "." &&
+        tokens[index + 2]?.kind === "identifier" &&
+        tokens[index + 2]?.value === "argv"
+      )
+        return true;
+    }
+    return false;
+  } catch {
+    console.error(
+      `Cannot read E2E entry ${normalized}; keeping production tests selected.`,
+    );
+    return false;
+  }
+}
+
 export function runtimeSourceChangesInTestTitledPr(
   title: string,
   paths: readonly string[],
@@ -1103,6 +1151,33 @@ export function scriptTestsForPaths(
     }
   }
   return [...tests].sort();
+}
+
+const STORYBOOK_TEST_PREFIXES = [
+  "packages/design-system/",
+  "packages/toolkit/src/",
+  "packages/toolkit/dev/",
+  "packages/toolkit/.storybook/",
+] as const;
+
+const STORYBOOK_TEST_FILES = new Set([
+  "packages/toolkit/vitest.storybook.config.ts",
+  "packages/toolkit/package.json",
+  ".github/workflows/storybook-tests.yml",
+]);
+
+export function isStorybookTestPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  if (
+    STORYBOOK_TEST_FILES.has(normalized) ||
+    GLOBAL_RUNTIME_INPUTS.has(normalized)
+  ) {
+    return true;
+  }
+  return (
+    STORYBOOK_TEST_PREFIXES.some((prefix) => normalized.startsWith(prefix)) &&
+    !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(normalized)
+  );
 }
 
 // The paths that can change which tests Vitest collects and how it modes them.
@@ -2407,6 +2482,10 @@ function buildChecks(
   }
 
   const workspaceChanged = changedPaths.some(isWorkspacePath);
+  const fastTestsChanged = changedPaths.some(
+    (path) =>
+      isWorkspacePath(path) && !isStandaloneE2eRunner(path, repositoryRoot),
+  );
   const instructionsChanged = changedPaths.some(isInstructionPath);
   const guardScriptsChanged = changedPaths.some(isGuardScopedScriptPath);
   const readmeChanged = changedPaths.some(isReadmePath);
@@ -2467,7 +2546,7 @@ function buildChecks(
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
     typecheck: workspaceChanged,
-    fast_tests: workspaceChanged || instructionsChanged,
+    fast_tests: fastTestsChanged || instructionsChanged,
     content:
       contentChanged ||
       schedulingChanged ||
@@ -2541,6 +2620,7 @@ function buildChecks(
     slides_text_surface_e2e: slidesTextSurfaceE2eChanged,
     slides_authoring_e2e: changedPaths.some(isSlidesAuthoringPath),
     slides_oracle: changedPaths.some(isSlidesOraclePath),
+    storybook_tests: changedPaths.some(isStorybookTestPath),
     changeset: changedPaths.some(isChangesetPath),
     verify_execution_lease: changedPaths.some((path) =>
       isExecutionLeasePath(path, executionLeaseCovered),

@@ -32,6 +32,7 @@ export default defineAction({
       .describe("Organization id — defaults to active organization"),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
 

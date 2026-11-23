@@ -995,6 +995,8 @@ export type MultiTabAssistantChatProps = Omit<
    * preserves the existing behaviour for every caller.
    */
   historyShowNewChat?: boolean;
+  /** Title shown for a chat that has no name yet. */
+  newChatTitle?: string;
   /** Group the switcher's chats under date headings (Today, Yesterday, …). */
   historyGroupByDate?: boolean;
   /** Show one history entry per edited chat lineage. Defaults to false. */
@@ -1056,6 +1058,7 @@ export function MultiTabAssistantChat({
   showTabBar = true,
   renderHeader,
   renderOverlay,
+  newChatTitle,
   contentHidden = false,
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey,
@@ -1605,14 +1608,19 @@ export function MultiTabAssistantChat({
             (candidate) =>
               candidate.configured && candidate.engine === currentModelEngine,
           ) ?? availableModels.find((candidate) => candidate.configured);
-        const preferred =
-          group &&
-          group.engine === currentModelEngine &&
-          group.models.includes(defaultModel)
+        const engine = group && discoveredModelEngines[group.engine];
+        if (engine) {
+          const hasCurrentModel =
+            engine.name === currentModelEngine &&
+            (engine.supportedModels.includes(defaultModel) ||
+              engine.acceptsCustomModels ||
+              engine.preserveCustomModels);
+          const preferred = hasCurrentModel
             ? defaultModel
-            : group && discoveredModelEngines[group.engine]?.defaultModel;
-        if (group && preferred && group.models.includes(preferred)) {
-          selection = { model: preferred, engine: group.engine };
+            : engine.defaultModel;
+          if (hasCurrentModel || engine.selectableModels?.includes(preferred)) {
+            selection = { model: preferred, engine: engine.name };
+          }
         }
       }
       return resolveModelSelection(selection, availableModels, catalogDefault);
@@ -3852,7 +3860,8 @@ export function MultiTabAssistantChat({
       );
       return {
         id,
-        label: t?.title || translate("agentChat.tabs.newChat"),
+        label:
+          t?.title || (newChatTitle ?? translate("agentChat.tabs.newChat")),
         status:
           agentTeamStatus ??
           (runningThreads.has(id)
@@ -3874,7 +3883,7 @@ export function MultiTabAssistantChat({
           subAgentNames[id] ||
           (parentMap[id]
             ? translate("agentChat.tabs.subAgent")
-            : translate("agentChat.tabs.newChat")),
+            : (newChatTitle ?? translate("agentChat.tabs.newChat"))),
         status:
           chatTabStatusFromAgentTeamStatus(subAgentStatuses[id]) ??
           ("running" as const),
@@ -4248,6 +4257,11 @@ export function MultiTabAssistantChat({
                   branchNavigation={getBranchNavigation(tabId)}
                   selectedModel={modelSelection?.model}
                   selectedEngine={modelSelection?.engine}
+                  composerDefaultModelLabel={
+                    threadModelRef.current.has(tabId) || persistedModelSelection
+                      ? undefined
+                      : props.composerDefaultModelLabel
+                  }
                   selectedEffort={
                     modelSelection?.effort ?? DEFAULT_REASONING_EFFORT
                   }
@@ -4269,9 +4283,8 @@ export function MultiTabAssistantChat({
                   composerDisabled={
                     props.composerDisabled || Boolean(parentMap[tabId])
                   }
-                  composerSubmissionDisabled={
-                    props.composerSubmissionDisabled || modelSelectionPending
-                  }
+                  composerSubmissionDisabled={props.composerSubmissionDisabled}
+                  composerModelSelectionPending={modelSelectionPending}
                   composerDisabledPlaceholder={
                     props.composerDisabled
                       ? props.composerDisabledPlaceholder

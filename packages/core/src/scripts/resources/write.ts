@@ -1,4 +1,5 @@
 import { getOrgRoleForEmail } from "../../mcp/actions/service-token-access.js";
+import { canManageDeploymentWithoutOrg } from "../../org/orgless-access.js";
 import { canManageOrg } from "../../org/permissions.js";
 import {
   RESOURCE_CONTENT_RECORD,
@@ -28,9 +29,12 @@ import { parseArgs, fail } from "../utils.js";
 
 async function assertCanWriteSharedResource(): Promise<void> {
   const orgId = getRequestOrgId();
-  if (!orgId) return;
-
   const email = getRequestUserEmail()?.trim() ?? getAmbientUserEmail()?.trim();
+  if (!orgId) {
+    if (canManageDeploymentWithoutOrg(email)) return;
+    fail("Only organization owners and admins can edit organization files");
+  }
+
   const role = email ? await getOrgRoleForEmail(orgId, email) : null;
   if (!email || !canManageOrg(role)) {
     fail("Only organization owners and admins can edit organization files");

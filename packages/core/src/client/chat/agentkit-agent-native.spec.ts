@@ -256,6 +256,72 @@ function resumableNativeRuntime(
 
 describe("createAgentNativeAgentKitTransport", () => {
   it.each([
+    { role: "assistant", id: "partial-assistant" },
+    { role: "tool", id: "tool-only" },
+  ])(
+    "loads a stored $role message with missing parts as empty",
+    async (message) => {
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active: false, status: "idle" })
+            : json({
+                id: "thread-legacy",
+                threadData: JSON.stringify({
+                  agentKit: {
+                    messages: [
+                      {
+                        id: "one",
+                        role: "user",
+                        parts: [{ type: "text", text: "Hello" }],
+                      },
+                      { id: "two", role: "assistant", parts: [] },
+                      { id: "three", role: "user", parts: [] },
+                      message,
+                    ],
+                  },
+                }),
+              }),
+        ) as typeof fetch,
+      });
+      const snapshot = await transport.getThreadSnapshot?.({
+        threadId: "thread-legacy",
+      });
+      expect(
+        snapshot?.messages.find((entry) => entry.id === message.id)?.parts,
+      ).toEqual([]);
+      await transport.dispose();
+    },
+  );
+
+  it.each([null, "bad", {}])(
+    "rejects corrupt stored message parts: %s",
+    async (parts) => {
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active: false, status: "idle" })
+            : json({
+                id: "thread-corrupt",
+                threadData: JSON.stringify({
+                  agentKit: {
+                    messages: [{ id: "bad", role: "assistant", parts }],
+                  },
+                }),
+              }),
+        ) as typeof fetch,
+      });
+      await expect(
+        transport.getThreadSnapshot?.({ threadId: "thread-corrupt" }),
+      ).rejects.toMatchObject({
+        name: "AgentProtocolValidationError",
+        path: "threadSnapshot.messages[0].parts",
+      });
+      await transport.dispose();
+    },
+  );
+
+  it.each([
     {
       supported: true,
       response: json({
@@ -10699,6 +10765,78 @@ describe("createAgentNativeAgentKitTransport", () => {
           retryable: true,
           metadata: { terminalReason: "provider_unavailable" },
         },
+      }),
+    );
+    await transport.dispose();
+  });
+
+  it("keeps partial replies and shows a persisted failure through the run only", async () => {
+    const threadId = "thread-gateway-failure";
+    const runId = "run-gateway-failure";
+    const message =
+      "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "failed", runId });
+        }
+        return json({
+          id: threadId,
+          runLifecycles: {
+            queriedRunIds: [runId],
+            runs: [
+              {
+                id: runId,
+                status: "errored",
+                startedAt: 1,
+                completedAt: 2,
+                errorCode: "builder_gateway_error",
+                terminalReason: "error:builder_gateway_error",
+                abortReason: null,
+              },
+            ],
+          },
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "assistant-partial-reply",
+                  role: "assistant",
+                  content: [
+                    {
+                      type: "text",
+                      text: `Checked the available data.\n\nError: ${message}\n\n[Start new chat](agent-native:new-chat)`,
+                    },
+                  ],
+                  status: { type: "incomplete", reason: "error" },
+                  metadata: {
+                    runId,
+                    custom: {
+                      runError: { errorCode: "builder_gateway_error", message },
+                    },
+                  },
+                },
+              },
+            ],
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+    expect(snapshot?.messages).toContainEqual(
+      expect.objectContaining({
+        id: "assistant-partial-reply",
+        parts: [{ type: "text", text: "Checked the available data." }],
+      }),
+    );
+    expect(snapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: runId,
+        error: expect.objectContaining({
+          code: "builder_gateway_error",
+          message,
+        }),
       }),
     );
     await transport.dispose();
