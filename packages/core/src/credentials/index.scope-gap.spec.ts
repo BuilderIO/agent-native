@@ -193,10 +193,21 @@ describe("describeCredentialScopeGap across organizations", () => {
 
     // oracle-change: the message was reworded fix-first; one exact match replaces three partial matches on the old wording
     expect(message).toBe(
-      'Switch your active organization to "Builder.io", where ' +
-        '"ACADEMY_CONVEX_SITE_URL" is saved, or save it in this ' +
-        "organization. Credentials aren't shared between organizations.",
+      'Save "ACADEMY_CONVEX_SITE_URL" in this organization, or switch your ' +
+        'active organization to "Builder.io", where it\'s saved. ' +
+        "Credentials aren't shared between organizations.",
     );
+  });
+
+  it("trims the organization's name", async () => {
+    onlyAnotherMemberOrgHasKey("  Builder.io  ");
+
+    const message = await describeCredentialScopeGap(["GITHUB_TOKEN"], {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    expect(message).toContain('organization to "Builder.io", where');
   });
 
   it("bounds the probe to the caller's own memberships and excludes the active org", async () => {
@@ -228,7 +239,7 @@ describe("describeCredentialScopeGap across organizations", () => {
     });
 
     expect(message).toMatch(
-      /^Switch your active organization to one where "STRIPE_SECRET_KEY" is saved, or save it in this organization\. /,
+      /^Save "STRIPE_SECRET_KEY" in this organization, or switch your active organization to one where it's saved\. /,
     );
     expect(message).not.toContain("org-1");
   });

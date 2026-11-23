@@ -18534,17 +18534,36 @@ describe("runAgentLoop", () => {
       label:
         "keeps both cross-organization fixes when a long key and organization name push the cause past the limit",
       thrown:
-        "bigquery credential not configured. Switch your active organization " +
-        'to "Builder.io Developer Relations and Community Programs", where ' +
-        '"GOOGLE_APPLICATION_CREDENTIALS_JSON" is saved, or save it in this ' +
-        "organization. Credentials aren't shared between organizations. " +
-        "Tried: BIGQUERY_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS_JSON",
+        'bigquery credential not configured. Save "GOOGLE_APPLICATION_' +
+        'CREDENTIALS_JSON" in this organization, or switch your active ' +
+        'organization to "Builder.io Developer Relations and Community ' +
+        "Programs\", where it's saved. Credentials aren't shared between " +
+        "organizations. Tried: BIGQUERY_PROJECT_ID, " +
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON",
       headline:
         "I stopped because github-repo-list-files can't run yet: bigquery " +
-        "credential not configured. Switch your active organization to " +
-        '"Builder.io Developer Relations and Community Programs", where ' +
-        '"GOOGLE_APPLICATION_CREDENTIALS_JSON" is saved, or save it in this ' +
-        "organization. That needs to be fixed outside this chat",
+        'credential not configured. Save "GOOGLE_APPLICATION_CREDENTIALS_' +
+        'JSON" in this organization, or switch your active organization ' +
+        'to "Builder.io Developer Relations and Community Programs", where ' +
+        "it's saved. That needs to be fixed outside this chat",
+    },
+    {
+      label:
+        "keeps both cross-organization fixes when an organization name of any length runs past the limit",
+      thrown:
+        'bigquery credential not configured. Save "GOOGLE_APPLICATION_' +
+        'CREDENTIALS_JSON" in this organization, or switch your active ' +
+        'organization to "The Builder.io Developer Relations, Community ' +
+        "Programs and Open Source Partnerships Working Group for the " +
+        "Americas and Europe\", where it's saved. Credentials aren't shared " +
+        "between organizations. Tried: GOOGLE_APPLICATION_CREDENTIALS_JSON",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: bigquery " +
+        'credential not configured. Save "GOOGLE_APPLICATION_CREDENTIALS_' +
+        'JSON" in this organization, or switch your active organization ' +
+        'to "The Builder.io Developer Relations, Community Programs and ' +
+        "Open Source Partnerships Working Group… That needs to be fixed " +
+        "outside this chat",
     },
   ])("$label in the stop headline", async ({ thrown, headline }) => {
     let streamCalls = 0;
