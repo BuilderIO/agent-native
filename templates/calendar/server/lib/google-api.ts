@@ -465,11 +465,15 @@ export function calendarDeleteEvent(
   calendarId: string,
   eventId: string,
   sendUpdates?: string,
+  ifMatch?: string,
 ) {
   return googleFetch(
     `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs({ sendUpdates })}`,
     accessToken,
-    { method: "DELETE" },
+    {
+      method: "DELETE",
+      ...(ifMatch ? { headers: { "If-Match": ifMatch } } : {}),
+    },
   );
 }
 

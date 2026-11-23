@@ -35,6 +35,7 @@ import {
   preparedCallNeedsApproval,
 } from "@agent-native/core/action";
 
+import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
 import action from "./update-event";
 
 // Every caller's gate judges the call as prepared: validated, defaults
@@ -677,7 +678,40 @@ describe("update-event working locations", () => {
     expect(result).toMatchObject({ revision: '"etag-2"' });
   });
 
-  it("refuses to move an event that changed after the caller read it", async () => {
+  it("checks the revision before creating a Zoom meeting", async () => {
+    getEventMock.mockResolvedValue({
+      id: "google-event-1",
+      revision: '"etag-2"',
+      title: "Team meeting",
+      description: "",
+      location: "",
+      start: "2026-07-07T15:00:00.000Z",
+      end: "2026-07-07T15:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "owner@example.com",
+      organizer: { email: "owner@example.com", self: true },
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-event-1",
+          addZoom: true,
+          expectedRevision: '"etag-1"',
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: { currentRevision: '"etag-2"' },
+    });
+    expect(prepareZoomMeetingPatch).not.toHaveBeenCalled();
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("passes the revision the caller read to a move", async () => {
     getAuthStatusMock.mockResolvedValue({
       accounts: [{ email: "secondary@example.com" }],
     });
@@ -706,11 +740,11 @@ describe("update-event working locations", () => {
           expectedRevision: '"etag-1"',
         }),
       ),
-    ).rejects.toMatchObject({
-      errorCode: "save_conflict",
-      details: { currentRevision: '"etag-2"' },
-    });
-    expect(moveEventMock).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ id: "google-moved-event" });
+    expect(moveEventMock).toHaveBeenCalledWith(
+      "event-1",
+      expect.objectContaining({ expectedRevision: '"etag-1"' }),
+    );
   });
 
   it("does not try to convert a normal event into a working-location event", async () => {

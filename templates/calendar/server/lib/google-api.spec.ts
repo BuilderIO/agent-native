@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  calendarDeleteEvent,
   calendarGetEvent,
   calendarListEvents,
   calendarPatchEvent,
@@ -80,6 +81,13 @@ describe("googleFetch", () => {
       { ifMatch: '"etag-2"' },
     );
     await calendarPatchEvent("token", "primary", "event-1", {});
+    await calendarDeleteEvent(
+      "token",
+      "primary",
+      "event-1",
+      undefined,
+      '"etag-3"',
+    );
 
     const requests = fetchMock.mock.calls.map(([url, init]) => ({
       url: String(url),
@@ -92,6 +100,7 @@ describe("googleFetch", () => {
       },
       { url: expect.stringMatching(/\/events\/event-1$/), ifMatch: '"etag-2"' },
       { url: expect.stringMatching(/\/events\/event-1$/), ifMatch: null },
+      { url: expect.stringMatching(/\/events\/event-1$/), ifMatch: '"etag-3"' },
     ]);
   });
 });

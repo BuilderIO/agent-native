@@ -412,7 +412,6 @@ export default defineAction({
       }
 
       const existingEvent = await loadExistingEvent();
-      checkReadRevision(existingEvent);
       if (!isCalendarEventOrganizer(existingEvent)) {
         fail("Only the event organizer can move or reschedule this event.");
       }
@@ -460,6 +459,7 @@ export default defineAction({
           accountEmail: targetAccountEmail!,
         },
         sendUpdates,
+        expectedRevision: args.expectedRevision,
       });
       if (!result.id) {
         throw new Error("Google did not return an id for the moved event.");
@@ -613,6 +613,7 @@ export default defineAction({
     let zoomAlreadyPresent = false;
     if (args.addZoom) {
       const existingEvent = await loadExistingEvent();
+      checkReadRevision(existingEvent);
       const eventForZoom: CalendarEvent = {
         ...existingEvent,
         ...updates,
@@ -655,7 +656,8 @@ export default defineAction({
       updates.workingLocationProperties;
 
     if (replaceRecurringWorkingLocation) {
-      checkReadRevision(await loadExistingEvent());
+      const source = await loadExistingEvent();
+      checkReadRevision(source);
       const hasUnsupportedReplacementPatch =
         args.title !== undefined ||
         args.description !== undefined ||
@@ -715,7 +717,7 @@ export default defineAction({
         await googleCalendar.deleteEvent(
           googleEventId,
           { ownerEmail, accountEmail },
-          { scope: "single" },
+          { scope: "single", ifMatch: source.revision },
         );
       } catch (error) {
         try {
