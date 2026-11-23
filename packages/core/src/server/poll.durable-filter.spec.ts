@@ -54,7 +54,7 @@ describe("access check bookkeeping", () => {
     expect(state.getChangeVisibilityForUser(event, "a@x.test", "o")).toBe(
       "pending",
     );
-    expect(resolveAccess).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(resolveAccess).toHaveBeenCalledTimes(2));
 
     resolvers[0]!({ role: "viewer" });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -101,5 +101,57 @@ describe("durable read filter against stored rows", () => {
     } finally {
       await db.close();
     }
+  });
+});
+
+describe("events for resource types this app never registered", () => {
+  it("hides another app's event instead of wedging the feed across resyncs", async () => {
+    const state = new AppSyncState({
+      getDb: () =>
+        ({
+          execute: async () => ({ rows: [], rowsAffected: 0 }),
+        }) as never,
+    });
+    state.recordChange({
+      source: "action",
+      type: "change",
+      key: "other-app-edit",
+      owner: "bob@x.test",
+      resourceType: "other-app-page",
+      resourceId: "p1",
+    });
+    const read = () => state.getChangesSinceForUser(0, "alice@x.test", "o");
+    const target = {
+      owner: "bob@x.test",
+      resourceType: "other-app-page",
+      resourceId: "p1",
+    };
+    await vi.waitFor(() =>
+      expect(
+        state.getChangeVisibilityForUser(target, "alice@x.test", "o"),
+      ).not.toBe("pending"),
+    );
+
+    for (let resync = 0; resync < 5; resync++) {
+      expect(read().events).toEqual([]);
+    }
+    expect(state.getChangeVisibilityForUser(target, "alice@x.test", "o")).toBe(
+      "hidden",
+    );
+  });
+
+  it("still reports a failing resolver for a registered type as unreadable", async () => {
+    const state = new AppSyncState({
+      resolveAccess: async () => {
+        throw new Error("db down");
+      },
+    });
+    const event = { resourceType: "doc", resourceId: "d1" };
+    state.getChangeVisibilityForUser(event, "a@x.test", "o");
+    await vi.waitFor(() =>
+      expect(state.getChangeVisibilityForUser(event, "a@x.test", "o")).toBe(
+        "unreadable",
+      ),
+    );
   });
 });
