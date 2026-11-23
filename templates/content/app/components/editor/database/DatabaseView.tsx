@@ -9,6 +9,12 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
+  FilterBar,
+  FilterButton,
+  type FilterField,
+  type FilterState,
+} from "@agent-native/toolkit/app/filters";
+import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
   useBuilderStatus,
@@ -55,29 +61,10 @@ import { contentDatabaseFormQuestions } from "@shared/database-form";
 import { contentDatabaseItemLayoutField } from "@shared/database-item-layout";
 import {
   applyContentDatabaseTableQuery,
-  CONTENT_DATABASE_RELATIVE_DATE_DIRECTIONS,
-  CONTENT_DATABASE_RELATIVE_DATE_MAX_COUNT,
-  CONTENT_DATABASE_RELATIVE_DATE_UNITS,
-  CONTENT_DATABASE_RELATIVE_DATES,
-  contentDatabaseDateValueHasTime,
   contentDatabaseFilterDateBound,
-  contentDatabaseFilterDateRangeValues,
-  contentDatabaseFilterGroupMode,
   contentDatabaseFilterIsActive,
-  contentDatabaseFilterMenuOperatorsForType,
-  contentDatabaseFilterOperatorNeedsValue,
-  contentDatabaseFilterOperatorsForType,
   contentDatabaseFilterToday,
-  contentDatabaseRelativeDateRange,
-  contentDatabaseRelativeDateRangeToken,
   contentDatabaseRequiredFilters,
-  type ContentDatabaseRelativeDate,
-  type ContentDatabaseRelativeDateDirection,
-  type ContentDatabaseRelativeDateRange,
-  type ContentDatabaseRelativeDateUnit,
-  isContentDatabaseRelativeDate,
-  materializeContentDatabaseFilterGroupModes,
-  withContentDatabaseFilterGroupMode,
 } from "@shared/database-query";
 import { hydrateContentDatabaseItems } from "@shared/database-row-properties";
 import {
@@ -155,7 +142,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -324,15 +310,12 @@ import {
   OPTION_COLORS,
   OPTION_COLOR_CLASSES,
   TYPE_ICONS,
-  canCreatePropertyOption,
   dateInputValueForOffset,
-  filterPropertyOptions,
   filesMediaItems,
   displayValue,
   nextPropertyOption,
   personItems,
   personLabel,
-  PersonPill,
   propertyValueHasLinks,
   removePropertyOption,
   renamePropertyOption,
@@ -390,12 +373,8 @@ import {
   DATABASE_VIEW_TABS_ROW_CLASS_NAME,
   DatabaseViewSkeleton,
 } from "./DatabaseViewSkeleton";
-import {
-  databaseFilterChipToReopen,
-  databaseFilterEncodeSelectedValues,
-  databaseFilterSelectedValues,
-  foldDatabaseFilterChips,
-} from "./filter-chips";
+import { databaseFilterSelectedValues } from "./filter-chips";
+import { contentFilterFields, useContentFilterKitState } from "./filter-kit";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import type { GitHubCollectionPlace } from "./github-availability";
@@ -587,8 +566,6 @@ const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
   "preview",
   "full_page",
 ];
-const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
-const DATABASE_ADVANCED_FILTER_GROUP_ID = "advanced";
 export const PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION =
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION;
 export const BUILDER_SOURCE_CONTINUATION_STALL_MS = 5_000;
@@ -648,22 +625,6 @@ export function dbText(
       current.split(`{{${name}}}`).join(String(value)),
     text,
   );
-}
-
-type DatabasePluralMessageKey = DatabaseMessageKey extends infer Key
-  ? Key extends `${infer Base}_other`
-    ? Base
-    : never
-  : never;
-
-// Picks the form the locale uses for `count`, as i18next reads a plural key.
-// Arabic, for one, has separate words for 2, for 3 to 10, and for 11 to 99.
-function dbCountText(key: DatabasePluralMessageKey, count: number): string {
-  const lang =
-    typeof document === "undefined" ? "en-US" : document.documentElement.lang;
-  const locale = lang in messagesByLocale ? lang : "en-US";
-  const form = new Intl.PluralRules(locale).select(count);
-  return dbText(`${key}_${form}` as DatabaseMessageKey, { count });
 }
 
 function sidebarText(key: SidebarMessageKey): string {
@@ -1292,9 +1253,6 @@ function DatabaseTable({
   const sourceHandoffActiveRef = useRef(false);
   const addPropertyOpenRequestSequenceRef = useRef(0);
   const [addPropertyOpenRequestId, setAddPropertyOpenRequestId] = useState(0);
-  const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
-    useState(false);
-  const [toolbarFilterOpen, setToolbarFilterOpen] = useState(false);
   const [constraintMenus] = useState(createConstraintMenus);
   const [builderReviewOpen, setBuilderReviewOpen] = useState(false);
 
@@ -1427,6 +1385,31 @@ function DatabaseTable({
   const filters = activeView.filters;
   const visibleFilters = filters;
   const filterMode = activeView.filterMode ?? "and";
+  const { session } = useSession();
+  const currentUserEmail =
+    typeof session?.email === "string" ? session.email.trim() : "";
+  const filterFields = useMemo(
+    () =>
+      contentFilterFields(orderedProperties, {
+        nameLabel: DATABASE_NAME_PICKER_OPTION.label,
+        choices: (property) =>
+          databaseFilterOptionChoices(
+            property.definition.id,
+            orderedProperties,
+            items,
+            currentUserEmail,
+          ),
+      }),
+    [orderedProperties, items, currentUserEmail],
+  );
+  const filterKit = useContentFilterKitState({
+    filters,
+    filterMode,
+    properties: orderedProperties,
+    fields: filterFields,
+    nameLabel: DATABASE_NAME_PICKER_OPTION.label,
+    onChange: setActiveFiltersAndMode,
+  });
   const workspaceCreationPropertyValues = isWorkspaceCatalog
     ? databasePropertyValuesForNewItem(filters, properties, filterMode)
     : undefined;
@@ -2517,16 +2500,15 @@ function DatabaseTable({
     updatePersonalQueryView((view) => ({ ...view, filters: nextFilters }));
   }
 
-  function setFilterMode(filterMode: DatabaseFilterMode) {
-    updatePersonalQueryView((view) =>
-      databaseViewWithFilterMode(view, filterMode),
-    );
-  }
-
-  function setFilterGroupMode(groupId: string, mode: DatabaseFilterMode) {
-    updatePersonalQueryView((view) =>
-      databaseViewWithFilterGroupMode(view, groupId, mode),
-    );
+  function setActiveFiltersAndMode(
+    nextFilters: DatabaseFilter[],
+    nextFilterMode: DatabaseFilterMode,
+  ) {
+    updatePersonalQueryView((view) => ({
+      ...view,
+      filters: nextFilters,
+      filterMode: nextFilterMode,
+    }));
   }
 
   function updatePersonalQueryView(
@@ -3581,48 +3563,28 @@ function DatabaseTable({
             />
           ) : null}
           {!canEditWidgetRows ? (
-            <FilterMenu
-              filters={visibleFilters}
-              properties={orderedProperties}
-              inlineOpen={inlineFilterControlsOpen}
-              open={toolbarFilterOpen}
-              onOpenChange={setToolbarFilterOpen}
-              onAddFilter={(key, label) => {
-                const reopenIndex = databaseFilterChipToReopen(
-                  filters,
-                  key,
-                  filterMode,
-                  orderedProperties,
-                );
-                if (reopenIndex === null) {
-                  setActiveFilters([
-                    ...filters,
-                    createDatabaseFilterForField(key, label, orderedProperties),
-                  ]);
+            <FilterButton
+              fields={filterFields}
+              state={filterKit.state}
+              onChange={filterKit.setState}
+              nouns={{ items: dbText("filterRows") }}
+              nestedGroups
+              groupMode="and"
+              align="end"
+            >
+              <ContentTableToolbarButton
+                label="Filter"
+                active={activeFilters.length > 0}
+                count={activeFilters.length || undefined}
+                aria-label={
+                  activeFilters.length > 0
+                    ? `${activeFilters.length} active filters`
+                    : "Filter"
                 }
-                setInlineFilterControlsOpen(true);
-                constraintMenus.set({
-                  addFilter: false,
-                  filterIndex: reopenIndex ?? filters.length,
-                });
-                setToolbarFilterOpen(false);
-              }}
-              onAddAdvancedFilter={(key, label) => {
-                setActiveFilters([
-                  ...filters,
-                  createDatabaseAdvancedFilterForField(
-                    key,
-                    label,
-                    orderedProperties,
-                    filters,
-                    filterMode,
-                  ),
-                ]);
-                setInlineFilterControlsOpen(true);
-                constraintMenus.set({ addFilter: false, advancedFilter: true });
-                setToolbarFilterOpen(false);
-              }}
-            />
+              >
+                <IconFilter className="size-3.5" />
+              </ContentTableToolbarButton>
+            </FilterButton>
           ) : null}
           {renderMode === "inline" && !canEditWidgetRows ? (
             <Tooltip>
@@ -3739,21 +3701,16 @@ function DatabaseTable({
       {!canEditWidgetRows ? (
         <DatabaseActiveConstraintsBarWithMenus
           menus={constraintMenus}
-          documentId={document.id}
-          items={items}
           searchQuery={searchQuery}
           sorts={sorts}
           filters={filters}
-          filterMode={filterMode}
           properties={properties}
+          filterFields={filterFields}
+          filterState={filterKit.state}
           constraintCount={visibleConstraintCount}
-          forceShow={inlineFilterControlsOpen}
+          forceShow={false}
           hasPersonalQueryChanges={personalQueryDirty}
           savePending={updateView.isPending}
-          onAddFilterOpenChange={(open) => {
-            constraintMenus.set({ addFilter: open });
-            if (open) setInlineFilterControlsOpen(true);
-          }}
           onClearSearch={() => {
             setSearchQuery("");
             setSearchOpen(false);
@@ -3762,22 +3719,13 @@ function DatabaseTable({
             setActiveSorts(sorts.filter((_, sortIndex) => sortIndex !== index));
             constraintMenus.set({ sortIndex: null });
           }}
-          onRemoveFilter={(index) => {
-            setActiveFilters(
-              filters.filter((_, filterIndex) => filterIndex !== index),
-            );
-            constraintMenus.set({ filterIndex: null });
-          }}
-          onFiltersChange={setActiveFilters}
           onSortsChange={setActiveSorts}
-          onFilterModeChange={setFilterMode}
-          onFilterGroupModeChange={setFilterGroupMode}
+          onFilterStateChange={filterKit.setState}
           onClearAll={() => {
             setSearchQuery("");
             setSearchOpen(false);
             setActiveSorts([]);
             setActiveFilters([]);
-            setInlineFilterControlsOpen(false);
             constraintMenus.closeAll();
           }}
           onResetPersonalChanges={resetPersonalQueryChanges}
@@ -7220,93 +7168,59 @@ function DatabaseActiveConstraintsBarWithMenus({
   ...props
 }: Omit<
   ComponentProps<typeof DatabaseActiveConstraintsBar>,
-  | "addFilterOpen"
-  | "advancedFilterOpen"
-  | "openFilterIndex"
-  | "openSortIndex"
-  | "onAdvancedFilterOpenChange"
-  | "onFilterOpenIndexChange"
-  | "onSortOpenIndexChange"
+  "openSortIndex" | "onSortOpenIndexChange"
 > & { menus: ConstraintMenus }) {
   const open = useConstraintMenusState(menus);
   return (
     <DatabaseActiveConstraintsBar
       {...props}
-      addFilterOpen={open.addFilter}
-      advancedFilterOpen={open.advancedFilter}
-      openFilterIndex={open.filterIndex}
       openSortIndex={open.sortIndex}
-      onAdvancedFilterOpenChange={(advancedFilter) =>
-        menus.set({ advancedFilter })
-      }
-      onFilterOpenIndexChange={(filterIndex) => menus.set({ filterIndex })}
       onSortOpenIndexChange={(sortIndex) => menus.set({ sortIndex })}
     />
   );
 }
 
 export function DatabaseActiveConstraintsBar({
-  documentId,
-  items,
   searchQuery,
   sorts,
   filters,
-  filterMode,
   properties,
+  filterFields,
+  filterState,
   constraintCount,
   forceShow,
-  addFilterOpen,
   openSortIndex,
-  openFilterIndex,
-  advancedFilterOpen,
   hasPersonalQueryChanges,
   savePending,
-  onAddFilterOpenChange,
   onSortOpenIndexChange,
-  onFilterOpenIndexChange,
-  onAdvancedFilterOpenChange,
   onClearSearch,
   onRemoveSort,
-  onRemoveFilter,
   onSortsChange,
-  onFiltersChange,
-  onFilterModeChange,
-  onFilterGroupModeChange,
+  onFilterStateChange,
   onClearAll,
   onResetPersonalChanges,
   onSaveForEveryone,
 }: {
-  documentId: string;
-  items: ContentDatabaseItem[];
   searchQuery: string;
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
-  filterMode: DatabaseFilterMode;
   properties: DocumentProperty[];
+  filterFields: readonly FilterField<never>[];
+  filterState: FilterState;
   constraintCount: number;
   forceShow: boolean;
-  addFilterOpen: boolean;
   openSortIndex: number | null;
-  openFilterIndex: number | null;
-  advancedFilterOpen: boolean;
   hasPersonalQueryChanges: boolean;
   savePending: boolean;
-  onAddFilterOpenChange: (open: boolean) => void;
   onSortOpenIndexChange: (index: number | null) => void;
-  onFilterOpenIndexChange: (index: number | null) => void;
-  onAdvancedFilterOpenChange: (open: boolean) => void;
   onClearSearch: () => void;
   onRemoveSort: (index: number) => void;
-  onRemoveFilter: (index: number) => void;
   onSortsChange: (sorts: DatabaseSort[]) => void;
-  onFiltersChange: (filters: DatabaseFilter[]) => void;
-  onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
-  onFilterGroupModeChange: (groupId: string, mode: DatabaseFilterMode) => void;
+  onFilterStateChange: (state: FilterState) => void;
   onClearAll: () => void;
   onResetPersonalChanges: () => void;
   onSaveForEveryone: () => void;
 }) {
-  const filterEntries = filters.map((filter, index) => ({ filter, index }));
   if (
     !databaseConstraintsBarIsVisible({
       forceShow,
@@ -7319,17 +7233,6 @@ export function DatabaseActiveConstraintsBar({
   const hasSearchOrSortConstraints =
     searchQuery.trim().length > 0 || sorts.length > 0;
   const showViewActionControls = hasPersonalQueryChanges;
-  const advancedFilterEntries = filterEntries.filter(({ filter }) =>
-    isAdvancedDatabaseFilter(filter),
-  );
-  const regularFilterEntries = filterEntries.filter(
-    ({ filter }) => !isAdvancedDatabaseFilter(filter),
-  );
-  // The view's All/Any combines the chips with the advanced filter as one more
-  // member; the advanced filter's own rules use its And/Or.
-  const viewFilterMemberCount =
-    regularFilterEntries.length + (advancedFilterEntries.length > 0 ? 1 : 0);
-  const hasSortFilterDivider = sorts.length > 0 && filterEntries.length > 0;
   const showClearAll = hasSearchOrSortConstraints && !hasPersonalQueryChanges;
 
   return (
@@ -7416,92 +7319,16 @@ export function DatabaseActiveConstraintsBar({
           onRemove={() => onRemoveSort(index)}
         />
       ))}
-      {hasSortFilterDivider ? (
+      {sorts.length > 0 ? (
         <div aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-border" />
       ) : null}
-      {viewFilterMemberCount > 1 ? (
-        <DatabaseFilterModeButton
-          filterMode={filterMode}
-          onFilterModeChange={onFilterModeChange}
-        />
-      ) : null}
-      {advancedFilterEntries.length > 0 ? (
-        <DatabaseAdvancedFilterGroupControl
-          documentId={documentId}
-          items={items}
-          filters={filters}
-          filterEntries={advancedFilterEntries}
-          filterMode={filterMode}
-          properties={properties}
-          open={advancedFilterOpen}
-          showUnsavedIndicator={hasPersonalQueryChanges}
-          onOpenChange={onAdvancedFilterOpenChange}
-          onFiltersChange={onFiltersChange}
-          onFilterGroupModeChange={onFilterGroupModeChange}
-        />
-      ) : null}
-      {regularFilterEntries.map(({ filter, index }) => (
-        <DatabaseInlineFilterControl
-          key={`${filter.key}-${index}`}
-          documentId={documentId}
-          filter={filter}
-          filterIndex={index}
-          filters={filters}
-          items={items}
-          properties={properties}
-          open={openFilterIndex === index}
-          showUnsavedIndicator={hasPersonalQueryChanges}
-          onOpenChange={(open) => {
-            onFilterOpenIndexChange(open ? index : null);
-            if (open) return;
-            // A closed chip that says the same as another on its property,
-            // such as a second "is not" under All, folds into that one.
-            const folded = foldDatabaseFilterChips(
-              filters,
-              filterMode,
-              properties,
-            );
-            if (folded !== filters) onFiltersChange(folded);
-          }}
-          onFiltersChange={onFiltersChange}
-          onRemove={() => onRemoveFilter(index)}
-        />
-      ))}
-      <DatabaseAddFilterButton
-        open={addFilterOpen}
-        filters={filterEntries.map(({ filter }) => filter)}
-        properties={properties}
-        onOpenChange={onAddFilterOpenChange}
-        onAddFilter={(key, label) => {
-          const reopenIndex = databaseFilterChipToReopen(
-            filters,
-            key,
-            filterMode,
-            properties,
-          );
-          if (reopenIndex === null) {
-            onFiltersChange([
-              ...filters,
-              createDatabaseFilterForField(key, label, properties),
-            ]);
-          }
-          onAddFilterOpenChange(false);
-          onFilterOpenIndexChange(reopenIndex ?? filters.length);
-        }}
-        onAddAdvancedFilter={(key, label) => {
-          onFiltersChange([
-            ...filters,
-            createDatabaseAdvancedFilterForField(
-              key,
-              label,
-              properties,
-              filters,
-              filterMode,
-            ),
-          ]);
-          onAddFilterOpenChange(false);
-          onAdvancedFilterOpenChange(true);
-        }}
+      <FilterBar
+        fields={filterFields}
+        state={filterState}
+        onChange={onFilterStateChange}
+        nestedGroups
+        groupMode="and"
+        clearable={false}
       />
       {searchQuery.trim() ? (
         <ContentTableConstraintChip
@@ -7682,991 +7509,6 @@ function DatabaseInlineSortControl({
   );
 }
 
-// Adding a filter opens the new chip's menu while the add menu is still
-// animating closed. The new chip can shift that menu under the pointer, which
-// focuses it; that focus shouldn't close the chip's menu.
-function ignoreFocusInClosingMenu(event: Event) {
-  if (
-    event.target instanceof Element &&
-    event.target.closest('[role="menu"][data-state="closed"]')
-  ) {
-    event.preventDefault();
-  }
-}
-
-// Adding a filter opens the new chip's menu, which takes focus. Closing, the
-// add menu would return focus to its own button, and the chip's menu closes
-// when focus leaves it.
-function useAddFilterMenuFocus(
-  onAddFilter: (key: "name" | (string & {}), label: string) => void,
-) {
-  const filterAdded = useRef(false);
-  return {
-    onAddFilter: (key: "name" | (string & {}), label: string) => {
-      filterAdded.current = true;
-      onAddFilter(key, label);
-    },
-    onCloseAutoFocus: (event: Event) => {
-      if (!filterAdded.current) return;
-      filterAdded.current = false;
-      event.preventDefault();
-    },
-  };
-}
-
-export function DatabaseAddFilterButton({
-  open,
-  filters,
-  properties,
-  onOpenChange,
-  onAddFilter,
-  onAddAdvancedFilter,
-}: {
-  open: boolean;
-  filters: DatabaseFilter[];
-  properties: DocumentProperty[];
-  onOpenChange: (open: boolean) => void;
-  onAddFilter: (key: "name" | (string & {}), label: string) => void;
-  onAddAdvancedFilter: (key: "name" | (string & {}), label: string) => void;
-}) {
-  const advancedFilterCandidate = databaseFilterRuleCandidate(
-    properties,
-    filters.filter(isActiveFilter),
-  );
-  const addFilterFocus = useAddFilterMenuFocus(onAddFilter);
-
-  return (
-    <DropdownMenu open={open} onOpenChange={onOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="h-7 rounded px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <IconPlus className="mr-1 size-3.5" />
-          {dbText("filter")}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-64"
-        onCloseAutoFocus={addFilterFocus.onCloseAutoFocus}
-      >
-        <div onKeyDown={(event) => event.stopPropagation()}>
-          <DatabasePropertyPickerMenuItems
-            properties={properties}
-            includeName
-            placeholder={dbText("filterBy")}
-            closeOnSelect
-            onSelect={addFilterFocus.onAddFilter}
-          />
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              onAddAdvancedFilter(
-                advancedFilterCandidate.key,
-                advancedFilterCandidate.label,
-              );
-            }}
-          >
-            {dbText("addAdvancedFilter")}
-          </DropdownMenuItem>
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function DatabaseFilterModeButton({
-  filterMode,
-  onFilterModeChange,
-}: {
-  filterMode: DatabaseFilterMode;
-  onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="h-7 rounded border border-border/70 bg-background px-2 text-xs font-normal text-muted-foreground shadow-none hover:bg-muted hover:text-foreground"
-        >
-          {databaseFilterModeLabel(filterMode)}
-          <IconChevronDown className="ml-1 size-3" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-44">
-        {DATABASE_FILTER_MODES.map((mode) => (
-          <DropdownMenuItem
-            key={mode}
-            onSelect={(event) => {
-              event.preventDefault();
-              onFilterModeChange(mode);
-            }}
-          >
-            <span className="flex-1">{databaseFilterModeLabel(mode)}</span>
-            {filterMode === mode ? (
-              <IconCheck className="size-4 text-muted-foreground" />
-            ) : null}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-type DatabaseFilterEntry = {
-  filter: DatabaseFilter;
-  index: number;
-};
-
-type DatabaseNestedFilterGroupEntry = {
-  id: string;
-  entries: DatabaseFilterEntry[];
-};
-
-function DatabaseAdvancedFilterGroupControl({
-  documentId,
-  items,
-  filters,
-  filterEntries,
-  filterMode,
-  properties,
-  open,
-  showUnsavedIndicator,
-  onOpenChange,
-  onFiltersChange,
-  onFilterGroupModeChange,
-}: {
-  documentId: string;
-  items: ContentDatabaseItem[];
-  filters: DatabaseFilter[];
-  filterEntries: DatabaseFilterEntry[];
-  filterMode: DatabaseFilterMode;
-  properties: DocumentProperty[];
-  open: boolean;
-  showUnsavedIndicator: boolean;
-  onOpenChange: (open: boolean) => void;
-  onFiltersChange: (filters: DatabaseFilter[]) => void;
-  onFilterGroupModeChange: (groupId: string, mode: DatabaseFilterMode) => void;
-}) {
-  const advancedFilters = filterEntries.map((entry) => entry.filter);
-  const rootFilterEntries = filterEntries.filter(
-    ({ filter }) => !filter.parentFilterGroupId,
-  );
-  const nestedGroupEntries = advancedNestedFilterGroups(filterEntries);
-  const addRuleCandidate = databaseFilterRuleCandidate(
-    properties,
-    advancedFilters,
-  );
-  const advancedMode = contentDatabaseFilterGroupMode(
-    filters,
-    DATABASE_ADVANCED_FILTER_GROUP_ID,
-    filterMode,
-  );
-  const setAdvancedMode = (mode: DatabaseFilterMode) =>
-    onFilterGroupModeChange(DATABASE_ADVANCED_FILTER_GROUP_ID, mode);
-
-  function updateFilterAt(index: number, next: Partial<DatabaseFilter>) {
-    const nextFilters = [...filters];
-    const currentFilter = nextFilters[index] ?? defaultDatabaseFilter();
-    nextFilters[index] = {
-      ...currentFilter,
-      ...next,
-      filterGroupId: next.filterGroupId ?? currentFilter.filterGroupId,
-      parentFilterGroupId:
-        next.parentFilterGroupId ?? currentFilter.parentFilterGroupId,
-      value: databaseFilterNextValue(currentFilter, next),
-    };
-    onFiltersChange(nextFilters);
-  }
-
-  function addAdvancedRule(key: "name" | (string & {}), label: string) {
-    onFiltersChange([
-      ...filters,
-      createDatabaseAdvancedFilterForField(
-        key,
-        label,
-        properties,
-        filters,
-        filterMode,
-      ),
-    ]);
-  }
-
-  function addNestedFilterRule(
-    groupId: string,
-    key: "name" | (string & {}),
-    label: string,
-  ) {
-    onFiltersChange([
-      ...filters,
-      createDatabaseFilterForField(key, label, properties, {
-        filterGroupId: groupId,
-        parentFilterGroupId: DATABASE_ADVANCED_FILTER_GROUP_ID,
-        filterGroupMode: databaseFilterGroupModeForNewRule(
-          filters,
-          groupId,
-          filterMode,
-        ),
-        parentFilterGroupMode: advancedMode,
-      }),
-    ]);
-  }
-
-  function addNestedFilterGroup(key: "name" | (string & {}), label: string) {
-    addNestedFilterRule(createAdvancedNestedFilterGroupId(), key, label);
-  }
-
-  function removeFilterAt(index: number) {
-    onFiltersChange(filters.filter((_, filterIndex) => filterIndex !== index));
-    if (filterEntries.length <= 1) onOpenChange(false);
-  }
-
-  function removeNestedFilterGroup(groupId: string) {
-    onFiltersChange(
-      filters.filter((filter) => filter.filterGroupId !== groupId),
-    );
-  }
-
-  return (
-    <DropdownMenu open={open} onOpenChange={onOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className={cn(
-            "relative h-7 rounded border border-database-chip/30 bg-database-chip/10 px-2 text-xs font-normal text-database-chip-foreground shadow-none hover:bg-database-chip/15 focus-visible:border-database-blue/40 focus-visible:ring-database-blue/25 dark:border-database-chip/35 dark:bg-database-chip/15 dark:hover:bg-database-chip/20",
-            open && "border-database-blue/40 bg-database-blue/15",
-          )}
-        >
-          <IconFilter className="size-3.5 shrink-0" />
-          <span>{advancedFilterGroupLabel(filterEntries.length)}</span>
-          <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
-          {showUnsavedIndicator ? (
-            <span
-              aria-hidden="true"
-              className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full border border-background bg-amber-500"
-            />
-          ) : null}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-[640px] max-w-[calc(100vw-2rem)] p-0"
-      >
-        <div
-          className="grid gap-1 rounded-lg bg-background p-1.5"
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          {rootFilterEntries.map(({ filter, index }, ruleIndex) => (
-            <DatabaseAdvancedFilterRuleRow
-              key={`${filter.key}-${index}`}
-              documentId={documentId}
-              filter={filter}
-              filters={filters}
-              filterIndex={index}
-              ruleIndex={ruleIndex}
-              filterMode={advancedMode}
-              items={items}
-              properties={properties}
-              onFilterModeChange={setAdvancedMode}
-              onUpdateFilter={(next) => updateFilterAt(index, next)}
-              onRemove={() => removeFilterAt(index)}
-            />
-          ))}
-          {nestedGroupEntries.map((group, groupIndex) => (
-            <DatabaseAdvancedNestedFilterGroup
-              key={group.id}
-              documentId={documentId}
-              items={items}
-              filters={filters}
-              group={group}
-              ruleIndex={rootFilterEntries.length + groupIndex}
-              filterMode={advancedMode}
-              groupFilterMode={contentDatabaseFilterGroupMode(
-                filters,
-                group.id,
-                filterMode,
-              )}
-              properties={properties}
-              onFilterModeChange={setAdvancedMode}
-              onGroupFilterModeChange={(mode) =>
-                onFilterGroupModeChange(group.id, mode)
-              }
-              onUpdateFilter={updateFilterAt}
-              onAddNestedFilterRule={addNestedFilterRule}
-              onRemoveFilter={removeFilterAt}
-              onRemoveGroup={() => removeNestedFilterGroup(group.id)}
-            />
-          ))}
-
-          <DropdownMenuSeparator />
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="text-muted-foreground [&>svg:last-child]:hidden">
-              <span className="flex-1">{dbText("addFilterRule")}</span>
-              <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-56">
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  addAdvancedRule(addRuleCandidate.key, addRuleCandidate.label);
-                }}
-              >
-                {dbText("addFilterRule")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  addNestedFilterGroup(
-                    addRuleCandidate.key,
-                    addRuleCandidate.label,
-                  );
-                }}
-              >
-                {dbText("addFilterGroup")}
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          <DropdownMenuItem
-            className="text-muted-foreground"
-            onSelect={(event) => {
-              event.preventDefault();
-              onFiltersChange(
-                filters.filter((filter) => !isAdvancedDatabaseFilter(filter)),
-              );
-              onOpenChange(false);
-            }}
-          >
-            {dbText("deleteFilter")}
-          </DropdownMenuItem>
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function DatabaseAdvancedFilterRuleRow({
-  documentId,
-  filter,
-  filters,
-  filterIndex,
-  ruleIndex,
-  filterMode,
-  items,
-  properties,
-  onFilterModeChange,
-  onUpdateFilter,
-  onRemove,
-}: {
-  documentId: string;
-  filter: DatabaseFilter;
-  filters: DatabaseFilter[];
-  filterIndex: number;
-  ruleIndex: number;
-  filterMode: DatabaseFilterMode;
-  items: ContentDatabaseItem[];
-  properties: DocumentProperty[];
-  onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
-  onUpdateFilter: (next: Partial<DatabaseFilter>) => void;
-  onRemove: () => void;
-}) {
-  function selectField(key: "name" | (string & {}), label: string) {
-    onUpdateFilter({
-      key,
-      label,
-      operator: defaultFilterOperatorForKey(key, properties),
-      value: "",
-    });
-  }
-
-  return (
-    <div className="flex items-start gap-2">
-      {ruleIndex === 0 ? (
-        <div className="flex h-9 w-16 shrink-0 items-center px-2 text-xs text-foreground">
-          {dbText("where")}
-        </div>
-      ) : (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="flex h-9 w-16 items-center rounded px-2 text-xs hover:bg-muted"
-            >
-              <span className="flex-1 text-left">
-                {databaseFilterModeConjunctionLabel(filterMode)}
-              </span>
-              <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-32">
-            {DATABASE_FILTER_MODES.map((mode) => (
-              <DropdownMenuItem
-                key={mode}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  onFilterModeChange(mode);
-                }}
-              >
-                <span className="flex-1">
-                  {databaseFilterModeConjunctionLabel(mode)}
-                </span>
-                {filterMode === mode ? (
-                  <IconCheck className="size-4 text-muted-foreground" />
-                ) : null}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-
-      <div className="grid min-w-0 flex-1 gap-1">
-        <div className="flex items-center gap-0.5">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="flex h-9 min-w-0 flex-1 items-center rounded border border-border bg-background px-2 text-left text-xs font-normal shadow-none hover:bg-muted/50 focus:bg-muted/50 data-[state=open]:bg-muted/50"
-              >
-                <FilterFieldIcon filter={filter} properties={properties} />
-                <span className="min-w-0 flex-1 truncate">{filter.label}</span>
-                <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="max-h-80 w-64 overflow-auto"
-            >
-              <DatabasePropertyPickerMenuItems
-                properties={properties}
-                selectedKey={filter.key}
-                includeName
-                closeOnSelect
-                onSelect={selectField}
-              />
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="flex h-9 min-w-0 flex-1 items-center rounded border border-border bg-background px-2 text-left text-xs font-normal shadow-none hover:bg-muted/50 focus:bg-muted/50 data-[state=open]:bg-muted/50"
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  {databaseFilterOperatorInlineLabel(
-                    filter.operator,
-                    filter.key,
-                    properties,
-                  )}
-                </span>
-                <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-44">
-              {filterMenuOperatorsForKey(
-                filter.key,
-                properties,
-                filter.operator,
-              ).map((operator) => (
-                <DropdownMenuItem
-                  key={operator}
-                  onSelect={() => onUpdateFilter({ operator })}
-                >
-                  <span className="flex-1">
-                    {databaseFilterOperatorLabel(
-                      operator,
-                      filter.key,
-                      properties,
-                    )}
-                  </span>
-                  {filter.operator === operator ? (
-                    <IconCheck className="size-4 text-muted-foreground" />
-                  ) : null}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {contentDatabaseFilterOperatorNeedsValue(filter.operator) ? (
-            <div className="min-w-0 flex-[1.35] [&>div>div:first-child]:px-0 [&>input]:h-9 [&>input]:text-xs">
-              <DatabaseFilterValueControl
-                documentId={documentId}
-                filter={filter}
-                items={items}
-                properties={properties}
-                hideOptionsUntilQuery
-                onValueChange={(value) => onUpdateFilter({ value })}
-              />
-            </div>
-          ) : null}
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded p-0 text-muted-foreground hover:bg-muted/50 data-[state=open]:bg-muted/50"
-              >
-                <IconDots className="size-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-36">
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  onRemove();
-                }}
-              >
-                Remove
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DatabaseAdvancedNestedFilterGroup({
-  documentId,
-  items,
-  filters,
-  group,
-  ruleIndex,
-  filterMode,
-  groupFilterMode,
-  properties,
-  onFilterModeChange,
-  onGroupFilterModeChange,
-  onUpdateFilter,
-  onAddNestedFilterRule,
-  onRemoveFilter,
-  onRemoveGroup,
-}: {
-  documentId: string;
-  items: ContentDatabaseItem[];
-  filters: DatabaseFilter[];
-  group: DatabaseNestedFilterGroupEntry;
-  ruleIndex: number;
-  /** How this group combines with the advanced filter's other members. */
-  filterMode: DatabaseFilterMode;
-  /** How this group's own rules combine. */
-  groupFilterMode: DatabaseFilterMode;
-  properties: DocumentProperty[];
-  onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
-  onGroupFilterModeChange: (filterMode: DatabaseFilterMode) => void;
-  onUpdateFilter: (index: number, next: Partial<DatabaseFilter>) => void;
-  onAddNestedFilterRule: (
-    groupId: string,
-    key: "name" | (string & {}),
-    label: string,
-  ) => void;
-  onRemoveFilter: (index: number) => void;
-  onRemoveGroup: () => void;
-}) {
-  const addRuleCandidate = databaseFilterRuleCandidate(
-    properties,
-    group.entries.map(({ filter }) => filter),
-  );
-
-  return (
-    <div className="flex items-start gap-2">
-      {ruleIndex === 0 ? (
-        <div className="flex h-9 w-16 shrink-0 items-center px-2 text-xs text-foreground">
-          {dbText("where")}
-        </div>
-      ) : (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="flex h-9 w-16 items-center rounded px-2 text-xs hover:bg-muted data-[state=open]:bg-muted"
-            >
-              <span className="flex-1 text-left">
-                {databaseFilterModeConjunctionLabel(filterMode)}
-              </span>
-              <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-32">
-            {DATABASE_FILTER_MODES.map((mode) => (
-              <DropdownMenuItem
-                key={mode}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  onFilterModeChange(mode);
-                }}
-              >
-                <span className="flex-1">
-                  {databaseFilterModeConjunctionLabel(mode)}
-                </span>
-                {filterMode === mode ? (
-                  <IconCheck className="size-4 text-muted-foreground" />
-                ) : null}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-
-      <div className="grid min-w-0 flex-1 gap-1 rounded border border-border/70 bg-muted/30 p-1.5">
-        {group.entries.map(({ filter, index }, nestedRuleIndex) => (
-          <DatabaseAdvancedFilterRuleRow
-            key={`${filter.key}-${index}`}
-            documentId={documentId}
-            filter={filter}
-            filters={filters}
-            filterIndex={index}
-            ruleIndex={nestedRuleIndex}
-            filterMode={groupFilterMode}
-            items={items}
-            properties={properties}
-            onFilterModeChange={onGroupFilterModeChange}
-            onUpdateFilter={(next) =>
-              onUpdateFilter(index, {
-                ...next,
-                filterGroupId: group.id,
-                parentFilterGroupId: DATABASE_ADVANCED_FILTER_GROUP_ID,
-              })
-            }
-            onRemove={() => {
-              if (group.entries.length <= 1) {
-                onRemoveGroup();
-              } else {
-                onRemoveFilter(index);
-              }
-            }}
-          />
-        ))}
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="flex h-9 items-center rounded px-2 text-left text-xs text-muted-foreground hover:bg-muted data-[state=open]:bg-muted"
-            >
-              <IconPlus className="mr-2 size-4 text-muted-foreground" />
-              <span className="flex-1">{dbText("addFilterRule")}</span>
-              <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56">
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                onAddNestedFilterRule(
-                  group.id,
-                  addRuleCandidate.key,
-                  addRuleCandidate.label,
-                );
-              }}
-            >
-              {dbText("addFilterRule")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded p-0 text-muted-foreground hover:bg-muted/50 data-[state=open]:bg-muted/50"
-          >
-            <IconDots className="size-3.5" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-36">
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              onRemoveGroup();
-            }}
-          >
-            Remove
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  );
-}
-
-function DatabaseInlineFilterControl({
-  documentId,
-  filter,
-  filterIndex,
-  filters,
-  items,
-  properties,
-  open,
-  showUnsavedIndicator,
-  onOpenChange,
-  onFiltersChange,
-  onRemove,
-}: {
-  documentId: string;
-  filter: DatabaseFilter;
-  filterIndex: number;
-  filters: DatabaseFilter[];
-  items: ContentDatabaseItem[];
-  properties: DocumentProperty[];
-  open: boolean;
-  showUnsavedIndicator: boolean;
-  onOpenChange: (open: boolean) => void;
-  onFiltersChange: (filters: DatabaseFilter[]) => void;
-  onRemove: () => void;
-}) {
-  function updateFilter(next: Partial<DatabaseFilter>) {
-    const nextFilters = [...filters];
-    const currentFilter = nextFilters[filterIndex] ?? defaultDatabaseFilter();
-    nextFilters[filterIndex] = {
-      ...currentFilter,
-      ...next,
-      value: databaseFilterNextValue(currentFilter, next),
-    };
-    onFiltersChange(nextFilters);
-  }
-
-  function selectField(key: "name" | (string & {}), label: string) {
-    updateFilter({
-      key,
-      label,
-      operator: defaultFilterOperatorForKey(key, properties),
-      value: "",
-    });
-  }
-
-  const filterIsComplete =
-    !contentDatabaseFilterOperatorNeedsValue(filter.operator) ||
-    filter.value.trim().length > 0;
-  const outsideClickShield = useMenuOutsideClickShield(open, onOpenChange);
-  // Not modal, nor are the menus inside it: a modal menu restyles <body> to
-  // block pointer events and lock scrolling, which forces a style pass over
-  // every table cell each time a chip opens or closes. The shield blocks the
-  // page instead.
-  return (
-    <DropdownMenu open={open} onOpenChange={onOpenChange} modal={false}>
-      {outsideClickShield.shield}
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className={cn(
-            "relative h-7 max-w-[16rem] rounded border border-border/70 bg-background px-2 text-xs font-normal text-foreground shadow-none hover:bg-muted focus-visible:border-database-blue/40 focus-visible:ring-database-blue/25",
-            filterIsComplete &&
-              "border-database-chip/30 bg-database-chip/10 text-database-chip-foreground hover:bg-database-chip/15 dark:border-database-chip/35 dark:bg-database-chip/15 dark:hover:bg-database-chip/20",
-            open && "border-database-blue/40 bg-database-blue/15",
-            !filterIsComplete && "text-muted-foreground",
-          )}
-        >
-          <FilterFieldIcon filter={filter} properties={properties} />
-          <span className="min-w-0 truncate">
-            {databaseInlineFilterLabel(filter, properties)}
-          </span>
-          <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
-          {showUnsavedIndicator ? (
-            <span
-              aria-hidden="true"
-              className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full border border-background bg-amber-500"
-            />
-          ) : null}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-[260px] p-0"
-        {...outsideClickShield.contentProps}
-        onFocusOutside={ignoreFocusInClosingMenu}
-      >
-        <div
-          className="grid gap-1 p-1"
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <div className="flex items-center gap-0.5">
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex h-7 min-w-0 flex-1 items-center rounded px-1.5 text-left text-xs hover:bg-muted data-[state=open]:bg-muted"
-                >
-                  <FilterFieldIcon filter={filter} properties={properties} />
-                  <span className="min-w-0 flex-1 truncate">
-                    {filter.label}
-                  </span>
-                  <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="max-h-80 w-64 overflow-auto"
-              >
-                <DatabasePropertyPickerMenuItems
-                  properties={properties}
-                  selectedKey={filter.key}
-                  includeName
-                  closeOnSelect
-                  onSelect={selectField}
-                />
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex h-7 min-w-0 flex-1 items-center rounded px-1.5 text-left text-xs hover:bg-muted data-[state=open]:bg-muted"
-                >
-                  <span className="min-w-0 flex-1 truncate">
-                    {databaseFilterOperatorInlineLabel(
-                      filter.operator,
-                      filter.key,
-                      properties,
-                    )}
-                  </span>
-                  <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-44">
-                {filterMenuOperatorsForKey(
-                  filter.key,
-                  properties,
-                  filter.operator,
-                ).map((operator) => (
-                  <DropdownMenuItem
-                    key={operator}
-                    onSelect={() => updateFilter({ operator })}
-                  >
-                    <span className="flex-1">
-                      {databaseFilterOperatorLabel(
-                        operator,
-                        filter.key,
-                        properties,
-                      )}
-                    </span>
-                    {filter.operator === operator ? (
-                      <IconCheck className="size-4 text-muted-foreground" />
-                    ) : null}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex h-7 w-7 items-center justify-center rounded p-0 text-muted-foreground hover:bg-muted data-[state=open]:bg-muted"
-                >
-                  <IconDots className="size-3.5" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-36">
-                <DropdownMenuItem
-                  disabled={filters.length <= 1 || filterIndex === 0}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    onFiltersChange(
-                      moveDatabaseFilter(filters, filterIndex, "up"),
-                    );
-                  }}
-                >
-                  {dbText("moveFilterUp")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={
-                    filters.length <= 1 || filterIndex >= filters.length - 1
-                  }
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    onFiltersChange(
-                      moveDatabaseFilter(filters, filterIndex, "down"),
-                    );
-                  }}
-                >
-                  {dbText("moveFilterDown")}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    onRemove();
-                  }}
-                >
-                  Remove
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          {contentDatabaseFilterOperatorNeedsValue(filter.operator) ? (
-            <DatabaseFilterValueControl
-              autoFocus={!filter.value}
-              documentId={documentId}
-              filter={filter}
-              items={items}
-              properties={properties}
-              onValueChange={(value) => updateFilter({ value })}
-            />
-          ) : null}
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-// Covers the page under an open non-modal menu so the click that dismisses it
-// doesn't also open the cell beneath, as a modal menu's blocking would. The
-// shield sits just under the menu layer (z-[290]), above everything else.
-// Spread `contentProps` onto the menu's content.
-function useMenuOutsideClickShield(
-  open: boolean,
-  onOpenChange: (open: boolean) => void,
-) {
-  const dismissedByShield = useRef(false);
-  const shield = open
-    ? createPortal(
-        <div
-          aria-hidden="true"
-          data-menu-outside-click-shield=""
-          className="fixed inset-0 z-[289]"
-          onClick={() => {
-            dismissedByShield.current = true;
-            onOpenChange(false);
-          }}
-        />,
-        document.body,
-      )
-    : null;
-  const contentProps = {
-    // The menu would close on pointerdown, removing the shield before the
-    // click lands, so the click would reach whatever is underneath.
-    onPointerDownOutside: (event: Event) => {
-      if (
-        event.target instanceof Element &&
-        event.target.hasAttribute("data-menu-outside-click-shield")
-      ) {
-        event.preventDefault();
-      }
-    },
-    // Leave focus where the click put it, as an outside click on a non-modal
-    // menu does. In WebKit, moving focus off the chip when it reopens restyles
-    // much of the page.
-    onCloseAutoFocus: (event: Event) => {
-      if (!dismissedByShield.current) return;
-      dismissedByShield.current = false;
-      event.preventDefault();
-    },
-  };
-  return { shield, contentProps };
-}
-
 function databaseToolbarIconButtonClass(active = false) {
   return cn(
     "h-7 w-7 p-0 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-45",
@@ -8704,11 +7546,10 @@ type SourceNavStep =
   | { kind: "fieldPicker"; sourceId: string; sourceName: string }
   | { kind: "github" };
 
-/** A request to open Sources at a given page; a new id repeats it. */
 type SourceNavRequest = { id: number; stack: SourceNavStep[] };
 
 function sourceNavTitle(stack: SourceNavStep[]): string {
-  const top = stack[stack.length - 1];
+  const top = stack.length > 0 ? stack[stack.length - 1] : undefined;
   if (!top) return dbText("sources");
   if (top.kind === "provider") return "Builder";
   if (top.kind === "space") return top.spaceName;
@@ -12702,23 +11543,6 @@ export function databasePropertyPickerItems(
   );
 }
 
-// Filters may repeat a property, so used properties are only deprioritized.
-// Excluding them would disable the add-rule actions once every one is used.
-export function databaseFilterRuleCandidate(
-  properties: DocumentProperty[],
-  filters: readonly DatabaseFilter[],
-): DatabasePropertyPickerOption {
-  const usedKeys = new Set(filters.map((filter) => filter.key));
-  const candidates = [
-    ...databasePropertyPickerItems(properties, "", { includeName: false }),
-    DATABASE_NAME_PICKER_OPTION,
-  ];
-  return (
-    candidates.find((candidate) => !usedKeys.has(candidate.key)) ??
-    candidates[0]
-  );
-}
-
 function DatabasePropertyPickerSearch({
   value,
   onChange,
@@ -12871,14 +11695,6 @@ function databaseOpenPagesInDescription(value: ContentDatabaseOpenPagesIn) {
   return value === "full_page"
     ? "Navigate to the page when opening a row."
     : "Open rows in a side panel without leaving the collection.";
-}
-
-function databaseFilterModeLabel(filterMode: DatabaseFilterMode) {
-  return filterMode === "or" ? "Any" : "All";
-}
-
-function databaseFilterModeConjunctionLabel(filterMode: DatabaseFilterMode) {
-  return filterMode === "or" ? "Or" : "And";
 }
 
 function DatabaseResultCountFooter({
@@ -18179,152 +16995,6 @@ function defaultDatabaseSort(): DatabaseSort {
   };
 }
 
-function defaultDatabaseFilter(): DatabaseFilter {
-  return {
-    key: "name",
-    label: "Name",
-    operator: "contains",
-    value: "",
-  };
-}
-
-function createDatabaseFilterForField(
-  key: ColumnKey,
-  label: string,
-  properties: DocumentProperty[],
-  group?: Pick<
-    DatabaseFilter,
-    | "filterGroupId"
-    | "parentFilterGroupId"
-    | "filterGroupMode"
-    | "parentFilterGroupMode"
-  >,
-): DatabaseFilter {
-  return {
-    key,
-    label,
-    operator: defaultFilterOperatorForKey(key, properties),
-    value: "",
-    ...(group?.filterGroupId ? { filterGroupId: group.filterGroupId } : {}),
-    ...(group?.parentFilterGroupId
-      ? { parentFilterGroupId: group.parentFilterGroupId }
-      : {}),
-    ...(group?.filterGroupMode
-      ? { filterGroupMode: group.filterGroupMode }
-      : {}),
-    ...(group?.parentFilterGroupMode
-      ? { parentFilterGroupMode: group.parentFilterGroupMode }
-      : {}),
-  };
-}
-
-// Any mode change first writes every group's current mode onto its rules, so
-// groups that were inheriting the view's mode keep it from then on.
-export function databaseViewWithFilterMode(
-  view: ContentDatabaseView,
-  filterMode: DatabaseFilterMode,
-): ContentDatabaseView {
-  return {
-    ...view,
-    filters: materializeContentDatabaseFilterGroupModes(
-      view.filters,
-      view.filterMode ?? "and",
-    ),
-    filterMode,
-  };
-}
-
-export function databaseViewWithFilterGroupMode(
-  view: ContentDatabaseView,
-  groupId: string,
-  mode: DatabaseFilterMode,
-): ContentDatabaseView {
-  return {
-    ...view,
-    filters: withContentDatabaseFilterGroupMode(
-      materializeContentDatabaseFilterGroupModes(
-        view.filters,
-        view.filterMode ?? "and",
-      ),
-      groupId,
-      mode,
-    ),
-  };
-}
-
-function createDatabaseAdvancedFilterForField(
-  key: ColumnKey,
-  label: string,
-  properties: DocumentProperty[],
-  filters: DatabaseFilter[],
-  filterMode: DatabaseFilterMode,
-): DatabaseFilter {
-  return createDatabaseFilterForField(key, label, properties, {
-    filterGroupId: DATABASE_ADVANCED_FILTER_GROUP_ID,
-    filterGroupMode: databaseFilterGroupModeForNewRule(
-      filters,
-      DATABASE_ADVANCED_FILTER_GROUP_ID,
-      filterMode,
-    ),
-  });
-}
-
-// A rule added to a group takes the group's current mode. A new group starts
-// with "and": the view's All/Any combines it with its neighbors, not its rules.
-export function databaseFilterGroupModeForNewRule(
-  filters: DatabaseFilter[],
-  groupId: string,
-  filterMode: DatabaseFilterMode,
-): DatabaseFilterMode {
-  const groupExists = filters.some(
-    (filter) =>
-      filter.filterGroupId === groupId ||
-      filter.parentFilterGroupId === groupId,
-  );
-  return groupExists
-    ? contentDatabaseFilterGroupMode(filters, groupId, filterMode)
-    : "and";
-}
-
-function isAdvancedDatabaseFilter(filter: DatabaseFilter) {
-  return (
-    filter.filterGroupId === DATABASE_ADVANCED_FILTER_GROUP_ID ||
-    filter.parentFilterGroupId === DATABASE_ADVANCED_FILTER_GROUP_ID
-  );
-}
-
-function advancedNestedFilterGroups(
-  entries: DatabaseFilterEntry[],
-): DatabaseNestedFilterGroupEntry[] {
-  const groups = new Map<string, DatabaseFilterEntry[]>();
-  for (const entry of entries) {
-    if (
-      entry.filter.parentFilterGroupId !== DATABASE_ADVANCED_FILTER_GROUP_ID ||
-      !entry.filter.filterGroupId
-    ) {
-      continue;
-    }
-    groups.set(entry.filter.filterGroupId, [
-      ...(groups.get(entry.filter.filterGroupId) ?? []),
-      entry,
-    ]);
-  }
-  return [...groups.entries()].map(([id, groupEntries]) => ({
-    id,
-    entries: groupEntries,
-  }));
-}
-
-function createAdvancedNestedFilterGroupId() {
-  return `advanced-${Date.now().toString(36)}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
-}
-
-function advancedFilterGroupLabel(ruleCount: number) {
-  return `${ruleCount} rule${ruleCount === 1 ? "" : "s"}`;
-}
-
 export function upsertDatabaseSort(
   sorts: DatabaseSort[],
   key: ColumnKey,
@@ -18359,14 +17029,6 @@ export function appendDatabaseFilter(
   value = "",
 ) {
   return [...filters, { key, label, operator, value }];
-}
-
-export function moveDatabaseFilter(
-  filters: DatabaseFilter[],
-  index: number,
-  direction: DatabaseConditionMoveDirection,
-) {
-  return moveDatabaseCondition(filters, index, direction);
 }
 
 function moveDatabaseCondition<T>(
@@ -18857,847 +17519,6 @@ function SortFieldIcon({
   return <Icon className="mr-2 size-4 text-muted-foreground" />;
 }
 
-export function FilterMenu({
-  filters,
-  properties,
-  inlineOpen,
-  open,
-  onOpenChange,
-  onAddFilter,
-  onAddAdvancedFilter,
-}: {
-  filters: DatabaseFilter[];
-  properties: DocumentProperty[];
-  inlineOpen: boolean;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onAddFilter: (key: "name" | (string & {}), label: string) => void;
-  onAddAdvancedFilter: (key: "name" | (string & {}), label: string) => void;
-}) {
-  const activeFilters = filters.filter(isActiveFilter);
-  const active = activeFilters.length > 0 || inlineOpen;
-  const advancedFilterCandidate = databaseFilterRuleCandidate(
-    properties,
-    activeFilters,
-  );
-  const addFilterFocus = useAddFilterMenuFocus(onAddFilter);
-
-  return (
-    <DropdownMenu open={open} onOpenChange={onOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <ContentTableToolbarButton
-          label="Filter"
-          active={active || open}
-          count={activeFilters.length || undefined}
-          aria-label={
-            activeFilters.length > 0
-              ? `${activeFilters.length} active filters`
-              : "Filter"
-          }
-        >
-          <IconFilter className="size-3.5" />
-        </ContentTableToolbarButton>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="w-64"
-        onCloseAutoFocus={addFilterFocus.onCloseAutoFocus}
-      >
-        <div onKeyDown={(event) => event.stopPropagation()}>
-          <DatabasePropertyPickerMenuItems
-            properties={properties}
-            includeName
-            placeholder={dbText("filterBy")}
-            closeOnSelect
-            onSelect={addFilterFocus.onAddFilter}
-          />
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              onAddAdvancedFilter(
-                advancedFilterCandidate.key,
-                advancedFilterCandidate.label,
-              );
-            }}
-          >
-            {dbText("addAdvancedFilter")}
-          </DropdownMenuItem>
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function DatabaseFilterValueControl({
-  documentId,
-  filter,
-  items,
-  properties,
-  autoFocus,
-  hideOptionsUntilQuery = false,
-  onValueChange,
-}: {
-  documentId: string;
-  filter: DatabaseFilter;
-  items: ContentDatabaseItem[];
-  properties: DocumentProperty[];
-  autoFocus?: boolean;
-  hideOptionsUntilQuery?: boolean;
-  onValueChange: (value: string) => void;
-}) {
-  const configureProperty = useConfigureDocumentProperty(
-    documentId,
-    properties.find((property) => property.definition.id === filter.key)
-      ?.definition.databaseId ?? "",
-  );
-  const { session } = useSession();
-  const currentUserEmail = session?.email?.trim() ?? "";
-  const options = databaseFilterOptionChoices(
-    filter.key,
-    properties,
-    items,
-    currentUserEmail,
-  );
-  const type = filterPropertyTypeForKey(filter.key, properties);
-  const [optionQuery, setOptionQuery] = useState("");
-  const filteredOptions = filterPropertyOptions(options, optionQuery);
-  const optionProperty = databaseFilterOptionPropertyForKey(
-    filter.key,
-    properties,
-  );
-  const canCreateOption =
-    !!optionProperty &&
-    optionProperty.definition.type !== "person" &&
-    canCreatePropertyOption(options, optionQuery);
-  const usesOptionFilterValues =
-    optionProperty?.definition.type === "select" ||
-    optionProperty?.definition.type === "status" ||
-    optionProperty?.definition.type === "multi_select" ||
-    optionProperty?.definition.type === "person";
-  const allowsMultipleValues =
-    usesOptionFilterValues &&
-    (filter.operator === "contains" || filter.operator === "does_not_equal");
-  const selectedValues = databaseFilterSelectedValues(filter.value);
-  const selectedOptions = selectedValues
-    .map((value) =>
-      options.find(
-        (option) =>
-          databaseFilterChoiceValue(option) === value ||
-          option.id === value ||
-          option.name.trim().toLowerCase() === value.trim().toLowerCase(),
-      ),
-    )
-    .filter((option): option is DatabaseFilterChoice => !!option);
-  const showClearValue = selectedValues.length > 0;
-  const showOptionChoices =
-    !hideOptionsUntilQuery ||
-    optionQuery.trim().length > 0 ||
-    selectedValues.length > 0;
-  const showCompactOptionValueInput =
-    hideOptionsUntilQuery && selectedOptions.length === 0;
-
-  function setSelectedValues(values: string[]) {
-    onValueChange(databaseFilterEncodeSelectedValues(values));
-  }
-
-  function chooseFilterOption(option: DatabaseFilterChoice) {
-    const optionValue = databaseFilterChoiceValue(option);
-    if (!allowsMultipleValues) {
-      onValueChange(optionValue);
-      return;
-    }
-    const selected = databaseFilterOptionIsSelected(option, selectedValues);
-    setSelectedValues(
-      selected
-        ? selectedValues.filter(
-            (value) =>
-              value !== optionValue &&
-              value.trim().toLowerCase() !== option.name.trim().toLowerCase(),
-          )
-        : [...selectedValues, optionValue],
-    );
-  }
-
-  async function createFilterOption() {
-    if (!optionProperty || !canCreateOption) return;
-    const option = nextPropertyOption(optionQuery, options);
-    await configureProperty.mutateAsync({
-      id: optionProperty.definition.id,
-      documentId,
-      name: optionProperty.definition.name,
-      type: optionProperty.definition.type,
-      visibility: optionProperty.definition.visibility,
-      options: { options: [...options, option] },
-    });
-    setOptionQuery("");
-    if (allowsMultipleValues) {
-      setSelectedValues([...selectedValues, option.id]);
-    } else {
-      onValueChange(option.id);
-    }
-  }
-
-  if (filter.operator === "between" && isDateFilterPropertyType(type)) {
-    return (
-      <DatabaseBetweenDateFilterValueControl
-        filter={filter}
-        onValueChange={onValueChange}
-      />
-    );
-  }
-
-  if (filter.operator === "is_within" && isDateFilterPropertyType(type)) {
-    return (
-      <DatabaseDateRangeFilterValueControl
-        filter={filter}
-        onValueChange={onValueChange}
-      />
-    );
-  }
-
-  if (isDateFilterPropertyType(type)) {
-    return (
-      <DatabaseDateValueField
-        value={filter.value}
-        label={filter.label}
-        autoFocus={autoFocus}
-        onValueChange={onValueChange}
-      />
-    );
-  }
-
-  if (optionProperty) {
-    return (
-      <div className="overflow-hidden rounded-sm">
-        <div className="px-1 pb-1">
-          <div className="flex min-h-9 flex-wrap items-center gap-1 rounded border border-input bg-background px-2 py-1 focus-within:border-database-blue focus-within:ring-2 focus-within:ring-database-blue/25">
-            {showCompactOptionValueInput ? null : (
-              <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
-            )}
-            {selectedOptions.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                className={cn(
-                  "inline-flex max-w-[9rem] items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium",
-                  optionProperty?.definition.type === "person"
-                    ? "bg-muted text-foreground"
-                    : OPTION_COLOR_CLASSES[option.color ?? "gray"],
-                )}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setSelectedValues(
-                    selectedValues.filter(
-                      (value) => value !== databaseFilterChoiceValue(option),
-                    ),
-                  );
-                }}
-              >
-                {optionProperty?.definition.type === "person" ? (
-                  <PersonPill value={databaseFilterChoiceValue(option)} />
-                ) : (
-                  <span className="truncate">{option.name}</span>
-                )}
-                <IconX className="size-3 opacity-70" />
-              </button>
-            ))}
-            <Input
-              autoFocus={autoFocus}
-              value={optionQuery}
-              placeholder={
-                showCompactOptionValueInput
-                  ? filterValuePlaceholder(filter.key, properties)
-                  : selectedOptions.length > 0
-                    ? ""
-                    : filterOptionSearchPlaceholder(filter.key, properties)
-              }
-              aria-label={`Search ${filter.label} filter options`}
-              onChange={(event) => setOptionQuery(event.target.value)}
-              className="h-7 min-w-[7rem] flex-1 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
-            />
-          </div>
-        </div>
-        {showOptionChoices ? (
-          <div className="max-h-60 overflow-auto py-0.5">
-            {showClearValue ? (
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  onValueChange("");
-                }}
-              >
-                {dbText("clearValue")}
-              </DropdownMenuItem>
-            ) : null}
-            {filteredOptions.length === 0 && !canCreateOption ? (
-              <div className="px-2 py-3 text-xs text-muted-foreground">
-                {dbText("noMatchingOptions")}
-              </div>
-            ) : null}
-            {filteredOptions.map((option) => (
-              <DropdownMenuItem
-                key={option.id}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  chooseFilterOption(option);
-                }}
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  {optionProperty?.definition.type === "person" ? (
-                    option.name === "Me" ? (
-                      "Me"
-                    ) : (
-                      <PersonPill value={databaseFilterChoiceValue(option)} />
-                    )
-                  ) : (
-                    option.name
-                  )}
-                </span>
-                {databaseFilterOptionIsSelected(option, selectedValues) ? (
-                  <IconCheck className="size-4 text-muted-foreground" />
-                ) : null}
-              </DropdownMenuItem>
-            ))}
-            {canCreateOption ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={configureProperty.isPending}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void createFilterOption();
-                  }}
-                >
-                  Create &ldquo;{optionQuery.trim()}&rdquo;
-                </DropdownMenuItem>
-              </>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-
-  return (
-    <Input
-      autoFocus={autoFocus}
-      type={filterValueInputType(type)}
-      inputMode={type === "number" ? "decimal" : undefined}
-      value={filter.value}
-      placeholder={filterValuePlaceholder(filter.key, properties)}
-      onChange={(event) => onValueChange(event.target.value)}
-      className="h-9 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
-    />
-  );
-}
-
-function FilterFieldIcon({
-  filter,
-  properties,
-}: {
-  filter: DatabaseFilter;
-  properties: DocumentProperty[];
-}) {
-  if (filter.key === "name") {
-    return <IconFileText className="mr-2 size-4 text-muted-foreground" />;
-  }
-  const property = properties.find(
-    (candidate) => candidate.definition.id === filter.key,
-  );
-  const Icon = property ? TYPE_ICONS[property.definition.type] : IconFileText;
-  return <Icon className="mr-2 size-4 text-muted-foreground" />;
-}
-
-const FILTER_OPERATOR_LABEL_KEYS: Record<FilterOperator, DatabaseMessageKey> = {
-  contains: "filterOperatorContains",
-  does_not_contain: "filterOperatorDoesNotContain",
-  starts_with: "filterOperatorStartsWith",
-  ends_with: "filterOperatorEndsWith",
-  equals: "filterOperatorIs",
-  does_not_equal: "filterOperatorIsNot",
-  greater_than: "filterOperatorGreaterThan",
-  less_than: "filterOperatorLessThan",
-  greater_than_or_equal: "filterOperatorGreaterThanOrEqual",
-  less_than_or_equal: "filterOperatorLessThanOrEqual",
-  before: "filterOperatorBefore",
-  after: "filterOperatorAfter",
-  on_or_before: "filterOperatorOnOrBefore",
-  on_or_after: "filterOperatorOnOrAfter",
-  between: "filterOperatorBetween",
-  is_within: "filterOperatorIsWithin",
-  is_checked: "filterOperatorChecked",
-  is_unchecked: "filterOperatorUnchecked",
-  is_empty: "filterOperatorIsEmpty",
-  is_not_empty: "filterOperatorIsNotEmpty",
-};
-
-const RELATIVE_DATE_LABEL_KEYS: Record<
-  ContentDatabaseRelativeDate,
-  DatabaseMessageKey
-> = {
-  today: "filterDateToday",
-  tomorrow: "filterDateTomorrow",
-  yesterday: "filterDateYesterday",
-};
-
-const RELATIVE_DATE_DIRECTION_LABEL_KEYS: Record<
-  ContentDatabaseRelativeDateDirection,
-  DatabaseMessageKey
-> = {
-  past: "filterDatePast",
-  this: "filterDateThis",
-  next: "filterDateNext",
-};
-
-const RELATIVE_DATE_UNIT_LABEL_KEYS: Record<
-  ContentDatabaseRelativeDateUnit,
-  DatabasePluralMessageKey
-> = {
-  day: "filterDateDays",
-  week: "filterDateWeeks",
-  month: "filterDateMonths",
-  year: "filterDateYears",
-};
-
-const RELATIVE_DATE_THIS_LABEL_KEYS: Record<
-  ContentDatabaseRelativeDateUnit,
-  DatabaseMessageKey
-> = {
-  day: "filterDateToday",
-  week: "filterDateThisWeek",
-  month: "filterDateThisMonth",
-  year: "filterDateThisYear",
-};
-
-// What "is within" starts with, as in Notion.
-const DEFAULT_RELATIVE_DATE_RANGE = {
-  direction: "past",
-  count: 7,
-  unit: "day",
-} as const satisfies ContentDatabaseRelativeDateRange;
-
-function databaseFilterOperatorLabel(
-  operator: FilterOperator,
-  key: string,
-  properties: DocumentProperty[],
-) {
-  const type = filterPropertyTypeForKey(key, properties);
-  if (
-    operator === "does_not_equal" &&
-    (type === "select" ||
-      type === "status" ||
-      type === "multi_select" ||
-      type === "person")
-  ) {
-    return dbText("filterOperatorDoesNotContain");
-  }
-  return dbText(
-    FILTER_OPERATOR_LABEL_KEYS[operator] ?? "filterOperatorContains",
-  );
-}
-
-function isDateFilterPropertyType(type: DocumentPropertyType) {
-  return (
-    type === "date" || type === "created_time" || type === "last_edited_time"
-  );
-}
-
-// Only "is within" holds a relative range, so a value never carries across
-// that operator in either direction: switching to it starts at the past 7 days.
-// Leaving "between" keeps the range's start; a single date already reads as the
-// start of a range.
-function databaseFilterNextValue(
-  current: DatabaseFilter,
-  next: Partial<DatabaseFilter>,
-) {
-  const operator = next.operator ?? current.operator;
-  if (!contentDatabaseFilterOperatorNeedsValue(operator)) return "";
-  if (next.value !== undefined) return next.value;
-  if ((operator === "is_within") !== (current.operator === "is_within")) {
-    return operator === "is_within"
-      ? contentDatabaseRelativeDateRangeToken(DEFAULT_RELATIVE_DATE_RANGE)
-      : "";
-  }
-  if (current.operator === "between" && operator !== "between") {
-    return contentDatabaseFilterDateRangeValues(current.value)[0];
-  }
-  return current.value;
-}
-
-/** The date a relative day means today. */
-function databaseFilterExactDay(relative: ContentDatabaseRelativeDate) {
-  const bound = contentDatabaseFilterDateBound(
-    relative,
-    contentDatabaseFilterToday(),
-  );
-  return bound && "day" in bound ? bound.day : "";
-}
-
-// Day words sit mid-phrase in a chip ("on or before today"); ranges stand
-// alone ("Due: Past 2 weeks"), so they keep their capital.
-function databaseFilterDateValueLabel(value: string) {
-  if (isContentDatabaseRelativeDate(value)) {
-    return dbText(RELATIVE_DATE_LABEL_KEYS[value]).toLowerCase();
-  }
-  const range = contentDatabaseRelativeDateRange(value);
-  return range ? databaseFilterRelativeDateRangeLabel(range) : value;
-}
-
-function databaseFilterRelativeDateRangeLabel(
-  range: ContentDatabaseRelativeDateRange,
-) {
-  if (range.direction === "this") {
-    return dbText(RELATIVE_DATE_THIS_LABEL_KEYS[range.unit]);
-  }
-  return dbText(
-    range.direction === "past" ? "filterDatePastRange" : "filterDateNextRange",
-    {
-      count: range.count,
-      unit: databaseFilterRelativeDateUnitLabel(range.unit, range.count),
-    },
-  );
-}
-
-function databaseFilterRelativeDateUnitLabel(
-  unit: ContentDatabaseRelativeDateUnit,
-  count: number,
-) {
-  return dbCountText(RELATIVE_DATE_UNIT_LABEL_KEYS[unit], count);
-}
-
-function databaseFilterOperatorInlineLabel(
-  operator: FilterOperator,
-  key: string,
-  properties: DocumentProperty[],
-) {
-  return databaseFilterOperatorLabel(operator, key, properties).toLowerCase();
-}
-
-function filterOperatorsForKey(
-  key: string,
-  properties: DocumentProperty[],
-): readonly FilterOperator[] {
-  return contentDatabaseFilterOperatorsForType(
-    filterPropertyTypeForKey(key, properties),
-  );
-}
-
-// A rule's menu also lists its own operator when the menu no longer offers it.
-function filterMenuOperatorsForKey(
-  key: string,
-  properties: DocumentProperty[],
-  current: FilterOperator,
-): readonly FilterOperator[] {
-  return contentDatabaseFilterMenuOperatorsForType(
-    filterPropertyTypeForKey(key, properties),
-    current,
-  );
-}
-
-function defaultFilterOperatorForKey(
-  key: string,
-  properties: DocumentProperty[],
-): FilterOperator {
-  return filterOperatorsForKey(key, properties)[0] ?? "contains";
-}
-
-function filterPropertyTypeForKey(
-  key: string,
-  properties: DocumentProperty[],
-): DocumentPropertyType {
-  if (key === "name") return "text";
-  return (
-    properties.find((property) => property.definition.id === key)?.definition
-      .type ?? "text"
-  );
-}
-
-function filterValuePlaceholder(key: string, properties: DocumentProperty[]) {
-  const type = filterPropertyTypeForKey(key, properties);
-  if (type === "number") return "Number";
-  if (type === "person") return "Person or email";
-  if (type === "place") return "City, venue, or address";
-  if (type === "files_media") return "File or media link";
-  return "Value";
-}
-
-function filterOptionSearchPlaceholder(
-  key: string,
-  properties: DocumentProperty[],
-) {
-  const type = filterPropertyTypeForKey(key, properties);
-  if (type === "person") return "Search for one or more people...";
-  if (type === "select" || type === "status" || type === "multi_select") {
-    return "Search for one or more options...";
-  }
-  return "Search for an option...";
-}
-
-function filterValueInputType(type: DocumentPropertyType) {
-  return type === "number" ? "number" : "text";
-}
-
-function DatabaseBetweenDateFilterValueControl({
-  filter,
-  onValueChange,
-}: {
-  filter: DatabaseFilter;
-  onValueChange: (value: string) => void;
-}) {
-  const [start, end] = contentDatabaseFilterDateRangeValues(filter.value);
-  const updateRange = (nextStart: string, nextEnd: string) => {
-    onValueChange(databaseFilterEncodeDateRangeValues(nextStart, nextEnd));
-  };
-
-  // Each end takes the same values as a single date, so they stack.
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <DatabaseDateValueField
-        value={start}
-        label={`Start ${filter.label} filter date`}
-        onValueChange={(next) => updateRange(next, end)}
-      />
-      <DatabaseDateValueField
-        value={end}
-        label={`End ${filter.label} filter date`}
-        onValueChange={(next) => updateRange(start, next)}
-      />
-    </div>
-  );
-}
-
-// One date a filter compares with: an exact date or a day relative to today.
-// A value with a time, which only agents write, is edited as text, since a
-// date input would show it blank and drop the time.
-function DatabaseDateValueField({
-  value: rawValue,
-  label,
-  autoFocus,
-  onValueChange,
-}: {
-  value: string;
-  label: string;
-  autoFocus?: boolean;
-  onValueChange: (value: string) => void;
-}) {
-  const value = rawValue.trim();
-  const relative = isContentDatabaseRelativeDate(value) ? value : null;
-  // Typed text is passed on only once it reads as a date, so pausing partway
-  // through a time doesn't save it. Leaving the field drops an unfinished edit.
-  const [draft, setDraft] = useState<string | null>(null);
-  // Follows the value, since a removed filter can hand this field to another
-  // one, but stays text while being edited so taking the time out doesn't
-  // switch it to a date input mid-edit.
-  const editsText = draft !== null || contentDatabaseDateValueHasTime(value);
-  const readable = (text: string) =>
-    !text.trim() || !!contentDatabaseFilterDateBound(text, "2000-01-01");
-  const choiceLabel = (choice: ContentDatabaseRelativeDate | null) =>
-    choice
-      ? dbText(RELATIVE_DATE_LABEL_KEYS[choice])
-      : dbText("filterDateExact");
-
-  return (
-    <div className="flex min-w-0 items-center gap-1">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="flex h-9 shrink-0 items-center rounded border border-input bg-background px-2 text-left text-xs hover:bg-muted/50 data-[state=open]:bg-muted/50"
-          >
-            <span className="truncate">{choiceLabel(relative)}</span>
-            <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-40">
-          {[null, ...CONTENT_DATABASE_RELATIVE_DATES].map((choice) => (
-            <DropdownMenuItem
-              key={choice ?? "exact"}
-              onSelect={() => {
-                // A choice drops an unfinished edit, as leaving the field does,
-                // so coming back to Exact date shows the saved date.
-                setDraft(null);
-                if (choice) {
-                  onValueChange(choice);
-                } else if (relative) {
-                  // An exact date starts from the day the relative one means now.
-                  onValueChange(databaseFilterExactDay(relative));
-                }
-              }}
-            >
-              <span className="flex-1">{choiceLabel(choice)}</span>
-              {choice === relative ? (
-                <IconCheck className="size-4 text-muted-foreground" />
-              ) : null}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {relative ? null : (
-        <Input
-          autoFocus={autoFocus}
-          type={editsText ? "text" : "date"}
-          value={draft ?? rawValue}
-          aria-label={label}
-          aria-invalid={draft !== null && !readable(draft)}
-          onChange={(event) => {
-            const next = event.target.value;
-            if (!editsText) return onValueChange(next);
-            setDraft(next);
-            if (readable(next)) onValueChange(next);
-          }}
-          onBlur={() => setDraft(null)}
-          className="h-9 min-w-0 flex-1 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
-        />
-      )}
-    </div>
-  );
-}
-
-// Notion's relative range: past, this, or next, and for past and next how many
-// days, weeks, months, or years. Each choice saves the whole range, so the
-// filter applies as soon as it changes. A value that isn't a range shows the
-// default, greyed out, until something is chosen.
-function DatabaseDateRangeFilterValueControl({
-  filter,
-  onValueChange,
-}: {
-  filter: DatabaseFilter;
-  onValueChange: (value: string) => void;
-}) {
-  const saved = contentDatabaseRelativeDateRange(filter.value.trim());
-  const range = saved ?? DEFAULT_RELATIVE_DATE_RANGE;
-  // "This" is one of its unit, so leaving it starts the count at 1.
-  const count = range.direction === "this" ? 1 : range.count;
-  // A typed count is passed on only once a range can hold it, and leaving the
-  // field or choosing from a menu drops an unfinished edit, as a typed date
-  // does. A menu doesn't always take focus first, and "This" hides the field.
-  const [draft, setDraft] = useState<string | null>(null);
-  const typedCount = (text: string) => {
-    const typed = Number(text);
-    return Number.isInteger(typed) &&
-      typed >= 1 &&
-      typed <= CONTENT_DATABASE_RELATIVE_DATE_MAX_COUNT
-      ? typed
-      : null;
-  };
-  const change = (next: ContentDatabaseRelativeDateRange) =>
-    onValueChange(contentDatabaseRelativeDateRangeToken(next));
-  const choose = (next: ContentDatabaseRelativeDateRange) => {
-    setDraft(null);
-    change(next);
-  };
-
-  // An advanced rule's value is too narrow for all three, so there the unit
-  // drops below the others, as a "between" range stacks its ends.
-  return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1">
-      <DatabaseRelativeDateRangeMenu
-        choices={CONTENT_DATABASE_RELATIVE_DATE_DIRECTIONS}
-        selected={range.direction}
-        muted={!saved}
-        className="shrink-0"
-        label={(direction) =>
-          dbText(RELATIVE_DATE_DIRECTION_LABEL_KEYS[direction])
-        }
-        onSelect={(direction) =>
-          choose(
-            direction === "this"
-              ? { direction, unit: range.unit }
-              : { direction, count, unit: range.unit },
-          )
-        }
-      />
-      {range.direction === "this" ? null : (
-        <Input
-          type="number"
-          inputMode="numeric"
-          min={1}
-          max={CONTENT_DATABASE_RELATIVE_DATE_MAX_COUNT}
-          step={1}
-          value={draft ?? (saved ? String(count) : "")}
-          placeholder={String(count)}
-          aria-label={`${filter.label} filter range count`}
-          aria-invalid={draft !== null && typedCount(draft) === null}
-          onChange={(event) => {
-            const next = event.target.value;
-            setDraft(next);
-            const typed = typedCount(next);
-            if (typed !== null) {
-              change({
-                direction: range.direction,
-                count: typed,
-                unit: range.unit,
-              });
-            }
-          }}
-          onBlur={() => setDraft(null)}
-          className="h-9 w-16 shrink-0 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
-        />
-      )}
-      <DatabaseRelativeDateRangeMenu
-        choices={CONTENT_DATABASE_RELATIVE_DATE_UNITS}
-        selected={range.unit}
-        muted={!saved}
-        className="min-w-18 flex-1"
-        label={(unit) => databaseFilterRelativeDateUnitLabel(unit, count)}
-        onSelect={(unit) => choose({ ...range, unit })}
-      />
-    </div>
-  );
-}
-
-function DatabaseRelativeDateRangeMenu<Choice extends string>({
-  choices,
-  selected,
-  muted,
-  className,
-  label,
-  onSelect,
-}: {
-  choices: readonly Choice[];
-  selected: Choice;
-  muted: boolean;
-  className: string;
-  label: (choice: Choice) => string;
-  onSelect: (choice: Choice) => void;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "flex h-9 items-center rounded border border-input bg-background px-2 text-left text-xs hover:bg-muted/50 data-[state=open]:bg-muted/50",
-            className,
-          )}
-        >
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate",
-              muted && "text-muted-foreground",
-            )}
-          >
-            {label(selected)}
-          </span>
-          <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-40">
-        {choices.map((choice) => (
-          <DropdownMenuItem key={choice} onSelect={() => onSelect(choice)}>
-            <span className="flex-1">{label(choice)}</span>
-            {choice === selected ? (
-              <IconCheck className="size-4 text-muted-foreground" />
-            ) : null}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 export function databaseFilterOptionChoices(
   key: string,
   properties: DocumentProperty[],
@@ -19719,10 +17540,6 @@ export function databaseFilterOptionChoices(
 type DatabaseFilterChoice = DocumentPropertyOption & {
   filterValue?: string;
 };
-
-function databaseFilterChoiceValue(option: DatabaseFilterChoice) {
-  return option.filterValue ?? option.id;
-}
 
 function databaseFilterPersonChoices(
   propertyId: string,
@@ -19782,129 +17599,6 @@ export function databaseFilterOptionPropertyForKey(
     return null;
   }
   return property;
-}
-
-function databaseFilterValueLabel(
-  filter: DatabaseFilter,
-  properties: DocumentProperty[],
-) {
-  if (filter.operator === "between") {
-    const [start, end] = contentDatabaseFilterDateRangeValues(filter.value).map(
-      databaseFilterDateValueLabel,
-    );
-    if (start && end) return dbText("filterDateRangeValue", { start, end });
-    return start || end || dbText("filterChooseDates");
-  }
-  if (
-    isDateFilterPropertyType(filterPropertyTypeForKey(filter.key, properties))
-  ) {
-    return databaseFilterDateValueLabel(filter.value.trim());
-  }
-  const values = databaseFilterSelectedValues(filter.value);
-  const options = databaseFilterOptionChoices(filter.key, properties);
-  if (options.length > 0) {
-    const labels = values.map((value) => {
-      const option = options.find(
-        (candidate) =>
-          candidate.id === value ||
-          candidate.name.trim().toLowerCase() === value.trim().toLowerCase(),
-      );
-      return option?.name ?? value;
-    });
-    return labels.length > 0 ? labels.join(", ") : dbText("filterChooseOption");
-  }
-  return values[0] || dbText("filterChooseOption");
-}
-
-function databaseFilterEncodeDateRangeValues(start: string, end: string) {
-  const normalizedStart = start.trim();
-  const normalizedEnd = end.trim();
-  if (!normalizedStart && !normalizedEnd) return "";
-  return JSON.stringify([normalizedStart, normalizedEnd]);
-}
-
-function databaseFilterOptionIsSelected(
-  option: DatabaseFilterChoice,
-  values: string[],
-) {
-  const optionValue = databaseFilterChoiceValue(option);
-  const optionName = option.name.trim().toLowerCase();
-  return values.some(
-    (value) =>
-      value === optionValue || value.trim().toLowerCase() === optionName,
-  );
-}
-
-export function databaseInlineFilterLabel(
-  filter: DatabaseFilter,
-  properties: DocumentProperty[],
-) {
-  const operator = databaseFilterChipOperatorLabel(
-    filter.operator,
-    filter.key,
-    properties,
-  );
-  if (!contentDatabaseFilterOperatorNeedsValue(filter.operator)) {
-    return `${filter.label}: ${operator}`;
-  }
-  if (databaseFilterSelectedValues(filter.value).length === 0) {
-    return filter.label;
-  }
-  const value = databaseFilterValueLabel(filter, properties);
-  return `${filter.label}: ${operator ? `${operator} ${value}` : value}`;
-}
-
-// Empty only for operators that read as a plain match ("Status: Done"). The
-// `never` default makes a new operator choose its wording; at runtime it
-// still catches unknown operators in saved views.
-function databaseFilterChipOperatorLabel(
-  operator: FilterOperator,
-  key: string,
-  properties: DocumentProperty[],
-): string {
-  const type = filterPropertyTypeForKey(key, properties);
-  switch (operator) {
-    case "contains":
-    case "between":
-    case "is_within":
-      return "";
-    case "equals":
-      if (type === "number") return "=";
-      return databaseFilterOptionPropertyForKey(key, properties)
-        ? ""
-        : dbText("filterOperatorIs").toLowerCase();
-    case "does_not_equal":
-      if (type === "number") return "≠";
-      return dbText(
-        type === "multi_select" || type === "person"
-          ? "filterOperatorDoesNotContain"
-          : "filterOperatorIsNot",
-      ).toLowerCase();
-    case "greater_than":
-      return ">";
-    case "less_than":
-      return "<";
-    case "greater_than_or_equal":
-      return "≥";
-    case "less_than_or_equal":
-      return "≤";
-    case "does_not_contain":
-    case "starts_with":
-    case "ends_with":
-    case "before":
-    case "after":
-    case "on_or_before":
-    case "on_or_after":
-    case "is_checked":
-    case "is_unchecked":
-    case "is_empty":
-    case "is_not_empty":
-      return databaseFilterOperatorInlineLabel(operator, key, properties);
-    default: {
-      const savedOperator: never = operator;
-      return databaseFilterOperatorInlineLabel(savedOperator, key, properties);
-    }
-  }
 }
 
 function databaseFilterPropertyForKey(
