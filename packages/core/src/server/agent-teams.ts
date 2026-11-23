@@ -1437,6 +1437,7 @@ async function ensureTaskCompletionNotification(
   ownerEmail: string,
   hitContinuationLimit = false,
 ): Promise<boolean> {
+  if (task.quiet) return true;
   try {
     const { hasNotificationWithMetadata, insertNotification } =
       await import("../notifications/store.js");
