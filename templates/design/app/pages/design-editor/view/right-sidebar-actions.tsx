@@ -56,16 +56,14 @@ export function renderRightSidebarActions({
     <Button
       type="button"
       variant="ghost"
-      size="sm"
+      size={commentsLabelVisible ? "xs" : "icon-xs"}
       data-design-comments-toggle
       aria-pressed={commentsPanelOpen}
       aria-label={commentsLabelVisible ? undefined : commentsAccessibleName}
       onClick={() => setCommentsPanelOpen((open) => !open)}
       className={cn(
-        "design-focus-ring design-font-medium relative h-[var(--design-control-height)] min-w-0 gap-[var(--design-baseline-half)] rounded-md text-xs",
-        commentsLabelVisible
-          ? "shrink px-[var(--design-baseline-unit)]"
-          : "w-[var(--design-control-height)] shrink-0 px-0",
+        "design-focus-ring design-font-medium relative min-w-0 gap-[var(--design-baseline-half)] [&_svg]:size-[var(--design-icon-size)]",
+        commentsLabelVisible ? "shrink" : "shrink-0",
         commentsPanelOpen &&
           "bg-[var(--design-editor-active-row-color)] text-[var(--design-brand-ink)]",
       )}

@@ -166,8 +166,8 @@ export function FusionAppMenu({
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
-              className="design-focus-ring relative size-[var(--design-control-height)] shrink-0 cursor-pointer rounded-md text-foreground hover:bg-accent hover:text-foreground"
+              size="icon-xs"
+              className="design-focus-ring relative shrink-0 cursor-pointer text-foreground hover:bg-accent hover:text-foreground [&_svg]:size-[var(--design-icon-size)]"
               aria-label={"Preview or publish app" /* i18n-ignore */}
             >
               {busy ? (

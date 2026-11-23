@@ -206,13 +206,19 @@ test.describe("floating toolbar", () => {
 
     await expect(interact).toHaveAttribute("aria-pressed", "true");
     // oracle-change: the bottom toolbar stays in Interact for the mode switch and zoom; only the tool buttons leave.
-    await expect(toolbar.getByRole("button", { name: "Move", exact: true })).toHaveCount(0);
-    await expect(toolbar.getByRole("button", { name: "Pin comment", exact: true })).toHaveCount(0);
+    await expect(
+      toolbar.getByRole("button", { name: "Move", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      toolbar.getByRole("button", { name: "Pin comment", exact: true }),
+    ).toHaveCount(0);
     for (const key of ["r", "t", "p", "h", "k", "f"]) {
       await page.keyboard.press(key);
     }
     await expect(interact).toHaveAttribute("aria-pressed", "true");
-    await expect(toolbar.getByRole("button", { name: "Move", exact: true })).toHaveCount(0);
+    await expect(
+      toolbar.getByRole("button", { name: "Move", exact: true }),
+    ).toHaveCount(0);
     await expect
       .poll(() => agentContext(page))
       .toMatchObject({ mode: "interact", activeTool: "move" });

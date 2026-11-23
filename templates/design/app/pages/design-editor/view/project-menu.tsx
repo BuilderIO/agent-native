@@ -110,9 +110,9 @@ export function renderProjectMenu({
         <Button
           ref={projectMenuTriggerRef}
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           data-design-app-menu-trigger
-          className="design-focus-ring size-8 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-4"
+          className="design-focus-ring shrink-0 cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-4"
           aria-label={t("designEditor.more")}
         >
           <AgentNativeMenuMark className="size-4 text-foreground dark:text-white" />

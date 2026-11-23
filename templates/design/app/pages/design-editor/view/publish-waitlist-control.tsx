@@ -141,9 +141,9 @@ export function renderPublishWaitlistControl({
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                size="icon"
+                size="icon-xs"
                 className={cn(
-                  "design-focus-ring size-[var(--design-control-height)] shrink-0 cursor-pointer rounded-md text-foreground hover:bg-accent hover:text-foreground",
+                  "design-focus-ring shrink-0 cursor-pointer text-foreground hover:bg-accent hover:text-foreground [&_svg]:size-[var(--design-icon-size)]",
                   hostEmbeddedEditor && "hidden",
                 )}
                 aria-label={"Preview or publish app" /* i18n-ignore */}

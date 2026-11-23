@@ -2284,9 +2284,9 @@ const LayerRow = memo(function LayerRow({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon"
+                    size="icon-xs"
                     className={cn(
-                      "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
+                      "shrink-0 text-muted-foreground [&_svg]:size-[var(--design-icon-size)] opacity-0 hover:bg-transparent hover:text-foreground group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
                       (node.locked || isSelected) && "opacity-100",
                       isSelected && "text-foreground",
                     )}
@@ -2337,9 +2337,9 @@ const LayerRow = memo(function LayerRow({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon"
+                    size="icon-xs"
                     className={cn(
-                      "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
+                      "shrink-0 text-muted-foreground [&_svg]:size-[var(--design-icon-size)] opacity-0 hover:bg-transparent hover:text-foreground group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
                       (node.hidden || isSelected) && "opacity-100",
                       isSelected && "text-foreground",
                     )}
@@ -2426,9 +2426,9 @@ function IconTooltipButton({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
+            size="icon-xs"
             data-layers-panel-action={dataAction}
-            className="size-[var(--design-control-height)] rounded-sm p-0 text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:opacity-35"
+            className="text-muted-foreground [&_svg]:size-[var(--design-icon-size)] hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:opacity-35"
             aria-label={label}
             disabled={disabled}
             onClick={onClick}

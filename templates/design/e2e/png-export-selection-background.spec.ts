@@ -224,7 +224,9 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
     .click();
   await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
   await expect(
-    page.locator("[data-design-interact-floating-bar] [data-design-interact-route]"),
+    page.locator(
+      "[data-design-interact-floating-bar] [data-design-interact-route]",
+    ),
   ).toBeVisible();
   const responsiveMenuExport = await exportPngPixelsFromFileMenu(page);
   expect(responsiveMenuExport.corner).toEqual([18, 52, 86, 255]);

@@ -102,7 +102,10 @@ import { renderEditorCanvasArea } from "./view/editor-canvas-area";
 import { renderEditorDialogs } from "./view/editor-dialogs";
 import { DesignFirstOutputNextStep } from "./view/first-output-next-step";
 import { renderLeftSidebar } from "./view/left-sidebar";
-import { renderMobileInspectorSheet } from "./view/mobile-inspector-sheet";
+import {
+  MobileCommentsSheet,
+  renderMobileInspectorSheet,
+} from "./view/mobile-inspector-sheet";
 import { renderNodeRewriteAndLocalhostDialogs } from "./view/node-rewrite-and-localhost-dialogs";
 import { renderPendingNodeRewriteButton } from "./view/pending-node-rewrite-button";
 import { renderProjectMenu } from "./view/project-menu";
@@ -197,6 +200,8 @@ export function renderDesignEditorView({
     rightSidebarWidth,
     minimalUi,
     isMobileViewport,
+    commentsPanelOpen,
+    setCommentsPanelOpen,
     activeBreakpointWidthState,
     handleInteractionStateChange,
   } = editorHistory;
@@ -929,10 +934,10 @@ export function renderDesignEditorView({
       <Button
         type="button"
         variant="outline"
-        size="sm"
+        size="xs"
         data-design-apply-feedback
         aria-label={compact ? label : undefined}
-        className="design-focus-ring h-[var(--design-control-height)] min-w-0 shrink-0 gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-xs"
+        className="design-focus-ring min-w-0 shrink-0 gap-[var(--design-baseline-half)] [&_svg]:size-3.5"
         onClick={handleApplyReviewFeedback}
         disabled={reviewFeedbackApplying}
       >
@@ -1557,6 +1562,7 @@ export function renderDesignEditorView({
             leftChromeOverlayInset,
             rightSidebarVisible,
             chromeInsetLeft,
+            readOnlyZoomControl: toolbarZoomControl,
           })
         )}
 
@@ -1613,6 +1619,25 @@ export function renderDesignEditorView({
           )
         }
       />
+
+      {isMobileViewport &&
+      !minimalUi &&
+      !hostOwnsChrome &&
+      !uiHidden &&
+      editorToolsAndVectors.reviewCommentsPanelProps ? (
+        <MobileCommentsSheet
+          open={commentsPanelOpen && !pinMode}
+          onClose={() => setCommentsPanelOpen(false)}
+          title={t("designEditor.columnHead.comments")}
+        >
+          <ReviewCommentsPanel
+            {...editorToolsAndVectors.reviewCommentsPanelProps}
+            onNewThread={() => {
+              if (!pinMode) handlePinToolToggle();
+            }}
+          />
+        </MobileCommentsSheet>
+      ) : null}
 
       {renderMobileInspectorSheet({
         editorCore,

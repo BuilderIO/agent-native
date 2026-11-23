@@ -247,8 +247,9 @@ export function renderLeftSidebar({
                   className="w-full"
                 >
                   <TabsList
+                    size="sm"
                     aria-label={t("designEditor.leftTabs.label")}
-                    className="grid h-[var(--design-control-height)] w-full auto-cols-fr grid-flow-col rounded-md p-px"
+                    className="grid w-full auto-cols-fr grid-flow-col"
                   >
                     {LEFT_PANEL_TABS.map((panel) => (
                       <TabsTrigger

@@ -262,7 +262,9 @@ test("in Interact mode saved state rules follow real hover, click focus, keyboar
     .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
     .click();
   await expect(
-    app.page.locator("[data-design-interact-floating-bar] [data-design-interact-route]"),
+    app.page.locator(
+      "[data-design-interact-floating-bar] [data-design-interact-route]",
+    ),
   ).toBeVisible();
   const alpha = app.node("alpha");
   const clicks = () =>

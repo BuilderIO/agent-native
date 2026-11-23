@@ -99,7 +99,9 @@ test("the zoom control scales the preview, keeps its choice across devices and r
   // The device picks the viewport and the zoom scales it: 402 CSS px at 100%.
   await choose("100%");
   await page
-    .locator("[data-design-interact-floating-bar] [data-design-interact-device]")
+    .locator(
+      "[data-design-interact-floating-bar] [data-design-interact-device]",
+    )
     .click();
   await page.getByRole("option", { name: /iPhone 17\b(?! P)/ }).click();
   await expect(zoom).toHaveText("100%");
@@ -111,7 +113,9 @@ test("the zoom control scales the preview, keeps its choice across devices and r
 
   // Leaving Interact forgets the choice: the next visit starts at Fit.
   await choose("150%");
-  await page.locator('[data-design-bottom-toolbar] button[aria-label="Edit"]').click();
+  await page
+    .locator('[data-design-bottom-toolbar] button[aria-label="Edit"]')
+    .click();
   await page
     .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
     .click();

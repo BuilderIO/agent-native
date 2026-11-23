@@ -95,7 +95,9 @@ test("an Interact markup preview carries the theme, links and tweaks bridges and
       "data-agent-native-preview-theme-bridge",
     ]);
 
-  await page.locator('[data-design-bottom-toolbar] button[aria-label="Edit"]').click();
+  await page
+    .locator('[data-design-bottom-toolbar] button[aria-label="Edit"]')
+    .click();
   await page.waitForURL(
     (url) =>
       url.searchParams.get("editorView") === "overview" &&

@@ -13,7 +13,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
-} from "./dropdown-menu";
+} from "@/components/ui/dropdown-menu";
 
 function must<T>(value: T | null | undefined): T {
   if (value == null) throw new Error("expected element is missing");

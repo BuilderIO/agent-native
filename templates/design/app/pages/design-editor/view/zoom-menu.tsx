@@ -118,8 +118,8 @@ export function renderZoomMenu({
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              size="sm"
-              className="h-6 cursor-pointer gap-0.5 px-1 text-[10px] tabular-nums text-muted-foreground hover:text-foreground"
+              size="xs"
+              className="cursor-pointer gap-0.5 tabular-nums text-muted-foreground hover:text-foreground"
             >
               {zoomLabel}
               <IconChevronDown className="size-2.5 opacity-60" />
