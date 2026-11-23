@@ -27,7 +27,6 @@ vi.mock("./run-store.js", () => ({
 const { runAgentLoop, toolCallCacheKey, AGENT_INTERNAL_CONTINUE_PROMPT } =
   await import("./production-agent.js");
 import { actionArgumentsHash } from "../action-arguments-identity.js";
-import { approvalKeyWithArguments } from "./approval-key.js";
 import {
   ActionInputValidationError,
   defineAction,
@@ -38,6 +37,7 @@ import {
 import { createFetchToolEntry } from "../extensions/fetch-tool.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { attachmentFailureToError } from "../private-blob/attachment-errors.js";
+import { approvalKeyWithArguments } from "./approval-key.js";
 import type {
   AgentEngine,
   EngineEvent,
