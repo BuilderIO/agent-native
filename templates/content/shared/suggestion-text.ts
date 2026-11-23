@@ -333,25 +333,58 @@ function slicePresentation(
 }
 
 const CLIP_SLACK = 16;
+const CLIPPED_URL = 40;
+
+function hasLongUrl(nodes: readonly SuggestionPresentationNode[]): boolean {
+  return nodes.some(
+    (node) =>
+      (node.type === "link" && node.url.length > CLIPPED_URL) ||
+      ("children" in node && hasLongUrl(node.children)),
+  );
+}
+
+function shortenUrls(
+  nodes: readonly SuggestionPresentationNode[],
+): SuggestionPresentationNode[] {
+  return nodes.map((node) =>
+    node.type === "link"
+      ? {
+          ...node,
+          url:
+            node.url.length > CLIPPED_URL
+              ? `${node.url.slice(0, CLIPPED_URL)}…`
+              : node.url,
+          children: shortenUrls(node.children),
+        }
+      : "children" in node
+        ? { ...node, children: shortenUrls(node.children) }
+        : node,
+  );
+}
+
+const LOW_SURROGATE = /[\uDC00-\uDFFF]/u;
 
 export function clipSuggestionPresentation(
   nodes: SuggestionPresentationNode[],
   { head, tail }: { head: number; tail: number },
 ): SuggestionPresentationNode[] {
   const text = nodes.map(presentedText).join("");
-  if (text.length <= head + tail + CLIP_SLACK) return nodes;
+  if (text.length <= head + tail + CLIP_SLACK)
+    return hasLongUrl(nodes) ? shortenUrls(nodes) : nodes;
   const headSpace = text.slice(0, head + 1).search(/\s\S*$/);
-  const headEnd = headSpace > head / 2 ? headSpace : head;
+  let headEnd = headSpace > head / 2 ? headSpace : head;
+  if (LOW_SURROGATE.test(text.charAt(headEnd))) headEnd -= 1;
   const tailFrom = text.length - tail;
   const tailSpace = text.slice(tailFrom - 1).search(/\s/);
-  const tailStart =
+  let tailStart =
     tailSpace >= 0 && tailSpace < tail / 2 ? tailFrom + tailSpace : tailFrom;
+  if (LOW_SURROGATE.test(text.charAt(tailStart))) tailStart += 1;
   const ellipsis = `${headEnd === headSpace ? " " : ""}…${
     /\s/.test(text[tailStart - 1] ?? "") ? " " : ""
   }`;
-  return [
+  return shortenUrls([
     ...slicePresentation(nodes, 0, headEnd),
     { type: "text", value: ellipsis },
     ...slicePresentation(nodes, tailStart, text.length),
-  ];
+  ]);
 }

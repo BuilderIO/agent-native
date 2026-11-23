@@ -225,4 +225,27 @@ describe("clipped suggestion text", () => {
       "https://example.test",
     ]);
   });
+
+  it("shortens a long link destination in a clipped card", () => {
+    const url = `https://example.test/${"a".repeat(200)}`;
+    const nodes = suggestionTextPresentation(`[docs](${url})`);
+    const clipped = clipSuggestionPresentation(nodes, { head: 72, tail: 24 });
+    expect(clipped).not.toBe(nodes);
+    expect(presentationText(clipped)).toBe("docs");
+    expect(suggestionLinkDestinations(clipped)).toEqual([
+      `${url.slice(0, 40)}…`,
+    ]);
+  });
+
+  it("never splits a character between the head and the tail", () => {
+    const clipped = presentationText(
+      clipSuggestionPresentation(
+        suggestionTextPresentation(
+          `${"a".repeat(71)}😀${"b".repeat(100)}😀${"c".repeat(23)}`,
+        ),
+        { head: 72, tail: 24 },
+      ),
+    );
+    expect(clipped).toBe(`${"a".repeat(71)}…${"c".repeat(23)}`);
+  });
 });
