@@ -127,15 +127,16 @@ describe("MCP analytics events", () => {
       arguments: {},
     });
 
-    const props = eventNamed("$mcp_tool_call")!.properties!;
+    const props = eventNamed("$mcp_tool_call")?.properties;
+    expect(props).toBeDefined();
     const text = (result.content as Array<{ type: string; text?: string }>)
       .filter((block) => block.type === "text")
       .map((block) => block.text ?? "")
       .join("");
     expect(text).toContain("Quarterly plan draft");
-    expect(props.$mcp_response_text_chars).toBe(text.length);
+    expect(props?.$mcp_response_text_chars).toBe(text.length);
     expect(result.structuredContent).toBeDefined();
-    expect(props.$mcp_response_structured_chars).toBe(
+    expect(props?.$mcp_response_structured_chars).toBe(
       JSON.stringify(result.structuredContent).length,
     );
     expect(JSON.stringify(props)).not.toContain("Quarterly plan draft");
