@@ -27,6 +27,7 @@ vi.mock("../server/lib/event-guest-notifications.js", () => ({
 
 vi.mock("../server/lib/event-video-conferencing.js", () => ({
   prepareZoomMeetingPatch: vi.fn(),
+  discardZoomMeeting: vi.fn(),
 }));
 
 import {
@@ -34,8 +35,12 @@ import {
   preparedCallArguments,
   preparedCallNeedsApproval,
 } from "@agent-native/core/action";
+import { saveConflict } from "@agent-native/core/save-conflict/server";
 
-import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
+import {
+  discardZoomMeeting,
+  prepareZoomMeetingPatch,
+} from "../server/lib/event-video-conferencing.js";
 import action from "./update-event";
 
 // Every caller's gate judges the call as prepared: validated, defaults
@@ -729,6 +734,88 @@ describe("update-event working locations", () => {
     });
     expect(prepareZoomMeetingPatch).not.toHaveBeenCalled();
     expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("deletes the Zoom meeting it created when Google refuses the write as stale", async () => {
+    const read = {
+      id: "google-event-1",
+      revision: '"etag-1"',
+      title: "Team meeting",
+      description: "",
+      location: "",
+      start: "2026-07-07T15:00:00.000Z",
+      end: "2026-07-07T15:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "owner@example.com",
+      organizer: { email: "owner@example.com", self: true },
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    };
+    getEventMock.mockResolvedValue(read);
+    vi.mocked(prepareZoomMeetingPatch).mockResolvedValue({
+      meetingLink: "https://zoom.us/j/123",
+      patch: { description: "Zoom: https://zoom.us/j/123" },
+      alreadyPresent: false,
+      created: { accountId: "zoom-account", meetingId: "123" },
+    });
+    updateEventMock.mockRejectedValue(
+      saveConflict(
+        "calendar_event",
+        { ...read, revision: '"etag-2"' },
+        '"etag-2"',
+      ),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-event-1",
+          addZoom: true,
+          expectedRevision: '"etag-1"',
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+    expect(discardZoomMeeting).toHaveBeenCalledWith({
+      accountId: "zoom-account",
+      meetingId: "123",
+    });
+  });
+
+  it("keeps the Zoom meeting when the write fails without saying it wasn't applied", async () => {
+    getEventMock.mockResolvedValue({
+      id: "google-event-1",
+      revision: '"etag-1"',
+      title: "Team meeting",
+      description: "",
+      location: "",
+      start: "2026-07-07T15:00:00.000Z",
+      end: "2026-07-07T15:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "owner@example.com",
+      organizer: { email: "owner@example.com", self: true },
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+    vi.mocked(prepareZoomMeetingPatch).mockResolvedValue({
+      meetingLink: "https://zoom.us/j/123",
+      patch: { description: "Zoom: https://zoom.us/j/123" },
+      alreadyPresent: false,
+      created: { accountId: "zoom-account", meetingId: "123" },
+    });
+    updateEventMock.mockRejectedValue(new Error("socket hang up"));
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-event-1",
+          addZoom: true,
+          expectedRevision: '"etag-1"',
+        }),
+      ),
+    ).rejects.toThrow("socket hang up");
+    expect(discardZoomMeeting).not.toHaveBeenCalled();
   });
 
   it("passes the revision the caller read to a move", async () => {
