@@ -34,6 +34,7 @@ let executeWithDeps: typeof import("./execute-builder-source-execution.js").exec
 let realAutosaveDeps: typeof import("./run-builder-article-autosave.js").realBuilderArticleAutosaveDeps;
 let setAutosave: typeof import("./set-builder-article-autosave.js").default;
 let listAutosaves: typeof import("./list-builder-article-autosaves.js").default;
+let setProperty: typeof import("./set-document-property.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -51,6 +52,7 @@ beforeAll(async () => {
     await import("./run-builder-article-autosave.js"));
   setAutosave = (await import("./set-builder-article-autosave.js")).default;
   listAutosaves = (await import("./list-builder-article-autosaves.js")).default;
+  setProperty = (await import("./set-document-property.js")).default;
 }, 60000);
 
 afterAll(() => {
@@ -334,6 +336,43 @@ async function addMembership(
   return databaseId;
 }
 
+async function addBuilderTextField(
+  ids: Awaited<ReturnType<typeof seedArticle>>,
+  name: string,
+  sourceFieldKey: string,
+) {
+  const propertyId = `prop_${name}_${ids.sourceId}`;
+  await getDb().insert(schema.documentPropertyDefinitions).values({
+    id: propertyId,
+    ownerEmail: OWNER,
+    databaseId: ids.databaseId,
+    name,
+    type: "text",
+    createdAt: SEEDED_AT,
+    updatedAt: SEEDED_AT,
+  });
+  await getDb()
+    .insert(schema.contentDatabaseSourceFields)
+    .values({
+      id: `field_${name}_${ids.sourceId}`,
+      ownerEmail: OWNER,
+      sourceId: ids.sourceId,
+      propertyId,
+      localFieldKey: propertyId,
+      sourceFieldKey,
+      sourceFieldLabel: name,
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      readOnly: 0,
+      provenance: "source field",
+      freshness: "fresh",
+      createdAt: SEEDED_AT,
+      updatedAt: SEEDED_AT,
+    });
+  return propertyId;
+}
+
 async function listRows(rowDocumentId: string, now: string) {
   const database = await autosave.resolveArticleDatabase(rowDocumentId);
   if (!database) throw new Error("The row has no collection.");
@@ -370,6 +409,71 @@ describe("Builder article autosave", () => {
     const saved = await record(ids.sourceId, ids.rowDocumentId);
     expect(saved.savedEditAt).toBe(SEEDED_AT);
     expect(saved.attemptId).toBeNull();
+  });
+
+  it("saves a Builder field someone fills in Content with the draft", async () => {
+    const ids = await seedArticle();
+    await getDb()
+      .delete(schema.contentDatabaseSourceChangeSets)
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, ids.changeSetId));
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Old title" })
+      .where(eq(schema.documents.id, ids.rowDocumentId));
+    const handle = await addBuilderTextField(ids, "Handle", "data.handle");
+    const { deps, executeWrite } = harness({ entryId: ids.entryId });
+
+    await asOwner(() =>
+      setProperty.run(
+        {
+          databaseId: ids.databaseId,
+          documentId: ids.rowDocumentId,
+          propertyId: handle,
+          value: "draft-fields-check",
+        },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    await getDb()
+      .update(schema.documentPropertyValues)
+      .set({ updatedAt: SEEDED_AT })
+      .where(eq(schema.documentPropertyValues.propertyId, handle));
+    await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        deps,
+      ),
+    );
+
+    expect(executeWrite).toHaveBeenCalledTimes(1);
+    const [{ request }] = executeWrite.mock.calls[0] as unknown as [
+      { request: { method: string; body: { data: Record<string, unknown> } } },
+    ];
+    expect(request.method).toBe("PATCH");
+    expect(request.body.data).toMatchObject({ handle: "draft-fields-check" });
+  });
+
+  it("keeps Builder fields read-only in Content outside Builder's test model", async () => {
+    const ids = await seedArticle();
+    const handle = await addBuilderTextField(ids, "Handle", "data.handle");
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({ sourceTable: "blog-article" })
+      .where(eq(schema.contentDatabaseSources.id, ids.sourceId));
+
+    await expect(
+      asOwner(() =>
+        setProperty.run(
+          {
+            databaseId: ids.databaseId,
+            documentId: ids.rowDocumentId,
+            propertyId: handle,
+            value: "draft-fields-check",
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "PROPERTY_NOT_WRITABLE" });
   });
 
   it("leaves Builder alone when a run finds nothing new to save", async () => {

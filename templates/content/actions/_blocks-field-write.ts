@@ -6,7 +6,14 @@ import { documentAttributionActor } from "../server/lib/document-attribution.js"
 import { firstRow } from "../server/lib/first-row.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
-import { contentDatabaseSourceFieldsAllowLocalWrite } from "../shared/source-field-policy.js";
+import {
+  isBlocksPropertyType,
+  type DocumentPropertyType,
+} from "../shared/properties.js";
+import {
+  contentDatabaseSourceFieldAllowsValueEdit,
+  contentDatabaseSourceFieldsAllowLocalWrite,
+} from "../shared/source-field-policy.js";
 import { persistBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import { nanoid } from "./_property-utils.js";
 
@@ -19,6 +26,10 @@ export async function assertPropertyWritableByRowMutation(
     .select({
       writeOwner: schema.contentDatabaseSourceFields.writeOwner,
       readOnly: schema.contentDatabaseSourceFields.readOnly,
+      mappingType: schema.contentDatabaseSourceFields.mappingType,
+      sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+      sourceType: schema.contentDatabaseSources.sourceType,
+      sourceTable: schema.contentDatabaseSources.sourceTable,
     })
     .from(schema.contentDatabaseSourceFields)
     .innerJoin(
@@ -34,7 +45,16 @@ export async function assertPropertyWritableByRowMutation(
         eq(schema.contentDatabaseSourceFields.propertyId, definition.id),
       ),
     );
-  if (contentDatabaseSourceFieldsAllowLocalWrite(sourceFields)) return;
+  const plainValue =
+    definition.type !== "relation" &&
+    !isBlocksPropertyType(definition.type as DocumentPropertyType);
+  if (
+    plainValue
+      ? sourceFields.every(contentDatabaseSourceFieldAllowsValueEdit)
+      : contentDatabaseSourceFieldsAllowLocalWrite(sourceFields)
+  ) {
+    return;
+  }
   throw new ActionContractError(
     `Property "${definition.name}" is not writable by database row mutations.`,
     {

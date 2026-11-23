@@ -51,7 +51,10 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
-import { contentDatabaseSourceManagedPropertyIds } from "../shared/source-field-policy.js";
+import {
+  contentDatabaseSourceManagedPropertyIds,
+  contentDatabaseSourceWritebackPropertyIds,
+} from "../shared/source-field-policy.js";
 import { chunks } from "./_batch-utils.js";
 import { readBlocksFieldIdentities } from "./_blocks-field-identity.js";
 import {
@@ -97,9 +100,14 @@ export type DatabasePropertySchema = {
     propertyId: string | null;
     writeOwner: string;
     readOnly: number;
+    mappingType: string;
+    sourceFieldKey: string;
+    sourceType: string;
+    sourceTable: string;
     sourceMetadataJson: string;
   }>;
   sourceManagedPropertyIds: Set<string>;
+  sourceWritebackPropertyIds: Set<string>;
 };
 
 export async function readDatabasePropertySchema(
@@ -117,6 +125,10 @@ export async function readDatabasePropertySchema(
         propertyId: schema.contentDatabaseSourceFields.propertyId,
         writeOwner: schema.contentDatabaseSourceFields.writeOwner,
         readOnly: schema.contentDatabaseSourceFields.readOnly,
+        mappingType: schema.contentDatabaseSourceFields.mappingType,
+        sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+        sourceType: schema.contentDatabaseSources.sourceType,
+        sourceTable: schema.contentDatabaseSources.sourceTable,
         sourceMetadataJson: schema.contentDatabaseSources.metadataJson,
       })
       .from(schema.contentDatabaseSourceFields)
@@ -134,7 +146,25 @@ export async function readDatabasePropertySchema(
     sourceFields,
     sourceManagedPropertyIds:
       contentDatabaseSourceManagedPropertyIds(sourceFields),
+    sourceWritebackPropertyIds:
+      contentDatabaseSourceWritebackPropertyIds(sourceFields),
   };
+}
+
+export function sourceAllowsValueEdit(
+  schema: Pick<
+    DatabasePropertySchema,
+    "sourceManagedPropertyIds" | "sourceWritebackPropertyIds"
+  >,
+  propertyId: string,
+  type: string,
+) {
+  if (!schema.sourceManagedPropertyIds.has(propertyId)) return true;
+  return (
+    schema.sourceWritebackPropertyIds.has(propertyId) &&
+    type !== "relation" &&
+    !isBlocksPropertyType(type as DocumentPropertyType)
+  );
 }
 
 export function nanoid(size = 12): string {
@@ -700,7 +730,7 @@ export async function listPropertiesForDatabase(
   } = {},
 ): Promise<DocumentProperty[]> {
   const db = getDb();
-  const { definitions, sourceManagedPropertyIds } =
+  const { definitions, sourceManagedPropertyIds, sourceWritebackPropertyIds } =
     options.propertySchema ??
     (await readDatabasePropertySchema(db, databaseId));
 
@@ -806,7 +836,11 @@ export async function listPropertiesForDatabase(
         includeContainerDerivedValues &&
         !definition.systemRole &&
         !isComputedPropertyType(type) &&
-        !sourceManagedPropertyIds.has(definition.id),
+        sourceAllowsValueEdit(
+          { sourceManagedPropertyIds, sourceWritebackPropertyIds },
+          definition.id,
+          type,
+        ),
       ...(valueDocument && isBlocksPropertyType(type)
         ? {
             blocksField: blocksFieldIdentityById.get(
@@ -893,7 +927,7 @@ export async function listPropertiesForDatabaseDocuments(
   const db = getDb();
   const result = new Map<string, DocumentProperty[]>();
   if (valueDocuments.length === 0) return result;
-  const { definitions, sourceManagedPropertyIds } =
+  const { definitions, sourceManagedPropertyIds, sourceWritebackPropertyIds } =
     options.propertySchema ??
     (await readDatabasePropertySchema(db, databaseId));
   if (definitions.length === 0) {
@@ -1024,7 +1058,11 @@ export async function listPropertiesForDatabaseDocuments(
         editable:
           !definition.systemRole &&
           !isComputedPropertyType(propertyDefinition.type) &&
-          !sourceManagedPropertyIds.has(definition.id),
+          sourceAllowsValueEdit(
+            { sourceManagedPropertyIds, sourceWritebackPropertyIds },
+            definition.id,
+            propertyDefinition.type,
+          ),
         ...(blocksFieldIdentityById &&
         isBlocksPropertyType(propertyDefinition.type)
           ? {

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   contentDatabaseSourceFieldAllowsLocalWrite,
+  contentDatabaseSourceFieldSavesEditsToSource,
   contentDatabaseSourceManagedPropertyIds,
   contentDatabaseSourceFieldsAllowLocalWrite,
+  contentDatabaseSourceWritebackPropertyIds,
   parseContentDatabaseSourceFieldReadOnly,
   parseContentDatabaseSourceWriteOwner,
 } from "./source-field-policy";
@@ -65,5 +67,63 @@ describe("Content source field write policy", () => {
         { propertyId: "shared", writeOwner: "source", readOnly: 1 },
       ]),
     ).toEqual(new Set(["shared"]));
+  });
+
+  it("saves edits to Builder entry fields only on the Builder test model", () => {
+    const author = {
+      writeOwner: "source",
+      readOnly: 0,
+      mappingType: "property",
+      sourceFieldKey: "data.author",
+      sourceType: "builder-cms",
+      sourceTable: "agent-native-blog-article-test",
+    };
+    expect(contentDatabaseSourceFieldSavesEditsToSource(author)).toBe(true);
+
+    for (const field of [
+      { ...author, sourceTable: "blog-article" },
+      { ...author, sourceType: "notion-database" },
+      { ...author, readOnly: 1 },
+      { ...author, writeOwner: "derived" },
+      { ...author, writeOwner: "local" },
+      { ...author, mappingType: "title" },
+      { ...author, sourceFieldKey: "fields.status" },
+      { ...author, sourceFieldKey: "data.title" },
+      { ...author, sourceFieldKey: "data.blocks" },
+    ]) {
+      expect(contentDatabaseSourceFieldSavesEditsToSource(field)).toBe(false);
+    }
+  });
+
+  it("lists source-managed properties whose every mapping saves edits back", () => {
+    const builderField = {
+      writeOwner: "source",
+      readOnly: 0,
+      mappingType: "property",
+      sourceType: "builder-cms",
+      sourceTable: "agent-native-blog-article-test",
+    };
+    expect(
+      contentDatabaseSourceWritebackPropertyIds([
+        {
+          ...builderField,
+          propertyId: "author",
+          sourceFieldKey: "data.author",
+        },
+        {
+          ...builderField,
+          propertyId: "status",
+          sourceFieldKey: "fields.status",
+        },
+        { ...builderField, propertyId: "shared", sourceFieldKey: "data.topic" },
+        {
+          ...builderField,
+          propertyId: "shared",
+          sourceFieldKey: "data.topic",
+          sourceTable: "blog-article",
+        },
+        { propertyId: "notes", writeOwner: "local", readOnly: 0 },
+      ]),
+    ).toEqual(new Set(["author"]));
   });
 });
