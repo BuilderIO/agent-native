@@ -2212,10 +2212,10 @@ export async function updateEvent(
   event: Partial<CalendarEvent>,
   options: {
     account: GoogleAccountSelection;
-    sendUpdates?: "all" | "none";
-    addGoogleMeet?: boolean;
-    removeGoogleMeet?: boolean;
-    scope?: UpdateEventScope;
+    sendUpdates?: "all" | "none" | undefined;
+    addGoogleMeet?: boolean | undefined;
+    removeGoogleMeet?: boolean | undefined;
+    scope?: UpdateEventScope | undefined;
     expectedRevision?: string | undefined;
   },
 ): Promise<EventUpdateResult> {
