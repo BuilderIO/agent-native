@@ -3,28 +3,44 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render } from "@testing-library/react";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { HeroBackground } from "./hero-background";
 
-const { waveMount } = vi.hoisted(() => ({ waveMount: vi.fn() }));
-
-vi.mock("@agent-native/toolkit/app/shared", () => ({
-  WaveBackground: ({ className }: { className?: string }) => {
-    waveMount();
-    return <div className={className} data-testid="shared-wave" />;
-  },
-}));
+beforeAll(() => {
+  class Inert {
+    observe() {}
+    disconnect() {}
+    unobserve() {}
+    takeRecords() {
+      return [];
+    }
+  }
+  vi.stubGlobal("ResizeObserver", Inert);
+  vi.stubGlobal("IntersectionObserver", Inert);
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: false,
+    media: query,
+    addEventListener() {},
+    removeEventListener() {},
+  }));
+});
 
 afterEach(() => {
   cleanup();
+});
+
+afterAll(() => {
   vi.unstubAllGlobals();
-  Object.defineProperty(navigator, "gpu", {
-    configurable: true,
-    value: undefined,
-  });
-  waveMount.mockClear();
 });
 
 describe("HeroBackground", () => {
@@ -45,21 +61,16 @@ describe("HeroBackground", () => {
     );
   });
 
-  it("renders the shared Toolkit wave on the homepage", () => {
-    const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
-    Object.defineProperty(navigator, "gpu", {
-      configurable: true,
-      value: { requestAdapter },
-    });
+  // oracle-change: the hero no longer mounts the WebGPU wave, so the old
+  // adapter-probe assertion has no subject; this checks the WebGL2 fallback.
+  it("leaves the hero readable when the browser has no WebGL2", () => {
+    const { container } = render(<HeroBackground />);
 
-    render(<HeroBackground />);
-
-    const wave = screen.getByTestId("shared-wave");
-    expect(wave.className).toContain("absolute");
-    expect(wave.className).toContain("inset-0");
-    expect(wave.className).toContain("z-[-1]");
-    expect(wave.className).not.toContain("fixed");
-    expect(requestAdapter).not.toHaveBeenCalled();
-    expect(waveMount).toHaveBeenCalledOnce();
+    const ribbon = container.querySelector<HTMLElement>("[data-ribbon]");
+    expect(ribbon?.dataset.ribbon).toBe("unavailable");
+    expect(ribbon?.getAttribute("aria-hidden")).toBe("true");
+    expect(ribbon?.className).toContain("pointer-events-none");
+    expect(ribbon?.className).toContain("z-[-1]");
+    expect(ribbon?.className).not.toContain("fixed");
   });
 });
