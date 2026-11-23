@@ -1,4 +1,4 @@
-import { resolveAccess } from "../sharing/access.js";
+import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import {
   hashDataProgramParams,
   hashOrgSharedDataProgramParams,
@@ -17,19 +17,28 @@ import {
  * call these, so their output can't fall behind the framework's.
  */
 export interface DataProgramReader {
-  userEmail?: string;
-  orgId?: string | null;
+  userEmail?: string | undefined;
+  orgId?: string | null | undefined;
+}
+
+function accessContextOf(reader: DataProgramReader): AccessContext {
+  return {
+    ...(reader.userEmail !== undefined ? { userEmail: reader.userEmail } : {}),
+    ...(reader.orgId != null ? { orgId: reader.orgId } : {}),
+  };
 }
 
 export async function listDataProgramSummaries(
   appId: string,
   reader: DataProgramReader,
-  options: { includeArchived?: boolean } = {},
+  options: { includeArchived?: boolean | undefined } = {},
 ) {
   const programs = await listDataPrograms(
     appId,
-    { userEmail: reader.userEmail, orgId: reader.orgId ?? undefined },
-    { includeArchived: options.includeArchived },
+    accessContextOf(reader),
+    options.includeArchived !== undefined
+      ? { includeArchived: options.includeArchived }
+      : {},
   );
   return {
     programs: programs.map((p) => ({
@@ -52,12 +61,9 @@ export async function getDataProgramDetails(
   programId: string,
   appId: string,
   reader: DataProgramReader,
-  options: { includeRows?: boolean } = {},
+  options: { includeRows?: boolean | undefined } = {},
 ) {
-  const accessContext = {
-    userEmail: reader.userEmail,
-    orgId: reader.orgId ?? undefined,
-  };
+  const accessContext = accessContextOf(reader);
   const program = await getDataProgram(programId, appId, accessContext);
   if (!program) throw new Error("Data program not found.");
 

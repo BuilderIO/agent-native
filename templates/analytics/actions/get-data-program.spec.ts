@@ -19,9 +19,6 @@ const { default: listDataPrograms } = await import("./list-data-programs");
 
 const CALLER = { userEmail: "alice@example.com", orgId: "org-1" };
 
-// Both actions return core's read helpers' output as is, so Analytics' MCP
-// tools show the same fields as the framework's actions, such as
-// scheduledRefresh and orgSharedRun.
 describe("Analytics data program read actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
