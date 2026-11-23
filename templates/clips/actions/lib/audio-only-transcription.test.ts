@@ -144,9 +144,6 @@ describe("audio-only transcription media", () => {
   });
 
   it("streams a fragmented MP4 in a few requests, not one per fragment", async () => {
-    // Each one-second fragment holds about 600 KB of noisy video, past the
-    // point where ffmpeg would otherwise seek instead of reading through
-    // (about 128 KB on Linux, 32 KB on Windows), as in a real recording.
     const input = join(dir, "fragmented.mp4");
     const made = spawnSync(ffmpegPath, [
       "-hide_banner",
