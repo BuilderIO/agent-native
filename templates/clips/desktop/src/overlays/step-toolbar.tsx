@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
@@ -12,11 +13,14 @@ interface StepCaptureStatus {
   directory: string | null;
   stepCount: number;
   paused: boolean;
+  saveError: string | null;
 }
 
 export function StepToolbar() {
   const [status, setStatus] = useState<StepCaptureStatus | null>(null);
+  const t = useT();
   const [finishing, setFinishing] = useState(false);
+  const [finishError, setFinishError] = useState<string | null>(null);
 
   useEffect(() => {
     let stopped = false;
@@ -42,6 +46,7 @@ export function StepToolbar() {
 
   const paused = status?.paused ?? false;
   const count = status?.stepCount ?? 0;
+  const problem = finishError ?? status?.saveError ?? null;
 
   const togglePause = () => {
     invoke<StepCaptureStatus>("step_capture_set_paused", { paused: !paused })
@@ -51,8 +56,10 @@ export function StepToolbar() {
 
   const finish = () => {
     setFinishing(true);
-    invoke("step_capture_finish").catch((error) => {
+    setFinishError(null);
+    invoke("step_capture_finish").catch((error: unknown) => {
       console.error("step capture finish failed", error);
+      setFinishError(error instanceof Error ? error.message : String(error));
       setFinishing(false);
     });
   };
@@ -67,19 +74,24 @@ export function StepToolbar() {
       <span
         data-tauri-drag-region
         // guard:allow-raw-color — theme-invariant capture chrome, like the recording toolbar.
-        className={`size-2.5 shrink-0 rounded-full ${paused ? "bg-amber-400" : "animate-pulse bg-red-500"}`}
+        className={`size-2.5 shrink-0 rounded-full ${problem || paused ? "bg-amber-400" : "animate-pulse bg-red-500"}`}
       />
       <span
         data-tauri-drag-region
+        role={problem ? "alert" : undefined}
+        title={problem ?? undefined}
         className="flex-1 truncate text-[13px] font-medium tabular-nums"
       >
-        {paused ? "Paused" : "Recording steps"} · {count}{" "}
-        {count === 1 ? "step" : "steps"}
+        {finishError
+          ? t("stepGuide.finishFailed")
+          : status?.saveError
+            ? t("stepGuide.notSaving")
+            : `${paused ? t("stepGuide.paused") : t("stepGuide.recording")} · ${t("stepGuide.stepCount", { count })}`}
       </span>
       <button
         type="button"
-        title={paused ? "Resume" : "Pause"}
-        aria-label={paused ? "Resume" : "Pause"}
+        title={paused ? t("stepGuide.resume") : t("stepGuide.pause")}
+        aria-label={paused ? t("stepGuide.resume") : t("stepGuide.pause")}
         onClick={togglePause}
         disabled={finishing}
         // guard:allow-raw-color — theme-invariant capture chrome, like the recording toolbar.
@@ -94,7 +106,7 @@ export function StepToolbar() {
         // guard:allow-raw-color — theme-invariant capture chrome, like the recording toolbar.
         className="inline-flex h-7 cursor-pointer items-center rounded-full bg-white px-3 text-[13px] font-semibold text-zinc-900 hover:bg-zinc-200 disabled:opacity-60"
       >
-        {finishing ? "Building…" : "Done"}
+        {finishing ? t("stepGuide.building") : t("stepGuide.done")}
       </button>
     </div>
   );

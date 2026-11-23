@@ -154,14 +154,9 @@ export default function LibraryFolderGuideRoute() {
             </p>
           ) : (
             <>
-              <header className="space-y-1">
-                <h1 className="text-xl font-semibold text-foreground">
-                  {folderName}
-                </h1>
-                <p className="text-sm text-muted-foreground">
-                  {t("stepGuide.stepCount", { count: steps.length })}
-                </p>
-              </header>
+              <h1 className="text-xl font-semibold text-foreground">
+                {folderName}
+              </h1>
               <ol className="flex flex-col gap-10">
                 {steps.map((step) => {
                   const label =

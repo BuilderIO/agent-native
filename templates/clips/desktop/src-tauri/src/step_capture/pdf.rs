@@ -54,8 +54,12 @@ pub struct Placed {
 }
 
 /// Where every item goes: pages of placed items. `text_height` measures
-/// wrapped step and note text, so layout stays testable without fonts.
-pub fn paginate(guide: &StepGuide, text_height: impl Fn(&str) -> f64) -> Vec<Vec<Placed>> {
+/// wrapped step and note text, so layout stays testable without fonts. An
+/// item taller than a whole page is an error, never a clipped page.
+pub fn paginate(
+    guide: &StepGuide,
+    text_height: impl Fn(&str) -> f64,
+) -> Result<Vec<Vec<Placed>>, String> {
     let one_line = text_height("X");
     let mut pages: Vec<Vec<Placed>> = vec![Vec::new()];
     let mut top = HEADER_HEIGHT;
@@ -74,6 +78,16 @@ pub fn paginate(guide: &StepGuide, text_height: impl Fn(&str) -> f64) -> Vec<Vec
             }
             GuideItem::Note { text, .. } => (text_height(text) + NOTE_PADDING, None, 0.0),
         };
+        if PAGE_TOP + height - ITEM_GAP > PAGE_HEIGHT - PAGE_BOTTOM {
+            return Err(match step_number {
+                Some(step) => format!(
+                    "Step {step} is too long to fit on a PDF page. Shorten its text, or move some of it into a note."
+                ),
+                None => format!(
+                    "The note after step {number} is too long to fit on a PDF page. Split it into shorter notes."
+                ),
+            });
+        }
         let page_has_items = !pages.last().is_some_and(Vec::is_empty);
         if page_has_items && top + height - ITEM_GAP > PAGE_HEIGHT - PAGE_BOTTOM {
             pages.push(Vec::new());
@@ -88,7 +102,19 @@ pub fn paginate(guide: &StepGuide, text_height: impl Fn(&str) -> f64) -> Vec<Vec
         });
         top += height;
     }
-    pages
+    Ok(pages)
+}
+
+/// A temporary file next to `output` that no other export uses.
+fn temporary_path(output: &Path) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let name = output
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let unique = NEXT.fetch_add(1, Ordering::Relaxed);
+    output.with_file_name(format!(".{name}.{}-{unique}.tmp", std::process::id()))
 }
 
 /// The image rect a step's screenshot fills, in page points.
@@ -499,8 +525,8 @@ mod macos {
     }
 
     fn render_pages(directory: &Path, guide: &StepGuide, output: &Path) -> Result<(), String> {
-        let pages = paginate(guide, |text| measure(text, 14.0, TEXT_WIDTH));
-        let temporary = output.with_extension("pdf.tmp");
+        let pages = paginate(guide, |text| measure(text, 14.0, TEXT_WIDTH))?;
+        let temporary = temporary_path(output);
         let url = CFURL::from_file_path(&temporary).ok_or("could not address the PDF file")?;
         let media = rect(0.0, 0.0, PAGE_WIDTH, PAGE_HEIGHT);
         // SAFETY: the URL and media box outlive the call; no auxiliary info.
@@ -556,9 +582,14 @@ mod macos {
         NSGraphicsContext::setCurrentContext(previous.as_deref());
         drop(ns_context);
         drop(context);
-        result?;
-        std::fs::rename(&temporary, output)
-            .map_err(|error| format!("could not write {}: {error}", output.display()))
+        let written = result.and_then(|()| {
+            std::fs::rename(&temporary, output)
+                .map_err(|error| format!("could not write {}: {error}", output.display()))
+        });
+        if written.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+        }
+        written
     }
 }
 
@@ -608,7 +639,7 @@ mod tests {
     #[test]
     fn two_steps_fit_under_the_header_then_two_per_page() {
         let items = (0..5).map(|i| step(&i.to_string(), true)).collect();
-        let pages = paginate(&guide(items), |_| 20.0);
+        let pages = paginate(&guide(items), |_| 20.0).unwrap();
         let tops: Vec<Vec<f64>> = pages
             .iter()
             .map(|page| page.iter().map(|placed| placed.top).collect())
@@ -626,7 +657,8 @@ mod tests {
         let pages = paginate(
             &guide(items),
             |text| if text.len() > 20 { 52.0 } else { 16.0 },
-        );
+        )
+        .unwrap();
         assert_eq!(pages[0][0].text_overflow, 36.0);
         assert_eq!(pages[0][0].height, STEP_HEIGHT + 36.0);
         assert_eq!(pages[0][1].top, 96.0 + STEP_HEIGHT + 36.0);
@@ -643,11 +675,54 @@ mod tests {
             },
             step("b", true),
         ];
-        let pages = paginate(&guide(items), |_| 40.0);
+        let pages = paginate(&guide(items), |_| 40.0).unwrap();
         assert_eq!(pages[0][1].number, None);
         assert_eq!(pages[0][1].height, 64.0);
         assert_eq!(pages.len(), 2);
         assert_eq!(pages[1][0].number, Some(2));
+    }
+
+    #[test]
+    fn an_item_taller_than_a_page_is_rejected_not_clipped() {
+        let items = vec![
+            step("a", true),
+            GuideItem::Note {
+                id: "n".into(),
+                text: "A pasted note".into(),
+            },
+        ];
+        let error = paginate(&guide(items), |text| {
+            if text.starts_with("A pasted") {
+                900.0
+            } else {
+                16.0
+            }
+        })
+        .unwrap_err();
+        assert!(error.contains("note after step 1"), "{error}");
+
+        let mut items = vec![step("a", true)];
+        if let GuideItem::Step { text, .. } = &mut items[0] {
+            *text = "A very long instruction".into();
+        }
+        let error = paginate(
+            &guide(items),
+            |text| {
+                if text.len() > 20 {
+                    600.0
+                } else {
+                    16.0
+                }
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("Step 1"), "{error}");
+    }
+
+    #[test]
+    fn exports_never_share_a_temporary_file() {
+        let output = Path::new("/tmp/Guide.pdf");
+        assert_ne!(temporary_path(output), temporary_path(output));
     }
 
     #[test]

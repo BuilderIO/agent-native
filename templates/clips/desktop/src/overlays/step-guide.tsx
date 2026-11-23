@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowDown,
   IconArrowUp,
@@ -208,6 +209,76 @@ function GrowingText({
   );
 }
 
+function StepGuideSkeleton({ label }: { label: string }) {
+  return (
+    <div
+      data-tw-surface
+      role="status"
+      aria-label={label}
+      className="flex h-full flex-col bg-muted"
+    >
+      <header className="flex items-center gap-2 border-b border-border bg-background px-4 py-2">
+        <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+        <div className="flex-1" />
+        <div className="h-8 w-24 animate-pulse rounded-md bg-muted" />
+        <div className="h-8 w-20 animate-pulse rounded-md bg-muted" />
+        <div className="h-8 w-28 animate-pulse rounded-md bg-muted" />
+      </header>
+      <main className="flex-1 overflow-hidden py-8">
+        <div
+          // guard:allow-raw-color — the page preview mirrors the exported PDF, which is theme-invariant.
+          className="mx-auto bg-white shadow-md"
+          style={{
+            width: pt(612),
+            padding: `${pt(14)} ${pt(612 - 576.5)} ${pt(28)} ${pt(27)}`,
+          }}
+        >
+          <div
+            // guard:allow-raw-color — placeholder on the theme-invariant page.
+            className="animate-pulse rounded bg-zinc-200"
+            style={{ height: pt(30), width: "60%" }}
+          />
+          <div
+            // guard:allow-raw-color — placeholder on the theme-invariant page.
+            className="animate-pulse rounded bg-zinc-200"
+            style={{ height: pt(12), width: "35%", marginTop: pt(16) }}
+          />
+          {[0, 1].map((step) => (
+            <div key={step} style={{ marginTop: pt(28) }}>
+              <div className="flex items-center" style={{ gap: pt(15) }}>
+                <div
+                  // guard:allow-raw-color — placeholder on the theme-invariant page.
+                  className="shrink-0 animate-pulse rounded-full bg-zinc-200"
+                  style={{
+                    width: pt(26.5),
+                    height: pt(26.5),
+                    marginLeft: pt(5),
+                  }}
+                />
+                <div
+                  // guard:allow-raw-color — placeholder on the theme-invariant page.
+                  className="animate-pulse rounded bg-zinc-200"
+                  style={{ height: pt(14), width: "50%" }}
+                />
+              </div>
+              <div
+                // guard:allow-raw-color — placeholder on the theme-invariant page.
+                className="animate-pulse rounded-[3px] bg-zinc-200"
+                style={{
+                  marginTop: pt(8),
+                  marginLeft: pt(28),
+                  width: FRAME_WIDTH * SCALE + 4,
+                  height: FRAME_HEIGHT * SCALE + 4,
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      </main>
+    </div>
+  );
+}
+
 interface ShareSummary {
   folderUrl: string;
   uploaded: number;
@@ -225,6 +296,7 @@ export function StepGuideEditor({
 }: {
   sessionId?: string | undefined;
 }) {
+  const t = useT();
   const [loaded, setLoaded] = useState<LoadedGuide | null>(null);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const saveTimer = useRef<number | undefined>(undefined);
@@ -234,13 +306,13 @@ export function StepGuideEditor({
 
   useEffect(() => {
     if (!sessionId) {
-      setStatus({ kind: "error", text: "No step capture was named." });
+      setStatus({ kind: "error", text: t("stepGuide.noSession") });
       return;
     }
     invoke<LoadedGuide>("step_guide_load", { sessionId })
       .then(setLoaded)
       .catch((error) => setStatus({ kind: "error", text: errorText(error) }));
-  }, [sessionId]);
+  }, [sessionId, t]);
 
   const flush = useCallback(() => {
     window.clearTimeout(saveTimer.current);
@@ -267,12 +339,12 @@ export function StepGuideEditor({
         discardOnClose.current = true;
         setStatus({
           kind: "error",
-          text: `${errorText(error)} Close again to discard the unsaved edits.`,
+          text: t("stepGuide.closeToDiscard", { error: errorText(error) }),
         });
       }
     });
     return () => void unlisten.then((stop) => stop());
-  }, [flush]);
+  }, [flush, t]);
 
   const update = (change: (guide: StepGuide) => StepGuide) => {
     setLoaded((current) => {
@@ -310,38 +382,41 @@ export function StepGuideEditor({
   };
 
   const exportPdf = () =>
-    run("Exporting PDF…", async () => {
+    run(t("stepGuide.exporting"), async () => {
       const path = await invoke<string>("step_guide_export_pdf", { sessionId });
       await invoke("step_guide_open", { sessionId, path });
-      return `Saved ${path.split("/").pop()} to Downloads`;
+      return t("stepGuide.exported", { file: path.split("/").pop() ?? path });
     });
 
   const share = () =>
-    run("Uploading to Clips…", async () => {
+    run(t("stepGuide.uploading"), async () => {
       const { uploaded, total } = await invoke<ShareSummary>(
         "step_guide_share",
         { sessionId },
       );
       return uploaded === total
-        ? "Uploaded to your Clips library"
-        : `Uploaded ${uploaded} of ${total} steps to your Clips library`;
+        ? t("stepGuide.uploaded")
+        : t("stepGuide.uploadedPartly", { uploaded, total });
     });
 
   const reveal = () =>
-    run("Opening folder…", async () => {
+    run(t("stepGuide.openingFolder"), async () => {
       await invoke("step_guide_open", { sessionId, path: null });
     });
 
-  if (!loaded) {
+  if (!loaded && status.kind === "error") {
     return (
       <div
         data-tw-surface
+        role="alert"
         className="flex h-full items-center justify-center bg-muted text-sm text-muted-foreground"
       >
-        {status.kind === "error" ? status.text : "Loading step guide…"}
+        {status.text}
       </div>
     );
   }
+
+  if (!loaded) return <StepGuideSkeleton label={t("stepGuide.loading")} />;
 
   const { guide, directory } = loaded;
   const numbers = stepNumbers(guide.items);
@@ -354,10 +429,10 @@ export function StepGuideEditor({
     >
       <header className="flex items-center gap-2 border-b border-border bg-background px-4 py-2">
         <span className="text-sm font-semibold text-foreground">
-          Step guide
+          {t("stepGuide.editorTitle")}
         </span>
         <span className="flex-1 truncate text-xs text-muted-foreground">
-          {status.kind === "idle" ? "Edits save automatically" : status.text}
+          {status.kind === "idle" ? t("stepGuide.autosave") : status.text}
         </span>
         <button
           type="button"
@@ -365,7 +440,7 @@ export function StepGuideEditor({
           disabled={busy}
           className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm text-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50 [&_svg]:size-4"
         >
-          <IconFolder /> Show files
+          <IconFolder /> {t("stepGuide.showFiles")}
         </button>
         <button
           type="button"
@@ -373,7 +448,7 @@ export function StepGuideEditor({
           disabled={busy}
           className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input px-3 text-sm text-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50 [&_svg]:size-4"
         >
-          <IconShare /> Share
+          <IconShare /> {t("stepGuide.share")}
         </button>
         <button
           type="button"
@@ -381,7 +456,7 @@ export function StepGuideEditor({
           disabled={busy}
           className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 [&_svg]:size-4"
         >
-          <IconFileTypePdf /> Export PDF
+          <IconFileTypePdf /> {t("stepGuide.exportPdf")}
         </button>
       </header>
       <main className="flex-1 overflow-y-auto py-8">
@@ -398,7 +473,7 @@ export function StepGuideEditor({
           <GrowingText
             value={guide.title}
             onChange={(title) => update((current) => ({ ...current, title }))}
-            placeholder="Untitled guide"
+            placeholder={t("stepGuide.untitled")}
             className="font-bold"
             style={{ fontSize: pt(24), lineHeight: 1.25 }}
           />
@@ -423,7 +498,7 @@ export function StepGuideEditor({
                   {item.kind === "step" && item.image ? (
                     <>
                       <ToolButton
-                        label="Zoom out"
+                        label={t("stepGuide.zoomOut")}
                         disabled={item.image.zoom <= MIN_ZOOM}
                         onClick={() =>
                           updateItem(item.id, (current) =>
@@ -436,7 +511,7 @@ export function StepGuideEditor({
                         <IconZoomOut />
                       </ToolButton>
                       <ToolButton
-                        label="Zoom in"
+                        label={t("stepGuide.zoomIn")}
                         disabled={item.image.zoom >= MAX_ZOOM}
                         onClick={() =>
                           updateItem(item.id, (current) =>
@@ -451,7 +526,7 @@ export function StepGuideEditor({
                     </>
                   ) : null}
                   <ToolButton
-                    label="Move up"
+                    label={t("stepGuide.moveUp")}
                     disabled={index === 0}
                     onClick={() =>
                       updateItems((items) => moveItem(items, index, -1))
@@ -460,7 +535,7 @@ export function StepGuideEditor({
                     <IconArrowUp />
                   </ToolButton>
                   <ToolButton
-                    label="Move down"
+                    label={t("stepGuide.moveDown")}
                     disabled={index === guide.items.length - 1}
                     onClick={() =>
                       updateItems((items) => moveItem(items, index, 1))
@@ -469,7 +544,7 @@ export function StepGuideEditor({
                     <IconArrowDown />
                   </ToolButton>
                   <ToolButton
-                    label="Add a note below"
+                    label={t("stepGuide.addNote")}
                     onClick={() =>
                       updateItems((items) => {
                         const next = items.slice();
@@ -485,7 +560,11 @@ export function StepGuideEditor({
                     <IconNote />
                   </ToolButton>
                   <ToolButton
-                    label={item.kind === "step" ? "Delete step" : "Delete note"}
+                    label={
+                      item.kind === "step"
+                        ? t("stepGuide.deleteStep")
+                        : t("stepGuide.deleteNote")
+                    }
                     onClick={() =>
                       updateItems((items) =>
                         items.filter((current) => current.id !== item.id),
@@ -520,7 +599,7 @@ export function StepGuideEditor({
                             text,
                           }))
                         }
-                        placeholder="Describe this step"
+                        placeholder={t("stepGuide.describeStep")}
                         style={{
                           fontSize: pt(14),
                           lineHeight: 1.3,
@@ -541,7 +620,7 @@ export function StepGuideEditor({
                     onChange={(text) =>
                       updateItem(item.id, (current) => ({ ...current, text }))
                     }
-                    placeholder="Write a note"
+                    placeholder={t("stepGuide.writeNote")}
                     // guard:allow-raw-color — the page preview mirrors the exported PDF, which is theme-invariant.
                     className="bg-zinc-50"
                     style={{

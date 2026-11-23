@@ -234,6 +234,7 @@ pub struct StepCaptureStatus {
     pub directory: Option<String>,
     pub step_count: usize,
     pub paused: bool,
+    pub save_error: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -350,20 +351,30 @@ struct ActiveCapture {
     session_id: String,
     directory: PathBuf,
     sender: Sender<WorkerMessage>,
-    worker: JoinHandle<StepCaptureSession>,
+    worker: JoinHandle<Result<StepCaptureSession, String>>,
     steps: Arc<Mutex<usize>>,
+    save_error: Arc<Mutex<Option<String>>>,
 }
 
 static ACTIVE: Mutex<Option<ActiveCapture>> = Mutex::new(None);
-/// Held while `step_capture_start` sets a session up, so a second start
-/// waits its turn without `ACTIVE` being locked across the main-thread call.
-static STARTING: AtomicBool = AtomicBool::new(false);
+/// Held while a session is set up or torn down, so a start never overlaps
+/// a stop's cleanup and `ACTIVE` is not locked across main-thread calls.
+static BUSY: AtomicBool = AtomicBool::new(false);
 
-struct StartingGuard;
+struct BusyGuard;
 
-impl Drop for StartingGuard {
+impl BusyGuard {
+    fn acquire() -> Result<Self, String> {
+        if BUSY.swap(true, Ordering::SeqCst) {
+            return Err("A step capture is starting or stopping.".to_string());
+        }
+        Ok(Self)
+    }
+}
+
+impl Drop for BusyGuard {
     fn drop(&mut self) {
-        STARTING.store(false, Ordering::SeqCst);
+        BUSY.store(false, Ordering::SeqCst);
     }
 }
 /// Clicks while paused are not steps. Read by the monitor on every event.
@@ -449,16 +460,24 @@ fn apply_action(
     }
 }
 
+fn record_save(save_error: &Mutex<Option<String>>, result: Result<(), String>) {
+    if let Err(error) = &result {
+        eprintln!("[clips-tray] step capture: {error}");
+    }
+    *save_error
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = result.err();
+}
+
 fn run_worker(
     app: AppHandle,
     directory: PathBuf,
     mut session: StepCaptureSession,
     receiver: Receiver<WorkerMessage>,
     steps: Arc<Mutex<usize>>,
-) -> StepCaptureSession {
-    if let Err(error) = write_manifest(&directory, &session) {
-        eprintln!("[clips-tray] step capture: {error}");
-    }
+    save_error: Arc<Mutex<Option<String>>>,
+) -> Result<StepCaptureSession, String> {
+    record_save(&save_error, write_manifest(&directory, &session));
     while let Ok(message) = receiver.recv() {
         let WorkerMessage::Action { action, at, cursor } = message else {
             break;
@@ -477,17 +496,14 @@ fn run_worker(
         *steps
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = session.steps.len();
-        if let Err(error) = write_manifest(&directory, &session) {
-            eprintln!("[clips-tray] step capture: {error}");
-        }
+        record_save(&save_error, write_manifest(&directory, &session));
         let _ = app.emit(STEP_EVENT, &session.steps[index]);
         emit_status(&app);
     }
     session.ended_at = Some(timestamp(chrono::Utc::now()));
-    if let Err(error) = write_manifest(&directory, &session) {
-        eprintln!("[clips-tray] step capture: {error}");
-    }
-    session
+    write_manifest(&directory, &session)
+        .map_err(|error| format!("The step capture could not be saved: {error}"))?;
+    Ok(session)
 }
 
 /// Label first, then window, then the still: the label is the fact most
@@ -537,6 +553,11 @@ fn status_of(active: &Option<ActiveCapture>) -> StepCaptureStatus {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
             paused: PAUSED.load(Ordering::SeqCst),
+            save_error: capture
+                .save_error
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone(),
         },
         None => StepCaptureStatus {
             active: false,
@@ -544,6 +565,7 @@ fn status_of(active: &Option<ActiveCapture>) -> StepCaptureStatus {
             directory: None,
             step_count: 0,
             paused: false,
+            save_error: None,
         },
     }
 }
@@ -564,10 +586,7 @@ pub async fn step_capture_status() -> Result<StepCaptureStatus, String> {
 
 #[tauri::command]
 pub async fn step_capture_start(app: AppHandle) -> Result<StepCaptureStatus, String> {
-    if STARTING.swap(true, Ordering::SeqCst) {
-        return Err("A step capture is already starting.".to_string());
-    }
-    let _starting = StartingGuard;
+    let _busy = BusyGuard::acquire()?;
     let recording = ACTIVE
         .lock()
         .map_err(|_| "step capture state is poisoned")?
@@ -604,13 +623,15 @@ pub async fn step_capture_start(app: AppHandle) -> Result<StepCaptureStatus, Str
     };
     let (sender, receiver) = mpsc::channel();
     let steps = Arc::new(Mutex::new(0));
+    let save_error = Arc::new(Mutex::new(None));
     let worker = {
         let app = app.clone();
         let directory = directory.clone();
         let steps = steps.clone();
+        let save_error = save_error.clone();
         std::thread::Builder::new()
             .name("clips-step-capture".into())
-            .spawn(move || run_worker(app, directory, session, receiver, steps))
+            .spawn(move || run_worker(app, directory, session, receiver, steps, save_error))
             .map_err(|error| format!("could not start the step capture worker: {error}"))?
     };
 
@@ -635,6 +656,7 @@ pub async fn step_capture_start(app: AppHandle) -> Result<StepCaptureStatus, Str
         sender,
         worker,
         steps,
+        save_error,
     });
     let status = status_of(&active);
     drop(active);
@@ -648,6 +670,7 @@ pub async fn step_capture_start(app: AppHandle) -> Result<StepCaptureStatus, Str
 /// Stop recording and return the finished manifest.
 #[tauri::command]
 pub async fn step_capture_stop(app: AppHandle) -> Result<StepCaptureSession, String> {
+    let _busy = BusyGuard::acquire()?;
     let capture = ACTIVE
         .lock()
         .map_err(|_| "step capture state is poisoned")?
@@ -664,9 +687,9 @@ pub async fn step_capture_stop(app: AppHandle) -> Result<StepCaptureSession, Str
     let session = tauri::async_runtime::spawn_blocking(move || capture.worker.join())
         .await
         .map_err(|error| format!("step capture worker could not be joined: {error}"))?
-        .map_err(|_| "step capture worker panicked".to_string())?;
+        .map_err(|_| "step capture worker panicked".to_string());
     emit_status(&app);
-    Ok(session)
+    session?
 }
 
 /// Pause or resume: clicks while paused are not steps.
@@ -864,19 +887,46 @@ pub async fn step_guide_export_pdf(app: AppHandle, session_id: String) -> Result
         .path()
         .download_dir()
         .map_err(|error| format!("could not resolve the Downloads folder: {error}"))?;
-    let file_name = export_file_name(&guide.title);
-    let mut output = downloads.join(&file_name);
-    let stem = file_name.trim_end_matches(".pdf").to_string();
-    let mut copy = 2;
-    while output.exists() {
-        output = downloads.join(format!("{stem} {copy}.pdf"));
-        copy += 1;
-    }
+    let output = reserve_export(&downloads, &export_file_name(&guide.title))?;
     let target = output.clone();
-    tauri::async_runtime::spawn_blocking(move || pdf::export_pdf(&directory, &guide, &target))
-        .await
-        .map_err(|error| format!("PDF export could not be joined: {error}"))??;
+    let exported =
+        tauri::async_runtime::spawn_blocking(move || pdf::export_pdf(&directory, &guide, &target))
+            .await
+            .map_err(|error| format!("PDF export could not be joined: {error}"))
+            .and_then(|result| result);
+    if let Err(error) = exported {
+        let _ = std::fs::remove_file(&output);
+        return Err(error);
+    }
     Ok(output.display().to_string())
+}
+
+/// Claim `<name>.pdf`, or `<name> 2.pdf` and so on, by creating it, so two
+/// exports never pick the same file.
+fn reserve_export(directory: &Path, file_name: &str) -> Result<PathBuf, String> {
+    let stem = file_name.trim_end_matches(".pdf");
+    for copy in 1..10_000 {
+        let candidate = if copy == 1 {
+            directory.join(file_name)
+        } else {
+            directory.join(format!("{stem} {copy}.pdf"))
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(_) => return Ok(candidate),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!("could not create {}: {error}", candidate.display()));
+            }
+        }
+    }
+    Err(format!(
+        "{} has too many copies of {file_name}",
+        directory.display()
+    ))
 }
 
 /// Upload the steps into a new Clips library folder and open it.
@@ -1138,11 +1188,18 @@ mod platform {
 
     /// Open a folder in Finder or a URL in the default browser.
     pub fn open(target: &OsStr) -> Result<(), String> {
-        std::process::Command::new("open")
+        let status = std::process::Command::new("open")
             .arg(target)
             .status()
-            .map_err(|error| format!("could not open {}: {error}", target.to_string_lossy()))
-            .map(|_| ())
+            .map_err(|error| format!("could not open {}: {error}", target.to_string_lossy()))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "could not open {} ({status})",
+                target.to_string_lossy()
+            ))
+        }
     }
 
     pub fn capture_still(
@@ -1215,6 +1272,29 @@ mod tests {
             click_type,
             location,
         })
+    }
+
+    #[test]
+    fn two_exports_of_one_title_reserve_different_files() {
+        let directory = std::env::temp_dir().join(format!(
+            "clips-step-export-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let first = reserve_export(&directory, "Guide.pdf").unwrap();
+        let second = reserve_export(&directory, "Guide.pdf").unwrap();
+        assert_eq!(first.file_name().unwrap(), "Guide.pdf");
+        assert_eq!(second.file_name().unwrap(), "Guide 2.pdf");
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn a_stop_holds_off_a_new_start_until_its_cleanup_ends() {
+        let stopping = BusyGuard::acquire().unwrap();
+        assert!(BusyGuard::acquire().is_err());
+        drop(stopping);
+        assert!(BusyGuard::acquire().is_ok());
     }
 
     #[test]
