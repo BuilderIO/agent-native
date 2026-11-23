@@ -2240,10 +2240,14 @@ export class AppSyncState {
       cursor,
       durableRead,
     );
-    const unreadable = [
-      ...memoryRead.unreadableCursors,
+    const unreadableByKey = new Map<string, UnreadableAt>();
+    for (const entry of [
       ...durableRead.unreadableCursors,
-    ];
+      ...memoryRead.unreadableCursors,
+    ]) {
+      unreadableByKey.set(`${entry.cursor.version}\0${entry.cursor.id}`, entry);
+    }
+    const unreadable = Array.from(unreadableByKey.values());
     const sources = [
       { result: memory, read: memoryRead },
       { result: durable, read: durableRead },
