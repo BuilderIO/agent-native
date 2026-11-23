@@ -157,7 +157,11 @@ describe("MCP analytics events", () => {
         structuredContent: { items: ["a"] },
       }),
     ).toEqual({ resultTextChars: 2, resultStructuredChars: 15 });
-    expect(mcpToolResultSize(undefined)).toEqual({ resultTextChars: 0 });
+    expect(mcpToolResultSize({ structuredContent: null })).toEqual({
+      resultTextChars: 0,
+      resultStructuredChars: 4,
+    });
+    expect(mcpToolResultSize(undefined)).toEqual({});
   });
 
   it("includes redacted $mcp_parameters only when opted in", async () => {

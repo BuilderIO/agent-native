@@ -215,35 +215,36 @@ export interface McpToolResultSize {
   resultStructuredChars?: number;
 }
 
-// How big a result is, never what it says. Hosts cut or move a result past
-// about 40,000 characters, and they read different parts of it: Claude Code
-// and OpenCode show the model only the structured content when there is one,
-// and Codex shows both, so each part is counted on its own.
-export function mcpToolResultSize(result: unknown): McpToolResultSize {
-  const record =
-    result && typeof result === "object"
-      ? (result as { content?: unknown; structuredContent?: unknown })
-      : {};
+/**
+ * How big an MCP tool result is, never what it says: the characters in its
+ * text blocks, and in its structured content as JSON when it has any. Hosts
+ * read different parts of a result, so each part is counted on its own.
+ */
+export function mcpToolResultSize(result: unknown): Partial<McpToolResultSize> {
+  if (typeof result !== "object" || result === null) return {};
+  const blocks: unknown[] =
+    "content" in result && Array.isArray(result.content) ? result.content : [];
   let resultTextChars = 0;
-  if (Array.isArray(record.content)) {
-    for (const block of record.content) {
-      if (block?.type === "text" && typeof block.text === "string") {
-        resultTextChars += block.text.length;
-      }
-    }
-  }
-  let resultStructuredChars: number | undefined;
-  if (record.structuredContent !== undefined) {
-    try {
-      resultStructuredChars = JSON.stringify(record.structuredContent).length;
-    } catch {
-      // A value JSON cannot hold fails the response on its own; the
-      // measurement never adds a failure of its own.
+  for (const block of blocks) {
+    if (
+      typeof block === "object" &&
+      block !== null &&
+      "type" in block &&
+      block.type === "text" &&
+      "text" in block &&
+      typeof block.text === "string"
+    ) {
+      resultTextChars += block.text.length;
     }
   }
   return {
     resultTextChars,
-    ...(resultStructuredChars !== undefined ? { resultStructuredChars } : {}),
+    ...("structuredContent" in result && result.structuredContent !== undefined
+      ? {
+          resultStructuredChars: JSON.stringify(result.structuredContent)
+            .length,
+        }
+      : {}),
   };
 }
 
