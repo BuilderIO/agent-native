@@ -39,6 +39,7 @@ describe("attach-content-page", () => {
       encoding: "utf8",
       content: "Title,Status\r\nSignup page,Ready\r\n",
       size: 33,
+      data: Buffer.from("Title,Status\r\nSignup page,Ready\r\n"),
     });
     storeMediaUpload
       .mockReset()
@@ -95,6 +96,31 @@ describe("attach-content-page", () => {
       },
       page: { id: "tracker-page", kind: "collection", format: "csv" },
     });
+  });
+
+  it("stores a PDF page's bytes as they came from Content", async () => {
+    const pdf = Buffer.from("%PDF-1.3\n%\xff\xfe\n", "latin1");
+    readContentPageFile.mockResolvedValue({
+      id: "poems-page",
+      title: "Poems",
+      kind: "page",
+      format: "pdf",
+      filename: "Poems.pdf",
+      encoding: "base64",
+      content: pdf.toString("base64"),
+      size: pdf.byteLength,
+      data: pdf,
+    });
+    const action = (await import("./attach-content-page.js")).default;
+
+    await action.run({ id: "poems-page", format: "pdf" });
+
+    const stored = storeMediaUpload.mock.calls[0]?.[0];
+    expect(stored).toMatchObject({
+      originalName: "Poems.pdf",
+      filename: expect.stringMatching(/^[\w-]{12}\.pdf$/),
+    });
+    expect(Buffer.from(stored.data).equals(pdf)).toBe(true);
   });
 
   it("says storage needs setting up when Mail can't store the file", async () => {

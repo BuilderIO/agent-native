@@ -47,6 +47,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  mcpTool: false,
   run: async ({ operation, ...values }, ctx) =>
     operation === "clear"
       ? clearFileStorage(ctx)

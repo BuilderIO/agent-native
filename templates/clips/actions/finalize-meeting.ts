@@ -55,6 +55,7 @@ export default defineAction({
         "Bypass the in-flight compare-and-swap guard. Used by the manual 'Regenerate notes' flow, which intentionally reruns finalize while transcriptStatus is already 'ready'.",
       ),
   }),
+  mcpTool: "search",
   run: async (args) => {
     await assertAccess("meeting", args.meetingId, "editor");
     const db = getDb();

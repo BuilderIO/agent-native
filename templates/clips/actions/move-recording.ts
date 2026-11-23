@@ -39,6 +39,7 @@ export default defineAction({
   description:
     "Move one or more recordings to a different folder (or to the library/space root when folderId is null).",
   schema: moveRecordingSchema,
+  mcpTool: "search",
   run: async (args) => {
     const ids = uniqueRecordingIds(args);
     const primaryId = ids[0];

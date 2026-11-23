@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   afterAll,
   afterEach,
@@ -130,7 +130,7 @@ async function holdRows(table: string, ids: string[]) {
 }
 
 async function waitUntilBlocked(settled: () => boolean, waiters = 1) {
-  for (let attempt = 0; attempt < 2_000; attempt += 1) {
+  for (;;) {
     if (settled()) return false;
     const waiting = await query(
       "SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> pg_backend_pid()",
@@ -139,7 +139,6 @@ async function waitUntilBlocked(settled: () => boolean, waiters = 1) {
     // fixed-sleep-ok: polling interval between pg_stat_activity observations
     await sleep(5);
   }
-  throw new Error("The operation neither finished nor waited on the held row.");
 }
 
 function only<T>(rows: readonly T[]): T {
@@ -296,8 +295,10 @@ const write = (
   input: Parameters<typeof import("./brain.js").writeKnowledgeRecord>[0],
 ) => asQa(() => brain.writeKnowledgeRecord(input));
 
-const publishInput = (id?: string) => ({
-  ...(id ? { knowledgeId: id } : {}),
+const publishInput = (existing?: { id: string; revision: string }) => ({
+  ...(existing
+    ? { knowledgeId: existing.id, expectedRevision: existing.revision }
+    : {}),
   title: "Atlas launch",
   body: "Morgan ships Atlas on Friday.",
   evidence: [{ captureId: "capture-a", quote: "Morgan will ship Atlas" }],
@@ -368,7 +369,11 @@ describe.skipIf(!POSTGRES_URL)(
       });
       await failSupersessionWithTrigger();
       await expect(
-        write({ ...publishInput(), supersedesId: older.knowledge.id }),
+        write({
+          ...publishInput(),
+          supersedesId: older.knowledge.id,
+          supersedesRevision: older.knowledge.revision,
+        }),
       ).rejects.toSatisfy(isForcedFailure);
       expect(await resourcePaths()).toEqual([]);
       expect((await knowledgeRows()).map((row) => row.id)).toEqual([
@@ -386,9 +391,10 @@ describe.skipIf(!POSTGRES_URL)(
       await failSupersessionWithTrigger();
       await expect(
         write({
-          ...publishInput(first.knowledge.id),
+          ...publishInput(first.knowledge),
           title: "Atlas launch renamed",
           supersedesId: older.knowledge.id,
+          supersedesRevision: older.knowledge.revision,
         }),
       ).rejects.toSatisfy(isForcedFailure);
       expect(await resourcePaths()).toEqual([oldPath]);
@@ -405,7 +411,7 @@ describe.skipIf(!POSTGRES_URL)(
       const first = await write(publishInput());
       harness.notifications.length = 0;
       const redacted = await write({
-        ...publishInput(first.knowledge.id),
+        ...publishInput(first.knowledge),
         redactions: ["Friday"],
       });
       expect(redacted.knowledge.status).toBe("redacted");
@@ -435,7 +441,12 @@ describe.skipIf(!POSTGRES_URL)(
       const id = standalone.knowledge.id;
       const holder = await holdRows("brain_knowledge", [id]);
       const writer = track(
-        write({ knowledgeId: id, title: "Renamed", body: "Renamed body." }),
+        write({
+          knowledgeId: id,
+          expectedRevision: standalone.knowledge.revision,
+          title: "Renamed",
+          body: "Renamed body.",
+        }),
       );
       expect(await waitUntilBlocked(() => writer.state.settled)).toBe(true);
       holder.release(async (tx) => {
@@ -459,6 +470,7 @@ describe.skipIf(!POSTGRES_URL)(
         ...publishInput(),
         title: "Atlas launch v2",
         supersedesId: older.knowledge.id,
+        supersedesRevision: older.knowledge.revision,
       });
       const newPath = newer.knowledge.publishedResourcePath;
       expect(newPath).toBeTruthy();
@@ -474,11 +486,130 @@ describe.skipIf(!POSTGRES_URL)(
       ).toHaveLength(1);
     });
 
+    it("keeps the superseded record and its canonical resource when the superseded revision is stale", async () => {
+      const older = await write(publishInput());
+      const edited = await write({
+        ...publishInput(older.knowledge),
+        body: "Morgan ships Atlas next Friday.",
+      });
+      const oldPath = edited.knowledge.publishedResourcePath;
+      const before = await knowledgeRows();
+      harness.notifications.length = 0;
+      const outcome = await track(
+        write({
+          ...publishInput(),
+          title: "Atlas launch v2",
+          supersedesId: older.knowledge.id,
+          supersedesRevision: older.knowledge.revision,
+        }),
+      ).outcome;
+      expect(outcome.ok ? "written" : outcome.error).toMatchObject({
+        errorCode: "save_conflict",
+        details: {
+          current: { id: older.knowledge.id, publishedResourcePath: oldPath },
+          currentRevision: edited.knowledge.revision,
+        },
+      });
+      expect(await knowledgeRows()).toEqual(before);
+      expect(await resourcePaths()).toEqual([oldPath]);
+      expect(harness.notifications).toEqual([]);
+    });
+
+    it("counts a resent canonical update as applied only while its mirror holds what publishing writes", async () => {
+      const created = await write(publishInput());
+      const edit = {
+        ...publishInput(created.knowledge),
+        body: "Morgan ships Atlas next Friday.",
+      };
+      const first = await write(edit);
+      const path = first.knowledge.publishedResourcePath;
+      expect(await resourcePaths()).toEqual([path]);
+      const resent = await write(edit);
+      expect(resent.knowledge).toEqual(first.knowledge);
+      await getDb().execute(
+        sql`DELETE FROM resources WHERE owner = '__shared__' AND path = ${path}`,
+      );
+      const before = await knowledgeRows();
+      const outcome = await track(write(edit)).outcome;
+      expect(outcome.ok ? "written" : outcome.error).toMatchObject({
+        errorCode: "save_conflict",
+        statusCode: 409,
+        details: {
+          current: { id: first.knowledge.id, publishedResourcePath: path },
+          currentRevision: first.knowledge.revision,
+        },
+      });
+      expect(await knowledgeRows()).toEqual(before);
+      expect(await resourcePaths()).toEqual([]);
+    });
+
+    it("answers a stale writer whose evidence grew while it waited with the current record", async () => {
+      const saved = await write({
+        title: "Atlas launch",
+        body: "Morgan ships Atlas on Friday.",
+        evidence: [{ captureId: "capture-a", quote: "Morgan will ship Atlas" }],
+        publishTier: "company",
+      });
+      const id = saved.knowledge.id;
+      const holder = await holdRows("brain_raw_captures", ["capture-a"]);
+      const grower = track(
+        write({
+          knowledgeId: id,
+          expectedRevision: saved.knowledge.revision,
+          title: "Atlas launch",
+          body: "Morgan ships Atlas after the security review.",
+          evidence: [
+            { captureId: "capture-a", quote: "Morgan will ship Atlas" },
+            { captureId: "capture-b", quote: "the security review" },
+          ],
+          publishTier: "company",
+        }),
+      );
+      expect(await waitUntilBlocked(() => grower.state.settled)).toBe(true);
+      const stale = track(
+        write({
+          knowledgeId: id,
+          expectedRevision: saved.knowledge.revision,
+          title: "Atlas launch",
+          body: "A stale edit of Atlas.",
+          evidence: [
+            { captureId: "capture-a", quote: "Morgan will ship Atlas" },
+          ],
+          publishTier: "company",
+        }),
+      );
+      expect(await waitUntilBlocked(() => stale.state.settled, 2)).toBe(true);
+      holder.release();
+      await holder.done;
+      const grown = await grower.outcome;
+      if (!grown.ok) throw grown.error;
+      const outcome = await stale.outcome;
+      expect(outcome.ok ? "written" : outcome.error).toMatchObject({
+        errorCode: "save_conflict",
+        statusCode: 409,
+        details: {
+          current: {
+            id,
+            body: "Morgan ships Atlas after the security review.",
+          },
+          currentRevision: grown.value.knowledge.revision,
+        },
+      });
+      expect(
+        only((await knowledgeRows()).filter((row) => row.id === id))
+          .evidence_json,
+      ).toContain("capture-b");
+    });
+
     it("unpublishing deletes the resource atomically and notifies after commit", async () => {
       const saved = await write(publishInput());
       harness.notifications.length = 0;
       await asQa(() =>
-        brain.setKnowledgeCanonicalResource(saved.knowledge.id, false),
+        brain.setKnowledgeCanonicalResource(
+          saved.knowledge.id,
+          false,
+          saved.knowledge.revision,
+        ),
       );
       expect(await resourcePaths()).toEqual([]);
       expect(harness.notifications).toHaveLength(1);
@@ -507,6 +638,98 @@ describe.skipIf(!POSTGRES_URL)(
       links: await query(
         "SELECT id, audience_id FROM brain_capture_audiences ORDER BY id",
       ),
+    });
+
+    it("rejects a reimport whose capture changed while it waited for the row lock", async () => {
+      const oldHash = await brain.contentHash(CONTENT_A);
+      const newHash = await brain.contentHash(CONTENT_B);
+      await getDb()
+        .update(schema.brainRawCaptures)
+        .set({
+          contentHash: oldHash,
+          kind: "generic",
+          status: "distilled",
+          distilledAt: STAMP,
+        })
+        .where(eq(schema.brainRawCaptures.id, "capture-a"));
+      const holder = await holdRows("brain_raw_captures", ["capture-a"]);
+      const writer = track(asQa(() => brain.createCapture(capture())));
+      expect(await waitUntilBlocked(() => writer.state.settled)).toBe(true);
+      holder.release(async (tx) => {
+        await tx
+          .update(schema.brainRawCaptures)
+          .set({
+            content: CONTENT_B,
+            contentHash: newHash,
+            status: "queued",
+            distilledAt: null,
+          })
+          .where(eq(schema.brainRawCaptures.id, "capture-a"));
+      });
+      await holder.done;
+      const outcome = await writer.outcome;
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) throw new Error("stale write unexpectedly succeeded");
+      expect(outcome.error).toBeInstanceOf(brain.BrainCaptureConcurrentError);
+      expect(
+        only(
+          await getDb()
+            .select()
+            .from(schema.brainRawCaptures)
+            .where(eq(schema.brainRawCaptures.id, "capture-a")),
+        ),
+      ).toMatchObject({
+        content: CONTENT_B,
+        contentHash: newHash,
+        status: "queued",
+        distilledAt: null,
+      });
+    });
+
+    it("rejects a stale blocked reimport before changing a newer capture or recording a block", async () => {
+      const holder = await holdRows("brain_raw_captures", ["capture-a"]);
+      const writer = track(
+        asQa(() =>
+          brain.createCapture(
+            capture({
+              content: "password: fake-value",
+              privacyClassifier: "deterministic",
+            }),
+          ),
+        ),
+      );
+      expect(await waitUntilBlocked(() => writer.state.settled)).toBe(true);
+      holder.release(async (tx) => {
+        await tx
+          .update(schema.brainRawCaptures)
+          .set({
+            content: CONTENT_B,
+            contentHash: await brain.contentHash(CONTENT_B),
+            status: "queued",
+            sensitivityDisposition: "allowed",
+          })
+          .where(eq(schema.brainRawCaptures.id, "capture-a"));
+      });
+      await holder.done;
+      const outcome = await writer.outcome;
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) throw new Error("stale block unexpectedly succeeded");
+      expect(outcome.error).toBeInstanceOf(brain.BrainCaptureConcurrentError);
+      expect(
+        only(
+          await getDb()
+            .select()
+            .from(schema.brainRawCaptures)
+            .where(eq(schema.brainRawCaptures.id, "capture-a")),
+        ),
+      ).toMatchObject({
+        content: CONTENT_B,
+        status: "queued",
+        sensitivityDisposition: "allowed",
+      });
+      expect(await query("SELECT id FROM brain_sensitivity_events")).toEqual(
+        [],
+      );
     });
 
     it("a changed capture with a null stored hash removes the stale canonical resource and derived knowledge", async () => {

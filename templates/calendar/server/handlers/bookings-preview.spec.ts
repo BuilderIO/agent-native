@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
       minRole?: string,
     ) => ({ minRole: minRole ?? "viewer" }),
   ),
+  consumeSingleUseLink: vi.fn(),
   createZoomMeeting: vi.fn(),
   deleteZoomMeeting: vi.fn(),
   getDb: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   getRequestContext: vi.fn(),
   getSession: vi.fn(),
   getSetting: vi.fn(),
+  getSingleUseLinkStatus: vi.fn(),
   getUserSetting: vi.fn(),
   getDefaultAccountSelection: vi.fn(),
   createGoogleEvent: vi.fn(),
@@ -31,11 +33,13 @@ const mocks = vi.hoisted(() => ({
     async (_context: unknown, fn: () => Promise<unknown>) => fn(),
   ),
   registerShareableResource: vi.fn(),
+  releaseSingleUseLink: vi.fn(),
   setResponseStatus: vi.fn(),
   verifyCaptcha: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  captureError: vi.fn(),
   getAppProductionUrl: () => "https://calendar.example.com",
   getForwardedRequestOrigin: () => "https://calendar.example.com",
   getSession: mocks.getSession,
@@ -98,6 +102,18 @@ vi.mock("../lib/booking-emails.js", () => ({
   sendBookingConfirmationEmails: mocks.sendBookingConfirmationEmails,
 }));
 
+vi.mock("../lib/single-use-links.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../lib/single-use-links.js")
+  >("../lib/single-use-links.js");
+  return {
+    ...actual,
+    consumeSingleUseLink: mocks.consumeSingleUseLink,
+    getSingleUseLinkStatus: mocks.getSingleUseLinkStatus,
+    releaseSingleUseLink: mocks.releaseSingleUseLink,
+  };
+});
+
 vi.mock("../lib/zoom.js", () => ({
   createZoomMeeting: mocks.createZoomMeeting,
   deleteZoomMeeting: mocks.deleteZoomMeeting,
@@ -132,6 +148,7 @@ const availability = {
 };
 
 const bookingLink = {
+  id: "link-1",
   isActive: true,
   ownerEmail: "owner@example.com",
   slug: "saved-meeting",
@@ -695,6 +712,160 @@ describe("draft booking availability previews", () => {
     await expect((getBookingByToken as any)({})).resolves.toMatchObject({
       meetingLinkPending: true,
       status: "confirmed",
+    });
+  });
+  describe("through a single-use link", () => {
+    const token = "single-use-token-1";
+    const book = (event: object) =>
+      (
+        createBooking as unknown as (
+          event: object,
+        ) => Promise<Record<string, unknown>>
+      )(event);
+    const body = {
+      captchaToken: "captcha-token",
+      email: "guest@example.com",
+      end: "2026-08-17T09:30:00.000Z",
+      name: "Guest",
+      slug: "saved-meeting",
+      start: "2026-08-17T09:00:00.000Z",
+      singleUseToken: token,
+    };
+
+    beforeEach(() => {
+      bookingLink.hosts = JSON.stringify([]);
+      mocks.readBody.mockResolvedValue(body);
+      mocks.getSingleUseLinkStatus.mockResolvedValue("available");
+      mocks.consumeSingleUseLink.mockResolvedValue(true);
+    });
+
+    it("books and spends the token in the booking's transaction", async () => {
+      const response = await book({});
+
+      expect(response).toEqual(
+        expect.objectContaining({ status: "confirmed" }),
+      );
+      expect(mocks.getSingleUseLinkStatus).toHaveBeenCalledWith(
+        "link-1",
+        token,
+      );
+      expect(mocks.consumeSingleUseLink).toHaveBeenCalledWith(
+        expect.objectContaining({ insert: expect.any(Function) }),
+        {
+          bookingLinkId: "link-1",
+          token,
+          bookingId: response.id,
+          usedAt: "2026-08-10T12:00:00.000Z",
+        },
+      );
+      expect(mocks.insertedBookings).toHaveLength(1);
+    });
+
+    it.each(["used", "revoked", "missing"])(
+      "refuses a %s token before checking the slot",
+      async (status) => {
+        mocks.getSingleUseLinkStatus.mockResolvedValue(status);
+        const event = {};
+
+        const response = await book(event);
+
+        expect(response).toEqual({
+          error: "This single-use link has already been used or was turned off",
+          code: "single_use_link_used",
+        });
+        expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 410);
+        expect(mocks.getFreeBusy).not.toHaveBeenCalled();
+        expect(mocks.consumeSingleUseLink).not.toHaveBeenCalled();
+        expect(mocks.insertedBookings).toHaveLength(0);
+      },
+    );
+
+    it("refuses a malformed token without looking it up", async () => {
+      mocks.readBody.mockResolvedValue({ ...body, singleUseToken: "x" });
+      const event = {};
+
+      const response = await book(event);
+
+      expect(response).toMatchObject({ code: "single_use_link_used" });
+      expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 410);
+      expect(mocks.getSingleUseLinkStatus).not.toHaveBeenCalled();
+    });
+
+    it("refuses when another booking spends the token first", async () => {
+      mocks.consumeSingleUseLink.mockResolvedValue(false);
+      const event = {};
+
+      const response = await book(event);
+
+      expect(response).toMatchObject({ code: "single_use_link_used" });
+      expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 410);
+      expect(mocks.insertedBookings).toHaveLength(0);
+    });
+
+    it("gives the token back when Zoom never starts the meeting", async () => {
+      bookingLink.conferencing = JSON.stringify({ type: "zoom" });
+      mocks.createZoomMeeting.mockResolvedValueOnce({ status: "not_started" });
+
+      const response = await book({});
+
+      expect(response).toEqual({ error: "Failed to create booking" });
+      expect(mocks.insertedBookings[0]?.status).toBe("cancelled");
+      expect(mocks.releaseSingleUseLink).toHaveBeenCalledWith(
+        expect.objectContaining({ update: expect.any(Function) }),
+        mocks.insertedBookings[0]?.id,
+      );
+    });
+
+    it("doesn't confirm the booking when giving the token back fails", async () => {
+      bookingLink.conferencing = JSON.stringify({ type: "zoom" });
+      mocks.createZoomMeeting.mockResolvedValueOnce({ status: "rejected" });
+      mocks.releaseSingleUseLink.mockRejectedValueOnce(new Error("db down"));
+
+      const event = {};
+
+      const response = await book(event);
+
+      expect(response).toMatchObject({ error: "Internal server error" });
+      expect(mocks.setResponseStatus).toHaveBeenLastCalledWith(event, 500);
+      expect(mocks.createGoogleEvent).not.toHaveBeenCalled();
+    });
+
+    it("reports a spent token, not a taken slot, when the other booking took both", async () => {
+      mocks.insertedBookings.push({
+        id: "booking-other",
+        start: body.start,
+        end: body.end,
+        slug: body.slug,
+        status: "confirmed",
+      });
+      mocks.getSingleUseLinkStatus
+        .mockResolvedValueOnce("available")
+        .mockResolvedValueOnce("used");
+      const event = {};
+
+      const response = await book(event);
+
+      expect(response).toMatchObject({ code: "single_use_link_used" });
+      expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 410);
+      expect(mocks.consumeSingleUseLink).not.toHaveBeenCalled();
+    });
+
+    it("still reports a taken slot when the token is unspent", async () => {
+      mocks.insertedBookings.push({
+        id: "booking-other",
+        start: body.start,
+        end: body.end,
+        slug: body.slug,
+        status: "confirmed",
+      });
+      const event = {};
+
+      const response = await book(event);
+
+      expect(response).toEqual({
+        error: "This time slot is no longer available",
+      });
+      expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 409);
     });
   });
 });

@@ -34,3 +34,8 @@ describe("get-lab-states action", () => {
     expect(mocks.syncLabsAppState).toHaveBeenCalledWith(states, true);
   });
 });
+
+it("keeps get-lab-states in the app, off MCP", async () => {
+  const { default: action } = await import("./get-lab-states.js");
+  expect(action.mcpTool).toBe(false);
+});

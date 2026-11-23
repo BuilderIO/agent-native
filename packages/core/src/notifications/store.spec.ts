@@ -81,7 +81,7 @@ async function seedRow(opts: {
 }
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`CREATE TABLE IF NOT EXISTS notifications (
     id TEXT PRIMARY KEY,
     owner TEXT NOT NULL,

@@ -30,6 +30,20 @@ const normalizePlanContentMock = vi.hoisted(() =>
 const originalAuthMode = process.env.AUTH_MODE;
 const originalPlanLocalMode = process.env.PLAN_LOCAL_MODE;
 
+const mirrorMock = vi.hoisted(() => ({
+  comments: vi.fn(async (..._args: unknown[]) => undefined),
+  deleted: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+
+vi.mock("@agent-native/core/review", () => ({
+  ensureReviewTables: vi.fn(async () => undefined),
+}));
+
+vi.mock("../server/lib/plan-comment-mirror.js", () => ({
+  mirrorPlanComments: mirrorMock.comments,
+  deleteMirroredPlanComments: mirrorMock.deleted,
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => ({ op: "and", args }),
   eq: (...args: unknown[]) => ({ op: "eq", args }),
@@ -170,6 +184,7 @@ vi.mock("../server/plans.js", async () => {
     }),
     emitPlanCommented: vi.fn(),
     emitPlanStatusChanged: vi.fn(),
+    withFreshIdsForKitHeldComments: (rows: unknown) => Promise.resolve(rows),
     writeEvent: vi.fn(),
   };
 });

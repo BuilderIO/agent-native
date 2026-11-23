@@ -11,5 +11,6 @@ export default defineAction({
     profileId: z.string().min(1).optional(),
   }),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: inferBrandDnaProposalFromCorpus,
 });

@@ -1,7 +1,7 @@
 ===================================================================
 --- a/actions/navigate.ts
 +++ b/actions/navigate.ts
-@@ -1,29 +1,43 @@
+@@ -1,30 +1,44 @@
 -import { defineAction } from "@agent-native/core/action";
 +/**
 + * Navigate the UI to a view.
@@ -35,6 +35,7 @@
      intent: navigationIntentSchema,
    }),
    http: false,
+   mcpTool: "search",
    run: async (args) => {
      if (!args.view && !args.path) {
 -      throw new Error("At least --view or --path is required.");

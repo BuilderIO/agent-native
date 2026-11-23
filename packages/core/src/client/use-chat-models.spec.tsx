@@ -96,6 +96,11 @@ function ChatModelsProbe({
           ? `${models.unavailableSelection.engine}:${models.unavailableSelection.model}`
           : ""}
       </span>
+      <span data-testid={`${id}-default-selection`}>
+        {models.defaultSelection
+          ? `${models.defaultSelection.engine}:${models.defaultSelection.model}`
+          : ""}
+      </span>
       <span data-testid={`${id}-ollama-models`}>
         {(
           models.availableModels.find(
@@ -963,6 +968,52 @@ describe("useChatModels", () => {
       container.querySelector('[data-testid="probe-unavailable-selection"]')
         ?.textContent,
     ).toBe("");
+  });
+
+  it("offers the default engine's model while a stored choice is unavailable", async () => {
+    const storageKey = "comment-ai-model-selection";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ engine: "builder", model: "gpt-retired" }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+      ],
+      configuredKeys: ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"],
+      current: { engine: "ai-sdk:openrouter", model: "claude-sonnet-5" },
+    });
+
+    await act(async () => {
+      root.render(
+        <ChatModelsProbe
+          enabled
+          storageKey={storageKey}
+          unavailableSelectionPolicy="require-explicit"
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-unavailable-selection"]')
+        ?.textContent,
+    ).toBe("builder:gpt-retired");
+    expect(
+      container.querySelector('[data-testid="probe-default-selection"]')
+        ?.textContent,
+    ).toBe("ai-sdk:openrouter:claude-sonnet-5");
   });
 
   it("replaces the static Ollama suggestion list with the server's installed models", async () => {

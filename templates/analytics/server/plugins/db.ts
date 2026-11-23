@@ -23,6 +23,7 @@ import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "../lib/builtin-dashboard
 import {
   CONTENT_METRICS_MIGRATION_SQL,
   CONTENT_COVERAGE_CONFIG_MIGRATION_SQL,
+  CONTENT_SEARCH_QUERIES_MIGRATION_SQL,
 } from "../lib/content-metrics/migration.js";
 import { DATA_NOTES_MIGRATION_SQL } from "../lib/data-notes-migration.js";
 import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-migration.js";
@@ -202,6 +203,13 @@ const BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION = {
   version: 188,
   name: "analytics-bigquery-agent-credential-fingerprint",
   sql: BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned search query table DDL with no runtime values or interpolation.
+const CONTENT_SEARCH_QUERIES_MIGRATION = {
+  version: 189,
+  name: "analytics-content-search-queries",
+  sql: CONTENT_SEARCH_QUERIES_MIGRATION_SQL.join(";\n"),
 };
 
 export const runAnalyticsMigrations = runMigrations(
@@ -1971,6 +1979,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
     WRITE_RECEIPTS_MIGRATION,
     BIGQUERY_AGENT_BUDGET_MIGRATION,
     BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION,
+    CONTENT_SEARCH_QUERIES_MIGRATION,
   ],
   { table: "analytics_migrations" },
 );

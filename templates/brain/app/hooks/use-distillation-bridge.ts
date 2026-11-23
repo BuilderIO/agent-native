@@ -10,7 +10,10 @@ import { z } from "zod";
 
 import type { BrainCaptureReviewItem, CapturesResponse } from "@/lib/brain";
 
-import { intelligenceDistillationInstructions } from "../../shared/intelligence-distillation";
+import {
+  intelligenceDistillationInstructions,
+  KNOWLEDGE_UPDATE_INSTRUCTIONS,
+} from "../../shared/intelligence-distillation";
 
 const POLL_INTERVAL_MS = 5000;
 const FORBIDDEN_CLAIM_RETRY_MS = 60_000;
@@ -316,6 +319,7 @@ function buildMessage(
     `validation. Treat short dated company launch announcements as retainable ` +
     `plans, not proof of a completed launch; write supported knowledge with ` +
     `write-knowledge for other durable entries. ` +
+    KNOWLEDGE_UPDATE_INSTRUCTIONS +
     intelligenceDistillationInstructions(capture.id) +
     `Ignore only if no company-relevant ` +
     `fact remains. Mark the capture distilled or ignored with queueId ${queueId} and ` +

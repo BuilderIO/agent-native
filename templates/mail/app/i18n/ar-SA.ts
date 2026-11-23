@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "ملاحظة لنفسي",
     },
     inbox: {
-      atLeastCount: "على الأقل {{count}}",
+      conversationsCount: "المحادثات: {{count}}",
+      conversationsAtLeastCount: "المحادثات: {{count}} على الأقل",
+      unreadCount: "المحادثات غير المقروءة: {{count}}",
+      draftsToReviewCount: "مسودات للمراجعة: {{count}}",
       syncing: "جارٍ مزامنة الوارد…",
     },
     sort: {
@@ -150,8 +153,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "تثبيت الشريط الجانبي",
-      unpinSidebar: "إلغاء تثبيت الشريط الجانبي",
       closeSidebar: "إغلاق الشريط الجانبي",
       settings: "الإعدادات",
       aiSettings: "إدارة الوسوم والقواعد",
@@ -169,7 +170,7 @@ const messages = {
       filtersLimitReached: "يمكنك حفظ ما يصل إلى 20 فلترًا.",
     },
     tabSettings: {
-      splitInbox: "صندوق وارد مقسّم",
+      splitInbox: "تقسيم صندوق الوارد إلى علامات تبويب",
       views: "وجهات النظر",
       categories: "الفئات",
       rename: "إعادة تسمية",
@@ -177,7 +178,7 @@ const messages = {
       savedFilters: "الفلاتر المحفوظة",
       combinedInbox: "صندوق وارد موحد",
       allTab: "تبويب الكل",
-      help: "يعرض صندوق الوارد الموحّد جميع الحسابات معًا؛ أوقفه لتقسيم البريد إلى علامات تبويب.",
+      help: "يعرض طرق العرض والتصنيفات وعوامل التصفية المحفوظة التي اخترتها كعلامات تبويب منفصلة في صندوق الوارد. أوقفه لعرض كل بريد الوارد في علامة تبويب واحدة.",
       aiSetup: "إعداد وسوم وقواعد الذكاء الاصطناعي",
     },
     accounts: {
@@ -212,6 +213,10 @@ const messages = {
       contentPagesRetry: "إعادة المحاولة",
       contentPagesEmpty: "لم يتم العثور على صفحات",
       contentFileMarkdown: "ملف Markdown",
+      contentFilePdf: "ملف PDF",
+      contentPageFormat: "إرفاق الصفحات بصيغة",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "ملف CSV",
       bold: "غامق",
       cancel: "إلغاء",
@@ -471,6 +476,12 @@ const messages = {
       scheduledCancelFailed: "فشل إلغاء البريد المجدول",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "تعذّر إرفاق صفحة Content",
+      contentPagePdfTextUnsupported:
+        "تحتوي هذه الصفحة على نص لا يمكن لملف PDF عرضه بعد، مثل الصينية أو اليابانية أو الكورية أو العربية أو العبرية أو الهندية. أرفقها بتنسيق Markdown بدلاً من ذلك.",
+      contentPagePdfTooLong:
+        "هذه الصفحة أطول أو أعرض من أن تُرفق كملف PDF. أرفقها بتنسيق Markdown بدلاً من ذلك.",
+      contentPagePdfUnavailable:
+        "تعذّر على Content إنشاء ملف PDF لهذه الصفحة. أرفقها بتنسيق Markdown بدلاً من ذلك.",
       waitForAttachments: "انتظر حتى تكتمل إضافة المرفقات، ثم أرسل.",
       failedToUploadImage: "فشل تحميل الصورة",
       storageBuilderRefused:

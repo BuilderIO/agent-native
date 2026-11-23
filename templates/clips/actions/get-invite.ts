@@ -22,6 +22,7 @@ export default defineAction({
     token: z.string().min(1).describe("Invite token (invitation id)"),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const [row] = await getDb()
       .select({

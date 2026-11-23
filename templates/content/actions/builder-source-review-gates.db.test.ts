@@ -445,6 +445,94 @@ describe("Builder source review execution gates", () => {
     });
   });
 
+  it("lists a page whose change was rejected after pages that can still show a row", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    });
+    const db = getDb();
+    const now = "2026-07-25T12:00:00.000Z";
+    const laterDocumentId = `later_${counter}`;
+    const laterItemId = `later_item_${counter}`;
+    const changedSourceValues = JSON.stringify({
+      "data.title": "Old title",
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "changed-baseline-hash",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Remote baseline body",
+    });
+
+    const [seededChange] = await db
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, seeded.changeSetId));
+    await db.insert(schema.contentDatabaseSourceChangeSets).values({
+      ...seededChange,
+      id: `applied_${counter}`,
+      state: "applied",
+    });
+    await db
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({ state: "rejected", updatedAt: now })
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, seeded.changeSetId));
+    await db
+      .update(schema.documents)
+      .set({ content: "Locally changed body", updatedAt: now })
+      .where(eq(schema.documents.id, seeded.rowDocumentId));
+    await db
+      .update(schema.contentDatabaseSourceRows)
+      .set({ sourceValuesJson: changedSourceValues })
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId));
+    await db.insert(schema.documents).values({
+      id: laterDocumentId,
+      ownerEmail: OWNER,
+      title: "Later article",
+      content: "Another locally changed body",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: laterItemId,
+      ownerEmail: OWNER,
+      databaseId: seeded.databaseId,
+      documentId: laterDocumentId,
+      position: 1,
+      bodyHydrationStatus: "hydrated",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseSourceRows).values({
+      id: `later_row_${counter}`,
+      ownerEmail: OWNER,
+      sourceId: seeded.sourceId,
+      databaseItemId: laterItemId,
+      documentId: laterDocumentId,
+      sourceRowId: `later_entry_${counter}`,
+      sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/later_entry_${counter}`,
+      sourceDisplayKey: "Later article",
+      provenance: "Builder CMS read adapter",
+      sourceValuesJson: JSON.stringify({
+        "data.title": "Later article",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "changed-baseline-hash",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "Remote baseline body",
+      }),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const response = await asOwner(() =>
+      previewReview.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        scope: "all",
+        bodyComparison: "text",
+        batchSize: 0,
+      }),
+    );
+
+    expect(response.remainingDocumentIds).toEqual([
+      laterDocumentId,
+      seeded.rowDocumentId,
+    ]);
+  });
+
   it("leaves a checked row's prepared Builder request out of a later preview", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
