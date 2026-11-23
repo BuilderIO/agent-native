@@ -696,6 +696,25 @@ describe("list-recordings search", () => {
     });
   });
 
+  it("keeps root folderId IS NULL scope when searching screenshots (kind=image)", async () => {
+    await action.run(
+      action.schema.parse({
+        view: "library",
+        kind: "image",
+        search: "onboarding",
+        countOnly: true,
+      }),
+    );
+
+    const whereArg = mockCountWhere.mock.calls[0]?.[0] as {
+      conditions: Array<{ kind: string; column?: string }>;
+    };
+    expect(whereArg.conditions).toContainEqual({
+      kind: "is-null",
+      column: "recordings.folderId",
+    });
+  });
+
   it("points agents at navigate for showing filtered Library results", () => {
     expect(action.tool.description).toMatch(/navigate/i);
     expect(action.tool.description).toMatch(/search/i);

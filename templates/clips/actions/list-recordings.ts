@@ -333,7 +333,7 @@ export default defineAction({
       if (args.folderId !== undefined && args.folderId !== null) {
         whereClauses.push(eq(schema.recordings.folderId, args.folderId));
       } else if (
-        !searchTerm &&
+        (!searchTerm || args.kind === "image") &&
         (!libraryFilter || isDefaultLibraryFilter(libraryFilter))
       ) {
         if (filterInMemory) listWithin = isNull(schema.recordings.folderId);
