@@ -12,12 +12,14 @@ import {
   recordingUsesSharePassword,
 } from "./recording-page-access.js";
 
-export async function assertCommentAccess(
+export type CommentOperation = "read" | "write" | "delete";
+
+export function commentAccessRefusal(
   recordingId: string,
-  operation: "read" | "write" | "delete" = "write",
+  access: { role: string; resource: unknown },
+  operation: CommentOperation,
   requestHeaders?: Headers,
-): Promise<void> {
-  const access = await assertAccess("recording", recordingId, "viewer");
+): ForbiddenError | null {
   const recording = access.resource as {
     enableComments: boolean;
     visibility: "private" | "org" | "public";
@@ -33,7 +35,7 @@ export async function assertCommentAccess(
       viewerIsOwner: access.role === "owner",
     })
   ) {
-    throw new ForbiddenError();
+    return new ForbiddenError();
   }
 
   if (
@@ -42,7 +44,7 @@ export async function assertCommentAccess(
       viewerIsOwner: access.role === "owner",
     })
   ) {
-    throw new ForbiddenError("Recording has expired");
+    return new ForbiddenError("Recording has expired");
   }
   // Turning comments off stops new discussion, not cleanup of saved history.
   if (
@@ -53,7 +55,7 @@ export async function assertCommentAccess(
         })
       : operation === "write" && !recording.enableComments
   ) {
-    throw new ForbiddenError();
+    return new ForbiddenError();
   }
   if (
     recordingUsesSharePassword(recording.visibility) &&
@@ -72,7 +74,23 @@ export async function assertCommentAccess(
         ),
       ).ok
     ) {
-      throw new ForbiddenError();
+      return new ForbiddenError();
     }
   }
+  return null;
+}
+
+export async function assertCommentAccess(
+  recordingId: string,
+  operation: CommentOperation = "write",
+  requestHeaders?: Headers,
+): Promise<void> {
+  const access = await assertAccess("recording", recordingId, "viewer");
+  const refusal = commentAccessRefusal(
+    recordingId,
+    access,
+    operation,
+    requestHeaders,
+  );
+  if (refusal) throw refusal;
 }

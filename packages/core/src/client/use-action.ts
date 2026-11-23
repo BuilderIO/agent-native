@@ -355,16 +355,6 @@ let uiCapabilityRequest: Promise<void> | undefined;
 let uiCapabilityRequestIdentity: string | null | undefined;
 let abortUiCapabilityRequest: (() => void) | undefined;
 
-/** A caller asked to share a mint another identity's session is waiting on. */
-class UiCapabilityIdentityError extends Error {
-  constructor() {
-    super(
-      "A UI capability for a different user is still being established; retry once it settles.",
-    );
-    this.name = "UiCapabilityIdentityError";
-  }
-}
-
 // The capability is the Set-Cookie header, so the mint is answered by its
 // status. Its body must still be read, or the request stays open and the page
 // never reaches network idle, and a cancelled body is reported as an aborted
@@ -470,6 +460,24 @@ function abandonUiCapabilityMint(): void {
   uiCapabilityRequest = undefined;
 }
 
+function waitForUiCapabilityMint(
+  request: Promise<void>,
+  signal?: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => reject(signal?.reason);
+    if (signal?.aborted) return onAbort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    void request
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .then(resolve)
+      .finally(() => signal?.removeEventListener("abort", onAbort));
+  });
+}
+
 // The mint is shared by concurrent callers, so one caller's abort rejects only
 // its own wait and never cancels the request the others are waiting on.
 function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
@@ -478,7 +486,9 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
   // A pending mint was sent with the cookies of the session that started it.
   // Another identity waiting on it would act under that session's capability.
   if (uiCapabilityRequest && uiCapabilityRequestIdentity !== identity) {
-    return Promise.reject(new UiCapabilityIdentityError());
+    return waitForUiCapabilityMint(uiCapabilityRequest, signal).then(() =>
+      ensureUiActionCapability(signal),
+    );
   }
   if (!uiCapabilityRequest) {
     uiCapabilityRequestIdentity = identity;
@@ -623,8 +633,7 @@ function presentUiCapability(
     return undefined;
   } else {
     pending = ensureUiActionCapability(signal).catch((error) => {
-      if (signal?.aborted || error instanceof UiCapabilityIdentityError)
-        throw error;
+      if (signal?.aborted) throw error;
     });
   }
   // The request leaves only after the mint, using the browser’s current
@@ -1505,6 +1514,7 @@ export function tryCallActionKeepalive<
 
   const completion = actionFetch<R>(actionName, method, params, {
     signal: options.signal,
+    headers: options.headers,
     errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     keepalive: true,

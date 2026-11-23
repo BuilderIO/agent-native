@@ -392,11 +392,8 @@ export interface DocumentPropertiesResponse {
   canManageSchema?: boolean;
   /** Full access to the collection: column rules, such as a tab's freeze, are theirs to set. */
   canManageColumnRules?: boolean;
-  /**
-   * False where schema rights can't add a property: a system collection such
-   * as Files keeps only the ones the app gives it.
-   */
   canAddProperties?: boolean;
+  addablePropertyTypes?: DocumentPropertyType[];
   properties: DocumentProperty[];
 }
 
@@ -1414,13 +1411,23 @@ export interface ContentDatabaseNavigationPageResponse {
    * their own pages.
    */
   branchesTruncated?: boolean;
+  groups?: ContentDatabaseNavigationGroup[];
+  locatedGroupIds?: string[];
 }
 
 /** One Files navigation page on its own, without expanded folders. */
 export type ContentDatabaseNavigationPage = Omit<
   ContentDatabaseNavigationPageResponse,
-  "branches" | "branchesTruncated"
+  "branches" | "branchesTruncated" | "groups" | "locatedGroupIds"
 >;
+
+export interface ContentDatabaseNavigationGroup {
+  id: string;
+  label: string;
+  unset: boolean;
+  count: number;
+  page: ContentDatabaseNavigationPage;
+}
 
 export interface BuilderActionTiming {
   name: string;
@@ -2081,6 +2088,7 @@ export interface PreviewBuilderSourceReviewResponse {
   documentIds?: string[];
   remainingDocumentIds?: string[];
   blocksCheckDocumentIds?: string[];
+  timings?: BuilderActionTiming[];
 }
 
 export interface PrepareBuilderSourceReviewResponse {

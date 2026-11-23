@@ -13,6 +13,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import * as React from "react";
+import { expect, waitFor, within } from "storybook/test";
 
 import { Button } from "../../../src/ui/base-ui/button.js";
 import {
@@ -21,6 +22,7 @@ import {
   MenuPopup,
   MenuGroup,
   MenuItem,
+  MenuLinkItem,
   MenuGroupLabel,
   MenuRadioGroup,
   MenuRadioItem,
@@ -31,7 +33,9 @@ import {
   MenuSubmenuTrigger,
   MenuTrigger,
 } from "../../../src/ui/base-ui/menu.js";
+import { ThemeProvider } from "../../../src/ui/base-ui/theme-provider.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./menu.docs.md?raw";
 
 type MenuProps = MenuPopupOwnProps;
 
@@ -175,7 +179,10 @@ function HighlightSample(props: MenuProps) {
 const meta = {
   title: "Components/Menu",
   component: Menu,
-  parameters: { layout: "fullscreen" },
+  parameters: {
+    docs: { description: { component: guide } },
+    layout: "fullscreen",
+  },
   args: controls.args,
   argTypes: controls.argTypes,
 } satisfies Omit<Meta<MenuProps>, "component"> & {
@@ -258,4 +265,109 @@ export const Interactive: Story = {
       <MenuSample pinned={false} {...args} />
     </div>
   ),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const trigger = canvas.getByRole("button", { name: "Open menu" });
+    const page = within(canvasElement.ownerDocument.body);
+    trigger.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    const first = await page.findByRole("menuitem", { name: "Rename" });
+    await waitFor(() => expect(first).toHaveFocus());
+    await userEvent.keyboard("{End}");
+    await waitFor(() =>
+      expect(
+        page.getByRole("menuitem", { name: "Move to trash" }),
+      ).toHaveFocus(),
+    );
+    await userEvent.keyboard("{ArrowUp}");
+    const submenu = page.getByRole("menuitem", { name: "Export" });
+    await waitFor(() => expect(submenu).toHaveFocus());
+    const rtl = getComputedStyle(trigger).direction === "rtl";
+    await expect(getComputedStyle(submenu).direction).toBe(rtl ? "rtl" : "ltr");
+    await userEvent.keyboard(rtl ? "{ArrowLeft}" : "{ArrowRight}");
+    const pdf = await page.findByRole("menuitem", { name: "PDF" });
+    await waitFor(() => expect(pdf).toHaveFocus());
+    await expect(getComputedStyle(pdf).direction).toBe(rtl ? "rtl" : "ltr");
+    await userEvent.keyboard(rtl ? "{ArrowRight}" : "{ArrowLeft}");
+    await waitFor(() => expect(submenu).toHaveFocus());
+    await waitFor(() => expect(pdf).not.toBeInTheDocument());
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(trigger).toHaveFocus());
+  },
+};
+
+export const RightToLeft: Story = {
+  render: (args) => (
+    <ThemeProvider dir="rtl" className="p-8">
+      <MenuSample pinned={false} {...args} />
+    </ThemeProvider>
+  ),
+  play: Interactive.play,
+};
+
+export const TabFromSubmenu: Story = {
+  render: () => (
+    <div className="flex gap-2 p-8">
+      <MenuSample pinned={false} />
+      <Button>Save document</Button>
+    </div>
+  ),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const page = within(canvasElement.ownerDocument.body);
+    const trigger = canvas.getByRole("button", { name: "Open menu" });
+    trigger.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    const submenu = await page.findByRole("menuitem", { name: "Export" });
+    submenu.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    const pdf = await page.findByRole("menuitem", { name: "PDF" });
+    await waitFor(() => expect(pdf).toHaveFocus());
+    await userEvent.tab();
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Save document" }),
+      ).toHaveFocus(),
+    );
+    await waitFor(() => expect(page.queryByRole("menu")).toBeNull());
+  },
+};
+
+export const Links: Story = {
+  render: (args) => (
+    <Menu>
+      <MenuTrigger render={trigger}>Component guides</MenuTrigger>
+      <MenuPopup {...args}>
+        <MenuLinkItem
+          href="./?path=/docs/components-button--docs"
+          target="_top"
+          closeOnClick
+        >
+          Button
+        </MenuLinkItem>
+        <MenuLinkItem
+          href="./?path=/docs/components-dialog--docs"
+          target="_top"
+          closeOnClick
+        >
+          Dialog
+        </MenuLinkItem>
+      </MenuPopup>
+    </Menu>
+  ),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const page = within(canvasElement.ownerDocument.body);
+    const trigger = canvas.getByRole("button", { name: "Component guides" });
+    trigger.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    const button = await page.findByRole("menuitem", { name: "Button" });
+    await waitFor(() => expect(button).toHaveFocus());
+    await userEvent.keyboard("{ArrowDown}");
+    const dialog = page.getByRole("menuitem", { name: "Dialog" });
+    await waitFor(() => expect(dialog).toHaveFocus());
+    await expect(dialog).toHaveAttribute(
+      "href",
+      "./?path=/docs/components-dialog--docs",
+    );
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(trigger).toHaveFocus());
+  },
 };

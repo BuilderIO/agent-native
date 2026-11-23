@@ -221,6 +221,10 @@ const messages = {
       contentPagesRetry: "Tentar novamente",
       contentPagesEmpty: "Nenhuma página encontrada",
       contentFileMarkdown: "Arquivo Markdown",
+      contentFilePdf: "Arquivo PDF",
+      contentPageFormat: "Anexar páginas como",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "Arquivo CSV",
       bold: "Negrito",
       cancel: "Cancelar",
@@ -483,6 +487,12 @@ const messages = {
       scheduledCancelFailed: "Falha ao cancelar email agendado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Falha ao anexar a página do Content",
+      contentPagePdfTextUnsupported:
+        "Esta página tem texto que um PDF ainda não consegue mostrar, como chinês, japonês, coreano, árabe, hebraico ou hindi. Anexe-a como Markdown.",
+      contentPagePdfTooLong:
+        "Esta página é longa ou larga demais para anexar como PDF. Anexe-a como Markdown.",
+      contentPagePdfUnavailable:
+        "O Content não conseguiu criar um PDF desta página. Anexe-a como Markdown.",
       waitForAttachments: "Aguarde os anexos terminarem e depois envie.",
       failedToUploadImage: "Falha ao enviar imagem",
       storageBuilderRefused:

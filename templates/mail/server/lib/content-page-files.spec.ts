@@ -89,6 +89,67 @@ describe("Content page files", () => {
     });
   });
 
+  it("reads a page as a PDF and decodes its bytes", async () => {
+    const pdf = Buffer.from("%PDF-1.3\n%\xff\xfe\n", "latin1");
+    invokeAgentAction.mockResolvedValue(
+      completed({
+        ...pageFile,
+        format: "pdf",
+        filename: "Q3 plan.pdf",
+        encoding: "base64",
+        content: pdf.toString("base64"),
+        size: pdf.byteLength,
+      }),
+    );
+    const { readContentPageFile } = await import("./content-page-files.js");
+
+    const file = await readContentPageFile({ id: "plan-page", format: "pdf" });
+
+    expect(file.format).toBe("pdf");
+    expect(file.data.equals(pdf)).toBe(true);
+    expect(invokeAgentAction.mock.calls[0]?.[0].input).toMatchObject({
+      format: "pdf",
+    });
+  });
+
+  it("refuses a PDF that isn't base64, isn't a PDF, or is cut short", async () => {
+    const { readContentPageFile } = await import("./content-page-files.js");
+    const pdf = Buffer.from("%PDF-1.3\n", "latin1");
+    const pdfFile = {
+      ...pageFile,
+      format: "pdf",
+      filename: "Q3 plan.pdf",
+      encoding: "base64",
+      content: pdf.toString("base64"),
+      size: pdf.byteLength,
+    };
+
+    invokeAgentAction.mockResolvedValue(
+      completed({ ...pdfFile, encoding: "utf8" }),
+    );
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({ errorCode: "content_invalid_response" });
+
+    for (const content of [
+      Buffer.from("not a pdf!").toString("base64"),
+      "%%%%",
+      pdfFile.content.slice(0, -4),
+    ]) {
+      invokeAgentAction.mockResolvedValue(completed({ ...pdfFile, content }));
+      await expect(
+        readContentPageFile({ id: "plan-page", format: "pdf" }),
+      ).rejects.toMatchObject({ errorCode: "content_file_incomplete" });
+    }
+
+    invokeAgentAction.mockResolvedValue(
+      completed({ ...pdfFile, content: "JVBERi1=", size: 5 }),
+    );
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({ errorCode: "content_file_incomplete" });
+  });
+
   it("refuses a file for another page or in another format", async () => {
     const { readContentPageFile } = await import("./content-page-files.js");
 
@@ -102,6 +163,13 @@ describe("Content page files", () => {
     invokeAgentAction.mockResolvedValue(completed(pageFile));
     await expect(
       readContentPageFile({ id: "plan-page", format: "csv" }),
+    ).rejects.toMatchObject({ errorCode: "content_invalid_response" });
+
+    invokeAgentAction.mockResolvedValue(
+      completed({ ...pageFile, format: "csv" }),
+    );
+    await expect(
+      readContentPageFile({ id: "plan-page" }),
     ).rejects.toMatchObject({ errorCode: "content_invalid_response" });
 
     invokeAgentAction.mockResolvedValue(
@@ -171,6 +239,38 @@ describe("Content page files", () => {
       errorCode: "collection_export_limit_exceeded",
       message: expect.stringContaining("too many rows"),
     });
+
+    invokeAgentAction.mockResolvedValue({
+      target: { url: "https://content.example.com" },
+      result: {
+        status: "failed",
+        output:
+          "Error running read-document-file: This page has text a PDF can't show yet. (errorCode: document_file_pdf_text_unsupported)",
+      },
+    });
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: "document_file_pdf_text_unsupported",
+      message: expect.stringContaining("Attach it as Markdown"),
+    });
+
+    invokeAgentAction.mockResolvedValue({
+      target: { url: "https://content.example.com" },
+      result: {
+        status: "failed",
+        output:
+          "Error running read-document-file: This page can't be attached as a PDF because it has over 200 pages. Attach it as Markdown instead. (errorCode: document_file_pdf_too_long)",
+      },
+    });
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({
+      statusCode: 413,
+      errorCode: "document_file_pdf_too_long",
+      message: expect.stringContaining("too long or too wide"),
+    });
   });
 
   it("names an unknown refusal and an unreachable Content plainly", async () => {
@@ -185,6 +285,50 @@ describe("Content page files", () => {
     ).rejects.toMatchObject({
       statusCode: 409,
       errorCode: "content_page_unavailable",
+    });
+
+    invokeAgentAction.mockResolvedValue({
+      target: { url: "https://content.example.com" },
+      result: {
+        status: "failed",
+        output:
+          "Error running read-document-file: Invalid action parameters — format: Invalid enum value. Expected 'markdown' | 'csv', received 'pdf'.",
+      },
+    });
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "content_page_pdf_unavailable",
+      message: expect.stringContaining("Attach it as Markdown"),
+    });
+
+    invokeAgentAction.mockResolvedValue({
+      target: { url: "https://content.example.com" },
+      result: {
+        status: "failed",
+        output:
+          "Error running read-document-file: Content couldn't make a PDF of this page. Attach it as Markdown instead. (errorCode: document_file_pdf_failed)",
+      },
+    });
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "content_page_pdf_unavailable",
+      message: expect.stringContaining("Attach it as Markdown"),
+    });
+
+    invokeAgentAction.mockResolvedValue({
+      target: { url: "https://content.example.com" },
+      result: { status: "failed", output: "Error running it: boom" },
+    });
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "content_page_unavailable",
+      message: expect.stringContaining("Check your access"),
     });
 
     invokeAgentAction.mockRejectedValue(new Error("connect ECONNREFUSED"));
@@ -223,6 +367,9 @@ describe("Content page files", () => {
         format: "csv",
       }),
     ).toBe("Tracker.csv");
+    expect(
+      attachmentNameForFile({ filename: "Poems.pdf", format: "pdf" }),
+    ).toBe("Poems.pdf");
     expect(attachmentNameForFile({ ...file, filename: "a/b\r\nc.exe" })).toBe(
       "a b c.exe.md",
     );

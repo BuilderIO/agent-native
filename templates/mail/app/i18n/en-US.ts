@@ -211,6 +211,10 @@ const messages = {
       contentPagesRetry: "Try again",
       contentPagesEmpty: "No pages found",
       contentFileMarkdown: "Markdown file",
+      contentFilePdf: "PDF file",
+      contentPageFormat: "Attach pages as",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV file",
       bold: "Bold",
       cancel: "Cancel",
@@ -470,6 +474,12 @@ const messages = {
       uncertainScheduledRetryFailed: "Failed to retry scheduled email.",
       failedToAttachFile: "Failed to attach file",
       failedToAttachContentPage: "Failed to attach Content page",
+      contentPagePdfTextUnsupported:
+        "This page has text a PDF can't show yet, such as Chinese, Japanese, Korean, Arabic, Hebrew or Hindi. Attach it as Markdown instead.",
+      contentPagePdfTooLong:
+        "This page is too long or too wide to attach as a PDF. Attach it as Markdown instead.",
+      contentPagePdfUnavailable:
+        "Content couldn't make a PDF of this page. Attach it as Markdown instead.",
       waitForAttachments: "Wait for attachments to finish, then send.",
       failedToUploadImage: "Failed to upload image",
       storageBuilderRefused:

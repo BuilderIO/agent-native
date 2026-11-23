@@ -11,10 +11,22 @@ vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
     mockWriteAppStateForCurrentTab(...args),
 }));
 
+const mockGetUserLabEnabled = vi.fn();
+
+vi.mock("@agent-native/core/labs/server", () => ({
+  getUserLabEnabled: (...args: unknown[]) => mockGetUserLabEnabled(...args),
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => "qa@example.com",
+  getRequestOrgId: () => "org_1",
+}));
+
 import action from "./navigate";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetUserLabEnabled.mockResolvedValue(true);
 });
 
 describe("clips navigate action", () => {
@@ -56,6 +68,58 @@ describe("clips navigate action", () => {
         dictationId: "dct_456",
       },
     );
+  });
+
+  describe("with the Meetings Lab off", () => {
+    beforeEach(() => {
+      mockGetUserLabEnabled.mockResolvedValue(false);
+    });
+
+    it.each([
+      { view: "meetings" as const },
+      { view: "meeting" as const, meetingId: "mtg_123" },
+      { path: "/meetings?tab=past" },
+      { path: "/meetings/mtg_123" },
+    ])("does not navigate to a meetings page: %j", async (args) => {
+      const result = await action.run(args);
+
+      expect(mockWriteAppStateForCurrentTab).not.toHaveBeenCalled();
+      expect(result).toMatch(/Did not navigate/);
+      expect(result).toMatch(/Labs/);
+      expect(mockGetUserLabEnabled).toHaveBeenCalledWith(
+        "qa@example.com",
+        expect.objectContaining({ key: "clips.meetings" }),
+        { userEmail: "qa@example.com", orgId: "org_1" },
+      );
+    });
+
+    it("still navigates to non-meetings views without checking the Lab", async () => {
+      const result = await action.run({ view: "library" });
+
+      expect(mockGetUserLabEnabled).not.toHaveBeenCalled();
+      expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+        view: "library",
+      });
+      expect(result).toBe("Navigating to library");
+    });
+
+    it("does not treat a similarly named path as a meetings page", async () => {
+      await action.run({ path: "/meetings-archive" });
+
+      expect(mockGetUserLabEnabled).not.toHaveBeenCalled();
+      expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+        path: "/meetings-archive",
+      });
+    });
+  });
+
+  it("navigates to the past meetings tab when the Meetings Lab is on", async () => {
+    const result = await action.run({ path: "/meetings?tab=past" });
+
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      path: "/meetings?tab=past",
+    });
+    expect(result).toBe("Navigating to /meetings?tab=past");
   });
 
   it("carries meetingsTab through to application state for the past meetings view", async () => {

@@ -6,6 +6,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { addablePropertyTypes } from "../shared/properties.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
   assertSchema,
@@ -115,21 +116,25 @@ export function setupError(
   throw new ActionContractError(message, { errorCode, statusCode });
 }
 
-/**
- * A system collection such as Files keeps only the properties the app gives
- * it: the Files sidebar filters on those alone, so an ordinary one there
- * would break a filtered view. Every path that creates a property calls this.
- */
-export function assertOrdinaryPropertySetupAllowed(database: {
-  systemRole: string | null;
-}) {
-  if (database.systemRole) {
-    setupError(
-      "SYSTEM_DATABASE_UNSUPPORTED",
-      "Ordinary property setup is unavailable for system databases.",
-      400,
-    );
-  }
+export function assertOrdinaryPropertySetupAllowed(
+  database: { systemRole: string | null },
+  type?: string,
+) {
+  if (!database.systemRole) return;
+  if (
+    type !== undefined &&
+    addablePropertyTypes(database.systemRole).some(
+      (addable) => addable === type,
+    )
+  )
+    return;
+  setupError(
+    "SYSTEM_DATABASE_UNSUPPORTED",
+    database.systemRole === "files" && type !== undefined
+      ? `Files can't take a ${type} property: its sidebar can only filter, sort and group on stored values such as text, numbers, dates, people, checkboxes and selects.`
+      : "Ordinary property setup is unavailable for system databases.",
+    400,
+  );
 }
 
 export async function assertSetupAccess(

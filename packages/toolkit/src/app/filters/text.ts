@@ -3,6 +3,8 @@ import { useMemo } from "react";
 
 import {
   FILTER_NOBODY,
+  filterDateInstant,
+  filterDateValueHasTime,
   filterOperatorTakesValue,
   filterToday,
   isFilterRelativeDay,
@@ -27,6 +29,7 @@ const SINGLE_VALUE_OPERATOR_KEYS: Record<FilterOperator, string> = {
   after: "agentChat.filters.op.isAfter",
   on_or_before: "agentChat.filters.op.isOnOrBefore",
   on_or_after: "agentChat.filters.op.isOnOrAfter",
+  between: "agentChat.filters.op.isBetween",
   is_within: "agentChat.filters.op.isWithin",
   is_checked: "agentChat.filters.op.is",
   is_unchecked: "agentChat.filters.op.is",
@@ -62,9 +65,9 @@ function operatorKey(
       if (operator === "is_not_empty") return "agentChat.filters.op.hasSome";
       return SINGLE_VALUE_OPERATOR_KEYS[operator];
     case "date":
-      return operator === "equals"
-        ? "agentChat.filters.op.isOn"
-        : SINGLE_VALUE_OPERATOR_KEYS[operator];
+      if (operator === "equals") return "agentChat.filters.op.isOn";
+      if (operator === "does_not_equal") return "agentChat.filters.op.isNotOn";
+      return SINGLE_VALUE_OPERATOR_KEYS[operator];
     case "boolean":
     case "text":
     case "number":
@@ -111,6 +114,19 @@ export function useFilterText() {
     const dayLabel = (value: string) => {
       if (isFilterRelativeDay(value))
         return t(`agentChat.filters.date.${value}`);
+      if (filterDateValueHasTime(value)) {
+        const instant = filterDateInstant(value);
+        if (Number.isNaN(instant)) return value;
+        const sameYear =
+          new Date(instant).getFullYear() === new Date().getFullYear();
+        return formatDate(new Date(instant), {
+          month: "short",
+          day: "numeric",
+          year: sameYear ? undefined : "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+      }
       const date = utcDay(value);
       if (Number.isNaN(date.getTime())) return value;
       const sameYear = value.slice(0, 4) === filterToday().slice(0, 4);
@@ -160,9 +176,14 @@ export function useFilterText() {
       const value = rule.value.at(0) ?? "";
       switch (field.type) {
         case "date":
-          return rule.operator === "is_within"
-            ? rangeLabel(value)
-            : dayLabel(value);
+          if (rule.operator === "is_within") return rangeLabel(value);
+          if (rule.operator === "between") {
+            return t("agentChat.filters.dateBetween", {
+              start: dayLabel(value),
+              end: dayLabel(rule.value.at(1) ?? ""),
+            });
+          }
+          return dayLabel(value);
         case "text":
           return t("agentChat.filters.quoted", { value });
         case "number":
@@ -180,7 +201,9 @@ export function useFilterText() {
         field.type === "boolean" ||
         !filterOperatorTakesValue(rule.operator) ||
         (field.type === "date" &&
-          (rule.operator === "equals" || rule.operator === "is_within"))
+          (rule.operator === "equals" ||
+            rule.operator === "is_within" ||
+            rule.operator === "between"))
       ) {
         return value;
       }

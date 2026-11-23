@@ -5,9 +5,12 @@ import {
 import { PreviewCard as BasePreviewCard } from "@base-ui/react/preview-card";
 import * as React from "react";
 
-import { cn } from "../../utils.js";
+import { scopePortal } from "./overlay-scope.js";
+import { partClassName } from "./part-class.js";
 import { splitPositionerProps } from "./positioning.js";
 import { splitProps } from "./props.js";
+
+const PreviewCardPortal = scopePortal(BasePreviewCard.Portal);
 
 /**
  * A card that previews what a link leads to when the link is hovered or
@@ -26,10 +29,6 @@ export const PreviewCard = BasePreviewCard.Root;
  */
 export const PreviewCardTrigger = BasePreviewCard.Trigger;
 
-type PopupProps = Omit<BasePreviewCard.Popup.Props, "className"> & {
-  className?: string;
-};
-
 type PositionerProps = Pick<
   BasePreviewCard.Positioner.Props,
   | "anchor"
@@ -46,7 +45,7 @@ type PositionerProps = Pick<
   | "positionMethod"
 >;
 
-type PreviewCardPopupProps = PopupProps &
+type PreviewCardPopupProps = BasePreviewCard.Popup.Props &
   PositionerProps &
   PreviewCardPopupOwnProps & {
     container?: BasePreviewCard.Portal.Props["container"];
@@ -68,7 +67,7 @@ const PreviewCardPopup = React.forwardRef<
   );
   const [positioner, popup] = splitPositionerProps(rest);
   return (
-    <BasePreviewCard.Portal container={container}>
+    <PreviewCardPortal container={container}>
       <BasePreviewCard.Positioner
         className="preview-card-positioner"
         align="center"
@@ -77,12 +76,12 @@ const PreviewCardPopup = React.forwardRef<
       >
         <BasePreviewCard.Popup
           ref={ref}
-          className={cn("preview-card-popup", className)}
+          className={partClassName("preview-card-popup", className)}
           {...popup}
           {...attributes}
         />
       </BasePreviewCard.Positioner>
-    </BasePreviewCard.Portal>
+    </PreviewCardPortal>
   );
 });
 PreviewCardPopup.displayName = "PreviewCardPopup";
@@ -94,11 +93,11 @@ PreviewCardPopup.displayName = "PreviewCardPopup";
  */
 const PreviewCardArrow = React.forwardRef<
   HTMLDivElement,
-  Omit<BasePreviewCard.Arrow.Props, "className"> & { className?: string }
+  BasePreviewCard.Arrow.Props
 >(({ className, ...props }, ref) => (
   <BasePreviewCard.Arrow
     ref={ref}
-    className={cn("preview-card-arrow", className)}
+    className={partClassName("preview-card-arrow", className)}
     {...props}
   />
 ));

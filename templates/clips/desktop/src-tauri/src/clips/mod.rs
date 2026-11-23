@@ -41,6 +41,9 @@ static TOOLBAR_FINISHING: AtomicBool = AtomicBool::new(false);
 const BUBBLE_LABEL: &str = "bubble";
 pub(crate) const BUBBLE_WINDOW_TITLE: &str = "Clips Camera";
 const BUBBLE_DESTROYED_EVENT: &str = "clips:bubble-destroyed";
+/// Sent when the bubble lets go of the camera; a rich recording's camera
+/// track lets go of it too.
+pub(crate) const RELEASE_CAMERA_EVENT: &str = "clips:release-camera";
 const PREPARING_LABEL: &str = "preparing";
 const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
@@ -1973,7 +1976,7 @@ pub async fn hide_recording_chrome(
 }
 
 fn close_bubble_window(app: &AppHandle) {
-    let _ = app.emit("clips:release-camera", ());
+    let _ = app.emit(RELEASE_CAMERA_EVENT, ());
     if let Some(w) = app.get_webview_window(BUBBLE_LABEL) {
         let _ = w.hide();
         dlog!("[clips-tray] close_bubble - destroying bubble webview");

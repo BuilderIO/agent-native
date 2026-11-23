@@ -23,6 +23,7 @@ export default defineAction({
     intent: navigationIntentSchema,
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const threadId = args.threadId?.trim();
     if (!args.view && !args.path && !threadId) {

@@ -13,7 +13,10 @@ import {
 import { resetAppConfigForTests } from "../app-config/index.js";
 import { WORKSPACE_DEPLOY_BUILD_ENV } from "../cli/process.js";
 import { addVercelSweepCron } from "./build.js";
-import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
+import {
+  IMMUTABLE_ASSET_CACHE_CONTROL,
+  IMMUTABLE_ASSET_PATH_PATTERN,
+} from "./immutable-assets.js";
 import {
   buildStart,
   isDurableBackgroundWorkspaceDeployEnabled,
@@ -525,6 +528,65 @@ describe("workspace deploy", () => {
         execFile: execFile as typeof execFileSync,
       }),
     ).rejects.toThrow("Expected one recurring-jobs sweep cron under /alpha");
+  });
+
+  it("keeps one short immutable-asset route for a Vercel app with thousands of assets", async () => {
+    makeWorkspaceApp(tmpDir, "alpha");
+    execFile.mockImplementation(((_cmd, args, options) => {
+      writeVercelAppBuildOutput(
+        tmpDir,
+        String(args[1]),
+        (options as { env?: NodeJS.ProcessEnv }).env ?? {},
+      );
+      const assetsDir = path.join(
+        tmpDir,
+        "apps",
+        "alpha",
+        ".vercel",
+        "output",
+        "static",
+        "alpha",
+        "assets",
+      );
+      for (let i = 0; i < 3000; i++) {
+        fs.writeFileSync(
+          path.join(assetsDir, `chunk${i}-${String(i).padStart(8, "0")}.js`),
+          "export {};",
+        );
+      }
+      return Buffer.from("");
+    }) as typeof execFileSync);
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "vercel",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const config = JSON.parse(
+      fs.readFileSync(
+        path.join(tmpDir, ".vercel", "output", "config.json"),
+        "utf-8",
+      ),
+    );
+    expect(config.routes.length).toBeLessThanOrEqual(2048);
+    for (const route of config.routes) {
+      expect(route.src?.length ?? 0).toBeLessThanOrEqual(4096);
+    }
+    expect(
+      config.routes.filter(
+        (route: { headers?: Record<string, string> }) =>
+          route.headers?.["cache-control"] === IMMUTABLE_ASSET_CACHE_CONTROL,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        src: IMMUTABLE_ASSET_PATH_PATTERN.replace(
+          "^/assets/",
+          "^/alpha/assets/",
+        ),
+      }),
+    ]);
   });
 
   it("rejects database app access before building isolated-auth apps", async () => {
@@ -1536,13 +1598,25 @@ describe("workspace deploy", () => {
     );
     expect(config.version).toBe(3);
     expect(config.routes).toContainEqual({ handle: "filesystem" });
+    expect(config.routes.length).toBeLessThanOrEqual(2048);
+    for (const route of config.routes) {
+      expect(route.src?.length ?? 0).toBeLessThanOrEqual(4096);
+    }
     const immutableAssetRoutes = config.routes.filter(
       (route: { headers?: Record<string, string> }) =>
         route.headers?.["cache-control"] === IMMUTABLE_ASSET_CACHE_CONTROL,
     );
+    const hitIndex = config.routes.findIndex(
+      (route: { handle?: string }) => route.handle === "hit",
+    );
+    expect(hitIndex).toBe(config.routes.length - 3);
+    expect(config.routes.slice(hitIndex + 1)).toEqual(immutableAssetRoutes);
     expect(immutableAssetRoutes).toEqual([
       {
-        src: "^(?:/dispatch/assets/app-aB12_cdE\\.js|/dispatch/assets/chunks/chunk-12345678\\.js)$",
+        src: IMMUTABLE_ASSET_PATH_PATTERN.replace(
+          "^/assets/",
+          "^/dispatch/assets/",
+        ),
         headers: {
           "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -1552,7 +1626,10 @@ describe("workspace deploy", () => {
         continue: true,
       },
       {
-        src: "^(?:/starter/assets/app-aB12_cdE\\.js|/starter/assets/chunks/chunk-12345678\\.js)$",
+        src: IMMUTABLE_ASSET_PATH_PATTERN.replace(
+          "^/assets/",
+          "^/starter/assets/",
+        ),
         headers: {
           "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -1576,13 +1653,6 @@ describe("workspace deploy", () => {
     expect(
       immutableAssetRoutes.map((route: { src: string }) =>
         new RegExp(route.src).test("/dispatch/assets/app.js"),
-      ),
-    ).toEqual([false, false]);
-    expect(
-      immutableAssetRoutes.map((route: { src: string }) =>
-        new RegExp(route.src).test(
-          "/dispatch/assets/nested/missing-aB12_cdE.js",
-        ),
       ),
     ).toEqual([false, false]);
     expect(config.routes).not.toContainEqual(

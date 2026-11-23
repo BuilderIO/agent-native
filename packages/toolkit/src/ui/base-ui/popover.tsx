@@ -5,9 +5,12 @@ import {
 import { Popover as BasePopover } from "@base-ui/react/popover";
 import * as React from "react";
 
-import { cn } from "../../utils.js";
+import { scopePortal } from "./overlay-scope.js";
+import { partClassName } from "./part-class.js";
 import { splitPositionerProps } from "./positioning.js";
 import { splitProps } from "./props.js";
+
+const PopoverPortal = scopePortal(BasePopover.Portal);
 
 /**
  * A floating panel that opens from a button for related content or controls, on
@@ -31,10 +34,6 @@ export const PopoverTrigger = BasePopover.Trigger;
  */
 export const PopoverClose = BasePopover.Close;
 
-type PopupProps = Omit<BasePopover.Popup.Props, "className"> & {
-  className?: string;
-};
-
 type PositionerProps = Pick<
   BasePopover.Positioner.Props,
   | "anchor"
@@ -51,7 +50,7 @@ type PositionerProps = Pick<
   | "positionMethod"
 >;
 
-type PopoverPopupProps = PopupProps &
+type PopoverPopupProps = BasePopover.Popup.Props &
   PositionerProps &
   PopoverPopupOwnProps & {
     /** Where the popover mounts; the document body by default. */
@@ -72,7 +71,7 @@ const PopoverPopup = React.forwardRef<HTMLDivElement, PopoverPopupProps>(
       splitProps(popoverPopupProps, props);
     const [positioner, popup] = splitPositionerProps(rest);
     return (
-      <BasePopover.Portal container={container} keepMounted={keepMounted}>
+      <PopoverPortal container={container} keepMounted={keepMounted}>
         <BasePopover.Positioner
           className="popover-positioner"
           align="center"
@@ -82,12 +81,12 @@ const PopoverPopup = React.forwardRef<HTMLDivElement, PopoverPopupProps>(
           <BasePopover.Popup
             ref={ref}
             data-slot="popover-content"
-            className={cn("popover-popup", className)}
+            className={partClassName("popover-popup", className)}
             {...popup}
             {...attributes}
           />
         </BasePopover.Positioner>
-      </BasePopover.Portal>
+      </PopoverPortal>
     );
   },
 );
@@ -100,11 +99,11 @@ PopoverPopup.displayName = "PopoverPopup";
  */
 const PopoverTitle = React.forwardRef<
   HTMLHeadingElement,
-  Omit<BasePopover.Title.Props, "className"> & { className?: string }
+  BasePopover.Title.Props
 >(({ className, ...props }, ref) => (
   <BasePopover.Title
     ref={ref}
-    className={cn("popover-title", className)}
+    className={partClassName("popover-title", className)}
     {...props}
   />
 ));
@@ -117,11 +116,11 @@ PopoverTitle.displayName = "PopoverTitle";
  */
 const PopoverDescription = React.forwardRef<
   HTMLParagraphElement,
-  Omit<BasePopover.Description.Props, "className"> & { className?: string }
+  BasePopover.Description.Props
 >(({ className, ...props }, ref) => (
   <BasePopover.Description
     ref={ref}
-    className={cn("popover-description", className)}
+    className={partClassName("popover-description", className)}
     {...props}
   />
 ));
@@ -132,16 +131,15 @@ PopoverDescription.displayName = "PopoverDescription";
  *
  * @import import { PopoverArrow } from "@agent-native/toolkit/ui/base-ui/popover";
  */
-const PopoverArrow = React.forwardRef<
-  HTMLDivElement,
-  Omit<BasePopover.Arrow.Props, "className"> & { className?: string }
->(({ className, ...props }, ref) => (
-  <BasePopover.Arrow
-    ref={ref}
-    className={cn("popover-arrow", className)}
-    {...props}
-  />
-));
+const PopoverArrow = React.forwardRef<HTMLDivElement, BasePopover.Arrow.Props>(
+  ({ className, ...props }, ref) => (
+    <BasePopover.Arrow
+      ref={ref}
+      className={partClassName("popover-arrow", className)}
+      {...props}
+    />
+  ),
+);
 PopoverArrow.displayName = "PopoverArrow";
 
 export {

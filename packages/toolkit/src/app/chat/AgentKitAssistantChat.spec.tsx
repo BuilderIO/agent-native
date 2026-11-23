@@ -12121,6 +12121,60 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
   });
 
+  it("does not fire onThreadSnapshotPersisted when a snapshot save resolves after unmount", async () => {
+    const createTransport = () => chatMocks.transport;
+    chatMocks.snapshotPersistenceUnavailable = true;
+    let resolveSave: ((saved: boolean) => void) | undefined;
+    const onSaveThread = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    const onThreadSnapshotPersisted = vi.fn();
+    await mount(
+      baseProps({ createTransport, onSaveThread, onThreadSnapshotPersisted }),
+    );
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      thread: null,
+      messages: [
+        {
+          id: "unmounted-save-message",
+          role: "user",
+          status: "complete",
+          createdAt: "2026-10-07T12:00:00.000Z",
+          parts: [{ type: "text", text: "show my apps" }],
+        },
+      ],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            createTransport,
+            onSaveThread,
+            onThreadSnapshotPersisted,
+          })}
+        />,
+      );
+    });
+    expect(onSaveThread).toHaveBeenCalledOnce();
+    expect(resolveSave).toBeTypeOf("function");
+
+    await act(async () => {
+      root.unmount();
+    });
+    await act(async () => {
+      resolveSave?.(true);
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(onThreadSnapshotPersisted).not.toHaveBeenCalled();
+  });
+
   it("uses the host fallback after a legacy controller save resolves", async () => {
     const createTransport = () => chatMocks.transport;
     chatMocks.omitSnapshotPersistenceResult = true;

@@ -61,7 +61,10 @@ describe("OTP Field part", () => {
   });
 
   it("refuses a variant it doesn't have instead of drawing the default", () => {
-    const props = { variant: "outline" } as unknown as OTPFieldProps;
+    const props = { variant: "outline" } as unknown as Pick<
+      OTPFieldProps,
+      "variant"
+    >;
     expect(() => render(<OTPField length={4} {...props} />)).toThrow(
       /variant="outline" is not one of/,
     );

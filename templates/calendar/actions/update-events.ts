@@ -86,6 +86,8 @@ export default defineAction({
     "reschedule meetings",
     "move several meetings",
     "bulk edit events",
+    "push meetings back",
+    "delay or shift events later",
   ],
   description:
     "Update many calendar events in one call. Use shiftMinutes or one shared start/end range with ids or filters; never loop update-event per event. Call once with dryRun true to preview every match, then once more without dryRun to apply the same change.",

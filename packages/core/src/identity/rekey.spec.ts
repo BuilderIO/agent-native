@@ -348,7 +348,7 @@ describe("IDENTITY_REKEY_COLUMNS offboard policy", () => {
 
 describe("rekeyIdentity", () => {
   it("locks memberships in organization/id order before every credential scan", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       await pg.exec(`
@@ -409,7 +409,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("rekeys a grant issued first into an initially empty store without stranding its issuance binding", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seedIssuance(pg);
       issuanceDb.exec = issuanceExecutor(pg);
@@ -446,7 +446,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("refuses an old-owner grant when rekey commits between authority validation and the issuance lock", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seedIssuance(pg);
       const exec = issuanceExecutor(pg);
@@ -526,7 +526,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("takes the issuance lock of both addresses in a fixed order before the membership fence", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       const calls: Array<{ sql: string; args: unknown[] }> = [];
@@ -557,7 +557,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("refuses Personal issuance for a renamed-away address until an account holds it again", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seedIssuance(pg);
       issuanceDb.exec = issuanceExecutor(pg);
@@ -606,7 +606,7 @@ describe("rekeyIdentity", () => {
   it.each([false, true])(
     "rekeys valid OAuth owner bindings without admitting legacy or mismatched grants (account already updated: %s)",
     async (accountAlreadyUpdated) => {
-      const pg = await createTestPglite();
+      const pg = await createTestPglite({ reuseEmptyBootstrap: true });
       try {
         await seed(pg);
         if (accountAlreadyUpdated) {
@@ -664,7 +664,7 @@ describe("rekeyIdentity", () => {
   );
 
   it("keeps dry-run fenced but leaves accounts, memberships and grant bindings unchanged", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seedIssuance(pg);
       await pg.exec(
@@ -711,7 +711,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("rekeys Personal bindings when the organization schema is absent", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await pg.exec(`
         CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
@@ -750,7 +750,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("moves every registered identity column, including denormalized secret scopes", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       await seedEveryRegisteredIdentityColumn(pg);
@@ -791,7 +791,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("moves registered active identity references, revokes sessions, and appends audit", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       const calls: Array<{ sql: string; args: unknown[] }> = [];
@@ -902,7 +902,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("revokes OAuth rows with inconsistent lifecycle ownership", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       await pg.exec(
@@ -927,7 +927,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("refuses an already-owned destination email", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       await pg.exec(`INSERT INTO "user" VALUES ('u2', 'new@example.test')`);
@@ -940,7 +940,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("fails closed when an unregistered bare scope_id column exists", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       await pg.exec(
@@ -955,7 +955,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("rekeys raw and user-scoped OAuth owners while preserving encrypted lifecycle metadata", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     const previousKey = process.env.SECRETS_ENCRYPTION_KEY;
     process.env.SECRETS_ENCRYPTION_KEY = "identity-rekey-oauth-test-key";
     try {
@@ -1014,7 +1014,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("revokes an undecryptable owned OAuth row while completing the rekey", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     const previousKey = process.env.SECRETS_ENCRYPTION_KEY;
     process.env.SECRETS_ENCRYPTION_KEY = "identity-rekey-oauth-test-key";
     try {
@@ -1045,7 +1045,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("rewrites promoted dataset idempotency keys to the new email", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       await pg.exec(`
@@ -1090,7 +1090,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("refuses a promoted dataset idempotency key owned by the new email", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       await pg.exec(`
@@ -1135,7 +1135,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("refuses duplicate experiment assignments for the destination email", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       await pg.exec(
@@ -1162,7 +1162,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("refuses a destination chat viewer-state key collision", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       await pg.exec(`
@@ -1210,7 +1210,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("refuses a destination tool-consent key collision", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       await pg.exec(
@@ -1237,7 +1237,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("fails closed on malformed feature-flag targeting JSON", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       await pg.exec(
@@ -1257,7 +1257,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("rekeys only after Better Auth's signed new-address verification", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       await pg.exec(
@@ -1292,7 +1292,7 @@ describe("rekeyIdentity", () => {
   });
 
   it("refuses a verified token whose destination differs from the updated account", async () => {
-    const pg = await createTestPglite();
+    const pg = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await seed(pg);
       await pg.exec(

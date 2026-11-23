@@ -59,6 +59,7 @@ export default defineAction({
       .optional()
       .describe("Open the user-visible agent chat for this request"),
   }),
+  mcpTool: "search",
   run: async (args, ctx) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "viewer"),

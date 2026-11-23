@@ -8,11 +8,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BUILDER_REVIEW_BLOCKS_BATCH_SIZE,
   BUILDER_REVIEW_CONCURRENT_BATCHES,
+  BUILDER_REVIEW_CONCURRENT_BLOCKS_BATCHES,
   BUILDER_REVIEW_FIRST_BATCH_SIZE,
   BUILDER_REVIEW_ROW_LIMIT,
   BUILDER_REVIEW_TEXT_BATCH_SIZE,
   builderReviewReplacedRowIds,
-  chunkBuilderReviewIds,
   composeBuilderReviewIdRemap,
   mergeBuilderReviewBatch,
   prioritizedBuilderReviewDocumentIds,
@@ -41,6 +41,7 @@ type ReviewBatchWork = {
   firstPages: string[];
   textPages: string[];
   blocksPages: string[];
+  loadingTextPageCount: number;
   response: PreviewBuilderSourceReviewResponse | null;
   idRemap: Record<string, string>;
   unchangedRowCount: number;
@@ -65,6 +66,15 @@ function reviewRowCount(work: ReviewBatchWork) {
   return work.response?.review?.rows.length ?? 0;
 }
 
+function shownBlocksPages(work: ReviewBatchWork) {
+  const rows = work.response?.review?.rows ?? [];
+  if (rows.length <= BUILDER_REVIEW_ROW_LIMIT) return work.blocksPages;
+  const shown = new Set(
+    rows.slice(0, BUILDER_REVIEW_ROW_LIMIT).map((row) => row.documentId),
+  );
+  return work.blocksPages.filter((page) => shown.has(page));
+}
+
 function limitedResponse(
   response: PreviewBuilderSourceReviewResponse | null,
 ): PreviewBuilderSourceReviewResponse | null {
@@ -85,9 +95,8 @@ function progressOf(
   if (!work.firstBatchLoaded) return null;
   if (!work.pagesListed) return { kind: "listing", pageCount: 0 };
   if (textPageCount > 0) return { kind: "loading", pageCount: textPageCount };
-  if (work.blocksPages.length > 0) {
-    return { kind: "confirming", pageCount: work.blocksPages.length };
-  }
+  const confirming = shownBlocksPages(work).length;
+  if (confirming > 0) return { kind: "confirming", pageCount: confirming };
   return null;
 }
 
@@ -97,7 +106,9 @@ function snapshotOf(
 ): ReviewBatchSnapshot {
   const rowCount = reviewRowCount(work);
   const atRowLimit = rowCount >= BUILDER_REVIEW_ROW_LIMIT;
-  const textPageCount = atRowLimit ? 0 : work.textPages.length;
+  const textPageCount = atRowLimit
+    ? work.loadingTextPageCount
+    : work.textPages.length;
   return {
     key: work.key,
     data: limitedResponse(work.response),
@@ -158,6 +169,7 @@ export function useBuilderSourceReviewBatches(args: {
         firstPages: [],
         textPages: [],
         blocksPages: [],
+        loadingTextPageCount: 0,
         response: null,
         idRemap: {},
         unchangedRowCount: 0,
@@ -225,7 +237,6 @@ export function useBuilderSourceReviewBatches(args: {
 
     void (async () => {
       try {
-        let listing: Promise<PreviewBuilderSourceReviewResponse> | null = null;
         if (!work.firstBatchLoaded) {
           const firstPages =
             scope === "all"
@@ -236,8 +247,6 @@ export function useBuilderSourceReviewBatches(args: {
               : [];
           let response: PreviewBuilderSourceReviewResponse;
           if (firstPages.length > 0) {
-            listing = listPages();
-            void listing.catch(() => undefined);
             response = await load({
               scope: "selected",
               documentIds: firstPages,
@@ -272,7 +281,7 @@ export function useBuilderSourceReviewBatches(args: {
           setSnapshot(snapshotOf(work, null));
         }
         if (!work.pagesListed) {
-          const response = await (listing ?? listPages());
+          const response = await listPages();
           if (isAborted()) return;
           const reviewed = new Set(work.firstPages);
           work.pagesListed = true;
@@ -282,48 +291,100 @@ export function useBuilderSourceReviewBatches(args: {
           applyTextBatch([], response);
           setSnapshot(snapshotOf(work, null));
         }
-        while (!isAborted()) {
-          const textPhase =
+        await new Promise<void>((resolve, reject) => {
+          const inFlight = new Set<string>();
+          const landed: Array<(() => void) | null> = [];
+          let applied = 0;
+          let running = 0;
+          let failure: Error | null = null;
+          const fail = (error: unknown) => {
+            failure ??=
+              error instanceof Error ? error : new Error(String(error));
+          };
+          work.loadingTextPageCount = 0;
+          const textOpen = () =>
             work.textPages.length > 0 &&
             reviewRowCount(work) < BUILDER_REVIEW_ROW_LIMIT;
-          if (!textPhase && work.blocksPages.length === 0) return;
-          const batchSize = textPhase
-            ? BUILDER_REVIEW_TEXT_BATCH_SIZE
-            : BUILDER_REVIEW_BLOCKS_BATCH_SIZE;
-          const batches = chunkBuilderReviewIds(
-            (textPhase ? work.textPages : work.blocksPages).slice(
-              0,
-              batchSize * BUILDER_REVIEW_CONCURRENT_BATCHES,
-            ),
-            batchSize,
-          );
-          const results = await Promise.allSettled(
-            batches.map(async (pages) => ({
-              pages,
-              response: await load({
-                scope: "selected",
-                documentIds: pages,
-                bodyComparison: textPhase ? "text" : "blocks",
-              }),
-            })),
-          );
-          if (isAborted()) return;
-          let failure: Error | null = null;
-          for (const result of results) {
-            if (result.status === "rejected") {
-              failure ??=
-                result.reason instanceof Error
-                  ? result.reason
-                  : new Error(String(result.reason));
-            } else if (textPhase) {
-              applyTextBatch(result.value.pages, result.value.response);
-            } else {
-              applyBlocksBatch(result.value.pages, result.value.response);
+          const nextBatch = () => {
+            if (failure) return null;
+            const text = textOpen();
+            const [limit, batchSize, queue] = text
+              ? [
+                  BUILDER_REVIEW_CONCURRENT_BATCHES,
+                  BUILDER_REVIEW_TEXT_BATCH_SIZE,
+                  work.textPages,
+                ]
+              : [
+                  BUILDER_REVIEW_CONCURRENT_BLOCKS_BATCHES,
+                  BUILDER_REVIEW_BLOCKS_BATCH_SIZE,
+                  shownBlocksPages(work),
+                ];
+            if (landed.length - applied >= limit) return null;
+            const pages = queue
+              .filter((page) => !inFlight.has(page))
+              .slice(0, batchSize);
+            return pages.length > 0 ? { pages, text } : null;
+          };
+          const applyLanded = () => {
+            const from = applied;
+            while (applied < landed.length && landed[applied]) {
+              landed[applied]?.();
+              applied += 1;
             }
-          }
-          if (failure) throw failure;
-          setSnapshot(snapshotOf(work, null));
-        }
+            if (applied > from) setSnapshot(snapshotOf(work, null));
+          };
+          const pump = () => {
+            if (isAborted()) return resolve();
+            applyLanded();
+            for (let batch = nextBatch(); batch; batch = nextBatch()) {
+              start(batch);
+            }
+            if (running > 0) return;
+            if (failure) reject(failure);
+            else resolve();
+          };
+          const start = (batch: { pages: string[]; text: boolean }) => {
+            const order = landed.length;
+            landed.push(null);
+            running += 1;
+            for (const page of batch.pages) inFlight.add(page);
+            if (batch.text) work.loadingTextPageCount += batch.pages.length;
+            void load({
+              scope: "selected",
+              documentIds: batch.pages,
+              bodyComparison: batch.text ? "text" : "blocks",
+            })
+              .then(
+                (response) => () => {
+                  if (batch.text) applyTextBatch(batch.pages, response);
+                  else applyBlocksBatch(batch.pages, response);
+                },
+                (error: unknown) => {
+                  fail(error);
+                  return () => undefined;
+                },
+              )
+              .then((apply) => {
+                landed[order] = () => {
+                  try {
+                    apply();
+                  } catch (error) {
+                    fail(error);
+                  }
+                  for (const page of batch.pages) inFlight.delete(page);
+                  if (batch.text) {
+                    work.loadingTextPageCount -= batch.pages.length;
+                  }
+                };
+                running -= 1;
+                pump();
+              });
+          };
+          controller.signal.addEventListener("abort", () => resolve(), {
+            once: true,
+          });
+          pump();
+        });
       } catch (error) {
         if (isAborted()) return;
         setSnapshot(

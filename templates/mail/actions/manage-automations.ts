@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
@@ -229,6 +229,10 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
           },
         }
       : {}),
+    needsApproval: agentTool
+      ? (args, ctx) => isOutsideAgentCall(ctx) && args.action !== "list"
+      : false,
+    mcpTool: agentTool ? ("search" as const) : false,
     schema: z
       .object({ ...ruleFields, actions: z.unknown().optional() })
       .superRefine((args, ctx) => {

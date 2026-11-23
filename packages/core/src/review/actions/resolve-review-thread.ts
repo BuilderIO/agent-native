@@ -1,8 +1,10 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
+import { ForbiddenError } from "../../sharing/access.js";
 import {
   assertReviewableResourceAccess,
+  getReviewableResource,
   reviewCommentPolicy,
 } from "../registry.js";
 import {
@@ -41,6 +43,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const status = args.status ?? "resolved";
     const actionCtx = ctx as ReviewResourceContext | undefined;
@@ -50,6 +53,10 @@ export default defineAction({
       actionCtx,
       reviewCommentPolicy(args.resourceType).resolveRole,
     );
+    const writtenByApp = getReviewableResource(
+      args.resourceType,
+    )?.commentsWrittenByApp;
+    if (writtenByApp) throw new ForbiddenError(writtenByApp);
     let threadId = args.threadId;
     if (!threadId && args.commentId) {
       const comment = await getReviewCommentById(

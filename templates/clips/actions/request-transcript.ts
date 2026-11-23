@@ -1,7 +1,15 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  ForbiddenError,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { and, eq, isNull, or } from "drizzle-orm";
@@ -19,6 +27,7 @@ import {
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
 import {
+  hasImportedTranscript,
   hasTranscriptContent,
   saveTranscriptVersion,
 } from "../server/lib/transcript-versions.js";
@@ -1039,6 +1048,12 @@ const requestTranscriptAction = defineAction({
         "Internal — set only by the bounded automatic retry scheduler after a transient failure (ffmpeg timeout, transient provider error). Do not set this when calling request-transcript manually or from the agent; omitting it means the retry budget never applies to this call.",
       ),
   }),
+  needsApproval: async (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    args.regenerate === true &&
+    (await resolveAccess("recording", args.recordingId)) !== null &&
+    (await hasImportedTranscript(args.recordingId)),
+  mcpTool: "search",
   run: async (args, context?: ActionRunContext) => {
     const access = assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),

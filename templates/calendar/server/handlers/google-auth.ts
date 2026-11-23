@@ -41,6 +41,10 @@ import {
 } from "h3";
 
 import {
+  accountDescriptionFor,
+  getAccountDescriptions,
+} from "../lib/calendar-descriptions.js";
+import {
   getAuthUrl,
   exchangeCode,
   exchangeSignInCode,
@@ -805,6 +809,13 @@ export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
     const session = await getSession(event);
     const status = await getAuthStatus(session?.email, session?.orgId);
+    if (session?.email && status.accounts.length > 0) {
+      const descriptions = await getAccountDescriptions(session.email);
+      status.accounts = status.accounts.map((account) => {
+        const description = accountDescriptionFor(descriptions, account.email);
+        return description ? { ...account, description } : account;
+      });
+    }
     const configured = await runWithRequestContext(
       { userEmail: session?.email, orgId: session?.orgId },
       () => hasWorkspaceProviderOAuthCredentials("google_calendar"),
