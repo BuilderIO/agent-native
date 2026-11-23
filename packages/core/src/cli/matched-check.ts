@@ -17,7 +17,8 @@ export async function runMatchedCheckCommand(argv: string[]): Promise<number> {
   let specPath: string | undefined;
   let outArg: string | undefined;
   for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
+    const arg = argv.at(i);
+    if (arg === undefined) continue;
     if (arg === "--out") {
       outArg = argv[++i];
       if (!outArg || outArg.startsWith("--"))

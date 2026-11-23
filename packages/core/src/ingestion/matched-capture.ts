@@ -242,10 +242,11 @@ function validateBreakpointRecord(bp: BreakpointRecord): string | null {
     return "width and height must be positive integers";
   }
   if (!(bp.deviceScaleFactor > 0)) return "deviceScaleFactor must be positive";
+  const reducedMotion: unknown = bp.reducedMotion;
   if (
-    bp.reducedMotion !== undefined &&
-    bp.reducedMotion !== "reduce" &&
-    bp.reducedMotion !== "no-preference"
+    reducedMotion !== undefined &&
+    reducedMotion !== "reduce" &&
+    reducedMotion !== "no-preference"
   )
     return "unsupported reducedMotion";
   if (bp.colorSpace && bp.colorSpace !== "srgb") {
@@ -388,10 +389,25 @@ async function decode(
 ): Promise<Decoded> {
   const m = await sharp(Buffer.from(bytes), { failOn: "none" }).metadata();
   if (!m.width || !m.height) throw new Error("image has no dimensions");
+  let hasTransparency = false;
+  if (m.hasAlpha === true) {
+    const { data, info } = await sharp(Buffer.from(bytes), { failOn: "none" })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const channels = info.channels;
+    if (channels >= 2) {
+      for (let i = channels - 1; i < data.length; i += channels) {
+        if ((data[i] ?? 255) < 255) {
+          hasTransparency = true;
+          break;
+        }
+      }
+    }
+  }
   return {
     width: m.width,
     height: m.height,
-    hasAlpha: m.hasAlpha === true,
+    hasAlpha: hasTransparency,
     space: m.space,
     orientation: m.orientation,
   };
@@ -765,11 +781,15 @@ export async function runMatchedCheck(
   input: MatchedCheckInput,
 ): Promise<MatchedCheckReport> {
   const sharp = await loadSharp();
-  const concurrency = Math.max(
-    1,
-    Math.min(input.concurrency ?? 2, MAX_CONCURRENCY),
-  );
+  const rawConcurrency = input.concurrency ?? 2;
+  if (!Number.isInteger(rawConcurrency) || rawConcurrency < 1) {
+    throw new Error("concurrency must be a positive integer.");
+  }
+  const concurrency = Math.min(rawConcurrency, MAX_CONCURRENCY);
   const tolerance = input.clockToleranceMs ?? 1;
+  if (!Number.isFinite(tolerance) || tolerance < 0) {
+    throw new Error("clockToleranceMs must be a finite non-negative number.");
+  }
   if (
     input.motion &&
     (!Number.isInteger(input.motion.frames) ||
@@ -796,10 +816,11 @@ export async function runMatchedCheck(
   const breakpoints = input.breakpoints.map(resolveBreakpoint);
   const seen = new Set<string>();
   for (const bp of breakpoints) {
-    if (seen.has(bp.name)) {
+    const key = bp.name.toLowerCase();
+    if (seen.has(key)) {
       throw new Error(`Duplicate breakpoint name "${bp.name}".`);
     }
-    seen.add(bp.name);
+    seen.add(key);
   }
   const results = await mapWithConcurrency(breakpoints, concurrency, (bp) =>
     compareBreakpoint(bounded, bp, sharp, tolerance),

@@ -442,4 +442,57 @@ describe("matched capture", () => {
     await expect(run).rejects.toThrow("store failed");
     expect(finished).toBe(true);
   });
+
+  it("scores RGBA captures without a background when all alpha pixels are opaque", async () => {
+    const report = await runMatchedCheck({
+      ...base,
+      background: undefined,
+      breakpoints: [
+        { name: "rgba", width: 8, height: 8, deviceScaleFactor: 1 },
+      ],
+      capture: (req) =>
+        good(
+          req,
+          {},
+          req.side === "source" ? [0, 0, 0, 255] : [255, 255, 255, 255],
+        ),
+    });
+    const r = must(report.results[0]);
+    expect(r.validity).toBe("valid");
+    expect(r.fidelity?.rmsePercent).toBe(100);
+    expect(r.alphaNormalization?.background).toBe("none");
+  });
+
+  it("rejects non-finite or negative clockToleranceMs, invalid concurrency, and case-colliding breakpoint names", async () => {
+    for (const clockToleranceMs of [-1, Infinity, NaN]) {
+      await expect(
+        runMatchedCheck({
+          ...base,
+          clockToleranceMs,
+          breakpoints: [{ preset: "desktop" }],
+          capture: (req) => good(req),
+        }),
+      ).rejects.toThrow("clockToleranceMs");
+    }
+    for (const concurrency of [0, -1, 1.5, Infinity, NaN]) {
+      await expect(
+        runMatchedCheck({
+          ...base,
+          concurrency,
+          breakpoints: [{ preset: "desktop" }],
+          capture: (req) => good(req),
+        }),
+      ).rejects.toThrow("concurrency");
+    }
+    await expect(
+      runMatchedCheck({
+        ...base,
+        breakpoints: [
+          { name: "Desktop", width: 8, height: 8, deviceScaleFactor: 1 },
+          { name: "desktop", width: 8, height: 8, deviceScaleFactor: 1 },
+        ],
+        capture: (req) => good(req),
+      }),
+    ).rejects.toThrow('Duplicate breakpoint name "desktop"');
+  });
 });
