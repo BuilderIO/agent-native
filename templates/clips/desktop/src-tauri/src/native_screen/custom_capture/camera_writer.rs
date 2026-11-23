@@ -175,17 +175,23 @@ impl KeptFormat {
     }
 
     /// Sets them back inside the session's configuration, as
-    /// AVCaptureDevice.h shows, so the session's own preset doesn't pick
-    /// another. If that fails, the session keeps its choice and the track
-    /// still records.
-    unsafe fn restore(&self, device: &AVCaptureDevice, recording_id: &str) {
+    /// AVCaptureDevice.h shows, and hands back the camera's configuration
+    /// lock, held until the session has started so its own preset can't pick
+    /// another format as it starts. If that fails, the session keeps its
+    /// choice and the track still records.
+    unsafe fn restore<'a>(
+        &self,
+        device: &'a AVCaptureDevice,
+        recording_id: &str,
+    ) -> Option<ConfigLock<'a>> {
         if let Err(error) = device.lockForConfiguration() {
             eprintln!(
                 "[rich-tracks] {recording_id}: camera format not kept: {}",
                 error.localizedDescription()
             );
-            return;
+            return None;
         }
+        let lock = ConfigLock(device);
         let restored = objc2::exception::catch(AssertUnwindSafe(|| {
             device.setActiveFormat(&self.format);
             if is_duration(self.min_frame) {
@@ -195,12 +201,15 @@ impl KeptFormat {
                 device.setActiveVideoMaxFrameDuration(self.max_frame);
             }
         }));
-        device.unlockForConfiguration();
-        if let Err(exception) = restored {
-            eprintln!(
-                "[rich-tracks] {recording_id}: camera format not kept: {}",
-                describe_objc_exception(exception)
-            );
+        match restored {
+            Ok(()) => Some(lock),
+            Err(exception) => {
+                eprintln!(
+                    "[rich-tracks] {recording_id}: camera format not kept: {}",
+                    describe_objc_exception(exception)
+                );
+                None
+            }
         }
     }
 
@@ -208,6 +217,15 @@ impl KeptFormat {
         let active = device.activeFormat();
         let active: &AnyObject = &active;
         self.format.isEqual(Some(active))
+    }
+}
+
+/// A camera's configuration lock, released when dropped.
+struct ConfigLock<'a>(&'a AVCaptureDevice);
+
+impl Drop for ConfigLock<'_> {
+    fn drop(&mut self) {
+        unsafe { self.0.unlockForConfiguration() };
     }
 }
 
@@ -433,8 +451,20 @@ impl Shared {
         // macOS has no preset that leaves a camera's format alone (iOS's
         // AVCaptureSessionPresetInputPriority raises here), so the session
         // hands the camera back what the bubble's capture chose.
-        let kept =
-            objc2::exception::catch(AssertUnwindSafe(|| unsafe { KeptFormat::read(&device) })).ok();
+        let kept = match objc2::exception::catch(AssertUnwindSafe(|| unsafe {
+            KeptFormat::read(&device)
+        })) {
+            Ok(kept) => Some(kept),
+            Err(exception) => {
+                eprintln!(
+                    "[rich-tracks] {}: camera format not kept: {}",
+                    this.recording_id,
+                    describe_objc_exception(exception)
+                );
+                None
+            }
+        };
+        let mut held = None;
         let configured = objc2::exception::catch(AssertUnwindSafe(|| unsafe {
             session.beginConfiguration();
             let _: () = msg_send![&*output, setVideoSettings: &*settings];
@@ -445,7 +475,7 @@ impl Shared {
             if added {
                 session.addOutput(&output);
                 if let Some(kept) = &kept {
-                    kept.restore(&device, &this.recording_id);
+                    held = kept.restore(&device, &this.recording_id);
                 }
             }
             session.commitConfiguration();
@@ -475,6 +505,9 @@ impl Shared {
             session.startRunning();
             session.isRunning()
         }));
+        // Started, the session keeps its format; the bubble's capture may
+        // configure the camera again.
+        drop(held);
         let mut camera = CameraSession {
             session,
             output,
