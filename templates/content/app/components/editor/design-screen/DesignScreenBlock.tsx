@@ -56,8 +56,10 @@ function UnreadableScreen() {
 }
 
 function focusScreenButton(image: HTMLImageElement) {
-  image.closest("button")?.focus({ preventScroll: true });
+  const button = image.closest("button");
+  button?.focus({ preventScroll: true });
   image.scrollIntoView({ block: "nearest" });
+  return Boolean(button);
 }
 
 function ScreenPicture({

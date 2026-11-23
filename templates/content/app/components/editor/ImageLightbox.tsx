@@ -74,12 +74,13 @@ export async function downloadImage(
   }
 }
 
+// Each callback returns whether it found something on the page to focus.
 const pageImageFocus = new WeakMap<
   HTMLImageElement,
-  (image: HTMLImageElement) => void
+  (image: HTMLImageElement) => boolean
 >();
 
-export function usePageImage(focusImage: (image: HTMLImageElement) => void) {
+export function usePageImage(focusImage: (image: HTMLImageElement) => boolean) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
 
   useEffect(() => {
@@ -223,9 +224,8 @@ export function ImageLightbox({
             const focusImage = image?.isConnected
               ? pageImageFocus.get(image)
               : undefined;
-            if (image && focusImage) {
+            if (image && focusImage?.(image)) {
               event.preventDefault();
-              focusImage(image);
               return;
             }
             if (!returnFocus?.isConnected) return;

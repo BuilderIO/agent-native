@@ -493,14 +493,24 @@ export function ImageBlock({
   const [altDraft, setAltDraft] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const expandButtonRef = useRef<HTMLButtonElement>(null);
   const focusImage = useCallback(
     (image: HTMLImageElement) => {
       const position = typeof getPos === "function" ? getPos() : undefined;
+      const expandButton = expandButtonRef.current;
+      let focused = false;
       if (editor.isEditable && typeof position === "number") {
         editor.commands.setNodeSelection(position);
         editor.view.focus();
+        focused = true;
+      } else if (expandButton) {
+        // A read-only page can't select the image, so its Expand button
+        // takes focus instead.
+        expandButton.focus({ preventScroll: true });
+        focused = true;
       }
       image.scrollIntoView({ block: "nearest" });
+      return focused;
     },
     [editor, getPos],
   );
@@ -1708,6 +1718,7 @@ export function ImageBlock({
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  ref={expandButtonRef}
                   type="button"
                   onClick={openLightbox}
                   className="media-block__toolbar-btn"

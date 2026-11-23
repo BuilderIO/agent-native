@@ -70,13 +70,14 @@ const beforeAndAfterPage: JSONContent[] = [
   paragraph("Outro"),
 ];
 
-async function mountEditor(content = beforeAndAfterPage) {
+async function mountEditor(content = beforeAndAfterPage, editable = true) {
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
   const editor = new Editor({
     extensions: createVisualEditorExtensions({ documentId: "doc_1" }),
     content: { type: "doc", content },
+    editable,
   });
   cleanup.push(() => {
     act(() => root.unmount());
@@ -218,6 +219,23 @@ describe("media lightbox in a live editor", () => {
       const { selection } = editor.state;
       expect(selection).toBeInstanceOf(NodeSelection);
       expect((selection as NodeSelection).node.attrs.src).toBe(AFTER);
+    });
+  });
+
+  it("hands focus to the showing image's Expand button on a read-only page", async () => {
+    const { container } = await mountEditor(beforeAndAfterPage, false);
+    await expand(container, 0);
+
+    await press("ArrowRight");
+    await press("ArrowRight");
+    await press("Escape");
+
+    expect(lightbox()).toBeNull();
+    const after = container.querySelectorAll(".media-block")[2];
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(
+        after?.querySelector('button[aria-label="editor.media.expandImage"]'),
+      );
     });
   });
 
