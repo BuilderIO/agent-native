@@ -111,9 +111,10 @@ async function getLegacyRules(
 export async function getUserLabStates(
   email: string,
   scope: FeatureFlagScope = {},
+  options?: { propagateTransientErrors?: boolean },
 ): Promise<Record<string, UserLabStateResult>> {
   const stored = await getStoredLabs(email);
-  return resolveStoredLabStates(email, stored, scope);
+  return resolveStoredLabStates(email, stored, scope, listLabs(), options);
 }
 
 /**
@@ -139,6 +140,7 @@ async function resolveStoredLabStates(
   stored: Record<string, unknown> | null,
   scope: FeatureFlagScope,
   definitions: readonly LabDefinition[] = listLabs(),
+  options?: { propagateTransientErrors?: boolean },
 ): Promise<Record<string, UserLabStateResult>> {
   const invalidChoices = new Set(
     definitions
@@ -166,7 +168,10 @@ async function resolveStoredLabStates(
         try {
           return [key, await getLegacyRules(key, evaluationScope)] as const;
         } catch (error) {
-          if (isTransientDatabaseError(error, { source: "database" }))
+          if (
+            options?.propagateTransientErrors &&
+            isTransientDatabaseError(error, { source: "database" })
+          )
             throw error;
           return [key, null] as const;
         }

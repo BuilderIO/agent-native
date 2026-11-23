@@ -73,7 +73,9 @@ export default defineAction({
       .map(({ key }) => key)
       .filter((key) => getLabForLegacyFlag(key));
     if (migratedKeys.length === 0 || !scope.userEmail) return values;
-    const labStates = await getUserLabStates(scope.userEmail, scope);
+    const labStates = await getUserLabStates(scope.userEmail, scope, {
+      propagateTransientErrors: true,
+    });
     for (const key of migratedKeys) {
       const lab = getLabForLegacyFlag(key);
       if (!lab) continue;
