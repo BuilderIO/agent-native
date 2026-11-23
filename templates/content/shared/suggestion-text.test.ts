@@ -226,6 +226,21 @@ describe("clipped suggestion text", () => {
     ]);
   });
 
+  it("keeps the destination of a link that ends inside the clipped middle", () => {
+    const clipped = clipSuggestionPresentation(
+      suggestionTextPresentation(
+        `[${"a".repeat(100)}](https://example.test) ${"b".repeat(100)}`,
+      ),
+      { head: 72, tail: 24 },
+    );
+    expect(presentationText(clipped)).toBe(
+      `${"a".repeat(72)}…${"b".repeat(24)}`,
+    );
+    expect(suggestionLinkDestinations(clipped)).toEqual([
+      "https://example.test",
+    ]);
+  });
+
   it("shortens a long link destination in a clipped card", () => {
     const url = `https://example.test/${"a".repeat(200)}`;
     const nodes = suggestionTextPresentation(`[docs](${url})`);
@@ -235,17 +250,37 @@ describe("clipped suggestion text", () => {
     expect(suggestionLinkDestinations(clipped)).toEqual([
       `${url.slice(0, 40)}…`,
     ]);
+
+    const emojiUrl = `https://example.test/${"a".repeat(18)}😀${"a".repeat(200)}`;
+    expect(
+      suggestionLinkDestinations(
+        clipSuggestionPresentation(
+          suggestionTextPresentation(`[docs](${emojiUrl})`),
+          { head: 72, tail: 24 },
+        ),
+      ),
+    ).toEqual([`${emojiUrl.slice(0, 39)}…`]);
   });
 
-  it("never splits a character between the head and the tail", () => {
-    const clipped = presentationText(
-      clipSuggestionPresentation(
-        suggestionTextPresentation(
-          `${"a".repeat(71)}😀${"b".repeat(100)}😀${"c".repeat(23)}`,
-        ),
-        { head: 72, tail: 24 },
+  it.each([
+    [
+      "a surrogate pair",
+      `${"a".repeat(71)}😀${"b".repeat(100)}😀${"c".repeat(23)}`,
+      `${"a".repeat(71)}…${"c".repeat(23)}`,
+    ],
+    [
+      "a joined emoji or an accent",
+      `${"a".repeat(70)}👩‍💻${"b".repeat(100)}é${"c".repeat(23)}`,
+      `${"a".repeat(70)}…${"c".repeat(23)}`,
+    ],
+  ])("never splits %s between the head and the tail", (_, text, expected) => {
+    expect(
+      presentationText(
+        clipSuggestionPresentation(suggestionTextPresentation(text), {
+          head: 72,
+          tail: 24,
+        }),
       ),
-    );
-    expect(clipped).toBe(`${"a".repeat(71)}…${"c".repeat(23)}`);
+    ).toBe(expected);
   });
 });

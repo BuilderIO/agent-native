@@ -298,10 +298,13 @@ export function suggestionPresentationLength(
   return nodes.map(presentedText).join("").length;
 }
 
+// A link that runs on past `resumesAt` names its destination in the piece
+// that starts there, so its cut front here is only underlined.
 function slicePresentation(
   nodes: readonly SuggestionPresentationNode[],
   from: number,
   to: number,
+  resumesAt = Infinity,
 ): SuggestionPresentationNode[] {
   const sliced: SuggestionPresentationNode[] = [];
   let offset = 0;
@@ -321,9 +324,10 @@ function slicePresentation(
         node.children,
         from - start,
         to - start,
+        resumesAt - start,
       );
       sliced.push(
-        node.type === "link" && start + length > to
+        node.type === "link" && start + length > resumesAt
           ? { type: "underline", children }
           : { ...node, children },
       );
@@ -352,7 +356,7 @@ function shortenUrls(
           ...node,
           url:
             node.url.length > CLIPPED_URL
-              ? `${node.url.slice(0, CLIPPED_URL)}…`
+              ? `${node.url.slice(0, graphemeBoundary(node.url, CLIPPED_URL))}…`
               : node.url,
           children: shortenUrls(node.children),
         }
@@ -362,7 +366,29 @@ function shortenUrls(
   );
 }
 
-const LOW_SURROGATE = /[\uDC00-\uDFFF]/u;
+// Every runtime this serves has Intl.Segmenter; its types arrive with ES2022.
+const graphemes = new (
+  Intl as unknown as {
+    Segmenter: new (
+      locales: undefined,
+      options: { granularity: "grapheme" },
+    ) => {
+      segment(text: string): {
+        containing(
+          index: number,
+        ): { index: number; segment: string } | undefined;
+      };
+    };
+  }
+).Segmenter(undefined, { granularity: "grapheme" });
+
+// Moves a cut off the middle of a character, such as a joined emoji or a
+// letter and its accent, to the character's start or, going forward, its end.
+function graphemeBoundary(text: string, index: number, forward = false) {
+  const grapheme = graphemes.segment(text).containing(index);
+  if (!grapheme || grapheme.index === index) return index;
+  return forward ? grapheme.index + grapheme.segment.length : grapheme.index;
+}
 
 export function clipSuggestionPresentation(
   nodes: SuggestionPresentationNode[],
@@ -372,18 +398,22 @@ export function clipSuggestionPresentation(
   if (text.length <= head + tail + CLIP_SLACK)
     return hasLongUrl(nodes) ? shortenUrls(nodes) : nodes;
   const headSpace = text.slice(0, head + 1).search(/\s\S*$/);
-  let headEnd = headSpace > head / 2 ? headSpace : head;
-  if (LOW_SURROGATE.test(text.charAt(headEnd))) headEnd -= 1;
+  const headEnd = graphemeBoundary(
+    text,
+    headSpace > head / 2 ? headSpace : head,
+  );
   const tailFrom = text.length - tail;
   const tailSpace = text.slice(tailFrom - 1).search(/\s/);
-  let tailStart =
-    tailSpace >= 0 && tailSpace < tail / 2 ? tailFrom + tailSpace : tailFrom;
-  if (LOW_SURROGATE.test(text.charAt(tailStart))) tailStart += 1;
+  const tailStart = graphemeBoundary(
+    text,
+    tailSpace >= 0 && tailSpace < tail / 2 ? tailFrom + tailSpace : tailFrom,
+    true,
+  );
   const ellipsis = `${headEnd === headSpace ? " " : ""}…${
     /\s/.test(text[tailStart - 1] ?? "") ? " " : ""
   }`;
   return shortenUrls([
-    ...slicePresentation(nodes, 0, headEnd),
+    ...slicePresentation(nodes, 0, headEnd, tailStart),
     { type: "text", value: ellipsis },
     ...slicePresentation(nodes, tailStart, text.length),
   ]);
