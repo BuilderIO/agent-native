@@ -395,18 +395,19 @@ export async function resolveCredential(
  *    channel) and whether Settings lets a member save that key as Personal
  *    are both unknown here, so "the integration did it" and "save your own"
  *    are each wrong for some runs. The fix comes first, so a chat stop's
- *    240-character headline keeps it for every key name.
+ *    240-character headline keeps it.
  *  - The key is saved in a DIFFERENT organization the caller also belongs to.
  *    Credentials are per-organization, so gaining a second organization (or
  *    having `active-org-id` repointed at one) orphans every key synced under
  *    the first. Without this, the only symptom is a missing-env-var error that
  *    names the key rather than the org mismatch that actually caused it. Its
- *    two fixes come first too, ahead of the explanation, so the same
- *    headline keeps both. Key and organization names have no length limit,
- *    so neither comes before the second fix: the key goes unnamed, as "it",
- *    because both callers' sentence before this one already names what's
- *    missing, and the organization's name comes after both fixes, where a
- *    long one is all the cut can drop.
+ *    two fixes come first too, so the same headline keeps both. The
+ *    organization's name has no length limit, so it comes after both fixes,
+ *    where a long one is all the cut can drop.
+ *
+ * Neither message names the key, whose name has no length limit either:
+ * both callers' sentence before it already names what's missing, and their
+ * "Tried:" list after it names the keys.
  *
  * SECURITY: both probes are bounded to organizations the caller is a member
  * of, report only the scope kind (and, for the cross-org case, the name of an
@@ -447,8 +448,8 @@ export async function describeCredentialScopeGap(
   for (const key of keys) {
     if (await hasForeignPersonalCredentialInOrg(key, scopedCtx)) {
       return (
-        `Ask an organization owner or admin to save "${key}" with ` +
-        `Workspace or Organization scope. This workspace has it only as a ` +
+        `Ask an organization owner or admin to save it with Workspace or ` +
+        `Organization scope. This workspace has it only as a ` +
         `Personal key, which works only for the member who saved it.`
       );
     }
