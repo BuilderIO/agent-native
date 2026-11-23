@@ -183,7 +183,7 @@ describe("describeCredentialScopeGap across organizations", () => {
     resolveOrgIdForEmailResult = null;
   });
 
-  it("leads with both fixes, naming the organization holding the key, then the cause", async () => {
+  it("leads with both fixes, naming the organization holding the key but not the key, then the cause", async () => {
     onlyAnotherMemberOrgHasKey("Builder.io");
 
     const message = await describeCredentialScopeGap(
@@ -193,9 +193,9 @@ describe("describeCredentialScopeGap across organizations", () => {
 
     // oracle-change: the message was reworded fix-first; one exact match replaces three partial matches on the old wording
     expect(message).toBe(
-      'Save "ACADEMY_CONVEX_SITE_URL" in this organization, or switch your ' +
-        'active organization to "Builder.io", where it\'s saved. ' +
-        "Credentials aren't shared between organizations.",
+      "Save it in this organization, or switch your active organization " +
+        'to "Builder.io", where it\'s saved. Credentials aren\'t shared ' +
+        "between organizations.",
     );
   });
 
@@ -239,7 +239,7 @@ describe("describeCredentialScopeGap across organizations", () => {
     });
 
     expect(message).toMatch(
-      /^Save "STRIPE_SECRET_KEY" in this organization, or switch your active organization to one where it's saved\. /,
+      /^Save it in this organization, or switch your active organization to one where it's saved\. /,
     );
     expect(message).not.toContain("org-1");
   });

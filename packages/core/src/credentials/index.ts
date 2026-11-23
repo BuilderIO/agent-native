@@ -402,8 +402,11 @@ export async function resolveCredential(
  *    the first. Without this, the only symptom is a missing-env-var error that
  *    names the key rather than the org mismatch that actually caused it. Its
  *    two fixes come first too, ahead of the explanation, so the same
- *    headline keeps both. The organization's name has no length limit, so
- *    it comes after both fixes, where a long one is all the cut can drop.
+ *    headline keeps both. Key and organization names have no length limit,
+ *    so neither comes before the second fix: the key goes unnamed, as "it",
+ *    because both callers' sentence before this one already names what's
+ *    missing, and the organization's name comes after both fixes, where a
+ *    long one is all the cut can drop.
  *
  * SECURITY: both probes are bounded to organizations the caller is a member
  * of, report only the scope kind (and, for the cross-org case, the name of an
@@ -456,9 +459,9 @@ export async function describeCredentialScopeGap(
     if (holder) {
       const target = holder.name ? `"${holder.name}", where` : "one where";
       return (
-        `Save "${key}" in this organization, or switch your active ` +
-        `organization to ${target} it's saved. Credentials aren't shared ` +
-        `between organizations.`
+        `Save it in this organization, or switch your active organization ` +
+        `to ${target} it's saved. Credentials aren't shared between ` +
+        `organizations.`
       );
     }
   }
