@@ -516,7 +516,7 @@ export const READ_ONLY_SOURCE_REFRESH_CLAIM_LEASE_MS = 2 * 60 * 1000;
 export async function claimReadOnlySourceRefresh(args: {
   sourceId: string;
   now: string;
-}): Promise<string | null> {
+}): Promise<{ claimId: string; metadata: Record<string, unknown> } | null> {
   const db = getDb();
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const [current = null] = await db
@@ -559,7 +559,7 @@ export async function claimReadOnlySourceRefresh(args: {
         ),
       )
       .returning({ id: schema.contentDatabaseSources.id });
-    if (claimed.length > 0) return claimId;
+    if (claimed.length > 0) return { claimId, metadata };
   }
   return null;
 }
@@ -9201,13 +9201,18 @@ export async function storeSecondarySourceRows(args: {
   sourceTable: string;
   entries: BuilderCmsSourceEntry[];
   now: string;
-  keepRowsNotRead?: boolean;
+  keepRowsNotRead?: boolean | { syncedSince: string };
   refreshClaimId?: string;
 }) {
   const db = getDb();
   const sourceRowIds = args.entries.map(
     (entry, index) => entry.id || `${args.sourceType}-${index + 1}`,
   );
+  const keep = args.keepRowsNotRead ?? false;
+  const rowsRead =
+    sourceRowIds.length > 0
+      ? inArray(schema.contentDatabaseSourceRows.sourceRowId, sourceRowIds)
+      : undefined;
   await db.transaction(async (tx) => {
     if (args.refreshClaimId) {
       const [claimed = null] = await tx
@@ -9225,13 +9230,23 @@ export async function storeSecondarySourceRows(args: {
         });
       }
     }
-    if (args.keepRowsNotRead && sourceRowIds.length === 0) return;
-    const replaced = args.keepRowsNotRead
-      ? and(
-          eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
-          inArray(schema.contentDatabaseSourceRows.sourceRowId, sourceRowIds),
-        )
-      : eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId);
+    if (keep === true && !rowsRead) return;
+    const replaced =
+      keep === false
+        ? eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId)
+        : and(
+            eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+            keep === true
+              ? rowsRead
+              : or(
+                  rowsRead,
+                  isNull(schema.contentDatabaseSourceRows.lastSyncedAt),
+                  lt(
+                    schema.contentDatabaseSourceRows.lastSyncedAt,
+                    keep.syncedSince,
+                  ),
+                ),
+          );
     const oldRows = await tx
       .select({ documentId: schema.contentDatabaseSourceRows.documentId })
       .from(schema.contentDatabaseSourceRows)

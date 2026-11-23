@@ -1173,7 +1173,7 @@ describe("content database source actions", () => {
         500,
       );
       expect(said).toBe(
-        "Roadmap refreshed read-only from Notion but stopped at 500 rows; more rows remain in Notion and are not shown here.",
+        "Roadmap refreshed read-only from Notion but stopped at 500 rows; more rows remain in Notion, and the next refresh reads on from there.",
       );
       expect(said).not.toContain("Builder");
     });

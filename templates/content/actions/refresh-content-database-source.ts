@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { recordChange } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -52,7 +53,7 @@ export function sourceRefreshSummary(args: {
   if (snapshot.sourceType === "notion-database") {
     return args.notionStoppedAt === null
       ? `${snapshot.sourceName} refreshed read-only from Notion.`
-      : `${snapshot.sourceName} refreshed read-only from Notion but stopped at ${args.notionStoppedAt} rows; more rows remain in Notion and are not shown here.`;
+      : `${snapshot.sourceName} refreshed read-only from Notion but stopped at ${args.notionStoppedAt} rows; more rows remain in Notion, and the next refresh reads on from there.`;
   }
   if (
     snapshot.sourceType === "builder-cms" &&
@@ -63,6 +64,31 @@ export function sourceRefreshSummary(args: {
     return `${snapshot.sourceName} fetched ${typeof fetched === "number" ? fetched : "some"} rows. Run refresh again to continue loading the remaining Builder rows.`;
   }
   return `${snapshot.sourceName} resynced locally; field mappings and row identity now reflect the current database snapshot.`;
+}
+
+function notionSweep(metadata: Record<string, unknown>) {
+  const { notionSweepStartedAt: startedAt, notionSweepFrom: from } = metadata;
+  return typeof startedAt === "string" && typeof from === "string"
+    ? { startedAt, from }
+    : null;
+}
+
+function announceSourceChange(databaseDocumentId: string) {
+  try {
+    const owner = getRequestUserEmail();
+    recordChange({
+      source: "action",
+      type: "change",
+      key: "refresh-content-database-source",
+      ...(owner ? { owner } : {}),
+      ...documentChangeResource(databaseDocumentId),
+    });
+  } catch (error) {
+    console.warn(
+      "[notion-source] change event failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 export default defineAction({
@@ -102,6 +128,7 @@ export default defineAction({
     ContentDatabaseSourceStatusResponse & {
       /** Whether a GitHub sync changed what readers of the collection see. */
       githubChanged?: boolean;
+      sourceRefreshed?: boolean;
     }
   > => {
     const database = await resolveDatabaseForSourceMutation(args);
@@ -122,6 +149,7 @@ export default defineAction({
     let skippedOverlappingRefresh = false;
     let githubSummary: string | null = null;
     let githubChanged = false;
+    let sourceRefreshed = false;
     let notionStoppedAt: number | null = null;
     if (source.sourceType === "github") {
       const shownBefore = await readGitHubStatusShown(source.id);
@@ -209,17 +237,19 @@ export default defineAction({
           });
           throw error;
         });
+        sourceRefreshed = true;
       }
     } else if (source.sourceType === "local-table") {
       // Read-only federated secondary; its rows are re-read on demand, nothing
       // to resync against the primary's local snapshot here.
     } else if (source.sourceType === "notion-database") {
-      const claimId = await claimReadOnlySourceRefresh({
+      const claim = await claimReadOnlySourceRefresh({
         sourceId: source.id,
         now,
       });
-      skippedOverlappingRefresh = !claimId;
-      if (claimId) {
+      skippedOverlappingRefresh = !claim;
+      if (claim) {
+        const { claimId } = claim;
         try {
           const adapter = getContentDatabaseSourceAdapter("notion-database");
           if (!adapter) {
@@ -228,13 +258,20 @@ export default defineAction({
               statusCode: 500,
             });
           }
+          const sweep = notionSweep(claim.metadata);
           const read = await adapter.read({
             sourceTable: source.sourceTable,
             limit: 500,
             offset: 0,
             fullRefresh: args.fullRefresh === true,
+            continueFrom: sweep?.from,
           });
           const capped = read.metadata?.hasMore === true;
+          const stoppedAt = read.metadata?.lastCreatedTime;
+          const continueFrom =
+            capped && typeof stoppedAt === "string" && stoppedAt !== sweep?.from
+              ? stoppedAt
+              : null;
           await storeSecondarySourceRows({
             sourceId: source.id,
             ownerEmail: database.ownerEmail,
@@ -242,7 +279,11 @@ export default defineAction({
             sourceTable: source.sourceTable,
             entries: read.entries,
             now,
-            keepRowsNotRead: capped,
+            keepRowsNotRead: capped
+              ? true
+              : sweep
+                ? { syncedSince: sweep.startedAt }
+                : false,
             refreshClaimId: claimId,
           });
           await seedSecondarySourceFields({
@@ -260,10 +301,17 @@ export default defineAction({
             fetchedAt: read.fetchedAt,
             now,
             message: read.message,
-            metadata: read.metadata,
+            metadata: {
+              ...read.metadata,
+              notionSweepStartedAt: continueFrom
+                ? (sweep?.startedAt ?? now)
+                : null,
+              notionSweepFrom: continueFrom,
+            },
             refreshClaimId: claimId,
           });
           if (capped) notionStoppedAt = read.entries.length;
+          sourceRefreshed = true;
         } catch (error) {
           await recordReadOnlySourceRefreshFailure({
             sourceId: source.id,
@@ -278,6 +326,7 @@ export default defineAction({
                 : String(recordError),
             );
           });
+          announceSourceChange(database.documentId);
           throw error;
         }
       }
@@ -302,12 +351,13 @@ export default defineAction({
       source.sourceType === "github-pull-requests"
         ? { githubChanged }
         : {}),
+      ...(sourceRefreshed ? { sourceRefreshed } : {}),
     };
   },
   // A GitHub sync that changed rows or the status line changed them for
   // everyone reading the collection, as with Sync now.
   changeResource: (_input, result) =>
-    result.githubChanged
+    result.githubChanged || result.sourceRefreshed
       ? documentChangeResource(result.database.documentId)
       : null,
 });

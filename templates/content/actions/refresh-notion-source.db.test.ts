@@ -24,6 +24,14 @@ vi.mock("./_notion-database-source-adapter.js", () => ({
   readNotionDatabaseSource: notion.read,
 }));
 
+const changes = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  recordChange: (event: Record<string, unknown>) => {
+    changes.push(event);
+  },
+}));
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `refresh-notion-source-${process.pid}-${Date.now()}.pglite`,
@@ -34,6 +42,8 @@ const DOCUMENT_ID = "doc_notion_refresh";
 const SOURCE_ID = "src_notion_refresh";
 const DATA_SOURCE = "notion-data-source";
 const EARLIER = "2026-11-20T00:00:00.000Z";
+const CREATED = "2026-11-01T10:00:00.000Z";
+const ANNOUNCED = { resourceType: "document", resourceId: DOCUMENT_ID };
 
 let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
@@ -42,6 +52,7 @@ let refreshSource: typeof import("./refresh-content-database-source.js").default
 function read(
   rows: Array<[id: string, status: string]>,
   hasMore: boolean,
+  lastCreatedTime: string | null = null,
 ): ContentDatabaseSourceReadResult {
   return {
     state: "live",
@@ -56,7 +67,7 @@ function read(
     fields: [],
     fetchedAt: new Date().toISOString(),
     message: hasMore ? "Loaded a bounded Notion snapshot." : null,
-    metadata: { provider: "notion", hasMore },
+    metadata: { provider: "notion", hasMore, lastCreatedTime },
   };
 }
 
@@ -125,6 +136,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   notion.read.mockReset();
+  changes.length = 0;
   const db = getDb();
   await db
     .delete(schema.contentDatabaseSourceRows)
@@ -154,6 +166,7 @@ beforeEach(async () => {
       sourceQualifiedId: `notion-database://${DATA_SOURCE}/${id}`,
       sourceDisplayKey: id,
       sourceValuesJson: JSON.stringify({ status: "old" }),
+      lastSyncedAt: EARLIER,
       createdAt: EARLIER,
       updatedAt: EARLIER,
     })),
@@ -186,6 +199,72 @@ describe("refreshing a Notion source", () => {
     });
   });
 
+  it("drops rows Notion no longer has once refreshes have read past the cap", async () => {
+    notion.read.mockResolvedValueOnce(
+      read(
+        [
+          ["a", "new"],
+          ["d", "new"],
+        ],
+        true,
+        CREATED,
+      ),
+    );
+    await refresh();
+    expect(await cachedRows()).toEqual({
+      a: "new",
+      b: "old",
+      c: "old",
+      d: "new",
+    });
+
+    notion.read.mockResolvedValueOnce(read([["e", "new"]], false));
+    const finished = await refresh();
+
+    expect(notion.read).toHaveBeenLastCalledWith(
+      expect.objectContaining({ continueFrom: CREATED }),
+    );
+    expect(finished.summary).toBe("Roadmap refreshed read-only from Notion.");
+    expect(await cachedRows()).toEqual({ a: "new", d: "new", e: "new" });
+
+    notion.read.mockResolvedValueOnce(read([["a", "again"]], false));
+    await refresh();
+    expect(notion.read).toHaveBeenLastCalledWith(
+      expect.objectContaining({ continueFrom: undefined }),
+    );
+    expect(await cachedRows()).toEqual({ a: "again" });
+  });
+
+  it("starts over when a capped read can't get past rows created in one minute", async () => {
+    notion.read.mockResolvedValueOnce(read([["a", "new"]], true, CREATED));
+    await refresh();
+    notion.read.mockResolvedValueOnce(read([["a", "new"]], true, CREATED));
+    await refresh();
+    expect(notion.read).toHaveBeenLastCalledWith(
+      expect.objectContaining({ continueFrom: CREATED }),
+    );
+
+    notion.read.mockResolvedValueOnce(read([["a", "new"]], true, CREATED));
+    await refresh();
+    expect(notion.read).toHaveBeenLastCalledWith(
+      expect.objectContaining({ continueFrom: undefined }),
+    );
+    expect(await cachedRows()).toEqual({ a: "new", b: "old", c: "old" });
+  });
+
+  it("tells every reader of the collection when a refresh rewrites rows or fails", async () => {
+    notion.read.mockResolvedValueOnce(read([["a", "new"]], false));
+    const refreshed = await refresh();
+    expect(
+      refreshSource.changeResource?.({ databaseId: DATABASE_ID }, refreshed),
+    ).toEqual(ANNOUNCED);
+
+    changes.length = 0;
+    notion.read.mockRejectedValueOnce(new Error("Notion said no."));
+    await expect(refresh()).rejects.toThrow("Notion said no.");
+    expect(changes).toEqual([expect.objectContaining(ANNOUNCED)]);
+  });
+
   it("drops rows a complete read no longer has", async () => {
     notion.read.mockResolvedValueOnce(read([["a", "new"]], false));
     await refresh();
@@ -206,6 +285,9 @@ describe("refreshing a Notion source", () => {
     const second = await refresh();
     expect(second.summary).toContain("another refresh in progress");
     expect(notion.read).toHaveBeenCalledTimes(1);
+    expect(
+      refreshSource.changeResource?.({ databaseId: DATABASE_ID }, second),
+    ).toBeNull();
 
     finishFirst(read([["a", "first"]], false));
     await first;
