@@ -137,6 +137,7 @@ export async function listYouTubeChannelVideos(
         "youtube_channel_not_found",
       );
     }
+    if (found.some((known) => known.id === item.id)) continue;
     const resolved = {
       id: item.id,
       title: item.snippet?.title ?? channel,

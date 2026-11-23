@@ -197,15 +197,17 @@ prices the first run's 90-day backfill. Later runs read back three days.
 The `daily_dev` step writes `daily_dev_sessions` per article: GA4 sessions
 that landed on it with daily.dev's `via=dailydev` tag or from a daily.dev
 session source, read from the collection's GA4 property, so it needs nothing
-else and reads back three days like pageviews. It stores only days with
-visits, so once the step has succeeded a missing day is 0, unlike pageviews.
+else and reads back three days like pageviews. Like pageviews, it writes a 0
+for each article on each day it reads, so a count GA4 later drops is cleared.
 The `youtube` step stores every video on `youtube.channels` (channel IDs or
 `@handles`, set with `configure-content-collection --youtubeChannels`) as a
 `youtube` item and writes `youtube_views`, `youtube_likes` and
-`youtube_comments`: counts to date, dated the day they were read. A count the
-channel hides has no row. Views gained is the difference between two reads,
-and a video first read after its channel's first read starts from 0, as the
-YouTube tab does. It needs `YOUTUBE_API_KEY` under Data Sources → YouTube,
+`youtube_comments`: counts to date, dated the day they were read, with the
+channel's ID in the item's `metadata.channelId`. A count the channel hides has
+no row, so the Videos table shows only counts from a video's newest read.
+Views gained is the difference between two reads, and a video first read
+after its channel's first read (by channel ID) starts from 0, as the YouTube
+tab does. It needs `YOUTUBE_API_KEY` under Data Sources → YouTube,
 stays off until turned on, reports `not_configured` without channels or a
 key, and costs about one quota unit per 25 videos of the key's free 10,000 a
 day.

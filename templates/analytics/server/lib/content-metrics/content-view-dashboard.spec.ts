@@ -458,10 +458,11 @@ describe("Content view dashboard", () => {
   async function insertVideos(): Promise<void> {
     await client.exec(`
       INSERT INTO analytics_content_items (id, tenant_key, owner_email, org_id, source, external_id, url, title, author, published_at, metadata, first_seen_at, updated_at) VALUES
-        ('y1', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y1', 'https://www.youtube.com/watch?v=y1', 'Old Builder video', 'Builder', '2026-09-01T12:00:00Z', '{"durationSeconds":813}', '2026-09-01', '2026-09-01'),
-        ('y2', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y2', 'https://www.youtube.com/watch?v=y2', 'New Builder video', 'Builder', '${daysAgo(1)}T15:00:00Z', '{"durationSeconds":3723}', '2026-09-01', '2026-09-01'),
-        ('y3', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y3', 'https://www.youtube.com/watch?v=y3', 'Codevolution video', 'Codevolution', '2026-09-01T12:00:00Z', '{"durationSeconds":null}', '2026-09-01', '2026-09-01'),
-        ('yb', 'org:org_b', 'carol@example.test', 'org_b', 'youtube', 'yb', 'https://www.youtube.com/watch?v=yb', 'Other org video', 'Builder', '2026-09-01T12:00:00Z', '{"durationSeconds":60}', '2026-09-01', '2026-09-01');
+        ('y1', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y1', 'https://www.youtube.com/watch?v=y1', 'Old Builder video', 'Builder', '2026-09-01T12:00:00Z', '{"channelId":"UCbuilder","durationSeconds":813}', '2026-09-01', '2026-09-01'),
+        ('y2', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y2', 'https://www.youtube.com/watch?v=y2', 'New Builder video', 'Builder', '${daysAgo(1)}T15:00:00Z', '{"channelId":"UCbuilder","durationSeconds":3723}', '2026-09-01', '2026-09-01'),
+        ('y3', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y3', 'https://www.youtube.com/watch?v=y3', 'Codevolution video', 'Codevolution', '2026-09-01T12:00:00Z', '{"channelId":"UCcodevolution","durationSeconds":null}', '2026-09-01', '2026-09-01'),
+        ('y4', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y4', 'https://www.youtube.com/watch?v=y4', 'Other Builder channel video', 'Builder', '${daysAgo(2)}T12:00:00Z', '{"channelId":"UCotherbuilder","durationSeconds":60}', '2026-09-01', '2026-09-01'),
+        ('yb', 'org:org_b', 'carol@example.test', 'org_b', 'youtube', 'yb', 'https://www.youtube.com/watch?v=yb', 'Other org video', 'Builder', '2026-09-01T12:00:00Z', '{"channelId":"UCbuilder","durationSeconds":60}', '2026-09-01', '2026-09-01');
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
       SELECT reads.item_id || reads.metric || reads.days_ago, items.tenant_key, items.owner_email, items.org_id, reads.item_id, to_char(CURRENT_DATE - reads.days_ago, 'YYYY-MM-DD'), reads.metric, reads.value, 'youtube', 'ry', '2026-09-01'
       FROM (VALUES
@@ -470,10 +471,12 @@ describe("Content view dashboard", () => {
         ('y1', 'youtube_views', 1, 125),
         ('y1', 'youtube_views', 0, 130),
         ('y1', 'youtube_likes', 0, 9),
-        ('y1', 'youtube_comments', 0, 1),
+        ('y1', 'youtube_comments', 1, 1),
         ('y2', 'youtube_views', 0, 50),
         ('y3', 'youtube_views', 2, 1000),
         ('y3', 'youtube_views', 1, 1007),
+        ('y4', 'youtube_views', 1, 400),
+        ('y4', 'youtube_views', 0, 404),
         ('yb', 'youtube_views', 3, 5000),
         ('yb', 'youtube_views', 0, 9000)
       ) AS reads (item_id, metric, days_ago, value)
@@ -489,7 +492,7 @@ describe("Content view dashboard", () => {
       { date: daysAgo(3), channel: "Builder", views: 10 },
       { date: daysAgo(2), channel: "Builder", views: 15 },
       { date: daysAgo(2), channel: "Codevolution", views: 7 },
-      { date: daysAgo(1), channel: "Builder", views: 55 },
+      { date: daysAgo(1), channel: "Builder", views: 59 },
     ]);
     expect(await runPanel("youtube-views-per-day", "7d")).toHaveLength(4);
     expect(bigQuery.query).not.toHaveBeenCalled();
@@ -518,7 +521,7 @@ describe("Content view dashboard", () => {
         views_gained: 30,
         views: 130,
         likes: 9,
-        comments: 1,
+        comments: null,
       },
       {
         title: "Codevolution video",
@@ -528,6 +531,17 @@ describe("Content view dashboard", () => {
         length: null,
         views_gained: 7,
         views: 1007,
+        likes: null,
+        comments: null,
+      },
+      {
+        title: "Other Builder channel video",
+        href: "https://www.youtube.com/watch?v=y4",
+        channel: "Builder",
+        published: daysAgo(2),
+        length: "1:00",
+        views_gained: 4,
+        views: 404,
         likes: null,
         comments: null,
       },

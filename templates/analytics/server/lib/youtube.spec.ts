@@ -153,6 +153,45 @@ describe("YouTube Data API client", () => {
     ]);
   });
 
+  it("reads a channel named twice, by handle and by ID, once", async () => {
+    const requests = serve((url) => {
+      if (url.pathname.endsWith("/channels")) {
+        return {
+          body: {
+            items: [
+              {
+                id: "UCAN7TYzCJm1yd-QXbwKfoOg",
+                snippet: { title: "Builder" },
+                contentDetails: { relatedPlaylists: { uploads: "UUbuilder" } },
+              },
+            ],
+          },
+        };
+      }
+      if (url.pathname.endsWith("/playlistItems")) {
+        return { body: { items: [{ contentDetails: { videoId: "v0" } }] } };
+      }
+      return { body: { items: [video("v0", { viewCount: "10" })] } };
+    });
+
+    const result = await listYouTubeChannelVideos(
+      ["@Builderio", "UCAN7TYzCJm1yd-QXbwKfoOg", "@Builderio"],
+      { maxVideosPerChannel: 100 },
+    );
+
+    expect(result.channels.map((channel) => channel.id)).toEqual([
+      "UCAN7TYzCJm1yd-QXbwKfoOg",
+    ]);
+    expect(result.videos.map((entry) => entry.id)).toEqual(["v0"]);
+    expect(requests.map((url) => url.pathname.split("/").pop())).toEqual([
+      "channels",
+      "playlistItems",
+      "videos",
+      "channels",
+      "channels",
+    ]);
+  });
+
   it("refuses a partial list from a channel past the upload cap", async () => {
     serve((url) =>
       url.pathname.endsWith("/channels")

@@ -2811,7 +2811,8 @@ describe("content collection", () => {
       const reports = JSON.stringify(mocks.runFullReport.mock.calls);
       expect(reports).toContain("via=dailydev");
       expect(reports).toContain("sessionSource");
-      expect(await snapshots("daily_dev_sessions")).toEqual([
+      const visits = await snapshots("daily_dev_sessions");
+      expect(visits.filter((row) => Number(row.value) > 0)).toEqual([
         {
           external_id: "a1",
           metric_date: "2026-10-12",
@@ -2825,13 +2826,20 @@ describe("content collection", () => {
           source: "daily_dev",
         },
       ]);
+      expect(visits).toHaveLength(28);
+      expect(visits).toContainEqual({
+        external_id: "a1",
+        metric_date: "2026-10-14",
+        value: 0,
+        source: "daily_dev",
+      });
       expect(await snapshots("ga4_pageviews")).toEqual([]);
       expect(
         await rows(
           "SELECT window_start, window_end, row_count FROM analytics_content_collection_runs WHERE step = 'daily_dev'",
         ),
       ).toEqual([
-        { window_start: "2026-07-17", window_end: "2026-10-14", row_count: 2 },
+        { window_start: "2026-07-17", window_end: "2026-10-14", row_count: 28 },
       ]);
 
       mocks.runFullReport.mockResolvedValueOnce([]);
@@ -2843,7 +2851,16 @@ describe("content collection", () => {
           dateRange: { startDate: "2026-10-13", endDate: "2026-10-15" },
         }),
       );
-      expect(await snapshots("daily_dev_sessions")).toHaveLength(2);
+      const reread = await snapshots("daily_dev_sessions");
+      expect(reread).toHaveLength(30);
+      expect(reread.filter((row) => Number(row.value) > 0)).toEqual([
+        {
+          external_id: "a1",
+          metric_date: "2026-10-12",
+          value: 4,
+          source: "daily_dev",
+        },
+      ]);
     });
 
     it("waits for a GA4 property without querying the shared one", async () => {

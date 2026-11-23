@@ -110,13 +110,11 @@ export const dailyDevStep: ContentStep = {
     });
 
     const values = new DailyMetricValues();
-    let lastReturnedDate: string | null = null;
     for (const row of rows) {
       const [day, landing] = row.dimensionValues.map(({ value }) => value);
       const [sessions] = row.metricValues.map(({ value }) => value);
       if (!day || !landing || !sessions) continue;
       const date = `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`;
-      if (!lastReturnedDate || date > lastReturnedDate) lastReturnedDate = date;
       const key = pageKey(`${blog.origin}${landing}`);
       const article = key ? byKey.get(key) : undefined;
       if (!article) continue;
@@ -127,8 +125,7 @@ export const dailyDevStep: ContentStep = {
       items: articles,
       metrics: [DAILY_DEV_SESSIONS_METRIC],
       startDate: window.startDate,
-      lastReturnedDate,
-      fillMissing: false,
+      lastReturnedDate: window.endDate,
     });
     return {
       snapshots,
