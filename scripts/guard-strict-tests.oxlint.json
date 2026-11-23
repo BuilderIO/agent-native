@@ -1,5 +1,0 @@
-{
-  "$schema": "../node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "vitest"],
-  "options": { "typeAware": true }
-}
