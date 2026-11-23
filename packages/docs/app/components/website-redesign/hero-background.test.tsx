@@ -3,28 +3,14 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HeroBackground } from "./hero-background";
 
-const { waveMount } = vi.hoisted(() => ({ waveMount: vi.fn() }));
-
-vi.mock("@agent-native/toolkit/app/shared", () => ({
-  WaveBackground: ({ className }: { className?: string }) => {
-    waveMount();
-    return <div className={className} data-testid="shared-wave" />;
-  },
-}));
-
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
-  Object.defineProperty(navigator, "gpu", {
-    configurable: true,
-    value: undefined,
-  });
-  waveMount.mockClear();
+  vi.restoreAllMocks();
 });
 
 describe("HeroBackground", () => {
@@ -45,21 +31,22 @@ describe("HeroBackground", () => {
     );
   });
 
-  it("renders the shared Toolkit wave on the homepage", () => {
-    const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
-    Object.defineProperty(navigator, "gpu", {
-      configurable: true,
-      value: { requestAdapter },
-    });
+  it("shows the static ribbon fallback when WebGL2 is unavailable", () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
 
-    render(<HeroBackground />);
+    // oracle-change: the homepage hero no longer mounts the Toolkit wave; it draws the WebGL2 ribbon, so the wave-mount and WebGPU-probe assertions no longer apply.
+    const { container } = render(<HeroBackground />);
 
-    const wave = screen.getByTestId("shared-wave");
-    expect(wave.className).toContain("absolute");
-    expect(wave.className).toContain("inset-0");
-    expect(wave.className).toContain("z-[-1]");
-    expect(wave.className).not.toContain("fixed");
-    expect(requestAdapter).not.toHaveBeenCalled();
-    expect(waveMount).toHaveBeenCalledOnce();
+    const ribbon = container.querySelector(
+      '[data-agent-native-node-id="hero-ribbon"]',
+    );
+    expect(ribbon?.className).toContain("absolute");
+    expect(ribbon?.className).toContain("inset-0");
+    expect(ribbon?.getAttribute("data-ribbon-state")).toBe("fallback");
+    expect(
+      container.querySelector(
+        '[data-agent-native-node-id="hero-ribbon-fallback"]',
+      ),
+    ).not.toBeNull();
   });
 });

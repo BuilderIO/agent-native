@@ -1,5 +1,5 @@
-import { WaveBackground } from "@agent-native/toolkit/app/shared";
+import { HeroRibbon } from "./hero-ribbon";
 
 export function HeroBackground() {
-  return <WaveBackground className="absolute inset-0 z-[-1]" />;
+  return <HeroRibbon className="absolute inset-0 z-0" />;
 }
