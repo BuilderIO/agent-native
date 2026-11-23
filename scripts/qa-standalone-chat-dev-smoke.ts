@@ -4114,6 +4114,7 @@ async function main(): Promise<void> {
       "  checked:  no-spend loopback → hello action → HITL → queue → rich reload",
     );
   } catch (err) {
+    await Promise.all(pendingHttpErrorDetails);
     const logs = running.logs.slice(-160).join("");
     const message =
       err instanceof Error ? err.stack || err.message : String(err);

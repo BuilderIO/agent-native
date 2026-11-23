@@ -17706,30 +17706,15 @@ export function createProductionAgentHandler(
     ) {
       try {
         const { getThread } = await import("../chat-threads/store.js");
-        const { latestPromptTurnId, recoverThreadHistoryForRequest } =
+        const { recoverThreadHistoryForRequest } =
           await import("./thread-data-builder.js");
         const threadData = (await getThread(threadId))?.threadData;
-        const recovered = recoverThreadHistoryForRequest(threadData);
-        if (backgroundDispatchAttempted && threadData && recovered.length > 0) {
-          const persistedTurnId = latestPromptTurnId(threadData);
-          const lastRecovered = recovered.at(-1);
-          const lastRecoveredText =
-            lastRecovered?.role === "user"
-              ? lastRecovered.content
-                  .filter((p) => p.type === "text")
-                  .map((p) => p.text)
-                  .join("\n")
-                  .trim()
-              : undefined;
-          if (
-            persistedTurnId === effectiveTurnId ||
-            (persistedTurnId === undefined &&
-              lastRecovered?.role === "user" &&
-              lastRecoveredText === messageToPersist.trim())
-          ) {
-            recovered.pop();
-          }
-        }
+        const recovered = recoverThreadHistoryForRequest(
+          threadData,
+          backgroundDispatchAttempted
+            ? { excludeSubmittedTurnId: effectiveTurnId }
+            : undefined,
+        );
         if (recovered.length > 0) messages.unshift(...recovered);
       } catch (err) {
         console.warn(

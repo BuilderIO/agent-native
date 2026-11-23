@@ -635,6 +635,24 @@ describe("resource skill reference selection and bounded refill", () => {
     );
   });
 
+  it("fails when organization learnings cannot be read instead of substituting defaults", async () => {
+    mocks.requestOrgId.mockReturnValue("org-test");
+    mocks.resourceGetByPath.mockImplementation(
+      async (owner: string, path: string) => {
+        if (owner === "__organization__:org-test" && path === "LEARNINGS.md") {
+          throw new Error("organization read failed");
+        }
+        if (owner === "__shared__" && path === "LEARNINGS.md") {
+          return { content: "Default learnings" };
+        }
+        return null;
+      },
+    );
+    await expect(
+      loadResourcesForPrompt("user@example.test", true),
+    ).rejects.toThrow("Unable to read organization learnings");
+  });
+
   it("fails closed on Lab resolution in a later batch after accepting an earlier skill even after the budget expires", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(0);

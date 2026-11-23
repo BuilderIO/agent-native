@@ -2103,7 +2103,7 @@ export async function loadResourcesForPrompt(
     personalInstructions,
     memoryInstructionsResult,
     resourceSkillsBlock,
-    organizationLearnings,
+    organizationLearningsResult,
     appDefaultLearnings,
     memoryIndex,
     workspaceResourceIndex,
@@ -2197,10 +2197,11 @@ export async function loadResourcesForPrompt(
       includeSupportingFiles,
     ),
     includeOrganizationResources
-      ? resourceGetByPath(organizationOwner, "LEARNINGS.md", { orgId }).catch(
-          () => null,
+      ? resourceGetByPath(organizationOwner, "LEARNINGS.md", { orgId }).then(
+          (value) => ({ ok: true as const, value }),
+          (error) => ({ ok: false as const, error }),
         )
-      : Promise.resolve(null),
+      : Promise.resolve({ ok: true as const, value: null }),
     resourceGetByPath(SHARED_OWNER, "LEARNINGS.md", { orgId }).catch(
       () => null,
     ),
@@ -2274,7 +2275,13 @@ export async function loadResourcesForPrompt(
 
   addSection(resourceSkillsBlock);
 
-  const sharedLearnings = organizationLearnings ?? appDefaultLearnings;
+  if (!organizationLearningsResult.ok) {
+    throw new Error("Unable to read organization learnings.", {
+      cause: organizationLearningsResult.error,
+    });
+  }
+  const sharedLearnings =
+    organizationLearningsResult.value ?? appDefaultLearnings;
 
   if (compact) {
     if (sharedLearnings?.content?.trim()) {
