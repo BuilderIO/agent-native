@@ -1446,6 +1446,28 @@ describe("EmailList keyboard navigation interactions", () => {
     ]);
   });
 
+  it("keeps the current row where it is when the pointer passes over others", () => {
+    render(<Harness />);
+    const lastRow = rows()[2];
+    if (!lastRow) throw new Error("missing row");
+    fireEvent.mouseEnter(lastRow);
+    fireEvent.mouseMove(lastRow);
+
+    expect(screen.getByLabelText("Focused id").textContent).toBe("first");
+    press("j");
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+  });
+
+  it("makes a row the current row when it takes keyboard focus", () => {
+    render(<Harness />);
+    const lastRow = rows()[2];
+    if (!lastRow) throw new Error("missing row");
+    fireEvent.focus(lastRow);
+
+    expect(screen.getByLabelText("Focused id").textContent).toBe("last");
+    expect(lastRow.getAttribute("aria-current")).toBe("true");
+  });
+
   it("brings keyboard focus along to the current row only when a row holds it", () => {
     render(<Harness />);
     press("j");
@@ -1606,25 +1628,46 @@ describe("EmailList keyboard navigation interactions", () => {
     );
   });
 
-  it("opens each row the focus lands on beside the reading pane", () => {
-    render(<Harness readingPane />);
+  it("opens the top row on the first j beside an empty reading pane, then steps", () => {
+    const { rerender } = render(<Harness readingPane />);
     press("j");
 
     expect(mocks.navigate).toHaveBeenLastCalledWith(
-      "/all/thread-middle?accountEmail=synthetic%40example.test",
+      "/all/thread-first?accountEmail=synthetic%40example.test",
       { replace: false },
     );
-  });
 
-  it("replaces history while the reading pane already shows an email", () => {
-    mocks.threadId = "thread-middle";
-    render(<Harness readingPane />);
+    mocks.threadId = "thread-first";
+    rerender(<Harness readingPane />);
     press("j");
 
     expect(mocks.navigate).toHaveBeenLastCalledWith(
       "/all/thread-middle?accountEmail=synthetic%40example.test",
       { replace: true },
     );
+  });
+
+  it("continues from the email the reading pane shows, replacing history", () => {
+    mocks.threadId = "thread-middle";
+    render(<Harness readingPane />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+    press("j");
+
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-last?accountEmail=synthetic%40example.test",
+      { replace: true },
+    );
+  });
+
+  it("makes a thread opened from outside the list the current row, once", () => {
+    const { rerender } = render(<Harness />);
+    mocks.threadId = "thread-last";
+    rerender(<Harness />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("last");
+
+    press("k");
+    rerender(<Harness emails={[...messages]} />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
   });
 
   it("replaces history for clicks and Enter once the route shows an email", () => {

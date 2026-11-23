@@ -60,7 +60,6 @@ function renderRow(
     onSelect: vi.fn(),
     onToggleMultiSelect: vi.fn(),
     onStar: vi.fn(),
-    onHover: vi.fn(),
     ...overrides,
   };
   render(<EmailListItem {...props} />, { wrapper: MemoryRouter });

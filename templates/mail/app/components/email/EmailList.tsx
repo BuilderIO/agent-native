@@ -1338,9 +1338,18 @@ export function EmailList({
           (t) => t.latestMessage.id === focusedIdRef.current,
         );
       }
+      const base = current === -1 ? 0 : current;
+      // With the reading pane empty, the first J or K opens the current row
+      // (the top row on a fresh list) instead of skipping past it. Drafts
+      // never open in the pane, so they step on as before.
+      const opensCurrent =
+        readingPane &&
+        !threadId &&
+        Math.abs(delta) === 1 &&
+        !threads[base]?.latestMessage.isDraft;
       const next = Math.max(
         0,
-        Math.min(threads.length - 1, (current === -1 ? 0 : current) + delta),
+        Math.min(threads.length - 1, base + (opensCurrent ? 0 : delta)),
       );
       const nextThread = threads[next] as ThreadSummary | undefined;
       if (!nextThread) return;
@@ -1350,7 +1359,14 @@ export function EmailList({
       // Scrolling the focused row into view is handled by the effect that
       // watches `focusedIndex` and calls `rowVirtualizer.scrollToIndex`.
     },
-    [threads, setFocusedId, setSelectedIds, readingPane, previewThread],
+    [
+      threads,
+      setFocusedId,
+      setSelectedIds,
+      readingPane,
+      threadId,
+      previewThread,
+    ],
   );
 
   const extendSelection = useCallback(
@@ -2058,6 +2074,24 @@ export function EmailList({
     }
   }, [threads, focusedId, setFocusedId]);
 
+  // Opening a thread, by click, link or the agent, makes it the current row,
+  // so J and K continue from the thread on screen. Synced once per thread so a
+  // list refresh never pulls the current row back.
+  const syncedThreadIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!threadId) {
+      syncedThreadIdRef.current = null;
+      return;
+    }
+    if (syncedThreadIdRef.current === threadId) return;
+    const open = threads.find(
+      (t) => (t.latestMessage.threadId || t.latestMessage.id) === threadId,
+    );
+    if (!open) return;
+    syncedThreadIdRef.current = threadId;
+    setFocusedId(open.latestMessage.id);
+  }, [threadId, threads, setFocusedId]);
+
   useEffect(() => {
     if (threads.length === 0) return;
     warmThreads(
@@ -2289,7 +2323,7 @@ export function EmailList({
     [archiveThreadKeys],
   );
 
-  const handleHoverThread = useCallback(
+  const handleFocusRow = useCallback(
     (thread: ThreadSummary) => {
       setFocusedId(thread.latestMessage.id);
     },
@@ -3018,7 +3052,7 @@ export function EmailList({
                   onCancelSchedule={handleCancelScheduled}
                   onConfirmUncertainScheduled={handleConfirmUncertainScheduled}
                   onRetryUncertainScheduled={handleRetryUncertainScheduled}
-                  onHover={handleHoverThread}
+                  onFocusRow={handleFocusRow}
                   onPrefetch={prefetchThread}
                   onSwipeArchive={handleSwipeArchive}
                   onSwipeSnooze={handleSwipeSnooze}

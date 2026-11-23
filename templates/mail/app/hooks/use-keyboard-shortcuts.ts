@@ -18,7 +18,39 @@ const INTERACTIVE_TARGET_SELECTOR = [
   '[role="tab"]',
 ].join(",");
 
-export function isKeyboardShortcutTarget(target: EventTarget | null): boolean {
+// Where a typed character belongs to the focused control: text entry, and the
+// menus, lists and dialogs that use letters for typeahead or their own keys.
+const CHARACTER_TARGET_SELECTOR = [
+  "input",
+  "textarea",
+  "select",
+  '[contenteditable="true"]',
+  '[role="combobox"]',
+  '[role="textbox"]',
+  '[role="searchbox"]',
+  '[role="menu"]',
+  '[role="menubar"]',
+  '[role="listbox"]',
+  '[role="dialog"]',
+  '[role="alertdialog"]',
+  "[data-radix-popper-content-wrapper]",
+].join(",");
+
+function isCharacterKey(key: string): boolean {
+  return key.length === 1 && key !== " ";
+}
+
+/**
+ * Whether a key pressed on `target` belongs to that control rather than to a
+ * shortcut. A focused button or link keeps Enter, Space and the arrows, but a
+ * letter such as J or K still reaches the shortcut: clicking a toolbar button
+ * leaves focus on it, and the list must not go deaf until something else is
+ * clicked. Without a key, every interactive control counts.
+ */
+export function isKeyboardShortcutTarget(
+  target: EventTarget | null,
+  key?: string,
+): boolean {
   const element =
     target instanceof Element
       ? target
@@ -26,10 +58,12 @@ export function isKeyboardShortcutTarget(target: EventTarget | null): boolean {
         ? target.parentElement
         : null;
   if (!element) return false;
-  return (
-    (element instanceof HTMLElement && element.isContentEditable) ||
-    element.closest(INTERACTIVE_TARGET_SELECTOR) !== null
-  );
+  if (element instanceof HTMLElement && element.isContentEditable) return true;
+  const selector =
+    key !== undefined && isCharacterKey(key)
+      ? CHARACTER_TARGET_SELECTOR
+      : INTERACTIVE_TARGET_SELECTOR;
+  return element.closest(selector) !== null;
 }
 
 export function shouldCycleMailTab(target: EventTarget | null): boolean {
@@ -85,7 +119,7 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[], enabled = true) {
 
       for (const shortcut of shortcutsRef.current) {
         if (shortcut.skipInInput !== false) {
-          if (isKeyboardShortcutTarget(e.target)) continue;
+          if (isKeyboardShortcutTarget(e.target, e.key)) continue;
         }
 
         const keyMatch = e.key.toLowerCase() === shortcut.key.toLowerCase();
@@ -125,7 +159,9 @@ export function useSequenceShortcuts(
     if (!enabled) return;
 
     const handleKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || isKeyboardShortcutTarget(e.target)) return;
+      if (e.defaultPrevented || isKeyboardShortcutTarget(e.target, e.key)) {
+        return;
+      }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       clearTimeout(timerRef.current);
