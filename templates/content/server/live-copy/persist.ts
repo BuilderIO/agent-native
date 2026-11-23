@@ -809,8 +809,20 @@ export async function persistContentLiveCopy(
       `A server write to page ${commit.docId}'s live copy has no cause; wrap it in withContentBodyWriteCause.`,
     );
   }
-  const pendingEditorIds = cause ? null : liveCopyBlockIds(commit.state);
   const db = drizzleOverExec(tx);
+  // guard:allow-unscoped — compares the commit with the page body the collab route already authorized it to write.
+  const saved = cause
+    ? undefined
+    : firstRow(
+        await db
+          .select({ content: schema.documents.content })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, commit.docId)),
+      );
+  const pendingEditorIds =
+    saved !== undefined && saved.content !== commit.text
+      ? liveCopyBlockIds(commit.state)
+      : null;
   const locked = await lockPageForBodyWrite(
     db,
     commit.docId,

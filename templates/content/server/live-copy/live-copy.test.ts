@@ -138,6 +138,10 @@ vi.mock("../../shared/nfm.js", async (importOriginal) =>
     await importOriginal<typeof import("../../shared/nfm.js")>(),
   ),
 );
+vi.mock("./block-ids.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./block-ids.js")>();
+  return { ...actual, liveCopyBlockIds: vi.fn(actual.liveCopyBlockIds) };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -868,6 +872,30 @@ describe("writes through a switched page's live copy", () => {
 
     expect(outcome).toEqual({ derived: false, reason: "flag_off" });
     expect((await page("recheck")).content).toBe("Hello there");
+  });
+
+  it("reads an editor commit's block IDs only when its text changes the page", async () => {
+    await switchedPage("ids-read", "Hello there");
+    const { liveCopyBlockIds } = await import("./block-ids.js");
+    const read = vi.mocked(liveCopyBlockIds);
+    read.mockClear();
+    const version = (await collabVersion("ids-read")) as number;
+    const commit = (text: string, at: number) =>
+      inTransaction((tx) =>
+        persist.persistContentLiveCopy(tx, {
+          docId: "ids-read",
+          origin: "update",
+          previousVersion: at,
+          version: at + 1,
+          text,
+          state: new Uint8Array(),
+        }),
+      );
+
+    await commit("Hello there", version);
+    expect(read).not.toHaveBeenCalled();
+    await commit("Hello again", version + 1);
+    expect(read).toHaveBeenCalledTimes(1);
   });
 
   it("refuses an editor update to a switched page in Trash, and commits nothing", async () => {

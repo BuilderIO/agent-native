@@ -396,19 +396,26 @@ export function useLinkedBlockReveal(args: {
       clearTimeout(timer);
       editor.off("update", tryReveal);
     };
+    const missing = () => {
+      finish();
+      callbacksRef.current.onMissing();
+    };
     editor.on("update", tryReveal);
     if (!tryReveal()) {
+      let looking = true;
+      let waited = false;
       timer = setTimeout(() => {
         if (done) return;
-        finish();
-        callbacksRef.current.onMissing();
+        if (looking) waited = true;
+        else missing();
       }, LINK_WAIT_MS);
       void resolveBlockLink(documentId, blockId)
         .then((found) => {
+          looking = false;
           if (done) return;
           if (found.state === "live") {
             at = { path: found.path, content: found.content };
-            tryReveal();
+            if (!tryReveal() && waited) missing();
             return;
           }
           finish();
@@ -416,6 +423,7 @@ export function useLinkedBlockReveal(args: {
           else callbacksRef.current.onMissing();
         })
         .catch(() => {
+          looking = false;
           if (done) return;
           finish();
           callbacksRef.current.onFailed();
