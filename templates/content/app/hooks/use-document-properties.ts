@@ -55,6 +55,7 @@ import {
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseQueryKey,
   invalidateContentDatabaseNavigationQueries,
+  isContentDatabaseUnavailable,
   removeDocumentPropertyFromDatabaseResponse,
 } from "./use-content-database";
 import {
@@ -458,7 +459,10 @@ export function useCollectionRefusesNewProperties(
     )
     .some(
       ([, value]) =>
-        value?.database.id === databaseId && value.database.systemRole != null,
+        !!value &&
+        !isContentDatabaseUnavailable(value) &&
+        value.database.id === databaseId &&
+        value.database.systemRole != null,
     );
 }
 
@@ -474,7 +478,12 @@ export function useConfigureDocumentProperty(
         contentDatabaseQueryFilter(databaseDocumentId),
       )
       .map(([, value]) => value)
-      .find((value) => value?.database.id === databaseId);
+      .find(
+        (value) =>
+          !!value &&
+          !isContentDatabaseUnavailable(value) &&
+          value.database.id === databaseId,
+      );
   const mutation = useActionMutation<
     ConfigureDocumentPropertyResponse | GuardedConfigurePropertyResult,
     ConfigureDocumentPropertyRequest | GuardedConfigurePropertyInput
@@ -485,7 +494,12 @@ export function useConfigureDocumentProperty(
         queryClient.setQueriesData<ContentDatabaseResponse>(
           contentDatabaseQueryFilter(databaseDocumentId),
           (current) => {
-            if (!current || current.database.id !== databaseId) return current;
+            if (
+              !current ||
+              isContentDatabaseUnavailable(current) ||
+              current.database.id !== databaseId
+            )
+              return current;
             const existing = current.properties.find(
               (property) => property.definition.id === data.value.id,
             );
@@ -727,6 +741,9 @@ export function useSetDocumentProperty(
           { documentId: databaseDocumentId },
         ],
       });
+      if (savedProperty?.definition.type !== "blocks") {
+        invalidateContentDatabaseNavigationQueries(queryClient, { databaseId });
+      }
     },
   });
   const scoped = withDatabaseScope(mutation, databaseId);
@@ -799,7 +816,7 @@ export function useUpdateDatabaseItems(databaseDocumentId: string) {
     UpdateDatabaseItemsRequest
   >("update-database-items", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => {
+    onSuccess: (data) => {
       const databaseQueries = contentDatabaseQueryFilter(databaseDocumentId);
       const constrainedQueries =
         contentDatabaseConstrainedQueryFilter(databaseDocumentId);
@@ -811,6 +828,9 @@ export function useUpdateDatabaseItems(databaseDocumentId: string) {
       });
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
+      });
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        databaseId: data.databaseId,
       });
     },
   });

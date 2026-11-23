@@ -40,6 +40,7 @@ const ALWAYS_HIDDEN_TYPES = [
   "clip-embed",
   "analytics-chart",
   "link-card",
+  "design-screen",
   "callout",
   "source-component",
   ...BUILDER_TYPES,

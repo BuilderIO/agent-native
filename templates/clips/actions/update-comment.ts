@@ -8,6 +8,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { assertCommentAccess } from "../server/lib/comment-access.js";
 import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
+import {
+  mirrorRecordingComments,
+  prepareRecordingCommentMirror,
+} from "../server/lib/recording-comment-mirror.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 import {
   displayCommentMentions,
@@ -37,6 +41,7 @@ export default defineAction({
       .optional()
       .describe("Organization members mentioned in the updated comment"),
   }),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) {
@@ -74,20 +79,27 @@ export default defineAction({
     );
 
     const updatedAt = new Date().toISOString();
-    const updated = await db
-      .update(schema.recordingComments)
-      .set({
-        content: args.content,
-        mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
-        updatedAt,
-      })
-      .where(
-        and(
-          eq(schema.recordingComments.id, args.id),
-          eq(schema.recordingComments.content, existing.content),
-        ),
-      )
-      .returning({ id: schema.recordingComments.id });
+    await prepareRecordingCommentMirror();
+    const updated = await db.transaction(async (tx) => {
+      const written = await tx
+        .update(schema.recordingComments)
+        .set({
+          content: args.content,
+          mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
+          updatedAt,
+        })
+        .where(
+          and(
+            eq(schema.recordingComments.id, args.id),
+            eq(schema.recordingComments.content, existing.content),
+          ),
+        )
+        .returning({ id: schema.recordingComments.id });
+      if (written.length > 0) {
+        await mirrorRecordingComments(tx, existing.recordingId, [args.id]);
+      }
+      return written;
+    });
 
     if (updated.length === 0) {
       throw new Error(

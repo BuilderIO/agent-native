@@ -138,6 +138,9 @@ try {
 process.exit(0);
 `;
 
+// oracle-change(packages/toolkit/src/app/onboarding/first-run-builder-credits-flag.spec.ts): deleted a restatement of the flag literal; the flag key is asserted in core shared/first-run-builder-credits-experiment.spec.ts
+// oracle-change(packages/toolkit/src/ui/sonner.spec.ts): deleted an identity check that sonnerToast is toast; it is a plain re-export with no logic
+
 describe("AppProviders with externalized Core production SSR", () => {
   it("renders first paint on Mail's embedded inbox with its production config", async () => {
     const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: "production" };

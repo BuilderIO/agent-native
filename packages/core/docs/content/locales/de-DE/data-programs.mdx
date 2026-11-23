@@ -173,6 +173,8 @@ Bei jedem Lauf durchgesetzte Obergrenzen (nicht pro Programm konfigurierbar):
 
 Kürzung ist immer explizit (`truncated: true` im Ergebnis) — nie ein stiller Verlust.
 
+In der Produktion und bei Hintergrundläufen behält die Sandbox etwa 4,5 MiB der Ausgabe eines Laufs, die Zeile von `emit()` und Ihre Logs zusammen. Ein Ergebnis, das darüber hinaus ausgegeben wird, lässt sich nicht kürzen und schlägt daher mit `result_too_large` fehl: Emittieren Sie weniger Zeilen oder loggen Sie weniger.
+
 ## Params und Dashboard-Panel-Bindung {#params-and-panel-binding}
 
 Programme deklarieren ein optionales `paramsSchema` (JSON Schema, das akzeptierte Params beschreibt) und `defaultParams`. Ein Dashboard übernimmt die `"program"`-Panel-Quelle, indem es einen kleinen JSON-Deskriptor im Abfragefeld des Panels statt einer Abfragezeichenfolge platziert:
@@ -219,6 +221,18 @@ Ein Vordergrundprogramm kann einen Lauf mit allen in der Organisation teilen, di
 Wenn der reine Organisationslauf nicht teilbar ist, folgt sofort der eigene Lauf des Betrachters im verbleibenden Rest desselben Zeitlimits, und das Programm wird 24 Stunden lang oder bis zum nächsten Speichern nicht erneut versucht. Hat dieser abgelehnte Lauf mehr als die Hälfte des Zeitlimits gebraucht, wird es erst nach dem nächsten Speichern wieder versucht. Schlägt der reine Organisationslauf fehl, wird er nach `refreshTtlMs` erneut versucht. Hintergrundprogramme behalten vorerst einen Cache pro Betrachter.
 
 Schlüssel gehören in die Einstellungen: Ein Schlüssel, der im Code eines Programms steht, wird ohnehin mit dem eigenen Lauf jedes Betrachters gesendet, daher ändert das Teilen nichts daran, wer sehen kann, was er liefert.
+
+### Den geteilten Lauf nach Zeitplan frisch halten {#scheduled-refresh}
+
+Wird ein Programm mit `scheduledRefresh: true` gespeichert, führt der Server es alle `refreshTtlMs` mit seinen `defaultParams` erneut aus, sodass der geteilte Lauf der Organisation bereitliegt, bevor jemand das Panel öffnet. Ausgeführt wird er vom wiederkehrenden Sweep des Frameworks, demselben minütlichen Serverjob, der Automatisierungen antreibt; er braucht also weder einen offenen Browser noch einen Modellaufruf.
+
+- **Es ist der mit der Organisation geteilte Lauf, nur im Voraus erstellt.** Der geplante Lauf folgt allen Regeln oben: nur Credentials der Organisation, nur Lesezugriffe, nichts, was einer einzelnen Person gehört, und ein Betrachter erhält ihn nur, wenn sein eigener Lauf dieselben Credentials lesen würde. Ist ein geplanter Lauf nicht teilbar, wird er als Ablehnung gespeichert und einen Tag später erneut versucht. Ihm folgt nie ein Lauf mit dem eigenen Schlüssel einer Person, da niemand auf ihn wartet.
+- **Er läuft als Eigentümer des Programms, der jedes Mal geprüft wird.** Vor jedem Lauf wird der Eigentümer so geprüft, wie Automatisierungen ihren Eigentümer prüfen. Hat er die Organisation verlassen oder existiert er nicht mehr, läuft nichts, und der Lauf wird mit `schedule_owner_invalid` als fehlgeschlagen erfasst und erst nach `refreshTtlMs` erneut geprüft; schlägt die Prüfung selbst fehl, wird der Lauf mit `schedule_owner_unverified` als fehlgeschlagen erfasst und der Eigentümer nach fünf Minuten erneut geprüft.
+- **Er aktualisiert etwas früher.** Ein Lauf ist drei Minuten vor dem Veralten fällig. Das deckt das Intervall des Sweeps und das 120-Sekunden-Limit eines Laufs ab, sodass Betrachter weiter den geteilten Lauf lesen, statt das Programm selbst auszuführen. Eine fehlgeschlagene Aktualisierung wird fünf Minuten später erneut versucht, und ein Lauf startet nur, wenn vom Sweep noch mindestens 25 Sekunden übrig sind, das Zeitlimit eines eigenen Panel-Laufs. Ein geplanter Lauf bekommt nur, was von den 90 Sekunden des Sweeps übrig ist. Läuft ihm die Zeit ab, wird er mit `schedule_timed_out` erfasst und nach `refreshTtlMs` erneut versucht, ohne die geteilten Läufe der Betrachter aufzuhalten.
+- **Er deckt einen Satz Params ab.** Ein Panel liest den geplanten Lauf, wenn die `params` seines Deskriptors den `defaultParams` des Programms entsprechen (oder beide leer sind). Ein Panel mit anderen Params behält seinen üblichen Cache.
+- **Er braucht eine Organisation, `refreshMode: "ttl"`, eine `refreshTtlMs` von mindestens 15 Minuten und ein Vordergrundprogramm.** Ohne diese schlägt das Speichern von `scheduledRefresh: true` fehl; Hintergrundprogramme teilen noch keine Läufe. Ein späteres Speichern ohne `scheduledRefresh` behält die Einstellung bei, `false` schaltet sie ab, und das Archivieren des Programms beendet sie.
+
+`get-data-program` liefert `scheduledRefresh` und eine Zusammenfassung `orgSharedRun` (Status, Fehler und Endzeit, ohne Zeilen oder Zeilenzahl), an der sich ablesen lässt, ob der Zeitplan Schritt hält.
 
 ## Sicherheitsmodell {#security}
 

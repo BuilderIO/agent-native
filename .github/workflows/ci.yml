@@ -1496,7 +1496,9 @@ jobs:
       # uploaded anything. So the job with the latest start time ran the group,
       # and among equal start times the lowest attempt is the one that ran it.
       # A page that fails mid-pagination would leave a list that can miss the
-      # newest attempts, so only a complete list reaches the merge.
+      # newest attempts, so only a complete list reaches the merge. Keep
+      # per_page=25 because GitHub's jobs endpoint returns HTTP 502 on
+      # per_page=100 once a full run accumulates multiple attempts.
       - name: Read the attempt that last ran each group
         id: jobs
         continue-on-error: true
@@ -1507,7 +1509,7 @@ jobs:
           mkdir -p .tmp
           for attempt in 1 2 3 4; do
             if gh api --paginate \
-              "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=25" \
               --jq '.jobs[] | select(.name | startswith("Content convergence (")) | [.name, .run_attempt, (.started_at // ""), (.conclusion // "none")] | @tsv' \
               > "$JOBS_FILE.partial" 2> "$JOBS_FILE.err"; then
               mv "$JOBS_FILE.partial" "$JOBS_FILE"

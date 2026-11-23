@@ -1,3 +1,4 @@
+import { DEFAULT_TOOL_RESULT_CHARS } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -790,6 +791,25 @@ it("names the video a thread on a whole video is about", async () => {
 
   state.source.root = { quotedText: "Alpha" };
   expect(await run(getContext, {})).toMatchObject({ block: null });
+});
+
+it("keeps the quote and the discussion in the part of a long page the agent reads", async () => {
+  state.request.intent = "suggest";
+  state.request.snapshotJson = "[]";
+  const quoted = "Bed 4 held kale this year, planted in 5 rows by Dev.";
+  state.source.document.content = `${"Notes from the plots. ".repeat(5_000)}${quoted}`;
+  state.source.root = { quotedText: quoted };
+  state.source.comments = [
+    { id: "comment-1", parentId: null, content: "Shorten this paragraph" },
+  ];
+
+  const result = JSON.stringify(await run(getContext, {}));
+  const read = result.slice(0, DEFAULT_TOOL_RESULT_CHARS);
+
+  expect(result.length).toBeGreaterThan(DEFAULT_TOOL_RESULT_CHARS);
+  expect(read).toContain(`"quotedText":${JSON.stringify(quoted)}`);
+  expect(read).toContain('"content":"Shorten this paragraph"');
+  expect(read).toContain('"baseRevision":"base-revision"');
 });
 
 it("reports prior proposal decisions without treating them as the current result", async () => {

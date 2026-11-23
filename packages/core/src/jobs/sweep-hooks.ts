@@ -20,28 +20,71 @@ export type RecurringSweepHandler = (
   context: RecurringSweepContext,
 ) => Promise<void>;
 
-const handlers = new Map<string, RecurringSweepHandler>();
+export interface RecurringSweepHandlerOptions {
+  /**
+   * When the handler next has work due at an exact time (a snooze, a
+   * send-later), as epoch ms, or `null` when nothing is scheduled. An idle
+   * Netlify app skips sweeps until the earliest answer (see
+   * `netlify-wake-marker.ts`); a handler without one runs at least every
+   * `AGENT_NATIVE_IDLE_SWEEP_MAX_MINUTES` while the app is idle.
+   */
+  nextDueAt?: () => Promise<number | null>;
+}
+
+interface RecurringSweepRegistration {
+  handler: RecurringSweepHandler;
+  nextDueAt?: () => Promise<number | null>;
+}
+
+const registrations = new Map<string, RecurringSweepRegistration>();
 
 export function registerRecurringSweepHandler(
   id: string,
   handler: RecurringSweepHandler,
+  options: RecurringSweepHandlerOptions = {},
 ): () => void {
   const key = id.trim();
   if (!key) throw new Error("Recurring sweep handler id is required.");
-  handlers.set(key, handler);
+  const registration: RecurringSweepRegistration = {
+    handler,
+    ...(options.nextDueAt ? { nextDueAt: options.nextDueAt } : {}),
+  };
+  registrations.set(key, registration);
   return () => {
-    if (handlers.get(key) === handler) handlers.delete(key);
+    if (registrations.get(key) === registration) registrations.delete(key);
   };
 }
 
 export function hasRecurringSweepHandler(id: string): boolean {
-  return handlers.has(id);
+  return registrations.has(id);
+}
+
+/**
+ * The earliest time any registered handler has work due, or `null`. A reader
+ * that throws fails the whole answer, which keeps the sweep on its minute
+ * cadence rather than sleeping past work it couldn't see; an answer that is
+ * not a finite time counts as due now for the same reason.
+ */
+export async function nextRecurringSweepHandlerDueAt(
+  now: number = Date.now(),
+): Promise<number | null> {
+  let earliest: number | null = null;
+  for (const { nextDueAt } of [...registrations.values()]) {
+    if (!nextDueAt) continue;
+    const answer = await nextDueAt();
+    if (answer === null) continue;
+    const dueAt = Number.isFinite(answer) ? answer : now;
+    earliest = earliest === null ? dueAt : Math.min(earliest, dueAt);
+  }
+  return earliest;
 }
 
 export async function runRecurringSweepHandlers(
   context: RecurringSweepContext,
 ): Promise<{ registered: number; failed: string[]; skipped?: string }> {
-  const snapshot = [...handlers.entries()];
+  const snapshot = [...registrations.entries()].map(
+    ([id, { handler }]) => [id, handler] as const,
+  );
   // A database that just refused a connect is in cooldown; running every handler
   // against it only multiplies the refusal (11/5: 582 "Too many connections" in
   // eight minutes, much of it sweeps). The next tick picks the work up.

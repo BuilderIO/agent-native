@@ -1,4 +1,7 @@
 export default {
+  responseGuard: {
+    noDesignChangesSaved: "Nenhuma alteração de design foi salva neste turno.",
+  },
   journeyCanvas: {
     observedSessionReference: "Referência de sessão observada",
     sessionsOfAll: "{count} sessões · {percent} do total",

@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "给自己的备注",
     },
     inbox: {
-      atLeastCount: "至少 {{count}}",
+      conversationsCount: "会话：{{count}}",
+      conversationsAtLeastCount: "会话：至少 {{count}}",
+      unreadCount: "未读会话：{{count}}",
+      draftsToReviewCount: "待审阅草稿：{{count}}",
       syncing: "收件箱同步中…",
     },
     sort: {
@@ -138,8 +141,6 @@ const messages = {
       compose: "撰写",
       composeShortcut: "撰写 (C)",
       accounts: "账号",
-      pinSidebar: "固定侧边栏",
-      unpinSidebar: "取消固定侧边栏",
       closeSidebar: "关闭侧边栏",
       settings: "设置",
       aiSettings: "管理标签和规则",
@@ -157,7 +158,7 @@ const messages = {
       filtersLimitReached: "最多可保存 20 个筛选条件。",
     },
     tabSettings: {
-      splitInbox: "拆分收件箱",
+      splitInbox: "将收件箱拆分为标签页",
       views: "视图",
       categories: "分类",
       rename: "重命名",
@@ -165,7 +166,7 @@ const messages = {
       savedFilters: "已保存的筛选条件",
       combinedInbox: "合并收件箱",
       allTab: "全部标签页",
-      help: "合并收件箱会一起显示所有账户；关闭后，邮件会按标签分到不同标签页。",
+      help: "将你选择的视图、标签和已保存的筛选器显示为单独的收件箱标签页。关闭后，所有收件箱邮件会显示在一个标签页中。",
       aiSetup: "设置 AI 标签和规则",
     },
     accounts: {
@@ -200,6 +201,10 @@ const messages = {
       contentPagesRetry: "重试",
       contentPagesEmpty: "未找到页面",
       contentFileMarkdown: "Markdown 文件",
+      contentFilePdf: "PDF 文件",
+      contentPageFormat: "页面附加格式",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV 文件",
       bold: "加粗",
       cancel: "取消",
@@ -459,6 +464,12 @@ const messages = {
       scheduledCancelFailed: "取消定时邮件失败",
       failedToAttachFile: "附加文件失败",
       failedToAttachContentPage: "附加 Content 页面失败",
+      contentPagePdfTextUnsupported:
+        "此页面包含 PDF 暂时无法显示的文字，例如中文、日文、韩文、阿拉伯文、希伯来文或印地文。请改为以 Markdown 格式附加。",
+      contentPagePdfTooLong:
+        "此页面太长或太宽，无法以 PDF 格式附加。请改为以 Markdown 格式附加。",
+      contentPagePdfUnavailable:
+        "Content 无法为此页面生成 PDF。请改为以 Markdown 格式附加。",
       waitForAttachments: "请等待附件添加完成后再发送。",
       failedToUploadImage: "上传图片失败",
       storageBuilderRefused:

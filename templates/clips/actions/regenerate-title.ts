@@ -175,6 +175,7 @@ export default defineAction({
         "Whether this request is automatic; manual titles are preserved.",
       ),
   }),
+  mcpTool: "search",
   run: async (args) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),

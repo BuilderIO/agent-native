@@ -33,7 +33,7 @@ import {
   type ClipUploadErrorCode,
   type ContentClipScope,
 } from "../../shared/clips-peer-contract.js";
-import { peerAppLinkOrigins, resolvePeerAppUrl } from "./peer-apps.js";
+import { peerLinkOrigins, resolvePeerAppUrl } from "./app-peer.js";
 
 /**
  * Who Content vouches for. A public reader is never named to Clips: at most
@@ -90,7 +90,7 @@ export function resolveClipsAppUrl(): string | null {
  * one database, so a link copied from either lane names the same Clip.
  */
 export function clipsLinkOrigins(): string[] {
-  return peerAppLinkOrigins("clips");
+  return peerLinkOrigins("clips");
 }
 
 function readPeerSecret(): string | null {

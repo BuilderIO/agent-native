@@ -11451,7 +11451,7 @@ describe("server/auth", () => {
         await database.exec(`
           CREATE TABLE sessions (token TEXT PRIMARY KEY, email TEXT, created_at BIGINT NOT NULL);
           CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT, email_verified BOOLEAN);
-          CREATE TABLE "session" (token TEXT PRIMARY KEY, user_id TEXT, expires_at TIMESTAMPTZ NOT NULL);
+          CREATE TABLE "session" (token TEXT PRIMARY KEY, user_id TEXT, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
           INSERT INTO "user" VALUES ('user-1', 'session@example.com', TRUE);
           INSERT INTO "session" VALUES
             ('active-token', 'user-1', NOW() + INTERVAL '1 hour'),

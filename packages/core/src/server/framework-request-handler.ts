@@ -32,6 +32,7 @@ import {
   installHttpResponseTelemetryHooks,
   recordFrameworkReadyWait,
 } from "./http-response-telemetry.js";
+import { installNetlifyActivityMarkHook } from "./netlify-activity-mark.js";
 import { PublicServerError } from "./public-server-error.js";
 import {
   getRequestContext,
@@ -203,6 +204,7 @@ export function getH3App(nitroApp: any): H3AppShim {
   installHttpResponseTelemetryHooks(nitroApp);
   installDevConnectionCloseHook(nitroApp);
   installDevDatabaseCloseHook(nitroApp);
+  installNetlifyActivityMarkHook(nitroApp);
 
   const cached = nitroApp[APP_SHIM_KEY] as H3AppShim | undefined;
   if (cached) return cached;

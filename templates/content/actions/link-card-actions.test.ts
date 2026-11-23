@@ -21,8 +21,8 @@ vi.mock(
   "@agent-native/core/a2a",
   () => import("../../../packages/core/src/a2a/link-summary.js"),
 );
-vi.mock("../server/lib/peer-apps.js", () => ({
-  peerAppLinkOrigins: (app: string) =>
+vi.mock("../server/lib/app-peer.js", () => ({
+  peerLinkOrigins: (app: string) =>
     ({
       design: [
         "https://design.example.test",

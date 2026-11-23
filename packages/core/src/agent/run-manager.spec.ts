@@ -19,6 +19,10 @@ import {
   withExecutionFence,
 } from "./execution-fence.js";
 import {
+  currentLeaseRenewalDiagnostics,
+  type LeaseRenewalDiagnostics,
+} from "./lease-renewal-diagnostics.js";
+import {
   AgentRunEventNotPersistedError,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
 } from "./run-store.js";
@@ -271,7 +275,10 @@ vi.mock("../observability/tracking-identity.js", () => ({
 }));
 
 import { recordAgentRun } from "../observability/metrics.js";
-import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import {
+  registerErrorCaptureProvider,
+  type CaptureErrorContext,
+} from "../server/capture-error.js";
 import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/registry.js";
 import { EXECUTION_LEASE_LOST_ABORT_REASON } from "./abort-reasons.js";
@@ -676,6 +683,116 @@ describe("run manager soft timeout", () => {
 
     abortRun(run.runId, "user");
     await run.finalized;
+  });
+
+  it("records overdue and settled renewals without holding the heartbeat retry slot", async () => {
+    const renewal = Promise.withResolvers<void>();
+    const bodyDone = Promise.withResolvers<void>();
+    let diagnostics: LeaseRenewalDiagnostics | undefined;
+    vi.mocked(renewTurnExecutionLease).mockReturnValueOnce(renewal.promise);
+    const run = startRun(
+      "run-lease-diagnostics",
+      "thread-lease-diagnostics",
+      async () => {
+        diagnostics = currentLeaseRenewalDiagnostics("run-lease-diagnostics");
+        await bodyDone.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    await vi.advanceTimersByTimeAsync(7_500);
+    const pending = diagnostics?.snapshot();
+    expect(pending?.attempts).toHaveLength(2);
+    expect(pending?.attempts[0]).toMatchObject({
+      outcome: "pending",
+      deadlineReachedAtMs: expect.any(Number),
+    });
+    expect(pending?.attempts[1]).toMatchObject({
+      pendingAtStart: 1,
+      outcome: "renewed",
+    });
+    renewal.reject(
+      Object.assign(new Error("Synthetic renewal failure"), { code: "57014" }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(diagnostics?.snapshot().attempts[0]).toMatchObject({
+      outcome: "error",
+      failureCode: "57014",
+      settledAtMs: expect.any(Number),
+    });
+    bodyDone.resolve();
+    await run.finalized;
+    expect(run.abortReason).toBeUndefined();
+  });
+
+  it("records a lost fence while preserving the existing abort behavior", async () => {
+    let diagnostics: LeaseRenewalDiagnostics | undefined;
+    vi.mocked(renewTurnExecutionLease).mockRejectedValueOnce(
+      new StaleExecutionFenceError({
+        threadId: "thread-lease-diagnostic-loss",
+        turnId: "run-lease-diagnostic-loss",
+        runId: "run-lease-diagnostic-loss",
+        generation: "1",
+      }),
+    );
+    const run = startRun(
+      "run-lease-diagnostic-loss",
+      "thread-lease-diagnostic-loss",
+      async (_send, signal) => {
+        diagnostics = currentLeaseRenewalDiagnostics(
+          "run-lease-diagnostic-loss",
+        );
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    await vi.advanceTimersByTimeAsync(1_500);
+    await run.finalized;
+    expect(diagnostics?.snapshot().attempts).toEqual([
+      expect.objectContaining({
+        outcome: "fence_lost",
+        settledAtMs: expect.any(Number),
+      }),
+    ]);
+    expect(run.abortReason).toBe("execution_lease_lost");
+  });
+
+  it("does not expose parent renewal diagnostics to an unleased nested run", async () => {
+    let parentDiagnostics: LeaseRenewalDiagnostics | undefined;
+    let childDiagnostics: LeaseRenewalDiagnostics | undefined;
+    const parentDone = Promise.withResolvers<void>();
+    const childDone = Promise.withResolvers<void>();
+    const parent = startRun(
+      "run-lease-parent",
+      "thread-lease-parent",
+      async () => {
+        parentDiagnostics = currentLeaseRenewalDiagnostics("run-lease-parent");
+        const child = startRun(
+          "run-unleased-child",
+          "thread-unleased-child",
+          async () => {
+            childDiagnostics =
+              currentLeaseRenewalDiagnostics("run-unleased-child");
+          },
+          undefined,
+          { softTimeoutMs: 0, noProgressTimeoutMs: 0 },
+        );
+        await child.finalized;
+        childDone.resolve();
+        await parentDone.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    await vi.advanceTimersByTimeAsync(1_500);
+    await childDone.promise;
+    expect(childDiagnostics).toBeUndefined();
+    expect(parentDiagnostics?.snapshot().attempts).toHaveLength(1);
+    parentDone.resolve();
+    await parent.finalized;
   });
 
   it("does not start a run when an execution lease returns no fence", async () => {
@@ -4760,6 +4877,195 @@ describe("run manager soft timeout", () => {
     await run.finalized;
 
     expect(writeOrder).toEqual(["thread_data", "status"]);
+  });
+
+  async function runTerminalErrorCase({
+    kind,
+    releaseKind,
+    privateTurn,
+    expected,
+  }: {
+    kind: "stale" | "spoofed";
+    releaseKind: "stale" | "arbitrary" | "spoofed-stale";
+    privateTurn: boolean;
+    expected: string;
+  }) {
+    const sentinel = "private-terminal-sentinel";
+    const fence = {
+      runId: "run-terminal-error-kind",
+      threadId: "thread-terminal-error-kind",
+      turnId: "turn-terminal-error-kind",
+      generation: sentinel,
+    };
+    const error =
+      kind === "stale"
+        ? new StaleExecutionFenceError(fence)
+        : Object.assign(new Error(sentinel), {
+            name: "StaleExecutionFenceError",
+            code: "stale_execution_fence",
+            cause: new StaleExecutionFenceError(fence),
+          });
+    const provider = vi.fn(
+      (_error: unknown, _context: CaptureErrorContext) =>
+        "evt_terminal_error_kind",
+    );
+    const unregister = registerErrorCaptureProvider(
+      "run-terminal-error-kind",
+      provider,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(error);
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(true);
+    const releaseError =
+      releaseKind === "stale"
+        ? new StaleExecutionFenceError(fence)
+        : Object.assign(new Error(sentinel), {
+            code:
+              releaseKind === "spoofed-stale"
+                ? "stale_execution_fence"
+                : sentinel,
+          });
+    vi.mocked(releaseTurnExecutionLease).mockRejectedValueOnce(releaseError);
+
+    try {
+      const run = startRun(
+        fence.runId,
+        fence.threadId,
+        async (send) => {
+          await send({
+            type: "text",
+            text: privateTurn ? sentinel : "answer",
+            ...(privateTurn ? { omitFromPersistedHistory: true } : {}),
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, executionLease: true, turnId: fence.turnId },
+      );
+      await run.finalized;
+
+      const terminalReports = provider.mock.calls.filter(
+        ([, context]) => context.tags?.phase === "terminal-status-persistence",
+      );
+      expect(terminalReports).toHaveLength(1);
+      const [reportedError, context] = terminalReports[0];
+      expect(context.tags).toMatchObject({
+        source: "agent-run-manager",
+        phase: "terminal-status-persistence",
+        errorCode: "run_terminal_status_persistence_failed",
+        terminalErrorKind: expected,
+      });
+      const terminalReportIndex = provider.mock.calls.findIndex(
+        ([, reportContext]) =>
+          reportContext.tags?.phase === "terminal-status-persistence",
+      );
+      const releaseReports = provider.mock.calls.filter(
+        ([, reportContext]) =>
+          reportContext.tags?.phase === "execution-lease-release",
+      );
+      expect(releaseReports).toHaveLength(1);
+      const [reportedReleaseError, releaseContext] = releaseReports[0];
+      expect(releaseContext.tags).toMatchObject({
+        source: "agent-run-manager",
+        phase: "execution-lease-release",
+        errorCode:
+          releaseKind === "stale"
+            ? "stale_execution_fence"
+            : privateTurn
+              ? "execution_lease_release_failed"
+              : sentinel,
+      });
+      const releaseReportIndex = provider.mock.calls.indexOf(releaseReports[0]);
+      expect(releaseReportIndex).toBeGreaterThan(terminalReportIndex);
+      expect(run.status).toBe("completed");
+      expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(fence.runId);
+      return {
+        sentinel,
+        error,
+        releaseError,
+        reportedError,
+        reportedReleaseError,
+        context,
+        releaseContext,
+        consoleCalls: [...consoleError.mock.calls],
+      };
+    } finally {
+      unregister();
+      consoleError.mockRestore();
+    }
+  }
+
+  it.each([
+    { kind: "stale", releaseKind: "stale", expected: "stale_execution_fence" },
+    { kind: "spoofed", releaseKind: "arbitrary", expected: "unclassified" },
+    { kind: "spoofed", releaseKind: "spoofed-stale", expected: "unclassified" },
+  ] as const)(
+    "classifies and redacts the private terminal persistence error ($kind, release: $releaseKind)",
+    async (testCase) => {
+      const {
+        sentinel,
+        reportedError,
+        reportedReleaseError,
+        context,
+        releaseContext,
+        consoleCalls,
+      } = await runTerminalErrorCase({ ...testCase, privateTurn: true });
+
+      expect(reportedError).toBeInstanceOf(Error);
+      expect(reportedError).toMatchObject({
+        name: "Error",
+        message: "Private content omitted",
+      });
+      expect(reportedError).toMatchObject({
+        name: "Error",
+        message: "Private content omitted",
+      });
+      expect(reportedReleaseError).toMatchObject({
+        name: "Error",
+        message: "Private content omitted",
+      });
+      expect(
+        JSON.stringify({
+          error: Object.getOwnPropertyDescriptors(reportedError),
+          context,
+        }),
+      ).not.toContain(sentinel);
+      expect(
+        JSON.stringify({
+          error: Object.getOwnPropertyDescriptors(reportedReleaseError),
+          context: releaseContext,
+        }),
+      ).not.toContain(sentinel);
+      expect(JSON.stringify(consoleCalls)).not.toContain(sentinel);
+      expect(consoleCalls).toContainEqual([
+        "[run-manager] terminal status persistence error:",
+        "Private content omitted",
+      ]);
+    },
+  );
+
+  it("classifies the nonprivate spoofed terminal persistence error", async () => {
+    const {
+      sentinel,
+      error,
+      releaseError,
+      reportedError,
+      reportedReleaseError,
+      consoleCalls,
+    } = await runTerminalErrorCase({
+      kind: "spoofed",
+      releaseKind: "arbitrary",
+      privateTurn: false,
+      expected: "unclassified",
+    });
+
+    expect(reportedError).toBe(error);
+    expect(reportedReleaseError).toBe(releaseError);
+    expect(consoleCalls).toContainEqual([
+      "[run-manager] terminal status persistence error:",
+      sentinel,
+    ]);
   });
 
   it("reconciles from the terminal event when the final status write misses", async () => {
@@ -9223,6 +9529,7 @@ describe("run manager soft timeout", () => {
   it("completes private text and UI tool responses without an unwanted continuation", async () => {
     for (const kind of ["text", "ui"] as const) {
       const runId = `run-private-completion-${kind}`;
+      let completionBoundary: boolean | undefined;
       const run = startRun(
         runId,
         `thread-${runId}`,
@@ -9245,10 +9552,15 @@ describe("run manager soft timeout", () => {
           if (kind === "text")
             await send({ type: "text", text: "private final answer" });
         },
-        undefined,
+        (completionRun) => {
+          completionBoundary =
+            endsAfterToolResultWithoutAssistantFinal(completionRun);
+        },
         { softTimeoutMs: 0 },
       );
       await run.finalized;
+      expect(endsAfterToolResultWithoutAssistantFinal(run)).toBe(false);
+      expect(completionBoundary).toBe(false);
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
       expect(setRunTerminalReason).toHaveBeenCalledWith(runId, "done");
       expect(JSON.stringify(run.events)).not.toContain("private final answer");
@@ -9256,6 +9568,40 @@ describe("run manager soft timeout", () => {
         run.events.some(({ event }) => event.type === "auto_continue"),
       ).toBe(false);
     }
+  });
+
+  it("does not auto-continue a private turn whose reply text was blanked in retained events", async () => {
+    const runId = "run-private-written-final";
+    const run = startRun(
+      runId,
+      `thread-${runId}`,
+      async (send) => {
+        await send({
+          type: "tool_done",
+          id: "call-1",
+          tool: "manage-gmail-draft",
+          input: {},
+          result: "private draft saved",
+          completedSideEffect: true,
+          omitFromPersistedHistory: true,
+        });
+        await send({
+          type: "text",
+          text: "Your draft is saved.",
+          omitFromPersistedHistory: true,
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await run.finalized;
+    expect(run.status).toBe("completed");
+    expect(endsAfterToolResultWithoutAssistantFinal(run)).toBe(false);
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      runId,
+      "truncated",
+      expect.anything(),
+    );
   });
 
   it("auto-continues a private turn that ends after a completed side-effect tool with empty text", async () => {

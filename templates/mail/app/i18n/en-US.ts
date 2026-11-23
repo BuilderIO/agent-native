@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "Note to Self",
     },
     inbox: {
-      atLeastCount: "At least {{count}}",
+      conversationsCount: "Conversations: {{count}}",
+      conversationsAtLeastCount: "Conversations: at least {{count}}",
+      unreadCount: "Unread conversations: {{count}}",
+      draftsToReviewCount: "Drafts to review: {{count}}",
       syncing: "Syncing inbox…",
     },
     sort: {
@@ -148,8 +151,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "Pin sidebar",
-      unpinSidebar: "Unpin sidebar",
       closeSidebar: "Close sidebar",
       settings: "Settings",
       aiSettings: "Manage tags and rules",
@@ -167,7 +168,7 @@ const messages = {
       filtersLimitReached: "You can save up to 20 filters.",
     },
     tabSettings: {
-      splitInbox: "Split inbox",
+      splitInbox: "Split inbox into tabs",
       views: "Views",
       categories: "Categories",
       rename: "Rename",
@@ -175,7 +176,7 @@ const messages = {
       savedFilters: "Saved filters",
       combinedInbox: "Combined inbox",
       allTab: "All tab",
-      help: "Combined inbox shows every account together; turn it off to split mail into tabs.",
+      help: "Shows your chosen views, labels, and saved filters as separate inbox tabs. Turn it off to see all inbox mail in one Inbox tab.",
       aiSetup: "Set up AI tags and rules",
     },
     accounts: {
@@ -210,6 +211,10 @@ const messages = {
       contentPagesRetry: "Try again",
       contentPagesEmpty: "No pages found",
       contentFileMarkdown: "Markdown file",
+      contentFilePdf: "PDF file",
+      contentPageFormat: "Attach pages as",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV file",
       bold: "Bold",
       cancel: "Cancel",
@@ -469,6 +474,12 @@ const messages = {
       uncertainScheduledRetryFailed: "Failed to retry scheduled email.",
       failedToAttachFile: "Failed to attach file",
       failedToAttachContentPage: "Failed to attach Content page",
+      contentPagePdfTextUnsupported:
+        "This page has text a PDF can't show yet, such as Chinese, Japanese, Korean, Arabic, Hebrew or Hindi. Attach it as Markdown instead.",
+      contentPagePdfTooLong:
+        "This page is too long or too wide to attach as a PDF. Attach it as Markdown instead.",
+      contentPagePdfUnavailable:
+        "Content couldn't make a PDF of this page. Attach it as Markdown instead.",
       waitForAttachments: "Wait for attachments to finish, then send.",
       failedToUploadImage: "Failed to upload image",
       storageBuilderRefused:

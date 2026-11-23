@@ -123,6 +123,13 @@ describe("linkCardFromPaste", () => {
       expect(linkCardFromPaste(text, context.appUrls)).toBeNull();
     }
   });
+
+  it("leaves a link to one Design screen to the pinned screen paste", () => {
+    expect(
+      linkCardFromPaste(`${DESIGN}?screen=pay`, context.appUrls),
+    ).toBeNull();
+    expect(linkCardFromPaste(DESIGN, context.appUrls)?.app).toBe("design");
+  });
 });
 
 describe("pasting a Design, Slides or Clips link", () => {

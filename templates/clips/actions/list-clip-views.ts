@@ -21,6 +21,7 @@ export default defineAction({
       .describe("Max rows, most recent first"),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),

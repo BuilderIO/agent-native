@@ -49,13 +49,7 @@ export class OutsideAgentBigQueryRefusalError extends Error {
   readonly budget: BigQueryAgentBudgetSnapshot | null;
   readonly estimateReason: BigQueryEstimateUnavailableReason | null;
 
-  constructor(input: {
-    code: OutsideAgentBigQueryRefusalCode;
-    scope?: "job" | "person" | "org" | null;
-    reservedBytes?: number | null;
-    budget?: BigQueryAgentBudgetSnapshot | null;
-    estimateReason?: BigQueryEstimateUnavailableReason | null;
-  }) {
+  constructor(input: RefusalInput) {
     super(refusalMessage(input));
     this.name = "OutsideAgentBigQueryRefusalError";
     this.code = input.code;
@@ -77,13 +71,25 @@ function untilReset(budget: BigQueryAgentBudgetSnapshot | null | undefined) {
   return budget ? ` It resets at ${budget.resetsAt} (00:00 UTC).` : "";
 }
 
-export function refusalMessage(input: {
+interface RefusalInput {
   code: OutsideAgentBigQueryRefusalCode;
   scope?: "job" | "person" | "org" | null;
   reservedBytes?: number | null;
   budget?: BigQueryAgentBudgetSnapshot | null;
   estimateReason?: BigQueryEstimateUnavailableReason | null;
-}): string {
+  askVia?: string | null;
+}
+
+function approvalRequiredMessage(input: RefusalInput, job: string): string {
+  const { budget } = input;
+  const past = `${job} would take you past your ${formatUsd(budget?.person.baseAllowanceBytes ?? 0)} no-ask BigQuery allowance for today (spent ${formatUsd(budget?.person.settledBytes ?? 0)}, reserved ${formatUsd(budget?.person.reservedBytes ?? 0)}), so it was not started.`;
+  const ceiling = formatUsd(budget?.person.ceilingBytes ?? 0);
+  return input.askVia
+    ? `${past} Calling ${input.askVia} with the same arguments asks you once to allow up to ${ceiling} of BigQuery today, until 00:00 UTC.`
+    : `${past} Allowing up to ${ceiling} today needs your approval on Analytics' review page, which this call can't ask for. Analytics asks once over MCP, when a get-onboarding-journey or get-first-party-analytics-health call needs more, and that approval covers all your outside agents until 00:00 UTC; an Analytics organization admin can also raise your daily allowance. Until then, do not retry this call today.${untilReset(budget)}`;
+}
+
+export function refusalMessage(input: RefusalInput): string {
   const { budget } = input;
   const job =
     input.reservedBytes === null || input.reservedBytes === undefined
@@ -93,7 +99,7 @@ export function refusalMessage(input: {
     case "over_job_cap":
       return `${job} is over the ${formatUsd(OUTSIDE_AGENT_JOB_CAP_BYTES)} (50 GB) per-job limit for outside agents, so it was not started. Narrow the date range or select fewer columns, then ask again.`;
     case "approval_required":
-      return `${job} would take you past your ${formatUsd(budget?.person.baseAllowanceBytes ?? 0)} no-ask BigQuery allowance for today (spent ${formatUsd(budget?.person.settledBytes ?? 0)}, reserved ${formatUsd(budget?.person.reservedBytes ?? 0)}). Approving more from an outside agent is not available yet, so this is a stop for today; an Analytics organization admin can raise your daily allowance. Do not retry this call today.${untilReset(budget)}`;
+      return approvalRequiredMessage(input, job);
     case "budget_exhausted":
       return input.scope === "org"
         ? `${job} would take your organization past its ${formatUsd(budget?.org.limitBytes ?? 0)} daily BigQuery limit for outside agents (spent ${formatUsd(budget?.org.settledBytes ?? 0)}, reserved ${formatUsd(budget?.org.reservedBytes ?? 0)}), so it was not started. An Analytics organization admin can raise the limit. Do not retry this call today.${untilReset(budget)}`
@@ -228,6 +234,7 @@ export function createOutsideAgentBigQueryGate(options: {
   source: string;
   reservation: "full-cap" | "dry-run";
   leaseMs: number;
+  askVia?: string;
   now?: () => Date;
 }): OutsideAgentBigQueryGate {
   const now = options.now ?? (() => new Date());
@@ -341,6 +348,7 @@ export function createOutsideAgentBigQueryGate(options: {
             scope: result.scope,
             reservedBytes: result.reservedBytes,
             budget: result.budget,
+            askVia: options.askVia ?? null,
           }),
         );
       }

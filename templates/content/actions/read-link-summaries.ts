@@ -13,7 +13,7 @@ import {
 } from "@agent-native/core/shared";
 import { z } from "zod";
 
-import { peerAppLinkOrigins } from "../server/lib/peer-apps.js";
+import { peerLinkOrigins } from "../server/lib/app-peer.js";
 
 const MAX_LINKS = 60;
 
@@ -37,7 +37,7 @@ export default defineAction({
   run: async ({ links }) => {
     const reader = getRequestUserEmail() ?? null;
     const appUrls = Object.fromEntries(
-      LINK_SUMMARY_APPS.map((app) => [app, peerAppLinkOrigins(app)]),
+      LINK_SUMMARY_APPS.map((app) => [app, peerLinkOrigins(app)]),
     );
     const byApp = new Map<
       LinkSummaryApp,

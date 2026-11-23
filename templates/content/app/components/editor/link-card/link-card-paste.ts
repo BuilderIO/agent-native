@@ -1,5 +1,6 @@
 import {
   linkSummaryItemFromUrl,
+  parseDesignScreenLink,
   parseLinkSummaryUrl,
   type LinkSummaryApp,
 } from "@agent-native/core/shared";
@@ -14,7 +15,7 @@ import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { yUndoPluginKey } from "@tiptap/y-tiptap";
 
-import { findPastedLink } from "../analytics-chart/analytics-chart-paste";
+import { findPastedLink } from "../source-link-paste";
 import { createContentBlockId } from "../extensions/registryBlocks";
 
 export interface LinkCardPasteContext {
@@ -34,7 +35,15 @@ export function linkCardFromPaste(
   if (!link || /\s/.test(link)) return null;
   const item = linkSummaryItemFromUrl(link, appUrls);
   const url = parseLinkSummaryUrl(link);
-  return item && url ? { app: item.app, url: url.href } : null;
+  if (!item || !url) return null;
+  // A link to one Design screen is DesignScreenPaste's: it pins a picture.
+  if (
+    item.app === "design" &&
+    parseDesignScreenLink(link, appUrls.design ?? [])?.kind === "screen"
+  ) {
+    return null;
+  }
+  return { app: item.app, url: url.href };
 }
 
 function holdsOnlyText(paragraph: ProseMirrorNode, link: string): boolean {

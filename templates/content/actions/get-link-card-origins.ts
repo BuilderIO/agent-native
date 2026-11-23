@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { peerAppLinkOrigins } from "../server/lib/peer-apps.js";
+import { peerLinkOrigins } from "../server/lib/app-peer.js";
 
 export default defineAction({
   description:
@@ -17,8 +17,8 @@ export default defineAction({
   requiresAuth: false,
   agentTool: false,
   run: async () => ({
-    design: peerAppLinkOrigins("design"),
-    slides: peerAppLinkOrigins("slides"),
-    clips: peerAppLinkOrigins("clips"),
+    design: peerLinkOrigins("design"),
+    slides: peerLinkOrigins("slides"),
+    clips: peerLinkOrigins("clips"),
   }),
 });
