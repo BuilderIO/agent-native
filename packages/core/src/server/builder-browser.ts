@@ -3012,7 +3012,9 @@ export async function runBuilderAgent(
       response.status === 404 ||
       /user not found/i.test(builderApiErrorMessage(parsed, "")));
 
+  let attemptedFallback = false;
   if (unknownEmail() && fallbackUserId) {
+    attemptedFallback = true;
     ({ response, parsed } = await postRun({ userId: fallbackUserId }));
   }
 
@@ -3021,7 +3023,7 @@ export async function runBuilderAgent(
       parsed,
       `Builder agent run failed (${response.status})`,
     );
-    if (unknownEmail() && /user not found/i.test(msg)) {
+    if (!attemptedFallback && unknownEmail() && /user not found/i.test(msg)) {
       throw Object.assign(
         new ActionContractError(
           `Builder could not find ${builderUserEmail} as a member of this Builder space (${msg}).`,

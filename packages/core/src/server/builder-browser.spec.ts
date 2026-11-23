@@ -2276,6 +2276,29 @@ describe("Builder callback CSRF state", () => {
       },
     );
 
+    it("does not blame the requester's membership when the fallback user is unknown", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+      const fetchSpy = vi.fn().mockImplementation(async () =>
+        new Response(JSON.stringify({ error: "User not found" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await expect(
+        runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "qa-fleet@builder.io",
+        }),
+      ).rejects.toMatchObject({ message: "User not found", builderStatus: 400 });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
     it("reports a typed membership failure when the email is unknown and no credential user exists", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";
