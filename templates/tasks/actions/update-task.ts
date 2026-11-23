@@ -1,11 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
+import { EXPECTED_REVISION_DESCRIPTION } from "@agent-native/core/save-conflict/server";
 import { z } from "zod";
 
 import {
   fieldValueInputSchema,
   parseJsonArg,
 } from "../server/custom-fields/schema.js";
-import { listTaskFieldValues } from "../server/custom-fields/task-fields.js";
 import type { FieldValueInput } from "../server/custom-fields/values/store.js";
 import { UserInputError } from "../server/errors.js";
 import { updateTask, requireUserEmail } from "../server/tasks/store.js";
@@ -32,11 +32,15 @@ export const updateTaskSchema = z.object({
   fieldValues: fieldValuesSchema
     .optional()
     .describe("Custom field values to set or clear for this task"),
+  expectedRevision: z
+    .string()
+    .optional()
+    .describe(EXPECTED_REVISION_DESCRIPTION),
 });
 
 export default defineAction({
   description:
-    "Update one task's title, completion state, and/or custom fields. Use bulk-update-tasks to apply the same title or completion state to multiple tasks.",
+    "Update one task's title, completion state, and/or custom fields. Send the revision from list-tasks or your last update-task as expectedRevision. Returns the task with all its fields and its new revision. Use bulk-update-tasks to apply the same title or completion state to multiple tasks.",
   schema: updateTaskSchema,
   run: async (args, ctx) => {
     const ownerEmail = requireUserEmail(ctx?.userEmail);
@@ -50,22 +54,13 @@ export default defineAction({
       );
     }
 
-    const task = await updateTask({
+    return updateTask({
       ownerEmail,
       id: args.taskId,
       title: args.title,
       done: args.done,
       fieldValues: args.fieldValues,
+      expectedRevision: args.expectedRevision,
     });
-
-    if (args.fieldValues !== undefined) {
-      const fields = await listTaskFieldValues({
-        ownerEmail,
-        taskId: args.taskId,
-      });
-      return { ...task, fields };
-    }
-
-    return task;
   },
 });

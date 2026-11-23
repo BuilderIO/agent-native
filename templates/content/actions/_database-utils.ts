@@ -21,6 +21,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
   or,
   sql,
 } from "drizzle-orm";
@@ -79,6 +80,7 @@ import {
 } from "./_content-space-access.js";
 import { readOpenCommentSummaries } from "./_database-comment-summary.js";
 import {
+  CLOSED_KEY_OPERATION,
   databaseRowRevision,
   getDatabaseMutationContract,
 } from "./_database-row-mutation.js";
@@ -1638,7 +1640,7 @@ export async function getDatabaseByDocumentId(
   documentId: string,
   options: { includeDeleted?: boolean } = {},
   db = getDb(),
-) {
+): Promise<typeof schema.contentDatabases.$inferSelect | null> {
   const clauses = [eq(schema.contentDatabases.documentId, documentId)];
   if (!options.includeDeleted) {
     clauses.push(isNull(schema.contentDatabases.deletedAt));
@@ -1907,7 +1909,13 @@ export async function deleteDatabaseDataForDocument(
     await db
       .delete(schema.contentDatabaseRowMutationReceipts)
       .where(
-        eq(schema.contentDatabaseRowMutationReceipts.databaseId, database.id),
+        and(
+          eq(schema.contentDatabaseRowMutationReceipts.databaseId, database.id),
+          ne(
+            schema.contentDatabaseRowMutationReceipts.operation,
+            CLOSED_KEY_OPERATION,
+          ),
+        ),
       );
     await db
       .delete(schema.documentPropertyDefinitions)

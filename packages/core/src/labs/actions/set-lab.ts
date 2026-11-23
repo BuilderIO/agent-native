@@ -1,8 +1,13 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
+import { syncLabsAppState } from "../app-state.js";
 import { getLabDefinition } from "../registry.js";
-import { setUserLabStates, type UserLabStateResult } from "../store.js";
+import {
+  getUserLabsShowAll,
+  setUserLabStates,
+  type UserLabStateResult,
+} from "../store.js";
 
 const schema = z.object({
   key: z.string().describe("The registered lab key to change."),
@@ -24,6 +29,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpTool: false,
   run: async (args, ctx) => {
     const email = ctx?.userEmail;
     if (!email) fail("Not authenticated.", { statusCode: 401 });
@@ -33,6 +39,7 @@ export default defineAction({
     const states = await setUserLabStates(email, args.key, args.enabled, {
       orgId: ctx?.orgId,
     });
+    await syncLabsAppState(states, await getUserLabsShowAll(email));
     const state = Object.hasOwn(states, args.key)
       ? states[args.key]
       : undefined;

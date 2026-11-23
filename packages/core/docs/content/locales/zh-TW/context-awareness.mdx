@@ -18,7 +18,7 @@ description: "代理如何知道使用者正在檢視的內容：導覽狀態、
 六種模式解決了這個問題：
 
 1. **導覽狀態**——UI 在每次路由更改時將 `navigation` 金鑰寫入應用程式狀態
-2. **目前 URL** - 框架寫入 `__url__`，因此查詢參數對代理可見且可編輯
+2. **目前 URL** - 框架寫入 `__url__`，使代理能看到頁面路徑以及應用宣告的查詢參數，並可進行編輯
 3. **選取狀態**——當使用者聚焦、選取或多選有意義的內容時，UI 會寫入 `selection` 鍵
 4. **`view-screen`**——讀取應用程式狀態、取得脈絡資料並返回使用者所見內容的快照的操作
 5. **提示切換** -- 當點選應成為代理輪次時，UI 控制項呼叫 `sendToAgentChat()`
@@ -91,7 +91,7 @@ description: "代理如何知道使用者正在檢視的內容：導覽狀態、
 | 層                                       | 所有者            | 用它來                                                       |
 | ---------------------------------------- | ----------------- | ------------------------------------------------------------ |
 | `navigation` 應用狀態金鑰                | UI                | 語義路由狀態：目前檢視、開啟的紀錄、活動分頁、穩定 ID        |
-| `__url__` 應用狀態金鑰                   | 框架 UI           | 目前路徑名、搜尋字串、哈希和解析的 URL 查詢參數              |
+| `__url__` 應用狀態金鑰                   | 框架 UI           | 目前路徑名、哈希和 URL 查詢參數（僅宣告過的鍵顯示值）        |
 | `__set_url__` 應用狀態金鑰               | 代理/框架         | 對 `set-search-params` 和 `set-url-path` 進行一次性 URL 編輯 |
 | `selection` 應用狀態金鑰                 | UI                | 持久的語義選取：行、塊、形狀、資產、訊息                     |
 | `pending-selection-context` 應用狀態金鑰 | UI / `AgentPanel` | 一次性選取的文字附加到下一個聊天回合，通常來自 Cmd+I         |
@@ -146,6 +146,8 @@ searchParams:
 </current-url>
 ```
 
+代理可以看到路徑和雜湊，但只能看到應用所宣告鍵的查詢值：將 `urlQueryKeys` 傳給 `AgentSidebar`（支援精確名稱和 `prefix*` 模式；本例宣告了 `["f_*", "q"]`）。其他鍵保留其名稱，其值顯示為 `<redacted>`。
+
 這是可共用過濾器狀態的規範層。如果使用者可以複製 URL 並返回到相同的過濾清單，則該過濾器屬於查詢字串。代理可以使用內建的 `set-search-params` 工具更改這些過濾器：
 
 ```text
@@ -154,7 +156,7 @@ set-search-params({ "params": { "f_region": "east", "q": null } })
 
 僅將 `navigation` 用於幫助 `view-screen` 取得或匯總正確資料的語義別名。儀表板可能保留 `navigation.dashboardId`，而 `__url__.searchParams` 擁有 `f_region`、`f_dateStart` 和 `q`。
 
-當`view-screen`返回更豐富的快照時，它可以將重要的 URL 過濾器複製到友好的`activeFilters`物件中：
+當`view-screen`返回更豐富的快照時，它可以將重要的 URL 過濾器複製到友好的`activeFilters`物件中。它讀取的是同一份已淨化的`__url__`，因此也需要在`urlQueryKeys`中宣告這些鍵：
 
 ```ts
 const url = (await readAppState("__url__")) as {
@@ -358,6 +360,18 @@ await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
 改變。對於在聊天流式傳輸時可以到達的指令，請提交路由
 使用 `navigate(path, { replace: true, flushSync: true })` 而不是包裝它
 在檢視轉換中，使地址欄和可見頁面保持在一起。
+
+### 代理保留使用者目前的檢視 {#agent-keeps-view}
+
+只有在使用者要求查看某樣東西時，使用者的畫面才會切換。這適用於所有代理：內建聊天、透過 MCP 或 WebMCP 的外部代理，以及透過 A2A 的對等端（`@agent-native/core` 中的 `isAgentCaller(ctx)`）。
+
+- 讀取從不導覽。在代理呼叫期間寫入 `navigate` 的唯讀操作會在應用程式狀態存放層被拒絕。
+- 寫入預設不移動檢視。未帶 `intent: "open"` 就寫入 `navigate` 的代理寫入會被拒絕；呼叫 `@agent-native/core/application-state` 中的 `navigateAfterWrite(navigation, { ctx, intent })` 可在未設定 `intent: "open"` 時平滑略過跳轉，或在專門用來開啟介面的操作上設定 `allowsAgentNavigation: true`。
+- 開啟單一項目需要 `intent: "open"`。`createNavigateAction()` 與應用程式狀態存放層預設會對項目 ID 欄位（`id`、`*Id`）和詳細路徑強制套用此規則，無須每個應用程式另外撰寫程式碼。只有在需要自訂判斷時才將 `isDetailView` 傳入 `createNavigateAction()`。
+
+```ts
+export const navigate = createNavigateAction();
+```
 
 ## useNavigationState 掛鉤 {#use-navigation-state}
 

@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "स्वयं के लिए नोट",
     },
     inbox: {
-      atLeastCount: "कम से कम {{count}}",
+      conversationsCount: "बातचीत: {{count}}",
+      conversationsAtLeastCount: "बातचीत: कम से कम {{count}}",
+      unreadCount: "अपठित बातचीत: {{count}}",
+      draftsToReviewCount: "समीक्षा के लिए ड्राफ़्ट: {{count}}",
       syncing: "इनबॉक्स सिंक हो रहा है…",
     },
     sort: {
@@ -146,8 +149,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "साइडबार पिन करें",
-      unpinSidebar: "साइडबार अनपिन करें",
       closeSidebar: "साइडबार बंद करें",
       settings: "सेटिंग्स",
       aiSettings: "टैग और नियम प्रबंधित करें",
@@ -165,7 +166,7 @@ const messages = {
       filtersLimitReached: "आप अधिकतम 20 फ़िल्टर सहेज सकते हैं।",
     },
     tabSettings: {
-      splitInbox: "स्प्लिट इनबॉक्स",
+      splitInbox: "इनबॉक्स को टैब में बाँटें",
       views: "दृश्य",
       categories: "श्रेणियां",
       rename: "नाम बदलें",
@@ -173,7 +174,7 @@ const messages = {
       savedFilters: "सहेजे गए फ़िल्टर",
       combinedInbox: "संयुक्त इनबॉक्स",
       allTab: "सभी टैब",
-      help: "संयुक्त इनबॉक्स सभी खातों को साथ दिखाता है; इसे बंद करने पर मेल टैब में बँट जाता है।",
+      help: "आपके चुने हुए व्यू, लेबल और सहेजे गए फ़िल्टर को इनबॉक्स के अलग-अलग टैब में दिखाता है। सारा इनबॉक्स मेल एक ही टैब में देखने के लिए इसे बंद करें।",
       aiSetup: "AI टैग और नियम सेट करें",
     },
     accounts: {
@@ -201,6 +202,18 @@ const messages = {
       aiAssistPlaceholder: "e.g. make more formal...",
       apply: "लागू करें",
       attachFile: "फ़ाइल संलग्न करें",
+      attachFromContent: "Content से संलग्न करें",
+      searchContentPages: "Content पेज खोजें",
+      contentPagesLoading: "पेज लोड हो रहे हैं…",
+      contentPagesFailed: "आपके Content पेज लोड नहीं हो सके",
+      contentPagesRetry: "फिर से कोशिश करें",
+      contentPagesEmpty: "कोई पेज नहीं मिला",
+      contentFileMarkdown: "Markdown फ़ाइल",
+      contentFilePdf: "PDF फ़ाइल",
+      contentPageFormat: "पेज इस रूप में अटैच करें",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
+      contentFileCsv: "CSV फ़ाइल",
       bold: "बोल्ड",
       cancel: "रद्द करें",
       closeAllDrafts: "सभी ड्राफ़्ट बंद करें",
@@ -460,6 +473,14 @@ const messages = {
       scheduledCancelled: "शेड्यूल ईमेल रद्द हुआ।",
       scheduledCancelFailed: "शेड्यूल ईमेल रद्द करने में विफल",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToAttachContentPage: "Content पेज संलग्न नहीं हो सका",
+      contentPagePdfTextUnsupported:
+        "इस पेज में ऐसा टेक्स्ट है जिसे PDF अभी नहीं दिखा सकता, जैसे चीनी, जापानी, कोरियाई, अरबी, हिब्रू या हिंदी। इसके बजाय इसे Markdown के रूप में संलग्न करें।",
+      contentPagePdfTooLong:
+        "यह पेज PDF के रूप में संलग्न करने के लिए बहुत लंबा या बहुत चौड़ा है। इसके बजाय इसे Markdown के रूप में संलग्न करें।",
+      contentPagePdfUnavailable:
+        "Content इस पेज का PDF नहीं बना सका। इसके बजाय इसे Markdown के रूप में संलग्न करें।",
+      waitForAttachments: "अटैचमेंट जुड़ने तक प्रतीक्षा करें, फिर भेजें।",
       failedToUploadImage: "छवि अपलोड करने में विफल",
       storageBuilderRefused:
         "Builder.io ने Mail के फ़ाइल स्टोरेज कनेक्शन को अस्वीकार कर दिया, इसलिए फ़ाइल अटैच नहीं हुई। Builder.io फिर से कनेक्ट करें या अपना स्टोरेज इस्तेमाल करें, फिर दोबारा कोशिश करें।",
@@ -798,6 +819,10 @@ const messages = {
     contacts: {
       noContactSelected: "कोई कॉन्टैक्ट चयनित नहीं",
     },
+    readingPane: {
+      empty: "कोई ईमेल चयनित नहीं",
+      resizeList: "ईमेल सूची का आकार बदलें",
+    },
   },
   agent: {
     emptyState: "अपने emails के बारे में कुछ भी पूछें",
@@ -899,6 +924,10 @@ const messages = {
     gmailFilters: "Gmail फ़िल्टर",
     aliases: "Aliases",
     tracking: "Tracking",
+    reading: "पढ़ना",
+    readingPane: "रीडिंग पेन",
+    readingPaneSaveFailed: "रीडिंग पेन सेटिंग सहेजी नहीं जा सकी।",
+    readingPaneLoadFailed: "रीडिंग पेन सेटिंग लोड नहीं की जा सकी।",
     deleteAlias: "उपनाम हटाएँ",
     editAlias: "उपनाम संपादित करें",
   },

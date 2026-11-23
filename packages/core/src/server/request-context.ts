@@ -1,5 +1,6 @@
 import type { AgentActionScope } from "../agent/types.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
+import { registerBackgroundWorkerProbe } from "../provider-api/interactive-scope.js";
 import type { ContextStatus } from "../shared/context-status.js";
 import type { FirstRunBuilderCreditsV2RequestAssignment } from "../shared/first-run-builder-credits-experiment.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -63,9 +64,11 @@ function processEnv(name: string): string | undefined {
 
 /**
  * The tab a request from no browser tab acts on for tab-scoped app state:
- * the tab of this app the user used last, or none used recently.
+ * a tab explicitly requested by `x-agent-native-browser-tab`, the tab of this
+ * app the user used last, or none used recently.
  */
 export type BrowserTabTarget =
+  | { kind: "requested"; tabId: string }
   | { kind: "last-used"; tabId: string; usedAt: number }
   | { kind: "unavailable" };
 
@@ -190,6 +193,8 @@ export interface RequestContext {
    * not satisfy account-backed auth or inherit the ticket owner's privileges.
    */
   authCapability?: string;
+  /** Ticket identity for a signed embed capability; never a user identity. */
+  capabilitySessionId?: string;
   timezone?: string;
   /** Date calculation default, not a detected or persistable user preference. */
   dateTimezoneFallback?: "UTC";
@@ -232,6 +237,12 @@ export interface RequestContext {
   /** True only when this server received the request directly on 127.0.0.1. */
   isDirectLoopbackRequest?: boolean;
   isIntegrationCaller?: boolean;
+  /**
+   * Inbound webhook verification runs as the channel config owner, but a
+   * signing secret must come from the deployment or the owner's workspace,
+   * never from a row the owner can write for themselves alone.
+   */
+  skipUserScopeSecrets?: boolean;
   integration?: {
     taskId: string;
     attempts?: number;
@@ -680,6 +691,13 @@ export function getRequestAuthCapability(): string | undefined {
   return store.authCapability;
 }
 
+export function getRequestCapabilitySessionId(): string | undefined {
+  const store = als.getStore();
+  if (!store) return undefined;
+  if (store.capabilitySessionId) markAuthContextAccess(store);
+  return store.capabilitySessionId;
+}
+
 export function getRequestIsLoopback(): boolean {
   return als.getStore()?.isLoopbackRequest === true;
 }
@@ -753,3 +771,7 @@ export function ensureRequestRunContext(): RequestRunContext | undefined {
   if (!store.run) store.run = {};
   return store.run;
 }
+
+registerBackgroundWorkerProbe(
+  () => getRequestRunContext()?.isBackgroundWorker === true,
+);

@@ -56,8 +56,14 @@ export {
   type ActionMcpAppPermissions,
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
+  REVERSIBLE_WRITE_INLINE_APPROVAL_KEY,
+  createReversibleWriteApprovalPolicy,
+  isReversibleWriteInlineApprovalAction,
+  isReversibleWriteNoApprovalsMode,
+  reversibleWriteNeedsApproval,
+  type ReversibleWriteApprovalPredicate,
 } from "./action.js";
-export { isOutsideAgentCall } from "./action-caller.js";
+export { isAgentCaller, isOutsideAgentCall } from "./action-caller.js";
 export * from "./user-profile/index.js";
 export {
   embedApp,
@@ -270,6 +276,7 @@ export {
   getUserUsageCents,
   calculateCost,
   usageBillingForEngine,
+  deploymentUsageBilling,
   builderCreditsFromCostCents,
   BUILDER_AGENT_CREDIT_MARGIN_MULTIPLIER,
   BUILDER_AGENT_CREDITS_PER_USD,
@@ -454,6 +461,7 @@ export * from "./review/index.js";
 export * from "./org-team/index.js";
 export * from "./navigation/index.js";
 export * from "./command-navigation/index.js";
+export * from "./manifest/index.js";
 export * from "./search/index.js";
 export * from "./embeddings/index.js";
 export {

@@ -38,6 +38,25 @@ describe("get-usage-metrics action", () => {
     vi.clearAllMocks();
   });
 
+  it("leaves credit amounts out where commercial surfaces are hidden", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    try {
+      await getUsageMetrics.run(
+        { sinceDays: 30, scope: "me" },
+        { caller: "frontend", userEmail: "owner@example.com", appId: "plan" },
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(listAppUsageMetricsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ builderCreditsEnabled: false }),
+      expect.anything(),
+    );
+  });
+
   it("covers every app when no app filter is passed", async () => {
     await getUsageMetrics.run(
       { sinceDays: 30, scope: "me" },
@@ -257,4 +276,8 @@ describe("get-usage-metrics action", () => {
     expect(firstSentence).toContain("external customers");
     expect(firstSentence).toContain("describe-workspace-apps");
   });
+});
+
+it("keeps get-usage-metrics in the app, off MCP", () => {
+  expect(getUsageMetrics.mcpTool).toBe(false);
 });

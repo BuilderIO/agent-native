@@ -507,12 +507,39 @@ OpenAI's `text-embedding-3-small`.
   organization. Other owners' pages carry on, since members of one
   organization can use different credentials; owners sharing credentials
   each meet the limit with one refused call.
+  Indexing treats a 401 or 403 as a refusal of the credentials themselves,
+  which each of those pages would meet, so they wait an hour the same way
+  instead of each being retried every few minutes. The pages in the refused
+  call wait two hours with an attempt counted, so they are then retried one
+  at a time, after the others: if a refusal were about one page's content,
+  the others would still be indexed, and that page retried every two hours.
+  With a `documentBudget`, the hour holds indexing with those credentials on
+  every server, so each retry of such a page would also hold the others back
+  for an hour.
   Pages embedded before time runs out are completed; changes left stay
   claimed until their lease expires, so an outage can't hold claims past
   their lease. An app adds the consumer with
   `semanticSearchMigration()`, which asks for a backfill: the next drain
   queues every page, so boot doesn't wait on a write for each one. Adding
   another later embeds every page again.
+- **Room for searches.** A family can set `documentBudget`: how many indexing
+  calls its credentials may make in a window, and the account the provider
+  counts them against. Builder's family allows two calls a minute per key,
+  out of the three a minute its gateway allowed a free space, keyed by a hash
+  of the key rather than the key. Every drain on every server takes each call
+  from that budget, through the shared provider budgets in
+  `provider-api/provider-budget.ts`, so indexing stays below the provider's
+  rate limit and searches have room. That's headroom, not a promise: the
+  budget counts fixed windows, and the provider's own limit and window aren't
+  known. When the budget is spent, the pages left wait for the next window
+  with no attempt counted, and a drain out of time takes no call from it. A
+  429 for indexing holds back indexing with those credentials on every server
+  for its wait, instead of each drain meeting it. A search refused for its
+  rate limit answers by words and holds back indexing for at least two
+  minutes, so the next searches get the provider. Searches never wait on the
+  budget themselves. If the budget can't be read, indexing goes on without
+  it. The budget's capacity and window are part of its key, so a release that
+  changes them starts counting afresh.
 - **Chunks.** About 1,200 characters each, cut at sentence ends and led by the
   title and summary (cut to 400 characters), with at most 12 per page. A page
   scores as its best chunk. A resource whose `load` returns `semantic: false`,
@@ -538,10 +565,19 @@ OpenAI's `text-embedding-3-small`.
   page meanwhile, it records nothing and removes what it stored. Vectors live
   in a
   `SearchVectorStore`, by default pgvector's per-dimension tables under the
-  `search` namespace. When the database offers `vector` but hasn't installed
-  it, the store creates the extension. A database without `vector`, or one
-  that refuses to install it, is checked again every 10 minutes; a check that
-  fails isn't remembered, so the next drain or search checks again.
+  `search` namespace. A hosted request function refuses every schema
+  statement, so an app lists `semanticVectorStoreMigration` after
+  `semanticSearchMigration`: at release it installs `vector` and makes the
+  table for the built-in families' 1,024 dimensions, and a database without
+  `vector` defers it to a later release. A server that migrates as it boots
+  also defers it when its database role may not install `vector` or make the
+  table, where a release fails instead. A request only checks that table and
+  its indexes exist before writing. Elsewhere, such as local development, when
+  the database offers `vector` but hasn't installed it, the store creates the
+  extension, and the first write makes its table. A database without
+  `vector`, or one that refuses to install it, is checked again every 10
+  minutes; a check that fails isn't remembered, so the next drain or search
+  checks again.
 - **Provider.** Pages embed with the organization's embedding family, Builder's
   gateway by default. A page with no organization, such as one in a personal
   space, embeds as its owner, whose credentials resolve to their active
@@ -696,7 +732,8 @@ back a `CommandSearchProvider` when the shared command menu lands.
   so the meaning lane reports `unavailable` (`no-vector-store`) and search
   matches words. Tests plug in core's in-memory vector store from
   `@agent-native/core/testing`.
-- **Neon:** the meaning lane creates `vector` on first use; `pg_trgm` is
+- **Neon:** the release installs `vector` and makes the meaning lane's table
+  (`semanticVectorStoreMigration`); `pg_trgm` is
   created at release when that lane lands. Each search reads the index state and pending changes in its own
   round trip. That's short when the app runs in the database's region; from a
   distant client it was the whole latency difference from the previous

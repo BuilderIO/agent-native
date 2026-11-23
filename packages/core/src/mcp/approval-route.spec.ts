@@ -22,6 +22,7 @@ import { hasRecurringSweepHandler } from "../jobs/sweep-hooks.js";
 import {
   handleMcpApprovalRequest,
   MCP_APPROVAL_PRUNE_SWEEP_ID,
+  mcpApprovalReviewUrl,
   mountMcpApprovalRoute,
 } from "./approval-route.js";
 import {
@@ -189,6 +190,7 @@ async function createdGrant(
     argumentsJson: storedApprovalArguments(args),
     oauthClientId: "client-1",
     retrySafe: false,
+    createdAt: Date.now(),
     ...overrides,
   };
   await createMcpApprovalGrant(grant);
@@ -1040,6 +1042,44 @@ describe("a grant that can no longer be decided", () => {
   });
 });
 
+describe("the action's notice", () => {
+  const notice =
+    "Allow up to $5.00 of <b>BigQuery</b> today?\nThe approval expires at 00:00 UTC.";
+
+  it("is stated, escaped, above the call while it can be approved or used", async () => {
+    const grant = await createdGrant({ approvalNotice: notice });
+
+    expect((await getJson(grant.nonce)).body.notice).toBe(notice);
+    const pending = (await getHtml(grant.nonce)).body;
+    expect(pending).toContain(
+      '<h1>Create event</h1><p class="notice">Allow up to $5.00 of &lt;b&gt;BigQuery&lt;/b&gt; today?\nThe approval expires at 00:00 UTC.</p>',
+    );
+
+    const csrfToken = await pageToken(grant.nonce);
+    expect(
+      (await post(grant.nonce, { decision: "approve", csrfToken })).status,
+    ).toBe(200);
+    expect((await getJson(grant.nonce)).body).toMatchObject({
+      state: "approved",
+      notice,
+    });
+  });
+
+  it("is gone once the grant is used, since its figures are stale", async () => {
+    const grant = await createdGrant({ approvalNotice: notice });
+    await consumeMcpApprovalGrant(grant);
+
+    expect((await getJson(grant.nonce)).body).not.toHaveProperty("notice");
+    expect((await getHtml(grant.nonce)).body).not.toContain('class="notice"');
+  });
+
+  it("is absent for an action that gives none", async () => {
+    const grant = await createdGrant();
+    expect((await getJson(grant.nonce)).body).not.toHaveProperty("notice");
+    expect((await getHtml(grant.nonce)).body).not.toContain('class="notice"');
+  });
+});
+
 describe("mounting", () => {
   it.each([
     ["canonical", "", 200],
@@ -1114,5 +1154,14 @@ describe("mounting", () => {
     vi.setSystemTime(grant.expiresAt + 1);
     await prune(new AbortController().signal);
     expect((await storedRow(grant.nonce)).call_arguments).toBeNull();
+  });
+});
+
+describe("the review link's origin", () => {
+  it("stays relative when the minted origin is not a declared link origin", () => {
+    const url = mcpApprovalReviewUrl("nonce-1", {
+      approvalOrigin: "https://attacker.example",
+    });
+    expect(url.startsWith("https://attacker.example")).toBe(false);
   });
 });

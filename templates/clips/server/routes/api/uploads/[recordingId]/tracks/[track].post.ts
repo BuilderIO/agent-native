@@ -55,6 +55,7 @@ import {
   listRecordingTracks,
   listTrackSessions,
   richBytesLimit,
+  trackBytesLimit,
   trackSessionGeneration,
   trackStorageFilename,
 } from "../../../../../lib/recording-tracks.js";
@@ -66,6 +67,7 @@ import type { StoredResumableSession } from "../../../../../lib/resumable-sessio
 import { abortResumableUploadSession } from "../../../../../lib/resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "../../../../../lib/resumable-upload-provider.js";
 import { resolveClipsVideoStorage } from "../../../../../lib/video-storage.js";
+import { completeTrackUpload } from "./finalize.post.js";
 
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 
@@ -81,6 +83,10 @@ function boundedQueryString(value: unknown): string | null {
 
 function tracksStoppedReason(maxBytes: number): string {
   return `This recording's separate tracks reached their ${formatUploadBytes(maxBytes, "down")} limit, so Clips stopped keeping them. The recording itself goes on.`;
+}
+
+function trackStoppedReason(track: string, maxBytes: number): string {
+  return `This recording's ${track} track reached its ${formatUploadBytes(maxBytes, "down")} limit, so Clips stopped keeping the separate tracks. The recording itself goes on.`;
 }
 
 export async function handleTrackChunk(event: H3Event) {
@@ -99,6 +105,7 @@ export async function handleTrackChunk(event: H3Event) {
   if (!Number.isInteger(index) || index < 0 || index > 999_999) {
     throw createError({ statusCode: 400, message: "Invalid chunk index" });
   }
+  const isFinal = query.isFinal === "1" || query.isFinal === "true";
   const contentType = normalizeRichTrackContentType(track, query.contentType);
   if (!contentType) {
     throw createError({
@@ -292,6 +299,18 @@ export async function handleTrackChunk(event: H3Event) {
           maxBytes,
         };
       }
+      const trackMaxBytes = trackBytesLimit(existing.storageMode);
+      const trackStored = session?.bytesUploaded ?? 0;
+      if (trackStored + bytes.byteLength > trackMaxBytes) {
+        setResponseStatus(event, 413);
+        return {
+          ok: false,
+          error: trackStoppedReason(track, trackMaxBytes),
+          tracksStopped: true,
+          bytesReceived: trackStored,
+          maxBytes: trackMaxBytes,
+        };
+      }
 
       if (!session) {
         if (
@@ -348,7 +367,7 @@ export async function handleTrackChunk(event: H3Event) {
           started = await provider.resumable.startSession(
             trackStorageFilename(recordingId, track),
             contentType,
-            maxBytes,
+            trackMaxBytes,
           );
         } catch (err) {
           console.warn(
@@ -438,7 +457,8 @@ export async function handleTrackChunk(event: H3Event) {
       }
 
       const start = session.bytesUploaded;
-      const contentRange = `bytes ${start}-${start + bytes.byteLength - 1}/*`;
+      const end = start + bytes.byteLength;
+      const contentRange = `bytes ${start}-${end - 1}/${isFinal ? end : "*"}`;
       let relayed;
       try {
         relayed = await provider.resumable.relayChunk(
@@ -459,7 +479,7 @@ export async function handleTrackChunk(event: H3Event) {
           retryable: true,
         };
       }
-      if (!relayed.ok) {
+      if (!relayed.ok || (isFinal && relayed.status === 308)) {
         const restartRequired =
           relayed.status === 404 || relayed.status === 410;
         setResponseStatus(event, restartRequired ? 409 : 502);
@@ -475,8 +495,9 @@ export async function handleTrackChunk(event: H3Event) {
         ...(relayed.updatedMeta
           ? { meta: { ...session.meta, ...relayed.updatedMeta } }
           : {}),
-        bytesUploaded: start + bytes.byteLength,
+        bytesUploaded: end,
         lastCommittedIndex: index,
+        ...(isFinal ? { providerClosed: true } : {}),
       };
       if (
         !(await compareAndSetTrackSession(recordingId, track, session, next))
@@ -506,7 +527,20 @@ export async function handleTrackChunk(event: H3Event) {
             (row) => row.track === track,
           )
         ) {
-          await abortResumableUploadSession(session, { provider, label });
+          if (!isFinal) {
+            await abortResumableUploadSession(session, { provider, label });
+          } else if (
+            !(await discardTrackUpload({
+              recordingId,
+              ownerEmail,
+              storageMode: existing.storageMode,
+              session: next,
+            }))
+          ) {
+            console.warn(
+              `[${label}] upload ${session.sessionId} was closed after its track was dropped and is still stored`,
+            );
+          }
         }
         setResponseStatus(event, 409);
         return {
@@ -515,6 +549,26 @@ export async function handleTrackChunk(event: H3Event) {
             "This track's upload changed while the chunk was stored, so Clips stopped keeping it. The recording itself goes on.",
           tracksStopped: true,
         };
+      }
+      if (isFinal) {
+        try {
+          const completed = await completeTrackUpload({
+            recordingId,
+            ownerEmail,
+            track,
+            session: next,
+          });
+          if (!completed.ok) {
+            console.warn(
+              `[track-chunk] ${track} track of ${recordingId} was closed but not completed`,
+            );
+          }
+        } catch (err) {
+          console.warn(
+            `[track-chunk] ${track} track of ${recordingId} was closed but not completed:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
       }
       return { ok: true, track, index, bytesUploaded: next.bytesUploaded };
     },

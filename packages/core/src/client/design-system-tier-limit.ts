@@ -1,3 +1,4 @@
+import { ActionError } from "./action-error.js";
 import { actionErrorMessage } from "./use-action.js";
 
 export const DESIGN_SYSTEM_TIER_LIMIT_ERROR_CODE =
@@ -38,7 +39,9 @@ export function readDesignSystemTierLimitFailure(
   return {
     message:
       actionErrorMessage(error) ??
-      (error instanceof Error ? error.message : undefined) ??
+      (error instanceof Error && !(error instanceof ActionError)
+        ? error.message
+        : undefined) ??
       fallbackMessage,
     plan: text(details.plan),
     current: num(details.current),

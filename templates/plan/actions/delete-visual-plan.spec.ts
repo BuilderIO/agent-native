@@ -51,6 +51,20 @@ let dbDir: string;
 let previousDatabaseUrl: string | undefined;
 let previousPlanDatabaseUrl: string | undefined;
 
+const mirrorMock = vi.hoisted(() => ({
+  comments: vi.fn(async (..._args: unknown[]) => undefined),
+  deleted: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+
+vi.mock("@agent-native/core/review", () => ({
+  ensureReviewTables: vi.fn(async () => undefined),
+}));
+
+vi.mock("../server/lib/plan-comment-mirror.js", () => ({
+  mirrorPlanComments: mirrorMock.comments,
+  deleteMirroredPlanComments: mirrorMock.deleted,
+}));
+
 vi.mock("@agent-native/core/collab", () => ({
   deleteCollabState: async (docId: string) => {
     await client?.query(
@@ -63,6 +77,14 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("../server/db/index.js", () => ({
   getDb: () => db,
   schema: planSchema,
+}));
+
+const deletePrivateMedia = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("@agent-native/core/private-media", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/private-media")
+  >()),
+  deletePrivateMedia,
 }));
 
 type AnyAction = { run: (args: any) => Promise<any> };
@@ -383,6 +405,7 @@ describe("delete-visual-plan", () => {
     });
     expect(await countRows("plans", "id")).toBe(0);
     expect(await countRows("plan_comments")).toBe(0);
+    expect(mirrorMock.deleted).toHaveBeenCalledWith(PLAN_ID, "all", OWNER);
     expect(await countRows("plan_sections")).toBe(0);
     expect(await countRows("plan_events")).toBe(0);
     expect(await countRows("plan_reports")).toBe(0);
@@ -395,6 +418,27 @@ describe("delete-visual-plan", () => {
       args: [`plan:${PLAN_ID}`, `plan:${PLAN_ID}:%`],
     });
     expect(collabRows.rows).toHaveLength(0);
+  });
+
+  it("removes the private bytes behind the plan's images", async () => {
+    await seedPlan();
+    await db
+      .update(planSchema.planAssets)
+      .set({ data: "private:33333333-3333-4333-8333-333333333333" });
+    deletePrivateMedia.mockClear();
+
+    await asUser(OWNER, () =>
+      deleteVisualPlan.run({
+        planId: PLAN_ID,
+        mode: "hard",
+        confirmation: `DELETE ${PLAN_ID}`,
+      }),
+    );
+
+    expect(deletePrivateMedia).toHaveBeenCalledWith(
+      "33333333-3333-4333-8333-333333333333",
+    );
+    expect(await countRows("plan_assets")).toBe(0);
   });
 
   it("rejects non-owners", async () => {

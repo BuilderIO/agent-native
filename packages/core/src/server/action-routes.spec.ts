@@ -1388,12 +1388,16 @@ describe("mountActionRoutes", () => {
     [
       Object.assign(new Error("Forbidden"), { statusCode: 403 }),
       403,
-      "Forbidden",
+      { error: "Forbidden", errorCode: "action_http_403" },
     ],
-    [new McpOAuthRefreshUnavailableError(), 503, "Internal server error"],
+    [
+      new McpOAuthRefreshUnavailableError(),
+      503,
+      { error: "Internal server error", errorCode: "action_execution_failed" },
+    ],
   ])(
     "uses action error statusCode for HTTP responses",
-    async (err, status, message) => {
+    async (err, status, expected) => {
       mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
       const { mountActionRoutes } = await import("./action-routes.js");
       const mounted: Array<{ path: string; handler: any }> = [];
@@ -1417,7 +1421,7 @@ describe("mountActionRoutes", () => {
       const event = { _method: "POST", req: { json: async () => ({}) } };
       const result = await mounted[0].handler(event);
 
-      expect(result).toEqual({ error: message });
+      expect(result).toEqual(expected);
       expect(event._status).toBe(status);
     },
   );
@@ -1879,7 +1883,10 @@ describe("mountActionRoutes", () => {
     const result = await mounted[0].handler(event);
 
     expect(event._status).toBe(500);
-    expect(result).toEqual({ error: "Internal server error" });
+    expect(result).toEqual({
+      error: "Internal server error",
+      errorCode: "action_execution_failed",
+    });
     expect(JSON.stringify(consoleError.mock.calls)).not.toContain(privateValue);
     expect(JSON.stringify(consoleError.mock.calls)).toContain(
       "params: <redacted>",
@@ -2026,7 +2033,10 @@ describe("mountActionRoutes", () => {
       };
       const result = await mounted[0].handler(event);
 
-      expect(result).toEqual({ error: "Internal server error" });
+      expect(result).toEqual({
+        error: "Internal server error",
+        errorCode: "action_execution_failed",
+      });
       expect(event._status).toBe(500);
       expect(provider).toHaveBeenCalledWith(error, {
         route: "/_agent-native/actions/resolve-notion-sync-conflict",
@@ -2382,8 +2392,11 @@ describe("mountActionRoutes", () => {
     "binds a public Design read to $requestedId with browser identity $browserUser",
     async ({ requestedId, browserUser }) => {
       const { mountActionRoutes } = await import("./action-routes.js");
-      const { getRequestAuthCapability, getRequestUserEmail } =
-        await import("./request-context.js");
+      const {
+        getRequestAuthCapability,
+        getRequestCapabilitySessionId,
+        getRequestUserEmail,
+      } = await import("./request-context.js");
       const mounted: Array<{ path: string; handler: any }> = [];
       const nitroApp = {
         use: vi.fn((path: string, handler: any) =>
@@ -2395,6 +2408,7 @@ describe("mountActionRoutes", () => {
         token: "signed-capability",
         targetPath: "/visual-edit/design_1",
         scope: "capability:visual-edit:design:design_1",
+        sessionId: "a".repeat(64),
       });
       const unauthenticated = Object.assign(new Error("Unauthenticated"), {
         statusCode: 401,
@@ -2403,6 +2417,7 @@ describe("mountActionRoutes", () => {
         ctxUserEmail: ctx?.userEmail,
         requestUserEmail: getRequestUserEmail(),
         authCapability: getRequestAuthCapability(),
+        capabilitySessionId: getRequestCapabilitySessionId(),
       }));
 
       mountActionRoutes(
@@ -2439,6 +2454,7 @@ describe("mountActionRoutes", () => {
         ctxUserEmail: browserUser,
         requestUserEmail: browserUser,
         authCapability: "capability:visual-edit:design:design_1",
+        capabilitySessionId: "a".repeat(64),
       });
     },
   );
@@ -3534,7 +3550,7 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("uses the canonical fallback app ID and marks ticketed safe reads", async () => {
+  it("publishes change markers for ticketed widget actions classified as writes", async () => {
     const { createMcpDirectoryWidgetReadCapability } =
       await import("../shared/embed-auth.js");
     const { mountActionRoutes } = await import("./action-routes.js");
@@ -3603,7 +3619,10 @@ describe("mountActionRoutes", () => {
       mcpDirectoryWidgetResourceIds: { deckId: "deck-1" },
     });
     expect(run).toHaveBeenCalledOnce();
-    expect(mockNotifyActionChange).not.toHaveBeenCalled();
+    expect(mockNotifyActionChange).toHaveBeenCalledWith({
+      actionName: "get-deck",
+      owner: "ticket-owner@example.com",
+    });
   });
 
   it("carries only the ticketed widget write actions into scoped read context", async () => {
@@ -6026,6 +6045,7 @@ describe("mountActionRoutes", () => {
       });
       expect(result).toMatchObject({
         error: expect.stringMatching(/^Invalid action parameters/),
+        errorCode: "action_invalid_parameters",
       });
       expect(recordActionAudit).toHaveBeenCalledTimes(1);
       expect(recordActionAudit.mock.calls[0]![0]).toMatchObject({
@@ -7823,7 +7843,10 @@ describe("action boundary error classification", () => {
     try {
       const { status, result, captured } = await invoke(error, true);
       expect(status).toBe(500);
-      expect(result).toEqual({ error: "Internal server error" });
+      expect(result).toEqual({
+        error: "Internal server error",
+        errorCode: "action_execution_failed",
+      });
       expect(captured).toHaveBeenCalledOnce();
       const [reported, context] = captured.mock.calls[0] as unknown as [
         Error,
@@ -7922,7 +7945,10 @@ describe("action boundary error classification", () => {
     const { status, result, captured } = await invoke(error);
 
     expect(status).toBe(500);
-    expect(result).toEqual({ error: "Internal server error" });
+    expect(result).toEqual({
+      error: "Internal server error",
+      errorCode: "action_execution_failed",
+    });
     expect(captured).toHaveBeenCalledWith(error, expect.anything());
   });
 
@@ -7933,7 +7959,10 @@ describe("action boundary error classification", () => {
     const { status, result, captured } = await invoke(error);
 
     expect(status).toBe(500);
-    expect(result).toEqual({ error: "Internal server error" });
+    expect(result).toEqual({
+      error: "Internal server error",
+      errorCode: "action_execution_failed",
+    });
     expect(captured).toHaveBeenCalledTimes(1);
   });
 
@@ -8005,7 +8034,10 @@ describe("action boundary error classification", () => {
     const { status, result, captured } = await invoke(error);
 
     expect(status).toBe(500);
-    expect(result).toEqual({ error: "Internal server error" });
+    expect(result).toEqual({
+      error: "Internal server error",
+      errorCode: "action_execution_failed",
+    });
     expect(captured).toHaveBeenCalledTimes(1);
   });
 
@@ -8015,7 +8047,10 @@ describe("action boundary error classification", () => {
     try {
       const { status, result, captured } = await invoke(error);
       expect(status).toBe(500);
-      expect(result).toEqual({ error: "Internal server error" });
+      expect(result).toEqual({
+        error: "Internal server error",
+        errorCode: "action_execution_failed",
+      });
       expect(captured).toHaveBeenCalledWith(error, expect.anything());
       expect(JSON.stringify(logged.mock.calls)).toContain(error.message);
     } finally {
@@ -8033,7 +8068,10 @@ describe("action boundary error classification", () => {
       const { status, result, captured } = await invoke(error);
 
       expect(status, message).toBe(500);
-      expect(result).toEqual({ error: "Internal server error" });
+      expect(result).toEqual({
+        error: "Internal server error",
+        errorCode: "action_execution_failed",
+      });
       expect(captured).toHaveBeenCalledWith(error, expect.anything());
     }
   });
@@ -8131,6 +8169,7 @@ describe("action boundary error classification", () => {
 
       await expect(mounted[0](event)).resolves.toEqual({
         error: "Internal server error",
+        errorCode: "action_execution_failed",
       });
       expect(event._status).toBe(500);
       expect(mockNotifyActionChange).toHaveBeenCalledTimes(readOnly ? 0 : 1);
@@ -8843,6 +8882,84 @@ describe("mountWebMcpActionRoutes", () => {
         ).rejects.toMatchObject({ statusCode: 401 });
     },
   );
+
+  it("registers a signed-out board's write tools for its own design only", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "workspace+abc@local.visual-edit.agent-native.invalid",
+      token: "signed-capability",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const createFile = vi.fn(async () => ({ id: "file_1" }));
+    const shareResource = vi.fn();
+    const unauthenticated = Object.assign(new Error("Unauthorized"), {
+      statusCode: 401,
+    });
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "create-file": {
+          tool: { description: "Create file", parameters: {} },
+          run: createFile,
+          capabilityScopes: ["visual-edit"],
+        } as any,
+        "share-resource": {
+          tool: { description: "Share", parameters: {} },
+          run: shareResource,
+          capabilityScopes: ["visual-edit"],
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const manifest = await manifestRoute?.handler({
+      _method: "GET",
+      _headers: {},
+    });
+    expect(manifest.map((tool: { name: string }) => tool.name)).toEqual([
+      "create-file",
+    ]);
+
+    const call = (name: string, body: Record<string, unknown>) =>
+      mounted
+        .find(({ path }) => path === `/_agent-native/webmcp/actions/${name}`)
+        ?.handler({
+          _method: "POST",
+          _headers: {},
+          req: { json: async () => body },
+        });
+    // The route refuses either by throwing a 401 or with an error body.
+    const refusal = (outcome: Promise<unknown> | undefined) =>
+      Promise.resolve(outcome).then(
+        (body) => (body as { error?: string } | undefined)?.error,
+        (error: { statusCode?: number }) =>
+          error.statusCode === 401 ? "Unauthorized" : error,
+      );
+    await expect(
+      refusal(
+        call("create-file", { designId: "design_2", filename: "a.html" }),
+      ),
+    ).resolves.toBe("Unauthorized");
+    await expect(
+      refusal(call("share-resource", { designId: "design_1" })),
+    ).resolves.toBe("Unauthorized");
+    expect(createFile).not.toHaveBeenCalled();
+    expect(shareResource).not.toHaveBeenCalled();
+  });
 
   it.each(["read", "write"] as const)(
     "keeps a %s card manifest limited to its explicit read grants",

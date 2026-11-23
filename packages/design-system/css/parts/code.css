@@ -1,0 +1,134 @@
+/*
+ * Part: code
+ *
+ *   <code class="code" data-variant="solid|soft|outline|ghost"
+ *         [data-weight="light|regular|medium|semibold|bold"]
+ *         [data-truncate] [data-wrap="wrap|nowrap|pretty|balance"]
+ *         [data-color="accent|gray|danger|warning|success|info"]
+ *         [data-high-contrast]>
+ *
+ * Radix Themes' code: inline code in the mono family, sized in em so it
+ * follows the text around it, or a step of the type scale when `size` is
+ * set. Variants fill as Badge's do. Ghost drops the padding and the fill,
+ * and keeps the surrounding text's color unless a color is set. Inside a
+ * link, or rendered as one, it takes a hover fill. The weight,
+ * truncation and wrapping are in text.css.
+ */
+
+@layer components {
+  .code {
+    /* Radix's mono adjustments: filled variants sit a step smaller than ghost. */
+    --_code-scale: 0.9025;
+    box-sizing: border-box;
+    /* Holds its own height in a flex or grid row instead of stretching. */
+    height: fit-content;
+    padding: 0.1em 0.25em;
+    border-radius: calc((0.5px + 0.2em) * var(--radius-factor));
+    corner-shape: var(--corner-shape, round);
+    font-family: var(--font-family-mono);
+    font-size: calc(var(--_code-scale) * 1em);
+    font-style: normal;
+    line-height: 1.25;
+    letter-spacing: -0.007em;
+  }
+
+  .code .code {
+    font-size: inherit;
+  }
+
+  /* ---- sizes ---- */
+
+  /* ---- variants ---- */
+
+  .code[data-variant="solid"] {
+    background-color: var(--accent-solid);
+    color: var(--accent-contrast);
+  }
+
+  .code[data-variant="solid"]::selection {
+    background-color: var(--accent-7);
+    color: var(--accent-12);
+  }
+
+  .code[data-variant="solid"][data-high-contrast] {
+    background-color: var(--accent-12);
+    color: var(--accent-1);
+  }
+
+  .code[data-variant="solid"][data-high-contrast]::selection {
+    background-color: var(--accent-solid);
+    color: var(--accent-contrast);
+  }
+
+  .code[data-variant="soft"] {
+    background-color: var(--accent-a3);
+    color: var(--accent-text);
+  }
+
+  .code[data-variant="outline"] {
+    box-shadow: inset 0 0 0 max(1px, 0.033em) var(--accent-a8);
+    color: var(--accent-text);
+  }
+
+  .code[data-variant="outline"][data-high-contrast] {
+    box-shadow:
+      inset 0 0 0 max(1px, 0.033em) var(--accent-a7),
+      inset 0 0 0 max(1px, 0.033em) var(--gray-a11);
+  }
+
+  .code[data-variant="ghost"] {
+    --_code-scale: 0.95;
+    padding: 0;
+  }
+
+  .code[data-variant="ghost"][data-color] {
+    color: var(--accent-text);
+  }
+
+  .code:is([data-variant="soft"], [data-variant="outline"])[data-high-contrast],
+  .code[data-variant="ghost"][data-color][data-high-contrast],
+  [data-color] .code[data-variant="ghost"][data-high-contrast] {
+    color: var(--accent-12);
+  }
+
+  /* ---- in a link ---- */
+
+  @media (hover: hover) {
+    :is(.link .code, .code:is(:any-link, button))[data-variant="solid"]:hover {
+      background-color: var(--accent-solid-hover);
+    }
+
+    :is(
+        .link .code,
+        .code:is(:any-link, button)
+      )[data-variant="solid"][data-high-contrast]:hover {
+      background-color: var(--accent-12);
+      filter: contrast(0.88) saturate(1.1) brightness(1.1);
+    }
+
+    :is(.link .code, .code:is(:any-link, button))[data-variant="soft"]:hover {
+      background-color: var(--accent-a4);
+    }
+
+    :is(
+        .link .code,
+        .code:is(:any-link, button)
+      )[data-variant="outline"]:hover {
+      background-color: var(--accent-a2);
+    }
+  }
+
+  :is(.link .code, .code:is(:any-link, button)) {
+    /* Its own stacking context at rest, so the hover filter doesn't open one. */
+    isolation: isolate;
+  }
+
+  .code:is(:any-link, button) {
+    cursor: pointer;
+  }
+
+  .code:is(:any-link, button):focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+}

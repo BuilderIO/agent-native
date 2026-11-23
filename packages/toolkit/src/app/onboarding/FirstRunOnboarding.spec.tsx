@@ -3256,10 +3256,27 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
+    it("never offers free credits where commercial surfaces are hidden", () => {
+      vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+        billing: { commercialSurfaces: "hide" },
+      });
+      try {
+        mocks.useBuilderConnectFlow.mockReturnValue(flow());
+        openChoice();
+        expect(q("first-run-credits-offer")).toBeNull();
+        expect(q("first-run-builder-free-credits")).toBeNull();
+        expect(q("first-run-builder-create-account")).not.toBeNull();
+        expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it("keeps already-connected users out of the experiment and on the existing page", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow({ configured: true }));
       openChoice();
       expect(q("first-run-credits-offer")).toBeNull();
+      expect(q("first-run-builder-free-credits")).not.toBeNull();
       expect(q("first-run-builder-create-account")).not.toBeNull();
       expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
     });
@@ -3904,6 +3921,63 @@ describe("FirstRunOnboarding", () => {
         "onboarding_step_skipped",
         expect.objectContaining({ flow: "first_run", step_id: "choice" }),
       );
+    });
+
+    it("guides users with an existing Builder account straight to sign-in instead of offering create-account or free credits", async () => {
+      const start = vi.fn();
+      mocks.creditsV2ConfigState = { status: "ready", enabled: true };
+      mocks.useOnboarding.mockReturnValue({
+        ...mocks.useOnboarding(),
+        profile: { ...mocks.useOnboarding().profile, appId: "clips" },
+      });
+      mocks.useBuilderConnectFlow.mockReturnValue({
+        hasFetchedStatus: true,
+        statusResolved: true,
+        configured: false,
+        agentNativeProvisioningEnabled: true,
+        accountExists: true,
+        connecting: false,
+        error: null,
+        start,
+        retry: vi.fn(),
+      });
+
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <FirstRunOnboarding />
+          </TooltipProvider>,
+        );
+      });
+
+      click("first-run-role-skip");
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(
+        document.body.querySelector('[data-onboarding-screen="choice"]'),
+      ).not.toBeNull();
+      expect(q("first-run-credits-offer")).toBeNull();
+      expect(q("first-run-credits-activate")).toBeNull();
+      expect(q("first-run-builder-free-credits")).toBeNull();
+      expect(q("first-run-builder-create-account")).toBeNull();
+      expect(mocks.recordCreditsV2Exposure).not.toHaveBeenCalled();
+
+      const notice = q("first-run-builder-account-exists");
+      expect(notice?.textContent).toContain(
+        "You already have a Builder.io account",
+      );
+      expect(notice?.textContent).toContain("Log in to use your account.");
+      expect(q("first-run-open-key-settings")).not.toBeNull();
+      expect(q("first-run-setup-skip")).not.toBeNull();
+
+      click("first-run-builder-sign-in");
+      expect(start).toHaveBeenCalledWith({
+        trackingSource: "first_run_onboarding",
+        trackingFlow: "connect_llm",
+        provisionAccount: false,
+      });
     });
   });
 });

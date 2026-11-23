@@ -58,6 +58,10 @@ vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => ({ data: [] }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("./comment-images", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./comment-images")>()),
+  useCommentImageStorage: () => true,
+}));
 
 const score = (value: number): DocumentProperty =>
   ({

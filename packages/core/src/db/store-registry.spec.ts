@@ -21,6 +21,7 @@ import {
   defineStore,
   findUnappliedStoreMigrations,
   orderStoresForRelease,
+  snapshotInstallBlocks,
   withStoreMigrationLock,
 } from "./store-registry.js";
 
@@ -650,5 +651,40 @@ describe("stores folded from lists that ran at boot", () => {
       `SELECT MAX(version)::int AS v FROM ${oldList}`,
     );
     expect(rows[0]?.v).toBe(1);
+  });
+});
+
+describe("snapshotInstallBlocks", () => {
+  it("runs every statement, across blocks, with dollar-quoted bodies intact", async () => {
+    const tables = Array.from(
+      { length: 150 },
+      (_, i) => `CREATE TABLE "snapshot_block_t${i}" ("id" text);`,
+    );
+    const statements = [
+      ...tables,
+      "CREATE OR REPLACE FUNCTION public.snapshot_block_fn()\n RETURNS text\n LANGUAGE plpgsql\nAS $function$BEGIN RETURN 'ok?'; END;$function$",
+    ];
+
+    const blocks = snapshotInstallBlocks(statements);
+    expect(blocks).toHaveLength(2);
+    for (const block of blocks) {
+      // raw-sql-ok: fixed test DDL
+      await getDbExec().execute(block);
+    }
+
+    const { rows } = await getDbExec().execute({
+      sql: "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'snapshot_block_t%'",
+    });
+    expect(rows[0].n).toBe(150);
+    const fn = await getDbExec().execute({
+      sql: "SELECT public.snapshot_block_fn() AS v",
+    });
+    expect(fn.rows[0].v).toBe("ok?");
+  });
+
+  it("refuses a statement that contains a reserved quote", () => {
+    expect(() =>
+      snapshotInstallBlocks(["SELECT $agent_native_snapshot_statement$"]),
+    ).toThrow(/reserved quote/);
   });
 });

@@ -99,6 +99,8 @@ export interface AppProvidersProps {
 
   isPublicPath?: boolean;
 
+  automaticConsentPrompt?: boolean;
+
   clientOnlyFallback?: React.ReactNode;
 
   skeletonLayout?: AppShellSkeletonLayout;
@@ -112,6 +114,11 @@ export interface AppProvidersProps {
 
   /** Opt in to the app-specific, consented Builder signup experiment. */
   builderSignupExperiment?: string;
+  /**
+   * Exact hostnames where that experiment runs; elsewhere the startup gate
+   * makes no request. Omit to run it on every host.
+   */
+  builderSignupHostedHosts?: readonly string[];
   /** App-owned first-run surface, rendered only after positive eligibility. */
   firstRunOnboarding?: React.ReactNode;
 
@@ -558,10 +565,12 @@ function ProvidersInner({
   showEnvironmentBadge,
   settingsShortcut,
   ownsDocument = true,
+  automaticConsentPrompt = true,
   clientOnly = false,
   children,
 }: {
   ownsDocument?: boolean;
+  automaticConsentPrompt?: boolean;
   clientOnly?: boolean;
   queryClient: QueryClient;
   defaultTheme?: string;
@@ -582,20 +591,22 @@ function ProvidersInner({
   children: React.ReactNode;
 }) {
   // The toaster shares the app's locale but must remain outside session gates.
+  const appContent = (
+    <>
+      {children}
+      {ownsDocument ? (
+        <ConsentBanner automaticPrompt={automaticConsentPrompt} />
+      ) : null}
+      <WriteFailureToaster />
+      {toaster}
+    </>
+  );
   const localizedChildren =
     i18n === false ? (
-      <>
-        {children}
-        {ownsDocument ? <ConsentBanner /> : null}
-        <WriteFailureToaster />
-        {toaster}
-      </>
+      appContent
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
-        {children}
-        {ownsDocument ? <ConsentBanner /> : null}
-        <WriteFailureToaster />
-        {toaster}
+        {appContent}
       </AgentNativeI18nProvider>
     );
 
@@ -656,12 +667,14 @@ function publicPathI18n(
 export function AppProviders({
   queryClient,
   isPublicPath = false,
+  automaticConsentPrompt,
   clientOnlyFallback,
   skeletonLayout,
   sessionBypass = false,
   signedOutHref,
   skipFirstRunOnboarding = false,
   builderSignupExperiment,
+  builderSignupHostedHosts,
   firstRunOnboarding,
   unsupportedDevice,
   disableWebMcp = false,
@@ -746,6 +759,7 @@ export function AppProviders({
           {builderSignupExperiment ? (
             <BuilderSignupStartupGate
               experimentId={builderSignupExperiment}
+              hostedHosts={builderSignupHostedHosts}
               suppressSurface={skipFirstRunOnboarding}
               cover={fallback}
               appSurface={firstRunOnboarding}
@@ -797,7 +811,9 @@ export function AppProviders({
           <EarlySessionBootstrapScript />
           <EarlyBetaRedirectScript />
           {isFirstRunOnboardingEnabled(
-            import.meta.env,
+            (import.meta.env as
+              | Record<string, string | boolean | undefined>
+              | undefined) ?? {},
             typeof __AGENT_NATIVE_APP_CONFIG__ === "undefined"
               ? {}
               : __AGENT_NATIVE_APP_CONFIG__,
@@ -824,6 +840,7 @@ export function AppProviders({
           showEnvironmentBadge={showEnvironmentBadge}
           settingsShortcut={!sessionBypass}
           ownsDocument={ownsDocument}
+          automaticConsentPrompt={automaticConsentPrompt}
           clientOnly
           holdThemeFamilyUntilResolved={holdThemeFamilyUntilResolved}
         >

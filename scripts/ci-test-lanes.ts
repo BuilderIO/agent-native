@@ -5,8 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  GIT_DIFF_MAX_BUFFER,
   isDocsPath,
   isInstructionPath,
+  isStandaloneE2eRunner,
   normalizeChangedPath,
 } from "./ci-change-scope.ts";
 import { pnpmCommand } from "./lib/pnpm-command.ts";
@@ -79,6 +81,15 @@ type PnpmWorkspace = {
   name?: unknown;
 };
 
+/**
+ * Only a Vitest script forwards `--shard` to the runner. Appended arguments
+ * land on the last command of an `&&` chain, so a `pnpm <script> &&` prefix
+ * (Design's bridge codegen) still ends in Vitest.
+ */
+export function isShardableTestScript(script: string): boolean {
+  return /^(?:pnpm [\w:-]+ && )?vitest(?:[ \t][^&|;#\r\n]*)?$/.test(script);
+}
+
 function discoverTestPackages(includeCommunityTemplates: boolean): Pkg[] {
   const out: Pkg[] = [];
   const dirs: string[] = [];
@@ -111,8 +122,7 @@ function discoverTestPackages(includeCommunityTemplates: boolean): Pkg[] {
       throw new Error(`Duplicate workspace package name ${pj.name}`);
     }
     seen.add(pj.name);
-    // Only a bare Vitest script forwards `--shard` to the runner.
-    const shardable = /^vitest(\s|$)/.test(pj.scripts.test);
+    const shardable = isShardableTestScript(pj.scripts.test);
     out.push({ name: pj.name, dir, shardable });
   }
   return out;
@@ -222,6 +232,27 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
   });
 }
 
+const CLI_ENTRY_CORE_SPECS = [
+  "src/cli/create-tui.spec.ts",
+  "src/cli/deploy-build.spec.ts",
+  "src/cli/telemetry-routing.spec.ts",
+  "src/cli/typecheck-ancestor.spec.ts",
+  "src/cli/typecheck-command.spec.ts",
+  "src/cli/typecheck-path-permissions.spec.ts",
+] as const;
+
+export function cliEntryCoreSpecs(paths: readonly string[]): readonly string[] {
+  return paths.some((path) => {
+    const normalized = normalizeChangedPath(path);
+    return (
+      /^packages\/core\/(?:src|bin)\/.+\.[cm]?[jt]sx?$/u.test(normalized) &&
+      !TEST_FILE_RE.test(normalized)
+    );
+  })
+    ? CLI_ENTRY_CORE_SPECS
+    : [];
+}
+
 // These specs build every app's MCP catalog by running each template's real
 // agent-chat plugin, which reaches template code, framework tools, and tools
 // that workspace packages register through dynamic imports `vitest --changed`
@@ -262,11 +293,13 @@ const NON_CODE_ASSET_RE =
 
 export function catalogContractCoreSpecs(
   paths: readonly string[],
+  repositoryRoot = ROOT,
 ): readonly string[] {
   return paths.some((path) => {
     const normalized = normalizeChangedPath(path);
     return (
       /^(?:templates|packages)\//u.test(normalized) &&
+      !isStandaloneE2eRunner(normalized, repositoryRoot) &&
       !isDocsPath(normalized) &&
       !TEST_FILE_RE.test(normalized) &&
       !/\.d\.[cm]?ts$/u.test(normalized) &&
@@ -345,7 +378,7 @@ export function readChangedPaths(
   const output = execFileSync(
     "git",
     ["diff", "--name-only", "--find-renames=100%", "-z", `${baseSha}...HEAD`],
-    { encoding: "utf8", cwd },
+    { encoding: "utf8", cwd, maxBuffer: GIT_DIFF_MAX_BUFFER },
   );
   return output.split("\0").filter(Boolean);
 }
@@ -680,6 +713,7 @@ function main(): void {
         ...readCoreFastTestFiles(fullCore ? undefined : baseSha),
         ...(fullCore ? [] : catalogContractCoreSpecs(changedPaths)),
         ...(fullCore ? [] : toolSearchBenchmarkCoreSpecs(changedPaths)),
+        ...(fullCore ? [] : cliEntryCoreSpecs(changedPaths)),
       ]),
     ];
     coreFiles = coreTestFiles.length;

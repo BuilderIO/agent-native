@@ -1,3 +1,4 @@
+import { getEnclosingTransactionDbExec } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -8,6 +9,7 @@ import { and, eq, inArray, or } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import { nanoid, nowIso } from "./brain.js";
 import type { BrainAudienceAssignment } from "./search-index-contracts.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest(
@@ -56,9 +58,12 @@ type BrainDb = ReturnType<typeof getDb>;
 interface CaptureAudienceInput {
   captureId: string;
   source: typeof schema.brainSources.$inferSelect;
-  kind?: BrainAudienceAssignment["kind"];
-  memberEmails?: string[];
-  upstreamRefHash?: string | null;
+  kind?: BrainAudienceAssignment["kind"] | undefined;
+  memberEmails?: string[] | undefined;
+  upstreamRefHash?: string | null | undefined;
+  deferInvalidations?:
+    | Array<() => Promise<AudienceInvalidationFlush>>
+    | undefined;
 }
 
 interface DeferredAudienceInvalidation {
@@ -68,22 +73,48 @@ interface DeferredAudienceInvalidation {
   aclHash: string;
 }
 
+export interface AudienceInvalidationFlush {
+  failedInvalidations: number;
+  failedNotifications: number;
+}
+
 async function flushAudienceInvalidations(
   invalidations: DeferredAudienceInvalidation[],
-) {
-  if (!invalidations.length) return;
+): Promise<AudienceInvalidationFlush> {
+  const flush = { failedInvalidations: 0, failedNotifications: 0 };
+  if (!invalidations.length) return flush;
   const [{ enqueueCaptureInvalidation }, { invalidateDerivedForCapture }] =
     await Promise.all([import("./ingest-queue.js"), import("./brain.js")]);
   for (const invalidation of invalidations) {
-    await invalidateDerivedForCapture(invalidation.captureId);
-    await enqueueCaptureInvalidation({
-      captureId: invalidation.captureId,
-      sourceId: invalidation.sourceId,
-      reason: "access-changed",
-      previous: { aclHash: invalidation.previousAclHash },
-      next: { aclHash: invalidation.aclHash },
-    });
+    let failed = false;
+    try {
+      const result = await invalidateDerivedForCapture(invalidation.captureId);
+      flush.failedNotifications += result.failedNotifications;
+    } catch (error) {
+      failed = true;
+      console.warn(
+        "[brain] Derived knowledge invalidation failed after an audience change:",
+        error instanceof Error ? error.message : "unknown error",
+      );
+    }
+    try {
+      await enqueueCaptureInvalidation({
+        captureId: invalidation.captureId,
+        sourceId: invalidation.sourceId,
+        reason: "access-changed",
+        previous: { aclHash: invalidation.previousAclHash },
+        next: { aclHash: invalidation.aclHash },
+      });
+    } catch (error) {
+      failed = true;
+      console.warn(
+        "[brain] Queueing the access change failed after an audience change:",
+        error instanceof Error ? error.message : "unknown error",
+      );
+    }
+    if (failed) flush.failedInvalidations += 1;
   }
+  return flush;
 }
 
 export async function ensureCaptureAudience(
@@ -91,23 +122,33 @@ export async function ensureCaptureAudience(
 ): Promise<BrainAudienceAssignment> {
   const db = getDb();
   const invalidations: DeferredAudienceInvalidation[] = [];
-  const assignment = await db.transaction((tx) =>
-    ensureCaptureAudienceMutation(
-      input,
-      tx as unknown as BrainDb,
-      invalidations,
-    ),
-  );
-  await flushAudienceInvalidations(invalidations);
+  const assignment = getEnclosingTransactionDbExec()
+    ? await ensureCaptureAudienceMutation(input, db, invalidations)
+    : await db.transaction((tx) =>
+        ensureCaptureAudienceMutation(
+          input,
+          tx as unknown as BrainDb,
+          invalidations,
+        ),
+      );
+  if (input.deferInvalidations)
+    input.deferInvalidations.push(() =>
+      flushAudienceInvalidations(invalidations),
+    );
+  else {
+    const flush = await flushAudienceInvalidations(invalidations);
+    if (flush.failedInvalidations)
+      throw new Error(
+        `Refreshing derived knowledge failed for ${flush.failedInvalidations} capture(s) after the audience change.`,
+      );
+  }
   return assignment;
 }
 
-async function ensureCaptureAudienceMutation(
+async function resolveCaptureAudienceTarget(
   input: CaptureAudienceInput,
   db: BrainDb,
-  invalidations: DeferredAudienceInvalidation[],
-): Promise<BrainAudienceAssignment> {
-  const now = nowIso();
+) {
   const kind =
     input.kind ??
     (input.source.visibility === "private" ? "restricted" : "org");
@@ -129,11 +170,54 @@ async function ensureCaptureAudienceMutation(
     upstreamRefHash,
     aclHash,
   });
-  const [previousAudience] = await db
+  const previousRows = await db
     .select({ aclHash: schema.brainAudiences.aclHash })
     .from(schema.brainAudiences)
     .where(eq(schema.brainAudiences.id, audienceId))
     .limit(1);
+  let previousAclHash: string | undefined;
+  for (const row of previousRows) previousAclHash = row.aclHash;
+  return {
+    kind,
+    members,
+    aclHash,
+    upstreamRefHash,
+    audienceId,
+    previousAclHash,
+  };
+}
+
+export async function captureIdsAffectedByAudienceAssignment(
+  input: CaptureAudienceInput,
+  db: BrainDb = getDb(),
+) {
+  const target = await resolveCaptureAudienceTarget(input, db);
+  if (
+    target.kind === "org" ||
+    !audienceMembershipNeedsReplace(target.previousAclHash, target.aclHash)
+  )
+    return [];
+  const linked = await db
+    .select({ captureId: schema.brainCaptureAudiences.captureId })
+    .from(schema.brainCaptureAudiences)
+    .where(eq(schema.brainCaptureAudiences.audienceId, target.audienceId));
+  return linked.map((row) => row.captureId);
+}
+
+async function ensureCaptureAudienceMutation(
+  input: CaptureAudienceInput,
+  db: BrainDb,
+  invalidations: DeferredAudienceInvalidation[],
+): Promise<BrainAudienceAssignment> {
+  const now = nowIso();
+  const {
+    kind,
+    members,
+    aclHash,
+    upstreamRefHash,
+    audienceId,
+    previousAclHash,
+  } = await resolveCaptureAudienceTarget(input, db);
 
   await db
     .insert(schema.brainAudiences)
@@ -182,13 +266,11 @@ async function ensureCaptureAudienceMutation(
       },
       db,
     );
-  } else if (
-    audienceMembershipNeedsReplace(previousAudience?.aclHash, aclHash)
-  ) {
+  } else if (audienceMembershipNeedsReplace(previousAclHash, aclHash)) {
     await replaceAudienceUserMembersMutation(
       audienceId,
       members.map((email) => ({ email })),
-      { previousAclHash: previousAudience?.aclHash },
+      { previousAclHash },
       db,
       invalidations,
     );
@@ -253,10 +335,13 @@ export async function upsertAudienceMember(
     });
 }
 
-export async function ensureEvidenceIntersectionAudience(input: {
-  captureIds: string[];
-  sourceId: string;
-}): Promise<BrainAudienceAssignment> {
+export async function ensureEvidenceIntersectionAudience(
+  input: {
+    captureIds: string[];
+    sourceId: string;
+  },
+  mode: "ensure" | "derive" = "ensure",
+): Promise<BrainAudienceAssignment> {
   const captureIds = Array.from(new Set(input.captureIds));
   if (!captureIds.length) {
     throw new Error("Evidence is required to derive a Brain audience");
@@ -361,6 +446,7 @@ export async function ensureEvidenceIntersectionAudience(input: {
     `evidence:${tenantKey}:${audienceIds.sort().join(",")}`,
   );
   const audienceId = `aud_${identityHash.slice(0, 24)}`;
+  if (mode === "derive") return { audienceId, aclHash, kind };
   const now = nowIso();
   await db
     .insert(schema.brainAudiences)
@@ -455,7 +541,7 @@ export function assertSingleEvidenceTenant(
 async function replaceAudienceUserMembersMutation(
   audienceId: string,
   members: Array<{ email: string; upstreamPrincipalHash?: string }>,
-  options: { previousAclHash?: string },
+  options: { previousAclHash?: string | undefined },
   db: BrainDb,
   invalidations: DeferredAudienceInvalidation[],
 ) {
@@ -517,6 +603,8 @@ async function replaceAudienceUserMembersMutation(
       .from(schema.brainCaptureAudiences)
       .where(eq(schema.brainCaptureAudiences.audienceId, audienceId));
     const captureIds = captures.map((capture) => capture.captureId);
+    const { lockCaptureRows } = await import("./brain.js");
+    await lockCaptureRows(captureIds, db);
     await db
       .update(schema.brainCaptureAudiences)
       .set({ aclHash })
@@ -611,7 +699,10 @@ async function listAccessibleAudiences(sourceIds?: string[]) {
           .where(
             and(
               inArray(schema.brainSources.id, dependencySourceIds),
-              accessFilter(schema.brainSources, schema.brainSourceShares),
+              and(
+                accessFilter(schema.brainSources, schema.brainSourceShares),
+                personalGoogleSourceFilter(),
+              ),
             ),
           )
       ).map((source) => source.id)

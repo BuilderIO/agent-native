@@ -245,6 +245,13 @@ résultats sans handle doivent réutiliser les mêmes `app` et `taskId` ; ne sou
 soumission peut dupliquer le travail. Les erreurs permanentes d'authentification,
 d'introuvable et de protocole restent des erreurs.
 
+Un `taskHandle` expire une heure après que `ask_app` l'a renvoyé. Lorsque
+`ask_app_status` rejette un handle comme invalide ou expiré, continuez à
+interroger la même tâche avec les `app` et `taskId` du résultat de `ask_app`,
+sans `taskHandle` ; le message d'erreur l'indique aussi. Sans le handle, l'appel
+de statut retrouve l'application par la découverte : il ne fonctionne donc que
+tant que l'application reste découvrable.
+
 ## Authentification {#authentication}
 
 Le point de terminaison MCP prend en charge le modèle distant standard MCP OAuth, ainsi que le remplacement du jeton de support existant :

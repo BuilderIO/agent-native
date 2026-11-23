@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -8,6 +11,7 @@ export default defineAction({
   schema: z.object({
     view: z
       .enum([
+        "intelligence",
         "home",
         "ask",
         "search",
@@ -22,6 +26,12 @@ export default defineAction({
         "settings",
       ])
       .default("home"),
+    intelligenceTab: z
+      .enum(["actions", "brief", "entities", "recipes", "memory"])
+      .optional(),
+    intelligenceId: z.string().optional(),
+    owner: z.string().optional(),
+    period: z.enum(["daily", "weekly"]).optional(),
     sourceId: z.string().optional(),
     captureId: z.string().optional(),
     knowledgeId: z.string().optional(),
@@ -47,10 +57,13 @@ export default defineAction({
       .describe(
         "With view settings, the Brain › General tab to open: general, identity, behavior, publishing, safety, or privacy.",
       ),
+    intent: navigationIntentSchema,
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
-    await writeAppStateForCurrentTab("navigate", { ...args, ts: Date.now() });
-    return { navigate: args };
+    const { intent: _intent, ...nav } = args;
+    await writeAppStateForCurrentTab("navigate", { ...nav, ts: Date.now() });
+    return { navigate: nav };
   },
 });

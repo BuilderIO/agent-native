@@ -426,6 +426,7 @@
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/cli/templates-meta",
+        "@agent-native/core/client/app-config",
         "@agent-native/core/client/hooks",
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/org",
@@ -575,6 +576,7 @@
         "@agent-native/core/org/permissions",
         "@agent-native/core/org/types",
         "@agent-native/core/resources/metadata",
+        "@agent-native/core/save-conflict",
         "@agent-native/core/secrets/api-keys",
         "@agent-native/core/secrets/key-aliases",
         "@agent-native/core/secrets/usage",
@@ -747,6 +749,7 @@
         "@agent-native/core/client/use-settings-shortcut",
         "@agent-native/core/client/webmcp",
         "@agent-native/core/client/write-failure",
+        "@agent-native/core/config",
         "@agent-native/core/notifications/types",
         "@agent-native/core/shared/document-title",
         "@agent-native/core/shared/mcp-app-widget-embed",
@@ -812,6 +815,7 @@
         "@agent-native/core/client/oauth-popup",
         "@agent-native/core/client/sign-in-return",
         "@agent-native/core/client/use-session",
+        "@agent-native/core/localization/privacy-choice-messages",
         "@agent-native/core/localization/shared",
         "@agent-native/core/shared/analytics-events",
         "@agent-native/core/shared/app-status",
@@ -1082,6 +1086,19 @@
       ]
     },
     {
+      "id": "toolkit/app-filters",
+      "label": "Toolkit app Filters",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["app-filters"],
+      "entrypoints": ["./app/filters"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/app/filters"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": ["@agent-native/core", "@tabler/icons-react", "react"],
+      "verification": ["pnpm typecheck"],
+      "protectedImports": ["@agent-native/core/client/i18n"]
+    },
+    {
       "id": "toolkit/app-integrations",
       "label": "Toolkit app Integrations",
       "catalog": "toolkit-ui",
@@ -1287,6 +1304,7 @@
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/agent-chat",
+        "@agent-native/core/client/app-config",
         "@agent-native/core/client/analytics",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/builder-frame",
@@ -1373,6 +1391,7 @@
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/i18n",
+        "@agent-native/core/client/org",
         "@agent-native/core/client/review/use-review",
         "@agent-native/core/client/uploads",
         "@agent-native/core/client/use-avatar",
@@ -2081,6 +2100,8 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@agent-native/core",
+        "@agent-native/design-system",
+        "@base-ui/react",
         "@radix-ui/react-accordion",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-aspect-ratio",

@@ -32,6 +32,7 @@ import {
   reviewCommentImageMetadata,
   reviewCommentImages,
   useReviewCommentDraft,
+  useReviewMentionPeople,
   type ReviewCommentDraftScope,
   type ReviewCommentImage,
   type ReviewComposerFormatLabels,
@@ -93,7 +94,6 @@ import {
   isDefaultAgentMention,
 } from "@/lib/review-agent/review-agent-models";
 import type { ReviewAgentController } from "@/lib/review-agent/use-review-agent-requests";
-import { useReviewMentionPeople } from "@/lib/review-mention-people";
 import type { ReviewThreadAgentAction } from "@/lib/review-thread-agent-actions";
 import { cn } from "@/lib/utils";
 
@@ -3589,7 +3589,6 @@ function threadPinAuthors(thread: ReviewThread): ReviewPinAuthor[] {
 
 const MAX_NAMED_PIN_AUTHORS = 2;
 
-// What the pin shows: who is in the thread, how many comments, and its state.
 function reviewThreadPinLabel({
   t,
   formatList,
@@ -3997,7 +3996,6 @@ function DraftComposer({
   );
 }
 
-// The comment box's formatting bar, in the app's language.
 function reviewFormatLabels(
   t: ReturnType<typeof useT>,
 ): ReviewComposerFormatLabels {
@@ -4015,7 +4013,6 @@ function reviewFormatLabels(
   };
 }
 
-// The comment box's image controls, in the app's language.
 function reviewImageLabels(t: ReturnType<typeof useT>) {
   return {
     attachImageLabel: t("review.attachImage"),

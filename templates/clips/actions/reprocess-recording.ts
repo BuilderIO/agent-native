@@ -74,6 +74,7 @@ export default defineAction({
         "Transcode sparse/discontinuous video timestamps to constant-frame-rate faststart MP4 while preserving audio. Use when playback freezes or appears to stop before the declared duration.",
       ),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();

@@ -10,11 +10,13 @@ import {
   type A2APersistedMutationReceipt,
   type Task,
 } from "@agent-native/core/a2a";
+import { fail, NoWriteError } from "@agent-native/core/action";
 import { getAppConfig } from "@agent-native/core/app-config";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   buildMcpToolName,
   McpClientManager,
+  mcpToolCallWasNotSent,
 } from "@agent-native/core/mcp-client";
 import { getOrgA2ASecret, getOrgDomain } from "@agent-native/core/org";
 import {
@@ -26,7 +28,9 @@ import {
   getConfiguredAppBasePath,
   getRequestContext,
   getRequestOrgId,
+  getRequestRunContext,
   getRequestUserEmail,
+  platformWaitUntil,
   resolveAppRuntimeUrl,
 } from "@agent-native/core/server";
 import {
@@ -36,12 +40,15 @@ import {
 } from "@agent-native/core/server/agent-discovery";
 import { EMBED_START_PATH } from "@agent-native/core/shared";
 
+import { matchDispatchAppCandidates } from "../../lib/dispatch-app-identity.js";
+import { DISPATCH_CHILD_BROWSER_TAB_PARAM } from "../../shared/chat-first-pane.js";
 import { DESKTOP_WORKSPACE_SSO_FLAG } from "../../shared/feature-flags.js";
 import {
   DISPATCH_WORKSPACE_SSO_FLAG,
   isWorkspaceSsoAppUrl,
 } from "../../shared/workspace-sso.js";
 import { listWorkspaceApps } from "./app-creation-store.js";
+import { resolveDispatchChildBrowserTab } from "./dispatch-pane-context.js";
 import {
   projectEnvironmentUrl,
   requestEnvironmentLane,
@@ -51,6 +58,10 @@ import {
   isAppAllowedByMcpAccess,
   type DispatchMcpAppAccessSettings,
 } from "./mcp-access-store.js";
+import {
+  discoverDispatchMcpApps,
+  type DispatchMcpDegradedSource,
+} from "./mcp-app-discovery.js";
 
 const DISPATCH_APP_ID = "dispatch";
 const DISPATCH_NAME = "Dispatch";
@@ -64,6 +75,8 @@ const TARGET_EMBED_SESSION_BUDGET_MS = 95_000;
 // open_app answers with its link by then; a panel is worth a short wait, not
 // the full mint budget.
 const OPEN_APP_EMBED_WAIT_MS = 15_000;
+const BROWSER_EMBED_PREFETCH_WAIT_MS = 1_000;
+const PENDING_EMBED_LIMIT = 32;
 const DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_POLL_INTERVAL_MS = 1_500;
@@ -91,6 +104,8 @@ export interface DispatchMcpAccessibleApp {
   homeUrl?: string;
   mcpUrl?: string;
   color: string;
+  source?: DiscoveredAgent["source"];
+  aliases?: string[];
   granted: boolean;
   mountedPathUnavailable?: boolean;
 }
@@ -811,9 +826,13 @@ function toAccessibleApp(
   return {
     id: agent.id,
     name: agent.name,
-    description: agent.description,
+    // Deployment manifest and directory entries may omit a description even
+    // though the discovered type declares one.
+    description: typeof agent.description === "string" ? agent.description : "",
     url: projectEnvironmentUrl(agent.url),
     color: agent.color,
+    ...(agent.source ? { source: agent.source } : {}),
+    ...(agent.aliases?.length ? { aliases: agent.aliases } : {}),
     granted: isAppAllowedByMcpAccess(agent.id, settings),
   };
 }
@@ -821,23 +840,19 @@ function toAccessibleApp(
 export async function listDispatchMcpApps(): Promise<{
   settings: DispatchMcpAppAccessSettings;
   apps: DispatchMcpAccessibleApp[];
+  degradedSources: DispatchMcpDegradedSource[];
 }> {
-  const [settings, agents, mountedApps] = await Promise.all([
-    getDispatchMcpAppAccessSettings(),
-    discoverAgents("dispatch"),
-    listWorkspaceApps({ includeAgentCards: false }).catch((error: unknown) => {
-      console.warn(
-        "[dispatch] Workspace app lookup failed during MCP app discovery",
-        { status: httpStatusFromError(error) },
-      );
-      return [];
-    }),
-  ]);
+  const [settings, { agents, mountedApps, degradedSources }] =
+    await Promise.all([
+      getDispatchMcpAppAccessSettings(),
+      discoverDispatchMcpApps(),
+    ]);
   const mountedAppsById = new Map(
     mountedApps.map((app) => [normalizeAppId(app.id), app]),
   );
   return {
     settings,
+    degradedSources,
     apps: [
       dispatchSelfApp(settings),
       ...agents
@@ -854,8 +869,8 @@ export async function listDispatchMcpApps(): Promise<{
               ? mountedWorkspaceAppHomeUrl(mountedApp)
               : null;
           if (homeUrl) return { ...accessible, homeUrl };
-          // A Dispatch app-page URL is only usable through a verified mount.
-          return isDispatchAppPageUrl(accessible.url)
+          return agent.source === "workspace" ||
+            isDispatchAppPageUrl(accessible.url)
             ? { ...accessible, mountedPathUnavailable: true }
             : accessible;
         }),
@@ -863,13 +878,23 @@ export async function listDispatchMcpApps(): Promise<{
   };
 }
 
+export async function listGrantedDispatchMcpAppsWithStatus(): Promise<{
+  apps: DispatchMcpAccessibleApp[];
+  degradedSources: DispatchMcpDegradedSource[];
+}> {
+  const { apps, degradedSources } = await listDispatchMcpApps();
+  return {
+    degradedSources,
+    apps: apps.filter(
+      (app) => app.granted && !app.mountedPathUnavailable && safeAppOrigin(app),
+    ),
+  };
+}
+
 export async function listGrantedDispatchMcpApps(): Promise<
   DispatchMcpAccessibleApp[]
 > {
-  const { apps } = await listDispatchMcpApps();
-  return apps.filter(
-    (app) => app.granted && !app.mountedPathUnavailable && safeAppOrigin(app),
-  );
+  return (await listGrantedDispatchMcpAppsWithStatus()).apps;
 }
 
 export async function listGrantedDispatchMcpAppOrigins(): Promise<string[]> {
@@ -883,10 +908,13 @@ export async function resolveGrantedDispatchMcpApp(
   const target = normalizeAppId(app);
   if (!target) throw new Error("app is required");
   const { apps } = await listDispatchMcpApps();
-  const match = apps.find(
-    (candidate) =>
-      candidate.id === target || candidate.name.toLowerCase() === target,
-  );
+  const candidates = matchDispatchAppCandidates(apps, target);
+  if (candidates.length > 1) {
+    throw new Error(
+      `Ambiguous app "${app}". Choose one of: ${candidates.map((candidate) => candidate.id).join(", ")}.`,
+    );
+  }
+  const match = candidates[0];
   if (!match) {
     throw new Error(
       `Unknown app "${app}". Call list_apps to see apps available through Dispatch MCP.`,
@@ -988,10 +1016,13 @@ async function resolveWorkspaceSsoApp(
   const target = normalizeAppId(app);
   if (!target) throw new Error("app is required");
   const apps = await listWorkspaceSsoApps();
-  const match = apps.find(
-    (candidate) =>
-      candidate.id === target || candidate.name.toLowerCase() === target,
-  );
+  const candidates = matchDispatchAppCandidates(apps, target);
+  if (candidates.length > 1) {
+    throw new Error(
+      `Ambiguous app "${app}". Choose one of: ${candidates.map((candidate) => candidate.id).join(", ")}.`,
+    );
+  }
+  const match = candidates[0];
   if (!match) {
     throw new Error(
       `Workspace app "${app}" is not registered for workspace sign-in.`,
@@ -1132,14 +1163,17 @@ export async function getGrantedDispatchMcpAppTask(
   throw new Error("ask_app_status retry loop exited unexpectedly.");
 }
 
-export async function openGrantedDispatchMcpApp(input: {
-  app: string;
-  view?: string | undefined;
-  path?: string | undefined;
-  params?: Record<string, string | number | boolean> | undefined;
-  embed?: boolean | undefined;
-  chrome?: "full" | "minimal" | undefined;
-}): Promise<{
+export async function openGrantedDispatchMcpApp(
+  input: {
+    app: string;
+    view?: string | undefined;
+    path?: string | undefined;
+    params?: Record<string, string | number | boolean> | undefined;
+    embed?: boolean | undefined;
+    chrome?: "full" | "minimal" | undefined;
+  },
+  options?: { prefetchEmbed: boolean },
+): Promise<{
   app: string;
   view?: string;
   path?: string;
@@ -1174,7 +1208,9 @@ export async function openGrantedDispatchMcpApp(input: {
   // Says why no session came back, so the caller can tell a plain link it
   // asked for from a panel that failed to open.
   let embedUnavailable: string | undefined;
-  if (input.embed) {
+  if (options?.prefetchEmbed && input.embed !== false) {
+    prefetchGrantedEmbedSession(target, url);
+  } else if (input.embed) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const abort = new AbortController();
     try {
@@ -1467,6 +1503,296 @@ async function callTargetCreateEmbedSession(input: {
   }
 }
 
+const TARGET_APP_ACTION_CONNECT_MS = 15_000;
+// Embed minting is Dispatch's own handshake with the target, not an app action.
+const TARGET_APP_HIDDEN_ACTIONS = new Set([
+  "create_embed_session",
+  "open_app",
+  "list_apps",
+]);
+
+export type GrantedAppAction = {
+  name: string;
+  description: string;
+  inputSchema?: Record<string, unknown>;
+  readOnly?: boolean;
+  destructive?: boolean;
+};
+
+export type GrantedAppActionResult = {
+  isError?: boolean;
+  approvalReview?: { url?: string; expiresAt?: number };
+  structuredContent?: unknown;
+  content: unknown[];
+};
+
+export function dispatchDirectAppActionsEnabled(): boolean {
+  return getAppConfig().dispatch.directAppActions;
+}
+
+/** One direct app action connection, as a header provider sees it before it opens. */
+export interface DispatchAppActionRequest {
+  app: string;
+  /** The action about to be called; undefined when only listing actions. */
+  action: string | undefined;
+  ownerEmail: string;
+  orgId?: string;
+}
+
+export type DispatchAppActionHeaderProvider = (
+  request: DispatchAppActionRequest,
+) =>
+  | Record<string, string>
+  | undefined
+  | Promise<Record<string, string> | undefined>;
+
+let appActionHeaderProvider: DispatchAppActionHeaderProvider | undefined;
+
+/**
+ * Let the deployment add headers to direct app action connections, such as a
+ * per-turn grant the target app's MCP turn grant admitter recognizes. Returns
+ * a function that removes it.
+ */
+export function setDispatchAppActionHeaderProvider(
+  provider: DispatchAppActionHeaderProvider,
+): () => void {
+  if (appActionHeaderProvider && appActionHeaderProvider !== provider) {
+    throw new Error(
+      "A Dispatch app action header provider is already registered.",
+    );
+  }
+  appActionHeaderProvider = provider;
+  return () => {
+    if (appActionHeaderProvider === provider)
+      appActionHeaderProvider = undefined;
+  };
+}
+
+async function appActionHeaders(
+  request: DispatchAppActionRequest,
+): Promise<Record<string, string>> {
+  if (!appActionHeaderProvider) return {};
+  const headers = await appActionHeaderProvider(request);
+  if (headers === undefined) return {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (
+      name.toLowerCase() === "authorization" ||
+      name.toLowerCase() === "x-agent-native-browser-tab" ||
+      typeof value !== "string"
+    ) {
+      throw new Error(
+        `The app action header provider returned an invalid "${name}" header.`,
+      );
+    }
+  }
+  return headers;
+}
+
+// Runs `withClient` against a connected MCP client for the granted app, signed
+// as the requesting user, the way embed sessions reach the same target. Without a
+// header provider no per-turn grant is attached, so a target action that
+// requires a user turn refuses with its own error code.
+async function withGrantedAppMcp<T>(
+  app: string,
+  action: string | undefined,
+  withClient: (manager: McpClientManager, serverId: string) => Promise<T>,
+): Promise<T> {
+  if (!dispatchDirectAppActionsEnabled()) {
+    fail("Direct app actions are not enabled on this Dispatch deployment.", {
+      errorCode: "direct_app_actions_disabled",
+      statusCode: 403,
+    });
+  }
+  const target = await resolveGrantedDispatchMcpApp(app);
+  if (target.id === DISPATCH_APP_ID) {
+    throw new Error(
+      "Dispatch's own actions are tools on this connection; call them directly.",
+    );
+  }
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) throw new Error("no authenticated user");
+  const orgId = getRequestOrgId();
+  const mcpUrl = appMcpUrl(target);
+  if (!targetEndpointKeepsCredentialsPrivate(mcpUrl)) {
+    throw new Error("App actions need an HTTPS target endpoint.");
+  }
+  const firstPartyMcp = isWorkspaceSsoAppUrl(
+    { id: target.id, url: mcpUrl },
+    { nodeEnv: "production", environmentLane: requestEnvironmentLane() },
+  );
+  const prepared = await createTargetMcpUserCredentials({
+    mcpUrl,
+    ownerEmail,
+    fullCatalog: true,
+    ...(firstPartyMcp ? { firstPartyMcp: true } : {}),
+    ...(orgId !== undefined ? { orgId } : {}),
+  });
+  const credentials = [...prepared.credentials];
+  const childBrowserTabId =
+    action === undefined
+      ? undefined
+      : await resolveDispatchChildBrowserTab(target);
+  const extraHeaders = await appActionHeaders({
+    app: target.id,
+    action,
+    ownerEmail,
+    ...(orgId !== undefined ? { orgId } : {}),
+  });
+  const serverId = "target";
+  let orgMemberTried = false;
+  for (const [index, credential] of credentials.entries()) {
+    const manager = new McpClientManager(
+      {
+        servers: {
+          [serverId]: {
+            type: "http",
+            url: mcpUrl,
+            headers: {
+              ...extraHeaders,
+              ...(childBrowserTabId
+                ? { "x-agent-native-browser-tab": childBrowserTabId }
+                : {}),
+              Authorization: `Bearer ${credential.token}`,
+              ...(credential.firstPartyMcp
+                ? { "x-agent-native-mcp-inline-apps": "1" }
+                : {}),
+            },
+          },
+        },
+      },
+      { connectTimeoutMs: TARGET_APP_ACTION_CONNECT_MS },
+    );
+    try {
+      await manager.start();
+      const status = manager.getConnectErrorStatus(serverId);
+      if (status === 401 || status === 403) {
+        // The org-member fallback is tried once; its own rejection is final.
+        if (index === credentials.length - 1 && !orgMemberTried) {
+          orgMemberTried = true;
+          const orgMember = await prepared.loadOrgMemberCredential();
+          if (orgMember) credentials.push(orgMember);
+        }
+        if (index < credentials.length - 1) continue;
+        throw new Error(`The ${target.id} app rejected this connection.`);
+      }
+      if (!manager.hasServer(serverId)) {
+        throw new Error(`The ${target.id} app's actions are unavailable.`);
+      }
+      return await withClient(manager, serverId);
+    } finally {
+      await manager.stop().catch((stopError: unknown) => {
+        console.warn("[dispatch] Failed to stop target MCP client:", stopError);
+      });
+    }
+  }
+  throw new Error(`The ${target.id} app rejected this connection.`);
+}
+
+export async function listGrantedDispatchMcpAppActions(
+  app: string,
+  names?: string[],
+): Promise<GrantedAppAction[]> {
+  return withGrantedAppMcp(app, undefined, async (manager, serverId) =>
+    manager
+      .getToolsForServer(serverId)
+      .filter((tool) => !TARGET_APP_HIDDEN_ACTIONS.has(tool.originalName))
+      .map((tool) => {
+        const detailed = names?.includes(tool.originalName) === true;
+        return {
+          name: tool.originalName,
+          description: detailed
+            ? tool.description
+            : (tool.description.split(/(?<=\.)\s/)[0] ?? "").slice(0, 160),
+          ...(detailed ? { inputSchema: tool.inputSchema } : {}),
+          ...(detailed && tool.annotations?.destructiveHint === true
+            ? { destructive: true }
+            : {}),
+          ...(tool.annotations?.readOnlyHint === true
+            ? { readOnly: true }
+            : {}),
+        };
+      }),
+  );
+}
+
+function approvalReviewFrom(
+  result: object,
+): { url?: string; expiresAt?: number } | undefined {
+  const meta = "_meta" in result ? result._meta : undefined;
+  const review =
+    meta !== null && typeof meta === "object"
+      ? (meta as Record<string, unknown>)["agent-native/approvalReview"]
+      : undefined;
+  if (review === null || typeof review !== "object") return undefined;
+  const { url, expiresAt } = review as Record<string, unknown>;
+  return {
+    ...(typeof url === "string" ? { url } : {}),
+    ...(typeof expiresAt === "number" ? { expiresAt } : {}),
+  };
+}
+
+export async function callGrantedDispatchMcpAppAction(
+  app: string,
+  action: string,
+  args: Record<string, unknown>,
+): Promise<GrantedAppActionResult> {
+  if (TARGET_APP_HIDDEN_ACTIONS.has(action)) {
+    throw new NoWriteError(`"${action}" is not an app action.`, {
+      errorCode: "app_action_not_found",
+      statusCode: 404,
+    });
+  }
+  return withGrantedAppMcp(app, action, async (manager, serverId) => {
+    const toolName = buildMcpToolName(serverId, action);
+    if (!manager.getTool(toolName)) {
+      throw new NoWriteError(
+        `The app has no action named "${action}". Call list_app_actions to see them.`,
+        { errorCode: "app_action_not_found", statusCode: 404 },
+      );
+    }
+    let result: unknown;
+    try {
+      result = await manager.callTool(toolName, args);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      if (mcpToolCallWasNotSent(error)) {
+        throw new NoWriteError(`The app action did not run (${reason}).`, {
+          errorCode: "app_action_not_sent",
+          statusCode:
+            (error as { statusCode?: unknown }).statusCode === 403 ? 403 : 502,
+        });
+      }
+      fail(
+        `The app action failed before returning a result (${reason}). Its write outcome may be unknown; inspect the app before retrying.`,
+        { errorCode: "app_action_outcome_unknown", statusCode: 502 },
+      );
+    }
+    if (
+      result === null ||
+      typeof result !== "object" ||
+      !("content" in result) ||
+      !Array.isArray(result.content)
+    ) {
+      fail(
+        "The app action returned an unreadable result. Its write outcome may be unknown; inspect the app before retrying.",
+        { errorCode: "app_action_result_unreadable", statusCode: 502 },
+      );
+    }
+    const approvalReview = approvalReviewFrom(result);
+    return {
+      ...("isError" in result && result.isError === true
+        ? { isError: true }
+        : {}),
+      ...(approvalReview ? { approvalReview } : {}),
+      ...("structuredContent" in result &&
+      result.structuredContent !== undefined
+        ? { structuredContent: result.structuredContent }
+        : {}),
+      content: result.content as unknown[],
+    };
+  });
+}
+
 type TargetMcpCredential = {
   strategy: "deployment-user" | "org-member-delegation";
   token: string;
@@ -1478,6 +1804,7 @@ async function createTargetMcpUserCredentials(input: {
   ownerEmail: string;
   orgId?: string;
   firstPartyMcp?: boolean;
+  fullCatalog?: boolean;
   runtime?: "workspace-app-chat";
 }): Promise<{
   credentials: TargetMcpCredential[];
@@ -1518,9 +1845,10 @@ async function createTargetMcpUserCredentials(input: {
           expiresIn: "5m",
           audience,
           preferGlobalSecret: true,
-          ...(input.firstPartyMcp || input.runtime
+          ...(input.firstPartyMcp || input.runtime || input.fullCatalog
             ? {
                 extraClaims: {
+                  ...(input.fullCatalog ? { catalog_scope: "full" } : {}),
                   ...(input.firstPartyMcp
                     ? {
                         jti: globalThis.crypto.randomUUID(),
@@ -1693,6 +2021,7 @@ type InternalEmbedSession = {
   startUrl?: string;
   chatToken?: string;
   targetPath?: string;
+  childBrowserTabId?: string;
   expiresAt?: number;
   app: string;
   appBaseUrl: string;
@@ -1701,6 +2030,7 @@ type InternalEmbedSession = {
 function publicEmbedSession({
   startUrl,
   targetPath,
+  childBrowserTabId,
   expiresAt,
   app,
 }: InternalEmbedSession) {
@@ -1709,9 +2039,115 @@ function publicEmbedSession({
   return {
     startUrl,
     ...(targetPath ? { targetPath } : {}),
+    ...(childBrowserTabId ? { childBrowserTabId } : {}),
     ...(typeof expiresAt === "number" ? { expiresAt } : {}),
     app,
   };
+}
+
+type ResolvedEmbedTarget = Awaited<
+  ReturnType<typeof resolveDispatchEmbedTarget>
+>;
+type PendingEmbedSession = {
+  result: Promise<InternalEmbedSession>;
+  release: () => void;
+  abort: () => void;
+};
+
+const pendingGrantedEmbeds = new Map<string, PendingEmbedSession>();
+
+function grantedEmbedPrefetchKey(
+  ownerEmail: string,
+  target: ResolvedEmbedTarget,
+): string {
+  const request = getRequestContext();
+  return JSON.stringify([
+    ownerEmail,
+    getRequestOrgId(),
+    request?.requestOrigin,
+    request?.identityAuthenticatedAtMs,
+    request?.mcpCredentialIssuedAtMs,
+    request?.a2aIdentityAssurance,
+    request?.credentialScope,
+    target.app.id,
+    appMcpUrl(target.app),
+    target.url,
+  ]);
+}
+
+function prefetchGrantedEmbedSession(
+  app: DispatchMcpAccessibleApp,
+  url: string,
+) {
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail || app.id === DISPATCH_APP_ID) return;
+  const work = (async () => {
+    const target = await resolveDispatchEmbedTarget({ resolvedApp: app, url });
+    const key = grantedEmbedPrefetchKey(ownerEmail, target);
+    if (pendingGrantedEmbeds.has(key)) return;
+    if (pendingGrantedEmbeds.size >= PENDING_EMBED_LIMIT) {
+      pendingGrantedEmbeds.values().next().value?.abort();
+    }
+    const controller = new AbortController();
+    const result = Promise.race([
+      createEmbedSessionForResolvedApp({
+        ownerEmail,
+        orgId: getRequestOrgId(),
+        target,
+        chrome: "minimal",
+        bindBrowserTab: true,
+        signal: controller.signal,
+      }),
+      new Promise<never>((_resolve, reject) => {
+        controller.signal.addEventListener(
+          "abort",
+          () => reject(controller.signal.reason),
+          { once: true },
+        );
+      }),
+    ]);
+    const release = () => {
+      clearTimeout(timer);
+      if (pendingGrantedEmbeds.get(key) === entry)
+        pendingGrantedEmbeds.delete(key);
+    };
+    const abort = () => {
+      release();
+      controller.abort();
+    };
+    const timer = setTimeout(abort, OPEN_APP_EMBED_WAIT_MS);
+    timer.unref();
+    const entry = { result, release, abort };
+    pendingGrantedEmbeds.set(key, entry);
+    try {
+      await result;
+    } catch {
+      release();
+    }
+  })().catch(() => {});
+  const waitUntil = getRequestRunContext()?.waitUntil ?? platformWaitUntil();
+  waitUntil?.(work);
+}
+
+async function takePrefetchedGrantedEmbedSession(
+  ownerEmail: string,
+  target: ResolvedEmbedTarget,
+): Promise<InternalEmbedSession | undefined> {
+  const key = grantedEmbedPrefetchKey(ownerEmail, target);
+  const entry = pendingGrantedEmbeds.get(key);
+  if (!entry) return;
+  pendingGrantedEmbeds.delete(key);
+  const claimDeadline = setTimeout(entry.abort, BROWSER_EMBED_PREFETCH_WAIT_MS);
+  try {
+    const session = await entry.result;
+    if (session.expiresAt === undefined || session.expiresAt > Date.now())
+      return session;
+  } catch {
+    // coercion-ok: A failed prefetch requires the normal foreground mint.
+  } finally {
+    clearTimeout(claimDeadline);
+    entry.release();
+  }
 }
 
 async function createGrantedDispatchMcpEmbedSessionResult(input: {
@@ -1721,11 +2157,19 @@ async function createGrantedDispatchMcpEmbedSessionResult(input: {
   path?: string;
   chrome?: "full" | "minimal";
   runtime?: "workspace-app-chat";
+  bindBrowserTab?: boolean;
   signal?: AbortSignal;
 }): Promise<InternalEmbedSession> {
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
   const target = await resolveDispatchEmbedTarget(input);
+  if (input.bindBrowserTab && input.chrome === "minimal") {
+    const prefetched = await takePrefetchedGrantedEmbedSession(
+      userEmail,
+      target,
+    );
+    if (prefetched) return prefetched;
+  }
 
   return createEmbedSessionForResolvedApp({
     ownerEmail: userEmail,
@@ -1733,21 +2177,20 @@ async function createGrantedDispatchMcpEmbedSessionResult(input: {
     target,
     chrome: input.chrome,
     runtime: input.runtime,
+    bindBrowserTab: input.bindBrowserTab,
     ...(input.signal ? { signal: input.signal } : {}),
   });
 }
 
-export async function createGrantedDispatchMcpEmbedSession(input: {
-  app?: string;
-  url?: string;
-  path?: string;
-  chrome?: "full" | "minimal";
-}): Promise<{
-  startUrl: string;
-  targetPath?: string;
-  expiresAt?: number;
-  app: string;
-}> {
+export async function createGrantedDispatchMcpEmbedSession(
+  input: {
+    app?: string | undefined;
+    url?: string | undefined;
+    path?: string | undefined;
+    chrome?: "full" | "minimal" | undefined;
+  },
+  options?: { bindBrowserTab: boolean },
+): Promise<ReturnType<typeof publicEmbedSession>> {
   // Copy only public fields so a caller cannot supply a pre-resolved app.
   const { app, url, path, chrome } = input;
   return publicEmbedSession(
@@ -1756,6 +2199,7 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
       ...(url === undefined ? {} : { url }),
       ...(path === undefined ? {} : { path }),
       ...(chrome === undefined ? {} : { chrome }),
+      ...(options?.bindBrowserTab ? { bindBrowserTab: true } : {}),
     }),
   );
 }
@@ -1802,11 +2246,11 @@ export async function createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
 
 async function createEmbedSessionForResolvedApp(input: {
   ownerEmail: string;
-  orgId?: string;
+  orgId?: string | undefined;
   target: { app: DispatchMcpAccessibleApp; path: string; url: string };
-  chrome?: "full" | "minimal";
-  runtime?: "workspace-app-chat";
-  workspaceSso?: boolean;
+  chrome?: "full" | "minimal" | undefined;
+  runtime?: "workspace-app-chat" | undefined;
+  bindBrowserTab?: boolean | undefined;
   signal?: AbortSignal;
 }): Promise<InternalEmbedSession> {
   const { ownerEmail, orgId, target, chrome } = input;
@@ -1826,18 +2270,14 @@ async function createEmbedSessionForResolvedApp(input: {
   }
 
   const targetMcpUrl = appMcpUrl(target.app);
-  const firstPartyMcp =
-    (input.workspaceSso === true || input.runtime === "workspace-app-chat") &&
-    isWorkspaceSsoAppUrl(
-      { id: target.app.id, url: targetMcpUrl },
-      {
-        nodeEnv: "production",
-        environmentLane: requestEnvironmentLane(),
-        ...(input.runtime
-          ? { registryRaw: getAppConfig().auth.identitySsoAppRegistryJson }
-          : {}),
-      },
-    );
+  const firstPartyMcp = isWorkspaceSsoAppUrl(
+    { id: target.app.id, url: targetMcpUrl },
+    {
+      nodeEnv: "production",
+      environmentLane: requestEnvironmentLane(),
+      registryRaw: getAppConfig().auth.identitySsoAppRegistryJson,
+    },
+  );
   if (input.runtime && !firstPartyMcp)
     throw new Error("App chat requires a first-party workspace target.");
   const targetCredentials = await createTargetMcpUserCredentials({
@@ -1852,6 +2292,16 @@ async function createEmbedSessionForResolvedApp(input: {
     mcpUrl: targetMcpUrl,
     url: target.url,
   });
+  const childBrowserTabId = input.bindBrowserTab
+    ? crypto.randomUUID()
+    : undefined;
+  const launchUrl = new URL(target.url);
+  if (childBrowserTabId) {
+    launchUrl.searchParams.set(
+      DISPATCH_CHILD_BROWSER_TAB_PARAM,
+      childBrowserTabId,
+    );
+  }
   let parsed:
     | {
         startUrl?: string;
@@ -1872,7 +2322,7 @@ async function createEmbedSessionForResolvedApp(input: {
       const result = await callTargetCreateEmbedSession({
         mcpUrl: targetMcpUrl,
         token: credential.token,
-        url: target.url,
+        url: childBrowserTabId ? launchUrl.toString() : target.url,
         ...(chrome !== undefined ? { chrome } : {}),
         ...(input.runtime ? { runtime: input.runtime } : {}),
         ...(input.signal ? { signal: input.signal } : {}),
@@ -1955,7 +2405,21 @@ async function createEmbedSessionForResolvedApp(input: {
     app: target.app.id,
     appBaseUrl: appChatBaseUrl(target.app),
   };
-  if (parsed.targetPath) output.targetPath = parsed.targetPath;
+  if (parsed.targetPath) {
+    output.targetPath = parsed.targetPath;
+    const safePath = childBrowserTabId && safeAppPath(parsed.targetPath);
+    if (safePath) {
+      const reported = new URL(safePath, launchUrl.origin);
+      if (
+        reported.searchParams.get(DISPATCH_CHILD_BROWSER_TAB_PARAM) ===
+        childBrowserTabId
+      ) {
+        reported.searchParams.delete(DISPATCH_CHILD_BROWSER_TAB_PARAM);
+        output.targetPath = reported.pathname + reported.search + reported.hash;
+        output.childBrowserTabId = childBrowserTabId;
+      }
+    }
+  }
   if (typeof parsed.expiresAt === "number") output.expiresAt = parsed.expiresAt;
   return output;
 }
@@ -1966,6 +2430,7 @@ async function createWorkspaceSsoEmbedSessionResult(input: {
   path?: string | undefined;
   chrome?: "full" | "minimal" | undefined;
   runtime?: "workspace-app-chat" | undefined;
+  bindBrowserTab?: boolean;
 }): Promise<InternalEmbedSession> {
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) {
@@ -2006,24 +2471,28 @@ async function createWorkspaceSsoEmbedSessionResult(input: {
     target,
     chrome: input.chrome,
     runtime: input.runtime,
-    workspaceSso: true,
+    bindBrowserTab: input.bindBrowserTab,
   });
 }
 
-export async function createWorkspaceSsoEmbedSession(input: {
-  app?: string;
-  url?: string;
-  path?: string;
-  chrome?: "full" | "minimal";
-}): Promise<{
-  startUrl: string;
-  targetPath?: string;
-  expiresAt?: number;
-  app: string;
-}> {
+export async function createWorkspaceSsoEmbedSession(
+  input: {
+    app?: string | undefined;
+    url?: string | undefined;
+    path?: string | undefined;
+    chrome?: "full" | "minimal" | undefined;
+  },
+  options?: { bindBrowserTab: boolean },
+): Promise<ReturnType<typeof publicEmbedSession>> {
   const { app, url, path, chrome } = input;
   return publicEmbedSession(
-    await createWorkspaceSsoEmbedSessionResult({ app, url, path, chrome }),
+    await createWorkspaceSsoEmbedSessionResult({
+      app,
+      url,
+      path,
+      chrome,
+      ...(options?.bindBrowserTab ? { bindBrowserTab: true } : {}),
+    }),
   );
 }
 

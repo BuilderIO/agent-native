@@ -19,7 +19,10 @@ import {
   getRequestRunContext,
   getRequestUserEmail,
 } from "../request-context.js";
-import { createResourceWriteEntry } from "./resource-write-tool.js";
+import {
+  createResourceWriteEntry,
+  RESOURCE_EXPECTED_REVISION_DESCRIPTION,
+} from "./resource-write-tool.js";
 
 type CliMain = (args: string[]) => Promise<void>;
 
@@ -370,16 +373,30 @@ export function shouldDefaultResourceWriteToShared(path: string): boolean {
   return path.replace(/^\/+/, "") === "LEARNINGS.md";
 }
 
+function isJobsResourcePath(path: unknown): boolean {
+  if (typeof path !== "string") return false;
+  const segments: string[] = [];
+  for (const segment of path.trim().replace(/\\/g, "/").split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") segments.pop();
+    else segments.push(segment);
+  }
+  return segments.length > 1 && segments[0] === "jobs";
+}
+
 function requiresSharedResourceApproval(
   args: Record<string, unknown>,
 ): boolean {
+  const action = String(args.action);
   return (
-    ["write", "promote", "delete"].includes(String(args.action)) &&
-    (args.scope === "shared" ||
-      (args.action === "write" &&
-        args.scope == null &&
-        typeof args.path === "string" &&
-        shouldDefaultResourceWriteToShared(args.path)))
+    (["write", "promote", "delete"].includes(action) &&
+      (args.scope === "shared" ||
+        (action === "write" &&
+          args.scope == null &&
+          typeof args.path === "string" &&
+          shouldDefaultResourceWriteToShared(args.path)))) ||
+    ((action === "write" || action === "delete") &&
+      isJobsResourcePath(args.path))
   );
 }
 
@@ -482,6 +499,10 @@ export async function createResourceScriptEntries(): Promise<
                 type: "string",
                 description: "write: MIME type (default: from extension)",
               },
+              expectedRevision: {
+                type: "string",
+                description: RESOURCE_EXPECTED_REVISION_DESCRIPTION,
+              },
               format: {
                 type: "string",
                 description: "list output format (default: text)",
@@ -533,6 +554,7 @@ export async function createResourceScriptEntries(): Promise<
             const result = await captureCliOutput(async () => {
               try {
                 await read.default(serializeCliArgs(rest), {
+                  withRevision: true,
                   ...(context?.maxResultChars !== undefined && {
                     maxResultChars: context.maxResultChars,
                   }),

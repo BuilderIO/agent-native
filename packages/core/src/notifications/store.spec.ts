@@ -81,7 +81,7 @@ async function seedRow(opts: {
 }
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`CREATE TABLE IF NOT EXISTS notifications (
     id TEXT PRIMARY KEY,
     owner TEXT NOT NULL,
@@ -770,5 +770,31 @@ describe("usage-limit notice setting", () => {
     const visible = await listNotifications(ALICE);
     expect(visible.map((n) => n.title)).toEqual(["Usage limit reached"]);
     expect(visible[0].archivedAt).toBeNull();
+  });
+
+  it("leaves credit-limit notices out of the inbox and badge where commercial surfaces are hidden", async () => {
+    await seedUsageAndOther();
+    await insertNotification({
+      owner: ALICE,
+      severity: "warning",
+      title: "Credit limit reached",
+      metadata: {
+        usageAlertRuleId:
+          "usage-alert:user:user:alice:all:builder-credits:month",
+        period: "month",
+      },
+    });
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    try {
+      expect(
+        (await listNotifications(ALICE)).map((n) => n.title).sort(),
+      ).toEqual(["No metadata", "Report ready", "Usage limit reached"]);
+      expect(await countUnread(ALICE)).toBe(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(await countUnread(ALICE)).toBe(4);
   });
 });

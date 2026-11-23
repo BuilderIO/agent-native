@@ -14,6 +14,7 @@ import {
   appPath,
   frameworkRoutePrefix,
 } from "@agent-native/core/client/api-path";
+import { commercialSurfacesHidden } from "@agent-native/core/client/app-config";
 import {
   readClientAppState,
   setClientAppState,
@@ -30,6 +31,7 @@ import {
   isMcpIntegrationCatalogAvailable,
   useCreateMcpServer,
 } from "@agent-native/core/client/resources";
+import { buildSettingsRoute } from "@agent-native/core/navigation";
 import {
   FRAMEWORK_INTERNAL_ROUTE_PREFIX,
   matchesPathPrefix,
@@ -41,6 +43,7 @@ import {
   type ComposerRuntimeAdapters,
 } from "@agent-native/toolkit/composer/runtime-adapters";
 import { useMemo, type ReactNode } from "react";
+import { Link } from "react-router";
 
 import { McpIntegrationDialogDeferred } from "../../resources/McpIntegrationDialogDeferred.js";
 import { DeferredBuilderConnectPopover } from "../../settings/deferred-builder-connect-popover.js";
@@ -77,12 +80,25 @@ function subscribeSidebarState(
 
 type CoreComposerRuntimeAdapters = Omit<ComposerRuntimeAdapters, "translate">;
 
+function ProviderSettingsLink() {
+  const t = useT();
+  return (
+    <Link
+      to={buildSettingsRoute("model")}
+      className="font-medium underline underline-offset-2"
+    >
+      {t("agentChat.common.settings")}
+    </Link>
+  );
+}
+
 export const coreComposerAdapters: CoreComposerRuntimeAdapters = {
   resolvePath: resolveComposerPath,
   models: {
     ...coreComposerModelAdapters,
     BuilderSetupCard,
     BuilderSetupContent,
+    ProviderSettingsLink,
   },
   agentChat: {
     sendToAgentChat,
@@ -96,6 +112,7 @@ export const coreComposerAdapters: CoreComposerRuntimeAdapters = {
   builder: {
     useConnectFlow: useBuilderConnectFlow,
     BuilderConnectPopover: DeferredBuilderConnectPopover,
+    creditsOffered: () => !commercialSurfacesHidden(),
     tryDelegateBuildRequest: tryDelegateBuildRequestToBuilder,
     isTrustedBuilderMessage,
     isTrustedFrameMessage,

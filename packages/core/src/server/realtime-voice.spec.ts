@@ -1850,7 +1850,7 @@ describe("realtime voice tool route", () => {
     expect(result).toEqual({
       callId: "call_123",
       status: "completed",
-      output: '{"ok":true,"apiKey":[REDACTED]}',
+      output: '{"ok":true,"apiKey":"[REDACTED]"}',
     });
   });
 

@@ -17,6 +17,7 @@ export default defineAction({
   }),
   needsApproval: true,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: async (args) => {
     const source = await getContextSource(args.sourceId);
     if (!source) throw new Error("Context source not found or not accessible");

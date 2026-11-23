@@ -646,9 +646,11 @@ export async function approveRequest(requestId: string) {
     return current;
   }
 
-  const applying = claimed[0];
+  const applying = claimed.at(0);
+  if (!applying) throw new Error("Approval request disappeared");
+  let applied: unknown;
   try {
-    await applyApprovedRequest(applying);
+    applied = await applyApprovedRequest(applying);
   } catch (error) {
     await db
       .update(schema.dispatchApprovalRequests)
@@ -686,7 +688,11 @@ export async function approveRequest(requestId: string) {
     summary: `Approved ${updated.summary}`,
     metadata: updated,
   });
-  return updated;
+  const warning =
+    typeof applied === "object" && applied !== null && "warning" in applied
+      ? applied.warning
+      : undefined;
+  return typeof warning === "string" ? { ...updated, warning } : updated;
 }
 
 export async function rejectRequest(requestId: string, reason?: string | null) {

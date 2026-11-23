@@ -3,5 +3,7 @@ export const MAIL_CONNECTOR_CATALOG = [
   "get-email",
   "get-thread",
   "create-attachment-upload",
+  "list-content-pages",
+  "attach-content-page",
   "manage-draft",
 ] as const;

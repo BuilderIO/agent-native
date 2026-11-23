@@ -107,12 +107,14 @@ const TTL_MS = MCP_ACTION_APPROVAL_TTL_SECONDS * 1000;
  */
 export function mcpApprovalReviewUrl(
   nonce: string,
-  requestMeta: Pick<MCPRequestMeta, "origin" | "approvalRoute"> | undefined,
+  requestMeta:
+    | Pick<MCPRequestMeta, "origin" | "approvalRoute" | "approvalOrigin">
+    | undefined,
 ): string {
   const route = requestMeta?.approvalRoute ?? mcpApprovalRoute();
   return toAbsoluteOpenUrl(
     publicFrameworkPath(`${route}/${encodeURIComponent(nonce)}`),
-    declaredLinkOrigin(requestMeta?.origin),
+    declaredLinkOrigin(requestMeta?.approvalOrigin ?? requestMeta?.origin),
   );
 }
 
@@ -140,6 +142,8 @@ export interface McpApprovalView {
   state: McpApprovalViewState;
   actionName: string;
   summary: McpApprovalSummary;
+  /** The action's server-computed notice, while the grant is live. */
+  notice?: string;
   requester: McpApprovalRequester | undefined;
   createdAt: number | null;
   expiresAt: number;
@@ -260,6 +264,7 @@ async function buildView(
   // so the time and the state it decides from are taken after every read.
   const now = Date.now();
   const state = mcpApprovalViewState(record, now);
+  const live = state === "pending" || state === "approved";
   return {
     id: record.nonce,
     state,
@@ -270,6 +275,7 @@ async function buildView(
       argumentsJson: record.argumentsJson,
       labels: messages,
     }),
+    ...(live && record.approvalNotice ? { notice: record.approvalNotice } : {}),
     requester,
     createdAt: record.createdAt,
     expiresAt: record.expiresAt,
@@ -360,6 +366,7 @@ summary{cursor:pointer;color:GrayText}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid GrayText;border-radius:8px;padding:12px;max-height:40vh;overflow:auto;font-size:13px}
 .warn{background:Mark;color:MarkText;border-radius:8px;padding:10px 12px;margin:0 0 16px}
 .muted{color:GrayText}
+.notice{white-space:pre-line;overflow-wrap:anywhere;margin:0 0 16px}
 .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
 button{font:inherit;font-weight:600;border-radius:8px;padding:9px 18px;cursor:pointer;border:1px solid GrayText;background:Canvas;color:CanvasText}
 button.primary{background:CanvasText;color:Canvas;border-color:CanvasText}
@@ -409,6 +416,9 @@ function renderPage(input: {
     live && summary.cut
       ? `<p class="warn" role="alert">${escapeHtml(messages.argumentsCut)}</p>`
       : "";
+  const notice = view.notice
+    ? `<p class="notice">${escapeHtml(view.notice)}</p>`
+    : "";
   const recipients =
     summary.recipients.length > 0
       ? `<h2>${escapeHtml(messages.reaches)}</h2><ul>${summary.recipients
@@ -476,7 +486,7 @@ function renderPage(input: {
       pageOutOfDate: messages.pageOutOfDate,
     },
   }).replace(/</g, "\\u003c");
-  return `${pageHead(locale, messages.documentTitle.replace("{action}", summary.title))}<body><main><h1>${escapeHtml(summary.title)}</h1>${prior}${cut}${recipients}${fields}${details}${decision}<p id="result" role="status">${stateMessage(view, messages)}</p></main><script type="application/json" id="approval-data">${data}</script><script nonce="${scriptNonce}">${PAGE_SCRIPT}</script></body></html>`;
+  return `${pageHead(locale, messages.documentTitle.replace("{action}", summary.title))}<body><main><h1>${escapeHtml(summary.title)}</h1>${notice}${prior}${cut}${recipients}${fields}${details}${decision}<p id="result" role="status">${stateMessage(view, messages)}</p></main><script type="application/json" id="approval-data">${data}</script><script nonce="${scriptNonce}">${PAGE_SCRIPT}</script></body></html>`;
 }
 
 // A decision whose response is lost or unreadable may still have been saved,
@@ -724,7 +734,7 @@ export async function mcpApprovalPrompt(input: {
   review: McpApprovalReview;
   ownerEmail: string | undefined;
   mode: "form" | "url";
-  reviewUrl: string;
+  reviewUrl?: string;
 }): Promise<{ message: string; decisionTitle: string; decisionHelp: string }> {
   const preference = await readerPreference(input.ownerEmail);
   const { locale } = resolveLocaleFromRequest({
@@ -741,6 +751,7 @@ export async function mcpApprovalPrompt(input: {
   return {
     message: mcpApprovalPromptText({
       summary,
+      notice: input.review.notice,
       priorRun: input.review.priorRun,
       messages,
       locale,

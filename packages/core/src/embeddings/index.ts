@@ -1,5 +1,11 @@
+import { createHash } from "node:crypto";
+
 import { withoutWriteObservation } from "../action-frame.js";
 import { readBoundedResponseBytes } from "../ingestion/index.js";
+import type {
+  ProviderBudgetPolicy,
+  ProviderConnectionScope,
+} from "../provider-api/provider-budget.js";
 import {
   getBuilderEmbeddingsBaseUrl,
   prefetchSecrets,
@@ -46,6 +52,18 @@ export interface EmbeddingFamily {
    * before it, so callers that keep progress send at most this many a call.
    */
   inputsPerRequest?: number;
+  /**
+   * How many `document` calls these credentials may make, shared by every
+   * server, and the account the provider counts them against. Indexing waits
+   * when it's spent, so searches keep the rest of the provider's rate limit,
+   * and a search the provider refuses for its rate limit holds indexing back
+   * for a while. Each `embed` call counts as one. Unset, indexing is paced
+   * only by the provider's refusals.
+   */
+  documentBudget?: {
+    scope: ProviderConnectionScope;
+    policy: ProviderBudgetPolicy;
+  };
   embed(
     inputs: readonly MultimodalEmbeddingInput[],
     purpose: EmbeddingInputPurpose,
@@ -53,7 +71,8 @@ export interface EmbeddingFamily {
   ): Promise<number[][]>;
 }
 
-const DEFAULT_DIMENSIONS = 1024;
+/** What every built-in embedding family stores, unless told otherwise. */
+export const DEFAULT_EMBEDDING_DIMENSIONS = 1024;
 /**
  * voyage-multimodal-3.5's floor, which Builder's model also serves. On the
  * question-search eval corpus every judged page scored 0.326 or more, and no
@@ -61,6 +80,10 @@ const DEFAULT_DIMENSIONS = 1024;
  */
 const VOYAGE_MULTIMODAL_MIN_SIMILARITY = 0.3;
 const BUILDER_EMBEDDING_MODEL = "builder-multimodal-embedding";
+const BUILDER_DOCUMENT_BUDGET: ProviderBudgetPolicy = {
+  capacity: 2,
+  windowMs: 60_000,
+};
 const BUILDER_EMBEDDING_BATCH_LIMIT = 32;
 const BUILDER_EMBEDDING_INPUT_TEXT_LIMIT = 32_000;
 const BUILDER_EMBEDDING_INPUT_IMAGE_LIMIT = 6;
@@ -220,7 +243,7 @@ function numberVectors(value: unknown): number[][] {
 
 export function createGeminiEmbeddingFamily(
   apiKey: string,
-  dimensions = DEFAULT_DIMENSIONS,
+  dimensions = DEFAULT_EMBEDDING_DIMENSIONS,
 ): EmbeddingFamily {
   const model = "gemini-embedding-2";
   return {
@@ -270,7 +293,7 @@ export function createGeminiEmbeddingFamily(
 }
 export function createCohereEmbeddingFamily(
   apiKey: string,
-  dimensions = DEFAULT_DIMENSIONS,
+  dimensions = DEFAULT_EMBEDDING_DIMENSIONS,
 ): EmbeddingFamily {
   const model = "embed-v4.0";
   return {
@@ -386,8 +409,8 @@ function builderEmbeddingVectors(
     if (index < 0 || index >= expectedCount || vectors[index]) {
       throw new Error("Embedding response was malformed.");
     }
-    const vector = numberVectors([embedding])[0];
-    if (vector.length !== DEFAULT_DIMENSIONS) {
+    const vector = numberVectors([embedding]).at(0);
+    if (!vector || vector.length !== DEFAULT_EMBEDDING_DIMENSIONS) {
       throw new Error("Embedding response contained an invalid vector.");
     }
     vectors[index] = vector;
@@ -402,11 +425,11 @@ export function createBuilderEmbeddingFamily(
   auth: BuilderGatewayAuth,
 ): EmbeddingFamily {
   return {
-    id: `builder:${BUILDER_EMBEDDING_MODEL}:${DEFAULT_DIMENSIONS}`,
+    id: `builder:${BUILDER_EMBEDDING_MODEL}:${DEFAULT_EMBEDDING_DIMENSIONS}`,
     provider: "builder",
     model: BUILDER_EMBEDDING_MODEL,
     version: "3.5",
-    dimensions: DEFAULT_DIMENSIONS,
+    dimensions: DEFAULT_EMBEDDING_DIMENSIONS,
     minSimilarity: VOYAGE_MULTIMODAL_MIN_SIMILARITY,
     supportedImageMimeTypes: [
       "image/png",
@@ -414,6 +437,17 @@ export function createBuilderEmbeddingFamily(
       "image/webp",
       "image/gif",
     ],
+    documentBudget: {
+      scope: {
+        providerId: "builder-embeddings",
+        tenantId: auth.spaceId ?? "builder",
+        connectionId: createHash("sha256")
+          .update(auth.authorization)
+          .digest("hex")
+          .slice(0, 24),
+      },
+      policy: BUILDER_DOCUMENT_BUDGET,
+    },
     async embed(inputs, purpose, options) {
       const vectors: number[][] = [];
       const baseUrl = getBuilderEmbeddingsBaseUrl().replace(/\/$/, "");

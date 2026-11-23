@@ -111,6 +111,13 @@ export function useUpdateBookingLink() {
   });
 }
 
+export function useCreateSingleUseLink() {
+  return useActionMutation<
+    { token: string; bookingLinkId: string; url: string },
+    { bookingLinkId: string }
+  >("create-single-use-link");
+}
+
 export function useDeleteBookingLink() {
   const queryClient = useQueryClient();
   return useActionMutation<{ ok: true }, { id: string }>(

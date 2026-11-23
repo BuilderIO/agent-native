@@ -12,7 +12,7 @@ vi.mock("@agent-native/core/brand-kit", async () => {
   return actual;
 });
 
-vi.mock("@agent-native/creative-context/server", () => ({
+vi.mock("@agent-native/creative-context/connectors", () => ({
   extractRenderedDesignSystemFromUrl: mocks.extractRenderedDesignSystemFromUrl,
 }));
 
@@ -22,18 +22,14 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("../server/db/index.js", () => ({}));
 
-import action, { normalizeBrandWebsiteUrl } from "./analyze-brand-assets";
+import action from "./analyze-brand-assets";
+
+// oracle-change: removed the normalizeBrandWebsiteUrl re-export case because the action no longer re-exports it; packages/core brand-signals.spec.ts owns the function
 
 describe("analyze-brand-assets", () => {
   beforeEach(() => {
     mocks.extractRenderedDesignSystemFromUrl.mockReset();
     mocks.resolveAccess.mockReset();
-  });
-
-  it("re-exports normalizeBrandWebsiteUrl from the shared brand-kit module", () => {
-    expect(normalizeBrandWebsiteUrl("example.com/brand")).toBe(
-      "https://example.com/brand",
-    );
   });
 
   it("passes companyName and brandNotes straight through", async () => {

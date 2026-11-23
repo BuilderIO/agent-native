@@ -30,6 +30,8 @@ vi.mock("@/components/ui/tooltip", () => ({
 import { buildGradientLayer } from "../edit-panel/fill-gradient-helpers";
 import { GradientEditor, type GradientValue } from "./GradientEditor";
 
+// oracle-change: removed pin-drag and bar-click commit cases; GradientEditor.stops.test.tsx covers both ('moves a pin with the pointer', 'adds a pin where the bar is clicked')
+
 const baseValue: GradientValue = {
   kind: "linear",
   angle: 90,
@@ -129,38 +131,6 @@ describe("GradientEditor onCommit", () => {
     }
   });
 
-  it("fires onChange on every tick but onCommit exactly once when dragging a stop handle", () => {
-    const onChange = vi.fn();
-    const onCommit = vi.fn();
-
-    act(() => {
-      root.render(
-        <GradientEditor
-          value={baseValue}
-          onChange={onChange}
-          onCommit={onCommit}
-          selectedStopId="a"
-          onSelectStop={vi.fn()}
-        />,
-      );
-    });
-
-    const handle = container.querySelector<HTMLButtonElement>(
-      'button[aria-label^="#ff0000"]',
-    );
-    expect(handle).not.toBeNull();
-
-    act(() => {
-      handle!.dispatchEvent(pointerEvent("pointerdown", { clientX: 0 }));
-      handle!.dispatchEvent(pointerEvent("pointermove", { clientX: 20 }));
-      handle!.dispatchEvent(pointerEvent("pointermove", { clientX: 40 }));
-      handle!.dispatchEvent(pointerEvent("pointerup", { clientX: 40 }));
-    });
-
-    expect(onChange).toHaveBeenCalledTimes(2);
-    expect(onCommit).toHaveBeenCalledTimes(1);
-  });
-
   it("does not fire onCommit for a plain click-to-select with no movement", () => {
     const onChange = vi.fn();
     const onCommit = vi.fn();
@@ -189,36 +159,6 @@ describe("GradientEditor onCommit", () => {
 
     expect(onChange).not.toHaveBeenCalled();
     expect(onCommit).not.toHaveBeenCalled();
-  });
-
-  it("fires onChange and onCommit exactly once when adding a stop via a bar click", () => {
-    const onChange = vi.fn();
-    const onCommit = vi.fn();
-
-    act(() => {
-      root.render(
-        <GradientEditor
-          value={baseValue}
-          onChange={onChange}
-          onCommit={onCommit}
-          selectedStopId="a"
-          onSelectStop={vi.fn()}
-        />,
-      );
-    });
-
-    const bar = container.querySelector<HTMLDivElement>(
-      '[aria-label="Gradient stops"]',
-    );
-    expect(bar).not.toBeNull();
-
-    act(() => {
-      bar!.dispatchEvent(pointerEvent("pointerdown", { clientX: 100 }));
-      bar!.dispatchEvent(pointerEvent("pointerup", { clientX: 100 }));
-    });
-
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onCommit).toHaveBeenCalledTimes(1);
   });
 
   it("fires onCommit exactly once when removing the selected stop via the trash button", () => {

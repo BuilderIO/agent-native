@@ -1139,8 +1139,12 @@ function debuggerAttach(tabId: number): Promise<void> {
 }
 
 function debuggerDetach(tabId: number): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.debugger.detach({ tabId }, () => resolve());
+  return new Promise((resolve, reject) => {
+    chrome.debugger.detach({ tabId }, () => {
+      const error = chromeLastError();
+      if (error) reject(error);
+      else resolve();
+    });
   });
 }
 
@@ -2232,6 +2236,10 @@ async function handlePopupSignIn(message: {
   const signInUrl = new URL(`${settings.clipsBaseUrl}/library`);
   signInUrl.searchParams.set("clipsExtensionAuth", "1");
   signInUrl.searchParams.set("clipsExtensionId", chrome.runtime.id);
+  // Without force=true the production page's beta-lane redirect moves Builder
+  // employees to beta, and handleAuthSession rejects the session because that
+  // origin is not the saved clipsBaseUrl.
+  signInUrl.searchParams.set("force", "true");
   await createTab(signInUrl.toString());
   return { ok: true };
 }
@@ -2403,9 +2411,16 @@ async function attachSession(session: CaptureSession): Promise<void> {
   // attached, and the failure is reported rather than hidden.
   let wanted = [session.targetTabId];
   try {
+    const targetWindowId = (await chrome.tabs.get(session.targetTabId))
+      .windowId;
+    const windowTabs = await chrome.tabs.query({ windowId: targetWindowId });
+    const windowTabIds = new Set(windowTabs.map((tab) => tab.id));
     wanted = pickDebugTabIds({
       targetTabId: session.targetTabId,
-      activations: await readTabActivations(),
+      targetWindowId,
+      activations: (await readTabActivations())
+        .filter((tab) => windowTabIds.has(tab.tabId))
+        .map((tab) => ({ ...tab, windowId: targetWindowId })),
       nowMs: nowMs(),
     });
   } catch (err) {
@@ -2416,8 +2431,58 @@ async function attachSession(session: CaptureSession): Promise<void> {
   for (const tabId of wanted) {
     if (session.debugTabs.has(tabId)) continue;
     if (session.debugTabs.size >= MAX_DEBUGGED_TABS) break;
-    await attachDebugTab(session, tabId);
+    try {
+      if (
+        tabId !== session.targetTabId &&
+        !(await inTargetWindow(session, tabId))
+      )
+        continue;
+      if (!(await attachDebugTab(session, tabId))) continue;
+      if (
+        tabId !== session.targetTabId &&
+        !(await inTargetWindow(session, tabId))
+      )
+        await detachDebugTab(session, tabId);
+    } catch (err) {
+      if (err instanceof TargetWindowLookupError) {
+        session.attachError = `Could not check tab ${tabId}'s window: ${err.message}`;
+      } else {
+        console.warn(
+          "[clips-bg] could not check recent tab's window",
+          tabId,
+          err,
+        );
+      }
+      if (session.debugTabs.has(tabId)) {
+        await detachDebugTab(session, tabId).catch((detachError) => {
+          console.warn(
+            "[clips-bg] could not detach recent tab",
+            tabId,
+            detachError,
+          );
+        });
+      }
+    }
   }
+}
+
+class TargetWindowLookupError extends Error {
+  constructor(readonly original: unknown) {
+    super(original instanceof Error ? original.message : String(original));
+  }
+}
+
+async function inTargetWindow(
+  session: CaptureSession,
+  tabId: number,
+): Promise<boolean> {
+  const target = await chrome.tabs
+    .get(session.targetTabId)
+    .catch((err: unknown) => {
+      throw new TargetWindowLookupError(err);
+    });
+  const tab = await chrome.tabs.get(tabId);
+  return tab.windowId === target.windowId;
 }
 
 async function attachDebugTab(
@@ -2464,10 +2529,13 @@ async function detachDebugTab(
 
 async function detachSession(session: CaptureSession): Promise<void> {
   for (const tabId of [...session.debugTabs.keys()]) {
-    await detachDebugTab(session, tabId);
+    await detachDebugTab(session, tabId).catch((err) => {
+      console.warn("[clips-bg] could not detach session tab", tabId, err);
+    });
   }
-  tabToSession.delete(session.targetTabId);
-  session.attached = false;
+  if (!session.debugTabs.has(session.targetTabId)) {
+    tabToSession.delete(session.targetTabId);
+  }
 }
 
 // Runs inside the page through chrome.scripting, so it must not close over
@@ -3322,6 +3390,33 @@ async function dispatchRuntimeMessage(
   }
 }
 
+chrome.tabs.onAttached.addListener(() => {
+  void (async () => {
+    const session = recordingDiagnosticsSession();
+    if (!session) return;
+    for (const tabId of [...session.debugTabs.keys()]) {
+      if (tabId === session.targetTabId) continue;
+      let eligible = false;
+      try {
+        eligible = await inTargetWindow(session, tabId);
+      } catch (err) {
+        console.warn(
+          "[clips-bg] could not check moved tab's window",
+          tabId,
+          err,
+        );
+      }
+      if (!eligible) {
+        await detachDebugTab(session, tabId).catch((err) => {
+          console.warn("[clips-bg] could not detach moved tab", tabId, err);
+        });
+      }
+    }
+  })().catch((err) => {
+    console.warn("[clips-bg] window cleanup after tab move failed", err);
+  });
+});
+
 chrome.tabs.onActivated.addListener((info) => {
   if (!CROSS_TAB_FOLLOW) return;
   void (async () => {
@@ -3366,15 +3461,40 @@ function recordingDiagnosticsSession(): CaptureSession | null {
 // While a recording runs, the tab the user switches to is attached too. When
 // the cap is full, the least recently active attached tab gives up its slot;
 // its logs so far stay in the recording.
-async function followRecordingTab(tabId: number, now: number): Promise<void> {
+async function followRecordingTab(
+  tabId: number,
+  windowId: number | undefined,
+  now: number,
+): Promise<void> {
   const session = recordingDiagnosticsSession();
   if (!session) return;
+  const targetWindowId = (await chrome.tabs.get(session.targetTabId)).windowId;
+  if (windowId !== targetWindowId) return;
   if (session.debugTabs.has(tabId)) {
     session.debugTabs.set(tabId, now);
     return;
   }
   // Attach first, so a refused tab never costs an attached tab its slot.
   if (!(await attachDebugTab(session, tabId))) return;
+  let eligible: boolean;
+  try {
+    eligible =
+      recordingDiagnosticsSession() === session &&
+      (await inTargetWindow(session, tabId));
+  } catch (err) {
+    await detachDebugTab(session, tabId).catch((detachError) => {
+      console.warn(
+        "[clips-bg] could not detach followed tab",
+        tabId,
+        detachError,
+      );
+    });
+    throw err;
+  }
+  if (!eligible) {
+    await detachDebugTab(session, tabId);
+    return;
+  }
   while (session.debugTabs.size > MAX_DEBUGGED_TABS) {
     const victim = chooseTabToDetach({
       attached: [...session.debugTabs].map(([id, lastActiveMs]) => ({
@@ -3388,27 +3508,38 @@ async function followRecordingTab(tabId: number, now: number): Promise<void> {
   }
 }
 
-async function noteTabActivated(tabId: number): Promise<void> {
+async function noteTabActivated(
+  tabId: number,
+  windowId: number | undefined,
+): Promise<void> {
   const now = nowMs();
   await sessionStorageSet({
     [RECENT_TABS_KEY]: recordTabActivation(
       await readTabActivations(),
       tabId,
       now,
+      windowId,
     ),
   });
-  await followRecordingTab(tabId, now);
+  await followRecordingTab(tabId, windowId, now);
 }
 
 chrome.tabs.onActivated.addListener((info) => {
-  queueTabActivation(() => noteTabActivated(info.tabId));
+  queueTabActivation(() => noteTabActivated(info.tabId, info.windowId));
 });
 
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) return;
   queueTabActivation(async () => {
-    const [tab] = await chrome.tabs.query({ active: true, windowId });
-    if (typeof tab?.id === "number") await noteTabActivated(tab.id);
+    const activeTabs: Array<chrome.tabs.Tab | undefined> =
+      await chrome.tabs.query({
+        active: true,
+        windowId,
+      });
+    const activeTabId = activeTabs[0]?.id;
+    if (typeof activeTabId === "number") {
+      await noteTabActivated(activeTabId, windowId);
+    }
   });
 });
 

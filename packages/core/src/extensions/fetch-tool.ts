@@ -259,6 +259,15 @@ export function createFetchToolEntry(
           required: ["url"],
         },
       },
+      needsApproval: (args, context) => {
+        if (
+          context?.automation !== undefined ||
+          context?.caller === "automation"
+        )
+          return false;
+        const method = String(args.method || "GET").toUpperCase();
+        return method !== "GET" && method !== "HEAD";
+      },
       planMode: {
         effect: (args) => {
           const method = String(args.method ?? "GET").toUpperCase();

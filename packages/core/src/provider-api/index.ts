@@ -17,6 +17,13 @@ import {
   type CredentialContext,
 } from "../credentials/index.js";
 import {
+  CredentialUseLedger,
+  credentialUseLedgerOrgCredentialsOnly,
+  recordCredentialUse,
+  runWithCredentialUseLedger,
+  type CredentialUse,
+} from "../credentials/use-ledger.js";
+import {
   createSsrfSafeDispatcher,
   isBlockedExtensionUrlWithDns,
 } from "../extensions/url-safety.js";
@@ -46,10 +53,21 @@ import {
   recordProviderCall,
   type ProviderCallCensusKey,
 } from "./call-census.js";
+import {
+  assertTrackedProviderAdmission,
+  isProviderCallGateRefusal,
+  markProviderCallGateRefusal,
+  precheckProviderCall,
+  prepareProviderCallGate,
+  runProviderCallGateHook,
+  type PreparedProviderCallGate,
+  type ProviderCallGateRefusal,
+} from "./call-gates.js";
 import type {
   CustomProviderConfig,
   CustomProviderAuthKind,
 } from "./custom-registry.js";
+import { noteProviderWriteDispatch } from "./provider-dispatch.js";
 import {
   createProviderQuotaIdentity,
   createProviderRequestDedupeKey,
@@ -58,6 +76,30 @@ import {
   type ProviderQuotaExhaustedDetail,
 } from "./quota-governor.js";
 
+export {
+  registerProviderCallGate,
+  listProviderCallGates,
+  fetchWithProviderCallGate,
+  precheckGatedProviderCall,
+  ProviderAccountLookupTimeoutError,
+  ProviderCallGateAdmissionTimeoutError,
+  isProviderCallGateRefusal,
+  type ProviderCallAdmission,
+  type ProviderCallGateFetchInput,
+  type ProviderCallPrecheckReceipt,
+  type ProviderCallGate,
+  type ProviderCallGateRefusal,
+  type ProviderCallGateRequest,
+  type ProviderCallGateTarget,
+} from "./call-gates.js";
+export {
+  isChatTurnInteractiveScope,
+  isDurableProviderInteractiveScope,
+  isProviderInteractiveScope,
+  runWithDurableTurnToolScope,
+  runWithProviderInteractiveScope,
+  type ProviderTurnGrant,
+} from "./interactive-scope.js";
 export type {
   CustomProviderConfig,
   CustomProviderScope,
@@ -605,6 +647,7 @@ interface OAuthTokens {
   expires_in?: number;
   token_type?: string;
   scope?: string;
+  personalProviderOAuth?: boolean;
   sigma_api_base_url?: string;
   sigma_token_url?: string;
   sigma_client_id?: string;
@@ -638,6 +681,8 @@ function hasIsolatedGoogleSheetsScopes(scopes: ReadonlySet<string>): boolean {
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+/** How long a call gate may hold a request for admission before refusing it. */
+const PROVIDER_CALL_ADMISSION_WAIT_MS = 2_000;
 const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_BYTES = 1024 * 1024;
 const MAX_MAX_BYTES = 4 * 1024 * 1024;
@@ -1768,8 +1813,10 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     defaultBaseUrl: "https://slack.com/api",
     bodyOkField: "ok",
     auth: {
-      type: "bearer",
-      keys: ["SLACK_BOT_TOKEN"],
+      type: "oauth-bearer-or-bearer-key",
+      oauthProvider: "slack",
+      tokenLabel: "Slack OAuth token",
+      key: "SLACK_BOT_TOKEN",
       workspaceProvider: "slack",
     },
     credentialKeys: ["SLACK_BOT_TOKEN", "SLACK_BOT_TOKEN_2"],
@@ -2154,6 +2201,8 @@ export async function fetchProviderApiDocs(
   const { response, finalUrl } = await fetchPublicDocsPage(
     url.href,
     clampMaxBytes(options.maxBytes),
+    options.provider,
+    runtime,
   );
 
   const responseBody =
@@ -2209,15 +2258,34 @@ function failProviderDocsRedirect(
 async function fetchPublicDocsPage(
   startUrl: string,
   maxBytes: number,
+  providerId: string,
+  runtime: ProviderApiRuntimeOptions,
 ): Promise<{ response: ProviderApiHttpResponse; finalUrl: string }> {
   const visited = new Set<string>();
   let currentUrl = startUrl;
   for (let redirects = 0; ; redirects++) {
     visited.add(urlWithoutHash(currentUrl));
+    // Each hop is claimed by its own URL, attributed to the provider and app
+    // that asked, so gates and budgets see docs fetches as that provider's.
     const response = await fetchWithTimeout(currentUrl, {
       method: "GET",
       maxBytes,
       discardRedirectBody: true,
+      census: providerCallCensusKey(providerId, runtime, "GET"),
+      gate:
+        prepareProviderCallGate({
+          providerId,
+          url: currentUrl,
+          method: "GET",
+          path: currentUrl,
+          body: undefined,
+          appId: runtimeOptionsAppId(runtime),
+          accountId: undefined,
+          connectionId: null,
+          runtime,
+          deadline: Date.now() + PROVIDER_CALL_ADMISSION_WAIT_MS,
+          signal: undefined,
+        }) ?? null,
     });
     if (response.status < 300 || response.status >= 400) {
       return { response, finalUrl: currentUrl };
@@ -2300,31 +2368,125 @@ function compactProviderDocsResponse(response: ProviderApiHttpResponse) {
   };
 }
 
-export async function executeProviderApiRequest(
+function recordProviderCredentialSource(
+  provider: string,
+  source: Omit<ProviderApiResolvedCredential, "value">,
+  requested: { connectionId?: string | null; accountId?: string | null },
+): void {
+  recordCredentialUse({
+    kind: "provider-auth",
+    provider,
+    key: source.key,
+    source: source.source,
+    scope: source.scope ?? null,
+    scopeId: source.scopeId ?? null,
+    connectionId:
+      source.connectionId ?? (requested.connectionId?.trim() || null),
+    accountId: source.accountId ?? (requested.accountId?.trim() || null),
+  });
+}
+
+function recordProviderCredentialUses(
+  provider: string,
   args: ProviderApiRequestArgs,
+  endpoint: ResolvedProviderEndpoint,
+  auth: ResolvedAuth,
+): void {
+  if (
+    endpoint.credentialMode ||
+    endpoint.owner?.source === "workspace_connection" ||
+    endpoint.owner?.connectionId
+  ) {
+    recordCredentialUse({ kind: "provider-connection", provider });
+  }
+  for (const source of auth.credentialSources) {
+    recordProviderCredentialSource(provider, source, args);
+  }
+}
+
+async function recordingUnresolvedProvider<T>(
+  provider: string,
+  resolve: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await resolve();
+  } catch (error) {
+    recordCredentialUse({ kind: "provider-unresolved", provider });
+    throw error;
+  }
+}
+
+export async function resolveProviderApiCredentialUses(
+  provider: string,
+  runtime: ProviderApiRuntimeOptions,
+  options: { signal?: AbortSignal } = {},
+): Promise<CredentialUse[]> {
+  if (!isProviderApiId(provider)) {
+    throw new Error(`Provider API ${provider} is not a built-in provider.`);
+  }
+  const config = getProviderApiConfig(provider, runtime.providerOverrides);
+  const args: ProviderApiRequestArgs = {
+    provider,
+    path: "/",
+    ...(options.signal ? { signal: options.signal } : {}),
+  };
+  const ledger = new CredentialUseLedger();
+  await runWithCredentialUseLedger(ledger, async () => {
+    recordCredentialUse({ kind: "provider-request", provider: config.id });
+    const ctx = requireRuntimeCredentialContext(
+      runtime,
+      config.credentialKeys[0] ?? config.id,
+    );
+    const endpoint = await resolveBaseUrl(config, runtime, ctx, args);
+    await resolvePlaceholders(config, runtime, ctx, args);
+    const auth = await resolveAuth(config, runtime, ctx, args, endpoint);
+    recordProviderCredentialUses(config.id, args, endpoint, auth);
+  });
+  return ledger.uses;
+}
+
+async function admitRequestProvider(
+  provider: string,
   runtime: ProviderApiRuntimeOptions,
 ) {
-  await assertProviderAllowedAsync(args.provider, runtime);
+  await precheckProviderCall(provider);
+  await assertProviderAllowedAsync(provider, runtime);
 
-  const builtIn = isProviderApiId(args.provider)
-    ? getProviderApiConfig(args.provider, runtime.providerOverrides)
+  const builtIn = isProviderApiId(provider)
+    ? getProviderApiConfig(provider, runtime.providerOverrides)
     : null;
   const customConfig = builtIn
     ? null
-    : await resolveCustomProvider(args.provider, runtime);
+    : await resolveCustomProvider(provider, runtime);
 
   if (!builtIn && !customConfig) {
     const known = await listAllProviderIds(runtime);
     throw new Error(
-      `Unknown provider "${args.provider}". Known providers: ${known.join(", ")}`,
+      `Unknown provider "${provider}". Known providers: ${known.join(", ")}`,
     );
   }
+  return { builtIn, customConfig };
+}
+
+export async function executeProviderApiRequest(
+  args: ProviderApiRequestArgs,
+  runtime: ProviderApiRuntimeOptions,
+) {
+  const admissionWaitMs = Math.min(
+    PROVIDER_CALL_ADMISSION_WAIT_MS,
+    clampTimeout(args.timeoutMs),
+  );
+  const { builtIn, customConfig } = await recordingUnresolvedProvider(
+    args.provider,
+    () => admitRequestProvider(args.provider, runtime),
+  );
 
   if (customConfig) {
     return executeCustomProviderApiRequest(args, customConfig, runtime);
   }
 
   const config = builtIn!;
+  recordCredentialUse({ kind: "provider-request", provider: config.id });
   if (config.requiresConnectionId && !args.connectionId?.trim()) {
     throw new Error(
       `${config.label} Provider API requests require a workspace connectionId.`,
@@ -2334,8 +2496,12 @@ export async function executeProviderApiRequest(
     runtime,
     config.credentialKeys[0] ?? config.id,
   );
-  const endpoint = await resolveBaseUrl(config, runtime, ctx, args);
-  const placeholders = await resolvePlaceholders(config, runtime, ctx, args);
+  const endpoint = await recordingUnresolvedProvider(config.id, () =>
+    resolveBaseUrl(config, runtime, ctx, args),
+  );
+  const placeholders = await recordingUnresolvedProvider(config.id, () =>
+    resolvePlaceholders(config, runtime, ctx, args),
+  );
   const method = normalizeMethod(args.method);
   const singleAttempt = resolveSingleAttempt(runtime, method, args);
   const url = buildProviderUrl({
@@ -2351,7 +2517,13 @@ export async function executeProviderApiRequest(
   const auth =
     args.auth === "none"
       ? emptyAuth()
-      : await resolveAuth(config, runtime, ctx, args, endpoint);
+      : await recordingUnresolvedProvider(config.id, () =>
+          resolveAuth(config, runtime, ctx, args, endpoint),
+        );
+  if (args.auth === "none" && config.auth.type !== "none") {
+    recordCredentialUse({ kind: "caller-auth", provider: config.id });
+  }
+  recordProviderCredentialUses(config.id, args, endpoint, auth);
   if (endpoint.owner) {
     for (const credential of auth.credentialSources) {
       assertCredentialCanReachEndpoint(
@@ -2361,6 +2533,25 @@ export async function executeProviderApiRequest(
       );
     }
   }
+  // A paged request is admitted page by page, against that page's own URL and body.
+  const gateFor = (target: string, body: unknown) =>
+    prepareProviderCallGate({
+      providerId: config.id,
+      url: target,
+      method,
+      path: args.path,
+      body,
+      appId: runtimeOptionsAppId(runtime),
+      accountId:
+        args.accountId ??
+        auth.credentialSources.find((source) => source.accountId)?.accountId ??
+        undefined,
+      connectionId: args.connectionId ?? null,
+      runtime,
+      deadline: Date.now() + admissionWaitMs,
+      signal: args.signal,
+    });
+  const gate = gateFor(url.href, args.body);
   const extraHeaders = substituteUnknown(args.headers ?? {}, placeholders);
   const headers = sanitizeOutboundHeaders({
     ...(config.defaultHeaders ?? {}),
@@ -2419,6 +2610,7 @@ export async function executeProviderApiRequest(
       });
       const resp = applyBodyEnvelopeOutcome(
         await fetchWithTimeout(pageUrl.href, {
+          gate: gateFor(pageUrl.href, bodyWithCursor) ?? null,
           method,
           headers,
           body: pageBody,
@@ -2493,6 +2685,7 @@ export async function executeProviderApiRequest(
   });
   const response = applyBodyEnvelopeOutcome(
     await fetchWithTimeout(url.href, {
+      gate: gate ?? null,
       method,
       singleAttempt,
       headers,
@@ -2616,12 +2809,15 @@ function providerAccessErrorGuidance(
  * exception is the provider's own remote MCP endpoint, which may receive it as
  * a per-request bearer (`mcp-client/workspace-connection-servers.ts`); it is
  * still never stored on the server config or shown to the agent.
+ * Pass the operation's requiredScopes with a workspace connection to verify
+ * both the connection grant and the scopes on the stored token.
  */
 export async function resolveProviderApiOAuthAccessToken(
   args: {
     provider: ProviderApiId;
     connectionId?: string | null;
     accountId?: string | null;
+    requiredScopes?: readonly string[];
   },
   runtime: ProviderApiRuntimeOptions,
 ): Promise<ProviderApiOAuthAccessToken> {
@@ -2683,6 +2879,7 @@ export async function resolveProviderApiOAuthAccessToken(
         workspaceProvider: oauthAuth.workspaceProvider,
         connectionId: args.connectionId,
         accountId: args.accountId,
+        requiredScopes: args.requiredScopes,
       })
     : await resolveOAuthBearerToken({
         auth: oauthAuth,
@@ -3378,6 +3575,7 @@ async function executeCustomProviderApiRequest(
   customConfig: CustomProviderConfig,
   runtime: ProviderApiRuntimeOptions,
 ): Promise<unknown> {
+  recordCredentialUse({ kind: "custom-provider", provider: customConfig.id });
   const ctx = requireRuntimeCredentialContext(runtime, customConfig.id);
   const method = normalizeMethod(args.method);
   const singleAttempt = resolveSingleAttempt(runtime, method, args);
@@ -3424,6 +3622,26 @@ async function executeCustomProviderApiRequest(
     ...auth.headers,
   });
   const body = prepareBody(args.body, headers);
+  const customGateFor = (target: string, requestBody: unknown) =>
+    prepareProviderCallGate({
+      providerId: customConfig.id,
+      url: target,
+      method,
+      path: args.path,
+      body: requestBody,
+      appId: runtimeOptionsAppId(runtime),
+      accountId:
+        args.accountId ??
+        auth.credentialSources.find((source) => source.accountId)?.accountId ??
+        undefined,
+      connectionId: args.connectionId ?? null,
+      runtime,
+      deadline:
+        Date.now() +
+        Math.min(PROVIDER_CALL_ADMISSION_WAIT_MS, clampTimeout(args.timeoutMs)),
+      signal: args.signal,
+    });
+  const gate = customGateFor(url.href, args.body);
 
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
@@ -3481,6 +3699,7 @@ async function executeCustomProviderApiRequest(
         timeoutMs: clampTimeout(args.timeoutMs),
         signal: args.signal,
         secretValues: auth.secretValues,
+        gate: customGateFor(pageUrl.href, bodyWithCursor) ?? null,
         census: providerCallCensusKey(
           customConfig.id,
           runtime,
@@ -3556,6 +3775,7 @@ async function executeCustomProviderApiRequest(
     timeoutMs: clampTimeout(args.timeoutMs),
     signal: args.signal,
     secretValues: auth.secretValues,
+    gate: gate ?? null,
     census: providerCallCensusKey(
       customConfig.id,
       runtime,
@@ -4524,6 +4744,7 @@ async function resolveAuth(
       );
     }
     const tokenResponse = await fetchWithTimeout(tokenUrl.href, {
+      trackProviderMutation: false,
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -4913,10 +5134,7 @@ async function resolveAnyCredential(options: {
     const credential = await resolveOptionalCredential({ ...options, key });
     if (credential?.value) return credential;
   }
-  const scopeGap = await describeCredentialScopeGap(
-    options.keys,
-    options.ctx,
-  ).catch(() => null);
+  const scopeGap = await describeGenericScopeGap(options.keys, options);
   if (options.workspaceProvider && !scopeGap) {
     return throwWorkspaceConnectionRequired({
       runtime: options.runtime,
@@ -4926,9 +5144,8 @@ async function resolveAnyCredential(options: {
     });
   }
   throw new Error(
-    `${options.provider} credential not configured. Tried: ${options.keys.join(
-      ", ",
-    )}${scopeGap ? `. ${scopeGap}` : ""}`,
+    `${options.provider} credential not configured. ` +
+      `${scopeGap ? `${scopeGap} ` : ""}Tried: ${options.keys.join(", ")}`,
   );
 }
 
@@ -4942,10 +5159,7 @@ async function resolveRequiredCredential(options: {
 }): Promise<ProviderApiResolvedCredential> {
   const credential = await resolveOptionalCredential(options);
   if (credential?.value) return credential;
-  const scopeGap = await describeCredentialScopeGap([options.key], options.ctx)
-    // coercion-ok: only enriches an error we throw either way — losing the scope
-    // hint still surfaces the real "not configured" failure, never a success.
-    .catch(() => null);
+  const scopeGap = await describeGenericScopeGap([options.key], options);
   if (options.workspaceProvider && !scopeGap) {
     return throwWorkspaceConnectionRequired({
       runtime: options.runtime,
@@ -4956,6 +5170,22 @@ async function resolveRequiredCredential(options: {
   }
   throw new Error(
     `${options.key} not configured${scopeGap ? `. ${scopeGap}` : ""}`,
+  );
+}
+
+async function describeGenericScopeGap(
+  keys: readonly string[],
+  options: {
+    workspaceProvider: string | undefined;
+    ctx: CredentialContext;
+    connectionId?: string | null;
+  },
+): Promise<string | null> {
+  if (options.workspaceProvider && options.connectionId?.trim()) return null;
+  return (
+    describeCredentialScopeGap(keys, options.ctx)
+      // coercion-ok: only enriches an error we throw either way, never a success.
+      .catch(() => null)
   );
 }
 
@@ -4978,13 +5208,18 @@ async function resolveOptionalCredential(options: {
     connectionId: options.connectionId,
     localCredentialSource,
   };
-  if (options.runtime.resolveCredential) {
-    return withCredentialConnectionIdentity(
-      await options.runtime.resolveCredential(lookup),
-      options.connectionId,
-    );
+  const credential = options.runtime.resolveCredential
+    ? withCredentialConnectionIdentity(
+        await options.runtime.resolveCredential(lookup),
+        options.connectionId,
+      )
+    : await defaultProviderApiCredentialResolver(lookup);
+  if (credential) {
+    recordProviderCredentialSource(options.provider, credential, {
+      connectionId: options.connectionId ?? null,
+    });
   }
-  return defaultProviderApiCredentialResolver(lookup);
+  return credential;
 }
 
 function withCredentialConnectionIdentity(
@@ -5210,16 +5445,27 @@ async function resolveOAuthBearerToken(options: {
   ownerEmail?: string | null;
   salesforceLoginUrl?: string | null;
   connectionId?: string | null;
+  requiredScopes?: readonly string[];
 }): Promise<ProviderApiResolvedCredential> {
+  if (credentialUseLedgerOrgCredentialsOnly()) {
+    throw new Error(
+      `${options.auth.tokenLabel} comes from a person's OAuth account, which a run shared with the org doesn't use.`,
+    );
+  }
   const ownerEmail = options.ownerEmail?.trim() || options.ctx.userEmail;
   const requestedAccountId = options.accountId?.trim();
   const accounts = await listOAuthAccountsByOwner(
     options.auth.oauthProvider,
     ownerEmail,
   );
+  const eligibleAccounts = accounts.filter(
+    (entry) =>
+      options.connectionId ||
+      !(entry.tokens as OAuthTokens).personalProviderOAuth,
+  );
   const account = requestedAccountId
-    ? accounts.find((entry) => entry.accountId === requestedAccountId)
-    : accounts[0];
+    ? eligibleAccounts.find((entry) => entry.accountId === requestedAccountId)
+    : eligibleAccounts[0];
   if (
     !account &&
     options.auth.oauthProvider === "google_sheets" &&
@@ -5316,6 +5562,19 @@ async function resolveOAuthBearerToken(options: {
     );
   }
   const tokens = account.tokens as OAuthTokens;
+  if (
+    options.requiredScopes?.some(
+      (scope) => !oauthTokenScopes(tokens).includes(scope),
+    )
+  ) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.auth.oauthProvider,
+      connectionId: options.connectionId ?? null,
+      message: `${options.auth.tokenLabel} is missing required OAuth scopes.`,
+      reason: "reauthorize",
+    });
+  }
   const preserveSharedGoogleGrant =
     options.auth.oauthProvider === "google" &&
     Boolean(options.auth.workspaceProvider);
@@ -5326,10 +5585,20 @@ async function resolveOAuthBearerToken(options: {
       accountId: account.accountId,
       ownerEmail,
       tokens,
+      requiredScopes: options.requiredScopes,
       preserveTokensOnPermanentFailure: preserveSharedGoogleGrant,
       salesforceLoginUrl: options.salesforceLoginUrl,
     });
   } catch (error) {
+    if (error instanceof PersonalOAuthReauthorizationError) {
+      return throwWorkspaceConnectionRequired({
+        runtime: options.runtime,
+        provider: options.auth.oauthProvider,
+        connectionId: options.connectionId ?? null,
+        message: error.message,
+        reason: "reauthorize",
+      });
+    }
     if (
       preserveSharedGoogleGrant &&
       options.auth.workspaceProvider &&
@@ -5427,6 +5696,7 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   connectionId?: string | null;
   accountId?: string | null;
   allowUnbound?: boolean;
+  requiredScopes?: readonly string[];
 }): Promise<ProviderApiResolvedCredential | null> {
   const requestedConnectionId = options.connectionId?.trim();
   const requestedAccountId = options.accountId?.trim();
@@ -5483,6 +5753,42 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
       reason: "reauthorize",
     });
   }
+  const connection = resolved.connection;
+  const personal = isPersonalProviderConnection(connection);
+  if (personal && !requestedConnectionId && !requestedAccountId) return null;
+  if (personal && (!requestedConnectionId || !options.requiredScopes?.length)) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.workspaceProvider,
+      connectionId: requestedConnectionId ?? null,
+      message:
+        "Personal OAuth requires a selected connection and operation scopes.",
+    });
+  }
+  if (
+    (personal &&
+      (connection.config.workspaceConnectionScope !== "user" ||
+        options.ctx.credentialScope === "org" ||
+        connection.ownerEmail.toLowerCase() !==
+          options.ctx.userEmail.toLowerCase() ||
+        connection.orgId !== options.ctx.orgId)) ||
+    options.requiredScopes?.some(
+      (scope) =>
+        !connection.scopes.includes(scope) ||
+        (connection.explicitGrant &&
+          !connection.explicitGrant.scopes.includes(scope)),
+    )
+  ) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.workspaceProvider,
+      connectionId: requestedConnectionId ?? null,
+      message: `${options.auth.tokenLabel} is unavailable for this scope.`,
+    });
+  }
+  const requiredScopes = personal
+    ? [...new Set([...connection.scopes, ...(options.requiredScopes ?? [])])]
+    : options.requiredScopes;
   const connectionAccountId = resolved.connection.accountId?.trim();
   if (!connectionAccountId) {
     if (options.allowUnbound) return null;
@@ -5502,6 +5808,7 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
     accountId: connectionAccountId,
     ownerEmail: resolved.connection.ownerEmail,
     connectionId: resolved.connection.id,
+    requiredScopes,
     salesforceLoginUrl:
       options.auth.oauthProvider === "salesforce" &&
       typeof resolved.connection.config?.salesforceLoginUrl === "string"
@@ -5511,11 +5818,17 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   const endpointOwner = workspaceConnectionEndpointOwner(resolved.connection);
   return {
     ...credential,
-    scope: endpointOwner.scope,
-    scopeId: endpointOwner.scopeId,
+    scope: personal ? "user" : endpointOwner.scope,
+    scopeId: personal ? connection.ownerEmail : endpointOwner.scopeId,
     connectionId: endpointOwner.connectionId,
     connectionLabel: resolved.connection.label,
   };
+}
+
+function isPersonalProviderConnection(connection: {
+  config?: WorkspaceConnection["config"];
+}): boolean {
+  return connection.config?.personalProviderOAuth === true;
 }
 
 function isPermanentGoogleOAuthRefreshFailure(error: unknown): boolean {
@@ -5532,9 +5845,19 @@ async function getValidOAuthAccessToken(options: {
   accountId: string;
   ownerEmail: string;
   tokens: OAuthTokens;
+  requiredScopes?: readonly string[];
   preserveTokensOnPermanentFailure?: boolean;
   salesforceLoginUrl?: string | null;
 }): Promise<string> {
+  if (
+    options.tokens.personalProviderOAuth &&
+    (options.oauthProvider === "slack" || options.oauthProvider === "zoom")
+  ) {
+    return resolvePersonalProviderOAuthAccess({
+      ...options,
+      provider: options.oauthProvider,
+    });
+  }
   const accessToken =
     options.tokens.access_token ?? options.tokens.accessToken ?? "";
   if (!accessToken) {
@@ -5553,7 +5876,12 @@ async function getValidOAuthAccessToken(options: {
 
   const refreshToken =
     options.tokens.refresh_token ?? options.tokens.refreshToken;
-  if (!refreshToken) return accessToken;
+  if (!refreshToken) {
+    if (options.oauthProvider === "zoom" && expiresAt <= Date.now()) {
+      throw new Error("Zoom OAuth token has expired.");
+    }
+    return accessToken;
+  }
   if (
     options.oauthProvider === "google" ||
     options.oauthProvider === "google-docs" ||
@@ -5591,6 +5919,179 @@ async function getValidOAuthAccessToken(options: {
   throw new Error(
     `${options.oauthProvider} OAuth token is expired and automatic refresh is not configured for provider-api.`,
   );
+}
+
+class PersonalOAuthReauthorizationError extends Error {}
+
+function oauthTokenScopes(tokens: OAuthTokens): string[] {
+  return typeof tokens.scope === "string"
+    ? tokens.scope.split(/[\s,]+/).filter(Boolean)
+    : [];
+}
+
+async function resolvePersonalProviderOAuthAccess(options: {
+  provider: "slack" | "zoom";
+  accountId: string;
+  ownerEmail: string;
+  tokens: OAuthTokens;
+  requiredScopes?: readonly string[];
+}): Promise<string> {
+  const slack = options.provider === "slack";
+  const label = slack ? "Slack" : "Zoom";
+  const shouldRefresh = (tokens: OAuthTokens, now: number) =>
+    typeof tokens.expiry_date === "number" &&
+    tokens.expiry_date <= now + 60_000;
+  const tokens = shouldRefresh(options.tokens, Date.now())
+    ? await resolveOAuthTokenBundleAccess<OAuthTokens>(
+        {
+          provider: options.provider,
+          accountId: options.accountId,
+          resource: "provider-api",
+          owner: { scope: "user", id: options.ownerEmail },
+        },
+        {
+          storageOwner: options.ownerEmail,
+          shouldRefresh,
+          refresh: async (stored) => {
+            const refreshToken = stored.refresh_token;
+            if (!refreshToken)
+              throw new PersonalOAuthReauthorizationError(
+                `${label} OAuth token has expired.`,
+              );
+            const prefix = options.provider.toUpperCase();
+            const [clientId, clientSecret] = await Promise.all([
+              resolveSecret(`${prefix}_CLIENT_ID`),
+              resolveSecret(`${prefix}_CLIENT_SECRET`),
+            ]);
+            if (!clientId || !clientSecret) {
+              throw new Error(
+                `${prefix}_CLIENT_ID and ${prefix}_CLIENT_SECRET are required to refresh ${label} OAuth tokens.`,
+              );
+            }
+            const { response, data } = await fetchBoundedOAuthRefreshJson<{
+              ok?: boolean;
+              access_token?: string;
+              refresh_token?: string;
+              expires_in?: number;
+              token_type?: string;
+              scope?: string;
+              error?: string;
+              reason?: string;
+            }>(
+              slack
+                ? "https://slack.com/api/oauth.v2.access"
+                : "https://zoom.us/oauth/token",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/x-www-form-urlencoded",
+                  ...(slack
+                    ? {}
+                    : {
+                        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+                      }),
+                },
+                redirect: "error",
+                body: new URLSearchParams({
+                  grant_type: "refresh_token",
+                  refresh_token: refreshToken,
+                  ...(slack
+                    ? { client_id: clientId, client_secret: clientSecret }
+                    : {}),
+                }),
+              },
+              label,
+            );
+            if (
+              ["invalid_grant", "invalid_refresh_token", "token_revoked"].some(
+                (code) => data.error === code || data.reason === code,
+              )
+            ) {
+              throw new PersonalOAuthReauthorizationError(
+                `${label} OAuth refresh was refused. Reconnect the account.`,
+              );
+            }
+            const { expires_in: expiresIn } = data;
+            if (
+              !response.ok ||
+              (slack && (data.ok !== true || data.token_type !== "user")) ||
+              typeof data.access_token !== "string" ||
+              !data.access_token ||
+              typeof data.refresh_token !== "string" ||
+              !data.refresh_token ||
+              typeof expiresIn !== "number" ||
+              !Number.isFinite(expiresIn) ||
+              expiresIn <= 0
+            ) {
+              throw new Error(
+                `${label} OAuth refresh failed (${response.status}).`,
+              );
+            }
+            return {
+              ...stored,
+              access_token: data.access_token,
+              refresh_token: data.refresh_token,
+              expiry_date: Date.now() + expiresIn * 1_000,
+              ...(data.scope === undefined ? {} : { scope: data.scope }),
+            };
+          },
+        },
+      )
+    : options.tokens;
+  const accessToken = tokens.access_token;
+  const heldScopes = oauthTokenScopes(tokens);
+  if (
+    !tokens.personalProviderOAuth ||
+    !accessToken ||
+    (!slack && !Number.isFinite(tokens.expiry_date)) ||
+    (tokens.expiry_date !== undefined &&
+      (!Number.isFinite(tokens.expiry_date) ||
+        tokens.expiry_date <= Date.now())) ||
+    !heldScopes.length ||
+    options.requiredScopes?.some((scope) => !heldScopes.includes(scope))
+  ) {
+    throw new PersonalOAuthReauthorizationError(
+      `${label} OAuth credential is expired or missing required access.`,
+    );
+  }
+  const { response, data } = await fetchBoundedOAuthRefreshJson<{
+    ok?: boolean;
+    id?: string;
+    error?: string;
+  }>(
+    slack
+      ? "https://slack.com/api/auth.test"
+      : "https://api.zoom.us/v2/users/me",
+    {
+      method: slack ? "POST" : "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      redirect: "error",
+    },
+    label,
+  );
+  if (
+    response.status === 401 ||
+    (slack &&
+      [
+        "invalid_auth",
+        "token_revoked",
+        "token_expired",
+        "account_inactive",
+      ].some((code) => data.error === code))
+  ) {
+    throw new PersonalOAuthReauthorizationError(
+      `${label} OAuth credential was revoked or has expired.`,
+    );
+  }
+  if (
+    !response.ok ||
+    (slack ? data.ok !== true : typeof data.id !== "string" || !data.id)
+  ) {
+    throw new Error(
+      `${label} OAuth credential could not be validated (${response.status}).`,
+    );
+  }
+  return accessToken;
 }
 
 async function refreshSigmaOAuthToken(options: {
@@ -6654,9 +7155,56 @@ async function fetchWithTimeout(
     requireTextForSave?: boolean;
     census?: ProviderCallCensusKey;
     singleAttempt?: boolean;
+
+    trackProviderMutation?: false;
+    /** The request's prepared call gate; null when it resolved to none. */
+    gate?: PreparedProviderCallGate | null;
   },
 ): Promise<ProviderApiHttpResponse> {
   type FetchResult = ProviderApiHttpResponse & { bodyValidationError?: Error };
+  // Requests that did not come through a named provider (custom providers,
+  // docs, token exchanges) are still claimed by URL.
+  const gate =
+    options.gate === undefined
+      ? prepareProviderCallGate({
+          providerId: undefined,
+          url: optionsUrl,
+          method: options.method ?? "GET",
+          path: optionsUrl,
+          body: options.body,
+          appId: options.census?.app ?? "provider-api",
+          accountId: undefined,
+          connectionId: options.census?.connection ?? null,
+          runtime: undefined,
+          deadline: Date.now() + PROVIDER_CALL_ADMISSION_WAIT_MS,
+          signal: options.signal,
+        })
+      : (options.gate ?? undefined);
+  const perAttempt = gate?.gate.admission === "attempt";
+  let finalCheck: (() => void) | undefined;
+  const admit = async (): Promise<FetchResult | undefined> => {
+    if (!gate) return undefined;
+    try {
+      const check = await gate.admit();
+      finalCheck = typeof check === "function" ? check : undefined;
+      return undefined;
+    } catch (error) {
+      const refusal = perAttempt
+        ? undefined
+        : gate.gate.refusalResponse?.(error);
+      if (refusal) return providerCallGateRefusalResponse(refusal);
+      throw error;
+    }
+  };
+  const admitDispatch = (): Promise<FetchResult | undefined> =>
+    runProviderCallGateHook(async () => {
+      if (!perAttempt) return admit();
+      await gate?.gate.recheck?.(gate.request);
+      return undefined;
+    });
+  const beforeAttempt = perAttempt
+    ? () => runProviderCallGateHook(async () => void (await admit()))
+    : undefined;
   const runOnce = async (): Promise<FetchResult> => {
     const controller = new AbortController();
     const timeoutMs = clampTimeout(options.timeoutMs);
@@ -6680,6 +7228,21 @@ async function fetchWithTimeout(
         redirect: "manual",
       };
       fetchOptions.dispatcher = dispatcher;
+      const refused = await admitDispatch();
+      if (refused) return refused;
+      if (options.trackProviderMutation !== false)
+        assertTrackedProviderAdmission(gate?.gate);
+      try {
+        finalCheck?.();
+      } catch (error) {
+        markProviderCallGateRefusal(error);
+        throw error;
+      }
+      if (options.trackProviderMutation !== false)
+        noteProviderWriteDispatch(method, {
+          url: optionsUrl,
+          body: options.body,
+        });
       return await fetchProviderResponse(optionsUrl, fetchOptions, {
         ...(options.maxBytes !== undefined
           ? { maxBytes: options.maxBytes }
@@ -6719,6 +7282,7 @@ async function fetchWithTimeout(
             ? {}
             : { requestKey: options.quota.requestKey }),
         },
+        ...(beforeAttempt ? { beforeAttempt } : {}),
         execute: async () => {
           const response = await runOnce();
           lastBodyValidationError = response.bodyValidationError;
@@ -6726,7 +7290,10 @@ async function fetchWithTimeout(
         },
         ...(options.singleAttempt ? { singleAttempt: true } : {}),
         inspect: (response) => ({
-          status: response.status,
+          // A gate's own refusal is not the provider rate limiting us.
+          status: gateRefusalResponses.has(response)
+            ? undefined
+            : response.status,
           headers: response.headers,
         }),
         buildQuotaExhaustedResult: (detail) => ({
@@ -6736,7 +7303,10 @@ async function fetchWithTimeout(
             : {}),
         }),
       })
-    : await runOnce();
+    : await (async () => {
+        await beforeAttempt?.();
+        return runOnce();
+      })();
 
   if (result.bodyValidationError) {
     if (result.status !== 429) {
@@ -6773,6 +7343,26 @@ async function fetchWithTimeout(
     );
   }
   return result;
+}
+
+const gateRefusalResponses = new WeakSet<object>();
+
+function providerCallGateRefusalResponse(
+  refusal: ProviderCallGateRefusal,
+): ProviderApiHttpResponse {
+  const response: ProviderApiHttpResponse = {
+    status: refusal.status,
+    statusText: refusal.statusText,
+    ok: false,
+    elapsedMs: 0,
+    headers: refusal.headers ?? {},
+    contentType: refusal.json === undefined ? null : "application/json",
+    size: 0,
+    truncated: false,
+    ...(refusal.json === undefined ? {} : { json: refusal.json }),
+  };
+  gateRefusalResponses.add(response);
+  return response;
 }
 
 function providerQuotaExhaustedResponse(
@@ -6951,6 +7541,9 @@ function normalizeFetchError(
     secretValues: string[];
   },
 ): Error {
+  // A gate's refusal is already typed for the caller; wrapping it would turn a
+  // pause or budget refusal into an opaque network failure.
+  if (isProviderCallGateRefusal(error)) return error as Error;
   const target = describeProviderRequestTarget(
     options.url,
     options.secretValues,

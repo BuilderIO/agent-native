@@ -1446,6 +1446,7 @@ export interface TiptapComposerProps {
    * model name instead of a setup label.
    */
   modelTriggerNamesSelectionOnly?: boolean;
+  modelTriggerLabel?: string | undefined;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks an effort */
@@ -2104,6 +2105,7 @@ function ModelSelector({
   onModelSelectorOpenChange,
   providerConnectStatusEnabled = true,
   modelTriggerNamesSelectionOnly = false,
+  modelTriggerLabel,
   onConnectProvider,
   onConnectLocalRuntime,
   terminalModeControl,
@@ -2135,6 +2137,7 @@ function ModelSelector({
   onAgentChange?: (agent: string) => void;
   providerConnectStatusEnabled?: boolean;
   modelTriggerNamesSelectionOnly?: boolean;
+  modelTriggerLabel?: string | undefined;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
   terminalModeControl?: ComposerTerminalModeControl;
@@ -2473,14 +2476,15 @@ function ModelSelector({
   // row's own label wins when it has one.
   // `modelTriggerNamesSelectionOnly` opts out of the setup label; the picker keeps its setup rows.
   const selectedModelButtonLabel =
-    selectedModelNeedsConnection && !modelTriggerNamesSelectionOnly
+    modelTriggerLabel ??
+    (selectedModelNeedsConnection && !modelTriggerNamesSelectionOnly
       ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
       : model === "auto" || model === ""
         ? (autoRow?.label ??
           t("agentChat.composer.auto", { defaultValue: "Auto" }))
         : (selectedModelDisplayName ??
           selectedModelDescription?.shortName ??
-          selectedModelFriendlyName);
+          selectedModelFriendlyName));
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2548,11 +2552,13 @@ function ModelSelector({
                         defaultValue: "Use Builder.io",
                       })}
                 </span>
-                <span className="block agent-kit-caption-copy text-muted-foreground">
-                  {t("agentPanel.builderModelCredits", {
-                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
-                  })}
-                </span>
+                {adapters.builder?.creditsOffered?.() !== false ? (
+                  <span className="block agent-kit-caption-copy text-muted-foreground">
+                    {t("agentPanel.builderModelCredits", {
+                      defaultValue: "Free credits for Claude, OpenAI & Gemini",
+                    })}
+                  </span>
+                ) : null}
               </DropdownMenuItem>
             </BuilderConnectPopover>
             {!onConnectProvider && builderFlow.error && (
@@ -3215,6 +3221,7 @@ function TiptapComposerSurface({
   onModelSelectorOpenChange,
   providerConnectStatusEnabled,
   modelTriggerNamesSelectionOnly,
+  modelTriggerLabel,
   onConnectProvider,
   onConnectLocalRuntime,
   setupCardVisible = false,
@@ -4235,7 +4242,22 @@ function TiptapComposerSurface({
           // plain text: Enter submits it and a late result changes nothing.
           const highlighted =
             pop.type === "@" ? popoverRef.current?.getSelectedMention() : null;
-          if (event.key === "Enter" && pop.type === "@" && !highlighted) {
+          // Likewise a "/" with no matching command or skill (a typed path) is
+          // plain text, so Enter submits instead of being swallowed.
+          const command =
+            pop.type === "/" ? popoverRef.current?.getSelectedCommand() : null;
+          const idx = popoverRef.current?.getSelectedIndex() ?? 0;
+          const skill =
+            pop.type === "/"
+              ? filteredSkillsRef.current[
+                  idx - filteredCommandsRef.current.length
+                ]
+              : undefined;
+          if (
+            event.key === "Enter" &&
+            (event.shiftKey ||
+              (pop.type === "@" ? !highlighted : !command && !skill))
+          ) {
             closePopover();
           } else if (event.key === "Tab" && !event.shiftKey && highlighted) {
             event.preventDefault();
@@ -4243,22 +4265,12 @@ function TiptapComposerSurface({
             return true;
           } else if (event.key === "Enter") {
             event.preventDefault();
-            const idx = popoverRef.current?.getSelectedIndex() ?? 0;
-            const currentCommands = filteredCommandsRef.current;
-            const currentSkills = filteredSkillsRef.current;
             if (pop.type === "@") {
               const item = popoverRef.current?.getSelectedMention();
               if (item) selectMention(view, pop, item);
             } else if (pop.type === "/") {
-              const cmd = popoverRef.current?.getSelectedCommand();
-              if (cmd) {
-                executeCommand(view, pop, cmd);
-              } else {
-                const skillIdx = idx - currentCommands.length;
-                if (currentSkills[skillIdx]) {
-                  selectSkill(view, pop, currentSkills[skillIdx]);
-                }
-              }
+              if (command) executeCommand(view, pop, command);
+              else if (skill) selectSkill(view, pop, skill);
             }
             return true;
           }
@@ -7353,6 +7365,7 @@ function TiptapComposerSurface({
             onModelSelectorOpenChange={onModelSelectorOpenChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
             modelTriggerNamesSelectionOnly={modelTriggerNamesSelectionOnly}
+            modelTriggerLabel={modelTriggerLabel}
             onConnectProvider={onConnectProvider}
             onConnectLocalRuntime={onConnectLocalRuntime}
             terminalModeControl={terminalModeControl}

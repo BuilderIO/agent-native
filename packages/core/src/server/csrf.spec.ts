@@ -36,6 +36,84 @@ async function status(
 const COOKIE = "an_session=abc";
 
 describe("CSRF middleware", () => {
+  it.each([
+    "text/plain; x=application/json",
+    "multipart/form-data; boundary=application/json",
+    "application/x-www-form-urlencoded; charset=application/json",
+  ])("does not treat %s as a JSON request", async (contentType) => {
+    expect(
+      await status({
+        cookie: COOKIE,
+        "content-type": contentType,
+        "sec-fetch-site": "same-site",
+      }),
+    ).toBe(403);
+  });
+
+  it("accepts a cookie-bearing upload whose media type needs a preflight", async () => {
+    expect(
+      await status(
+        {
+          cookie: COOKIE,
+          "content-type": "video/webm",
+          "sec-fetch-site": "cross-site",
+        },
+        "POST",
+        "/api/uploads/rec-1/chunk",
+      ),
+    ).not.toBe(403);
+    expect(
+      await status(
+        { cookie: COOKIE, "sec-fetch-site": "cross-site" },
+        "POST",
+        "/api/uploads/rec-1/chunk",
+      ),
+    ).toBe(403);
+  });
+
+  it("accepts JSON with parameters", async () => {
+    expect(
+      await status({
+        cookie: COOKIE,
+        "content-type": "Application/JSON; charset=utf-8",
+        "sec-fetch-site": "cross-site",
+      }),
+    ).not.toBe(403);
+  });
+
+  it("checks cookie-bearing template API writes", async () => {
+    const path = "/api/emails/send";
+    expect(
+      await status(
+        {
+          cookie: COOKIE,
+          "content-type": "application/x-www-form-urlencoded",
+          "sec-fetch-site": "cross-site",
+        },
+        "POST",
+        path,
+      ),
+    ).toBe(403);
+    expect(
+      await status(
+        {
+          cookie: COOKIE,
+          "content-type": "multipart/form-data; boundary=x",
+          "sec-fetch-site": "same-origin",
+        },
+        "POST",
+        path,
+      ),
+    ).not.toBe(403);
+    expect(
+      await status(
+        { "content-type": "application/x-www-form-urlencoded" },
+        "POST",
+        path,
+      ),
+    ).not.toBe(403);
+  });
+
   it("protects logout-all but keeps OAuth callbacks exempt", async () => {
     const crossOrigin = {
       cookie: COOKIE,
@@ -210,5 +288,54 @@ describe("CSRF middleware", () => {
         "/_agent-native/integrations/remote/poll",
       ),
     ).not.toBe(403);
+  });
+  describe.each([
+    "/_agent-native/auth/two-factor/enable",
+    "/_agent-native/auth/two-factor/disable",
+    "/_agent-native/integrations/scopes",
+    "/_agent-native/integrations/budgets",
+    "/_agent-native/integrations/memory",
+    "/_agent-native/integrations/installations",
+    "/_agent-native/integrations/slack/enable",
+    "/_agent-native/integrations/slack/disable",
+    "/_agent-native/integrations/email/setup",
+  ])("session-authenticated route %s", (path) => {
+    it("rejects a cookie-bearing form POST", async () => {
+      expect(
+        await status(
+          {
+            cookie: COOKIE,
+            "content-type": "application/x-www-form-urlencoded",
+            "sec-fetch-site": "cross-site",
+          },
+          "POST",
+          path,
+        ),
+      ).toBe(403);
+    });
+
+    it("accepts JSON", async () => {
+      expect(
+        await status(
+          {
+            cookie: COOKIE,
+            "content-type": "application/json",
+            "sec-fetch-site": "cross-site",
+          },
+          "POST",
+          path,
+        ),
+      ).not.toBe(403);
+    });
+
+    it("accepts a request with no cookie", async () => {
+      expect(
+        await status(
+          { "content-type": "application/x-www-form-urlencoded" },
+          "POST",
+          path,
+        ),
+      ).not.toBe(403);
+    });
   });
 });

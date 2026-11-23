@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ setUserLabStates: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  setUserLabStates: vi.fn(),
+  getUserLabsShowAll: vi.fn(async () => false),
+  syncLabsAppState: vi.fn(),
+}));
 
 vi.mock("../../action.js", () => ({
   defineAction: (definition: unknown) => definition,
@@ -13,11 +17,13 @@ vi.mock("../registry.js", () => ({
     key === "clips.editor" ? { key } : undefined,
 }));
 vi.mock("../store.js", () => mocks);
+vi.mock("../app-state.js", () => mocks);
 
 const action = (await import("./set-lab.js")).default;
 
 beforeEach(() => {
   mocks.setUserLabStates.mockReset();
+  mocks.syncLabsAppState.mockReset();
 });
 
 describe("set-lab action", () => {
@@ -107,4 +113,9 @@ describe("set-lab action", () => {
       );
     },
   );
+});
+
+it("keeps set-lab in the app, off MCP", async () => {
+  const { default: action } = await import("./set-lab.js");
+  expect(action.mcpTool).toBe(false);
 });

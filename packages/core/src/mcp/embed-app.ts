@@ -1023,6 +1023,27 @@ export function embedApp(
           throw error;
         });
       }
+      // Vite's preload helper adds lazy-route stylesheets as empty-valued CORS-mode
+      // links under the app's assets; only those are rewritten, never a stylesheet
+      // that asks for a CORS mode or an integrity check itself.
+      // The sandbox loads the document's own stylesheets without CORS, so load these
+      // the same way instead of failing the route with "Unable to preload CSS".
+      if (typeof document !== "undefined" && document.head) {
+        const originalAppendChild = document.head.appendChild.bind(document.head);
+        document.head.appendChild = function(node) {
+          if (
+            node &&
+            node.nodeName === "LINK" &&
+            String(node.rel).toLowerCase() === "stylesheet" &&
+            node.getAttribute("crossorigin") === "" &&
+            !node.hasAttribute("integrity") &&
+            String(node.href).indexOf("/assets/") >= 0
+          ) {
+            node.removeAttribute("crossorigin");
+          }
+          return originalAppendChild(node);
+        };
+      }
       if (typeof fetch === "function") {
         const originalFetch = fetch.bind(window);
         var pageFetch = fetch;
@@ -2087,6 +2108,10 @@ export function embedApp(
       }
     }
 
+    function nativeAppUsable() {
+      return !!app && !openAiBridge;
+    }
+
     async function ensureHostAppConnected() {
       if (!app || typeof app.connect !== "function") return;
       if (!appConnectPromise) {
@@ -2111,7 +2136,7 @@ export function embedApp(
       if (data && data.structuredContent && typeof data.structuredContent === "object") {
         params.structuredContent = data.structuredContent;
       }
-      if (app && typeof app.updateModelContext === "function") {
+      if (nativeAppUsable() && typeof app.updateModelContext === "function") {
         await ensureHostAppConnected();
         return await app.updateModelContext(params);
       }
@@ -2170,16 +2195,14 @@ export function embedApp(
         : fillsPane
         ? paneFillHeight(hostState().context || {})
         : applyIntrinsicHeight(visibleIntrinsicHeight());
-      if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") {
-        if (app && typeof app.sendSizeChanged === "function") {
-          try {
-            app.sendSizeChanged({ height });
-          } catch (err) {
-            console.warn("[agent-native] MCP host rejected size update", err);
-          }
+      if (app && typeof app.sendSizeChanged === "function") {
+        try {
+          app.sendSizeChanged({ height });
+        } catch (err) {
+          console.warn("[agent-native] MCP host rejected size update", err);
         }
-        return;
       }
+      if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") return;
       try {
         openAiBridge.notifyIntrinsicHeight({ height });
       } catch (err) {
@@ -2304,7 +2327,7 @@ export function embedApp(
       }
       try {
         let result = null;
-        if (app && typeof app.sendMessage === "function") {
+        if (nativeAppUsable() && typeof app.sendMessage === "function") {
           await ensureHostAppConnected();
         }
         if (hostChatRequest && hostChatRequest.cancelled) {
@@ -2312,7 +2335,7 @@ export function embedApp(
           return;
         }
         if (hostChatRequest) hostChatRequest.state = "sending";
-        if (app && typeof app.sendMessage === "function") {
+        if (nativeAppUsable() && typeof app.sendMessage === "function") {
           result = await app.sendMessage({
             role: "user",
             content,
@@ -2624,10 +2647,30 @@ export function embedApp(
       titleEl.textContent = String(label);
     }
 
+    let openAiBridgeWindow = window;
+
     function readOpenAiBridge() {
-      return window.openai && typeof window.openai === "object"
-        ? window.openai
-        : null;
+      // ChatGPT can inject the bridge into a sandbox around the widget HTML.
+      let frame = window;
+      while (frame) {
+        let bridge;
+        try {
+          bridge = frame === window ? window.openai : frame.openai;
+        } catch (err) {
+          if (!err || err.name !== "SecurityError") throw err;
+        }
+        if (bridge && typeof bridge === "object") {
+          if (frame !== openAiBridgeWindow) {
+            openAiBridgeWindow.removeEventListener("openai:set_globals", onOpenAiGlobals);
+            openAiBridgeWindow = frame;
+            frame.addEventListener("openai:set_globals", onOpenAiGlobals, { passive: true });
+          }
+          return bridge;
+        }
+        if (frame === frame.parent) break;
+        frame = frame.parent;
+      }
+      return null;
     }
 
     function isChatGptHostHint() {
@@ -2637,6 +2680,14 @@ export function embedApp(
       try {
         if (/^(?:[^.]+\\.)?web-sandbox\\.oaiusercontent\\.com$/i.test(window.location.hostname || "")) return true;
       } catch (_err) {}
+      try {
+        const origins = window.location.ancestorOrigins;
+        for (let i = 0; origins && i < origins.length; i += 1) {
+          if (/(?:^|[./])(?:chatgpt\\.com|oaiusercontent\\.com)$/i.test(String(origins[i]))) return true;
+        }
+      } catch (err) {
+        console.warn("[agent-native] could not inspect ancestor origins for the ChatGPT bridge", err);
+      }
       try {
         return /chatgpt/i.test(String(navigator.userAgent || ""));
       } catch (_err) {
@@ -2745,10 +2796,11 @@ export function embedApp(
       });
     }
 
-    window.addEventListener("openai:set_globals", () => {
+    function onOpenAiGlobals() {
       const bridge = readOpenAiBridge();
       if (bridge && (!appFrame || openAiBridge)) syncOpenAiBridge(bridge);
-    }, { passive: true });
+    }
+    window.addEventListener("openai:set_globals", onOpenAiGlobals, { passive: true });
 
     // App tools: the host calls these on this open view, so a "filter it" or
     // "open that one" turn changes the panel in place instead of opening a new view.
@@ -2992,6 +3044,8 @@ export function embedApp(
     function createNativeMcpAppsBridge() {
       let rpcId = 0;
       let connectPromise = null;
+      let initialized = false;
+      let toolListChangedPending = false;
       let hostContext = {};
       let hostContextFields = {};
       const pendingRequests = new Map();
@@ -3102,12 +3156,18 @@ export function embedApp(
             );
             setHostContext(result, true);
             rpcNotify("ui/notifications/initialized", {});
+            initialized = true;
+            if (toolListChangedPending) {
+              toolListChangedPending = false;
+              rpcNotify("notifications/tools/list_changed", {});
+            }
             if (typeof nativeApp.onhostcontextchanged === "function") {
               nativeApp.onhostcontextchanged(hostContextFields);
             }
             return hostContext;
           })().catch((err) => {
             connectPromise = null;
+            window.removeEventListener("message", onMessage);
             throw err;
           });
           return await connectPromise;
@@ -3139,10 +3199,11 @@ export function embedApp(
           return await rpcRequest("ui/request-display-mode", objectValue(params));
         },
         sendSizeChanged(params) {
-          rpcNotify("ui/notifications/size-changed", objectValue(params));
+          if (initialized) rpcNotify("ui/notifications/size-changed", objectValue(params));
         },
         sendToolListChanged() {
-          if (connectPromise) rpcNotify("notifications/tools/list_changed", {});
+          if (initialized) rpcNotify("notifications/tools/list_changed", {});
+          else toolListChangedPending = true;
         },
         async sendMessage(params) {
           await nativeApp.connect();
@@ -3292,15 +3353,21 @@ export function embedApp(
     }
 
     try {
-      const initialOpenAiBridge = await waitForOpenAiBridge();
-      if (!syncOpenAiBridge(initialOpenAiBridge)) {
-        try {
-          await startNativeMcpAppsBridge();
-        } catch (nativeErr) {
+      const nativeStartup = startNativeMcpAppsBridge();
+      const openAiStartup = waitForOpenAiBridge().then(syncOpenAiBridge);
+      await Promise.all([
+        openAiStartup,
+        nativeStartup.catch(async (nativeErr) => {
+          await openAiStartup;
+          if (openAiBridge) {
+            console.warn("[agent-native] native MCP Apps bridge failed; using the ChatGPT bridge", nativeErr);
+            app = null;
+            return;
+          }
           console.warn("[agent-native] native MCP Apps bridge failed", nativeErr);
           ${remoteBridgeFallbackEnabled ? "await startMcpAppsBridge();" : "throw nativeErr;"}
-        }
-      }
+        })
+      ]);
     } catch (err) {
       console.error("[agent-native] MCP app shell failed", err);
       reportEmbedError(

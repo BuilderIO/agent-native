@@ -166,6 +166,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
+import { BuilderArticleAutosavePanel } from "./database-sources/BuilderArticleAutosave";
 import { ColumnPresentationMenuItems } from "./database/DatabaseColumnPresentation";
 import {
   clearDatabaseFiltersForColumn,
@@ -1445,10 +1446,28 @@ function PropertyRow({
       )}
     </div>
   );
-  if (!commentState.enabled || !commentState.inlineThreads) return row;
+  const builderAutosave =
+    property.definition.systemRole === "builder_status" ? (
+      <BuilderArticleAutosavePanel
+        documentId={documentId}
+        databaseId={property.definition.databaseId}
+        canEdit={canEditValues}
+      />
+    ) : null;
+  if (!commentState.enabled || !commentState.inlineThreads) {
+    return builderAutosave ? (
+      <>
+        {row}
+        {builderAutosave}
+      </>
+    ) : (
+      row
+    );
+  }
   return (
     <>
       {row}
+      {builderAutosave}
       <PropertyThreadsBox propertyId={property.definition.id}>
         {commentState.inlineThreads}
       </PropertyThreadsBox>
@@ -1848,13 +1867,10 @@ export function PropertyManagementPopover({
     await configureProperty({ description: nextDescription });
   }
 
-  async function updateType(nextType: DocumentPropertyType) {
+  function updateType(nextType: DocumentPropertyType) {
     if (nextType === property.definition.type) return;
-    await configureProperty({
-      type: nextType,
-      options: defaultPropertyOptions(nextType),
-    });
-    setOpen(false);
+    const label = t("editor.properties.typeChangeUnavailable");
+    reportWriteFailure(new Error(label), { label });
   }
 
   async function updateVisibility(nextVisibility: DocumentPropertyVisibility) {
@@ -2214,7 +2230,7 @@ export function PropertyManagementPopover({
                         disabled={disabled}
                         onSelect={(event) => {
                           event.preventDefault();
-                          void updateType(propertyType);
+                          updateType(propertyType);
                         }}
                       >
                         <span className="flex-1">

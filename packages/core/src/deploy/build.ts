@@ -34,6 +34,16 @@ import {
 } from "../integrations/integration-durable-dispatch-config.js";
 import { isValidCron } from "../jobs/cron.js";
 import {
+  DEFAULT_IDLE_SWEEP_MAX_MINUTES,
+  IDLE_AFTER_ACTIVITY_MS,
+  IDLE_SWEEP_MAX_MINUTES_ENV_VAR,
+  MAX_IDLE_SWEEP_MAX_MINUTES,
+  NETLIFY_WAKE_MARKER_ACTIVITY_KEY,
+  NETLIFY_WAKE_MARKER_IDLE_KEY,
+  NETLIFY_WAKE_MARKER_IO_TIMEOUT_MS,
+  NETLIFY_WAKE_MARKER_STORE,
+} from "../jobs/netlify-wake-marker.js";
+import {
   RECURRING_JOBS_SWEEP_PATH,
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
@@ -3620,6 +3630,7 @@ export function copyInstalledBrowserRuntimePackages(
 export function copyInstalledExternalSsrPackages(
   serverDir: string | undefined,
   projectCwd = cwd,
+  options: { includeSsrPackages?: boolean } = {},
 ): number {
   if (!serverDir || !fs.existsSync(serverDir)) return 0;
 
@@ -3628,9 +3639,11 @@ export function copyInstalledExternalSsrPackages(
     const source = fs.readFileSync(filePath, "utf-8");
     // Keep undici opaque to client bundlers, but copy it into the server runtime.
     if (/(\"|'|\x60)undici\1/.test(source)) packagesToCopy.add("undici");
-    for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
-      if (hasExternalSsrRuntimeReference(source, packageName)) {
-        packagesToCopy.add(packageName);
+    if (options.includeSsrPackages !== false) {
+      for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
+        if (hasExternalSsrRuntimeReference(source, packageName)) {
+          packagesToCopy.add(packageName);
+        }
       }
     }
   });
@@ -3685,6 +3698,30 @@ export function copyInstalledExternalSsrPackages(
     `[deploy] Copied ${copiedCount} external SSR runtime package(s) into the server bundle.`,
   );
   return copiedCount;
+}
+
+export function copyPresetRuntimePackages(
+  targetPreset: string,
+  serverDir: string | undefined,
+  projectCwd = cwd,
+): void {
+  if (
+    targetPreset === "netlify" ||
+    targetPreset === "vercel" ||
+    isAwsLambdaPreset(targetPreset) ||
+    isAwsAmplifyPreset(targetPreset)
+  ) {
+    copyInstalledResvgPackages(serverDir);
+    copyInstalledFfmpegStaticPackage(serverDir);
+    copyInstalledBrowserRuntimePackages(serverDir);
+    copyInstalledExternalSsrPackages(serverDir, projectCwd);
+    sanitizeServerlessFunctionPackageManifest(serverDir);
+    pruneServerlessFunctionDeadWeight(serverDir);
+  } else if (targetPreset === "node" || targetPreset === "node-server") {
+    copyInstalledExternalSsrPackages(serverDir, projectCwd, {
+      includeSsrPackages: false,
+    });
+  }
 }
 
 function hasFfmpegStaticBinary(packageDir: string): boolean {
@@ -3989,8 +4026,11 @@ export function emitSingleTemplateNetlifyKeepWarmFunction(
       : "AGENT_NATIVE_ENABLE_KEEP_WARM is not enabled.";
     console.log(
       `[build] Keep-warm emit skipped: ${reason} ` +
-        "The database is free to autosuspend; the next visitor after an idle " +
-        "period pays its cold start.",
+        "Once the app is idle, the recurring-jobs sweep runs only when an " +
+        `automation is due or every ${IDLE_SWEEP_MAX_MINUTES_ENV_VAR} ` +
+        `(default ${DEFAULT_IDLE_SWEEP_MAX_MINUTES}) minutes, so a ` +
+        "scale-to-zero database can suspend between sweeps; the next visitor " +
+        "after an idle period pays its cold start.",
     );
     return;
   }
@@ -4128,6 +4168,15 @@ const TOKEN_SUBJECT = ${JSON.stringify(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT)};
 const PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
 const PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
 const PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
+const WAKE_MARKER_STORE = ${JSON.stringify(NETLIFY_WAKE_MARKER_STORE)};
+const IDLE_KEY = ${JSON.stringify(NETLIFY_WAKE_MARKER_IDLE_KEY)};
+const ACTIVITY_KEY = ${JSON.stringify(NETLIFY_WAKE_MARKER_ACTIVITY_KEY)};
+const IDLE_SWEEP_MAX_MINUTES_ENV = ${JSON.stringify(IDLE_SWEEP_MAX_MINUTES_ENV_VAR)};
+const DEFAULT_IDLE_SWEEP_MAX_MINUTES = ${DEFAULT_IDLE_SWEEP_MAX_MINUTES};
+const MAX_IDLE_SWEEP_MAX_MINUTES = ${MAX_IDLE_SWEEP_MAX_MINUTES};
+const IDLE_AFTER_ACTIVITY_MS = ${IDLE_AFTER_ACTIVITY_MS};
+const MARKER_IO_TIMEOUT_MS = ${NETLIFY_WAKE_MARKER_IO_TIMEOUT_MS};
+const EARLY_WAKE_MS = 30000;
 
 function siteOrigin(request) {
   return new URL(request.url).origin;
@@ -4141,10 +4190,89 @@ function token(secret) {
   return \`\${timestamp}.\${signature}\`;
 }
 
+// The same Blobs protocol as @agent-native/core's jobs/netlify-wake-marker.ts,
+// inlined because this function ships without dependencies.
+function blobsContext() {
+  const raw = globalThis.netlifyBlobsContext || process.env.NETLIFY_BLOBS_CONTEXT;
+  if (typeof raw !== "string" || !raw) return null;
+  const context = JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+  return context?.siteID && context.token && context.edgeURL ? context : null;
+}
+
+async function readMarker(context, key) {
+  const url = new URL(
+    \`/\${context.siteID}/site:\${WAKE_MARKER_STORE}/\${key}\`,
+    context.uncachedEdgeURL,
+  );
+  const response = await fetch(url, {
+    headers: { authorization: \`Bearer \${context.token}\` },
+    signal: AbortSignal.timeout(MARKER_IO_TIMEOUT_MS),
+  });
+  if (response.status === 404) return undefined;
+  if (!response.ok) {
+    throw new Error(\`Blobs read of "\${key}" failed (\${response.status})\`);
+  }
+  return response.json();
+}
+
+function maxIdleMs() {
+  const raw = process.env[IDLE_SWEEP_MAX_MINUTES_ENV]?.trim();
+  const minutes = raw ? Number(raw) : NaN;
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    return DEFAULT_IDLE_SWEEP_MAX_MINUTES * 60000;
+  }
+  return Math.min(minutes, MAX_IDLE_SWEEP_MAX_MINUTES) * 60000;
+}
+
+function isTime(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+// While the last sweep found the app idle and no request has come since, the
+// database is left to sleep until the sweep's own deadline. Anything missing,
+// malformed or unreadable sweeps, as this function did before the marker
+// existed. A missing activity record means no visitor yet, so it may sleep.
+// A verdict lasts at most the cap from when its sweep started, so a lowered
+// cap, or a forced sweep that failed before replacing it, can't stretch it.
+// Two overlapping activity writes can land out of order, recording a visit up
+// to one write timeout early, so the visit window allows for that too.
+async function idleUntil(now) {
+  const maxIdle = maxIdleMs();
+  if (maxIdle <= 0) return null;
+  const context = blobsContext();
+  if (!context) return null;
+  if (!context.uncachedEdgeURL) {
+    throw new Error("the Blobs context has no uncached edge URL");
+  }
+  const idle = await readMarker(context, IDLE_KEY);
+  if (!isTime(idle?.sweepAfter) || !isTime(idle.decidedAt)) return null;
+  if (idle.decidedAt > now) return null;
+  const deadline = Math.min(idle.sweepAfter, idle.decidedAt + maxIdle);
+  if (now >= deadline - EARLY_WAKE_MS) return null;
+  const activity = await readMarker(context, ACTIVITY_KEY);
+  if (activity !== undefined) {
+    if (!isTime(activity?.at)) return null;
+    if (activity.at >= idle.decidedAt) return null;
+    if (activity.at > now - IDLE_AFTER_ACTIVITY_MS - MARKER_IO_TIMEOUT_MS) {
+      return null;
+    }
+  }
+  return deadline;
+}
+
 export default async function handler(request) {
   const secret = process.env.A2A_SECRET;
   if (!secret) {
     throw new Error("[recurring-jobs] A2A_SECRET is required for the scheduled sweep");
+  }
+  try {
+    const sleepUntil = await idleUntil(Date.now());
+    if (sleepUntil !== null) {
+      console.log("[recurring-jobs] App idle; next sweep at", new Date(sleepUntil).toISOString());
+      return new Response(null, { status: 204 });
+    }
+  } catch (error) {
+    console.warn("[recurring-jobs] Idle marker unreadable; sweeping:", error?.message ?? error);
   }
   const url = new URL(BACKGROUND_PATH, siteOrigin(request));
   const response = await fetch(url, {
@@ -6673,19 +6801,7 @@ export default bundle;
     addVercelSweepCron(nitro.options.output.dir);
   }
 
-  if (
-    preset === "netlify" ||
-    preset === "vercel" ||
-    isAwsLambdaPreset(preset) ||
-    isAwsAmplifyPreset(preset)
-  ) {
-    copyInstalledResvgPackages(nitro.options.output.serverDir);
-    copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
-    copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
-    copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
-    sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
-    pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
-  }
+  copyPresetRuntimePackages(preset, nitro.options.output.serverDir);
 
   if (preset === "vercel") {
     prepareVercelFunctionOutputs(nitro.options.output.dir, cwd);

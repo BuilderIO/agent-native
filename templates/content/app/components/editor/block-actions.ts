@@ -3,6 +3,10 @@ import {
   duplicateBlockTransaction,
 } from "@agent-native/toolkit/editor";
 import {
+  CLIP_EMBED_BLOCK_TYPE,
+  clipEmbedOriginFromRaw,
+} from "@shared/clip-embed-block";
+import {
   Fragment,
   type Node as ProseMirrorNode,
   type NodeType,
@@ -10,6 +14,7 @@ import {
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import { findWrapping } from "@tiptap/pm/transform";
 
+import { blockMenuEntry } from "./block-menu-registry";
 import {
   TOGGLE_TITLE_NODE,
   toggleTitleNode,
@@ -60,11 +65,8 @@ function isTitledToggle(node: ProseMirrorNode) {
 
 /** Whether the block menu can turn this block into another kind. */
 export function canTurnInto(node: ProseMirrorNode) {
-  return (
-    node.type.name === "paragraph" ||
-    node.type.name === "heading" ||
-    isTitledToggle(node)
-  );
+  const { turnInto } = blockMenuEntry(node);
+  return typeof turnInto === "function" ? turnInto(node) : turnInto === true;
 }
 
 export function currentTurnIntoTarget(
@@ -231,42 +233,6 @@ export function turnBlockInto(
   return setType(schema.nodes.heading, { level: Number(target.slice(-1)) });
 }
 
-/** The menu title for a block: what kind of block it is. */
-export function blockTitleKey(node: ProseMirrorNode): string {
-  switch (node.type.name) {
-    case "paragraph":
-      return "editor.slash.text";
-    case "heading":
-      return `editor.heading${node.attrs.level}`;
-    case "bulletList":
-      return "editor.slash.bulletedList";
-    case "orderedList":
-      return "editor.slash.numberedList";
-    case "taskList":
-      return "editor.slash.todoList";
-    case "blockquote":
-      return "editor.slash.quote";
-    case "codeBlock":
-      return "editor.slash.codeBlock";
-    case "notionCallout":
-      return "editor.slash.callout";
-    case "notionToggle":
-      return "editor.slash.toggle";
-    case "table":
-      return "editor.slash.table";
-    case "horizontalRule":
-      return "editor.slash.divider";
-    case "image":
-      return "editor.slash.image";
-    case "video":
-      return "editor.slash.video";
-    case "audio":
-      return "editor.slash.audio";
-    default:
-      return "editor.blockMenu.block";
-  }
-}
-
 /** The text a comment on this block quotes, or null when it has none. */
 export function blockCommentRange(node: ProseMirrorNode, pos: number) {
   if (node.isAtom || node.type.name === "table" || !node.textContent.trim()) {
@@ -283,7 +249,12 @@ export function blockCommentRange(node: ProseMirrorNode, pos: number) {
 }
 
 /** Why the page refuses an action on a block, when it does. */
-export type BlockLock = "source" | "suggesting" | "page";
+export type BlockLock =
+  | "source"
+  | "suggesting"
+  | "page"
+  | "collection"
+  | "uploadedClip";
 
 function refuses(state: EditorState, tr: Transaction) {
   return state.plugins.some(
@@ -293,14 +264,42 @@ function refuses(state: EditorState, tr: Transaction) {
   );
 }
 
-function containsSourceComponent(node: ProseMirrorNode) {
-  if (isSourceComponentNode(node)) return true;
+function contains(
+  node: ProseMirrorNode,
+  test: (node: ProseMirrorNode) => boolean,
+) {
+  if (test(node)) return true;
   let found = false;
   node.descendants((child) => {
-    found ||= isSourceComponentNode(child);
+    found ||= test(child);
     return !found;
   });
   return found;
+}
+
+function containsSourceComponent(node: ProseMirrorNode) {
+  return contains(node, isSourceComponentNode);
+}
+
+function isInlineCollection(node: ProseMirrorNode) {
+  return (
+    node.type.name === "registryBlock" &&
+    node.attrs.blockType === "inline-database"
+  );
+}
+
+function isUploadedClip(node: ProseMirrorNode) {
+  return (
+    node.type.name === "registryBlock" &&
+    node.attrs.blockType === CLIP_EMBED_BLOCK_TYPE &&
+    clipEmbedOriginFromRaw(node.attrs.__raw) === "upload"
+  );
+}
+
+function moveLock(node: ProseMirrorNode): BlockLock | null {
+  if (contains(node, isInlineCollection)) return "collection";
+  if (contains(node, isUploadedClip)) return "uploadedClip";
+  return null;
 }
 
 /**
@@ -312,7 +311,11 @@ export function blockActionLocks(
   state: EditorState,
   pos: number,
   node: ProseMirrorNode,
-): { duplicate: BlockLock | null; remove: BlockLock | null } {
+): {
+  duplicate: BlockLock | null;
+  remove: BlockLock | null;
+  move: BlockLock | null;
+} {
   const duplicate = duplicateBlockTransaction(state, pos, node);
   const remove = deleteBlockTransaction(state, pos, node);
   const lock = containsSourceComponent(node)
@@ -320,8 +323,10 @@ export function blockActionLocks(
     : isSuggestingEdits(state)
       ? "suggesting"
       : "page";
+  const removeLock = refuses(state, remove) ? lock : null;
   return {
     duplicate: !duplicate || refuses(state, duplicate) ? lock : null,
-    remove: refuses(state, remove) ? lock : null,
+    remove: removeLock,
+    move: removeLock ?? moveLock(node),
   };
 }

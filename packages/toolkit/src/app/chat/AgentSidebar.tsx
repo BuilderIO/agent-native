@@ -81,6 +81,7 @@ import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-st
 import type { BuilderConnectTransport } from "../settings/index.js";
 import { LazyChunkErrorBoundary } from "../shared/LazyChunkErrorBoundary.js";
 import { LazyChunkRetryFallback } from "../shared/LazyChunkRetryFallback.js";
+import type { ShareButtonProps } from "../sharing/ShareButton.js";
 import { useRegisterAgentChatSurface } from "./agent-chat-presence.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
@@ -290,6 +291,8 @@ export interface AgentSidebarProps {
   threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
   emptyStateFooter?: AssistantChatProps["emptyStateFooter"];
   onMessageCountChange?: AssistantChatProps["onMessageCountChange"];
+  /** Receives the chat share menu's agent destinations instead of a native launch. */
+  onAgentShareHandoff?: ShareButtonProps["onAgentShareHandoff"];
   defaultSidebarWidth?: number;
   /** @deprecated Use `defaultSidebarWidth` — this prop is mount-only. */
   sidebarWidth?: number;
@@ -306,6 +309,12 @@ export interface AgentSidebarProps {
    * motion and close button, and the key that toggles the sidebar.
    */
   panelHost?: HTMLElement | null;
+  /**
+   * The head of the host's panel. With a `panelHost`, the chat picker, New
+   * chat, Chat history and the options menu render here instead of in a
+   * header of the agent's own.
+   */
+  panelHeadHost?: HTMLElement | null;
   showCollapseButton?: boolean;
   animateMobile?: boolean;
   animateDesktop?: boolean;
@@ -341,6 +350,12 @@ export interface AgentSidebarProps {
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   browserTabId?: string;
+  /**
+   * Query keys the app's agent reads from `__url__`, as exact names and
+   * `prefix*` patterns. Every other query value is redacted before it reaches
+   * the agent; the keys themselves stay visible.
+   */
+  urlQueryKeys?: readonly string[];
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
   agentPageHref?: string;
   suppressFirstRunOnboarding?: boolean;
@@ -354,6 +369,23 @@ export interface AgentSidebarProps {
 interface HostedHarnessStatus {
   enabled: boolean;
   runtimes: HostedHarnessRuntime[];
+}
+
+const HOSTED_PANEL_PLACEHOLDER_MAX_MS = 3000;
+
+function HostedAgentPanelPlaceholder() {
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 flex flex-col gap-3 p-3"
+      data-agent-sidebar-placeholder=""
+    >
+      <div className="flex flex-1 flex-col items-center justify-end pb-40">
+        <Skeleton className="h-3 w-56" />
+      </div>
+      <Skeleton className="h-28 w-full rounded-xl" />
+    </div>
+  );
 }
 
 export function AgentSidebar({
@@ -390,6 +422,7 @@ export function AgentSidebar({
   disableToggleShortcut = false,
   disableChatShortcut = false,
   panelHost,
+  panelHeadHost,
   showCollapseButton = true,
   animateMobile = true,
   animateDesktop = true,
@@ -423,6 +456,7 @@ export function AgentSidebar({
   isolateHistoryByScope = false,
   showScopeBadge,
   browserTabId,
+  urlQueryKeys,
   threadUrlSync,
   agentPageHref,
   suppressFirstRunOnboarding = false,
@@ -430,6 +464,7 @@ export function AgentSidebar({
   showModelSelector,
   plusMenuMode,
   chatOnly = true,
+  onAgentShareHandoff,
 }: AgentSidebarProps) {
   const resolvedBrowserTabId =
     browserTabId ??
@@ -667,6 +702,14 @@ export function AgentSidebar({
     if (!hostedPanel) setHostedPanelOpened(false);
     else if (open) setHostedPanelOpened(true);
   }, [hostedPanel, open]);
+  const [hostedPanelSettled, setHostedPanelSettled] = useState(false);
+  const [hostedHead, setHostedHead] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!hostedPanel) setHostedPanelSettled(false);
+  }, [hostedPanel]);
+  const onHostedPanelSettledChange = useCallback((settled: boolean) => {
+    if (settled) setHostedPanelSettled(true);
+  }, []);
   const shouldMountPanel =
     ownsPanel &&
     (open ||
@@ -938,6 +981,7 @@ export function AgentSidebar({
     [cancelPendingEvents, drainPendingPanelEvents],
   );
   const onPanelLoadFailed = useCallback(() => {
+    setHostedPanelSettled(true);
     panelLoadFailedRef.current = true;
     panelReadyRef.current = false;
     composerReadyRef.current = false;
@@ -1764,14 +1808,18 @@ export function AgentSidebar({
     >
       <Suspense
         fallback={
-          <div
-            aria-hidden="true"
-            className="flex min-h-0 flex-1 flex-col gap-3 p-3"
-          >
-            <Skeleton className="h-8 w-full" />
-            <div className="flex-1" />
-            <Skeleton className="h-28 w-full rounded-xl" />
-          </div>
+          hostedPanel ? (
+            <HostedAgentPanelPlaceholder />
+          ) : (
+            <div
+              aria-hidden="true"
+              className="flex min-h-0 flex-1 flex-col gap-3 p-3"
+            >
+              <Skeleton className="h-8 w-full" />
+              <div className="flex-1" />
+              <Skeleton className="h-28 w-full rounded-xl" />
+            </div>
+          )
         }
       >
         <AgentSidebarPanel
@@ -1789,7 +1837,14 @@ export function AgentSidebar({
           composerToolbarSlot={composerToolbarSlot}
           composerSlot={composerSlot}
           // A host's tab opens the chat without taking focus from the tab.
-          {...(hostedPanel ? { composerAutoFocus: false } : {})}
+          {...(hostedPanel
+            ? {
+                composerAutoFocus: false,
+                headerHost: panelHeadHost ? hostedHead : undefined,
+                suggestionLayout: "wrap" as const,
+                onSettledChange: onHostedPanelSettledChange,
+              }
+            : {})}
           composerContextProvider={composerContextProvider}
           onComposerTextChange={onComposerTextChange}
           imageModelMenu={imageModelMenu}
@@ -1847,28 +1902,62 @@ export function AgentSidebar({
           showModelSelector={showModelSelector}
           plusMenuMode={plusMenuMode}
           chatOnly={chatOnly}
+          onAgentShareHandoff={onAgentShareHandoff}
         />
       </Suspense>
     </LazyChunkErrorBoundary>
   );
 
+  const hostedPanelHeld =
+    Boolean(hostedPanel) && shouldRenderPanel && !hostedPanelSettled;
+  const revealHostedPanel = useCallback(() => setHostedPanelSettled(true), []);
+  useEffect(() => {
+    if (!hostedPanelHeld) return;
+    const timer = window.setTimeout(
+      () => setHostedPanelSettled(true),
+      HOSTED_PANEL_PLACEHOLDER_MAX_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [hostedPanelHeld]);
+
   const sidebar = !shouldRenderPanel ? null : hostedPanel ? (
-    createPortal(
-      <div
-        className="agent-sidebar-panel agent-kit-density flex min-h-0 flex-1 flex-col overflow-hidden"
-        data-agent-sidebar-layout="hosted"
-        data-agent-sidebar-state={panelOpen ? "open" : "closed"}
-        inert={!panelOpen || undefined}
-      >
+    <>
+      {createPortal(
         <div
-          ref={panelElementRef}
-          className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col"
+          className="agent-sidebar-panel agent-kit-density relative flex min-h-0 flex-1 flex-col overflow-hidden"
+          data-agent-sidebar-layout="hosted"
+          data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+          aria-busy={hostedPanelHeld || undefined}
+          inert={!panelOpen || undefined}
+          onFocus={hostedPanelHeld ? revealHostedPanel : undefined}
         >
-          {panelBody}
-        </div>
-      </div>,
-      hostedPanel,
-    )
+          <div
+            ref={panelElementRef}
+            className={cn(
+              "agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col",
+              hostedPanelHeld && "pointer-events-none opacity-0",
+            )}
+          >
+            {panelBody}
+          </div>
+          {hostedPanelHeld ? <HostedAgentPanelPlaceholder /> : null}
+        </div>,
+        hostedPanel,
+      )}
+      {panelHeadHost
+        ? createPortal(
+            <div
+              ref={setHostedHead}
+              className={cn(
+                "flex min-w-0 flex-1 items-center",
+                hostedPanelHeld && "pointer-events-none opacity-0",
+              )}
+              data-agent-sidebar-head=""
+            />,
+            panelHeadHost,
+          )
+        : null}
+    </>
   ) : (
     <>
       {showResizeHandle && !isLeft && (
@@ -1989,7 +2078,12 @@ export function AgentSidebar({
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
         <SettingsReturnPathRecorder />
-        {enabled ? <URLSync browserTabId={resolvedBrowserTabId} /> : null}
+        {enabled ? (
+          <URLSync
+            browserTabId={resolvedBrowserTabId}
+            queryKeys={urlQueryKeys}
+          />
+        ) : null}
         {isResizing ? (
           <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
         ) : null}

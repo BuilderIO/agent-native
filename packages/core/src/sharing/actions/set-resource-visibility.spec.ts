@@ -185,7 +185,7 @@ beforeEach(async () => {
   calls.invalidated.length = 0;
   calls.notified.length = 0;
   calls.noticeFails.clear();
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`
     CREATE TABLE visibility_docs (
       id TEXT PRIMARY KEY,
@@ -1971,4 +1971,8 @@ describe("set-resource-visibility public followers", () => {
     await setOne(parent, "private");
     expect(await list(ownerEmail)).not.toHaveProperty("publicFollowers");
   });
+});
+
+it("serves set-resource-visibility to outside agents unlisted, through tool search", () => {
+  expect(setResourceVisibility.mcpTool).toBe("search");
 });

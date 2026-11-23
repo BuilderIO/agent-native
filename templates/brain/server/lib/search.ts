@@ -12,15 +12,28 @@ import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { BrainEvidence } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
-import { parseJson, safeCitationUrl } from "./brain.js";
+import {
+  parseJson,
+  publishedKnowledgeStatusClause,
+  safeCitationUrl,
+  sanitizeEvidenceCitationUrls,
+} from "./brain.js";
+import {
+  publicCaptureTitle,
+  publicSourceTitle,
+} from "./capture-sanitization.js";
 import {
   hybridSearchArtifacts,
   type SearchLaneStatuses,
 } from "./hybrid-search.js";
 import {
   parseCaptureMetadata,
-  withheldZoomPassageCount,
+  publicCaptureMetadata,
+  withheldPassageCount,
+  withOmissionReceipt,
 } from "./search-index-contracts.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
+import { sourceAnswerPolicyFromConfig } from "./source-policy.js";
 
 export type UniversalSearchType = "knowledge" | "capture" | "source";
 
@@ -42,6 +55,7 @@ export interface UniversalSearchResult {
   citation: {
     captureId?: string | null;
     captureTitle?: string | null;
+    capturedAt?: string | null;
     quote?: string | null;
     sourceUrl?: string | null;
     preview?: string | null;
@@ -112,6 +126,9 @@ const BRAIN_SOURCE_PROVIDERS = [
   "granola",
   "github",
   "zoom",
+  "google_calendar",
+  "gmail",
+  "google_drive",
 ] as const;
 
 const SOURCE_PROVIDER_LABELS: Record<string, string> = {
@@ -122,6 +139,9 @@ const SOURCE_PROVIDER_LABELS: Record<string, string> = {
   granola: "Granola",
   github: "GitHub",
   zoom: "Zoom",
+  google_calendar: "Google Calendar",
+  gmail: "Gmail",
+  google_drive: "Google Drive",
 };
 
 const FEDERATED_DELEGATION_TARGETS: Array<{
@@ -366,14 +386,16 @@ export function sourceUrlFromMetadata(
   metadata: Record<string, unknown>,
 ): string | null {
   for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"]) {
-    const value = safeCitationUrl(metadata[key]);
+    const value = safeCitationUrl(publicCaptureMetadata(metadata)[key]);
     if (value) return value;
   }
   return null;
 }
 
 function firstCitation(evidenceJson: string) {
-  const evidence = parseJson<BrainEvidence[]>(evidenceJson, []);
+  const evidence = sanitizeEvidenceCitationUrls(
+    parseJson<BrainEvidence[]>(evidenceJson, []),
+  );
   return (
     evidence.find((item) => item.sourceUrl ?? item.url) ?? evidence[0] ?? null
   );
@@ -381,11 +403,16 @@ function firstCitation(evidenceJson: string) {
 
 const CAPTURE_CONTENT_LIMIT = 4000;
 
-function captureMetadata(metadataJson: string | null): Record<string, unknown> {
-  const parsed = parseJson<unknown>(metadataJson, {});
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : {};
+function captureMetadata(row: {
+  metadataJson: string | null;
+  content?: string | null;
+  kind: string;
+}): Record<string, unknown> {
+  return publicCaptureMetadata(
+    parseCaptureMetadata(
+      withOmissionReceipt(row.metadataJson, row.content, row.kind),
+    ),
+  );
 }
 
 function captureLocation(metadata: Record<string, unknown>): string | null {
@@ -413,7 +440,10 @@ async function accessibleSourceMap(sourceIds: Array<string | null>) {
     .from(schema.brainSources)
     .where(
       and(
-        accessFilter(schema.brainSources, schema.brainSourceShares),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
         inArray(schema.brainSources.id, ids),
       ),
     );
@@ -422,11 +452,12 @@ async function accessibleSourceMap(sourceIds: Array<string | null>) {
 
 function serializeSourceInfo(
   row: typeof schema.brainSources.$inferSelect | undefined,
+  withheldPassages: number | null = 0,
 ) {
   if (!row) return null;
   return {
     id: row.id,
-    title: redactSensitiveText(row.title),
+    title: redactSensitiveText(publicSourceTitle(row.title, withheldPassages)),
     provider: row.provider,
     status: row.status,
   };
@@ -435,46 +466,93 @@ function serializeSourceInfo(
 async function searchKnowledgeResults(
   terms: string[],
   limit: number,
+  sourceIds?: string[],
+  onScanLimit?: () => void,
 ): Promise<UniversalSearchResult[]> {
   const audienceIds = await listAccessibleAudienceIds();
   const accessibleSourceExists = sql`exists (
     select 1 from ${schema.brainSources}
     where ${schema.brainSources.id} = ${schema.brainKnowledge.sourceId}
-      and ${accessFilter(schema.brainSources, schema.brainSourceShares)}
+      and ${and(accessFilter(schema.brainSources, schema.brainSourceShares), personalGoogleSourceFilter())}
   )`;
-  const rows = await getDb()
-    .select()
-    .from(schema.brainKnowledge)
-    .where(
-      and(
-        accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
-        or(
-          sql`${schema.brainKnowledge.captureId} IS NULL`,
-          audienceIds.length
-            ? and(
-                accessibleSourceExists,
-                inArray(schema.brainKnowledge.audienceId, audienceIds),
-              )
+  const scopedRows: Array<typeof schema.brainKnowledge.$inferSelect> = [];
+  const pageSize = Math.min(Math.max(limit, 25), 100);
+  const scanLimit = 1000;
+  let scanned = 0;
+  let exhausted = false;
+  let cursor: { updatedAt: string; id: string } | undefined;
+  const { filterCurrentKnowledgeRows } = await import("./intelligence.js");
+  while (scanned < scanLimit && scopedRows.length < limit) {
+    const batchLimit = Math.min(pageSize, scanLimit - scanned);
+    const rows = await getDb()
+      .select()
+      .from(schema.brainKnowledge)
+      .where(
+        and(
+          accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
+          cursor
+            ? sql`(${schema.brainKnowledge.updatedAt} < ${cursor.updatedAt}
+          or (${schema.brainKnowledge.updatedAt} = ${cursor.updatedAt}
+            and ${schema.brainKnowledge.id} < ${cursor.id}))`
             : undefined,
+          or(
+            sql`${schema.brainKnowledge.captureId} IS NULL`,
+            audienceIds.length
+              ? and(
+                  accessibleSourceExists,
+                  inArray(schema.brainKnowledge.audienceId, audienceIds),
+                )
+              : undefined,
+          ),
+          publishedKnowledgeStatusClause(),
+          sourceIds
+            ? inArray(schema.brainKnowledge.sourceId, sourceIds)
+            : undefined,
+          anyColumnMatches(
+            [
+              schema.brainKnowledge.title,
+              schema.brainKnowledge.summary,
+              schema.brainKnowledge.body,
+              schema.brainKnowledge.topic,
+              schema.brainKnowledge.tagsJson,
+              schema.brainKnowledge.entitiesJson,
+            ],
+            terms,
+          ),
         ),
-        eq(schema.brainKnowledge.status, "published"),
-        anyColumnMatches(
-          [
-            schema.brainKnowledge.title,
-            schema.brainKnowledge.summary,
-            schema.brainKnowledge.body,
-            schema.brainKnowledge.topic,
-            schema.brainKnowledge.tagsJson,
-            schema.brainKnowledge.entitiesJson,
-          ],
-          terms,
-        ),
-      ),
-    )
-    .orderBy(desc(schema.brainKnowledge.updatedAt))
-    .limit(limit);
-  const sources = await accessibleSourceMap(rows.map((row) => row.sourceId));
-  return rows.map((row) => {
+      )
+      .orderBy(
+        desc(schema.brainKnowledge.updatedAt),
+        desc(schema.brainKnowledge.id),
+      )
+      .limit(batchLimit);
+    scanned += rows.length;
+    const currentRows = await filterCurrentKnowledgeRows(rows);
+    scopedRows.push(
+      ...currentRows
+        .filter((row) => {
+          if (!sourceIds) return true;
+          const evidence = parseJson<BrainEvidence[]>(row.evidenceJson, []);
+          return (
+            evidence.length > 0 &&
+            evidence.every((entry) => sourceIds.includes(entry.sourceId))
+          );
+        })
+        .slice(0, limit - scopedRows.length),
+    );
+    if (rows.length < batchLimit) {
+      exhausted = true;
+      break;
+    }
+    const last = rows.find((_row, index) => index === rows.length - 1);
+    if (!last) break;
+    cursor = { updatedAt: last.updatedAt, id: last.id };
+  }
+  if (scanned >= scanLimit && !exhausted) onScanLimit?.();
+  const sources = await accessibleSourceMap(
+    scopedRows.map((row) => row.sourceId),
+  );
+  return scopedRows.map((row) => {
     const source = sources.get(row.sourceId ?? "");
     const citation = firstCitation(row.evidenceJson);
     const sourceUrl = safeCitationUrl(citation?.sourceUrl ?? citation?.url);
@@ -493,7 +571,12 @@ async function searchKnowledgeResults(
         terms,
       ) +
       Math.round(row.confidence / 10) +
-      10;
+      10 +
+      (source
+        ? sourceAnswerPolicyFromConfig(
+            parseJson<Record<string, unknown>>(source.configJson, {}),
+          ).authority / 200
+        : 0);
     return {
       type: "knowledge" as const,
       id: row.id,
@@ -509,6 +592,7 @@ async function searchKnowledgeResults(
       citation: citation
         ? {
             captureId: citation.captureId,
+            capturedAt: citation.capturedAt,
             captureTitle: citation.captureTitle
               ? redactSensitiveText(citation.captureTitle)
               : citation.captureTitle,
@@ -525,16 +609,42 @@ async function searchKnowledgeResults(
   });
 }
 
+function trustedMarkdownCaptureTime(
+  provider: string,
+  externalId: string | null,
+  capturedAt: string,
+  metadata: Record<string, unknown>,
+) {
+  return provider === "manual" &&
+    externalId?.startsWith("markdown:") &&
+    metadata.capturedAtSource === "manual-markdown" &&
+    !Number.isNaN(Date.parse(capturedAt))
+    ? capturedAt
+    : undefined;
+}
+
+function captureSourceTime(
+  provider: string,
+  externalId: string | null,
+  capturedAt: string,
+  metadata: Record<string, unknown>,
+) {
+  if (provider !== "manual" || !externalId?.startsWith("markdown:"))
+    return capturedAt;
+  return trustedMarkdownCaptureTime(provider, externalId, capturedAt, metadata);
+}
+
 async function searchCaptureResults(
   terms: string[],
   limit: number,
+  sourceIds?: string[],
 ): Promise<UniversalSearchResult[]> {
   const audienceIds = await listAccessibleAudienceIds();
   if (!audienceIds.length) return [];
   const accessibleSourceExists = sql`exists (
     select 1 from ${schema.brainSources}
     where ${schema.brainSources.id} = ${schema.brainRawCaptures.sourceId}
-      and ${accessFilter(schema.brainSources, schema.brainSourceShares)}
+      and ${and(accessFilter(schema.brainSources, schema.brainSourceShares), personalGoogleSourceFilter())}
   )`;
   const rows = await getDb()
     .select()
@@ -543,6 +653,9 @@ async function searchCaptureResults(
       and(
         accessibleSourceExists,
         eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+        sourceIds
+          ? inArray(schema.brainRawCaptures.sourceId, sourceIds)
+          : undefined,
         sql`exists (
           select 1 from ${schema.brainCaptureAudiences}
           where ${schema.brainCaptureAudiences.captureId} = ${schema.brainRawCaptures.id}
@@ -564,23 +677,40 @@ async function searchCaptureResults(
   return rows.flatMap((row) => {
     const source = sources.get(row.sourceId);
     if (!source) return [];
-    const metadata = captureMetadata(row.metadataJson);
+    const metadata = captureMetadata(row);
+    const withheldPassages = withheldPassageCount(
+      parseCaptureMetadata(
+        withOmissionReceipt(row.metadataJson, row.content, row.kind),
+      ),
+      source.provider,
+      row.kind,
+    );
     const sourceUrl = sourceUrlFromMetadata(metadata);
     const snippet = redactSensitiveText(buildSnippet(row.content, terms));
     return [
       {
         type: "capture" as const,
         id: row.id,
-        title: redactSensitiveText(row.title),
+        title: redactSensitiveText(
+          publicCaptureTitle(row.title, withheldPassages !== 0),
+        ),
         snippet,
         summary: snippet,
         status: row.status,
         provider: source.provider,
-        source: serializeSourceInfo(source),
+        source: serializeSourceInfo(source, withheldPassages),
         sourceUrl,
         citation: {
           captureId: row.id,
-          captureTitle: redactSensitiveText(row.title),
+          captureTitle: redactSensitiveText(
+            publicCaptureTitle(row.title, withheldPassages !== 0),
+          ),
+          capturedAt: trustedMarkdownCaptureTime(
+            source.provider,
+            row.externalId,
+            row.capturedAt,
+            metadata,
+          ),
           quote: null,
           preview: snippet,
           verbatim: false,
@@ -597,14 +727,21 @@ async function searchCaptureResults(
               status: row.status,
             },
             terms,
-          ) + 2,
-        capturedAt: row.capturedAt,
+          ) +
+          2 +
+          sourceAnswerPolicyFromConfig(
+            parseJson<Record<string, unknown>>(source.configJson, {}),
+          ).authority /
+            200,
+        capturedAt: captureSourceTime(
+          source.provider,
+          row.externalId,
+          row.capturedAt,
+          metadata,
+        ),
         location: captureLocation(metadata),
         content: captureContent(row.content),
-        withheldPassages: withheldZoomPassageCount(
-          parseCaptureMetadata(row.metadataJson),
-          source.provider,
-        ),
+        withheldPassages,
       },
     ];
   });
@@ -613,13 +750,18 @@ async function searchCaptureResults(
 async function searchSourceResults(
   terms: string[],
   limit: number,
+  sourceIds?: string[],
 ): Promise<UniversalSearchResult[]> {
   const rows = await getDb()
     .select()
     .from(schema.brainSources)
     .where(
       and(
-        accessFilter(schema.brainSources, schema.brainSourceShares),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
+        sourceIds ? inArray(schema.brainSources.id, sourceIds) : undefined,
         anyColumnMatches(
           [
             schema.brainSources.title,
@@ -668,7 +810,18 @@ async function searchSourceResults(
 async function semanticCaptureDetails(
   artifacts: Array<{ captureId: string; audienceId: string }>,
   accessibleSourceIds: string[],
-): Promise<Map<string, { content: string; metadataJson: string | null }>> {
+): Promise<
+  Map<
+    string,
+    {
+      content: string;
+      metadataJson: string | null;
+      kind: string;
+      externalId: string | null;
+      capturedAt: string;
+    }
+  >
+> {
   const captureIds = Array.from(
     new Set(artifacts.map((artifact) => artifact.captureId)),
   );
@@ -681,6 +834,9 @@ async function semanticCaptureDetails(
       id: schema.brainRawCaptures.id,
       content: schema.brainRawCaptures.content,
       metadataJson: schema.brainRawCaptures.metadataJson,
+      kind: schema.brainRawCaptures.kind,
+      externalId: schema.brainRawCaptures.externalId,
+      capturedAt: schema.brainRawCaptures.capturedAt,
     })
     .from(schema.brainRawCaptures)
     .where(
@@ -710,15 +866,20 @@ export async function searchEverythingWithLanes(args: {
   provider?: string | undefined;
   kind?: string | undefined;
   projectId?: string | undefined;
+  sourceIds?: string[] | undefined;
   status?: string | undefined;
   limit?: number | undefined;
-}): Promise<{ rows: UniversalSearchResult[]; lanes: SearchLaneStatuses }> {
+}): Promise<{
+  rows: UniversalSearchResult[];
+  lanes: SearchLaneStatuses;
+  knowledgeScanLimited: boolean;
+}> {
   const lanes: SearchLaneStatuses = {
     fts: { status: "ok" },
     semantic: { status: "ok" },
   };
   const terms = normalizeSearchTerms(args.query);
-  if (!terms.length) return { rows: [], lanes };
+  if (!terms.length) return { rows: [], lanes, knowledgeScanLimited: false };
   const projectSourceIds = args.projectId
     ? (
         await getDb()
@@ -736,24 +897,35 @@ export async function searchEverythingWithLanes(args: {
           )
       ).map((row) => row.sourceId)
     : undefined;
-  if (projectSourceIds && !projectSourceIds.length) return { rows: [], lanes };
-  const projectSourceSet = projectSourceIds
-    ? new Set(projectSourceIds)
-    : undefined;
+  if (projectSourceIds && !projectSourceIds.length)
+    return { rows: [], lanes, knowledgeScanLimited: false };
+  const sourceIds = args.sourceIds?.length
+    ? args.sourceIds.filter(
+        (id) => !projectSourceIds || projectSourceIds.includes(id),
+      )
+    : projectSourceIds;
+  if (sourceIds && !sourceIds.length)
+    return { rows: [], lanes, knowledgeScanLimited: false };
+  const projectSourceSet = sourceIds ? new Set(sourceIds) : undefined;
   const limit = args.limit ?? 25;
   const perTypeLimit = Math.max(limit, 10);
   const searches: Array<Promise<UniversalSearchResult[]>> = [];
+  let knowledgeScanLimited = false;
   if (!args.type || args.type === "all" || args.type === "knowledge") {
-    searches.push(searchKnowledgeResults(terms, perTypeLimit));
+    searches.push(
+      searchKnowledgeResults(terms, perTypeLimit, sourceIds, () => {
+        knowledgeScanLimited = true;
+      }),
+    );
   }
   if (
     (!args.type || args.type === "all" || args.type === "capture") &&
     !args.kind
   ) {
-    searches.push(searchCaptureResults(terms, perTypeLimit));
+    searches.push(searchCaptureResults(terms, perTypeLimit, sourceIds));
   }
   if (!args.type || args.type === "all" || args.type === "source") {
-    searches.push(searchSourceResults(terms, perTypeLimit));
+    searches.push(searchSourceResults(terms, perTypeLimit, sourceIds));
   }
   if (!args.type || args.type === "all" || args.type === "capture") {
     searches.push(
@@ -762,6 +934,7 @@ export async function searchEverythingWithLanes(args: {
         provider: args.provider,
         kind: args.kind,
         projectId: args.projectId,
+        sourceIds,
         limit: perTypeLimit,
       })
         .then(async ({ results: artifacts, lanes: hybridLanes }) => {
@@ -778,7 +951,18 @@ export async function searchEverythingWithLanes(args: {
             const source = sources.get(artifact.sourceId);
             const detail = details.get(artifact.captureId);
             if (!source || !detail) return [];
-            const metadata = captureMetadata(detail.metadataJson);
+            const metadata = captureMetadata(detail);
+            const withheldPassages = withheldPassageCount(
+              parseCaptureMetadata(
+                withOmissionReceipt(
+                  detail.metadataJson,
+                  detail.content,
+                  detail.kind,
+                ),
+              ),
+              source.provider,
+              detail.kind,
+            );
             const sourceUrl = sourceUrlFromMetadata(metadata);
             const snippet = redactSensitiveText(
               buildSnippet(artifact.text, terms),
@@ -787,16 +971,26 @@ export async function searchEverythingWithLanes(args: {
               {
                 type: "capture" as const,
                 id: artifact.captureId,
-                title: redactSensitiveText(artifact.title),
+                title: redactSensitiveText(
+                  publicCaptureTitle(artifact.title, withheldPassages !== 0),
+                ),
                 snippet,
                 summary: snippet,
                 status: "indexed",
                 provider: source.provider,
-                source: serializeSourceInfo(source),
+                source: serializeSourceInfo(source, withheldPassages),
                 sourceUrl,
                 citation: {
                   captureId: artifact.captureId,
-                  captureTitle: redactSensitiveText(artifact.title),
+                  captureTitle: redactSensitiveText(
+                    publicCaptureTitle(artifact.title, withheldPassages !== 0),
+                  ),
+                  capturedAt: trustedMarkdownCaptureTime(
+                    source.provider,
+                    detail.externalId,
+                    detail.capturedAt,
+                    metadata,
+                  ),
                   quote: null,
                   preview: snippet,
                   verbatim: false,
@@ -807,13 +1001,18 @@ export async function searchEverythingWithLanes(args: {
                 score: artifact.score * 100,
                 reasons: artifact.reasons,
                 lane: artifact.lane,
-                capturedAt: artifact.capturedAt,
+                capturedAt: captureSourceTime(
+                  source.provider,
+                  detail.externalId,
+                  source.provider === "manual" &&
+                    detail.externalId?.startsWith("markdown:")
+                    ? detail.capturedAt
+                    : artifact.capturedAt,
+                  metadata,
+                ),
                 location: captureLocation(metadata),
                 content: captureContent(detail.content),
-                withheldPassages: withheldZoomPassageCount(
-                  parseCaptureMetadata(detail.metadataJson),
-                  source.provider,
-                ),
+                withheldPassages,
               },
             ];
           });
@@ -855,7 +1054,11 @@ export async function searchEverythingWithLanes(args: {
     const current = deduped.get(key);
     if (!current || result.score > current.score) deduped.set(key, result);
   }
-  return { rows: Array.from(deduped.values()).slice(0, limit), lanes };
+  return {
+    rows: Array.from(deduped.values()).slice(0, limit),
+    lanes,
+    knowledgeScanLimited,
+  };
 }
 
 async function readBrainSourceProviderCoverage(): Promise<
@@ -867,7 +1070,12 @@ async function readBrainSourceProviderCoverage(): Promise<
       status: schema.brainSources.status,
     })
     .from(schema.brainSources)
-    .where(accessFilter(schema.brainSources, schema.brainSourceShares));
+    .where(
+      and(
+        accessFilter(schema.brainSources, schema.brainSourceShares),
+        personalGoogleSourceFilter(),
+      ),
+    );
 
   const byProvider = new Map<
     string,

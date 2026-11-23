@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
@@ -10,6 +10,7 @@ const getTurnInitiatorByRunMock = vi.hoisted(() => vi.fn());
 const isLoopbackRequestMock = vi.hoisted(() => vi.fn());
 const isDirectLoopbackRequestMock = vi.hoisted(() => vi.fn());
 const getForwardedRequestOriginMock = vi.hoisted(() => vi.fn());
+const isOrgMemberMock = vi.hoisted(() => vi.fn(async () => true));
 
 vi.mock("./auth.js", () => ({
   getSession: getSessionMock,
@@ -36,10 +37,15 @@ vi.mock("../agent/run-store.js", () => ({
   getTurnInitiatorByRun: getTurnInitiatorByRunMock,
 }));
 
+vi.mock("../org/membership.js", () => ({
+  isOrgMember: isOrgMemberMock,
+}));
+
 import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
 } from "../agent/durable-background.js";
+import { signDispatchedTurnInitiator } from "../integrations/internal-token.js";
 import { ForbiddenError } from "../sharing/access.js";
 import {
   resolveAgentRunOrgId,
@@ -600,6 +606,24 @@ describe("server/agent-run-context", () => {
     expect(requestContext.browserSessionId).toBe("origin-session");
   });
 
+  it("restores the browser's time zone in a durable worker", async () => {
+    const event = makeEvent();
+    event.context.__agentChatBackgroundBody = {
+      [AGENT_CHAT_REQUEST_CONTEXT_FIELD]: {
+        requestOrigin: "https://app.example.test",
+        timezone: "America/Los_Angeles",
+      },
+    };
+
+    const requestContext = await resolveAgentRunRequestContext({
+      event,
+      ownerContext: { owner: "alice@example.com", anonymous: false },
+      isBackgroundWorker: true,
+    });
+
+    expect(requestContext.timezone).toBe("America/Los_Angeles");
+  });
+
   it("does not restore loopback eligibility from a durable payload", async () => {
     const event = makeEvent();
     event.context.__agentChatBackgroundBody = {
@@ -763,6 +787,96 @@ describe("server/agent-run-context", () => {
       resolveAgentRunRequestContext({ event, ownerContext: seeded! }),
     ).resolves.toMatchObject({ orgId: undefined, orgScope: "personal" });
     expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+  });
+
+  describe("with a signed dispatch", () => {
+    const owner = {
+      email: "owner@example.com",
+      authUserId: "owner-user-id",
+      orgId: "owner-org",
+      orgScope: null,
+      anonymous: false,
+    };
+
+    beforeEach(() => {
+      vi.stubEnv("A2A_SECRET", "test-dispatch-secret");
+      isOrgMemberMock.mockReset();
+      isOrgMemberMock.mockResolvedValue(true);
+    });
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("seeds the initiator the dispatch was signed for", async () => {
+      const event = makeEvent();
+      getTurnInitiatorByRunMock.mockResolvedValue({
+        ...owner,
+        firstRunId: "run_123",
+      });
+
+      await expect(
+        seedBackgroundAgentRunOwnerContext(
+          event,
+          "run_123",
+          signDispatchedTurnInitiator("run_123", owner),
+        ),
+      ).resolves.toMatchObject({ owner: "owner@example.com" });
+      expect(isOrgMemberMock).toHaveBeenCalledWith(
+        "owner-org",
+        "owner@example.com",
+        expect.anything(),
+      );
+    });
+
+    it("refuses a stored initiator that differs from the signed one", async () => {
+      const event = makeEvent();
+      getTurnInitiatorByRunMock.mockResolvedValue({
+        ...owner,
+        email: "other@example.com",
+        authUserId: "other-user-id",
+        firstRunId: "run_123",
+      });
+
+      await expect(
+        seedBackgroundAgentRunOwnerContext(
+          event,
+          "run_123",
+          signDispatchedTurnInitiator("run_123", owner),
+        ),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      await expect(
+        seedBackgroundAgentRunOwnerContext(event, "run_123"),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      await expect(
+        seedBackgroundAgentRunOwnerContext(
+          event,
+          "run_123",
+          signDispatchedTurnInitiator("run_other", {
+            ...owner,
+            email: "other@example.com",
+            authUserId: "other-user-id",
+          }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect(event.context.__agentNativeOwnerContext).toBeUndefined();
+    });
+
+    it("refuses an initiator who is no longer a member of the stored org", async () => {
+      const event = makeEvent();
+      getTurnInitiatorByRunMock.mockResolvedValue({
+        ...owner,
+        firstRunId: "run_123",
+      });
+      isOrgMemberMock.mockResolvedValue(false);
+
+      await expect(
+        seedBackgroundAgentRunOwnerContext(
+          event,
+          "run_123",
+          signDispatchedTurnInitiator("run_123", owner),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+    });
   });
 
   it("fails closed when a legacy run has no persisted initiator", async () => {

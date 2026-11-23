@@ -5,6 +5,7 @@ const { ReviewCommentResourceConflictError } = await import("./errors.js");
 const {
   compareMirroredReviewComments,
   deleteMirroredReviewComments,
+  linkMirroredReviewReplies,
   listMirroredResourceIds,
   mirrorReviewComments,
 } = await import("./mirror.js");
@@ -169,6 +170,53 @@ describe("mirrorReviewComments", () => {
     });
   });
 
+  it("writes the kind, routing and pickup an app keeps, and leaves the kit's when it doesn't say", async () => {
+    const deck = { ...DECK, resourceId: "deck-app-kept" };
+    const question = copy({
+      kind: "question",
+      resolutionTarget: "human",
+      consumedAt: null,
+    });
+    const plain = copy();
+    await mirrorReviewComments(deck, [question, plain]);
+    expect(await stored(question.id)).toMatchObject({
+      kind: "question",
+      resolutionTarget: "human",
+      consumedAt: null,
+    });
+    expect(await stored(plain.id)).toMatchObject({
+      kind: "comment",
+      resolutionTarget: null,
+      consumedAt: null,
+    });
+
+    const taken = {
+      ...question,
+      resolutionTarget: "agent" as const,
+      consumedAt: "2026-11-02T09:00:00.000Z",
+    };
+    expect(await mirrorReviewComments(deck, [taken])).toEqual({ written: 1 });
+    expect(await stored(question.id)).toMatchObject({
+      kind: "question",
+      resolutionTarget: "agent",
+      consumedAt: "2026-11-02T09:00:00.000Z",
+      revision: 2,
+    });
+    expect(await mirrorReviewComments(deck, [taken])).toEqual({ written: 0 });
+
+    await getDbExec().execute({
+      sql: "UPDATE agent_review_comments SET resolution_target = 'agent' WHERE id = ?",
+      args: [plain.id],
+    });
+    expect(
+      await mirrorReviewComments(deck, [{ ...plain, body: "Reworded" }]),
+    ).toEqual({ written: 1 });
+    expect(await stored(plain.id)).toMatchObject({
+      body: "Reworded",
+      resolutionTarget: "agent",
+    });
+  });
+
   it("brings back a comment the kit deleted when the app still has it", async () => {
     const comment = copy();
     await mirrorReviewComments(DECK, [comment]);
@@ -181,6 +229,35 @@ describe("mirrorReviewComments", () => {
       deletedAt: null,
       status: "open",
     });
+  });
+
+  it("only adds what the kit lacks when asked, leaving the rest as the kit has it", async () => {
+    const deck = { ...DECK, resourceId: "deck-only-missing" };
+    const kept = copy();
+    const deleted = copy();
+    await mirrorReviewComments(deck, [kept, deleted]);
+    await deleteMirroredReviewComments(deck, [deleted.id], "tiana@example.com");
+    const added = copy();
+
+    const result = await mirrorReviewComments(
+      deck,
+      [{ ...kept, body: "An older wording", reactions: [] }, deleted, added],
+      { onlyMissing: true },
+    );
+
+    expect(result).toEqual({ written: 1 });
+    expect(await stored(kept.id)).toMatchObject({
+      body: kept.body,
+      revision: 1,
+    });
+    expect(await reactionsOn(kept.id)).toEqual([
+      { actor_email: "sam@example.com", reaction: "👍" },
+    ]);
+    expect(await stored(deleted.id)).toMatchObject({ status: "deleted" });
+    expect(await stored(added.id)).toMatchObject({ body: added.body });
+    expect(await reactionsOn(added.id)).toEqual([
+      { actor_email: "sam@example.com", reaction: "👍" },
+    ]);
   });
 
   it("refuses an ID the kit holds on another resource and writes nothing", async () => {
@@ -287,6 +364,49 @@ describe("mirrorReviewComments", () => {
 
     expect(transactions).toBe(1);
     expect(await stored(comment.id)).not.toBeNull();
+  });
+});
+
+describe("linkMirroredReviewReplies", () => {
+  it("gives a reply saved with no parent its parent in the same thread, once", async () => {
+    const root = copy({ id: "link-root" });
+    const reply = copy({ id: "link-reply", threadId: root.id });
+    const linked = copy({
+      id: "link-linked",
+      threadId: root.id,
+      parentCommentId: root.id,
+    });
+    const elsewhere = copy({ id: "link-elsewhere" });
+    await mirrorReviewComments(DECK, [root, reply, linked, elsewhere]);
+    const before = await stored(reply.id);
+
+    expect(
+      await linkMirroredReviewReplies(DECK, [
+        { id: reply.id, parentCommentId: root.id },
+        { id: linked.id, parentCommentId: reply.id },
+        { id: root.id, parentCommentId: root.id },
+        { id: elsewhere.id, parentCommentId: root.id },
+        { id: "link-missing", parentCommentId: "nowhere" },
+      ]),
+    ).toEqual({ linked: 1 });
+    expect(
+      await linkMirroredReviewReplies({ ...DECK, resourceId: "deck-other" }, [
+        { id: root.id, parentCommentId: reply.id },
+      ]),
+    ).toEqual({ linked: 0 });
+
+    const after = await stored(reply.id);
+    expect(after?.parentCommentId).toBe(root.id);
+    expect(after?.revision).toBe((before?.revision ?? 0) + 1);
+    expect((await stored(linked.id))?.parentCommentId).toBe(root.id);
+    expect((await stored(root.id))?.parentCommentId).toBeNull();
+    expect((await stored(elsewhere.id))?.parentCommentId).toBeNull();
+    expect(
+      await linkMirroredReviewReplies(DECK, [
+        { id: reply.id, parentCommentId: root.id },
+      ]),
+    ).toEqual({ linked: 0 });
+    expect(await linkMirroredReviewReplies(DECK, [])).toEqual({ linked: 0 });
   });
 });
 
@@ -431,6 +551,45 @@ describe("compareMirroredReviewComments", () => {
       ...comment,
       resolvedBy: undefined,
       resolvedAt: undefined,
+    };
+    expect(await compareMirroredReviewComments(deck, [unstated])).toEqual({
+      checked: 1,
+      differences: [],
+    });
+  });
+
+  it("checks the kind, routing and pickup only where the app says", async () => {
+    const deck = { ...DECK, resourceId: "deck-app-kept-compare" };
+    const comment = copy({
+      kind: "correction",
+      resolutionTarget: "agent",
+      consumedAt: "2026-11-02T09:00:00.000Z",
+    });
+    await mirrorReviewComments(deck, [comment]);
+
+    expect(
+      await compareMirroredReviewComments(deck, [
+        {
+          ...comment,
+          kind: "question",
+          resolutionTarget: "human",
+          consumedAt: null,
+        },
+      ]),
+    ).toMatchObject({
+      differences: [
+        {
+          id: comment.id,
+          problem: "different",
+          fields: ["kind", "resolutionTarget", "consumedAt"],
+        },
+      ],
+    });
+    const unstated = {
+      ...comment,
+      kind: undefined,
+      resolutionTarget: undefined,
+      consumedAt: undefined,
     };
     expect(await compareMirroredReviewComments(deck, [unstated])).toEqual({
       checked: 1,

@@ -9,6 +9,14 @@ const mocks = vi.hoisted(() => {
   selectChain.from.mockReturnValue(selectChain);
   selectChain.where.mockReturnValue(selectChain);
 
+  const designSelectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    limit: vi.fn(),
+  };
+  designSelectChain.from.mockReturnValue(designSelectChain);
+  designSelectChain.where.mockReturnValue(designSelectChain);
+
   const insertChain = {
     values: vi.fn(),
     onConflictDoUpdate: vi.fn(),
@@ -34,6 +42,7 @@ const mocks = vi.hoisted(() => {
   const transaction = {
     insert: vi.fn(() => insertChain),
     select: vi.fn(() => selectChain),
+    update: vi.fn(() => updateChain),
   };
   const withDesignSourceMutationTransaction = vi.fn(
     async (
@@ -67,7 +76,9 @@ const mocks = vi.hoisted(() => {
     getDb: vi.fn(() => ({
       insert: vi.fn(() => insertChain),
       update: vi.fn(() => updateChain),
-      select: vi.fn(() => selectChain),
+      select: vi.fn((columns) =>
+        columns?.data === "designs.data" ? designSelectChain : selectChain,
+      ),
       transaction: (callback: (tx: unknown) => Promise<unknown>) =>
         callback({
           update: () => updateChain,
@@ -79,6 +90,7 @@ const mocks = vi.hoisted(() => {
     isSameOrigin: vi.fn(),
     assertAccess: vi.fn(),
     selectChain,
+    designSelectChain,
     state,
     withDesignSourceMutationTransaction,
   };
@@ -98,11 +110,13 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => ({ requestOrigin: "https://design.example.test" }),
   getRequestUserEmail: () => "commenter@example.com",
+  getRequestAuthCapability: () => undefined,
 }));
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions) => ({ conditions })),
   eq: vi.fn((left, right) => ({ left, right })),
+  inArray: vi.fn((left, values) => ({ left, values })),
   sql: vi.fn((strings, ...values) => ({ strings: [...strings], values })),
 }));
 
@@ -123,7 +137,12 @@ vi.mock("./visual-edit-browser-request.js", () => ({
   isSameOriginVisualEditBrowserRequest: mocks.isSameOrigin,
 }));
 
-import { publicDesignAccessRole } from "../server/lib/design-data-access.js";
+vi.mock("@agent-native/core/settings", () => ({
+  getSetting: async () => null,
+  putSetting: async () => undefined,
+}));
+
+import { capabilityDesignAccessRole } from "../server/lib/design-data-access.js";
 import acknowledgePendingAction from "./acknowledge-visual-edit-pending.js";
 import getPendingAction from "./get-visual-edit-pending.js";
 import publishPendingAction from "./publish-visual-edit-pending.js";
@@ -153,6 +172,10 @@ describe("visual-edit pending handoff", () => {
     mocks.getDb.mockClear();
     mocks.selectChain.limit.mockReset();
     mocks.selectChain.limit.mockResolvedValue([]);
+    mocks.designSelectChain.limit.mockReset();
+    mocks.designSelectChain.limit.mockResolvedValue([
+      { data: JSON.stringify({ tweakSelectionsRevision: 3 }) },
+    ]);
     mocks.insertChain.values.mockClear();
     mocks.insertChain.onConflictDoUpdate.mockClear();
     mocks.insertChain.returning.mockReset();
@@ -173,9 +196,9 @@ describe("visual-edit pending handoff", () => {
     });
     expect(getPendingAction.description).toContain("source provenance");
     expect(getPendingAction.description).toContain(
-      "Apply the prompt to connected app source",
+      "apply the prompt to connected app source",
     );
-    expect(getPendingAction.description).toContain("verify the running app");
+    expect(getPendingAction.description).toContain("verify it");
     expect(getPendingAction.description).toContain("it does not modify source");
     expect(getPendingAction.publicAgent).toMatchObject({
       expose: true,
@@ -641,7 +664,7 @@ describe("visual-edit pending handoff", () => {
   it("upserts a skill-capability handoff without exposing bridge credentials", async () => {
     mocks.isSameOrigin.mockReturnValue(true);
     const authCapability = `capability:visual-edit:design:${encodeURIComponent(design.id)}`;
-    const role = publicDesignAccessRole(design, { authCapability });
+    const role = await capabilityDesignAccessRole(design, { authCapability });
     expect(role).toBe("editor");
     const prompt = "Change the title in Clips at src/Library.tsx:42.";
 
@@ -730,12 +753,39 @@ describe("visual-edit pending handoff", () => {
       prompt: "Move the CTA to the right.",
       clientRevision: 1,
       publisherId,
+      tweakSelectionsRevision: 3,
+      next: expect.stringContaining("expectedTweakSelectionsRevision: 3"),
     });
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "design",
       "design_public",
       "editor",
     );
+  });
+
+  it("still returns the handoff when the design data is unreadable, without a clear", async () => {
+    mocks.designSelectChain.limit.mockResolvedValueOnce([
+      { data: "{not json" },
+    ]);
+    mocks.selectChain.limit.mockResolvedValueOnce([
+      {
+        pendingEditCount: 1,
+        status: "ready",
+        prompt: "Move the CTA to the right.",
+        revision: 4,
+        clientRevision: 4,
+        publisherId,
+        updatedAt: "2026-09-23T12:00:00.000Z",
+      },
+    ]);
+    const result = await getPendingAction.run({ designId: "design_public" });
+    expect(result).toMatchObject({
+      status: "ready",
+      prompt: "Move the CTA to the right.",
+      tweakSelectionsRevision: null,
+    });
+    expect(result.next).toContain("do not claim or attempt a safe clear");
+    expect(result.next).not.toContain("expectedTweakSelectionsRevision");
   });
 
   it("acknowledges only the exact applied handoff revision", async () => {

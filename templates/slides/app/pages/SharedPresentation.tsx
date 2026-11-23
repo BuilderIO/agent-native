@@ -45,7 +45,13 @@ export function PresentationLinkDeck({
     );
   }
   if (query.data) {
-    return <SharedPresentation initialDeck={query.data.deck} />;
+    return (
+      <SharedPresentation
+        initialDeck={query.data.deck}
+        sharedDeckId={`__shared__/live/${deckId}`}
+        exitTo="/"
+      />
+    );
   }
   if (query.isError) {
     return <SharedPresentation initialError={query.error.message} />;
@@ -65,11 +71,15 @@ function PresentationSkeleton() {
 interface SharedPresentationProps {
   initialDeck?: SharedDeckResponse | null;
   initialError?: string;
+  sharedDeckId?: string;
+  exitTo?: string;
 }
 
 export default function SharedPresentation({
   initialDeck = null,
   initialError = "",
+  sharedDeckId,
+  exitTo,
 }: SharedPresentationProps) {
   const t = useT();
   const { token } = useParams<{ token: string }>();
@@ -159,7 +169,8 @@ export default function SharedPresentation({
   return (
     <PresentationView
       slides={slides}
-      deckId={`__shared__/${token}`}
+      deckId={sharedDeckId ?? `__shared__/${token}`}
+      exitTo={exitTo}
       startIndex={startIndex}
       aspectRatio={deck.aspectRatio}
       designSystem={designSystem}
