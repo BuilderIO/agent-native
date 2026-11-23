@@ -298,8 +298,6 @@ export function suggestionPresentationLength(
   return nodes.map(presentedText).join("").length;
 }
 
-// A link that runs on past `resumesAt` names its destination in the piece
-// that starts there, so its cut front here is only underlined.
 function slicePresentation(
   nodes: readonly SuggestionPresentationNode[],
   from: number,
@@ -366,7 +364,6 @@ function shortenUrls(
   );
 }
 
-// Every runtime this serves has Intl.Segmenter; its types arrive with ES2022.
 const graphemes = new (
   Intl as unknown as {
     Segmenter: new (
@@ -382,8 +379,6 @@ const graphemes = new (
   }
 ).Segmenter(undefined, { granularity: "grapheme" });
 
-// Moves a cut off the middle of a character, such as a joined emoji or a
-// letter and its accent, to the character's start or, going forward, its end.
 function graphemeBoundary(text: string, index: number, forward = false) {
   const grapheme = graphemes.segment(text).containing(index);
   if (!grapheme || grapheme.index === index) return index;
