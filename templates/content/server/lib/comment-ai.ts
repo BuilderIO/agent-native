@@ -17,7 +17,6 @@ import {
   inArray,
   isNull,
   notInArray,
-  or,
   sql,
 } from "drizzle-orm";
 import { z } from "zod";
@@ -1196,7 +1195,10 @@ export async function submitCommentAiClassification(intent: CommentAiIntent) {
   return { request: serializeCommentAiRequest(request), pendingSession: next };
 }
 
-export async function requireCommentAiRequest(intent?: CommentAiIntent) {
+export async function requireCommentAiRequest(
+  intent?: CommentAiIntent,
+  options?: { deferBookkeeping?: boolean },
+) {
   const run = getRequestRunContext();
   if (!run) throw new Error("This operation requires a scoped comment AI run");
   const scope = commentAiActionScopeSchema.parse(run.actionScope);
@@ -1212,33 +1214,37 @@ export async function requireCommentAiRequest(intent?: CommentAiIntent) {
   if (request.fieldId !== "body" && request.intent === "apply-resolve") {
     throw new Error("Ask AI can't apply changes in a Blocks field tab");
   }
-  // Fill missing run metadata once; a retry must not overwrite a newer run or
-  // restore the stale status read before a concurrent reconciliation.
-  const runId = run.runId ?? null;
-  const model = run.model?.trim().slice(0, 120) || null;
-  const engine = run.engine?.name ?? null;
+  if (options?.deferBookkeeping) return request;
   const [updated] = await getDb()
     .update(schema.commentAiRequests)
-    .set({
-      status: sql`CASE WHEN ${schema.commentAiRequests.status} IN ('queued', 'classified') THEN 'running' ELSE ${schema.commentAiRequests.status} END`,
-      runId: sql`COALESCE(${schema.commentAiRequests.runId}, ${runId})`,
-      model: sql`COALESCE(${schema.commentAiRequests.model}, ${model})`,
-      engine: sql`COALESCE(${schema.commentAiRequests.engine}, ${engine})`,
-      updatedAt: new Date().toISOString(),
-    })
+    .set(commentAiRunBookkeeping(request))
     .where(
       and(
         eq(schema.commentAiRequests.id, request.id),
-        or(
-          inArray(schema.commentAiRequests.status, ["queued", "classified"]),
-          ...(runId ? [isNull(schema.commentAiRequests.runId)] : []),
-          ...(model ? [isNull(schema.commentAiRequests.model)] : []),
-          ...(engine ? [isNull(schema.commentAiRequests.engine)] : []),
-        ),
+        eq(schema.commentAiRequests.updatedAt, request.updatedAt),
+        eq(schema.commentAiRequests.status, request.status),
+        sql`${schema.commentAiRequests.runId} IS NOT DISTINCT FROM ${request.runId}`,
+        sql`${schema.commentAiRequests.model} IS NOT DISTINCT FROM ${request.model}`,
+        sql`${schema.commentAiRequests.engine} IS NOT DISTINCT FROM ${request.engine}`,
       ),
     )
     .returning();
   return updated ?? (await loadCommentAiRequest(request.id));
+}
+
+function commentAiRunBookkeeping(request: RequestRow) {
+  const run = getRequestRunContext();
+  if (!run) throw new Error("This operation requires a scoped comment AI run");
+  return {
+    status:
+      request.status === "queued" || request.status === "classified"
+        ? "running"
+        : request.status,
+    runId: run.runId ?? request.runId,
+    model: run.model?.trim().slice(0, 120) || request.model,
+    engine: run.engine?.name ?? request.engine,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export async function getCommentAiAttempt(
@@ -1295,7 +1301,10 @@ async function recordConflict(
   await writeAppState("refresh-signal", { ts: Date.now() });
 }
 
-export async function beginCommentAiAttempt(request: RequestRow) {
+export async function beginCommentAiAttempt(
+  request: RequestRow,
+  options?: { recordRun?: boolean },
+) {
   let source: CommentSource;
   try {
     source = await readCommentAiSource(request);
@@ -1324,7 +1333,7 @@ export async function beginCommentAiAttempt(request: RequestRow) {
   const now = new Date().toISOString();
 
   return getDb().transaction(async (tx) => {
-    const [locked] = await tx
+    let [locked] = await tx
       .select()
       .from(schema.commentAiRequests)
       .where(eq(schema.commentAiRequests.id, request.id))
@@ -1332,6 +1341,21 @@ export async function beginCommentAiAttempt(request: RequestRow) {
     if (!locked) throw new Error("Comment AI operation not found");
     if (terminalSuccess(locked.status)) {
       return { request: locked, attempt: null, source };
+    }
+    // Do not overwrite a run or lifecycle transition committed since the read.
+    if (
+      options?.recordRun &&
+      locked.updatedAt === request.updatedAt &&
+      locked.status === request.status &&
+      locked.runId === request.runId &&
+      locked.model === request.model &&
+      locked.engine === request.engine
+    ) {
+      [locked] = await tx
+        .update(schema.commentAiRequests)
+        .set(commentAiRunBookkeeping(locked))
+        .where(eq(schema.commentAiRequests.id, locked.id))
+        .returning();
     }
     if (locked.activeAttemptId) {
       const [active] = await tx

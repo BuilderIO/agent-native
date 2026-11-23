@@ -60,6 +60,10 @@ function runOperation<T>(
   operationId: string,
   agentThreadId: string,
   run: () => Promise<T>,
+  metadata: { runId: string; model: string } = {
+    runId: `run-${operationId}`,
+    model: "openai/gpt-5.6-sol",
+  },
 ) {
   return runWithRequestContext(
     {
@@ -67,8 +71,8 @@ function runOperation<T>(
       run: {
         actionScope: { kind: "content-comment-ai", requestId: operationId },
         threadId: agentThreadId,
-        runId: `run-${operationId}`,
-        model: "openai/gpt-5.6-sol",
+        runId: metadata.runId,
+        model: metadata.model,
       },
     },
     run,
@@ -523,165 +527,206 @@ describe("comment AI durable action binding", () => {
 });
 
 describe("operation-scoped refresh and commits", () => {
-  it("reports a settled exhausted context separately from lost results and committed conflicts", async () => {
+  it.each(["existing", "missing"] as const)(
+    "reports exhausted context without changing %s run metadata",
+    async (metadata) => {
+      const started = await asUser(() =>
+        commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+      );
+      for (const revision of [1, 2]) {
+        await runOperation(OP_A, started.agentThreadId, async () => {
+          const request = await commentAi.requireCommentAiRequest("reply");
+          await commentAi.beginCommentAiAttempt(request);
+        });
+        await getDb()
+          .update(schema.documents)
+          .set({ content: `Revision ${revision}`, bodyRevision: revision + 1 })
+          .where(eq(schema.documents.id, DOCUMENT_ID));
+      }
+      if (metadata === "missing") {
+        await getDb()
+          .update(schema.commentAiRequests)
+          .set({ runId: null, model: null, engine: null })
+          .where(eq(schema.commentAiRequests.id, OP_A));
+      }
+      const beforeRequest = await asUser(() =>
+        commentAi.loadCommentAiRequest(OP_A),
+      );
+      const beforeAttempts = await getDb()
+        .select()
+        .from(schema.commentAiAttempts);
+      const beforeComments = await getDb()
+        .select()
+        .from(schema.documentComments);
+      const beforeDocuments = await getDb().select().from(schema.documents);
+      const outcome: ActionExecutionOutcome = { refused: false };
+      const error = await runOperation(OP_A, started.agentThreadId, () =>
+        runActionWithExecutionOutcome(
+          getContext.run,
+          {},
+          {
+            caller: "tool",
+            userEmail: OWNER,
+            actionName: "get-comment-ai-context",
+          },
+          outcome,
+          getContext,
+        ),
+      ).then(
+        () => undefined,
+        (thrown: unknown) => thrown,
+      );
+      expect(
+        invocationEffect(getContext, outcome, { failed: { error } }),
+      ).toEqual({
+        effect: "none",
+        changed: false,
+      });
+      expect(error).toMatchObject({
+        code: "refresh_exhausted",
+        errorCode: "refresh_exhausted",
+      });
+      let release!: () => void;
+      let locked!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const lockAcquired = new Promise<void>((resolve) => {
+        locked = resolve;
+      });
+      const transaction = getDb().transaction(async (tx) => {
+        await tx
+          .select()
+          .from(schema.commentAiRequests)
+          .where(eq(schema.commentAiRequests.id, OP_A))
+          .for("update");
+        locked();
+        await held;
+      });
+      await lockAcquired;
+      const lostOutcome: ActionExecutionOutcome = { refused: false };
+      const running = runOperation(OP_A, started.agentThreadId, () =>
+        runActionWithExecutionOutcome(
+          getContext.run,
+          {},
+          {
+            caller: "tool",
+            userEmail: OWNER,
+            actionName: "get-comment-ai-context",
+          },
+          lostOutcome,
+          getContext,
+        ),
+      ).then(
+        () => undefined,
+        (thrown: unknown) => thrown,
+      );
+      let settled = false;
+      void running.then(() => {
+        settled = true;
+      });
+      try {
+        await expect
+          .poll(() => lostOutcome.record?.evidence.handlerEntered)
+          .toBe(true);
+        expect(settled).toBe(false);
+        expect(
+          invocationEffect(getContext, lostOutcome, { failed: { lost: true } }),
+        ).toEqual({
+          effect: "unknown",
+          changed: true,
+        });
+      } finally {
+        release();
+        await transaction;
+      }
+      const lostError = await running;
+      expect(
+        invocationEffect(getContext, lostOutcome, {
+          failed: { error: lostError },
+        }),
+      ).toEqual({
+        effect: "none",
+        changed: false,
+      });
+      expect(await asUser(() => commentAi.loadCommentAiRequest(OP_A))).toEqual(
+        beforeRequest,
+      );
+      expect(await getDb().select().from(schema.commentAiAttempts)).toEqual(
+        beforeAttempts,
+      );
+      expect(await getDb().select().from(schema.documentComments)).toEqual(
+        beforeComments,
+      );
+      expect(await getDb().select().from(schema.documents)).toEqual(
+        beforeDocuments,
+      );
+
+      await getDb()
+        .update(schema.documentComments)
+        .set({ content: "Changed feedback" })
+        .where(eq(schema.documentComments.id, ROOT_A));
+      const conflictOutcome: ActionExecutionOutcome = { refused: false };
+      const conflict = await runOperation(OP_A, started.agentThreadId, () =>
+        runActionWithExecutionOutcome(
+          getContext.run,
+          {},
+          {
+            caller: "tool",
+            userEmail: OWNER,
+            actionName: "get-comment-ai-context",
+          },
+          conflictOutcome,
+          getContext,
+        ),
+      ).then(
+        () => undefined,
+        (thrown: unknown) => thrown,
+      );
+      expect(conflict).toMatchObject({ code: "root_comment_changed" });
+      expect(
+        invocationEffect(getContext, conflictOutcome, {
+          failed: { error: conflict },
+        }),
+      ).toEqual({
+        effect: "unknown",
+        changed: true,
+      });
+      expect(
+        await asUser(() => commentAi.loadCommentAiRequest(OP_A)),
+      ).toMatchObject({
+        status: "needs-review",
+        errorCode: "root_comment_changed",
+        attemptCount: 2,
+      });
+      expect(await getDb().select().from(schema.commentAiAttempts)).toEqual(
+        beforeAttempts,
+      );
+    },
+  );
+
+  it("records the current run and model when an existing attempt resumes", async () => {
     const started = await asUser(() =>
       commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
     );
-    for (const revision of [1, 2]) {
-      await runOperation(OP_A, started.agentThreadId, async () => {
-        const request = await commentAi.requireCommentAiRequest("reply");
-        await commentAi.beginCommentAiAttempt(request);
-      });
-      await getDb()
-        .update(schema.documents)
-        .set({ content: `Revision ${revision}`, bodyRevision: revision + 1 })
-        .where(eq(schema.documents.id, DOCUMENT_ID));
-    }
-    const beforeRequest = await asUser(() =>
-      commentAi.loadCommentAiRequest(OP_A),
-    );
-    const beforeAttempts = await getDb()
-      .select()
-      .from(schema.commentAiAttempts);
-    const beforeComments = await getDb().select().from(schema.documentComments);
-    const beforeDocuments = await getDb().select().from(schema.documents);
-    const outcome: ActionExecutionOutcome = { refused: false };
-    const error = await runOperation(OP_A, started.agentThreadId, () =>
-      runActionWithExecutionOutcome(
-        getContext.run,
-        {},
-        {
-          caller: "tool",
-          userEmail: OWNER,
-          actionName: "get-comment-ai-context",
-        },
-        outcome,
-        getContext,
-      ),
-    ).then(
-      () => undefined,
-      (thrown: unknown) => thrown,
-    );
-    expect(
-      invocationEffect(getContext, outcome, { failed: { error } }),
-    ).toEqual({
-      effect: "none",
-      changed: false,
+    const first = await runOperation(OP_A, started.agentThreadId, async () => {
+      const request = await commentAi.requireCommentAiRequest("reply");
+      return commentAi.beginCommentAiAttempt(request);
     });
-    expect(error).toMatchObject({
-      code: "refresh_exhausted",
-      errorCode: "refresh_exhausted",
-    });
-    let release!: () => void;
-    let observed!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const reached = new Promise<void>((resolve) => {
-      observed = resolve;
-    });
-    const wrapped = {
-      ...getContext,
-      run: async (
-        args: Parameters<typeof getContext.run>[0],
-        ctx: Parameters<typeof getContext.run>[1],
-      ) => {
-        try {
-          return await getContext.run(args, ctx);
-        } catch (error) {
-          observed();
-          await held;
-          throw error;
-        }
-      },
-    };
-    const lostOutcome: ActionExecutionOutcome = { refused: false };
-    const running = runOperation(OP_A, started.agentThreadId, () =>
-      runActionWithExecutionOutcome(
-        wrapped.run,
-        {},
-        {
-          caller: "tool",
-          userEmail: OWNER,
-          actionName: "get-comment-ai-context",
-        },
-        lostOutcome,
-        wrapped,
-      ),
-    ).then(
-      () => undefined,
-      (thrown: unknown) => thrown,
+    const resumed = await runOperation(
+      OP_A,
+      started.agentThreadId,
+      () => getContext.run({}, { caller: "tool", userEmail: OWNER }),
+      { runId: "resumed-run", model: "example/resumed-model" },
     );
-    await reached;
-    expect(
-      invocationEffect(wrapped, lostOutcome, { failed: { lost: true } }),
-    ).toEqual({
-      effect: "unknown",
-      changed: true,
-    });
-    release();
-    const wrappedError = await running;
-    expect(
-      invocationEffect(wrapped, lostOutcome, {
-        failed: { error: wrappedError },
-      }),
-    ).toEqual({
-      effect: "none",
-      changed: false,
-    });
-    expect(await asUser(() => commentAi.loadCommentAiRequest(OP_A))).toEqual(
-      beforeRequest,
-    );
-    expect(await getDb().select().from(schema.commentAiAttempts)).toEqual(
-      beforeAttempts,
-    );
-    expect(await getDb().select().from(schema.documentComments)).toEqual(
-      beforeComments,
-    );
-    expect(await getDb().select().from(schema.documents)).toEqual(
-      beforeDocuments,
-    );
-
-    await getDb()
-      .update(schema.documentComments)
-      .set({ content: "Changed feedback" })
-      .where(eq(schema.documentComments.id, ROOT_A));
-    const conflictOutcome: ActionExecutionOutcome = { refused: false };
-    const conflict = await runOperation(OP_A, started.agentThreadId, () =>
-      runActionWithExecutionOutcome(
-        getContext.run,
-        {},
-        {
-          caller: "tool",
-          userEmail: OWNER,
-          actionName: "get-comment-ai-context",
-        },
-        conflictOutcome,
-        getContext,
-      ),
-    ).then(
-      () => undefined,
-      (thrown: unknown) => thrown,
-    );
-    expect(conflict).toMatchObject({ code: "root_comment_changed" });
-    expect(
-      invocationEffect(getContext, conflictOutcome, {
-        failed: { error: conflict },
-      }),
-    ).toEqual({
-      effect: "unknown",
-      changed: true,
-    });
+    expect(resumed).toMatchObject({ attemptId: first.attempt?.id });
     expect(
       await asUser(() => commentAi.loadCommentAiRequest(OP_A)),
     ).toMatchObject({
-      status: "needs-review",
-      errorCode: "root_comment_changed",
-      attemptCount: 2,
+      runId: "resumed-run",
+      model: "example/resumed-model",
+      attemptCount: 1,
     });
-    expect(await getDb().select().from(schema.commentAiAttempts)).toEqual(
-      beforeAttempts,
-    );
   });
 
   it("keeps reconciliation and established run metadata when context bookkeeping overlaps", async () => {
@@ -712,7 +757,15 @@ describe("operation-scoped refresh and commits", () => {
     const retry = await runOperation(OP_A, started.agentThreadId, () =>
       commentAi.requireCommentAiRequest("reply"),
     );
-    expect(retry).toEqual(reviewed);
+    // oracle-change: resumed runs replace attribution while retaining review state.
+    expect(retry).toMatchObject({
+      status: "needs-review",
+      errorCode: "run_unavailable",
+      runId: `run-${OP_A}`,
+    });
+    expect(await asUser(() => commentAi.loadCommentAiRequest(OP_A))).toEqual(
+      retry,
+    );
   });
 
   it("refreshes a reply after a Page edit, then publishes once from the new basis", async () => {
