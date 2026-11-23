@@ -6195,8 +6195,23 @@ export async function executeAgentToolCall(
     return {
       status: "failed",
       output: `Unknown or unavailable tool: ${options.name}`,
+      beforeExecution: true,
     };
   }
+  // Invocation, not consumeApproval, is what distinguishes "ran but failed"
+  // from "never ran". Wrap the named handler so every pre-start failure
+  // (invalid input, beforeWrite, a thrown grant) carries the same marker.
+  const invocation = { started: false };
+  const actions: Record<string, ActionEntry> = {
+    ...options.actions,
+    [options.name]: {
+      ...entry,
+      run: (args, context) => {
+        invocation.started = true;
+        return entry.run(args, context);
+      },
+    },
+  };
 
   let streamCalls = 0;
   const engine: AgentEngine = {
@@ -6246,12 +6261,7 @@ export async function executeAgentToolCall(
   };
   const controller = options.signal ? null : new AbortController();
   const signal = options.signal ?? controller!.signal;
-  const tools = actionsToEngineTools(options.actions);
-  const consumeApproval = options.consumeApproval;
-  // A grant whose consumption throws never executed the action, so its
-  // failure must not be worded as a run that failed. Held on an object so
-  // the async wrapper's assignment is visible to the catch below.
-  const approvalConsumption = { failedBeforeExecution: false };
+  const tools = actionsToEngineTools(actions);
 
   try {
     await runAgentLoop({
@@ -6271,7 +6281,7 @@ export async function executeAgentToolCall(
           ],
         },
       ],
-      actions: options.actions,
+      actions,
       send,
       signal,
       ownerEmail: options.ownerEmail,
@@ -6292,16 +6302,7 @@ export async function executeAgentToolCall(
       approvedToolCallAskId: options.approvedToolCallAskId,
       auditOverride: options.auditOverride,
       onApprovalRequired: options.onApprovalRequired,
-      consumeApproval: consumeApproval
-        ? async (binding: AgentApprovalBinding) => {
-            try {
-              return await consumeApproval(binding);
-            } catch (error) {
-              approvalConsumption.failedBeforeExecution = true;
-              throw error;
-            }
-          }
-        : undefined,
+      consumeApproval: options.consumeApproval,
       isToolAlwaysAllowed: options.isToolAlwaysAllowed,
       requireWriteApproval: options.requireWriteApproval,
       beforeWrite: options.beforeWrite,
@@ -6324,9 +6325,7 @@ export async function executeAgentToolCall(
     return {
       status: "failed",
       output: sanitizeToolErrorValue(error),
-      ...(approvalConsumption.failedBeforeExecution
-        ? { beforeExecution: true }
-        : {}),
+      ...(invocation.started ? {} : { beforeExecution: true as const }),
     };
   }
 
@@ -6357,24 +6356,30 @@ export async function executeAgentToolCall(
     typeof completed?.completedSideEffect === "boolean"
       ? { completedSideEffect: completed.completedSideEffect }
       : {};
+  const beforeExecutionUnlessInvoked = invocation.started
+    ? {}
+    : { beforeExecution: true as const };
   if (terminalError) {
     return {
       status: "failed",
       output: completed?.result ?? terminalError.error,
       ...completedEffect,
       terminalError,
+      ...beforeExecutionUnlessInvoked,
     };
   }
   if (!completed) {
     return {
       status: "failed",
       output: `The ${options.name} tool did not return a result.`,
+      ...beforeExecutionUnlessInvoked,
     };
   }
   return {
     status: completed.isError ? "failed" : "completed",
     output: completed.result,
     ...completedEffect,
+    ...(completed.isError ? beforeExecutionUnlessInvoked : {}),
   };
 }
 
@@ -14830,6 +14835,26 @@ export function resolveAgentModelSelection(options: {
   return { model: options.defaultModel, source: "default" };
 }
 
+function boundedPromptSpanIndex(region: string, prompt: string): number {
+  if (!prompt) return -1;
+  if (region === prompt) return 0;
+  const suffixAt = region.length - prompt.length;
+  if (
+    suffixAt > 0 &&
+    region.endsWith(prompt) &&
+    (region.endsWith(`\n\n${prompt}`) || /\s/.test(region[suffixAt - 1]!))
+  ) {
+    return suffixAt;
+  }
+  if (
+    region.startsWith(prompt) &&
+    (region.startsWith(`${prompt}\n\n`) || /\s/.test(region[prompt.length]!))
+  ) {
+    return 0;
+  }
+  return region.lastIndexOf(prompt);
+}
+
 function replaceUserPromptInMessages(
   messages: EngineMessage[],
   requestContextText: string,
@@ -14858,7 +14883,10 @@ function replaceUserPromptInMessages(
     0,
     textPart.text.length - requestContextText.length,
   );
-  const promptAt = messageRegion.lastIndexOf(prompt);
+  // Prefer the original prompt as its own span, bounded by the request
+  // edges or a blank line. Prepared or enriched context sits in this
+  // region, so a short note like "ok" must not rewrite that context.
+  const promptAt = boundedPromptSpanIndex(messageRegion, prompt);
   if (promptAt < 0) return;
   textPart.text =
     messageRegion.slice(0, promptAt) +
