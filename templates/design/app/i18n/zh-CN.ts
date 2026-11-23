@@ -354,6 +354,8 @@ export default {
       blur: "模糊",
       spread: "扩散",
       rotation3d: "3D 旋转",
+      constraints: "约束",
+      absolutePosition: "绝对定位",
       rotationX: "旋转 X",
       rotationY: "旋转 Y",
       perspective: "透视",

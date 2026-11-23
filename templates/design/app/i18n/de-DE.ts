@@ -371,6 +371,8 @@ export default {
       blur: "Unschärfe",
       spread: "Ausbreitung",
       rotation3d: "3D-Rotation",
+      constraints: "Constraints",
+      absolutePosition: "Absolute Position",
       rotationX: "X-Rotation",
       rotationY: "Y-Rotation",
       perspective: "Perspektive",

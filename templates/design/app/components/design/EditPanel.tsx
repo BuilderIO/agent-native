@@ -884,7 +884,7 @@ function SelectionHeader({
   return (
     <div
       data-design-inspector-header
-      className="sticky top-0 z-10 bg-[var(--design-editor-panel-bg)] border-b border-border/90 px-2"
+      className="sticky top-0 z-10 bg-[var(--design-editor-panel-bg)] border-b border-border/90 px-[var(--design-inspector-section-padding-inline)]"
     >
       <InspectorGrid className="min-h-8 items-center" layout="header-actions">
         {/* Node-type label. Rename lives in the layers panel and device sizing
@@ -958,7 +958,7 @@ function ScreenSelectionHeader({
   return (
     <div
       data-design-inspector-header
-      className="sticky top-0 z-10 bg-[var(--design-editor-panel-bg)] border-b border-border/90 px-2"
+      className="sticky top-0 z-10 bg-[var(--design-editor-panel-bg)] border-b border-border/90 px-[var(--design-inspector-section-padding-inline)]"
     >
       <InspectorGrid className="min-h-8 items-center" layout="header-actions">
         <InspectorGridCell span={20}>
@@ -1294,7 +1294,6 @@ function ScreenGeometryProperties({
       </PanelSection>
       <PanelSection title={t("editPanel.sections.positionLayout")}>
         <div className="design-sidebar-property-group">
-          <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
           <InspectorActionPairGrid
             className="items-center"
             left={
@@ -1318,7 +1317,6 @@ function ScreenGeometryProperties({
           />
         </div>
         <div className="design-sidebar-property-group">
-          <SubsectionLabel>{t("editPanel.labels.rotation")}</SubsectionLabel>
           <InspectorActionPairGrid
             className="items-center"
             left={
@@ -1361,9 +1359,6 @@ function ScreenGeometryProperties({
           />
         </div>
         <div className="design-sidebar-property-group">
-          <SubsectionLabel>
-            {"Size" /* i18n-ignore design inspector label */}
-          </SubsectionLabel>
           <InspectorActionPairGrid
             className="items-center"
             left={

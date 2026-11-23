@@ -50,6 +50,7 @@ import {
   InspectorGrid,
   InspectorGridCell,
 } from "../edit-panel/inspector-grid";
+import { MIXED_VALUE } from "../edit-panel/selection-helpers";
 import type {
   AlignmentHorizontal,
   AlignmentMatrixValue,
@@ -429,20 +430,15 @@ export function AutoLayoutMatrix({
         {showChildLayoutControls ? (
           <InspectorGrid
             className="design-sidebar-property-grid items-center"
-            layout="label-field-action"
+            layout={value.flowMixed ? "label-field-action" : "field-action"}
           >
-            <InspectorGridCell span={28}>
-              <div className="flex min-h-3 items-center justify-between">
-                <ControlLabel>
-                  {"Flow" /* i18n-ignore design inspector label */}
-                </ControlLabel>
-                {value.flowMixed ? (
-                  <span className="!text-[11px] text-muted-foreground">
-                    {"Mixed" /* i18n-ignore design mixed value */}
-                  </span>
-                ) : null}
-              </div>
-            </InspectorGridCell>
+            {value.flowMixed ? (
+              <InspectorGridCell span={28}>
+                <span className="!text-[11px] text-muted-foreground">
+                  {MIXED_VALUE}
+                </span>
+              </InspectorGridCell>
+            ) : null}
             <InspectorGridCell span={24}>
               <div
                 data-flow-value={activeFlow}
@@ -523,26 +519,8 @@ export function AutoLayoutMatrix({
         {showSizingControls ? (
           <InspectorGrid
             className="design-sidebar-property-grid items-start"
-            layout="label-action-pair"
+            layout={canResizeToFit ? "action-pair" : "pair"}
           >
-            <InspectorGridCell span={28}>
-              <div className="flex items-center justify-between gap-2">
-                <ControlLabel>
-                  {"Resizing" /* i18n-ignore design inspector label */}
-                </ControlLabel>
-                <span
-                  aria-hidden="true"
-                  className="flex items-center gap-0.5 text-[9px] text-muted-foreground/70"
-                >
-                  <kbd className="rounded border border-border/60 px-1 font-mono">
-                    F
-                  </kbd>
-                  <kbd className="rounded border border-border/60 px-1 font-mono">
-                    H
-                  </kbd>
-                </span>
-              </div>
-            </InspectorGridCell>
             <InspectorGridCell span={11}>
               <SizingField
                 axis="W"
@@ -592,9 +570,9 @@ export function AutoLayoutMatrix({
                 onApplyVariable={onApplyVariable}
               />
             </InspectorGridCell>
-            <InspectorGridCell span={1} ariaHidden />
-            <InspectorGridCell span={4} className="flex justify-center">
-              {canResizeToFit ? (
+            {canResizeToFit ? <InspectorGridCell span={1} ariaHidden /> : null}
+            {canResizeToFit ? (
+              <InspectorGridCell span={4} className="flex justify-center">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -622,8 +600,8 @@ export function AutoLayoutMatrix({
                     {"Resize to fit" /* i18n-ignore inspector tooltip */}
                   </TooltipContent>
                 </Tooltip>
-              ) : null}
-            </InspectorGridCell>
+              </InspectorGridCell>
+            ) : null}
           </InspectorGrid>
         ) : null}
 
@@ -1652,12 +1630,16 @@ function FourSideSpacingProperties({
   };
 
   return (
-    <div className="design-sidebar-property-group">
-      <ControlLabel>{label}</ControlLabel>
+    <div
+      role="group"
+      aria-label={label}
+      className="design-sidebar-property-group"
+    >
       {linked ? (
         <InspectorGrid className="items-center" layout="action-pair">
           <InspectorGridCell span={11}>
             <SpacingField
+              groupLabel={label}
               icon={IconPaddingHorizontal}
               ariaLabel={sideLabels.left + " / " + sideLabels.right}
               value={horizontalValue}
@@ -1673,6 +1655,7 @@ function FourSideSpacingProperties({
           <InspectorGridCell span={1} ariaHidden />
           <InspectorGridCell span={11}>
             <SpacingField
+              groupLabel={label}
               icon={IconPaddingVertical}
               ariaLabel={sideLabels.top + " / " + sideLabels.bottom}
               value={verticalValue}
@@ -1717,6 +1700,7 @@ function FourSideSpacingProperties({
                   ) : null}
                   <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                     <SpacingField
+                      groupLabel={label}
                       icon={icon}
                       ariaLabel={sideLabels[side]}
                       value={value[side]}
@@ -1804,6 +1788,7 @@ export function MarginProperties({
 function SpacingField({
   icon: Icon,
   ariaLabel,
+  groupLabel,
   value,
   textValue,
   mixed = false,
@@ -1813,6 +1798,7 @@ function SpacingField({
 }: {
   icon: (props: { className?: string }) => ReactNode;
   ariaLabel: string;
+  groupLabel: string;
   value: number;
   textValue?: string;
   mixed?: boolean;
@@ -1830,7 +1816,11 @@ function SpacingField({
       <ScrubInput
         label={ariaLabel}
         ariaLabel={ariaLabel}
-        tooltipLabel={ariaLabel}
+        tooltipLabel={
+          ariaLabel.toLowerCase().includes(groupLabel.toLowerCase())
+            ? ariaLabel
+            : `${groupLabel} · ${ariaLabel}`
+        }
         icon={Icon}
         value={value}
         textValue={textValue}

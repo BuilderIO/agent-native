@@ -359,6 +359,8 @@ export default {
       blur: "ضبابية",
       spread: "انتشار",
       rotation3d: "دوران ثلاثي الأبعاد",
+      constraints: "القيود",
+      absolutePosition: "موضع مطلق",
       rotationX: "دوران X",
       rotationY: "دوران Y",
       perspective: "المنظور",

@@ -974,14 +974,9 @@ export function LayoutContextProperties({
             (the constrain-proportions link sits after both W
             and H, not between them). */}
         {line ? (
-          <InspectorGrid className="items-start" layout="action-pair">
+          <InspectorGrid className="items-start" layout="pair-flow">
             <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
-              <div className="flex min-w-0 flex-col gap-1">
-                <div className="flex h-4 items-center">
-                  <SubsectionLabel>
-                    {t("editPanel.labels.length")}
-                  </SubsectionLabel>
-                </div>
+              <div className="flex min-w-0 flex-col">
                 <ScrubStyleInput
                   label="L"
                   ariaLabel={t("editPanel.labels.length")}
@@ -1004,22 +999,18 @@ export function LayoutContextProperties({
             </InspectorGridCell>
           </InspectorGrid>
         ) : (
-          <InspectorGrid className="items-start" layout="action-pair">
+          <InspectorGrid className="items-center" layout="action-pair">
             <InspectorGridCell
               span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
               className="group/field relative"
             >
-              <div className="flex min-w-0 flex-col gap-1">
-                <div className="flex h-4 items-center justify-between gap-1">
-                  <SubsectionLabel>
-                    {t("editPanel.labels.width")}
-                  </SubsectionLabel>
-                  <FieldTrailer
-                    element={element}
-                    overrideProperty="width"
-                    breakpointOverrideContext={breakpointOverrideContext}
-                  />
-                </div>
+              <div className="flex min-w-0 flex-col">
+                <FieldTrailer
+                  element={element}
+                  overrideProperty="width"
+                  breakpointOverrideContext={breakpointOverrideContext}
+                  className="absolute -top-2 right-0"
+                />
                 <SizingField
                   axis="W"
                   sizingAxis="horizontal"
@@ -1054,17 +1045,13 @@ export function LayoutContextProperties({
               span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
               className="group/field relative"
             >
-              <div className="flex min-w-0 flex-col gap-1">
-                <div className="flex h-4 items-center justify-between gap-1">
-                  <SubsectionLabel>
-                    {t("editPanel.labels.height")}
-                  </SubsectionLabel>
-                  <FieldTrailer
-                    element={element}
-                    overrideProperty="height"
-                    breakpointOverrideContext={breakpointOverrideContext}
-                  />
-                </div>
+              <div className="flex min-w-0 flex-col">
+                <FieldTrailer
+                  element={element}
+                  overrideProperty="height"
+                  breakpointOverrideContext={breakpointOverrideContext}
+                  className="absolute -top-2 right-0"
+                />
                 <SizingField
                   axis="H"
                   sizingAxis="vertical"
@@ -1112,7 +1099,7 @@ export function LayoutContextProperties({
                     disabled={!canLockAspect}
                     onClick={toggleAspectLock}
                     className={cn(
-                      "mt-5 flex size-6 shrink-0 items-center justify-center self-start rounded-md text-muted-foreground transition-colors",
+                      "flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors",
                       "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
                       aspectLock.locked &&
                         "text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
