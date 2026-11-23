@@ -16,9 +16,13 @@
 // Visual-only evidence is not machine proof. A passing run names each report
 // that still needs a human to inspect its before/after screenshots before merge.
 //
-// A PR whose diff touches only TEST_PATH files (a flaky-test fix) has no
-// source change to revert, so no proof can exist. Each report it covers must
-// say so with a `fix-proof: test-only` line; the diff alone never clears one.
+// A PR whose diff touches only TEST_PATH or DOC_PATH files (a flaky-test fix,
+// a docs page) has no behavior change to revert, so no proof can exist. Each
+// report it covers must say so with a `fix-proof: test-only` or
+// `fix-proof: docs-only` line; the diff alone never clears one.
+//
+// Fleet problem links (`.../fleet/inbox/<n>`) that factory PRs carry are not
+// reports and are skipped.
 //
 //   PR_BODY="$(gh pr view N --json body -q .body)" node scripts/feedback-fix-proof.ts
 //   ... feedback-fix-proof.ts --has-reports   prints has_reports=true|false
@@ -29,8 +33,9 @@
 // Each proof's fix commit must be on this branch and not on its base
 // (BASE_SHA, or the merge-base with origin/main).
 //
-// Exit 0: every report proven, or the PR is test-only. Exit 1: a report has
-// no proof, or a proof did not hold on re-run. Exit 2: could not run.
+// Exit 0: every report proven, or the PR is test-only or docs-only. Exit 1:
+// a report has no proof, or a proof did not hold on re-run. Exit 2: could
+// not run.
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
@@ -40,13 +45,17 @@ import { fileURLToPath } from "node:url";
 export const TEST_PATH =
   /(^|\/)(__tests__|e2e)\/|^tests?\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$|^\.changeset\/.+\.md$/;
 
-const CHANGESET = /^\.changeset\//;
+// Agent instructions (SKILL.md, AGENTS.md) are behavior, not docs.
+export const DOC_PATH = /(^|\/)(docs|changelog)\/.+\.mdx?$|(^|\/)README\.mdx?$/;
 
-export function isTestOnlyChange(paths: string[]): boolean {
-  // A changeset rides along with a test change; alone it proves nothing.
+const RIDES_ALONG = /^\.changeset\/|(^|\/)changelog\//;
+
+export function needsNoFixProof(paths: string[]): boolean {
+  // A changeset or changelog entry rides along with a test or docs change;
+  // alone it proves nothing.
   return (
-    paths.every((path) => TEST_PATH.test(path)) &&
-    paths.some((path) => !CHANGESET.test(path))
+    paths.every((path) => TEST_PATH.test(path) || DOC_PATH.test(path)) &&
+    paths.some((path) => !RIDES_ALONG.test(path))
   );
 }
 
@@ -54,8 +63,8 @@ export type Report = {
   link: string;
   proven: string[];
   visual: [before: string, after: string] | null;
-  /** Set only by a `fix-proof: test-only` line under the report. */
-  testOnly?: true;
+  /** Set only by a `fix-proof: test-only` or `docs-only` line under the report. */
+  nothingToProve?: true;
 };
 type VisualReport = Report & {
   visual: [before: string, after: string];
@@ -199,6 +208,9 @@ export function isTrackedRepositoryTest(
 const REPORT_LINK =
   /https?:\/\/[^\s)>]+|\bchat-health:[a-z0-9-]+:\d{4}-\d{2}-\d{2}\b/g;
 
+const FLEET_PROBLEM =
+  /^https:\/\/(?:beta\.)?agent-workspace\.builder\.io\/fleet\/inbox\/\d+\/?$/;
+
 export function parseReports(body: string): Report[] | null {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
   // Everything after the first Reports heading is the Reports section, so
@@ -223,9 +235,10 @@ export function parseReports(body: string): Report[] | null {
     const at = line.indexOf("fix-proof: proven");
     const onLine = /^(fix-proof|visual):/.test(evidence)
       ? []
-      : [...(at === -1 ? line : line.slice(0, at)).matchAll(REPORT_LINK)].map(
-          ([link]): Report => ({ link, proven: [], visual: null }),
-        );
+      : [...(at === -1 ? line : line.slice(0, at)).matchAll(REPORT_LINK)]
+          .map(([link]) => link)
+          .filter((link) => !FLEET_PROBLEM.test(link))
+          .map((link): Report => ({ link, proven: [], visual: null }));
     reports.push(...onLine);
     const targets = onLine.length ? onLine : reports.slice(-1);
     const proof =
@@ -233,9 +246,9 @@ export function parseReports(body: string): Report[] | null {
     const visual = /^visual:\s*(https?:\/\/\S+)\s+(https?:\/\/\S+)\s*$/.exec(
       evidence.replace(/`\s*$/, ""),
     );
-    const testOnly = /^fix-proof: test-only\b/.test(evidence);
+    const nothingToProve = /^fix-proof: (?:test|docs)-only\b/.test(evidence);
     for (const report of targets) {
-      if (testOnly) report.testOnly = true;
+      if (nothingToProve) report.nothingToProve = true;
       if (proof) report.proven.push(`${proof[1]}\t${proof[2].trim()}`);
       if (visual) report.visual = [visual[1], visual[2]];
     }
@@ -260,7 +273,7 @@ function main() {
   }
   if (reports.length === 0) {
     console.error(
-      "feedback-fix-proof: could not run: the `Reports` heading lists no report links",
+      "feedback-fix-proof: could not run: the `Reports` heading lists no report links (Fleet problem links are not reports)",
     );
     process.exit(2);
   }
@@ -289,12 +302,12 @@ function main() {
   }
   const changed = diff.stdout.split("\n").filter(Boolean);
   // The diff decides that nothing needs proving, the report line says which
-  // reports are test work, so a test-only diff can't clear a product report.
-  const testOnlyDiff = isTestOnlyChange(changed);
-  const exempt = (r: Report) => testOnlyDiff && r.testOnly === true;
-  if (testOnlyDiff && reports.every(exempt)) {
+  // reports are test or docs work, so such a diff can't clear a product report.
+  const noProofDiff = needsNoFixProof(changed);
+  const exempt = (r: Report) => noProofDiff && r.nothingToProve === true;
+  if (noProofDiff && reports.every(exempt)) {
     console.log(
-      `feedback-fix-proof: test-only PR (${changed.length} changed files, all tests or changesets); ${reports.length} reports need no fix proof`,
+      `feedback-fix-proof: test-only or docs-only PR (${changed.length} changed files, all tests, docs, or changesets); ${reports.length} reports need no fix proof`,
     );
     return;
   }

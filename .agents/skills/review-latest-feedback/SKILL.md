@@ -319,8 +319,9 @@ do not claim new roots.
   never count. For a purely visual fix, before and after screenshots are
   evidence, not automated proof: before merging, a human must open both and
   confirm they show the reported change. Put the evidence under the report in
-  the PR's `Reports` section. A test-only change (test files, optional
-  `.changeset/`) needs only `fix-proof: test-only`.
+  the PR's `Reports` section. A test-only or docs-only change (tests, docs
+  pages, optional `.changeset/`) needs only `fix-proof: test-only` or
+  `docs-only`.
 <!-- framework-repo-only:start -->
   Commit the fix and its check, then run
   `node scripts/fix-proof.ts --fix <that commit> -- <the check>` from the
