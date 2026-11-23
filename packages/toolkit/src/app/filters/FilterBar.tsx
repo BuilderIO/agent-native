@@ -191,12 +191,36 @@ function RuleChip({
   );
 }
 
+function groupLabel(
+  group: FilterGroup,
+  fields: readonly FilterField<never>[],
+  text: FilterText,
+): string {
+  const labels = group.rules.flatMap((member): string[] => {
+    if (member.kind === "group") {
+      return completeFilterRules(member, fields).length > 0
+        ? [groupLabel(member, fields, text)]
+        : [];
+    }
+    const field = findFilterField(fields, member.field);
+    return field && isFilterRuleComplete(member, field)
+      ? [text.ruleLabel(field, member)]
+      : [];
+  });
+  return text.t("agentChat.filters.groupChip", {
+    rules: text.formatList(labels, {
+      type: group.mode === "or" ? "disjunction" : "conjunction",
+    }),
+  });
+}
+
 function GroupChip({
   group,
   fields,
   state,
   onChange,
   counts,
+  nestedGroups,
   text,
   onOpenChange,
 }: FilterControlProps & {
@@ -206,15 +230,7 @@ function GroupChip({
 }) {
   const stateRef = useRef(state);
   stateRef.current = state;
-  const labels = completeFilterRules(group, fields).flatMap((rule) => {
-    const field = findFilterField(fields, rule.field);
-    return field ? [text.ruleLabel(field, rule)] : [];
-  });
-  const label = text.t("agentChat.filters.groupChip", {
-    rules: text.formatList(labels, {
-      type: group.mode === "or" ? "disjunction" : "conjunction",
-    }),
-  });
+  const label = groupLabel(group, fields, text);
   return (
     <span className={CHIP_CLASS}>
       <Popover
@@ -246,6 +262,7 @@ function GroupChip({
               onChange(next);
             }}
             counts={counts}
+            nestedGroups={nestedGroups}
             text={text}
           />
         </PopoverContent>
@@ -312,6 +329,7 @@ export function FilterBar({
   state,
   onChange,
   counts,
+  nestedGroups,
   onClear,
   clearable,
   copyLink,
@@ -361,6 +379,7 @@ export function FilterBar({
               state={state}
               onChange={onChange}
               counts={shownCounts}
+              nestedGroups={nestedGroups}
               text={text}
               onOpenChange={(open) => setOpenGroupId(open ? item.id : null)}
             />

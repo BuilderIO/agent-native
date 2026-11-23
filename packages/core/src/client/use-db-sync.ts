@@ -276,7 +276,7 @@ export type SyncEvent = {
 
 type PollResponse = {
   version: number;
-  events: SyncEvent[];
+  events?: SyncEvent[];
   cursor?: string;
   // The server stopped at its row limit: more changes wait past `cursor`.
   cursorLimited?: boolean;
@@ -1654,7 +1654,8 @@ export function useDbSync(
   options: {
     queryClient?: QueryClient;
     queryKeys?: string[];
-    realtime?: { reason: string };
+    realtime?: false | { reason: string };
+    resourceType?: string;
     pollUrl?: string;
     sseUrl?: string | false;
     /** @deprecated Use pollUrl instead */
@@ -1671,13 +1672,19 @@ export function useDbSync(
     suppressActionInvalidationFor?: string[];
   } = {},
 ): void {
+  const realtimeOption = options.realtime || undefined;
   const realtimeReason =
-    typeof options.realtime?.reason === "string"
-      ? options.realtime.reason.trim()
+    typeof realtimeOption?.reason === "string"
+      ? realtimeOption.reason.trim()
       : "";
-  if (options.realtime && !realtimeReason) {
+  if (realtimeOption && !realtimeReason) {
     throw new Error("useDbSync realtime opt-in requires a short reason.");
   }
+  const resourceType = options.resourceType;
+  const queryKeysRef = useRef(options.queryKeys);
+  useEffect(() => {
+    queryKeysRef.current = options.queryKeys;
+  }, [options.queryKeys]);
   const {
     queryClient,
     pollUrl = agentNativePath(options.eventsUrl ?? "/_agent-native/poll"),
@@ -1733,11 +1740,12 @@ export function useDbSync(
     }
 
     function queueInvalidateBatch(events: SyncEvent[]) {
-      pendingInvalidateEvents.push(...events);
-      if (events.some(isInteractionCriticalSyncEvent)) {
-        flushInvalidateBatch();
-        return;
-      }
+      const immediate = events.filter(isInteractionCriticalSyncEvent);
+      if (immediate.length) invalidateForEvents(immediate);
+      pendingInvalidateEvents.push(
+        ...events.filter((event) => !isInteractionCriticalSyncEvent(event)),
+      );
+      if (!pendingInvalidateEvents.length) return;
       if (invalidateTimer) return;
       invalidateTimer = setTimeout(
         flushInvalidateBatch,
@@ -1781,6 +1789,10 @@ export function useDbSync(
       const ownBrowserSource = getBrowserTabId();
       const relevant = events.filter(
         (event) =>
+          (!resourceType ||
+            event.source === "app-state" ||
+            event.version === 0 ||
+            event.resourceType === resourceType) &&
           !(
             event.source === "action" &&
             event.requestSource === ownBrowserSource
@@ -2064,17 +2076,22 @@ export function useDbSync(
       completedSideEffect: boolean,
       failed: boolean,
       browserTabId?: string,
+      navigationKeys?: unknown,
     ) => {
       const events: SyncEvent[] = [];
       if (completedSideEffect) {
         events.push({ source: "action", key: tool, version: 0 });
       }
-      if (tool === "navigate" && completedSideEffect) {
-        events.push({
-          source: "app-state",
-          key: browserTabId ? `navigate:${browserTabId}` : "navigate",
-          version: 0,
-        });
+      const targetKey = browserTabId ? `navigate:${browserTabId}` : "navigate";
+      const keys = Array.isArray(navigationKeys)
+        ? navigationKeys.filter(
+            (key) => key === "navigate" || key === targetKey,
+          )
+        : tool === "navigate" && completedSideEffect
+          ? [targetKey]
+          : [];
+      for (const key of new Set(keys)) {
+        events.push({ source: "app-state", key, version: 0 });
       }
       if (["__set_url__", "set-url", "set-search-params"].includes(tool)) {
         events.push({ source: "app-state", key: "__set_url__", version: 0 });
@@ -2149,6 +2166,7 @@ export function useDbSync(
         event as CustomEvent<{
           tool?: unknown;
           completedSideEffect?: unknown;
+          navigationKeys?: unknown;
           isError?: unknown;
           tabId?: unknown;
           browserTabId?: unknown;
@@ -2191,6 +2209,7 @@ export function useDbSync(
         completedSideEffect,
         detail.isError === true,
         browserTabId,
+        detail.navigationKeys,
       );
       if (events.length === 0) return;
       if (completedSideEffect) {
@@ -2311,7 +2330,23 @@ export function useDbSync(
       transport.add(id, {
         onEvents,
         onResync: () => {
-          queryClient?.invalidateQueries();
+          queryClient?.invalidateQueries({
+            predicate: (query) => {
+              if (query.queryKey[0] === "action") {
+                return (
+                  !resourceType ||
+                  actionQueryAffectedByResources(query, new Set([resourceType]))
+                );
+              }
+              return [
+                ...(queryKeysRef.current ?? []),
+                "app-state",
+                "navigate-command",
+                "__set_url__",
+                "show-questions",
+              ].includes(String(query.queryKey[0]));
+            },
+          });
         },
         pauseWhenHidden,
         interval,
@@ -2350,6 +2385,7 @@ export function useDbSync(
     fallbackInterval,
     pauseWhenHidden,
     realtimeReason,
+    resourceType,
   ]);
 }
 

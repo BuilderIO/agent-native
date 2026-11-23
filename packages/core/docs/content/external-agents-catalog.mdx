@@ -95,6 +95,8 @@ By default every connected agent sees a small, curated catalog (~20–30 tools v
 
 Tools outside the list — for example `db-exec`, `seed-*`, the extension suite, browser-session tools, and context-xray tools — are not advertised, and calls to them are rejected with "Unknown tool" unless the caller has opted into the full catalog. This keeps each connected agent's context window small and removes footguns that are only safe for single-tenant local development.
 
+To see what a catalog costs a connected model, `packages/core/src/mcp/tools-list-size.perf.spec.ts` builds every first-party app's default production catalog and counts its `tools/list` result with Anthropic's tokenizer, once for a read-only connection and once for read and write. It prints a table with each app's tool count, total tokens, the tokens its own tools take and its largest tool. Run it with `pnpm --filter @agent-native/core exec vitest run src/mcp/tools-list-size.perf.spec.ts`; CI skips it, like the other `*.perf.spec.ts` files.
+
 Call `tool-search` with **no query** for a bounded menu of tool names, or with a query for lexical matches and parameter summaries. You can also provide a short `task` summary to request recommendations. The response identifies its `ranking` as `jev` or `bm25` and reports the provider `status`; BM25 results remain available when ranking is unavailable. Use a separate call for explicit `query`, `queries`, or `names` selectors. Recommendations are limited by the current connector and available app grants. Later tool calls still pass the connector's authorization checks; the hosting gateway and target app control app access and execution.
 
 A search that matches actions the app's own agent can run but this connection can't call adds a `notServed` field: up to three of them, each with its name and a short description, and a message telling the caller to describe the task to `ask_app`. A capability the app keeps off MCP then doesn't read as one the app lacks. Only a signed-in person who may call `ask_app` gets it, and never for a menu search or a `readOnlyOnly` one. It leaves out denied actions, framework tools, turn-ending actions, and anything the caller's OAuth scope or the app's discovery checks hide. When those checks fail or run past the search's deadline, the search comes back without it.
@@ -316,6 +318,13 @@ legacy results without a handle must reuse the same `app` and `taskId`. Never
 resubmit `ask_app` to recover, because
 submission can duplicate work. Permanent authentication, not-found, and
 protocol failures remain errors.
+
+A `taskHandle` expires an hour after `ask_app` returns it. When
+`ask_app_status` rejects a handle as invalid or expired, keep polling the same
+task with the `app` and `taskId` from the `ask_app` result and no
+`taskHandle`; the error message says so too. Without the handle the status
+call finds the app through discovery again, so it works only while the app is
+still discoverable.
 
 ### Per-app tour {#tour}
 

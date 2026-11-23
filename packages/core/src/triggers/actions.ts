@@ -651,6 +651,7 @@ export function createAutomationToolEntries(
         return false;
       },
       allowPersistentApproval: false,
+      mcpTool: "search",
       chatUI: {
         renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
         when: (args, result) => {

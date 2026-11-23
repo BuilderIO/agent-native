@@ -474,6 +474,7 @@ type AgentChatEventPayload =
       isError?: boolean;
       errorCode?: string;
       completedSideEffect?: boolean;
+      navigationKeys?: string[];
       /** The call was skipped without executing or serving a result. */
       notExecuted?: true;
       /** Compact action write evidence retained even when `result` is truncated. */
@@ -666,6 +667,10 @@ export const CONTINUATION_REASONS = [
 ] as const;
 
 export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];
+
+export const RESPONSE_GUARD_RICH_EVENT_NAMESPACE =
+  "agent-native.response-guard";
+export const RESPONSE_GUARD_DRAFT_KEPT_EVENT = "draft_kept_after_failure";
 
 export function isContinuationTerminalReason(reason: unknown): boolean {
   return (

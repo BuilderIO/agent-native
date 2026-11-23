@@ -25,6 +25,7 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(100).default(30),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const pattern = buildCaseInsensitiveSearchPattern(args.query);

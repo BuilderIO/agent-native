@@ -49,7 +49,7 @@ const DDL = `
 const viewerContext = { userEmail: "viewer@example.com", orgId: "org-a" };
 
 async function createSeededDb() {
-  const pg = await createTestPglite();
+  const pg = await createTestPglite({ reuseEmptyBootstrap: true });
   await pg.exec(DDL);
   const exec: DbExec = {
     execute: async (statement) => {

@@ -1,3 +1,4 @@
+// oracle-change: The standalone manifest tool and resource are removed from the protocol.
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -13,6 +14,10 @@ import { z } from "zod";
 import { CHATGPT_DIRECTORY_PROFILE as contentDirectoryProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as designDirectoryProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesDirectoryProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
+import {
+  currentActionApproval,
+  currentActionApprovalAskedAt,
+} from "../action-frame.js";
 import {
   AgentActionStopError,
   AgentConnectionRequiredError,
@@ -49,6 +54,7 @@ import {
 } from "./build-server.js";
 import * as mcpBuildServer from "./build-server.js";
 import { embedApp } from "./embed-app.js";
+import { MCP_APPROVAL_NOTICE_MAX_CHARS } from "./execute-action-call.js";
 import { MCP_DIRECTORY_ROUTE_PREFIX } from "./route-paths.js";
 
 const builtinToolMocks = vi.hoisted(() => ({
@@ -138,6 +144,24 @@ const approvalStoreMocks = vi.hoisted(() => {
       return null;
     }),
     recordRun: vi.fn(async () => {}),
+    notice: vi.fn(
+      async (grant: {
+        nonce: string;
+        appId: string;
+        callerKey: string;
+        actionName: string;
+        argumentsHash: string;
+      }) => {
+        const existing = grants.get(grant.nonce);
+        return existing &&
+          existing.appId === grant.appId &&
+          existing.callerKey === grant.callerKey &&
+          existing.actionName === grant.actionName &&
+          existing.argumentsHash === grant.argumentsHash
+          ? (existing.approvalNotice ?? null)
+          : null;
+      },
+    ),
   };
 });
 
@@ -164,6 +188,7 @@ vi.mock("./approval-store.js", async () => {
     consumeReviewedMcpApprovalGrant: approvalStoreMocks.consumeReviewed,
     findRecentMcpApprovalRun: vi.fn(async () => null),
     recordMcpApprovalRun: approvalStoreMocks.recordRun,
+    getMcpApprovalNotice: approvalStoreMocks.notice,
   };
 });
 
@@ -7107,6 +7132,428 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     },
   );
 
+  describe("an approval server state asks for, proven on the review page", () => {
+    const notice =
+      "Allow up to $5.00 of BigQuery today?\nThe approval expires at 00:00 UTC.";
+    const warehouse = (entry: Record<string, unknown> = {}) => {
+      const approvals: Array<string | undefined> = [];
+      const askedAt: Array<number | undefined> = [];
+      const run = vi.fn(async () => {
+        approvals.push(currentActionApproval());
+        askedAt.push(currentActionApprovalAskedAt());
+        return { rows: 1 };
+      });
+      const asks = vi.fn((args: { big?: boolean }) => args.big === true);
+      const tool = {
+        description: "Read the warehouse",
+        parameters: {
+          type: "object" as const,
+          properties: { big: { type: "boolean" } },
+        },
+      };
+      return {
+        run,
+        asks,
+        approvals,
+        askedAt,
+        config: {
+          ...config,
+          actions: {
+            "read-warehouse": {
+              tool,
+              readOnly: true,
+              mcpNeedsApproval: asks,
+              approvalNotice: async () => notice,
+              approvalProof: "review-page",
+              run,
+              ...entry,
+            },
+            "read-plain": { tool, readOnly: true, run: async () => ({}) },
+          },
+        },
+      };
+    };
+    const grantFor = (nonce: string) => approvalStoreMocks.grants.get(nonce);
+    const textOf = (result: unknown): string =>
+      (result as { content: Array<{ text?: unknown }> }).content
+        .map((part) => String(part.text))
+        .join("\n");
+    type UrlPrompt = {
+      requestState: string;
+      inputRequests: {
+        actionApproval: {
+          params: { mode: string; url: string; message: string };
+        };
+      };
+    };
+
+    it("runs a call its predicate clears, links one it asks for to the review page with the notice, and runs that once after the page approves", async () => {
+      const { run, asks, approvals, askedAt, config: served } = warehouse();
+      const { client } = await createModernClient(served, {
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      const read = (big: boolean) =>
+        client.callTool({ name: "read-warehouse", arguments: { big } });
+      try {
+        expect((await read(false)).isError).not.toBe(true);
+        expect(approvals).toEqual([undefined]);
+        expect(asks).toHaveBeenLastCalledWith(
+          { big: false },
+          expect.objectContaining({
+            caller: "mcp",
+            userEmail: "oauth@example.com",
+            actionName: "read-warehouse",
+          }),
+        );
+
+        const asked = await read(true);
+        const link = approvalReviewLink(asked);
+        expect(link.status).toBe(
+          `read-warehouse needs the user's approval on its review page before it runs. Ask the user to review it here: ${link.url}`,
+        );
+        expect(textOf(asked)).toContain(
+          `${link.status}\n\n${notice}\n\nAfter they approve`,
+        );
+        expect(grantFor(link.nonce)).toMatchObject({
+          actionName: "read-warehouse",
+          approvalNotice: notice,
+          consumed: false,
+        });
+        expect(run).toHaveBeenCalledTimes(1);
+
+        const askTime = Date.UTC(2026, 10, 20, 23, 58);
+        grantFor(link.nonce).createdAt = askTime;
+        grantFor(link.nonce).reviewed = "approved";
+        expect((await read(true)).isError).not.toBe(true);
+        expect(approvals).toEqual([undefined, "mcp-review-page"]);
+        expect(askedAt).toEqual([undefined, askTime]);
+        expect(approvalStoreMocks.recordRun).toHaveBeenCalledWith(
+          link.nonce,
+          "completed",
+        );
+
+        const again = approvalReviewLink(await read(true));
+        expect(again.nonce).not.toBe(link.nonce);
+        expect(run).toHaveBeenCalledTimes(2);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("never asks in a form, so a client's own approve cannot run it", async () => {
+      const { run, config: served } = warehouse();
+      const { client } = await createModernClient(served, {
+        approvalDecision: "approve",
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      try {
+        const link = approvalReviewLink(
+          await client.callTool({
+            name: "read-warehouse",
+            arguments: { big: true },
+          }),
+        );
+        expect(link.status).toBe(
+          `read-warehouse needs the user's approval on its review page before it runs. Ask the user to review it here: ${link.url}`,
+        );
+        expect(grantFor(link.nonce)).not.toHaveProperty("answer");
+        expect(run).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("asks a client that opens links in a URL prompt with the notice, and takes no answer sent with it as approval", async () => {
+      const { run, approvals, config: served } = warehouse();
+      const { client } = await createModernClient(served, {
+        manualInputRequired: true,
+        elicitation: { form: {}, url: {} },
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      const args = { big: true };
+      try {
+        const first = (await client.callTool(
+          { name: "read-warehouse", arguments: args },
+          { allowInputRequired: true },
+        )) as unknown as UrlPrompt;
+        const [grant] = [...approvalStoreMocks.grants.values()];
+        expect(first.inputRequests.actionApproval.params).toMatchObject({
+          mode: "url",
+          url: `https://mail.agent-native.com/_agent-native/mcp/approvals/${grant.nonce}`,
+        });
+        expect(
+          first.inputRequests.actionApproval.params.message.split("\n"),
+        ).toEqual([
+          "Read warehouse needs your approval before it runs. Open the review page, check what it will do, then choose Approve or Deny.",
+          "Allow up to $5.00 of BigQuery today?",
+          "The approval expires at 00:00 UTC.",
+        ]);
+        const resumed = {
+          name: "read-warehouse",
+          arguments: args,
+          requestState: first.requestState,
+          inputResponses: {
+            actionApproval: {
+              action: "accept",
+              content: { decision: "approve" },
+            },
+          },
+        };
+        const resume = () => client.callTool(resumed);
+
+        const openedResult = await resume();
+        const opened = approvalReviewLink(openedResult);
+        expect(opened.status).toBe(
+          `read-warehouse is waiting for the user's decision on its review page: ${opened.url}`,
+        );
+        expect(textOf(openedResult)).toContain(`\n\n${notice}\n\n`);
+        expect(run).not.toHaveBeenCalled();
+
+        grant.reviewed = "approved";
+        expect((await resume()).isError).not.toBe(true);
+        expect(approvals).toEqual(["mcp-review-page"]);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("answers a declined prompt with a new grant's review link that states the notice", async () => {
+      const { run, config: served } = warehouse();
+      const { client } = await createModernClient(served, {
+        declineApproval: true,
+        elicitation: { url: {} },
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      try {
+        const result = await client.callTool({
+          name: "read-warehouse",
+          arguments: { big: true },
+        });
+        const link = approvalReviewLink(result);
+        const [prompted, replacement] = [...approvalStoreMocks.grants.values()];
+        expect(prompted).toMatchObject({ answer: "declined" });
+        expect(link.nonce).toBe(replacement.nonce);
+        expect(replacement).toMatchObject({
+          approvalNotice: notice,
+          consumed: false,
+        });
+        expect(link.status).toBe(
+          `read-warehouse was not approved. If the user did not see an approval prompt, they can review it here: ${link.url}`,
+        );
+        expect(textOf(result)).toContain(notice);
+        expect(run).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("dates the notice from the time the grant records as asked", async () => {
+      const noticeContexts: unknown[] = [];
+      const { config: served } = warehouse({
+        approvalNotice: async (_args: unknown, ctx: unknown) => {
+          noticeContexts.push(ctx);
+          return notice;
+        },
+      });
+      const { client } = await createModernClient(served, {
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      try {
+        const link = approvalReviewLink(
+          await client.callTool({
+            name: "read-warehouse",
+            arguments: { big: true },
+          }),
+        );
+        const { createdAt } = grantFor(link.nonce);
+        expect(createdAt).toEqual(expect.any(Number));
+        expect(noticeContexts).toEqual([
+          expect.objectContaining({
+            caller: "mcp",
+            actionName: "read-warehouse",
+            askedAt: createdAt,
+          }),
+        ]);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("uses the page's approval even once server state stops asking, so the person is not asked again", async () => {
+      const { run, asks, approvals, config: served } = warehouse();
+      const { client } = await createModernClient(served, {
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      const read = () =>
+        client.callTool({ name: "read-warehouse", arguments: { big: true } });
+      try {
+        const link = approvalReviewLink(await read());
+        grantFor(link.nonce).reviewed = "approved";
+        asks.mockReturnValue(false);
+
+        expect((await read()).isError).not.toBe(true);
+        expect(approvals).toEqual(["mcp-review-page"]);
+        expect(grantFor(link.nonce).consumed).toBe(true);
+        expect(approvalStoreMocks.recordRun).toHaveBeenCalledWith(
+          link.nonce,
+          "completed",
+        );
+        expect(run).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("fails the call, with no grant, when the notice is longer than a review can show", async () => {
+      const { run, config: served } = warehouse({
+        approvalNotice: async () =>
+          "x".repeat(MCP_APPROVAL_NOTICE_MAX_CHARS + 1),
+      });
+      const { client } = await createModernClient(served, {
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      try {
+        const result = await client.callTool({
+          name: "read-warehouse",
+          arguments: { big: true },
+        });
+        expect(result.isError).toBe(true);
+        expect(textOf(result)).toContain(
+          `read-warehouse's approvalNotice is longer than ${MCP_APPROVAL_NOTICE_MAX_CHARS} characters`,
+        );
+        expect(approvalStoreMocks.grants.size).toBe(0);
+        expect(run).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("states a notice at the length limit whole", async () => {
+      const long = "y".repeat(MCP_APPROVAL_NOTICE_MAX_CHARS);
+      const { config: served } = warehouse({
+        approvalNotice: async () => long,
+      });
+      const { client } = await createModernClient(served, {
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      try {
+        const link = approvalReviewLink(
+          await client.callTool({
+            name: "read-warehouse",
+            arguments: { big: true },
+          }),
+        );
+        expect(grantFor(link.nonce).approvalNotice).toBe(long);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("still asks in no-approvals mode, which keeps skipping an ordinary approval", async () => {
+      vi.mocked(getUserSetting).mockImplementation(async (_email, key) =>
+        key === "no-approvals" ? { enabled: true } : null,
+      );
+      const send = vi.fn(async () => ({ sent: true }));
+      const { run, config: served } = warehouse();
+      const { client } = await createModernClient(
+        {
+          ...served,
+          actions: {
+            ...served.actions,
+            ...sendEmailConfig(send).actions,
+          },
+        },
+        { requestHeaders: await mcpAppsAuthHeaders() },
+      );
+      try {
+        const sent = await client.callTool({
+          name: "send-email",
+          arguments: { to: ["ana@example.com"] },
+        });
+        expect(sent.isError).not.toBe(true);
+        expect(send).toHaveBeenCalledTimes(1);
+
+        approvalReviewLink(
+          await client.callTool({
+            name: "read-warehouse",
+            arguments: { big: true },
+          }),
+        );
+        expect(run).not.toHaveBeenCalled();
+      } finally {
+        vi.mocked(getUserSetting).mockImplementation(async () => null);
+        await client.close();
+      }
+    });
+
+    it("fails the call, with no grant, when the notice can't be computed", async () => {
+      const { run, config: served } = warehouse({
+        approvalNotice: async () => {
+          throw new Error("budget ledger unavailable");
+        },
+      });
+      const { client } = await createModernClient(served, {
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      try {
+        const result = await client.callTool({
+          name: "read-warehouse",
+          arguments: { big: true },
+        });
+        expect(result.isError).toBe(true);
+        expect(textOf(result)).toContain("budget ledger unavailable");
+        expect(approvalStoreMocks.grants.size).toBe(0);
+        expect(run).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("lists the action as it would without the predicate", async () => {
+      const { config: served } = warehouse();
+      const { client } = await createModernClient(served, {
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      try {
+        const { tools } = await client.listTools();
+        const hints = (name: string) => {
+          const { title: _title, ...rest } =
+            tools.find((tool) => tool.name === name)?.annotations ?? {};
+          return rest;
+        };
+        expect(hints("read-warehouse")).toEqual(hints("read-plain"));
+        expect(hints("read-warehouse")).toMatchObject({
+          readOnlyHint: true,
+          destructiveHint: false,
+        });
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("tells the action a client's own approve of an ordinary approval", async () => {
+      const seen: Array<[string | undefined, number | undefined]> = [];
+      const run = vi.fn(async () => {
+        seen.push([currentActionApproval(), currentActionApprovalAskedAt()]);
+        return { sent: true };
+      });
+      const { client } = await createModernClient(sendEmailConfig(run), {
+        approvalDecision: "approve",
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      try {
+        const sent = await client.callTool({
+          name: "send-email",
+          arguments: { to: ["ana@example.com"] },
+        });
+        expect(sent.isError).not.toBe(true);
+        expect(seen).toEqual([["mcp-client", undefined]]);
+      } finally {
+        await client.close();
+      }
+    });
+  });
+
   it("asks for approval in the owner's saved language, summarizing the call's own arguments", async () => {
     vi.mocked(getUserSetting).mockImplementation(async (email, key) =>
       email === "oauth@example.com" && key === "localization"
@@ -10684,9 +11131,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     expect(out.result.isError).not.toBe(true);
-    expect(warning).toHaveBeenCalledWith(
-      "Could not write the action-change marker after an MCP tool call: Error: refresh unavailable",
-    );
+    expect(warning).toHaveBeenCalledWith({
+      event: "action_change_marker_failed",
+      transport: "mcp",
+      action: "update-thing",
+      errorType: "Error",
+    });
     warning.mockRestore();
   });
 

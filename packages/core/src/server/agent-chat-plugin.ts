@@ -9501,7 +9501,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // Fetch one extra row so the page can say whether another exists
             // without a count query.
             const readOptions = {
-              ...(scope ? { scope } : {}),
+              ...(scope
+                ? { scope }
+                : { excludeScopeTypes: options?.historyHiddenScopeTypes }),
               ...(orgId === undefined ? {} : { orgId }),
               collapseEdits,
               includeExternal,

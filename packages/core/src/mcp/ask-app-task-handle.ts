@@ -6,7 +6,10 @@ import { getAuthSecret } from "../server/better-auth-instance.js";
 
 const HANDLE_VERSION = 1;
 const HANDLE_TTL_SECONDS = 60 * 60;
-const INVALID_HANDLE_ERROR = "Invalid or expired ask_app task handle.";
+export const INVALID_ASK_APP_TASK_HANDLE_ERROR =
+  "Invalid or expired ask_app task handle. To keep polling the same task, " +
+  "call ask_app_status with the app and taskId from the ask_app result and " +
+  "leave out taskHandle. Do not resubmit ask_app; that can duplicate work.";
 
 export interface AskAppTaskHandleRoute {
   app: string;
@@ -75,7 +78,7 @@ function validRoute(value: unknown): value is AskAppTaskHandleRoute {
 }
 
 function invalidHandle(): Error {
-  return new Error(INVALID_HANDLE_ERROR);
+  return new Error(INVALID_ASK_APP_TASK_HANDLE_ERROR);
 }
 
 export async function signAskAppTaskHandle(params: {
