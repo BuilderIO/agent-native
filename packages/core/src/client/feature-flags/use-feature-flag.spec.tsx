@@ -107,24 +107,26 @@ describe("useFeatureFlag / useFeatureFlags session gating", () => {
     });
     let flag = false;
     let flags: Record<string, boolean> = {};
-    let state = "loading";
+    let state = { status: "loading", enabled: false };
     function Probe() {
       flag = useFeatureFlag("composer");
       flags = useFeatureFlags();
-      state = useFeatureFlagState("composer").status;
+      state = useFeatureFlagState("composer");
       return null;
     }
     await mountProbe(Probe, client);
     await vi.waitFor(() => expect(flag).toBe(true));
     expect(flags).toEqual({ composer: true });
-    expect(state).toBe("ready");
+    expect(state).toEqual({ status: "ready", enabled: true });
 
     await act(async () => {
       await client.invalidateQueries({
         queryKey: ["action", "get-feature-flags"],
       });
     });
-    await vi.waitFor(() => expect(state).toBe("unavailable"));
+    await vi.waitFor(() =>
+      expect(state).toEqual({ status: "unavailable", enabled: false }),
+    );
     expect(flag).toBe(false);
     expect(flags).toEqual({});
 
@@ -133,7 +135,9 @@ describe("useFeatureFlag / useFeatureFlags session gating", () => {
         queryKey: ["action", "get-feature-flags"],
       });
     });
-    await vi.waitFor(() => expect(state).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(state).toEqual({ status: "ready", enabled: true }),
+    );
     expect(flag).toBe(true);
     expect(flags).toEqual({ composer: true });
   });
