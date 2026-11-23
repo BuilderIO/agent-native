@@ -55,7 +55,7 @@ describe("root-union tool placeholders", () => {
           view: null,
           viewId: "view-1",
           patch: {
-            name: "",
+            name: null,
             icon: null,
             filters: [{ key: "context", group: null }],
             hiddenIds: [],
@@ -72,7 +72,6 @@ describe("root-union tool placeholders", () => {
         callId: "sparse-retry",
         input: {
           operation: "update",
-          view: null,
           viewId: "view-1",
           patch: {
             icon: null,
@@ -161,7 +160,7 @@ describe("root-union tool placeholders", () => {
       expect(run.mock.calls[0]?.[0]).not.toHaveProperty("name");
     });
 
-    it("preserves an empty value that differs from its default beside a null", async () => {
+    it("refuses an empty value that differs from its default beside a null", async () => {
       const run = vi.fn(async (args: Record<string, unknown>) => args);
       const action = defineAction({
         description: "Update a thing",
@@ -178,8 +177,9 @@ describe("root-union tool placeholders", () => {
         callId: "differs",
         input: { id: "1", name: null, tags: "" },
       });
-      expect(result.status).toBe("completed");
-      expect(run.mock.calls[0]?.[0]).toEqual({ id: "1", tags: "" });
+      expect(result.status).toBe("failed");
+      expect(result.output).toContain("No action was run");
+      expect(run).not.toHaveBeenCalled();
     });
 
     it("runs a read-only call with an empty value beside a null", async () => {
@@ -221,11 +221,12 @@ describe("root-union tool placeholders", () => {
         callId: "stringified",
         input: { id: "1", name: null, meta: "{}" },
       });
-      expect(result.status).toBe("completed");
-      expect(run.mock.calls[0]?.[0]).toEqual({ id: "1", meta: {} });
+      expect(result.status).toBe("failed");
+      expect(result.output).toContain("No action was run");
+      expect(run).not.toHaveBeenCalled();
     });
 
-    it("preserves a write's empty value without a default beside a null", async () => {
+    it("refuses a write's empty value without a default beside a null", async () => {
       const writeSchema = z.object({
         id: z.string(),
         name: z.string().optional(),
@@ -243,9 +244,9 @@ describe("root-union tool placeholders", () => {
         callId: "write",
         input: { id: "1", name: null, hidden: "" },
       });
-      expect(result.status).toBe("completed");
-      expect(run).toHaveBeenCalledOnce();
-      expect(run.mock.calls[0]?.[0]).toEqual({ id: "1", hidden: "" });
+      expect(result.status).toBe("failed");
+      expect(result.output).toContain("No action was run");
+      expect(run).not.toHaveBeenCalled();
     });
   });
 });

@@ -7875,7 +7875,7 @@ describe("action boundary error classification", () => {
     expect(captured).not.toHaveBeenCalled();
   });
 
-  it("runs a padded call while preserving a valid empty string", async () => {
+  it("answers a refused padded call with a 400 the caller can act on", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { registerErrorCaptureProvider } = await import("./capture-error.js");
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -7916,14 +7916,22 @@ describe("action boundary error classification", () => {
       };
       const result = await mounted[0].handler(event);
 
-      expect((event as typeof event & { _status?: number })._status).not.toBe(
-        400,
-      );
-      expect(result).toEqual({ ok: true });
-      expect(run).toHaveBeenCalledOnce();
-      expect(run.mock.calls[0]?.[0]).toEqual({ id: "a", label: "" });
+      expect((event as typeof event & { _status?: number })._status).toBe(400);
+      expect(result).toEqual({
+        error: expect.stringContaining(
+          "Retry the native tool with sparse JSON",
+        ),
+        errorCode: "ambiguous_tool_placeholders",
+      });
+      expect(run).not.toHaveBeenCalled();
       expect(provider).not.toHaveBeenCalled();
-      expect(mockCountActionFailure).not.toHaveBeenCalled();
+      expect(mockCountActionFailure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "update-item",
+          status: 400,
+          errorCode: "ambiguous_tool_placeholders",
+        }),
+      );
     } finally {
       unregister();
     }

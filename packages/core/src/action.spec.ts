@@ -2881,21 +2881,38 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       });
     });
 
-    it("preserves an empty list beside a rejected null", async () => {
+    it("refuses an empty list beside a rejected null by default", async () => {
       const intent = await actionCallIntent(update, {
         id: "a",
         title: null,
         note: null,
         tags: [],
       });
-      if (!intent.valid) throw intent.error;
-      expect(preparedCallArguments(intent)).toEqual({
-        id: "a",
-        note: null,
-        tags: [],
-        limit: 10,
-        items: [],
+      expect(intent).toMatchObject({
+        valid: false,
+        error: { errorCode: "ambiguous_tool_placeholders" },
       });
+    });
+
+    it("honors an action's opt-in for a safe empty field", async () => {
+      const safeFields = { nullPaddingSafeEmptyFields: ["tags"] };
+      const safeUpdate = defineAction({
+        description: "update tags",
+        schema: z.object({
+          id: z.string(),
+          title: z.string().optional(),
+          tags: z.array(z.string()).optional(),
+        }),
+        ...safeFields,
+        run: async () => ({ ok: true }),
+      });
+      const intent = await actionCallIntent(safeUpdate, {
+        id: "a",
+        title: null,
+        tags: [],
+      });
+      if (!intent.valid) throw intent.error;
+      expect(preparedCallArguments(intent)).toEqual({ id: "a", tags: [] });
     });
 
     it("runs a padded call whose empty value equals the schema default", async () => {
@@ -2917,21 +2934,19 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       expect(preparedCallArguments(intent)).not.toHaveProperty("note");
     });
 
-    it("preserves an empty string beside a rejected null", async () => {
+    it("refuses an empty string beside a rejected null", async () => {
       const intent = await actionCallIntent(update, {
         id: "a",
         title: null,
         label: "",
       });
-      if (!intent.valid) throw intent.error;
-      expect(preparedCallArguments(intent)).toMatchObject({
-        id: "a",
-        label: "",
+      expect(intent).toMatchObject({
+        valid: false,
+        error: { errorCode: "ambiguous_tool_placeholders" },
       });
-      expect(preparedCallArguments(intent)).not.toHaveProperty("title");
     });
 
-    it("classifies a padded call whose dynamic plan-mode effect defaults to a write", async () => {
+    it("refuses a padded call whose dynamic plan-mode effect defaults to a write", async () => {
       const publish = defineAction({
         description: "dynamic",
         schema: z.object({
@@ -2949,29 +2964,21 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         label: "",
       });
       expect(intent).toMatchObject({
-        valid: true,
-        readOnly: false,
-        planModeRead: false,
-      });
-      if (!intent.valid) throw intent.error;
-      expect(preparedCallArguments(intent)).toEqual({
-        mode: "write",
-        label: "",
+        valid: false,
+        error: { errorCode: "ambiguous_tool_placeholders" },
       });
     });
 
-    it("preserves an empty value that a stringified argument carries", async () => {
+    it("refuses an empty value that a stringified argument carries", async () => {
       const intent = await actionCallIntent(update, {
         id: "a",
         title: null,
         meta: "{}",
       });
-      if (!intent.valid) throw intent.error;
-      expect(preparedCallArguments(intent)).toMatchObject({
-        id: "a",
-        meta: {},
+      expect(intent).toMatchObject({
+        valid: false,
+        error: { errorCode: "ambiguous_tool_placeholders" },
       });
-      expect(preparedCallArguments(intent)).not.toHaveProperty("title");
     });
 
     it("rejects a wrong-typed empty value instead of dropping it", async () => {

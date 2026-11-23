@@ -124,6 +124,8 @@ function stripOptionalToolPlaceholders(
     valid: boolean;
     invalid: boolean;
     invalidNonNull: boolean;
+    unsafeValid: boolean;
+    safeEmptyFields: readonly string[];
     nullOnly: boolean;
     listsEraseNothing: boolean;
     stripNull?: boolean;
@@ -188,7 +190,10 @@ function stripOptionalToolPlaceholders(
     }
     if (!required.has(key) && isStructurallyEmptyToolValue(entry)) {
       if (schemaRejectsToolValue(propertySchema, entry)) {
-        if (emptyValues.nullOnly && entry !== null) continue;
+        if (emptyValues.nullOnly && entry !== null) {
+          emptyValues.invalidNonNull = true;
+          continue;
+        }
         emptyValues.invalid = true;
         if (entry !== null) emptyValues.invalidNonNull = true;
         placeholders.push(key);
@@ -212,8 +217,12 @@ function stripOptionalToolPlaceholders(
           propertySchema.default !== undefined &&
           JSON.stringify(propertySchema.default) === JSON.stringify(entry)
         )
-      )
+      ) {
         emptyValues.valid = true;
+        if (depth !== 0 || !emptyValues.safeEmptyFields.includes(key)) {
+          emptyValues.unsafeValid = true;
+        }
+      }
     }
     const nested = stripOptionalToolPlaceholders(
       propertySchema,
@@ -258,6 +267,7 @@ export function normalizeOptionalToolPlaceholders(
   input: unknown,
   entry: Parameters<typeof actionCallReadOnly>[0] & {
     emptyListsEraseNothing?: boolean;
+    nullPaddingSafeEmptyFields?: readonly string[];
   },
   { nullOnly = false }: { nullOnly?: boolean } = {},
 ): ToolInputRepair {
@@ -269,6 +279,8 @@ export function normalizeOptionalToolPlaceholders(
     valid: false,
     invalid: false,
     invalidNonNull: false,
+    unsafeValid: false,
+    safeEmptyFields: entry.nullPaddingSafeEmptyFields ?? [],
     nullOnly,
     listsEraseNothing: entry.emptyListsEraseNothing === true,
   };
@@ -285,7 +297,8 @@ export function normalizeOptionalToolPlaceholders(
   // raw input, which defaults can turn into a write.
   if (
     emptyValues.valid &&
-    emptyValues.invalidNonNull &&
+    emptyValues.invalid &&
+    (emptyValues.invalidNonNull || emptyValues.unsafeValid) &&
     !(entry.readOnly === true && entry.planMode === undefined)
   ) {
     return {
