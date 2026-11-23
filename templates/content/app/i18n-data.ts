@@ -1640,6 +1640,8 @@ const enUS = {
       linkNotReady: "This block’s link isn’t ready yet. Try again in a moment.",
       linkedBlockDeleted: "The block this link points to was deleted.",
       linkedBlockMissing: "Couldn’t find the block this link points to.",
+      linkedBlockLookupFailed:
+        "Couldn’t open the block this link points to. Reload the page to try again.",
     },
     heading1: "Heading 1",
     heading2: "Heading 2",

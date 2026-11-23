@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { blockContentHashesByPath } from "../shared/block-identity-ids.js";
@@ -27,6 +28,8 @@ let updateDocument: typeof import("./update-document.js").default;
 let getDocument: typeof import("./get-document.js").default;
 let getBodyBlockIds: typeof import("./get-body-block-ids.js").default;
 let resolveBlockLink: typeof import("./resolve-block-link.js").default;
+let getDb: typeof import("../server/db/index.js").getDb;
+let schema: typeof import("../server/db/schema.js");
 
 const as = <T>(email: string, run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: email }, run);
@@ -45,6 +48,9 @@ beforeAll(async () => {
   getDocument = (await import("./get-document.js")).default;
   getBodyBlockIds = (await import("./get-body-block-ids.js")).default;
   resolveBlockLink = (await import("./resolve-block-link.js")).default;
+  const dbModule = await import("../server/db/index.js");
+  getDb = dbModule.getDb;
+  schema = dbModule.schema;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as never);
 }, 60_000);
@@ -212,6 +218,50 @@ describe("block links", () => {
       "1": ids[0],
       "2": ids[2],
     });
+  });
+
+  it("ignores IDs a chat widget sends with its save", async () => {
+    const { documentId, ids } = await rowPage("Alpha\nBeta\nGamma");
+    const baseRevision = await revisionOf(documentId);
+    await as(ownerEmail, () =>
+      updateDocument.run(
+        {
+          id: documentId,
+          content: "Beta\nAlpha\nGamma",
+          baseRevision,
+          editorBlockIds: {
+            shape: shapeOf("Beta\nAlpha\nGamma"),
+            idsByPath: byPath(...ids),
+          },
+        },
+        {
+          caller: "mcp-widget-write",
+          actionName: "update-document",
+          userEmail: ownerEmail,
+          mcpDirectoryWidgetWrite: {
+            appId: "content",
+            actionNames: ["update-document"],
+            resourceIds: { documentId },
+          },
+        } as never,
+      ),
+    );
+
+    expect((await readIds(documentId)).ids?.idsByPath).toEqual({
+      "0": ids[1],
+      "1": ids[0],
+      "2": ids[2],
+    });
+  });
+
+  it("gives no IDs while the saved IDs lag the page text", async () => {
+    const { documentId } = await rowPage("Alpha\nBeta");
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Alpha\nBeta\nGamma" })
+      .where(eq(schema.documents.id, documentId));
+
+    await expect(readIds(documentId)).resolves.toEqual({ ids: null });
   });
 
   it("keeps a stale tab's IDs on its blocks when a merge adds another tab's change", async () => {

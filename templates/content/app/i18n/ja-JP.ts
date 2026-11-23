@@ -718,6 +718,8 @@ const editor = {
       "このブロックのリンクはまだ準備できていません。少し待ってからもう一度お試しください。",
     linkedBlockDeleted: "このリンク先のブロックは削除されました。",
     linkedBlockMissing: "このリンク先のブロックが見つかりませんでした。",
+    linkedBlockLookupFailed:
+      "このリンク先のブロックを開けませんでした。ページを再読み込みしてもう一度お試しください。",
   },
   noDocumentSelected: "ドキュメントが選択されていません",
   registryBlockLoadError:

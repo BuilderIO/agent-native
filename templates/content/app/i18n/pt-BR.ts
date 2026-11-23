@@ -728,6 +728,8 @@ const editor = {
     linkedBlockDeleted: "O bloco para o qual este link aponta foi excluído.",
     linkedBlockMissing:
       "Não foi possível encontrar o bloco para o qual este link aponta.",
+    linkedBlockLookupFailed:
+      "Não foi possível abrir o bloco para o qual este link aponta. Recarregue a página para tentar de novo.",
   },
   noDocumentSelected: "Nenhum documento selecionado",
   registryBlockLoadError:

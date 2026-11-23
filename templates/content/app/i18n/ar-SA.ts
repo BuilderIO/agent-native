@@ -695,6 +695,8 @@ const editor = {
     linkNotReady: "رابط هذه الكتلة غير جاهز بعد. حاول مرة أخرى بعد لحظة.",
     linkedBlockDeleted: "حُذفت الكتلة التي يشير إليها هذا الرابط.",
     linkedBlockMissing: "تعذّر العثور على الكتلة التي يشير إليها هذا الرابط.",
+    linkedBlockLookupFailed:
+      "تعذّر فتح الكتلة التي يشير إليها هذا الرابط. أعد تحميل الصفحة للمحاولة مرة أخرى.",
   },
   noDocumentSelected: "لم يتم تحديد أي مستند",
   registryBlockLoadError: "تعذر تحميل كتلة {{type}}: {{message}}",

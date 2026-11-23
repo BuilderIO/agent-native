@@ -737,6 +737,8 @@ const editor = {
     linkedBlockDeleted: "Le bloc vers lequel pointe ce lien a été supprimé.",
     linkedBlockMissing:
       "Impossible de trouver le bloc vers lequel pointe ce lien.",
+    linkedBlockLookupFailed:
+      "Impossible d’ouvrir le bloc vers lequel pointe ce lien. Rechargez la page pour réessayer.",
   },
   noDocumentSelected: "Aucun document sélectionné",
   registryBlockLoadError:

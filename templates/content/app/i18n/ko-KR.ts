@@ -710,6 +710,8 @@ const editor = {
       "이 블록의 링크가 아직 준비되지 않았습니다. 잠시 후 다시 시도하세요.",
     linkedBlockDeleted: "이 링크가 가리키는 블록이 삭제되었습니다.",
     linkedBlockMissing: "이 링크가 가리키는 블록을 찾을 수 없습니다.",
+    linkedBlockLookupFailed:
+      "이 링크가 가리키는 블록을 열 수 없습니다. 페이지를 새로고침한 뒤 다시 시도하세요.",
   },
   noDocumentSelected: "선택한 문서가 없습니다.",
   registryBlockLoadError: "{{type}} 블록을 불러올 수 없습니다: {{message}}",

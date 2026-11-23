@@ -809,6 +809,7 @@ export async function persistContentLiveCopy(
       `A server write to page ${commit.docId}'s live copy has no cause; wrap it in withContentBodyWriteCause.`,
     );
   }
+  const pendingEditorIds = cause ? null : liveCopyBlockIds(commit.state);
   const db = drizzleOverExec(tx);
   const locked = await lockPageForBodyWrite(
     db,
@@ -829,8 +830,8 @@ export async function persistContentLiveCopy(
   assertEditablePage(locked.page);
   await cause?.beforeWrite?.(tx);
   const editorIds =
-    !cause && commit.text !== locked.page.content
-      ? await liveCopyBlockIds(commit.state)
+    pendingEditorIds && commit.text !== locked.page.content
+      ? await pendingEditorIds
       : null;
   await writeBody({
     tx,

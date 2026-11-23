@@ -38,6 +38,7 @@ export default defineAction({
       propertyId,
       markdown,
     });
+    if (identity.identityStatus === "stale") return { ids: null };
     return {
       ids: {
         ...identityBlockIds(identity.blocks),

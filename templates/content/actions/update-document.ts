@@ -820,6 +820,7 @@ const updateDocumentAction = defineAction({
         ctx?.caller === "mcp" ||
         ctx?.caller === "webmcp" ||
         ctx?.caller === "a2a";
+      const trustsEditorBlockIds = !ctx || ctx.caller === "frontend";
       const respond = (result: DocumentUpdateActionResponse, owner: string) =>
         scopeDocumentAudit(
           isExternalCaller ? documentMetadataResponse(result) : result,
@@ -1734,7 +1735,9 @@ const updateDocumentAction = defineAction({
             afterWrite: async () => {
               if (lockedContentChanged && content !== undefined) {
                 const editorIds =
-                  args.editorBlockIds && editorContent !== undefined
+                  args.editorBlockIds &&
+                  trustsEditorBlockIds &&
+                  editorContent !== undefined
                     ? editorBlockIdsForSavedText({
                         editorMarkdown: editorContent,
                         savedMarkdown: content,

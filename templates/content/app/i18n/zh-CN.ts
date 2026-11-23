@@ -669,6 +669,7 @@ const editor = {
     linkNotReady: "此块的链接尚未就绪，请稍后再试。",
     linkedBlockDeleted: "此链接指向的块已被删除。",
     linkedBlockMissing: "找不到此链接指向的块。",
+    linkedBlockLookupFailed: "无法打开此链接指向的块。请重新加载页面后再试。",
   },
   noDocumentSelected: "未选择文档",
   registryBlockLoadError: "无法加载 {{type}} 块：{{message}}",

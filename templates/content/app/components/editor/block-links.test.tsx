@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
 
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   BLOCK_IDENTITY_ATTR,
   blockContentHashesByPath,
   editorBlockIdsOf,
   identityBlockIds,
 } from "@shared/block-identity-ids";
+import { contentBlockLinkPath } from "@shared/block-link";
 import {
   legacyBlocksFieldIdentity,
   blocksFieldPathsById,
@@ -19,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   blockLinkId,
+  blockLinkUrl,
   blockPlaces,
   editorDocBlockIds,
   heldBlockLinkId,
@@ -386,6 +389,7 @@ describe("opening a block link", () => {
   async function reveal(target: Editor, blockId: string) {
     const onDeleted = vi.fn();
     const onMissing = vi.fn();
+    const onFailed = vi.fn();
     function Harness() {
       useLinkedBlockReveal({
         editor: target,
@@ -394,6 +398,7 @@ describe("opening a block link", () => {
         ready: true,
         onDeleted,
         onMissing,
+        onFailed,
       });
       return null;
     }
@@ -405,7 +410,7 @@ describe("opening a block link", () => {
         await new Promise((resolve) => requestAnimationFrame(resolve));
       });
     }
-    return { onDeleted, onMissing };
+    return { onDeleted, onMissing, onFailed };
   }
 
   function highlighted(target: Editor) {
@@ -503,5 +508,26 @@ describe("opening a block link", () => {
     const { onMissing } = await reveal(target, "block_other");
 
     expect(onMissing).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the lookup failed, not that the block is missing, when the server can't answer", async () => {
+    const target = open("Apples");
+    hooks.callAction.mockRejectedValueOnce(new Error("offline"));
+
+    const { onFailed, onMissing } = await reveal(target, "block_other");
+
+    expect(onFailed).toHaveBeenCalledTimes(1);
+    expect(onMissing).not.toHaveBeenCalled();
+  });
+});
+
+describe("a block link's URL", () => {
+  it("keeps the app's base path", () => {
+    expect(blockLinkUrl("doc-1", "block_a")).toBe(
+      new URL(
+        appPath(contentBlockLinkPath("doc-1", "block_a")),
+        window.location.origin,
+      ).href,
+    );
   });
 });

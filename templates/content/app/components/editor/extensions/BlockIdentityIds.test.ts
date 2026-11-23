@@ -114,6 +114,24 @@ describe("block identity IDs in the editor", () => {
     expect(target.state.doc.child(1).type.name).toBe("heading");
   });
 
+  it("gives a deleted block's ID to no other block put in its place", () => {
+    const target = open("Apples ripen.\nPears bruise.");
+    stamp(target, ["block_a", "block_b"]);
+    const first = target.state.doc.child(0);
+    const other = target.state.schema.node(
+      "paragraph",
+      null,
+      target.state.schema.text("Plums falling"),
+    );
+    expect(other.nodeSize).toBe(first.nodeSize);
+    target.view.dispatch(target.state.tr.replaceWith(0, first.nodeSize, other));
+
+    expect(held(target)).toEqual([
+      ["Plums falling", null],
+      ["Pears bruise.", "block_b"],
+    ]);
+  });
+
   it("leaves IDs alone in a change from another tab", () => {
     const target = open("Apples ripen.");
     stamp(target, ["block_a"]);

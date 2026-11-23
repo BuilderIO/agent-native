@@ -490,6 +490,8 @@ const overrides = {
       linkNotReady: "此區塊的連結尚未就緒，請稍後再試。",
       linkedBlockDeleted: "此連結指向的區塊已被刪除。",
       linkedBlockMissing: "找不到此連結指向的區塊。",
+      linkedBlockLookupFailed:
+        "無法開啟此連結指向的區塊。請重新載入頁面後再試一次。",
     },
     heading1: "標題 1",
     heading2: "標題 2",

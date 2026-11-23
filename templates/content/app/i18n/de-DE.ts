@@ -736,6 +736,8 @@ const editor = {
       "Der Block, auf den dieser Link verweist, wurde gelöscht.",
     linkedBlockMissing:
       "Der Block, auf den dieser Link verweist, wurde nicht gefunden.",
+    linkedBlockLookupFailed:
+      "Der Block, auf den dieser Link verweist, konnte nicht geöffnet werden. Lade die Seite neu, um es noch einmal zu versuchen.",
   },
   noDocumentSelected: "Kein Dokument ausgewählt",
   registryBlockLoadError:

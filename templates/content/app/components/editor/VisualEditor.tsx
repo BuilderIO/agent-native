@@ -5085,6 +5085,8 @@ export function VisualEditor({
     onDeleted: () => toast(tRef.current("editor.blockMenu.linkedBlockDeleted")),
     onMissing: () =>
       toast.error(tRef.current("editor.blockMenu.linkedBlockMissing")),
+    onFailed: () =>
+      toast.error(tRef.current("editor.blockMenu.linkedBlockLookupFailed")),
   });
   const copyBlockLink = useCallback(
     (block: BlockAt) => {

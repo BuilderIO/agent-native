@@ -688,6 +688,8 @@ const editor = {
     linkNotReady: "इस ब्लॉक का लिंक अभी तैयार नहीं है। थोड़ी देर में फिर से कोशिश करें।",
     linkedBlockDeleted: "यह लिंक जिस ब्लॉक पर ले जाता है, वह हटा दिया गया है।",
     linkedBlockMissing: "यह लिंक जिस ब्लॉक पर ले जाता है, वह नहीं मिला।",
+    linkedBlockLookupFailed:
+      "यह लिंक जिस ब्लॉक पर ले जाता है, उसे खोला नहीं जा सका। फिर से कोशिश करने के लिए पेज रीलोड करें।",
   },
   noDocumentSelected: "कोई दस्तावेज़ चयनित नहीं",
   registryBlockLoadError: "{{type}} ब्लॉक लोड नहीं किया जा सका: {{message}}",

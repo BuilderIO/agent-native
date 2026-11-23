@@ -60,6 +60,11 @@ function holders(doc: PMNode): Holder[] {
   return found;
 }
 
+function continues(old: PMNode, node: PMNode): boolean {
+  if (old.textContent !== node.textContent) return false;
+  return old.textContent !== "" || old.type === node.type;
+}
+
 function soleHolderPos(doc: PMNode, id: string): number | null {
   const found = holders(doc).filter((holder) => holder.id === id);
   return found.length === 1 ? (found[0]?.pos ?? null) : null;
@@ -185,7 +190,7 @@ export const BlockIdentityIds = Extension.create<BlockIdentityIdsOptions>({
 
           const places = new Map<
             string,
-            { from: number; to: number; deleted: boolean }
+            { from: number; to: number; deleted: boolean; node: PMNode }
           >();
           for (const { id, pos, node } of holders(oldState.doc)) {
             if (places.has(id)) continue;
@@ -198,7 +203,7 @@ export const BlockIdentityIds = Extension.create<BlockIdentityIdsOptions>({
               from = mapped.pos;
               to = transaction.mapping.map(to, -1);
             }
-            places.set(id, { from, to, deleted });
+            places.set(id, { from, to, deleted, node });
           }
 
           const now = holders(newState.doc);
@@ -234,7 +239,8 @@ export const BlockIdentityIds = Extension.create<BlockIdentityIdsOptions>({
               node &&
               ADDRESSABLE.has(node.type.name) &&
               !blockIdentityIdOf(node) &&
-              place.from + node.nodeSize === place.to
+              place.from + node.nodeSize === place.to &&
+              continues(place.node, node)
             ) {
               tr.setNodeAttribute(place.from, BLOCK_IDENTITY_ATTR, id);
             }

@@ -727,6 +727,8 @@ const editor = {
       "El enlace de este bloque aún no está listo. Inténtalo de nuevo en un momento.",
     linkedBlockDeleted: "Se eliminó el bloque al que apunta este enlace.",
     linkedBlockMissing: "No se encontró el bloque al que apunta este enlace.",
+    linkedBlockLookupFailed:
+      "No se pudo abrir el bloque al que apunta este enlace. Recarga la página para volver a intentarlo.",
   },
   noDocumentSelected: "Ningún documento seleccionado",
   registryBlockLoadError: "No se pudo cargar el bloque {{type}}: {{message}}",

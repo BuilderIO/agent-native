@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
 import {
   BLOCK_IDENTITY_ATTR,
@@ -302,7 +303,7 @@ export async function blockLinkId(args: {
 
 export function blockLinkUrl(documentId: string, blockId: string): string {
   return new URL(
-    contentBlockLinkPath(documentId, blockId),
+    appPath(contentBlockLinkPath(documentId, blockId)),
     window.location.origin,
   ).href;
 }
@@ -361,6 +362,7 @@ export function useLinkedBlockReveal(args: {
   ready: boolean;
   onDeleted: () => void;
   onMissing: () => void;
+  onFailed: () => void;
 }) {
   const { editor, documentId, blockId, ready } = args;
   const callbacksRef = useRef(args);
@@ -414,7 +416,9 @@ export function useLinkedBlockReveal(args: {
           else callbacksRef.current.onMissing();
         })
         .catch(() => {
-          // coercion-ok: the wait ends with the missing-block notice.
+          if (done) return;
+          finish();
+          callbacksRef.current.onFailed();
         });
     }
     return () => {
