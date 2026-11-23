@@ -815,7 +815,7 @@ export function createTeamTools(deps: {
 
         if (action === "list") {
           const { listTasks } = await import("../agent-teams.js");
-          const tasks = await listTasks();
+          const tasks = (await listTasks()).filter((task) => !task.quiet);
           if (tasks.length === 0) {
             return "No background tasks.";
           }

@@ -64,7 +64,7 @@ import {
   deleteAppState,
 } from "../application-state/script-helpers.js";
 import { redactArgsToValue, redactTextToSummary } from "../audit/redact.js";
-import { createThread } from "../chat-threads/store.js";
+import { createThread, type ChatThreadScope } from "../chat-threads/store.js";
 import type {
   BackgroundAgentRun,
   BackgroundAgentRunStatus,
@@ -196,6 +196,7 @@ export interface AgentTask {
   stopRequestedAt?: number;
   stopRequestedRunId?: string;
   stopRequestedReason?: string;
+  quiet?: boolean;
 }
 
 export interface AgentTeamOwnerScope {
@@ -1328,6 +1329,7 @@ function taskProgressMetadata(task: AgentTask): Record<string, unknown> {
     currentStep: task.currentStep,
     surfaceUrl: `agent-native://threads/${encodeURIComponent(task.threadId)}`,
     ...(task.parentThreadId ? { parentThreadId: task.parentThreadId } : {}),
+    ...(task.quiet ? { quiet: true } : {}),
     ...(task.name ? { name: task.name } : {}),
   };
 }
@@ -1343,6 +1345,7 @@ async function startTaskProgressRun(
   task: AgentTask,
   ownerEmail: string,
 ): Promise<void> {
+  if (task.quiet) return;
   const runId = task.runId ?? taskRunId(task.taskId);
   task.runId = runId;
   try {
@@ -1363,6 +1366,7 @@ async function updateTaskProgressRun(
   task: AgentTask,
   ownerEmail: string,
 ): Promise<void> {
+  if (task.quiet) return;
   const runId = task.runId ?? taskRunId(task.taskId);
   task.runId = runId;
   try {
@@ -1381,6 +1385,7 @@ async function completeTaskProgressRun(
   status: TerminalProgressStatus,
   step: string,
 ): Promise<boolean> {
+  if (task.quiet) return true;
   const runId = task.runId ?? taskRunId(task.taskId);
   task.runId = runId;
   try {
@@ -1832,11 +1837,18 @@ export interface SpawnTaskOptions {
   instructions?: string;
   model?: string;
   ownerEmail: string;
-  systemPrompt: string;
-  actions: Record<string, ActionEntry>;
+  systemPrompt?: string;
+  actions?: Record<string, ActionEntry>;
   engine?: AgentEngine;
   apiKey?: string;
-  parentSend: (event: AgentChatEvent) => void;
+  /** Omit when no chat is waiting on the task, as when app code starts it. */
+  parentSend?: (event: AgentChatEvent) => void;
+  /** The task thread's scope, so an app can keep it out of chat history. */
+  scope?: ChatThreadScope | null;
+  /** Keeps the task out of the runs tray. */
+  quiet?: boolean;
+  /** The only actions the sub-agent may call. */
+  allowedActionNames?: readonly string[];
   parentThreadId?: string;
   parentSourceAppId?: string | null;
   parentRunId?: string;
@@ -1889,6 +1901,7 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   const parentSourceAppId = opts.parentSourceAppId?.trim();
   const thread = await createThread(opts.ownerEmail, {
     title: opts.description.slice(0, 100),
+    ...(opts.scope ? { scope: opts.scope } : {}),
     ...(parentSourceAppId ? { source: { appId: parentSourceAppId } } : {}),
     initialData: {
       threadData,
@@ -1916,12 +1929,13 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     startedAt: createdAt,
     runId,
     delegationDepth: childDepth,
+    ...(opts.quiet ? { quiet: true } : {}),
   };
 
   await saveTask(task);
   await startTaskProgressRun(task, opts.ownerEmail);
 
-  opts.parentSend({
+  opts.parentSend?.({
     type: "agent_task",
     taskId,
     threadId: thread.id,
@@ -1937,9 +1951,11 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     ...(opts.parentThreadId ? { parentThreadId: opts.parentThreadId } : {}),
     ...(opts.parentRunId ? { parentRunId: opts.parentRunId } : {}),
     ...(opts.name ? { name: opts.name } : {}),
-    ...(getRequestRunContext()?.allowedActionNames !== undefined
-      ? { allowedActionNames: Object.keys(opts.actions) }
-      : {}),
+    ...(opts.allowedActionNames !== undefined
+      ? { allowedActionNames: [...opts.allowedActionNames] }
+      : getRequestRunContext()?.allowedActionNames !== undefined
+        ? { allowedActionNames: Object.keys(opts.actions ?? {}) }
+        : {}),
     turnId: runId,
   };
 
@@ -3140,7 +3156,9 @@ export async function listTasks(
 export async function listAgentTeamBackgroundRuns(
   scope?: AgentTeamOwnerScope,
 ): Promise<AgentTeamBackgroundRun[]> {
-  return (await listTasks(scope)).map(toAgentTaskBackgroundRun);
+  return (await listTasks(scope))
+    .filter((task) => !task.quiet)
+    .map(toAgentTaskBackgroundRun);
 }
 
 export async function getAgentTeamBackgroundRun(
