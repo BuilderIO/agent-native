@@ -1,0 +1,21 @@
+Changed files:
+  rows.tsx  (skeleton 2)
+
+Sites transformed:
+  button     0
+  badge      0
+  input      0
+  text-area  0
+  skeleton   2
+  spinner    0
+  toast      0
+
+Shims:
+
+Not transformed (1 sites), by reason:
+  [skeleton] Skeleton with children now takes its child's shape instead of wrapping it (1)
+    wrapped.tsx:5
+
+Transformed, needs a look (0 sites), by reason:
+
+Test mocks of a legacy module (0):

@@ -12,6 +12,16 @@ const base = {
 };
 
 describe("planChatFirstAppRoute pointers", () => {
+  it("does not open an uncertain route", () => {
+    expect(
+      planChatFirstAppRoute({
+        ...base,
+        shownAppId: null,
+        answer: { status: "ok", app: "tasks-2", confidence: 0.7 },
+      }),
+    ).toEqual({ kind: "skip", reason: "low_confidence" });
+  });
+
   it("passes a pointer's object to the target", () => {
     expect(
       planChatFirstAppRoute({
@@ -20,12 +30,13 @@ describe("planChatFirstAppRoute pointers", () => {
         answer: {
           status: "ok",
           app: "content",
+          confidence: 1,
           pointer: true,
           url: "https://x/y",
         },
       }),
     ).toEqual({
-      kind: "open",
+      kind: "warm",
       target: { appId: "content", url: "https://x/y" },
     });
   });
@@ -34,7 +45,9 @@ describe("planChatFirstAppRoute pointers", () => {
     const answer = {
       status: "ok" as const,
       app: "content",
+      confidence: 1,
       pointer: true,
+      explicit: true as const,
       url: "https://x/y",
     };
     expect(
@@ -44,7 +57,7 @@ describe("planChatFirstAppRoute pointers", () => {
       planChatFirstAppRoute({
         ...base,
         shownAppId: "content",
-        answer: { status: "ok", app: "content" },
+        answer: { status: "ok", app: "content", confidence: 1 },
       }),
     ).toEqual({ kind: "skip", reason: "shown" });
   });

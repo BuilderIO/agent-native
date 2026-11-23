@@ -17,8 +17,14 @@ vi.mock("../db/client.js", () => ({
   isLocalDatabase: () => true,
 }));
 
+import { z } from "zod";
+
+import { defineAction } from "../action.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import { navigateAfterWrite } from "./agent-navigation.js";
+import {
+  assertAgentNavigationAllowed,
+  navigateAfterWrite,
+} from "./agent-navigation.js";
 
 function navigatedPaths(): unknown[] {
   return mockAppStatePut.mock.calls
@@ -47,7 +53,13 @@ describe("agent navigation keeps the user's view", () => {
       inTab(() =>
         navigateAfterWrite({ path: "/tasks/t1" }, { ctx: { caller: "mcp" } }),
       ),
-    ).resolves.toEqual({ navigated: false, reason: "agent-keeps-view" });
+    ).resolves.toMatchObject({
+      navigated: false,
+      kept: true,
+      reason: "navigation-mode-keep",
+      tabId: "tab-1",
+      resolvedUrl: "/tasks/t1",
+    });
     expect(navigatedPaths()).toEqual([]);
 
     await expect(
@@ -57,7 +69,13 @@ describe("agent navigation keeps the user's view", () => {
           { ctx: { caller: "mcp" }, intent: "open" },
         ),
       ),
-    ).resolves.toEqual({ navigated: true });
+    ).resolves.toEqual({
+      navigated: true,
+      kept: false,
+      tabId: "tab-1",
+      resolvedUrl: "/tasks/t1",
+      writeId: expect.any(String),
+    });
     await expect(
       inTab(() =>
         navigateAfterWrite(
@@ -65,7 +83,13 @@ describe("agent navigation keeps the user's view", () => {
           { ctx: { caller: "frontend" } },
         ),
       ),
-    ).resolves.toEqual({ navigated: true });
+    ).resolves.toEqual({
+      navigated: true,
+      kept: false,
+      tabId: "tab-1",
+      resolvedUrl: "/tasks/t2",
+      writeId: expect.any(String),
+    });
     expect(navigatedPaths()).toEqual(["/tasks/t1", "/tasks/t2"]);
   });
 
@@ -85,7 +109,13 @@ describe("agent navigation keeps the user's view", () => {
           { ctx: { caller: "frontend" } },
         ),
     );
-    expect(unavailableResult).toEqual({ navigated: false, reason: "no-tab" });
+    expect(unavailableResult).toEqual({
+      navigated: false,
+      kept: true,
+      reason: "no-tab",
+      tabId: null,
+      resolvedUrl: "/tasks/t1",
+    });
 
     const noSlotResult = await runWithRequestContext(
       { userEmail: "person@example.com" },
@@ -95,7 +125,42 @@ describe("agent navigation keeps the user's view", () => {
           { ctx: { caller: "a2a" }, intent: "open" },
         ),
     );
-    expect(noSlotResult).toEqual({ navigated: false, reason: "no-tab" });
+    expect(noSlotResult).toEqual({
+      navigated: false,
+      kept: true,
+      reason: "no-tab",
+      tabId: null,
+      resolvedUrl: "/tasks/t1",
+    });
     expect(navigatedPaths()).toEqual([]);
+  });
+
+  it("refuses non-navigate write actions in assertAgentNavigationAllowed even for non-detail targets", async () => {
+    const customWrite = defineAction({
+      description: "Custom write action calling assertAgentNavigationAllowed.",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        assertAgentNavigationAllowed({ view: "tasks" }, { ctx });
+      },
+    });
+    await expect(
+      customWrite.run({}, { caller: "mcp", actionName: "edit-task" }),
+    ).rejects.toMatchObject({
+      name: "AgentNavigationRefusedError",
+      code: "agent_navigation_refused",
+      reason: "write-keeps-view",
+    });
+
+    const standaloneNav = defineAction({
+      description: "Standalone navigate calling assertAgentNavigationAllowed.",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        assertAgentNavigationAllowed({ view: "tasks" }, { ctx });
+        return { ok: true };
+      },
+    });
+    await expect(
+      standaloneNav.run({}, { caller: "mcp", actionName: "navigate" }),
+    ).resolves.toEqual({ ok: true });
   });
 });

@@ -38,12 +38,19 @@ const settingsSchema = z.object({
     .describe(
       "Whether wide screens show the email list and the open email side by side. Off opens an email in place of the list.",
     ),
+  splitInbox: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether the inbox shows the user's chosen views, labels, and saved filters as separate tabs. Off shows all inbox mail in one Inbox tab.",
+    ),
 });
 
 export default defineAction({
   description:
-    "Update the user's persistent mail settings: signature, writing style, autocomplete, Send + Mark Done, and the reading pane. Use this for durable preferences, not email draft content. Read the current settings first and preserve fields the user did not ask to change.",
+    "Update the user's persistent mail settings: signature, writing style, autocomplete, Send + Mark Done, the reading pane, and split inbox tabs. Use this for durable preferences, not email draft content. Read the current settings first and preserve fields the user did not ask to change.",
   schema: settingsSchema,
+  mcpTool: false,
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -69,6 +76,9 @@ export default defineAction({
     if (args.readingPane !== undefined) {
       updates.previewPane = args.readingPane ? "right" : "off";
     }
+    if (args.splitInbox !== undefined) {
+      updates.combineInbox = !args.splitInbox;
+    }
 
     const next = {
       ...current,
@@ -84,6 +94,7 @@ export default defineAction({
       autocompleteEnabled: next.autocompleteEnabled === true,
       sendAndArchive: next.sendAndArchive === true,
       readingPane: next.previewPane !== "off",
+      splitInbox: next.combineInbox !== true,
     };
   },
 });

@@ -44,6 +44,7 @@ export default defineAction({
     intent: navigationIntentSchema,
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const { view, formId, tab } = args;
     const resolvedView = view ?? (formId || tab ? "form" : undefined);

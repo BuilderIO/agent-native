@@ -23,6 +23,7 @@ import {
   hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
 } from "../org/context.js";
+import { isOrgMember } from "../org/membership.js";
 import { canManageDeploymentWithoutOrg } from "../org/orgless-access.js";
 import { canManageOrg } from "../org/permissions.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
@@ -978,12 +979,10 @@ export function createIntegrationsPlugin(
           if (canManageOrg(await readOrgMemberRole(storedOrgId, actor))) {
             return storedOrgId;
           }
-        } else if (
-          actor === existingOwner.toLowerCase() ||
-          canManageDeploymentWithoutOrg(actor)
-        ) {
+        } else if (actor === existingOwner.toLowerCase()) {
           return storedOrgId;
         }
+        if (canManageDeploymentWithoutOrg(actor)) return undefined;
       }
       throw createError({
         statusCode: 403,
@@ -3577,7 +3576,49 @@ export function createIntegrationsPlugin(
             return "ok";
           }
 
-          const config = await getIntegrationConfig(platform);
+          const loadedConfig = await getIntegrationConfig(platform);
+          let config = loadedConfig;
+          let channelOrgId = storedIntegrationOwnerOrgId(loadedConfig);
+          let lookupFailed = false;
+          if (channelOrgId === undefined) {
+            try {
+              channelOrgId = await integrationOwnerOrgId(
+                loadedConfig?.owner ?? undefined,
+              );
+            } catch (err) {
+              console.error(
+                `[integrations] ${platform} channel organization lookup failed:`,
+                err,
+              );
+              lookupFailed = true;
+            }
+            if (!lookupFailed && loadedConfig?.owner?.trim()) {
+              config = {
+                ...loadedConfig,
+                configData: {
+                  ...loadedConfig.configData,
+                  ownerOrgId: channelOrgId,
+                },
+              };
+              try {
+                await saveIntegrationConfig(
+                  platform,
+                  config.configData,
+                  "default",
+                  loadedConfig.owner,
+                );
+              } catch (err) {
+                console.error(
+                  `[integrations] ${platform} channel organization could not be recorded:`,
+                  err,
+                );
+              }
+            }
+          }
+          if (lookupFailed) {
+            setResponseStatus(event, 503);
+            return "unavailable";
+          }
           const credentialContext =
             await credentialContextForIntegrationConfig(config);
           const verificationContext = credentialContext
@@ -3784,6 +3825,51 @@ export function createIntegrationsPlugin(
               console.error(
                 `[integrations] default execution identity denied message:`,
                 err,
+              );
+              setResponseStatus(event, 200);
+              return "ok";
+            }
+          }
+          if (channelOrgId) {
+            let permitted = true;
+            const runOwner = executionContext.ownerEmail.trim().toLowerCase();
+            const isUserRun =
+              executionContext.principalType === "user" ||
+              !runOwner.startsWith("integration@");
+            try {
+              let runOrgId = executionContext.orgId;
+              if (!runOrgId && executionContext.principalType === "user") {
+                runOrgId = (
+                  await resolveIntegrationRequestScope({
+                    ownerEmail: executionContext.ownerEmail,
+                    principalType: "user",
+                  })
+                ).orgId;
+              }
+              if (runOrgId && runOrgId !== channelOrgId) {
+                permitted = false;
+              } else if (
+                !runOrgId &&
+                executionContext.principalType === "user"
+              ) {
+                permitted = false;
+              } else if (isUserRun) {
+                permitted = await isOrgMember(channelOrgId, runOwner);
+              }
+            } catch (err) {
+              console.error(
+                `[integrations] ${platform} channel organization check failed:`,
+                err,
+              );
+              lookupFailed = true;
+            }
+            if (lookupFailed) {
+              setResponseStatus(event, 503);
+              return "unavailable";
+            }
+            if (!permitted) {
+              console.warn(
+                `[integrations] ${platform} message ignored: sender is outside the channel's organization`,
               );
               setResponseStatus(event, 200);
               return "ok";

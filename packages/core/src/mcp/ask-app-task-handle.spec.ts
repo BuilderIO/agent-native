@@ -5,6 +5,9 @@ import {
   verifyAskAppTaskHandle,
 } from "./ask-app-task-handle.js";
 
+const INVALID_HANDLE =
+  /^Invalid or expired ask_app task handle\. To keep polling the same task, call ask_app_status with the app and taskId from the ask_app result and leave out taskHandle\. Do not resubmit ask_app; that can duplicate work\.$/;
+
 describe("ask_app task handles", () => {
   beforeEach(() => {
     process.env.BETTER_AUTH_SECRET = "test-better-auth-secret";
@@ -53,7 +56,7 @@ describe("ask_app task handles", () => {
     });
 
     await expect(verifyAskAppTaskHandle(handle, expected)).rejects.toThrow(
-      /^Invalid or expired ask_app task handle\.$/,
+      INVALID_HANDLE,
     );
   });
 
@@ -70,11 +73,11 @@ describe("ask_app task handles", () => {
       verifyAskAppTaskHandle(modified, {
         ...identity,
       }),
-    ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
+    ).rejects.toThrow(INVALID_HANDLE);
     await expect(
       verifyAskAppTaskHandle(handle, {
         ...identity,
       }),
-    ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
+    ).rejects.toThrow(INVALID_HANDLE);
   });
 });

@@ -64,6 +64,7 @@ libc = "0.2"
 [target."cfg(target_os = \"macos\")".dependencies]
 core-foundation = "0.10"
 core-graphics = "0.25"
+flate2 = "1.1"
 objc2 = { version = "0.6", features = ["exception"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
   "std",
@@ -114,6 +115,7 @@ objc2-av-foundation = { version = "0.3.2", default-features = false, features = 
   "AVCaptureInput",
   "AVCaptureOutputBase",
   "AVCaptureSession",
+  "AVCaptureVideoDataOutput",
   "AVMediaFormat",
 ] }
 objc2-core-media = { version = "0.3.2", default-features = false, features = [
@@ -122,6 +124,7 @@ objc2-core-media = { version = "0.3.2", default-features = false, features = [
   "CMBlockBuffer",
   "CMFormatDescription",
   "CMSampleBuffer",
+  "CMSync",
   "CMTime",
   "objc2-core-audio-types",
 ] }

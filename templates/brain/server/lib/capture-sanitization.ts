@@ -18,7 +18,7 @@ import {
 import {
   BRAIN_SENSITIVITY_POLICY_VERSION,
   BRAIN_WORKSPACE_RULE_SCORE_KEY,
-  readWithheldZoomPassages,
+  readWithheldPassages,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
 import {
@@ -262,6 +262,9 @@ function deterministicMeetingOutageFallback(
     decision.disposition !== "allowed" ||
     input.kind !== "transcript" ||
     !["granola", "clips"].includes(input.source.provider) ||
+    !safeSourceIdentity(input.source) ||
+    !safeSourceConfig.safeParse(input.sourceConfig ?? {}).success ||
+    input.content.includes(WITHHELD_MARKER) ||
     !shouldSanitizeCaptureBeforeStorage(input) ||
     !hasSummarySection(decision.safeContent) ||
     PERSONAL_SIGNAL.test(decision.safeContent) ||
@@ -585,20 +588,123 @@ const deterministicPreScreen = (
   deterministicQuarantineDecision(input.content, capturedAt, scope);
 
 const WITHHELD_MARKER = "[…]";
-const NEUTRAL_EXCERPT_TITLE = "Zoom transcript excerpt";
+const ZOOM_EXCERPT_TITLE = "Zoom transcript excerpt";
 const ZOOM_SCREEN_CALL_LIMIT = 160;
 const ZOOM_SCREEN_CONCURRENCY = 8;
 const ZOOM_SCREEN_DEADLINE_MS = 120_000;
 const ZOOM_SCREEN_ROUNDS = 3;
 
-/**
- * Finds restricted Zoom transcript lines so one sensitive remark does not
- * discard the meeting. It only proposes a transcript for the unchanged
- * whole-capture pipeline, together with Jev's verdict on exactly that text so
- * the pipeline cannot re-ask and get a different answer. When lines cannot be
- * separated, it returns the last rejected text and verdict.
- */
-async function withholdRestrictedZoomLines(
+const safeBoolean = z.union([
+  z.boolean(),
+  z.enum(["true", "false", "1", "0", "yes", "no", "on", "off"]),
+]);
+const safeIdentifier = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[\w.@+-]+$/);
+const safeConfiguredNumber = z.union([
+  z.number().finite(),
+  z.string().refine((value) => Number.isFinite(Number(value))),
+]);
+const safePageOptions = {
+  pageSize: safeConfiguredNumber.optional(),
+  limit: safeConfiguredNumber.optional(),
+  pagesPerSync: safeConfiguredNumber.optional(),
+  pageBudget: safeConfiguredNumber.optional(),
+  noteCaptureConcurrency: safeConfiguredNumber.optional(),
+  captureConcurrency: safeConfiguredNumber.optional(),
+  updatedAfter: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}(?:T[\d:.+Z-]+)?$/)
+    .optional(),
+};
+const safeSourceConfig = z.strictObject({
+  sanitizeBeforeStorage: safeBoolean.optional(),
+  captureSanitizationMaxChars: z.number().optional(),
+  companyContextIntake: z.boolean().optional(),
+  autoSync: z.boolean().optional(),
+  pollMinutes: z.number().optional(),
+  sourceKey: safeIdentifier.optional(),
+  ingestTokenHash: z
+    .string()
+    .regex(/^[a-f0-9]+$/i)
+    .optional(),
+  workspaceConnectionId: safeIdentifier.optional(),
+  answerPolicy: z
+    .strictObject({
+      trustTier: z.enum(["blessed", "standard", "untrusted"]).optional(),
+      answerEligible: z.boolean().optional(),
+      authority: z.number().optional(),
+      freshnessWindowDays: z.number().nullable().optional(),
+      reviewRequired: z.boolean().optional(),
+      conflictBehavior: z
+        .enum([
+          "prefer-higher-authority",
+          "surface-conflicts",
+          "require-review",
+        ])
+        .optional(),
+    })
+    .optional(),
+  zoom: z
+    .strictObject({
+      meetingIds: z
+        .array(z.union([z.number(), z.string().regex(/^[\d ]+$/)]))
+        .optional(),
+      userIds: z.array(safeIdentifier).optional(),
+      lookbackDays: z.number().optional(),
+      pollMinutes: z.number().optional(),
+      autoSync: z.boolean().optional(),
+      includeSummaries: z.boolean().optional(),
+    })
+    .optional(),
+  granola: z.strictObject(safePageOptions).optional(),
+  ...safePageOptions,
+});
+
+const SOURCE_LOCATOR =
+  /[\\\r\n]|%[\da-f]{2}|\b(?:https?|ftp|file|data|mailto):|\b(?:[a-z\d-]+\.)+[a-z]{2,}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b/i;
+
+const BARE_LINK =
+  /(?:\bwww\.|\b(?:[a-z\d-]+\.)+[a-z]{2,}(?::\d+)?[/?#]|\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:[/?#]|\b)|\blocalhost(?::\d+)?(?:[/?#]|\b))[^\s<>"')\]]*/gi;
+const LINK_REMOVED = "[link removed]";
+
+export class BrainUnsafeSourceIdentityError extends Error {
+  constructor() {
+    super(
+      "Cannot safely process an incomplete transcript while its source identity may expose the original.",
+    );
+    this.name = "BrainUnsafeSourceIdentityError";
+  }
+}
+
+export function publicCaptureTitle(title: string, partial: boolean): string {
+  return partial && SOURCE_LOCATOR.test(title) ? "Transcript excerpt" : title;
+}
+
+export function publicSourceTitle(
+  title: string,
+  withheldPassages: number | null,
+): string {
+  return withheldPassages !== 0 && SOURCE_LOCATOR.test(title)
+    ? "Transcript source"
+    : title;
+}
+
+function safeSourceIdentity(
+  source: CaptureSanitizationInput["source"],
+): boolean {
+  return (
+    safeIdentifier.safeParse(source.id).success &&
+    source.title.length > 0 &&
+    source.title.length <= 255 &&
+    !SOURCE_LOCATOR.test(source.id) &&
+    !SOURCE_LOCATOR.test(source.title)
+  );
+}
+
+async function withholdRestrictedTranscriptLines(
   input: CaptureSanitizationInput,
 ): Promise<{
   content: string;
@@ -622,13 +728,16 @@ async function withholdRestrictedZoomLines(
     text.filter((line) => line.trim() === WITHHELD_MARKER).length;
   const render = () => {
     const out: string[] = [];
+    const partial =
+      withheld.size > 0 ||
+      lines.some((line) => line.trim() === WITHHELD_MARKER);
     for (const [index, line] of lines.entries()) {
       const afterGap = out[out.length - 1] === WITHHELD_MARKER;
       // Gaps from an earlier pass merge with new ones rather than doubling up.
       if (withheld.has(index) || line.trim() === WITHHELD_MARKER) {
         if (!afterGap) out.push(WITHHELD_MARKER);
       } else if (line.trim() || !afterGap) {
-        out.push(line);
+        out.push(partial ? line.replace(BARE_LINK, LINK_REMOVED) : line);
       }
     }
     return {
@@ -648,8 +757,11 @@ async function withholdRestrictedZoomLines(
   let judged:
     | { content: string; outcome: JevClassificationOutcome }
     | undefined;
+  const hadEarlierGap = lines.some((line) => line.trim() === WITHHELD_MARKER);
   const giveUp = () => ({
-    content: judged?.content ?? input.content,
+    content: hadEarlierGap
+      ? (judged?.content ?? input.content).replace(BARE_LINK, LINK_REMOVED)
+      : (judged?.content ?? input.content),
     withheldPassages: 0,
     ...(judged ? { jev: judged.outcome } : {}),
   });
@@ -695,7 +807,9 @@ async function withholdRestrictedZoomLines(
         return giveUp();
       const isRestricted = async (range: Turn[]) => {
         const outcome = await classify(
-          NEUTRAL_EXCERPT_TITLE,
+          input.source.provider === "zoom"
+            ? ZOOM_EXCERPT_TITLE
+            : "Transcript excerpt",
           range.map((turn) => turn.text).join("\n"),
         );
         return outcome && outcome.decision?.disposition !== "allowed";
@@ -737,32 +851,76 @@ async function withholdRestrictedZoomLines(
 export async function sanitizeCaptureForStorage(
   input: CaptureSanitizationInput,
 ): Promise<CaptureSanitizationResult> {
-  const screened =
-    input.source.provider === "zoom" && input.kind === "transcript"
-      ? await withholdRestrictedZoomLines(input)
+  const prior =
+    input.kind === "transcript" && input.metadata
+      ? readWithheldPassages(input.metadata)
       : undefined;
+  const hadGap =
+    input.kind === "transcript" &&
+    input.content
+      .split(/\r?\n/)
+      .some((line) => line.trim() === WITHHELD_MARKER);
+  const safeIdentity = safeSourceIdentity(input.source);
+  if (
+    input.kind === "transcript" &&
+    !safeIdentity &&
+    (prior !== undefined || hadGap)
+  ) {
+    throw new BrainUnsafeSourceIdentityError();
+  }
+  const screened =
+    input.kind === "transcript" &&
+    ["manual", "zoom", "granola"].includes(input.source.provider) &&
+    safeIdentity &&
+    safeSourceConfig.safeParse(input.sourceConfig ?? {}).success
+      ? await withholdRestrictedTranscriptLines(input)
+      : undefined;
+  const partialWithoutScreening =
+    !screened && input.kind === "transcript" && (prior !== undefined || hadGap);
   const result = await sanitizeWholeCapture(
-    screened ? { ...input, content: screened.content } : input,
+    screened
+      ? { ...input, content: screened.content }
+      : partialWithoutScreening
+        ? { ...input, content: input.content.replace(BARE_LINK, LINK_REMOVED) }
+        : input,
     screened?.jev,
   );
   const withheldNow = screened?.withheldPassages ?? 0;
-  const prior =
-    input.source.provider === "zoom" && input.metadata
-      ? readWithheldZoomPassages(input.metadata)
-      : undefined;
   if (
     result.decision?.disposition !== "allowed" ||
-    (!withheldNow && prior === undefined)
+    (!withheldNow && prior === undefined && !hadGap)
   )
     return result;
-  const withheldPassages = prior === null ? null : (prior ?? 0) + withheldNow;
+  const count =
+    prior === null || (prior === undefined && hadGap)
+      ? null
+      : (prior ?? 0) + withheldNow;
+  const withheldPassages = count !== null && count > 0 ? count : null;
   const metadata: Record<string, unknown> = {
-    ...result.metadata,
-    zoomPassageQuarantine: { version: 1, withheldPassages },
+    captureSanitization: {
+      sanitizedBeforeStorage: true,
+      rawContentRetained: false,
+      method: result.decision.classifier,
+      disposition: "allowed",
+      categories: result.decision.categories,
+      confidenceBand: result.decision.confidenceBand,
+      policyVersion: result.decision.policyVersion,
+      sanitizedAt: new Date().toISOString(),
+    },
+    [input.source.provider === "zoom"
+      ? "zoomPassageQuarantine"
+      : "passageQuarantine"]: { version: 1, withheldPassages },
+    ...(typeof result.metadata.participantsCount === "number"
+      ? { participantsCount: result.metadata.participantsCount }
+      : {}),
   };
-  // The full-recording link would expose exactly what the excerpt withholds.
-  delete metadata.sourceUrl;
-  return { ...result, metadata };
+  return {
+    ...result,
+    title: SOURCE_LOCATOR.test(result.title)
+      ? "Transcript excerpt"
+      : result.title,
+    metadata,
+  };
 }
 
 async function sanitizeWholeCapture(
@@ -858,7 +1016,7 @@ async function sanitizeWholeCapture(
             {
               dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
               preserveGaps:
-                input.source.provider === "zoom" &&
+                input.kind === "transcript" &&
                 input.content.includes(WITHHELD_MARKER),
             },
           )

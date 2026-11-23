@@ -333,6 +333,7 @@ export default defineAction({
         knowledgeId: item.id,
         title: item.title,
         sourceName: evidence.captureTitle,
+        ...(evidence.capturedAt ? { capturedAt: evidence.capturedAt } : {}),
         excerpt: evidence.quote,
         confidence: item.confidence / 100,
         url: safeCitationUrl(evidence.sourceUrl ?? evidence.url),

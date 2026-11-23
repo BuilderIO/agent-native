@@ -7,6 +7,7 @@ export default defineAction({
     "Start or renew a Gmail push-notification watch for every connected Google account. Normally the 12h renewal cron handles this; run this manually to bootstrap immediately after enabling push (GMAIL_WATCH_TOPIC) or to recover from a lapsed watch.",
   schema: z.object({}),
   http: false,
+  mcpTool: false,
   run: async () => {
     if (!process.env.GMAIL_WATCH_TOPIC) {
       return "Skipped: GMAIL_WATCH_TOPIC is not set. Push notifications are not configured in this environment.";

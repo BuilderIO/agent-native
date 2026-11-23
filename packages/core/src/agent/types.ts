@@ -474,6 +474,7 @@ type AgentChatEventPayload =
       isError?: boolean;
       errorCode?: string;
       completedSideEffect?: boolean;
+      navigationKeys?: string[];
       /** The call was skipped without executing or serving a result. */
       notExecuted?: true;
       /** Compact action write evidence retained even when `result` is truncated. */
@@ -489,6 +490,8 @@ type AgentChatEventPayload =
        * continued turn replays a committed call only for the same identity.
        */
       argumentsHash?: string;
+      /** Keyed HMAC identity for deterministic replay of a committed private tool call. */
+      privateReplayIdentity?: string;
       /** False marks current completed events; absence is reserved for older journals. */
       approvalPause?: boolean;
       outcomeUnknown?: true;

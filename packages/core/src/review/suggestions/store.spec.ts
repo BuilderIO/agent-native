@@ -49,7 +49,7 @@ const { __resetStoreLedgerSnapshotForTests } =
   await import("../../db/store-registry.js");
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetStoreLedgerSnapshotForTests();
   __resetSuggestionTablesForTests();
   await ensureSuggestionTables();

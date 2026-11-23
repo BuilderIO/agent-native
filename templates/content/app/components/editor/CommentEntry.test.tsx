@@ -493,7 +493,7 @@ it("keeps the submitted draft when checking remains unresolved", async () => {
   );
 });
 
-it("names the agent, keeps the exact model in its badge, and keeps the time compact", async () => {
+it("names the agent without a badge, says who it wrote for in its card, and keeps the time compact", async () => {
   await act(async () =>
     root.render(
       <Harness
@@ -509,14 +509,43 @@ it("names the agent, keeps the exact model in its badge, and keeps the time comp
   );
 
   expect(container.textContent).toContain("GPT");
-  const badge = container.querySelector("[data-comment-agent-badge]");
-  expect(badge?.textContent).toBe("comments.agentBadge");
-  expect(badge?.getAttribute("aria-label")).toContain("GPT-5.6 Sol");
+  expect(container.querySelector("[data-comment-agent-badge]")).toBeNull();
   const time = container.querySelector("time");
   expect(time?.getAttribute("datetime")).toBe(comment.created_at);
   // The time truncates before a short author name does.
   expect(time?.className).toContain("truncate");
   expect(time?.className).toContain("whitespace-nowrap");
+
+  const name = container.querySelector<HTMLElement>(
+    "[data-comment-author-name]",
+  );
+  expect(name).not.toBeNull();
+  await act(async () => name?.click());
+  const onBehalf = document.querySelector("[data-comment-identity-on-behalf]");
+  expect(onBehalf?.getAttribute("data-comment-identity-on-behalf")).toBe(
+    "agent",
+  );
+  expect(onBehalf?.textContent).toContain("comments.aiAttribution");
+  expect(onBehalf?.textContent).toContain("comments.aiSourceAgent");
+});
+
+it("keeps the Agent badge on a person's row their agent posted", async () => {
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{
+          ...comment,
+          submission_source: "mcp",
+          author_client: "claude-code",
+        }}
+      />,
+    ),
+  );
+
+  expect(
+    container.querySelector("[data-comment-author-name]")?.textContent,
+  ).toContain(comment.author_name ?? "");
+  expect(container.querySelector("[data-comment-agent-badge]")).not.toBeNull();
 });
 
 it("gives a comment another app's agent wrote the agent's card", async () => {

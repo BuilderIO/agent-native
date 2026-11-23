@@ -273,6 +273,27 @@ describe("embedding family availability", () => {
     );
   });
 
+  it("budgets Builder indexing by its credentials without keeping them", () => {
+    const credentials = {
+      authorization: "Bearer bpk-space-key",
+      spaceId: "space-a",
+      userId: "user-1",
+    };
+    const budget = createBuilderEmbeddingFamily(credentials).documentBudget;
+    expect(budget?.policy).toEqual({ capacity: 2, windowMs: 60_000 });
+    expect(
+      createBuilderEmbeddingFamily({ ...credentials, userId: "user-2" })
+        .documentBudget,
+    ).toEqual(budget);
+    expect(
+      createBuilderEmbeddingFamily({
+        ...credentials,
+        authorization: "Bearer bpk-other-key",
+      }).documentBudget?.scope,
+    ).not.toEqual(budget?.scope);
+    expect(JSON.stringify(budget)).not.toContain("bpk-space-key");
+  });
+
   it("batches Builder embeddings within the service input size limits", async () => {
     const family = createBuilderEmbeddingFamily({
       authorization: "Bearer builder-session",

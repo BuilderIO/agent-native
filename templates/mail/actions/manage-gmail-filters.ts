@@ -1,4 +1,5 @@
 import { ActionContractError, defineAction } from "@agent-native/core";
+import { isOutsideAgentCall } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -574,6 +575,11 @@ export default defineAction({
   description:
     "List, create, edit, or delete native Gmail filters. Use this for simple deterministic Gmail rules, such as auto-archive from a sender or query, instead of AI automations.",
   schema,
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    args.operation !== "list" &&
+    args.operation !== "get",
+  mcpTool: "search",
   run: async (args) => {
     const accounts = await allAccounts();
 

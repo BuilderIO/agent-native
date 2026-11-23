@@ -11,6 +11,7 @@ export default defineAction({
     "List members of the current organization who can receive queued email drafts.",
   schema: z.object({}),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async () => {
     const ctx = await requireQueueContext();
     const members = await listOrgMembers(ctx.orgId);

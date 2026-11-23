@@ -1,7 +1,15 @@
 import { createRequire } from "node:module";
 
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -18,6 +26,7 @@ vi.mock("../db/index.js", async () => {
 import * as dbModule from "../db/index.js";
 import { KEY_DATES_MIGRATION_SQL } from "./key-dates-migration.js";
 import * as store from "./key-dates-store.js";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 const alice = { email: "alice@example.test", orgId: "org-1" };
 const bob = { email: "bob@example.test", orgId: "org-1" };
@@ -38,8 +47,16 @@ describe("key-dates store", () => {
   let client: PGliteClient;
   let queries: { query: string; params: unknown[] }[];
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     queries = [];
     getDbMock.mockReset();
     getDbMock.mockReturnValue(
@@ -55,10 +72,6 @@ describe("key-dates store", () => {
         await client.exec(statement);
       }
     }
-  });
-
-  afterEach(async () => {
-    await client.close();
   });
 
   const seedSets = (total: number) =>

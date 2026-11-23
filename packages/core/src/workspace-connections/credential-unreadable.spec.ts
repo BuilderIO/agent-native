@@ -198,7 +198,7 @@ function safeLookupFailureReason(connectionId: string): string {
 }
 
 beforeAll(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   sharedClient = {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;

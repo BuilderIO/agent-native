@@ -448,7 +448,10 @@ import { applyUncheckedDefaultModelReplacement } from "./provider-model-selectio
 import {
   IncompleteAgentRunError,
   incompleteAgentRunFailure,
+  PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
   RUN_RATE_LIMITED_MESSAGE,
+  TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
+  TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
 } from "./run-errors.js";
 import {
   startRun,
@@ -468,6 +471,7 @@ import {
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
+  carriesAssistantText,
   endsAfterToolResultWithoutAssistantFinal,
   endsDuringActionPreparation,
 } from "./run-manager.js";
@@ -476,6 +480,8 @@ import {
   writeLedgerEntry,
   readLedgerEntry,
   beginAgentExecutionStep,
+  PRIVATE_REPLAY_IDENTITY_PATTERN,
+  privateExecutionStepIdentity,
   privateExecutionStepInputJson,
   completeAgentExecutionStep,
   markAgentExecutionStepDispatched,
@@ -531,6 +537,7 @@ import {
   findUnresolvedJournalStepForCall,
   findInterruptedLegacyJournalEntryForCall,
   findReplayableJournalEntry,
+  findReplayablePrivateJournalEntry,
   hasJournalStepForCall,
   isUnavailableToolCallInput,
   journalEntriesAmbiguousInHistory,
@@ -1481,6 +1488,20 @@ export interface ActionEntry {
     args: unknown,
     ctx?: import("../action.js").ActionRunContext,
   ): string;
+  /** See `ActionDefinition.mcpNeedsApproval`. */
+  mcpNeedsApproval?(
+    this: void,
+    args: unknown,
+    ctx?: import("../action.js").ActionRunContext,
+  ): boolean | Promise<boolean>;
+  /** See `ActionDefinition.approvalNotice`. */
+  approvalNotice?(
+    this: void,
+    args: unknown,
+    ctx: import("../action.js").ActionApprovalNoticeContext,
+  ): string | undefined | Promise<string | undefined>;
+  /** See `ActionDefinition.approvalProof`. */
+  approvalProof?: "review-page";
   allowPersistentApproval?: boolean;
   /**
    * Identifies what this entry does under its name. Approvals, including
@@ -4841,8 +4862,7 @@ export function turnHasVisibleText(events: readonly AgentChatEvent[]): boolean {
   let visible = false;
   for (const event of events) {
     if (event.type === "clear") visible = false;
-    else if (event.type === "text" && event.text.trim().length > 0)
-      visible = true;
+    else if (carriesAssistantText(event)) visible = true;
   }
   return visible;
 }
@@ -6835,10 +6855,10 @@ export function permanentPreconditionReason(
     .replace(/[.。]+$/, "");
   const nestedPrecondition = reason
     .match(
-      /\bI stopped because [\w-]+ can't run yet:\s*(.+?)(?:\. That needs to be fixed outside this chat\b|\.?$)/i,
+      /\bI stopped because [\w-]+ can't run yet:\s*(.+?)(?:\.? That needs to be fixed outside this chat\b|\.?$)/i,
     )?.[1]
     ?.trim();
-  if (nestedPrecondition) return nestedPrecondition;
+  if (nestedPrecondition) return shortenPreconditionReason(nestedPrecondition);
   if (!reason) return null;
   if (
     /\bI stopped because\b/i.test(reason) ||
@@ -6846,9 +6866,30 @@ export function permanentPreconditionReason(
   ) {
     return null;
   }
-  return reason.length > PERMANENT_PRECONDITION_REASON_MAX_CHARS
-    ? `${reason.slice(0, PERMANENT_PRECONDITION_REASON_MAX_CHARS).trim()}…`
-    : reason;
+  return shortenPreconditionReason(reason);
+}
+
+const SENTENCE_END_NOT_ABBREVIATION = /(?<!\b[a-z]\.[a-z])[.!?](?=\s)/gi;
+
+function shortenPreconditionReason(reason: string): string {
+  const maxBeforeClosingMark = PERMANENT_PRECONDITION_REASON_MAX_CHARS - 1;
+  if (reason.length <= maxBeforeClosingMark) return reason;
+  let sentenceEnd = 0;
+  for (const { index } of reason.matchAll(SENTENCE_END_NOT_ABBREVIATION)) {
+    if (index >= maxBeforeClosingMark) break;
+    sentenceEnd = index + 1;
+  }
+  if (sentenceEnd >= maxBeforeClosingMark / 2) {
+    return reason.slice(0, sentenceEnd).replace(/\.$/, "");
+  }
+  const wordEnd = reason.lastIndexOf(" ", maxBeforeClosingMark);
+  const cut =
+    wordEnd >= maxBeforeClosingMark / 2 ? wordEnd : maxBeforeClosingMark;
+  return `${reason.slice(0, cut).replace(/[\s,;:—–-]+$/, "")}…`;
+}
+
+function asSentence(text: string): string {
+  return /[.!?…]$/.test(text) ? text : `${text}.`;
 }
 
 const SOURCE_SWEEP_TOOL_NAME =
@@ -8159,6 +8200,17 @@ export async function runAgentLoop(opts: {
         opts.recoverCompletedExecutionSteps === true,
     },
   );
+  const journalHasPrivateHistory =
+    (journalRead.status === "read" &&
+      journalRead.events.some(
+        (event) => event.omitFromPersistedHistory === true,
+      )) ||
+    (journalRead.status === "unreadable" &&
+      journalRead.code === PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE);
+  if (journalHasPrivateHistory) {
+    if (opts.runId) await ensurePrivateTurnRecorded();
+    else send.markPrivate();
+  }
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
   const priorPrivateSideEffect =
@@ -8167,7 +8219,9 @@ export async function runAgentLoop(opts: {
       (event) =>
         event.type === "tool_done" &&
         event.omitFromPersistedHistory === true &&
-        event.completedSideEffect === true,
+        event.completedSideEffect === true &&
+        (typeof event.privateReplayIdentity !== "string" ||
+          !PRIVATE_REPLAY_IDENTITY_PATTERN.test(event.privateReplayIdentity)),
     );
   turnHasActionWarnings =
     journalRead.status === "read" &&
@@ -8405,14 +8459,12 @@ export async function runAgentLoop(opts: {
   }
   const unreadableJournalStop: TerminalActionStop | null =
     journalRead.status === "unreadable" &&
-    (journalRead.code === "private_history_unrecoverable" ||
+    (journalRead.code === PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE ||
       internalContinuationTurn ||
       opts.recoverCompletedExecutionSteps === true)
       ? {
-          message:
-            "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
-            "Retrying would risk repeating a step that already completed. Please send the request again.",
-          errorCode: "tool_call_journal_unreadable",
+          message: TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
+          errorCode: TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
           details: journalRead.error,
         }
       : null;
@@ -10005,13 +10057,35 @@ export async function runAgentLoop(opts: {
           duplicateReadOnlyToolCalls.clear();
         }
         if (event.id) settleRepeatedToolCall(event.id);
+        const privateReplayIdentity =
+          isPrivateCall() &&
+          event.completedSideEffect === true &&
+          argumentsHash &&
+          opts.threadId &&
+          opts.turnId
+            ? privateExecutionStepIdentity({
+                threadId: opts.threadId,
+                turnId: opts.turnId,
+                toolName: toolCall.name,
+                argumentsHash,
+              })
+            : undefined;
         const persisted = Promise.resolve(
           send({
             ...event,
+            ...(actionExecutionOutcome.navigationKeys?.size ||
+            (actionInvoked && event.tool === "navigate")
+              ? {
+                  navigationKeys: [
+                    ...(actionExecutionOutcome.navigationKeys ?? []),
+                  ],
+                }
+              : {}),
             ...(event.outcomeUnknown && unknownOutcomeCause
               ? { unknownCause: unknownOutcomeCause }
               : {}),
             ...(argumentsHash ? { argumentsHash } : {}),
+            ...(privateReplayIdentity ? { privateReplayIdentity } : {}),
             ...(executionStepId ? { executionStepId } : {}),
           }),
         ).then(() => {
@@ -10088,8 +10162,8 @@ export async function runAgentLoop(opts: {
           requestedActionStop ??= {
             message: reason
               ? directStop?.ownRemedy
-                ? `I stopped because ${toolCall.name} can't run yet: ${reason}.`
-                : `I stopped because ${toolCall.name} can't run yet: ${reason}. ` +
+                ? `I stopped because ${toolCall.name} can't run yet: ${asSentence(reason)}`
+                : `I stopped because ${toolCall.name} can't run yet: ${asSentence(reason)} ` +
                   "That needs to be fixed outside this chat (a credential, a role, a connected account, or an approval), then you can retry."
               : `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
                 "Retrying would not have changed it, and anything completed before this is saved.",
@@ -10097,7 +10171,7 @@ export async function runAgentLoop(opts: {
             details: sanitizedResult,
           };
           return reason
-            ? `Stopped: ${toolCall.name} can't run yet: ${reason}. ` +
+            ? `Stopped: ${toolCall.name} can't run yet: ${asSentence(reason)} ` +
                 `Do not retry it with different arguments. ${sanitizedResult}`
             : `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
                 `Do not retry it with different arguments. ${sanitizedResult}`;
@@ -10942,17 +11016,46 @@ export async function runAgentLoop(opts: {
       // for arguments prepared exactly as these are, or a write recorded
       // before calls had identities, by its raw input; anything else runs
       // fresh.
-      if (toolCallJournal && !ambiguousLegacyWrite && !isPrivateCall()) {
-        const journaled = findReplayableJournalEntry(
-          toolCallJournal,
-          toolCall.name,
-          argumentsHash,
-          consumedJournalKeys,
-          actionIsReadOnly ? undefined : { input: toolCall.input },
-          journalEntriesAlreadyRepresented,
-          executionStepId,
-          journalEntriesAmbiguous,
-        );
+      const privateReplayIdentity =
+        isPrivateCall() && opts.threadId && opts.turnId
+          ? privateExecutionStepIdentity({
+              threadId: opts.threadId,
+              turnId: opts.turnId,
+              toolName: toolCall.name,
+              argumentsHash,
+            })
+          : undefined;
+      const privateReplayLookup =
+        toolCallJournal &&
+        !ambiguousLegacyWrite &&
+        isPrivateCall() &&
+        privateReplayIdentity
+          ? findReplayablePrivateJournalEntry(
+              toolCallJournal,
+              toolCall.name,
+              privateReplayIdentity,
+              consumedJournalKeys,
+            )
+          : { status: "none" as const };
+      const ambiguousPrivateWrite =
+        !actionIsReadOnly &&
+        !actionRetrySafe &&
+        privateReplayLookup.status === "ambiguous";
+      if (toolCallJournal && !ambiguousLegacyWrite && !ambiguousPrivateWrite) {
+        const journaled = isPrivateCall()
+          ? privateReplayLookup.status === "replay"
+            ? privateReplayLookup.entry
+            : undefined
+          : findReplayableJournalEntry(
+              toolCallJournal,
+              toolCall.name,
+              argumentsHash,
+              consumedJournalKeys,
+              actionIsReadOnly ? undefined : { input: toolCall.input },
+              journalEntriesAlreadyRepresented,
+              executionStepId,
+              journalEntriesAmbiguous,
+            );
         if (journaled) {
           rollbackRepeatedToolCall();
           const recordedResult = journaled.result ?? "";
@@ -11053,14 +11156,15 @@ export async function runAgentLoop(opts: {
         0,
         ...repeated.map(([kind, map]) => map.get(repeatKeys[kind]) ?? 0),
       );
-      const priorInterruptions = ambiguousLegacyWrite
-        ? Math.max(1, priorInterruptionsBeforeStepReplay)
-        : (interruptedCallMatchesStep ||
-              ((actionIsReadOnly || actionRetrySafe) &&
-                retryableInterruptedCallKeys.has(preparedCallKey))) &&
-            priorInterruptionsBeforeStepReplay > 0
-          ? 0
-          : priorInterruptionsBeforeStepReplay;
+      const priorInterruptions =
+        ambiguousLegacyWrite || ambiguousPrivateWrite
+          ? Math.max(1, priorInterruptionsBeforeStepReplay)
+          : (interruptedCallMatchesStep ||
+                ((actionIsReadOnly || actionRetrySafe) &&
+                  retryableInterruptedCallKeys.has(preparedCallKey))) &&
+              priorInterruptionsBeforeStepReplay > 0
+            ? 0
+            : priorInterruptionsBeforeStepReplay;
 
       // Another write of a tool whose earlier call may have applied could
       // apply the same change twice, so it does not run; the turn goes on,
@@ -12881,7 +12985,7 @@ export function endsAtContinuationBoundary(run: ActiveRun): boolean {
 function chunkMadeForwardProgress(run: ActiveRun): boolean {
   return run.events.some(
     ({ event }) =>
-      (event.type === "text" && event.text.trim().length > 0) ||
+      carriesAssistantText(event) ||
       event.type === "tool_start" ||
       event.type === "tool_done",
   );

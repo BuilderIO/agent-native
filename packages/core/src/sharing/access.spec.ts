@@ -142,7 +142,7 @@ async function listVisible(
 }
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`
     CREATE TABLE qa_docs (
       id TEXT PRIMARY KEY,
