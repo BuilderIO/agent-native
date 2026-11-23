@@ -58,9 +58,9 @@ the PR `CONFLICTING`/`DIRTY`.
    another PR already has this fix, don't park: name that PR in your reply;
    the factory run settles it under `factory-run`'s "Duplicate and competing PRs".
 8. Make and prove each source fix in a worktree; see "Fix-proof in a
-   worktree" below. A test-only PR needs no proof. Don't push: when your
-   turn ends Builder commits anything left and the factory pushes, never
-   force-pushing.
+   worktree" below. A test-only or docs-only PR needs no proof. Don't push:
+   when your turn ends Builder commits anything left and the factory pushes,
+   never force-pushing.
 9. Reply once per item you handled, in its own thread (inline comments:
    reply to that comment; reviews and conversation comments: one PR comment),
    saying what you changed or why not. End every comment you post with the
@@ -90,7 +90,9 @@ any other command and fails the whole proof check. fix-proof prints
 PR body. When "Feedback fix proof" fails with `unsupported proof command`,
 or a report link it can't find, fix the PR body: delete or replace the
 proof line it names, and list every report under `## Reports` (a chat-health
-report by its key, `chat-health:<app>:<date>`).
+report by its key, `chat-health:<app>:<date>`). The Fleet problem link is
+not a report and needs no proof. A docs-only or test-only PR marks each
+report `fix-proof: docs-only` or `fix-proof: test-only` instead.
 
 1. Leave the PR's checkout clean: `merge` refuses a dirty one.
 2. Worktrees `create` (name `fix-<n>`, and `folder` when the workspace has

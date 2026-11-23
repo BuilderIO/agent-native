@@ -11,6 +11,12 @@ export default defineAction({
   schema: z.object({
     app: z.string().describe("Granted app id, e.g. mail or calendar."),
     message: z.string().describe("The request to send to that app's agent."),
+    viewportMode: z
+      .enum(["foreground", "background"])
+      .optional()
+      .describe(
+        'Set to "background" for secondary lookups so the child app cannot hijack the visible foreground pane.',
+      ),
     async: z
       .boolean()
       .optional()
@@ -22,10 +28,11 @@ export default defineAction({
       .optional()
       .describe("Maximum inline wait in milliseconds."),
   }),
-  run: async ({ app, message, async, maxWaitMs }, ctx) => {
+  run: async ({ app, message, viewportMode, async, maxWaitMs }, ctx) => {
     const result = await askGrantedDispatchMcpApp(app, message, {
       async,
       maxWaitMs,
+      ...(viewportMode ? { viewportMode } : {}),
     });
     track(
       "a2a_delegated",

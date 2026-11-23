@@ -12233,6 +12233,55 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("keeps a receipt-managed queued prompt when the before-turn flush fails", async () => {
+    const threadId = "thread-flush-queue";
+    const messageId = "queued-flush";
+    const queuedMessages = [
+      { id: messageId, threadId, text: "Keep this prompt" },
+    ];
+    const mutations: string[] = [];
+    const unregister = registerBeforeAgentTurnFlush(async () => {
+      throw new Error("State save failed");
+    });
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/runs/active?")) return json({});
+        if (url.endsWith(`/queue/${messageId}/receipt`))
+          return json({ state: "queued" });
+        if (url.endsWith(`/threads/${threadId}/queued`)) {
+          mutations.push(JSON.parse(String(init?.body)).mutation.type);
+          return json({ queuedMessages, receiptManaged: true });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ queuedMessages }),
+          });
+        }
+        return json({ error: "Unexpected request" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+    try {
+      for (let i = 0; i < 2; i++) {
+        await expect(
+          transport.steerQueuedMessage?.({ threadId, messageId }),
+        ).rejects.toMatchObject({ code: "queue_item_busy" });
+      }
+      await expect(
+        transport.steerQueuedMessage?.({ threadId, messageId }),
+      ).rejects.toThrow("State save failed");
+      expect(mutations).not.toContain("remove");
+    } finally {
+      unregister();
+      await transport.dispose();
+    }
+  });
+
   it("reattaches to a queue run submitted by the inbox drain", async () => {
     const threadId = "thread-receipt-managed";
     const queueWrites: Array<Record<string, unknown>> = [];

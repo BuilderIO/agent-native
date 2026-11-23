@@ -73,3 +73,21 @@ export {
   registerBeforeAgentTurnStateKeys,
   flushClientAppStateBeforeAgentTurn,
 } from "../application-state.js";
+export {
+  SCREEN_SETTLED_EVENT,
+  UPDATE_MODEL_CONTEXT_MESSAGE_TYPE,
+  getCurrentRenderedScreen,
+  getLastUserInteractedEntity,
+  getLastUserInteractedEntityId,
+  postScreenSettled,
+  reportRenderedScreen,
+  reportUserInteraction,
+  useReportRenderedScreen,
+  verifyScreenSettledReceipt,
+  type ExpectedRenderedScreen,
+  type LastUserInteractedEntity,
+  type RenderedScreenReport,
+  type ScreenSettledReceipt,
+  type ScreenSettledVerificationResult,
+  type UserInteractionReport,
+} from "../screen-settled.js";

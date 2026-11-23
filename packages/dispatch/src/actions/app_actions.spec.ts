@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import {
   invocationEffect,
   isNoWriteError,
+  NoWriteError,
   runActionWithExecutionOutcome,
   type ActionExecutionOutcome,
   type ActionRunContext,
@@ -130,6 +131,32 @@ describe("app action tools", () => {
         arguments: { app: "slides", action: "list-decks" },
       });
       expect(failure.isError).toBe(true);
+      mocks.callAction.mockRejectedValue(
+        new NoWriteError("Connect the app.", {
+          errorCode: "authorization_required",
+          details: {
+            authorizationUrl:
+              "https://dispatch.example.test/_agent-native/mcp/servers/oauth/start?name=app",
+          },
+        }),
+      );
+      const authorization = await client.callTool({
+        name: "call_app_action",
+        arguments: { app: "slides", action: "list-decks" },
+      });
+      expect(authorization.isError).toBe(true);
+      expect(authorization.content).toEqual([
+        expect.objectContaining({
+          text: expect.stringContaining("authorization_required"),
+        }),
+      ]);
+      expect(authorization.content).toEqual([
+        expect.objectContaining({
+          text: expect.stringContaining(
+            "https://dispatch.example.test/_agent-native/mcp/servers/oauth/start?name=app",
+          ),
+        }),
+      ]);
     } finally {
       await client.close();
       await server.close();

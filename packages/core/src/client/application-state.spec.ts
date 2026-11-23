@@ -87,6 +87,23 @@ describe("client application-state helpers", () => {
     expect(url).toBeNull();
   });
 
+  it("rejects a queued read when its session changes before dispatch", async () => {
+    const { recordSessionIdentity } = await import("./session-identity.js");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ values: { selection: "new session" }, missing: [] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    recordSessionIdentity("batch-user", "batch-org-a");
+    const oldRead = readClientAppState("selection");
+    recordSessionIdentity("batch-user", "batch-org-b");
+    const newRead = readClientAppState("selection");
+    await expect(oldRead).rejects.toThrow("scope changed before reading");
+    await expect(newRead).resolves.toBe("new session");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("retries reads that overlap a state deletion", async () => {
     let resolveRead!: (response: Response) => void;
     let resolveDelete!: (response: Response) => void;

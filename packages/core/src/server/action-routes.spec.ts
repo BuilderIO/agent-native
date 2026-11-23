@@ -838,6 +838,75 @@ describe("mountActionRoutes", () => {
       expect(result.error).toContain("a service identity can never give it");
     });
 
+    it.each([
+      ["proven UI", true],
+      ["browser cookie without capability", true],
+      ["bearer with frontend header", false],
+      ["plain HTTP", false],
+      ["cross-site frontend header", false],
+    ] as const)(
+      "marks a %s call as the app page's: %s",
+      async (caller, appPage) => {
+        const { mountActionRoutes } = await import("./action-routes.js");
+        const mounted: Array<(event: unknown) => Promise<unknown>> = [];
+        const contexts: Array<ReturnType<typeof getRequestContext>> = [];
+        const run = vi.fn(async () => {
+          contexts.push(getRequestContext());
+          return { ok: true };
+        });
+        const owner = "owner@example.com";
+        if (caller === "proven UI") {
+          mockHasUiActionCapability.mockReturnValue(true);
+        }
+        mockGetBrowserCookieSession.mockResolvedValue({
+          email: owner,
+        } as AuthSession);
+        const entry: ActionEntry = {
+          tool: { description: "Save a position" },
+          run,
+        };
+        mountActionRoutes(
+          {
+            use: (
+              _path: string,
+              handler: (event: unknown) => Promise<unknown>,
+            ) => mounted.push(handler),
+          },
+          { "save-position": entry },
+          { getOwnerFromEvent: async () => owner },
+        );
+        const event = {
+          _method: "POST",
+          _headers: {
+            host: "app.example.com",
+            "sec-fetch-site":
+              caller === "cross-site frontend header"
+                ? "cross-site"
+                : "same-origin",
+            cookie: "an_session=test-browser-session",
+            ...(caller === "bearer with frontend header"
+              ? { authorization: "Bearer test-token" }
+              : {}),
+            ...(caller === "plain HTTP"
+              ? {}
+              : { "x-agent-native-frontend": "1" }),
+          },
+          context: {},
+          req: { json: async () => ({ positionMs: 1 }) },
+        };
+
+        await mounted.at(0)?.(event);
+
+        expect(run).toHaveBeenCalledTimes(1);
+        expect(contexts.map((context) => context?.appPageRequest)).toEqual([
+          appPage,
+        ]);
+        expect(contexts.map((context) => context?.provenUiRequest)).toEqual([
+          caller === "proven UI",
+        ]);
+      },
+    );
+
     it("lets a full-app panel owner's frontend perform an approval-gated action", async () => {
       vi.stubEnv("OAUTH_STATE_SECRET", "full-app-panel-test-secret");
       mockEmbedDbExecute.mockReset().mockResolvedValue({ rows: [] });

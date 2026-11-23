@@ -130,6 +130,13 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
             "Lorsque true (ou lorsque le prédicat renvoie true), un échec après la propre écriture de cette action est un échec connu que le modèle peut corriger puis réessayer, au lieu de bloquer l’outil pour le reste du tour actuel. Réservez-le aux actions sûres à relancer après n’importe quelle erreur. Un refus avant toute écriture n’a pas besoin de cette option. Voir Écritures sûres à réessayer ci-dessous.",
         },
         {
+          name: "automatic",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            'Marque une écriture que l’app fait d’elle-même, sans geste de l’utilisateur : au chargement, au montage, sur minuterie, ou pour la comptabilité d’expériences et d’usage. Ses événements action_started, action_completed et action_failed portent action_kind "automatic" au lieu de "write", donc les comptes d’usage du produit l’excluent. Un prédicat ne marque que les appels pour lesquels il renvoie true. Cela ne concerne que l’analytique : ne définissez jamais readOnly pour faire taire une écriture.',
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,

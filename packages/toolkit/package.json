@@ -244,6 +244,20 @@
       "import": "./dist/context-ui/index.js",
       "default": "./dist/context-ui/index.js"
     },
+    "./craft": {
+      "types": "./dist/craft/index.d.ts",
+      "browser": "./dist/craft/index.js",
+      "development": "./dist/craft/index.js",
+      "import": "./dist/craft/index.js",
+      "default": "./dist/craft/index.js"
+    },
+    "./craft/*": {
+      "types": "./dist/craft/*.d.ts",
+      "browser": "./dist/craft/*.js",
+      "development": "./dist/craft/*.js",
+      "import": "./dist/craft/*.js",
+      "default": "./dist/craft/*.js"
+    },
     "./design-tweaks": {
       "types": "./dist/design-tweaks/index.d.ts",
       "browser": "./dist/design-tweaks/index.js",
@@ -381,6 +395,8 @@
     "./agent-native.eject.json": "./agent-native.eject.json",
     "./migration-manifest.json": "./migration-manifest.json",
     "./styles.css": "./dist/styles.css",
+    "./craft-tokens.css": "./dist/app/styles/craft-tokens.css",
+    "./app/styles/craft-tokens.css": "./dist/app/styles/craft-tokens.css",
     "./chat-history.css": "./dist/chat-history.css",
     "./editor.css": "./dist/editor.css",
     "./app/auth": {

@@ -957,6 +957,12 @@ export async function readClientAppStateMany(
   options: ClientAppStateReadOptions = {},
 ): Promise<ClientAppStateBatch> {
   assertAgentNativeApiEnabled(`read application state [${keys.join(", ")}]`);
+  const context = currentBeforeTurnContext();
+  const assertScope = () => {
+    if (currentBeforeTurnContext() !== context) {
+      throw new Error("Application state scope changed before reading");
+    }
+  };
   const unique = [...new Set(keys)];
   for (const key of unique) appStateUrl(key);
   if (unique.length === 0) return { values: {}, missing: [] };
@@ -973,6 +979,7 @@ export async function readClientAppStateMany(
       return mutation ? [mutation] : [];
     });
     await awaitWithAbort(Promise.all(pending), options.signal);
+    assertScope();
     if (
       unique.some((key) => {
         const id = requestKey(key);
@@ -1003,6 +1010,7 @@ export async function readClientAppStateMany(
           `Read application state [${chunk.join(", ")}] returned an unexpected payload.`,
         );
       }
+      assertScope();
       Object.assign(merged.values, batch.values);
       merged.missing.push(...(batch.missing ?? []));
     }
@@ -1018,22 +1026,31 @@ export async function readClientAppStateMany(
 }
 
 let pendingBatch:
-  | { keys: Set<string>; promise: Promise<ClientAppStateBatch> }
+  | {
+      keys: Set<string>;
+      promise: Promise<ClientAppStateBatch>;
+      context: BeforeTurnContext;
+    }
   | undefined;
 
 function scheduleBatchedRead(key: string): Promise<ClientAppStateBatch> {
-  if (pendingBatch) {
+  const context = currentBeforeTurnContext();
+  if (pendingBatch?.context === context) {
     pendingBatch.keys.add(key);
     return pendingBatch.promise;
   }
   const keys = new Set([key]);
   const promise = new Promise<ClientAppStateBatch>((resolve, reject) => {
     setTimeout(() => {
-      pendingBatch = undefined;
+      if (pendingBatch?.promise === promise) pendingBatch = undefined;
+      if (currentBeforeTurnContext() !== context) {
+        reject(new Error("Application state scope changed before reading"));
+        return;
+      }
       readClientAppStateMany([...keys]).then(resolve, reject);
     }, 0);
   });
-  pendingBatch = { keys, promise };
+  pendingBatch = { keys, promise, context };
   return promise;
 }
 

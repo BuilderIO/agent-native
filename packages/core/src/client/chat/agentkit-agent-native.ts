@@ -4776,6 +4776,7 @@ export function createAgentNativeAgentKitTransport(
   async function startRunTrackingRunningState(
     input: Parameters<AgentKitProtocolAdapter["startRun"]>[0],
     context: Parameters<AgentKitProtocolAdapter["startRun"]>[1],
+    beforeSubmit?: () => Promise<void>,
   ): ReturnType<AgentKitProtocolAdapter["startRun"]> {
     dispatchAgentChatRunning({
       isRunning: true,
@@ -4784,7 +4785,7 @@ export function createAgentNativeAgentKitTransport(
       tabId: input.threadId,
     });
     try {
-      const run = await startRun(input, context);
+      const run = await startRun(input, context, beforeSubmit);
       if (!run.runId) {
         dispatchAgentChatRunning({
           isRunning: false,
@@ -4926,10 +4927,6 @@ export function createAgentNativeAgentKitTransport(
     receiptQueuedFirstSeen.set(seenKey, firstSeen);
     const waitedTooLong = Date.now() - firstSeen >= RECEIPT_QUEUED_TAKEOVER_MS;
     if (seen < RECEIPT_QUEUED_TAKEOVER_ATTEMPTS && !waitedTooLong) throw busy();
-    await persistQueueMutation(threadId, { type: "remove", messageId });
-    receiptQueuedWaits.delete(seenKey);
-    receiptQueuedFirstSeen.delete(seenKey);
-    clearPromotionClaimId(threadId, messageId);
     const latest = (await snapshot(threadId)) ?? thread;
     const run = await startRunTrackingRunningState(
       {
@@ -4959,6 +4956,12 @@ export function createAgentNativeAgentKitTransport(
         ...(queued.metadata === undefined ? {} : { metadata: queued.metadata }),
       },
       undefined,
+      async () => {
+        await persistQueueMutation(threadId, { type: "remove", messageId });
+        receiptQueuedWaits.delete(seenKey);
+        receiptQueuedFirstSeen.delete(seenKey);
+        clearPromotionClaimId(threadId, messageId);
+      },
     );
     if (!run.runId) {
       throw new TypeError(
@@ -5699,12 +5702,14 @@ export function createAgentNativeAgentKitTransport(
       // coercion-ok: telemetry must never change how a start fails.
     }
   };
-  const startRun: typeof protocolTransport.startRun = async (
-    input,
-    context,
-  ) => {
+  const startRun = async (
+    input: Parameters<AgentKitProtocolAdapter["startRun"]>[0],
+    context: Parameters<AgentKitProtocolAdapter["startRun"]>[1],
+    beforeSubmit?: () => Promise<void>,
+  ): ReturnType<AgentKitProtocolAdapter["startRun"]> => {
     try {
       await flushClientAppStateBeforeAgentTurn(context?.signal);
+      await beforeSubmit?.();
       return await protocolStartRun(input, context);
     } catch (error) {
       const record = asRecord(error);
