@@ -672,6 +672,142 @@ describe("PagedContentFilesSidebarView", () => {
     await act(async () => root.unmount());
   });
 
+  it("draws the open page once after its move ends, while the path the sidebar passes down still names its old parent", async () => {
+    // The open page is off the root's first page, so the root shows it from
+    // its path until the move takes it into the folder.
+    const branches: Partial<Record<string, ContentDatabaseNavigationItem[]>> = {
+      root: [navigationItem("folder"), navigationItem("page-a")],
+      folder: [],
+    };
+    useFilesNavigationPage.mockImplementation((args) => ({
+      data: page(branches[args.navigation.parentId ?? "root"] ?? []),
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    }));
+    const openPage = {
+      id: "open-page",
+      parentId: null,
+      title: "Open page",
+      content: "",
+      icon: null,
+      position: 99,
+      isFavorite: false,
+      hideFromSearch: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    } satisfies Document;
+    const pathKey = [
+      "action",
+      "get-content-navigation-context",
+      { id: openPage.id },
+    ];
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(pathKey, {
+      path: [{ id: openPage.id, parentId: null }],
+    });
+    const props = {
+      activeDocumentId: openPage.id,
+      activePathDocuments: [openPage],
+      initiallyExpanded: ["folder"],
+      queryClient,
+    };
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    await act(async () => root.render(<Harness {...props} />));
+    // Each link with how many rows it sits inside.
+    const shown = () => {
+      const rows = Array.from(container.querySelectorAll("a"), (link) => {
+        let depth = 0;
+        for (let node: Element | null = link; node; node = node.parentElement)
+          if (node.classList.contains("gap-0.5")) depth += 1;
+        return [link.getAttribute("href"), depth] as const;
+      });
+      const top = Math.min(...rows.map(([, depth]) => depth));
+      return rows.map(([href, depth]) => [href, depth - top]);
+    };
+    expect(shown()).toEqual([
+      ["/page/folder", 0],
+      ["/page/page-a", 0],
+      ["/page/open-page", 0],
+    ]);
+
+    let answerMove: () => void = () => {};
+    const moveAnswer = new Promise<void>((resolve) => {
+      answerMove = resolve;
+    });
+    let moving: Promise<unknown> = Promise.resolve();
+    await act(async () => {
+      moving = queryClient
+        .getMutationCache()
+        .build(queryClient, {
+          mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
+          mutationFn: (_variables: { id: string; parentId: string }) =>
+            moveAnswer,
+          onMutate: (): MoveDocumentContext => ({
+            move: {
+              documentId: openPage.id,
+              databaseId: "files",
+              parentId: "folder",
+              from: { databaseId: "files", parentId: null },
+              item: { ...navigationItem(openPage.id), parentId: "folder" },
+            },
+          }),
+          // As `useMoveDocument` does before the move counts as done: the
+          // folder lists the page, and the cached path names its new parent.
+          onSettled: () => {
+            branches.root = [
+              { ...navigationItem("folder"), hasChildren: true },
+              navigationItem("page-a"),
+            ];
+            branches.folder = [
+              { ...navigationItem(openPage.id), parentId: "folder" },
+            ];
+            queryClient.setQueryData(pathKey, {
+              path: [{ id: openPage.id, parentId: "folder" }],
+            });
+          },
+        })
+        .execute({ id: openPage.id, parentId: "folder" });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(shown()).toEqual([
+      ["/page/folder", 0],
+      ["/page/open-page", 1],
+      ["/page/page-a", 0],
+    ]);
+
+    // The move ends; the sidebar hasn't passed down the new path yet.
+    await act(async () => {
+      answerMove();
+      await moving;
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(shown()).toEqual([
+      ["/page/folder", 0],
+      ["/page/open-page", 1],
+      ["/page/page-a", 0],
+    ]);
+
+    // Then it does.
+    await act(async () =>
+      root.render(
+        <Harness
+          {...props}
+          activePathDocuments={[{ ...openPage, parentId: "folder" }]}
+        />,
+      ),
+    );
+    expect(shown()).toEqual([
+      ["/page/folder", 0],
+      ["/page/open-page", 1],
+      ["/page/page-a", 0],
+    ]);
+
+    await act(async () => root.unmount());
+  });
+
   it("draws a page moved into a folder that hasn't loaded below the folder's placeholder rows, through the move's answer", async () => {
     let rootRows = [navigationItem("folder"), navigationItem("page-b")];
     useFilesNavigationPage.mockImplementation((args) =>

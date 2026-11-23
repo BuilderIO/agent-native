@@ -2295,6 +2295,26 @@ function moveDocumentInCachedPaths(
   }
 }
 
+/**
+ * The parent the open page's cached path gives `documentId`, or undefined
+ * when no cached path lists it. A move writes its new parent there before the
+ * move counts as done, so this is never behind the move, while the path the
+ * sidebar passes down can be a render behind it.
+ */
+export function cachedPathParentId(
+  queryClient: QueryClient,
+  activeDocumentId: string,
+  documentId: string,
+): string | null | undefined {
+  return queryClient
+    .getQueryData<ContentNavigationContext>([
+      "action",
+      "get-content-navigation-context",
+      { id: activeDocumentId },
+    ])
+    ?.path.find((entry) => entry.id === documentId)?.parentId;
+}
+
 export function useMoveDocument() {
   const queryClient = useQueryClient();
   return useContentActionMutation<
