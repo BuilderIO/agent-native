@@ -617,8 +617,10 @@ export {
   getRequestRunContext,
   getCredentialContext,
   isIntegrationCallerRequest,
+  normalizeViewportMode,
   type RequestContext,
   type RequestRunContext,
+  type ViewportMode,
 } from "./request-context.js";
 export {
   loadFirstRunBuilderCreditsV2Assignment,

@@ -108,32 +108,99 @@ const database = {
   githubDetailFolder: "Ordner",
   githubDetailBranch: "Branch",
   githubDetailVersion: "Version",
-  githubDetailUpdated: "Aktualisiert",
-  githubCheckForUpdates: "Auf Aktualisierungen prüfen",
+  sourceDetailUpdated: "Aktualisiert",
   githubOpenFolder: "In GitHub öffnen",
-  githubUnlinkFolder: "Verknüpfung mit Ordner aufheben…",
   githubUnlinkTitle: "Verknüpfung mit diesem GitHub-Ordner aufheben?",
   githubUnlinkBodyOne:
     "Die Seite bleibt hier und wird zu einer normalen Seite, die du bearbeiten kannst. Änderungen auf GitHub kommen dann nicht mehr an. Um diesen Ordner später wieder zu verknüpfen, nimmst du eine neue Sammlung.",
   githubUnlinkBody:
     "Die {{count}} Seiten bleiben hier und werden zu normalen Seiten, die du bearbeiten kannst. Änderungen auf GitHub kommen dann nicht mehr an. Um diesen Ordner später wieder zu verknüpfen, nimmst du eine neue Sammlung.",
-  githubUnlink: "Verknüpfung aufheben",
-  githubUnlinking: "Verknüpfung wird aufgehoben…",
-  githubUnlinkedToast:
+  sourceUnlinkConfirm: "Verknüpfung aufheben",
+  sourceUnlinking: "Verknüpfung wird aufgehoben…",
+  sourceUnlinkedToast:
     "Verknüpfung aufgehoben. Deine Seiten bleiben erhalten, und du kannst sie jetzt bearbeiten.",
-  githubUnlinkFailed:
-    "Die Verknüpfung mit dem Ordner konnte nicht aufgehoben werden",
+  sourceSyncNow: "Jetzt synchronisieren",
+  sourceUnlink: "Verknüpfung aufheben…",
+  sourceUnlinkFailed: "Verknüpfung konnte nicht aufgehoben werden",
+  sourceFromBuilderModel: "Aus dem Modell {{name}} in Builder",
+  sourceDetailsFromBuilderModel: "Details aus dem Modell {{name}} in Builder",
+  sourceDetailsFromNotionDatabase:
+    "Details aus der Datenbank {{name}} in Notion",
+  sourceDetailModel: "Modell",
+  sourceDetailDatabase: "Datenbank",
+  sourceUnlinkBuilderTitle: "Verknüpfung mit diesem Builder-Modell aufheben?",
+  sourceUnlinkBuilderBodyOne:
+    "Die Seite bleibt hier und wird zu einer normalen Seite, die du bearbeiten kannst. Änderungen in Builder kommen dann nicht mehr an.",
+  sourceUnlinkBuilderBody:
+    "Die {{count}} Seiten bleiben hier und werden zu normalen Seiten, die du bearbeiten kannst. Änderungen in Builder kommen dann nicht mehr an.",
+  sourceUnlinkNotionTitle: "Verknüpfung mit dieser Notion-Datenbank aufheben?",
+  sourceUnlinkNotionBodyOne:
+    "Die Seite bleibt hier, und du kannst sie weiter bearbeiten. Details aus Notion kommen dann nicht mehr an.",
+  sourceUnlinkNotionBody:
+    "Die {{count}} Seiten bleiben hier, und du kannst sie weiter bearbeiten. Details aus Notion kommen dann nicht mehr an.",
+  sourceProblemNotion: "Aktualisierung aus Notion fehlgeschlagen.",
+  sourceProblemBuilder: "Aktualisierung aus Builder fehlgeschlagen.",
+  sourceShowingDetailsAsOf: "Stand der Details: {{time}}.",
+  notionSyncedToast: "Aus Notion aktualisiert.",
   githubFromFolder: "Aus dem Ordner {{folder}} auf GitHub",
   githubFromRepo: "Aus {{repo}} auf GitHub",
-  githubUpdatedAgo: "Aktualisiert {{time}}",
-  githubJustNow: "gerade eben",
-  githubNotUpdatedYet: "Noch nicht aktualisiert",
+  sourceUpdatedAgo: "Aktualisiert {{time}}",
+  sourceJustNow: "gerade eben",
+  sourceNotUpdatedYet: "Noch nicht aktualisiert",
   githubEditOnGitHub: "Auf GitHub bearbeiten",
-  githubDetails: "Details",
+  sourceDetails: "Details",
   githubNotShownOne: "1 Datei nicht angezeigt",
   githubNotShown: "{{count}} Dateien nicht angezeigt",
   githubNotShownHeading: "Nicht angezeigt",
-  githubShowingAsOf: "Stand der Seiten: {{time}}.",
+  sourceShowingPagesAsOf: "Stand der Seiten: {{time}}.",
+  sourcePanelFromGitHubFolder:
+    "Die Seiten kommen aus dem Ordner {{folder}} in {{repo}}.",
+  sourcePanelFromGitHubRepo: "Die Seiten kommen aus {{repo}}.",
+  sourcePanelFromBuilderModel: "Die Seiten kommen aus dem Modell {{name}}.",
+  sourcePanelDetailsFromBuilderModel:
+    "Details kommen aus dem Modell {{name}} und werden hier zu passenden Seiten hinzugefügt.",
+  sourcePanelDetailsFromNotionDatabase:
+    "Details kommen aus der Datenbank {{name}} und werden hier zu passenden Seiten hinzugefügt.",
+  sourceUpToDate: "Aktuell · geprüft {{time}}",
+  sourceNoDetailsChosen: "Noch keine Details ausgewählt.",
+  sourceLoadingPageContent:
+    "Seiteninhalte werden geladen: {{done}} von {{total}}",
+  sourceEditingGitHub:
+    "Du kannst diese Seiten hier nicht bearbeiten. Bearbeite sie auf GitHub.",
+  sourceEditingNotion:
+    "Du kannst die Details aus Notion hier nicht bearbeiten. Bearbeite sie in Notion.",
+  sourceEditingBuilderDetails:
+    "Du kannst die Details aus Builder hier nicht bearbeiten. Bearbeite sie in Builder.",
+  sourceEditingBuilderReadOnly:
+    "Änderungen hier werden nicht an Builder gesendet.",
+  sourceEditingBuilderStageOnly:
+    "Änderungen hier werden zur Prüfung in Builder gespeichert, nicht veröffentlicht.",
+  sourceEditingBuilderPublish:
+    "Änderungen hier ändern nach der Prüfung die Live-Website.",
+  sourceNoChangesWaiting: "Keine Änderungen ausstehend",
+  sourcePagesChangedOne: "1 Seite geändert",
+  sourcePagesChanged: "{{count}} Seiten geändert",
+  sourceChangesCheckFailed: "Änderungen konnten nicht geprüft werden.",
+  sourceReviewAndSend: "Prüfen und senden",
+  sourceMore: "Mehr",
+  sourceBuilderEditsHeading: "Was mit meinen Änderungen passiert",
+  sourceBuilderEditsDontSend: "Nicht senden",
+  sourceBuilderEditsSaveForReview: "Zur Prüfung in Builder speichern",
+  sourceBuilderEditsPublish: "Auf der Live-Website veröffentlichen",
+  sourceBuilderPublishConfirmTitle:
+    "Änderungen auf der Live-Website veröffentlichen?",
+  sourceBuilderPublishConfirmBody:
+    "Änderungen, die du nach der Prüfung von hier sendest, ändern die Live-Website sofort.",
+  sourceMatchedOn: "Seiten werden über {{field}} zugeordnet.",
+  sourceMatchedOnIgnoringCase:
+    "Seiten werden über {{field}} zugeordnet, ohne Groß- und Kleinschreibung zu beachten.",
+  sourceMatchedOnCustom:
+    "Seiten werden über {{field}} mit einer eigenen Regel zugeordnet.",
+  sourceUnlinkKeepsPages:
+    "Die Seiten bleiben hier, und du kannst sie dann selbst bearbeiten.",
+  sourceUnlinkKeepsDetailPages:
+    "Die Seiten bleiben hier, und du kannst sie weiter bearbeiten.",
+  sourceChooseDetails: "Details auswählen",
   githubSyncingProgress:
     "Änderungen werden geholt: {{done}} von {{total}} Dateien",
   githubPicturesWaiting:
@@ -368,7 +435,6 @@ const database = {
   addProperty: "Eigenschaft hinzufügen",
   back: "Zurück",
   builderSpace: "Builder-Bereich",
-  connectNotionFirst: "Zuerst Notion verbinden",
   connected: "Verbunden",
   builderBulkUpdateNotStaged:
     "Builder-Massenaktualisierung nicht bereitgestellt",
@@ -377,8 +443,6 @@ const database = {
   builderWriteModeWasNotChanged: "Builder-Schreibmodus wurde nicht geändert",
   closeDatabaseSettings: "Sammlungseinstellungen schließen",
   closeSearch: "Suche schließen",
-  databaseRowsAndLocalPropertiesWereKeptIntact:
-    "Sammlungszeilen und lokale Eigenschaften wurden beibehalten.",
   failedToAttachSource: "Quelle konnte nicht angehängt werden",
   failedToCreateRow: "Zeile konnte nicht erstellt werden",
   pageCreatedCollectionRefreshFailed:
@@ -422,13 +486,8 @@ const database = {
   failedToUpdateEverySelectedRow:
     "Nicht jede ausgewählte Zeile konnte aktualisiert werden",
   filter: "Filter",
-  filterBy: "Filtern nach...",
-  addAdvancedFilter: "Erweiterten Filter hinzufugen",
-  addFilterRule: "Filterregel hinzufugen",
-  addFilterGroup: "Filtergruppe hinzufugen",
   nestedFilterGroupUnavailable:
     "Verschachtelte Filtergruppen brauchen ein Datenmodell-Update",
-  deleteFilter: "Filter loschen",
   where: "Wo",
   sortBy: "Sortieren nach...",
   group: "Gruppe",
@@ -436,8 +495,6 @@ const database = {
   hideEmptyGroups: "Leere Gruppen ausblenden",
   layout: "Layout",
   matchExistingItemsToDetails: "Vorhandene Elemente mit Details abgleichen",
-  moveFilterDown: "Nach unten verschieben",
-  moveFilterUp: "Nach oben verschieben",
   name: "Name",
   nameColumnMenu: "Menü der Namensspalte",
   newBoardGroupName: "Name der neuen Board-Gruppe",
@@ -464,6 +521,7 @@ const database = {
   resizeNameColumn: "Namensspalte anpassen",
   search: "Suchen",
   saveForEveryone: "Für alle speichern",
+  filterRows: "Zeilen",
   searchBuilderModels: "Builder-Modelle suchen",
   searchGroupProperties: "Gruppeneigenschaften suchen",
   searchModels: "Modelle suchen",
@@ -472,8 +530,6 @@ const database = {
   searchProperties: "Eigenschaften suchen",
   somethingWentWrong: "Etwas ist schiefgelaufen",
   sort: "Sortieren",
-  sourceDisconnected: "Quelle getrennt",
-  sourceWasNotDisconnected: "Quelle wurde nicht getrennt",
   sources: "Quellen",
   table: "Tabelle",
   tryAgain: "Erneut versuchen.",
@@ -487,65 +543,6 @@ const database = {
   unfreezeColumns: "Spaltenfixierung aufheben",
   selectAllLoadedRows: "Alle geladenen Zeilen auswählen",
   clearSelectedRows: "Zeilenauswahl aufheben",
-  filterOperatorContains: "Enthält",
-  filterOperatorDoesNotContain: "Enthält nicht",
-  filterOperatorStartsWith: "Beginnt mit",
-  filterOperatorEndsWith: "Endet mit",
-  filterOperatorIs: "Ist",
-  filterOperatorIsNot: "Ist nicht",
-  filterOperatorGreaterThan: "Größer als",
-  filterOperatorLessThan: "Kleiner als",
-  filterOperatorGreaterThanOrEqual: "Größer oder gleich",
-  filterOperatorLessThanOrEqual: "Kleiner oder gleich",
-  filterOperatorBefore: "Vor",
-  filterOperatorAfter: "Nach",
-  filterOperatorOnOrBefore: "Am oder vor",
-  filterOperatorOnOrAfter: "Am oder nach",
-  filterOperatorBetween: "Zwischen",
-  filterOperatorIsWithin: "Liegt im Zeitraum",
-  filterOperatorIsEmpty: "Ist leer",
-  filterOperatorIsNotEmpty: "Ist nicht leer",
-  filterOperatorChecked: "Aktiviert",
-  filterOperatorUnchecked: "Nicht aktiviert",
-  filterDateExact: "Genaues Datum",
-  filterDateToday: "Heute",
-  filterDateTomorrow: "Morgen",
-  filterDateYesterday: "Gestern",
-  filterDatePast: "Letzte",
-  filterDateThis: "Aktuell",
-  filterDateNext: "Nächste",
-  filterDateDays_zero: "Tage",
-  filterDateDays_one: "Tag",
-  filterDateDays_two: "Tage",
-  filterDateDays_few: "Tage",
-  filterDateDays_many: "Tage",
-  filterDateDays_other: "Tage",
-  filterDateWeeks_zero: "Wochen",
-  filterDateWeeks_one: "Woche",
-  filterDateWeeks_two: "Wochen",
-  filterDateWeeks_few: "Wochen",
-  filterDateWeeks_many: "Wochen",
-  filterDateWeeks_other: "Wochen",
-  filterDateMonths_zero: "Monate",
-  filterDateMonths_one: "Monat",
-  filterDateMonths_two: "Monate",
-  filterDateMonths_few: "Monate",
-  filterDateMonths_many: "Monate",
-  filterDateMonths_other: "Monate",
-  filterDateYears_zero: "Jahre",
-  filterDateYears_one: "Jahr",
-  filterDateYears_two: "Jahre",
-  filterDateYears_few: "Jahre",
-  filterDateYears_many: "Jahre",
-  filterDateYears_other: "Jahre",
-  filterDatePastRange: "Letzte {{count}} {{unit}}",
-  filterDateNextRange: "Nächste {{count}} {{unit}}",
-  filterDateThisWeek: "Diese Woche",
-  filterDateThisMonth: "Dieser Monat",
-  filterDateThisYear: "Dieses Jahr",
-  filterDateRangeValue: "{{start}} bis {{end}}",
-  filterChooseDates: "Daten auswählen",
-  filterChooseOption: "Option auswählen",
 };
 
 const databaseExactEnglish = {
@@ -728,6 +725,18 @@ const editor = {
   githubSourceReadOnly:
     "Nur Ansicht. Diese Seite folgt einer Datei in GitHub und wird nach jedem Push aktualisiert.",
   githubSourceOpenFile: "In GitHub öffnen",
+  syncedPageBuilder: "Diese Seite stammt aus dem Modell {{name}} in Builder.",
+  syncedPageBuilderReadOnly:
+    "Änderungen hier werden nicht an Builder gesendet.",
+  syncedPageBuilderStageOnly:
+    "Änderungen hier können nach einer Prüfung in Builder gespeichert, aber nie veröffentlicht werden.",
+  syncedPageBuilderPublish:
+    "Änderungen hier können nach einer Prüfung in Builder veröffentlicht werden.",
+  syncedPageNotion:
+    "Einige Details auf dieser Seite stammen aus der Datenbank {{name}} in Notion und können hier nur angesehen werden.",
+  syncedPageSourceUnreadable:
+    "Es konnte nicht geprüft werden, woher diese Seite stammt.",
+  syncedPageCheckAgain: "Erneut versuchen",
   textColor: "Textfarbe",
   resizeColumns: "Spaltenbreite ändern",
   backgroundColor: "Hintergrundfarbe",
@@ -1817,8 +1826,6 @@ const overrides = {
     builderRowsLoadingBackground:
       "Builder lädt weiterhin Zeilen im Hintergrund.",
     attachingReadOnly: "Wird angehängt · schreibgeschützt",
-    builderRowsLoadingHitSnag:
-      "Beim Laden der Builder-Zeilen ist ein Problem aufgetreten.",
     opening: "Wird geöffnet...",
   },
   localFiles: localFiles,

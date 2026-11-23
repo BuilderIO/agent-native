@@ -58,6 +58,10 @@ vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
   >()),
   findBetterAuthUserIdForEmail: vi.fn(async () => undefined),
 }));
+vi.mock("../agent/production-agent.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/production-agent.js")>()),
+  getJevContextCredentials: vi.fn(async () => ({})),
+}));
 const identity: MCPCallerIdentity = {
   userEmail: "alice@example.test",
   identityAssurance: "user",
