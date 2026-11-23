@@ -245,16 +245,23 @@ describe("booking reminders", () => {
       "sam@example.test",
       "pat@example.test",
     ]);
-    const email = sendEmailMock.mock.calls[0]?.[0];
-    expect(email).toMatchObject({
-      subject: "Reminder: Intro call",
-      replyTo: host,
-      templateId: "calendar.booking-reminder",
-    });
-    expect(email.html).toContain(
-      "https://calendar.example.test/booking/manage/cancel-b1",
+    expect(sendEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "sam@example.test",
+        subject: "Reminder: Intro call",
+        replyTo: host,
+        templateId: "calendar.booking-reminder",
+        html: expect.stringContaining(
+          "https://calendar.example.test/booking/manage/cancel-b1",
+        ),
+      }),
     );
-    expect(email.html).toContain("https://meet.example.test/intro");
+    expect(sendEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "sam@example.test",
+        html: expect.stringContaining("https://meet.example.test/intro"),
+      }),
+    );
     await expect(handledAt("b1")).resolves.toEqual([iso(NOW)]);
 
     sendEmailMock.mockClear();
