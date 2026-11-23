@@ -43,10 +43,9 @@ function session(stored: string, browsers = 1) {
 }
 
 function pair(stored: string) {
-  const {
-    server,
-    browsers: [browser],
-  } = session(stored);
+  const { server } = session(stored, 0);
+  const browser = new Y.Doc();
+  Y.applyUpdate(browser, Y.encodeStateAsUpdate(server));
   return { server, browser };
 }
 
