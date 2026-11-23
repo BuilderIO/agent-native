@@ -1,3 +1,4 @@
+// oracle-change: Capabilities are published through authorized discovery after removing the standalone route.
 import { createApp, defineEventHandler, type H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -209,6 +210,34 @@ describe("OAuth popup waiting route", () => {
     expect(html).toContain("setTimeout(() => window.close(), 2000)");
     expect(html).toContain(
       'postMessage({type:"agent-native:workspace-connection-complete"}, window.location.origin)',
+    );
+  });
+
+  it("keeps the completion page's opener alive by matching the framework COOP", async () => {
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+    app.use(
+      "/settings",
+      defineEventHandler(() => new Response("<!doctype html>")),
+    );
+
+    const opener = await app.fetch(new Request("http://example.test/settings"));
+    const completion = await app.fetch(
+      new Request(
+        "http://example.test/_agent-native/oauth/popup?complete=workspace-connection",
+      ),
+    );
+
+    // The completion page posts to window.opener. A COOP value that differs
+    // from the opener's severs that handle before the script runs, so the
+    // add-account dialog never closes. The waiting page keeps
+    // `unsafe-none` because the opener has to replace it with the provider URL.
+    expect(completion.headers.get("cross-origin-opener-policy")).toBe(
+      "same-origin-allow-popups",
+    );
+    expect(completion.headers.get("cross-origin-opener-policy")).toBe(
+      opener.headers.get("cross-origin-opener-policy"),
     );
   });
 
@@ -1000,6 +1029,35 @@ describe("buildBuilderWaitlistFormPayload", () => {
         useCase: "design_publish_app",
       },
     });
+  });
+
+  it("sends a page URL with its query and hash scrubbed", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+    const dirty =
+      "https://design.agent-native.com/design/abc?utm_source=news&p-key=canary-secret#access_token=canary-secret";
+    const clean =
+      "https://design.agent-native.com/design/abc?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E";
+
+    const fromBody = buildBuilderWaitlistFormPayload(event, "a@example.com", {
+      pageUrl: dirty,
+    });
+    const refererEvent = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+    refererEvent.req.headers.set("referer", dirty);
+    const fromReferer = buildBuilderWaitlistFormPayload(
+      refererEvent,
+      "a@example.com",
+      {},
+    );
+
+    for (const payload of [fromBody, fromReferer]) {
+      expect(payload.data.appUrl).toBe(clean);
+      expect(payload._meta.pageUrl).toBe(clean);
+      expect(JSON.stringify(payload)).not.toContain("canary-secret");
+    }
   });
 
   it("maps the design make-real waitlist to a supported Design category", () => {

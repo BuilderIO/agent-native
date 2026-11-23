@@ -60,6 +60,26 @@ describe("Content agent chat plugin", () => {
     );
   });
 
+  it("keeps quiet alt text chats out of the chat history", async () => {
+    await import("./agent-chat.js");
+
+    expect(mocks.createAgentChatPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        historyHiddenScopeTypes: ["content-image-alt-text"],
+      }),
+    );
+  });
+
+  it("checks every reply links the Pages its turn created", async () => {
+    await import("./agent-chat.js");
+    const { requireCreatedPageLinks } =
+      await import("../lib/created-page-links.js");
+
+    expect(mocks.createAgentChatPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({ finalResponseGuard: requireCreatedPageLinks }),
+    );
+  });
+
   it("tells the agent to reuse bounded screen context before rereading it", async () => {
     await import("./agent-chat.js");
 

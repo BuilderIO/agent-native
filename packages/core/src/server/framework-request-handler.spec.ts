@@ -8,20 +8,27 @@ import {
 import { isServerRuntimeStarted } from "../db/server-runtime.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { createTrackingEventScope } from "../observability/tracing.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { createOpenAiAppsChallengeHandler } from "./core-routes-plugin.js";
+import { CredentialStoreUnavailableError } from "./credential-provider.js";
 import {
+  awaitFrameworkBootstrapForEvent,
+  awaitFrameworkReadyWithinDeadline,
+  BUILDER_SIGNUP_EXPERIMENT_PATH,
   markFrameworkRoutesReadyBeforeBootstrap,
   getH3App,
   installDevConnectionCloseHook,
   markDefaultPluginProvided,
   trackPluginInit,
 } from "./framework-request-handler.js";
+import { PublicServerError } from "./public-server-error.js";
 import {
   getRequestContext,
   getRequestUserEmail,
   hasRequestContext,
   runWithRequestContext,
 } from "./request-context.js";
+import { SessionResolutionUnavailableError } from "./session-resolution-errors.js";
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -360,6 +367,202 @@ describe("framework request handler", () => {
     });
     expect(event.res.status).toBe(403);
   });
+
+  it.each([
+    {
+      name: "unclassified",
+      statusCode: undefined,
+      unhandled: false,
+      retry: null,
+    },
+    {
+      name: "typed unavailable",
+      statusCode: 503,
+      unhandled: false,
+      retry: "5",
+    },
+    { name: "rate limited", statusCode: 429, unhandled: false, retry: "5" },
+    {
+      name: "authentication challenge",
+      statusCode: 401,
+      unhandled: false,
+      retry: null,
+    },
+    {
+      name: "redacted unavailable",
+      statusCode: 503,
+      unhandled: true,
+      retry: null,
+    },
+  ])(
+    "filters error response headers for $name",
+    async ({ statusCode, unhandled, retry }) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const app = createNitroApp();
+      const error = Object.assign(new Error("Internal server error"), {
+        ...(statusCode === undefined ? {} : { statusCode }),
+        unhandled,
+        headers: {
+          "Retry-After": "5",
+          "WWW-Authenticate": 'Bearer realm="test"',
+          "Set-Cookie": "fake-session=untrusted",
+          "Content-Length": "999999",
+          "Content-Encoding": "gzip",
+          "X-Private-Diagnostic": "private-diagnostic",
+        },
+      });
+      getH3App(app).use("/_agent-native/header-probe", () => {
+        throw error;
+      });
+      let headers: Headers | undefined;
+      const body = await dispatch(
+        app,
+        "/_agent-native/header-probe",
+        (event) => {
+          headers = event.res.headers;
+        },
+      );
+      expect(body).toEqual({ error: "Internal server error" });
+      expect(headers?.get("retry-after")).toBe(retry);
+      expect(headers?.get("www-authenticate")).toBe(
+        statusCode === 401 ? 'Bearer realm="test"' : null,
+      );
+      expect(headers?.get("content-type")).toBe("application/json");
+      for (const key of [
+        "set-cookie",
+        "content-length",
+        "content-encoding",
+        "x-private-diagnostic",
+      ]) {
+        expect(headers?.get(key)).toBeNull();
+      }
+    },
+  );
+
+  it.each([500, 502, 503])(
+    "redacts a declared %s diagnostic without losing its status and code",
+    async (statusCode) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const app = createNitroApp();
+      const diagnostic = "fake private route diagnostic";
+      const error = createError({
+        statusCode,
+        message: diagnostic,
+        data: { code: "FAKE_BACKEND_FAILURE" },
+      });
+      getH3App(app).use("/_agent-native/declared-failure", () => {
+        throw error;
+      });
+      let response: { status: number; headers: Headers } | undefined;
+
+      const result = await dispatch(
+        app,
+        "/_agent-native/declared-failure",
+        (e: { res: { status: number; headers: Headers } }) => {
+          response = e.res;
+        },
+      );
+
+      expect(response?.status).toBe(statusCode);
+      expect(result).toEqual({
+        error: "Internal server error",
+        code: "FAKE_BACKEND_FAILURE",
+      });
+      expect(JSON.stringify(result)).not.toContain(diagnostic);
+    },
+  );
+
+  it("retains the safe typed session-unavailable message and retry header", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cause = new Error("fake private session diagnostic");
+    const failure = new SessionResolutionUnavailableError({ cause });
+    const app = createNitroApp();
+    getH3App(app).use("/_agent-native/safe-session-failure", () => {
+      throw failure;
+    });
+    let response: { status: number; headers: Headers } | undefined;
+
+    const result = await dispatch(
+      app,
+      "/_agent-native/safe-session-failure",
+      (e: { res: { status: number; headers: Headers } }) => {
+        response = e.res;
+      },
+    );
+
+    expect(response?.status).toBe(503);
+    expect(response?.headers.get("retry-after")).toBe("5");
+    expect(result).toEqual({ error: "Session unavailable" });
+    expect(failure.cause).toBe(cause);
+    expect(JSON.stringify(result)).not.toContain(cause.message);
+  });
+
+  it("uses an explicitly public error's safe text instead of later diagnostics", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cause = new Error("fake private original diagnostic");
+    const error = Object.assign(
+      new PublicServerError("Safe retry instruction", { cause }),
+      { statusCode: 503, message: "fake private replacement diagnostic" },
+    );
+    const app = createNitroApp();
+    getH3App(app).use("/_agent-native/explicit-public-error", () => {
+      throw error;
+    });
+
+    const result = await dispatch(app, "/_agent-native/explicit-public-error");
+
+    expect(result).toEqual({ error: "Safe retry instruction" });
+    expect(error.cause).toBe(cause);
+    expect(JSON.stringify(result)).not.toContain(cause.message);
+    expect(JSON.stringify(result)).not.toContain(error.message);
+  });
+
+  it.each(["healthy", "store", "unexpected", "forbidden"])(
+    "preserves the %s HTTP boundary",
+    async (kind) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const cause = Object.assign(new Error("private database diagnostic"), {
+        code: "57014",
+      });
+      const unavailable = new CredentialStoreUnavailableError(cause);
+      const app = createNitroApp();
+      getH3App(app).use("/_agent-native/availability-probe", () => {
+        if (kind === "store") throw unavailable;
+        if (kind === "unexpected") throw cause;
+        if (kind === "forbidden") throw new ForbiddenError();
+        return { ok: true };
+      });
+      let event: any;
+      const result = await dispatch(
+        app,
+        "/_agent-native/availability-probe",
+        (e) => {
+          event = e;
+        },
+      );
+      expect(event.res.status).toBe(
+        { healthy: 200, store: 503, unexpected: 500, forbidden: 403 }[kind],
+      );
+      expect(result).toEqual(
+        kind === "healthy"
+          ? { ok: true }
+          : kind === "store"
+            ? {
+                error: unavailable.message,
+                code: "credential_store_unavailable",
+              }
+            : {
+                error:
+                  kind === "forbidden" ? "Forbidden" : "Internal server error",
+              },
+      );
+      expect(event.res.headers.get("retry-after")).toBe(
+        kind === "store" ? "5" : null,
+      );
+      expect(JSON.stringify(result)).not.toContain(cause.message);
+      expect(unavailable.cause).toBe(cause);
+    },
+  );
 
   it("treats a closed response as a client abort", async () => {
     const nitroApp = createNitroApp();
@@ -911,6 +1114,232 @@ describe("framework request handler", () => {
     ).resolves.toEqual({ ok: true });
 
     release();
+  });
+
+  it("waits for default bootstrap on /_agent-native/auth/builder-signup-experiment when only /_agent-native/auth is marked early", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      getH3App(nitroApp).use(BUILDER_SIGNUP_EXPERIMENT_PATH, () => ({
+        status: "assigned",
+      }));
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, ["/_agent-native/auth"]);
+    getH3App(nitroApp);
+
+    let settled = false;
+    const pending = dispatch(nitroApp, BUILDER_SIGNUP_EXPERIMENT_PATH).then(
+      (value) => {
+        settled = true;
+        return value;
+      },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    release();
+    await expect(pending).resolves.toEqual({ status: "assigned" });
+  });
+
+  it("dispatches /_agent-native/auth/builder-signup-experiment early only when explicitly marked ready", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
+      "/_agent-native/auth",
+      BUILDER_SIGNUP_EXPERIMENT_PATH,
+    ]);
+    getH3App(nitroApp).use(BUILDER_SIGNUP_EXPERIMENT_PATH, () => ({
+      status: "assigned",
+    }));
+
+    await expect(
+      dispatch(nitroApp, BUILDER_SIGNUP_EXPERIMENT_PATH),
+    ).resolves.toEqual({ status: "assigned" });
+
+    release();
+  });
+
+  it("awaits deferred default bootstrap via awaitFrameworkBootstrapForEvent", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let bootstrapped = false;
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      bootstrapped = true;
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, ["/_agent-native/auth"]);
+    getH3App(nitroApp).use("/_agent-native/auth/callback", async (event) => {
+      await awaitFrameworkBootstrapForEvent(event);
+      return { bootstrapped };
+    });
+
+    let settled = false;
+    const pending = dispatch(nitroApp, "/_agent-native/auth/callback").then(
+      (value) => {
+        settled = true;
+        return value;
+      },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    release();
+    await expect(pending).resolves.toEqual({ bootstrapped: true });
+  });
+
+  it("still dispatches other auth paths before bootstrap when only the auth prefix is marked early", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, ["/_agent-native/auth"]);
+    getH3App(nitroApp).use("/_agent-native/auth/session", () => ({
+      early: true,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/auth/session"),
+    ).resolves.toEqual({ early: true });
+
+    release();
+  });
+
+  describe("framework ready deadline", () => {
+    it("resolves once the awaited promise resolves", async () => {
+      vi.stubEnv("AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS", "50");
+      await expect(
+        awaitFrameworkReadyWithinDeadline(Promise.resolve("ready")),
+      ).resolves.toBeUndefined();
+    });
+
+    it("rejects when the promise rejects instead of reporting ready", async () => {
+      await expect(
+        awaitFrameworkReadyWithinDeadline(
+          Promise.reject(new Error("bootstrap failed")),
+        ),
+      ).rejects.toThrow("bootstrap failed");
+    });
+
+    it("throws after the configured deadline when the promise never settles", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.stubEnv("AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS", "40");
+        const outcome = awaitFrameworkReadyWithinDeadline(
+          new Promise<void>(() => {}),
+        ).then(
+          () => "resolved",
+          (error: Error) => error.message,
+        );
+        await vi.advanceTimersByTimeAsync(39);
+        let settled = false;
+        void outcome.then(() => {
+          settled = true;
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(outcome).resolves.toBe(
+          "Framework routes did not become ready",
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it.each(["", "abc", "0", "-5"])(
+      "falls back to the 25 second deadline for an invalid setting %j",
+      async (value) => {
+        vi.useFakeTimers();
+        try {
+          vi.stubEnv("AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS", value);
+          const outcome = awaitFrameworkReadyWithinDeadline(
+            new Promise<void>(() => {}),
+          ).then(
+            () => "resolved",
+            (error: Error) => error.message,
+          );
+          let settled = false;
+          void outcome.then(() => {
+            settled = true;
+          });
+          await vi.advanceTimersByTimeAsync(24_999);
+          expect(settled).toBe(false);
+          await vi.advanceTimersByTimeAsync(1);
+          await expect(outcome).resolves.toBe(
+            "Framework routes did not become ready",
+          );
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
+    it("fails a request-scoped bootstrap wait that never completes", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.stubEnv("AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS", "30");
+        const nitroApp = createNitroApp();
+        vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(
+          () => new Promise<string[]>(() => {}),
+        );
+        markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
+          "/_agent-native/auth",
+        ]);
+        getH3App(nitroApp).use(
+          "/_agent-native/auth/callback",
+          async (event) => {
+            try {
+              await awaitFrameworkBootstrapForEvent(event);
+              return { ready: true };
+            } catch (error) {
+              return { error: (error as Error).message };
+            }
+          },
+        );
+        const pending = dispatch(nitroApp, "/_agent-native/auth/callback");
+        await vi.advanceTimersByTimeAsync(30);
+        await expect(pending).resolves.toEqual({
+          error: "Framework routes did not become ready",
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not wait when the event has no framework app", async () => {
+      await expect(
+        awaitFrameworkBootstrapForEvent({
+          context: {},
+        } as unknown as Parameters<typeof awaitFrameworkBootstrapForEvent>[0]),
+      ).resolves.toBeUndefined();
+    });
   });
 
   it("does not wait for unscoped plugin initialization on an early route", async () => {

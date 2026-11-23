@@ -10,6 +10,10 @@ import {
 import { resolveAnalyticsPanelSource } from "../server/lib/dashboard-panel-source-resolver";
 import { exportDashboardPanelToGoogleSheet } from "../server/lib/google-sheets-export";
 import { openDashboard } from "../server/lib/open-dashboard";
+import {
+  readTrafficFilterValue,
+  TRAFFIC_FILTER_ID,
+} from "../shared/traffic-environment";
 
 type DashboardPanel = {
   id?: unknown;
@@ -51,6 +55,12 @@ export default defineAction({
     filters: z.record(z.string(), z.string()).optional().default({}),
   }),
   http: { method: "POST" },
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   needsApproval: true,
   toolCallable: false,
   run: async ({ dashboardId, panelId, filters }) => {
@@ -97,8 +107,15 @@ export default defineAction({
         ? interpolateDashboardPanelSql(panel.sql, filters, panel)
         : panel.sql;
     const query = normalizeDashboardPanelQuery(panel.source, rawQuery);
+    const trafficEnvironment = readTrafficFilterValue(
+      filters[TRAFFIC_FILTER_ID],
+    );
     const result = await resolveAnalyticsPanelSource(
-      { source: panel.source, query },
+      {
+        source: panel.source,
+        query,
+        ...(trafficEnvironment ? { trafficEnvironment } : {}),
+      },
       context,
     );
     const failure = panelFailureMessage(result);

@@ -28,6 +28,7 @@ import { documentChangeResource } from "../server/lib/document-change-resource.j
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
@@ -48,6 +49,10 @@ import {
   recordContentSaveOutcome,
   type ContentSaveOutcomeDimensions,
 } from "./_content-save-outcomes.js";
+import {
+  assertAgentsMayEditPageText,
+  assertAgentsMayEditPagesText,
+} from "./_document-agent-lock.js";
 import {
   assertEditableDocument,
   mutateDocumentBody,
@@ -101,7 +106,7 @@ const editDocumentSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Opaque revision returned by get-document for the exact body being edited.",
+      "Opaque revision of the exact body being edited, from get-document, create-document or the previous edit's receipt.revisions.after. A receipt with outcome \"applied\" and readback.verified already confirms the saved body, so don't call get-document to check the edit; read the document again only after another outcome or an error.",
     ),
   idempotencyKey: z
     .string()
@@ -160,7 +165,7 @@ const externalEditDocumentSchema = editDocumentSchema.extend({
     .string()
     .min(1)
     .describe(
-      "Required. Opaque revision returned by get-document for the exact body being edited.",
+      "Required. Opaque revision of the exact body being edited, from get-document, create-document or the previous edit's receipt.revisions.after. A receipt with outcome \"applied\" and readback.verified already confirms the saved body, so don't call get-document to check the edit; read the document again only after another outcome or an error.",
     ),
   idempotencyKey: z
     .string()
@@ -296,7 +301,7 @@ async function editThroughLiveCopy(args: {
 
 export default defineAction({
   description:
-    "Edit an existing document's NFM with exact search-and-replace operations, or initialize a literally empty body with initializeContent. NFM uses one block per line, <br> for hard breaks, and <empty-block/> for empty paragraphs; plain CommonMark blank lines are not preserved. Every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
+    "Edit an existing document's NFM with exact search-and-replace operations, or initialize a literally empty body with initializeContent. NFM uses one block per line, <br> for hard breaks (text between backticks is literal), and <empty-block/> for empty paragraphs; plain CommonMark blank lines are not preserved. Every find string must match exactly once in the immutable base. Pass baseRevision and a caller-generated idempotencyKey; an applied receipt needs no readback.",
   deferLoading: false,
   mcpTool: true,
   agentInputSchema: externalEditDocumentSchema,
@@ -461,6 +466,7 @@ export default defineAction({
     }
 
     assertEditableDocument(existing);
+    assertAgentsMayEditPageText(existing, ctx);
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
     const { results, changeCount } = applied;
@@ -611,6 +617,10 @@ export default defineAction({
           routed: !isLinkedLocalSource,
           content: null,
         });
+        // A linked file has already taken the edit, so its page follows it.
+        if (!isLinkedLocalSource) {
+          await assertAgentsMayEditPagesText(tx, [id], ctx);
+        }
         const mirrored = await tx
           .update(schema.documents)
           .set({
@@ -639,6 +649,10 @@ export default defineAction({
             { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
           );
         }
+        await syncPrivateMediaReferences(
+          tx as unknown as ReturnType<typeof getDb>,
+          { documentId: id, after: content, userEmail: actor },
+        );
         for (const field of primaryBlocksFields) {
           await persistBlocksFieldIdentity({
             db: tx as unknown as ReturnType<typeof getDb>,

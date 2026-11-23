@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { assertAgentsMayCommentOnPage } from "./_document-agent-lock.js";
 
 /** A reaction is one short emoji, not free text. */
 const EMOJI_PATTERN = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u;
@@ -41,8 +42,9 @@ export default defineAction({
       .describe("true to add the reaction, false to remove it"),
   }),
   changeResource: (input) => documentChangeResource(input.documentId),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const access = await assertAccess("document", args.documentId, "commenter");
+    assertAgentsMayCommentOnPage(access.resource, ctx);
     const ownerEmail = access.resource.ownerEmail as string;
     const actorEmail = getRequestUserEmail();
     if (!actorEmail)
@@ -52,36 +54,47 @@ export default defineAction({
       });
 
     const db = getDb();
-    const [comment] = await db
-      .select({ id: schema.documentComments.id })
-      .from(schema.documentComments)
-      .where(
-        and(
-          eq(schema.documentComments.id, args.commentId),
-          eq(schema.documentComments.documentId, args.documentId),
-          eq(schema.documentComments.ownerEmail, ownerEmail),
-        ),
-      )
-      .limit(1);
-    if (!comment)
+    const commentWhere = and(
+      eq(schema.documentComments.id, args.commentId),
+      eq(schema.documentComments.documentId, args.documentId),
+      eq(schema.documentComments.ownerEmail, ownerEmail),
+    );
+    const notFound = (): never =>
       fail(`Comment not found: ${args.commentId}`, {
         statusCode: 404,
         errorCode: "not_found",
       });
 
     if (args.active) {
-      await db
-        .insert(schema.documentCommentReactions)
-        .values({
-          id: reactionId(args.commentId, actorEmail, args.reaction),
-          ownerEmail,
-          documentId: args.documentId,
-          commentId: args.commentId,
-          actorEmail,
-          reaction: args.reaction,
-        })
-        .onConflictDoNothing();
+      await db.transaction(async (tx) => {
+        // Locked so a delete of the comment either waits and then removes
+        // this reaction with the others, or finishes first.
+        const comments = await tx
+          .select({ id: schema.documentComments.id })
+          .from(schema.documentComments)
+          .where(commentWhere)
+          .limit(1)
+          .for("share");
+        if (comments.length === 0) notFound();
+        await tx
+          .insert(schema.documentCommentReactions)
+          .values({
+            id: reactionId(args.commentId, actorEmail, args.reaction),
+            ownerEmail,
+            documentId: args.documentId,
+            commentId: args.commentId,
+            actorEmail,
+            reaction: args.reaction,
+          })
+          .onConflictDoNothing();
+      });
     } else {
+      const comments = await db
+        .select({ id: schema.documentComments.id })
+        .from(schema.documentComments)
+        .where(commentWhere)
+        .limit(1);
+      if (comments.length === 0) notFound();
       await db
         .delete(schema.documentCommentReactions)
         .where(

@@ -32,6 +32,12 @@ import {
   type ExecuteBuilderSourceExecutionRequest,
 } from "../shared/api.js";
 import {
+  BUILDER_ARTICLE_AUTOSAVE_UNCONFIRMED_STOP,
+  builderArticleAutosaveAllowsEffect,
+  builderArticleAutosaveExecutionUnsettled,
+  builderArticleAutosaveLiveStop,
+} from "./_builder-article-autosave-rules.js";
+import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
   enqueueBuilderPrivatePayloadCleanup,
@@ -216,12 +222,10 @@ export interface ExecuteBuilderSourceExecutionDeps {
     request: BuilderCmsExecutionPayload["request"];
     expectedSourceSpace?: string | null;
     expectedSourceConnectionId?: string | null;
-    requireSourceBinding?: boolean;
   }) => ReturnType<typeof executeBuilderCmsWrite>;
   readLiveEntry: (args: {
     model: string;
     entryId: string;
-    fieldPaths: readonly string[];
     expectedSourceSpace?: string | null;
     expectedSourceConnectionId?: string | null;
   }) => Promise<BuilderCmsEntryLiveState>;
@@ -1894,9 +1898,14 @@ async function changeSetDocumentIds(
   return items.map((item) => item.documentId);
 }
 
+export interface ExecuteBuilderSourceExecutionOptions {
+  automatic?: boolean;
+}
+
 export async function executeBuilderSourceExecutionWithDeps(
   args: ExecuteBuilderSourceExecutionRequest,
   deps: ExecuteBuilderSourceExecutionDeps,
+  options: ExecuteBuilderSourceExecutionOptions = {},
 ) {
   const timing = createBuilderSourceTiming("execute_builder_source_execution");
   try {
@@ -2002,6 +2011,14 @@ export async function executeBuilderSourceExecutionWithDeps(
     if (changeSet.state !== "approved") {
       throw new Error("Approve the Builder change set before executing it.");
     }
+    const automaticRecovery =
+      options.automatic === true &&
+      builderArticleAutosaveExecutionUnsettled(execution.state);
+    const stopAutomaticRecovery = (): never =>
+      fail(BUILDER_ARTICLE_AUTOSAVE_UNCONFIRMED_STOP.message, {
+        errorCode: BUILDER_ARTICLE_AUTOSAVE_UNCONFIRMED_STOP.errorCode,
+        statusCode: 409,
+      });
 
     const plan = buildBuilderCmsExecutionPlan({
       source,
@@ -2010,6 +2027,15 @@ export async function executeBuilderSourceExecutionWithDeps(
       publicationTransition: args.publicationTransition,
       confirmUnpublish: args.confirmUnpublish,
     });
+    if (
+      options.automatic &&
+      !builderArticleAutosaveAllowsEffect(plan.payload.effect)
+    ) {
+      fail(
+        "Automatic saves only create and save drafts; this change goes through Review Builder update.",
+        { errorCode: "builder_autosave_needs_review", statusCode: 409 },
+      );
+    }
     const storedPayload = initialStoredPayload;
     const storedRequest = recordValue(storedPayload.request) as
       | BuilderCmsExecutionPayload["request"]
@@ -2038,6 +2064,7 @@ export async function executeBuilderSourceExecutionWithDeps(
         dryRun?.status === "stale" && dryRun.mismatches.length > 0
           ? dryRun.mismatches.join(" ")
           : (plan.lastError ?? "Builder execution is blocked.");
+      if (automaticRecovery) stopAutomaticRecovery();
       await deps.updateExecutionState({
         executionId: execution.id,
         expected: {
@@ -2055,6 +2082,7 @@ export async function executeBuilderSourceExecutionWithDeps(
     }
     if (plan.state !== "ready") {
       const message = plan.lastError ?? "Builder execution is not ready.";
+      if (automaticRecovery) stopAutomaticRecovery();
       await deps.updateExecutionState({
         executionId: execution.id,
         expected: {
@@ -2073,6 +2101,7 @@ export async function executeBuilderSourceExecutionWithDeps(
 
     if (source.capabilities.liveWritesEnabled !== true) {
       const message = "Live Builder writes are disabled for this source.";
+      if (automaticRecovery) stopAutomaticRecovery();
       await deps.updateExecutionState({
         executionId: execution.id,
         expected: {
@@ -2138,6 +2167,7 @@ export async function executeBuilderSourceExecutionWithDeps(
         storedWriteResult = recoveredWriteResult(lookup.matches[0]!);
       }
     }
+    if (automaticRecovery && !storedWriteResult) stopAutomaticRecovery();
     if (storedWriteResult) {
       timing.record("approval_gate_and_dry_run_validation", gateStartedAt);
       timing.ensure("write_dispatch");
@@ -2286,8 +2316,6 @@ export async function executeBuilderSourceExecutionWithDeps(
         liveState = await deps.readLiveEntry({
           model: plan.payload.target.model,
           entryId: preflightEntryId,
-          fieldPaths: builderCmsWrittenSourceFields(plan.payload.request)
-            .fieldKeys,
           expectedSourceSpace: source.metadata.builderSpacePublicKey,
           expectedSourceConnectionId: source.metadata.connectionId,
         });
@@ -2337,11 +2365,30 @@ export async function executeBuilderSourceExecutionWithDeps(
         request: plan.payload.request,
         checkedAt: now,
       });
+      const baselineValues = sourceRowForChangeSet(
+        source,
+        changeSet,
+      )?.sourceValues;
+      const automaticStop = options.automatic
+        ? builderArticleAutosaveLiveStop({ liveState, baselineValues })
+        : null;
+      if (automaticStop) {
+        await releaseClaim({
+          state: "blocked",
+          summary: `${plan.summary} Automatic save stopped before write.`,
+          payload: { ...validatedPayload, livePreflight },
+          lastError: automaticStop.message,
+        });
+        fail(automaticStop.message, {
+          errorCode: automaticStop.errorCode,
+          statusCode: 409,
+        });
+      }
       const message = livePreflightBlockMessage({
         liveState,
         baselineLastUpdated,
         baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
-        baselineValues: sourceRowForChangeSet(source, changeSet)?.sourceValues,
+        baselineValues,
         effect: plan.payload.effect,
         request: plan.payload.request,
         fieldLabel: builderSourceFieldLabel(source),
@@ -2394,7 +2441,6 @@ export async function executeBuilderSourceExecutionWithDeps(
           request: writePayload.request,
           expectedSourceSpace: source.metadata.builderSpacePublicKey,
           expectedSourceConnectionId: source.metadata.connectionId,
-          requireSourceBinding: true,
         }),
       );
     } catch (error) {

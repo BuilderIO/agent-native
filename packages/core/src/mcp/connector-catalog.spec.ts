@@ -13,6 +13,10 @@ const issuedConnectTokens = vi.hoisted(
     >(),
 );
 
+const resolveOrgIdForEmail = vi.hoisted(() =>
+  vi.fn(async (_email: string): Promise<string | null> => null),
+);
+
 vi.mock("./builtin-tools.js", () => ({
   getBuiltinCrossAppTools: () => ({
     list_apps: {
@@ -79,6 +83,7 @@ vi.mock("./builtin-tools.js", () => ({
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
   getA2ASecretByDomain: vi.fn(async () => null),
+  resolveOrgIdForEmail,
 }));
 
 vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
@@ -102,6 +107,7 @@ vi.mock("./connect-store.js", () => ({
 
 beforeEach(() => {
   issuedConnectTokens.clear();
+  resolveOrgIdForEmail.mockReset().mockResolvedValue(null);
 });
 
 vi.mock("../server/embed-session.js", () => ({
@@ -406,6 +412,7 @@ describe("connector-catalog tier", () => {
         "open_app",
         "ask_app",
         "ask_app_status",
+        "create_embed_session",
       ].sort();
 
       expect(names).toEqual(expected);
@@ -428,6 +435,7 @@ describe("connector-catalog tier", () => {
           "open_app",
           "ask_app",
           "ask_app_status",
+          "create_embed_session",
         ].sort(),
       );
 
@@ -960,6 +968,37 @@ describe("connector-catalog tier", () => {
       });
       expect(out.result?.content?.[0]?.text ?? "").not.toMatch(/Unknown tool/);
     });
+
+    it("keeps writes behind the app's agent when the app asks for that", async () => {
+      const token = await signA2AToken("alice@example.com", {
+        catalog_scope: "full",
+      });
+      const mcpConfig = {
+        ...connectorConfig,
+        externalAgents: { writes: "ask_app_only" as const },
+      };
+      const listed = await call(
+        { jsonrpc: "2.0", id: 8, method: "tools/list", params: {} },
+        { headers: { authorization: `Bearer ${token}` }, mcpConfig },
+      );
+      const names: string[] = listed.result.tools.map((t: any) => t.name);
+      expect(names).toContain("public-read");
+      expect(names).toContain("ask_app");
+      expect(names).not.toContain("create-plan");
+      expect(names).not.toContain("public-write");
+
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: 9,
+          method: "tools/call",
+          params: { name: "create-plan", arguments: {} },
+        },
+        { headers: { authorization: `Bearer ${token}` }, mcpConfig },
+      );
+      expect(called.result.isError).toBe(true);
+      expect(called.result.content[0].text).toMatch(/Unknown tool/);
+    });
   });
 
   describe("per-token opt-up: catalog_scope: 'full' in OAuth token", () => {
@@ -984,10 +1023,47 @@ describe("connector-catalog tier", () => {
         expect(names).toContain("public-read");
         expect(names).not.toContain("seed-kitchen-sink");
         expect(names).toContain("create-plan");
+        expect(resolveOrgIdForEmail).toHaveBeenCalledExactlyOnceWith(
+          "alice@example.com",
+        );
       } finally {
         delete process.env.BETTER_AUTH_SECRET;
       }
     });
+
+    it.each([
+      ["57014", 503, "Service Unavailable", "5"],
+      ["42501", 500, "Internal server error", undefined],
+    ])(
+      "classifies full-catalog OAuth scope failure %s",
+      async (code, status, error, retryAfter) => {
+        process.env.BETTER_AUTH_SECRET = OAUTH_SECRET;
+        resolveOrgIdForEmail.mockRejectedValueOnce(
+          Object.assign(new Error("private membership lookup failure"), {
+            code,
+          }),
+        );
+        const token = await signOAuthToken({
+          catalogScope: "full",
+          clientId: "catalog-test-client",
+        });
+        const event = makeEvent({
+          headers: { authorization: `Bearer ${token}` },
+          body: { jsonrpc: "2.0", id: 8, method: "tools/list", params: {} },
+        });
+
+        const result = await handleMcpRequest(event, connectorConfig as any);
+
+        expect(result).toMatchObject({ error });
+        expect(event._status).toBe(status);
+        expect(event._responseHeaders?.["retry-after"]).toBe(retryAfter);
+        expect(JSON.stringify(result)).not.toContain("private membership");
+        expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+        expect(resolveOrgIdForEmail).toHaveBeenCalledExactlyOnceWith(
+          "alice@example.com",
+        );
+      },
+    );
   });
 
   describe("AGENT_NATIVE_MCP_FULL_CATALOG=1 overrides connector tier", () => {
@@ -1040,6 +1116,7 @@ describe("connector-catalog tier — env flag not required", () => {
         "open_app",
         "ask_app",
         "ask_app_status",
+        "create_embed_session",
       ].sort(),
     );
     expect(names).not.toContain("db-exec");
@@ -1091,7 +1168,10 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       run: async () => ({ ok: true }),
     };
     const actions = {
-      "set-resource-visibility": setResourceVisibility,
+      "set-resource-visibility": {
+        ...setResourceVisibility,
+        mcpTool: undefined,
+      },
       "declared-read": read,
       "declared-write": write,
       "unrelated-read": read,
@@ -1121,6 +1201,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     expect(before).toEqual([
       "ask_app",
       "ask_app_status",
+      "create_embed_session",
       "list_apps",
       "open_app",
       "set-resource-visibility",
@@ -1182,6 +1263,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     expect(names).toEqual([
       "ask_app",
       "ask_app_status",
+      "create_embed_session",
       "list_apps",
       "open_app",
     ]);

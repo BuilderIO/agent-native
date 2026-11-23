@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { ActionChatUIConfig } from "../action-ui.js";
+import type { WriteReceipt } from "../action.js";
 import {
   isArtifactReceipt,
   type ArtifactReceipt,
@@ -20,6 +21,7 @@ import type {
   AgentToolInput,
   UnknownWriteCause,
 } from "./types.js";
+import { readWriteReceipt } from "./write-receipts.js";
 
 export interface ToolCallJournalEntry {
   key: string;
@@ -34,10 +36,15 @@ export interface ToolCallJournalEntry {
   /** The call failed after its side effect completed. */
   isError?: true;
   errorCode?: string;
+  receipt?: WriteReceipt;
+  actionSettled?: true;
+  settledOnCleanToolStop?: true;
   /** The call recorded a completed side effect, its own or a nested call's. */
   committed?: true;
   /** Exact identity of the arguments the call ran with, defaults applied. */
   argumentsHash?: string;
+  /** Keyed HMAC identity for deterministic replay of a committed private call. */
+  privateReplayIdentity?: string;
   /** The call settled with an outcome it could not confirm. */
   outcomeUnknown?: true;
   /** Why such a call's outcome is unknown, when its event recorded it. */
@@ -379,11 +386,15 @@ function replayOutcomeIdentity(entry: ToolCallJournalEntry): string {
       entry.id,
       entry.executionStepId,
       entry.argumentsHash,
+      entry.privateReplayIdentity,
       entry.inputFingerprint,
       entry.inputStoredFingerprint,
       entry.result,
       entry.isError,
       entry.errorCode,
+      entry.receipt,
+      entry.actionSettled,
+      entry.settledOnCleanToolStop,
       entry.committed,
       entry.outcomeUnknown,
       entry.artifacts,
@@ -494,8 +505,17 @@ export function classifyToolCallJournal(
         entry.result = event.result ?? "";
         if (event.isError === true) entry.isError = true;
         if (event.errorCode) entry.errorCode = event.errorCode;
+        const receipt = readWriteReceipt({ _receipt: event.receipt });
+        if (receipt) entry.receipt = receipt;
+        if (event.actionSettled === true && event.isError !== true) {
+          entry.actionSettled = true;
+          if (event.settledOnCleanToolStop === true)
+            entry.settledOnCleanToolStop = true;
+        }
         if (event.completedSideEffect === true) entry.committed = true;
         if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
+        if (event.privateReplayIdentity)
+          entry.privateReplayIdentity = event.privateReplayIdentity;
         const artifacts = event.artifacts?.filter(isArtifactReceipt);
         if (artifacts && artifacts.length > 0) entry.artifacts = artifacts;
         if (event.fileMutation) entry.fileMutation = event.fileMutation;
@@ -862,6 +882,42 @@ export function findReplayableJournalEntry(
   const entry = candidate;
   if (entry) consumedKeys?.add(entry.key);
   return entry;
+}
+
+export type PrivateJournalReplayLookup =
+  | { status: "none" }
+  | { status: "replay"; entry: ToolCallJournalEntry }
+  | { status: "ambiguous" };
+
+export function findReplayablePrivateJournalEntry(
+  journal: ToolCallJournal,
+  toolName: string,
+  privateReplayIdentity: string,
+  consumedKeys?: Set<string>,
+): PrivateJournalReplayLookup {
+  const candidates = journal.completed.filter(
+    (candidate) =>
+      candidate.tool === toolName &&
+      candidate.committed === true &&
+      !consumedKeys?.has(candidate.key) &&
+      candidate.privateReplayIdentity === privateReplayIdentity,
+  );
+  const first = candidates.at(0);
+  if (first === undefined) return { status: "none" };
+  let latest = first;
+  for (const candidate of candidates) {
+    if (
+      candidate.isError !== first.isError ||
+      candidate.errorCode !== first.errorCode ||
+      candidate.result !== first.result ||
+      candidate.outcomeUnknown !== first.outcomeUnknown
+    ) {
+      return { status: "ambiguous" };
+    }
+    latest = candidate;
+  }
+  consumedKeys?.add(latest.key);
+  return { status: "replay", entry: latest };
 }
 
 export function findAmbiguousLegacyJournalEntryForCall(

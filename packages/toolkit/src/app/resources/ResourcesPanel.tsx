@@ -2,8 +2,10 @@ import {
   getModelOptionLabel,
   type ModelEngineConfig,
 } from "@agent-native/core/agent/model-version";
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  sendToAgentChat,
+  type AgentChatMessage,
+} from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org/hooks";
 import {
@@ -47,9 +49,11 @@ import {
 import { useFileUploadStatus } from "@agent-native/core/client/uploads/use-file-upload-status";
 import { useUploadResource } from "@agent-native/core/client/uploads/use-upload-resource";
 import { actionErrorMessage } from "@agent-native/core/client/use-action";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { OrgInfo } from "@agent-native/core/org/types";
 import { serializeFrontmatter } from "@agent-native/core/resources/metadata";
 import { RESOURCE_PACK_MAX_BODY_BYTES } from "@agent-native/core/resources/pack-constants";
+import { isSaveConflict } from "@agent-native/core/save-conflict";
 import { PromptComposer } from "@agent-native/toolkit/composer";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
@@ -107,6 +111,7 @@ import {
   type ResourceSettingsGroupConfig,
 } from "./ResourceSettingsGroups.js";
 import { ResourceTree } from "./ResourceTree.js";
+import type { SaveResourceContent } from "./use-resource-content-save.js";
 
 const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE = "local-workspace-resource";
 
@@ -305,10 +310,13 @@ The result should be a reusable agent profile, not a one-off task response.`,
 export function requestSkillFromAgent(
   description: string,
   scope: ResourceScope,
-): void {
+  submit: (
+    message: AgentChatMessage,
+  ) => string | void | Promise<void> = sendToAgentChat,
+): string | void | Promise<void> {
   const trimmed = description.trim();
   if (!trimmed) return;
-  sendToAgentChat({
+  return submit({
     message: `Create a skill: ${trimmed}`,
     newTab: true,
     context: `The user wants to create an agent skill. Their description: "${trimmed}"
@@ -368,8 +376,6 @@ description: >-
 ## Verification
 <How to confirm it worked>
 \`\`\`
-
-After creating, update the shared AGENTS.md resource to reference the new skill in its skills table.
 
 Keep the skill concise (under 500 lines) and actionable.`,
     submit: true,
@@ -1209,30 +1215,6 @@ function PathBreadcrumb({ path }: { path: string }) {
   );
 }
 
-const DEFAULT_AGENTS_MD_CLIENT = `# Agent Instructions
-
-This file customizes how the AI agent behaves in this app. Edit it to add your own instructions, preferences, and context.
-
-## What to put here
-
-- **Preferences** — Tone, style, verbosity, response format
-- **Context** — Domain knowledge, terminology, team conventions
-- **Rules** — Things the agent should always/never do
-- **Skills** — Reference skill files for specialized tasks (create them in the \`skills/\` folder)
-
-## Skills
-
-Create skill files under \`skills/<name>/SKILL.md\` to give the agent specialized knowledge. Reference them here:
-
-| Skill | Path | Description |
-|-------|------|-------------|
-| *(use the skill button to create one)* | \`skills/example/SKILL.md\` | |
-
-## Agent resource files
-
-Agent resources are files users intentionally add, edit, or manage. Agents may create hidden \`agent_scratch\` resources for temporary working notes, scripts, or intermediate results; only promote those files into the visible agent resources list when a user explicitly asks to keep them.
-`;
-
 const WORKSPACE_RESOURCE_OWNER = "__workspace__";
 const SHARED_RESOURCE_OWNER = "__shared__";
 const ORGANIZATION_RESOURCE_OWNER_PREFIX = "__organization__:";
@@ -1268,6 +1250,7 @@ export interface ResourcesPanelProps {
   openResourceRef?: { current: ((id: string) => void) | null };
   /** Called when the editor opens or closes, so a page can yield to it. */
   onEditingChange?: (editing: boolean) => void;
+  trashRemovedSkills?: boolean | undefined;
   /** Exact selected chat engine, when this panel is paired with a chat. */
   modelEngine?: ModelEngineConfig | null;
 }
@@ -1379,6 +1362,7 @@ export function ResourcesPanel({
   openResourceRef,
   onEditingChange,
   modelEngine,
+  trashRemovedSkills,
 }: ResourcesPanelProps = {}) {
   const t = useT();
   const { data: org } = useOrg();
@@ -1438,11 +1422,15 @@ export function ResourcesPanel({
 
   const sharedTreeQuery = useResourceTree("shared", {
     includeAgentScratch: showAgentScratch,
+    seedDefaults: resourceFilter !== "skills",
   });
   const personalTreeQuery = useResourceTree("personal", {
     includeAgentScratch: showAgentScratch,
+    seedDefaults: resourceFilter !== "skills",
   });
-  const workspaceTreeQuery = useResourceTree("workspace");
+  const workspaceTreeQuery = useResourceTree("workspace", {
+    seedDefaults: resourceFilter !== "skills",
+  });
   const mcpServersQuery = useMcpServers({ defer: true });
   const builtinCapabilitiesQuery = useBuiltinCapabilities();
   const createMcpServer = useCreateMcpServer();
@@ -1556,10 +1544,12 @@ export function ResourcesPanel({
   );
   const createResource = useCreateResource();
   const updateResource = useUpdateResource();
-  const deleteResource = useDeleteResource();
+  const deleteResource = useDeleteResource({
+    trashSkill: trashRemovedSkills === true,
+  });
   const exportResourcePack = useExportResourcePack();
   const importResourcePack = useImportResourcePack();
-  const { mutate: uploadResourceFile } = useUploadResource();
+  const { mutateAsync: uploadResourceFile } = useUploadResource();
   const processResourceUploads = useCallback(
     (
       uploads: PendingResourceUpload[],
@@ -1578,7 +1568,11 @@ export function ResourcesPanel({
           "shared",
           upload.targetScope === "shared" ? "true" : "false",
         );
-        uploadResourceFile(formData);
+        // A per-call `onError` only fires for the latest `mutate`, so a
+        // multi-file drop reports each failure through its own promise.
+        uploadResourceFile(formData).catch((error: unknown) =>
+          reportWriteFailure(error),
+        );
       }
       if (needsStorage.length) {
         pendingResourceUploadsRef.current = mergePendingResourceUploads(
@@ -1633,22 +1627,10 @@ export function ResourcesPanel({
     ((isWorkspaceResourceOwner(resourceQuery.data.owner) &&
       !isLocalWorkspaceResource(resourceQuery.data)) ||
       (isOrganizationResourceOwner(resourceQuery.data.owner) && !canEditOrg));
-
-  const seededRef = useRef(false);
-  useEffect(() => {
-    if (seededRef.current || !canEditOrg) return;
-    seededRef.current = true;
-    fetch(agentNativePath("/_agent-native/resources"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        path: "AGENTS.md",
-        content: DEFAULT_AGENTS_MD_CLIENT,
-        shared: true,
-        ifNotExists: true,
-      }),
-    }).catch(() => {});
-  }, [canEditOrg]);
+  const canDeleteSelectedResource =
+    !selectedResourceReadOnly &&
+    (selectedMcpServer ||
+      (resourceQuery.data && !resourceQuery.data.inheritedFromAppDefault));
 
   const isEditing = selectedResourceId !== null;
 
@@ -1685,6 +1667,7 @@ export function ResourcesPanel({
           onSuccess: (data) => {
             setSelectedResourceId(data.id);
           },
+          onError: (error) => reportWriteFailure(error),
         },
       );
     },
@@ -1694,7 +1677,10 @@ export function ResourcesPanel({
   const handleCreateFolder = useCallback(
     (parentPath: string, name: string, scope: ResourceScope) => {
       const path = parentPath ? `${parentPath}/${name}/.keep` : `${name}/.keep`;
-      createResource.mutate({ path, content: "", shared: scope === "shared" });
+      createResource.mutate(
+        { path, content: "", shared: scope === "shared" },
+        { onError: (error) => reportWriteFailure(error) },
+      );
     },
     [createResource],
   );
@@ -1713,6 +1699,7 @@ export function ResourcesPanel({
           onSuccess: (data) => {
             setSelectedResourceId(data.id);
           },
+          onError: (error) => reportWriteFailure(error),
         },
       );
     },
@@ -1745,7 +1732,8 @@ export function ResourcesPanel({
             opts?.onSuccess?.(data);
           },
           onError: (err) => {
-            opts?.onError?.(err);
+            if (opts?.onError) opts.onError(err);
+            else reportWriteFailure(err);
           },
         },
       );
@@ -1763,12 +1751,15 @@ export function ResourcesPanel({
             onSuccess: () => {
               if (selectedResourceId === id) setSelectedResourceId(null);
             },
+            onError: (error) => reportWriteFailure(error),
           },
         );
         return;
       }
       if (parseMcpBuiltinVirtualId(id)) return;
-      deleteResource.mutate(id);
+      deleteResource.mutate(id, {
+        onError: (error) => reportWriteFailure(error),
+      });
       if (selectedResourceId === id) {
         setSelectedResourceId(null);
       }
@@ -1792,18 +1783,29 @@ export function ResourcesPanel({
 
   const handleRename = useCallback(
     (id: string, newPath: string) => {
-      updateResource.mutate({ id, path: newPath });
+      updateResource.mutate(
+        { id, path: newPath },
+        { onError: (error) => reportWriteFailure(error) },
+      );
     },
     [updateResource],
   );
 
-  const handleSave = useCallback(
-    (content: string) => {
-      if (!selectedResourceId) return;
-      if (selectedResourceReadOnly) return;
-      updateResource.mutate({ id: selectedResourceId, content });
+  const saveContent = useCallback<SaveResourceContent>(
+    async ({ id, content, expectedRevision }) => {
+      try {
+        return await updateResource.mutateAsync({
+          id,
+          content,
+          expectedRevision,
+        });
+      } catch (error) {
+        // A conflict isn't a failure: the editor asks which version to keep.
+        if (!isSaveConflict(error)) reportWriteFailure(error);
+        throw error;
+      }
     },
-    [updateResource, selectedResourceId, selectedResourceReadOnly],
+    [updateResource],
   );
 
   const handleUploadFiles = useCallback(
@@ -2196,7 +2198,7 @@ export function ResourcesPanel({
                   </Tooltip>
                 </TooltipProvider>
               )}
-            {!selectedBuiltinCapability && !selectedResourceReadOnly && (
+            {canDeleteSelectedResource && (
               <TooltipProvider delayDuration={200}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -2385,7 +2387,7 @@ export function ResourcesPanel({
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
               <ResourceEditor
                 resource={resourceQuery.data}
-                onSave={handleSave}
+                saveContent={saveContent}
                 view={editorView}
                 onViewChange={setEditorView}
                 hideToolbar

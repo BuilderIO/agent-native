@@ -3,6 +3,7 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
+import type { CommentImage } from "@shared/comment-images";
 import {
   parseCommentMentions,
   type CommentMention,
@@ -58,6 +59,7 @@ export interface Comment {
   block_id?: string | null;
   block_type?: string | null;
   mentions: CommentMention[];
+  attachments?: CommentImage[];
   author_email: string;
   author_name: string | null;
   actorKind?: "human" | "agent" | null;
@@ -74,6 +76,8 @@ export interface Comment {
   author_model?: string | null;
   /** The thinking effort the writing run resolved, when one was recorded. */
   author_effort?: string | null;
+  /** The MCP host, such as `claude-code`, an outside agent posted it from. */
+  author_client?: string | null;
   mutation?: CommentMutationState;
 }
 
@@ -171,6 +175,7 @@ export interface CreateCommentVariables {
   blockId?: string;
   blockType?: CommentAnchorBlockType;
   mentions?: string | undefined;
+  attachments?: CommentImage[] | undefined;
 }
 
 export interface EditCommentVariables {
@@ -178,6 +183,7 @@ export interface EditCommentVariables {
   documentId: string;
   content: string;
   mentions?: string;
+  attachments?: CommentImage[];
 }
 
 export interface ResolveCommentVariables {
@@ -210,6 +216,7 @@ type ActiveCommentOperation =
       targetId: string;
       content: string;
       mentions?: CommentMention[];
+      attachments?: CommentImage[];
     }
   | {
       operationId: string;
@@ -342,6 +349,7 @@ function applyOperationOverlays(
             ...comment,
             content: operation.content,
             mentions: operation.mentions ?? comment.mentions,
+            attachments: operation.attachments ?? comment.attachments,
             mutation: mutationState(operation),
           }
         : {
@@ -562,6 +570,7 @@ export function useCreateComment(author: CommentAuthor = {}) {
           variables.mentions === undefined
             ? []
             : parseCommentMentions(variables.mentions),
+        attachments: variables.attachments ?? [],
         author_email: author.email?.trim() ?? "",
         author_name: authorName(author),
         actorKind: "human",
@@ -786,6 +795,7 @@ function useOptimisticCommentUpdate<
               editVariables.mentions === undefined
                 ? undefined
                 : parseCommentMentions(editVariables.mentions),
+            attachments: editVariables.attachments,
           });
         } else {
           const resolveVariables = variables as ResolveCommentVariables;
@@ -853,6 +863,8 @@ function useOptimisticCommentUpdate<
                         ...comment,
                         content: operation.content,
                         mentions: operation.mentions ?? comment.mentions,
+                        attachments:
+                          operation.attachments ?? comment.attachments,
                       }
                     : { ...comment, resolved: operation.resolved };
                 return comment.mutation?.operationId === context.operationId
@@ -904,7 +916,10 @@ function useOptimisticCommentUpdate<
                     ? comment.content === operation.content &&
                       (operation.mentions === undefined ||
                         JSON.stringify(comment.mentions) ===
-                          JSON.stringify(operation.mentions))
+                          JSON.stringify(operation.mentions)) &&
+                      (operation.attachments === undefined ||
+                        JSON.stringify(comment.attachments) ===
+                          JSON.stringify(operation.attachments))
                     : comment.resolved === operation.resolved;
                 if (newerSameKind || !stillOwnsFields) return comment;
                 const restored =
@@ -913,6 +928,7 @@ function useOptimisticCommentUpdate<
                         ...comment,
                         content: prior.content,
                         mentions: prior.mentions,
+                        attachments: prior.attachments,
                       }
                     : { ...comment, resolved: prior.resolved };
                 return {
@@ -946,6 +962,7 @@ export function useEditComment() {
         variables.mentions === undefined
           ? comment.mentions
           : parseCommentMentions(variables.mentions),
+      attachments: variables.attachments ?? comment.attachments,
       updated_at: new Date().toISOString(),
     }),
   );
@@ -965,11 +982,26 @@ export function useResolveComment() {
   );
 }
 
+/** Deleting a thread's first comment deletes the thread. */
 export function useDeleteComment() {
+  const queryClient = useQueryClient();
   return useContentActionMutation<
-    { ok: boolean },
+    { ok: boolean; deletedIds?: string[] },
     { id: string; documentId: string }
   >("delete-comment", {
+    // Gone at once rather than after the refetch the invalidation starts.
+    onSuccess: (data, { id, documentId }) => {
+      const deleted = new Set(data.deletedIds ?? [id]);
+      queryClient.setQueryData<CommentListResponse>(
+        commentQueryKey(documentId),
+        (response) =>
+          response === undefined
+            ? response
+            : updateComments(response, (comments) =>
+                comments.filter((comment) => !deleted.has(comment.id)),
+              ),
+      );
+    },
     invalidates: (_data, { documentId }) => [
       commentQueryKey(documentId),
       ["action", "list-comment-ai-requests", { documentId }],

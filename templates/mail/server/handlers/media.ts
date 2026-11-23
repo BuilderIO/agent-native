@@ -73,6 +73,7 @@ export const uploadMedia = defineEventHandler(async (event: H3Event) => {
       return {
         error: err.message,
         storageSetupRequired: true,
+        storageSetupReason: err.reason,
       };
     }
     console.error("[media] Upload failed:", err);
@@ -133,7 +134,11 @@ export const uploadAttachmentWithTicket = defineEventHandler(
     } catch (err) {
       if (err instanceof MediaStorageSetupError) {
         setResponseStatus(event, 503);
-        return { error: err.message, storageSetupRequired: true };
+        return {
+          error: err.message,
+          storageSetupRequired: true,
+          storageSetupReason: err.reason,
+        };
       }
       console.error("[media] Ticketed attachment upload failed:", err);
       setResponseStatus(event, 500);

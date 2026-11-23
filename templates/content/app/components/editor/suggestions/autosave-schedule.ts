@@ -39,15 +39,20 @@ export function queueSuggestionAutosave(
   return true;
 }
 
+/** The wait before a failed save's retry, doubling while saves keep failing. */
+export function nextSuggestionAutosaveRetryDelay(retryDelay: number) {
+  return Math.min(
+    Math.max(retryDelay * 2, SUGGESTION_AUTOSAVE_RETRY_MS),
+    SUGGESTION_AUTOSAVE_MAX_RETRY_MS,
+  );
+}
+
 /** A save failed; try again after a growing backoff. */
 export function retrySuggestionAutosave(
   autosave: SuggestionAutosave,
   save: () => void,
 ) {
-  autosave.retryDelay = Math.min(
-    Math.max(autosave.retryDelay * 2, SUGGESTION_AUTOSAVE_RETRY_MS),
-    SUGGESTION_AUTOSAVE_MAX_RETRY_MS,
-  );
+  autosave.retryDelay = nextSuggestionAutosaveRetryDelay(autosave.retryDelay);
   if (autosave.disposed) return;
   // Replaces any typing timer queued while the failed save was in flight; it
   // would otherwise fire before the backoff.
@@ -70,6 +75,17 @@ export function resetSuggestionAutosave(autosave: SuggestionAutosave) {
   autosave.retryDelay = 0;
 }
 
+/**
+ * The typing debounce for a draft unsaved since `dirtySince`: a pause saves
+ * it, and typing without one still saves it once the max wait has passed.
+ */
+export function suggestionAutosaveDebounce(dirtySince: number, now: number) {
+  return Math.min(
+    SUGGESTION_AUTOSAVE_IDLE_MS,
+    Math.max(0, dirtySince + SUGGESTION_AUTOSAVE_MAX_WAIT_MS - now),
+  );
+}
+
 function setSuggestionAutosaveTimer(
   autosave: SuggestionAutosave,
   save: () => void,
@@ -82,10 +98,7 @@ function setSuggestionAutosaveTimer(
   // The max-wait deadline bounds only the typing debounce, which reaches zero
   // once it passes; retries and waits behind an in-flight save keep their own
   // delay or they would spin.
-  const debounce = Math.min(
-    SUGGESTION_AUTOSAVE_IDLE_MS,
-    Math.max(0, autosave.dirtySince + SUGGESTION_AUTOSAVE_MAX_WAIT_MS - now),
-  );
+  const debounce = suggestionAutosaveDebounce(autosave.dirtySince, now);
   autosave.retrying = retrying;
   autosave.timer = setTimeout(
     () => {

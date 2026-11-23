@@ -1,8 +1,9 @@
+import { ACTION_ERROR_MESSAGES } from "./action-error-messages.js";
 import { agentResourcePackMessagesForLocale } from "./agent-resources-messages.js";
-import { consentBannerMessagesForLocale } from "./consent-banner-messages.js";
 import * as englishSupplementalMessages from "./core-messages/supplemental/en-US.js";
 import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
 import { iconPickerMessagesForLocale } from "./icon-picker-messages.js";
+import { consentBannerMessagesForLocale } from "./privacy-choice-messages.js";
 import { saveConflictMessagesForLocale } from "./save-conflict-messages.js";
 import {
   DEFAULT_LOCALE,
@@ -10,6 +11,7 @@ import {
   type BuiltinLocaleCode,
   type LocaleCode,
 } from "./shared.js";
+import { writeFailureMessagesForLocale } from "./write-failure-messages.js";
 
 export type CoreLocaleMessages = Record<string, unknown>;
 
@@ -113,11 +115,14 @@ export async function loadCoreMessagesForLocale(
     : supplementalCoreMessageLoaders[DEFAULT_LOCALE];
   const supplementalMessages = await supplementalLoader();
   return {
+    actionErrors:
+      ACTION_ERROR_MESSAGES[isLocaleCode(locale) ? locale : DEFAULT_LOCALE],
     agentResources: agentResourcePackMessagesForLocale(locale),
     consentBanner: consentBannerMessagesForLocale(locale),
     environmentBadge: environmentBadgeMessagesForLocale(locale),
     iconPicker: iconPickerMessagesForLocale(locale),
     saveConflict: saveConflictMessagesForLocale(locale),
+    writeFailure: writeFailureMessagesForLocale(locale),
     settings: {
       ...supplementalMessages.mcpSettingsMessages,
       ...supplementalMessages.privacySettingsMessages,
@@ -126,11 +131,13 @@ export async function loadCoreMessagesForLocale(
 }
 
 const englishCoreMessages = {
+  actionErrors: ACTION_ERROR_MESSAGES[DEFAULT_LOCALE],
   agentResources: agentResourcePackMessagesForLocale(DEFAULT_LOCALE),
   consentBanner: consentBannerMessagesForLocale(DEFAULT_LOCALE),
   environmentBadge: englishSupplementalMessages.environmentBadgeMessages,
   iconPicker: iconPickerMessagesForLocale(DEFAULT_LOCALE),
   saveConflict: saveConflictMessagesForLocale(DEFAULT_LOCALE),
+  writeFailure: writeFailureMessagesForLocale(DEFAULT_LOCALE),
   settings: {
     ...englishSupplementalMessages.mcpSettingsMessages,
     ...englishSupplementalMessages.privacySettingsMessages,

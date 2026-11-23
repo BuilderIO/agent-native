@@ -21,7 +21,11 @@ evals, agent experiments, and feedback.
 - Use `set-workspace-feature-flag` for app-qualified changes; target apps
   remain the source of truth and are resolved only through the trusted
   organization directory.
-- Treat only a versioned mutation response whose key, org scope, and
+- A change writes this organization's rule unless the admin asks for every
+  organization; then pass `scope: "global"`. An organization's own rule
+  replaces the global rule, so read the flag's `scopes.inEffect` before saying
+  who a global change reaches.
+- Treat only a versioned mutation response whose key, `scope.kind`, and
   requested rules match as success. Report a failed target mutation instead
   of claiming the rollout changed.
 - Flags are source-declared booleans; do not create variants, metrics,
@@ -45,6 +49,20 @@ access to all Analytics data.
 
 Keep future admin additions inside this route instead of adding many
 top-level sidebar tabs.
+
+## Outside-Agent BigQuery Budgets
+
+BigQuery jobs that connected MCP agents start count against daily limits:
+$1 per person without asking, a $5 person ceiling, $50 per organization, and
+50 GB per job, resetting at 00:00 UTC. Past $1, the onboarding journey and
+health tools ask the person once, on Analytics' review page, to allow up to $5
+for that UTC day, when their queries run on BigQuery; the approval expires at
+00:00 UTC. A2A callers and dashboard edits can't ask: an edit saves and reads
+its panel as unverified (`outside_agent_approval_required`). $5 and $50
+are hard stops. Analytics' own agent and dashboards are not limited. When an
+owner or admin asks to raise or reset a limit, call
+`set-bigquery-agent-budget` (`scope` `org` or `person`, `dailyLimitUsd`, `null`
+for the default) and report the limits it returns.
 
 ## Related Skills
 

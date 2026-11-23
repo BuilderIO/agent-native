@@ -1,6 +1,25 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "يمكن للمشرفين فقط دعوة الآخرين. اطلب المساعدة من مشرفك لدعوة الآخرين، أو اطلب منه أن يجعلك مشرفًا أيضًا.",
+  "settingsApiKeys.approvedOrigins": "المصادر المعتمدة",
+  "settingsApiKeys.originsHint":
+    "مصدر HTTPS محدد واحد في كل سطر. يمنع الحقل الفارغ الإرسال. يُسمح بـ HTTP المحلي.",
+  "settingsApiKeys.invalidOrigins": "أدخل مصادر HTTPS محددة، مصدرًا في كل سطر.",
+  "settingsApiKeys.editOrigins": "تعديل المصادر",
+  "settingsApiKeys.originsSaved": "تم حفظ المصادر",
+  "settingsApiKeys.originsCount_zero": "{{count}} مصادر معتمدة",
+  "settingsApiKeys.originsCount_one": "{{count}} مصدر معتمد",
+  "settingsApiKeys.originsCount_two": "{{count}} مصدران معتمدان",
+  "settingsApiKeys.originsCount_few": "{{count}} مصادر معتمدة",
+  "settingsApiKeys.originsCount_many": "{{count}} مصدرًا معتمدًا",
+  "settingsApiKeys.originsCount_other": "{{count}} مصادر معتمدة",
+  "settingsApiKeys.noApprovedOrigins": "لا توجد مصادر معتمدة",
+  "extensions.cancel": "إلغاء",
+  "extensions.context": "السياق",
+  "extensions.confirmAgentMessage": "هل تريد إرسال رسالة الإضافة إلى الوكيل؟",
+  "extensions.sendToAgent": "إرسال إلى الوكيل",
   "auth.logOutFailed": "تعذّر تسجيل الخروج",
   "block.renderUnavailable": "هذه الكتلة غير متاحة مؤقتًا.",
   "block.loading": "جارٍ تحميل هذه الكتلة.",
@@ -33,10 +52,13 @@ const messages: ToolkitAgentChatTranslation = {
   "activity.groupLabel": "نشاط الوكيل",
   "activity.agents": "تعاون الوكلاء",
   "activity.tasks": "مهام الوكلاء",
+  "activity.tasksProgress": "اكتمل {{completed}} من {{total}}",
   "agent.started": "بدأ العمل",
   "agent.resumed": "استأنف العمل",
   "agent.messaged": "أرسل رسالة",
   "agent.delegated": "فوّض العمل",
+  "agent.working": "يعمل",
+  "agent.workedFor": "عمل لمدة {{duration}}",
   "agent.paused": "أوقف العمل مؤقتًا",
   "agent.queued": "في قائمة الانتظار",
   "agent.completed": "أنهى العمل",
@@ -145,7 +167,7 @@ const messages: ToolkitAgentChatTranslation = {
     "مضمّنة مع أرصدة Builder.io المجانية النشطة",
   "onboarding.builderCredits": "مضمّنة مع أرصدة Builder.io المجانية",
   "onboarding.builderIncludedFreeWithAccount": "مُضمّن مجانًا مع حساب Builder.io",
-  "onboarding.builderMonthlyCredits": "60 رصيد Agent شهريًا",
+  "onboarding.builderMonthlyCredits": "15 رصيدًا مجانيًا يوميًا، حتى 60 شهريًا",
   "onboarding.builderIncludedFree": "مُضمّن مجانًا",
   "onboarding.builderMoreServices": "+ {{count}} خدمات أخرى",
   "onboarding.builderLlmCredits": "أرصدة لنماذج اللغة الكبيرة (LLM)",
@@ -175,9 +197,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
   "onboarding.builderExistingAccount": "لديّ حساب Builder.io",
-  "onboarding.creditsTitle": "جرّبه مع 60 من أرصدة Agent المجانية شهريًا",
+  "onboarding.creditsTitle": "جرّبه مع 15 رصيدًا مجانيًا يوميًا، حتى 60 شهريًا",
   "onboarding.creditsTitleClips":
-    "جرّبه مع تخزين فيديو مجاني و60 من أرصدة Agent شهريًا",
+    "جرّبه مع تخزين فيديو مجاني و15 رصيدًا يوميًا، حتى 60 شهريًا",
   "onboarding.creditsActivate": "تفعيل الأرصدة المجانية",
   "onboarding.creditsFinePrint":
     "سيؤدي هذا إلى إنشاء حساب Builder.io مجاني. بالمتابعة، فأنت توافق على",
@@ -422,6 +444,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.attachmentTooLarge": "حجم الملف أكبر من 8 ميغابايت",
   "composer.attachmentNotUtf8": "الملف ليس نصًا بترميز UTF-8",
   "composer.scrollToBottom": "التمرير إلى الأسفل",
+  "composer.skipToMessageBox": "الانتقال إلى مربع الرسالة",
   "composer.suggestedPrompts": "اقتراحات المطالبات",
   "composer.stopResponse": "إيقاف الرد",
   "composer.subAgentReadOnly":
@@ -497,7 +520,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "استخدم أدوات {{integration}}",
   "composer.menu.scheduleTask": "جدولة مهمة",
   "composer.menu.scheduleTaskDescription": "تشغيل مهمة وفق جدول زمني",
-  "composer.menu.uploadFile": "رفع ملف",
+  "composer.menu.uploadFile": "الملفات والصور",
+  "composer.menu.searchWorkspace": "البحث في مساحة العمل…",
+  "composer.menu.references": "المراجع",
+  "composer.menu.referenceFile": "الإشارة إلى ملف",
+  "composer.menu.attachToMessage": "إضافة سياق",
+  "composer.menu.commands": "الأوامر",
   "composer.menu.uploadFileDescription":
     "صور وPDFs ونصوص/تعليمات برمجية وJSON وCSV",
   "composer.messageAgent": "مراسلة الوكيل...",
@@ -592,6 +620,7 @@ const messages: ToolkitAgentChatTranslation = {
   "pastedText.remove": "إزالة النص الملصق",
   "pastedText.title": "نص ملصق",
   "voice.dictation.start": "إملاء ({{shortcut}})",
+  "voice.dictation.startPlain": "إملاء",
   "voice.dictation.stopRecording": "إيقاف التسجيل",
   "voice.dictation.transcribing": "جارٍ النسخ…",
   "voiceMode.errors.channelDisconnected":
@@ -676,6 +705,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "خطأ: {{message}}",
   "errorMessages.gatewayInternalError":
     "حدث خطأ داخلي في بوابة النموذج قبل أن يتمكن الوكيل من الإجابة. أعد المحاولة بعد قليل، وإذا تكرر الأمر فأرفق معرّف الخطأ الظاهر أدناه.",
+  "errorMessages.modelRefusal":
+    "لا يمكنني المساعدة في هذا الطلب. يمكنني مساعدتك في سؤال آخر.",
   "errorMessages.gatewayNoDetails":
     "لم تُرجع بوابة النموذج أي تفاصيل عن الخطأ وتعذّر على المحادثة الاسترداد. انتظر قليلًا ثم أعد المحاولة، أو ابدأ محادثة جديدة إذا استمرت المشكلة.",
   "errorMessages.creditsLimitReached":
@@ -703,7 +734,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "رفض مزوّد النموذج هذا المرفق بسبب نوعه أو حجمه. للصور، صدّر نسخة أصغر بصيغة PNG أو JPEG أو GIF أو WebP؛ وللمستندات، استخدم تنسيق ملف مدعومًا أو الصق النص ذي الصلة، ثم أرفقه مجددًا.",
   "errorMessages.noProviderConnected":
-    "لا يوجد موفّر LLM متصل. افتح الإعدادات > الوكيل > موفّرو الذكاء الاصطناعي، ثم استخدم Builder.io (الخطة المجانية متاحة) أو أضف مفتاح موفّر.",
+    "لا يوجد موفّر LLM متصل. افتح الإعدادات > الوكيل > موفّرو الذكاء الاصطناعي، ثم اربط Builder.io أو أضف مفتاح موفّر.",
   "errorMessages.openBuilderSpaceSettings": "فتح إعدادات مساحة Builder",
   "errorMessages.providerAuthentication":
     "رفض مزوّد النموذج مفتاح API المحفوظ. حدّث المفتاح من الإعدادات ← عمليات التكامل ← مفاتيح API، ثم أعد المحاولة.",
@@ -712,6 +743,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.providerHtml": "أرجع المزوّد صفحة خطأ بتنسيق HTML.",
   "errorMessages.providerNetwork":
     "تعذّر الوصول إلى مزوّد النموذج. تحقّق من اتصالك وأعد المحاولة.",
+  "errorMessages.emailVerificationRequired":
+    "تحقّق من عنوان بريد إلكتروني مؤهل لدى حساب أو مساحة مزوّد الذكاء الاصطناعي المتصل، ثم أعد المحاولة.",
   "errorMessages.providerRateLimit":
     "يفرض مزوّد النموذج حاليًا حدًا على معدل طلبات هذه المحادثة. انتظر قليلًا، ثم أعد المحاولة.",
   "errorMessages.providerTransientRejection":
@@ -744,6 +777,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "جارٍ البحث...",
   "history.untitledChat": "محادثة",
   "history.yesterday": "أمس",
+  "history.today": "اليوم",
+  "commandMenu.systemGroup": "التطبيق",
+  "share.alreadyInvited": "تمت دعوته بالفعل",
+  "share.notInvitedToPage": "غير مدعو إلى الصفحة",
   "history.mine": "محادثاتي",
   "history.sharedWithYou": "تمت مشاركتها معك",
   "history.showAll": "عرض الكل",
@@ -1246,7 +1283,8 @@ const messages: ToolkitAgentChatTranslation = {
     "لم يعد بالإمكان متابعة هذا التشغيل. أرسل رسالة للمتابعة.",
   "errorMessages.invalidAttachmentNamed":
     "رفض موفّر النموذج {{name}} لأن تنسيقه أو حجمه غير مدعوم. صدّر الصور بحجم أصغر بصيغة PNG أو JPEG أو GIF أو WebP. للمستندات، استخدم تنسيقًا مدعومًا أو الصق النص ذي الصلة ثم أعد المحاولة.",
-  "recovery.resendVerificationEmail": "إعادة إرسال رسالة التحقق",
+  "recovery.resendVerificationEmail":
+    "إعادة إرسال رسالة التحقق من حساب التطبيق",
   "recovery.sendingVerificationEmail": "جارٍ الإرسال...",
   "recovery.verificationEmailRequested":
     "تم طلب رسالة التحقق. تحقق من صندوق الوارد ومجلد الرسائل غير المرغوب فيها.",
@@ -1318,6 +1356,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "مطلوب",
   "secrets.searchKeys": "البحث عن مفاتيح...",
   "secrets.usePersonalKey": "استخدام مفتاح شخصي بدلاً من ذلك",
+  "secrets.testing": "جارٍ الاختبار…",
+  "secrets.cannotCheckAlone": "لا يمكن التحقق من هذا المفتاح بمفرده",
   "selection.attached": "تم إرفاق {{formattedCount}} حرفًا من التحديد",
   "selection.attached_zero": "تم إرفاق {{formattedCount}} حرف من التحديد",
   "selection.attached_one": "تم إرفاق {{formattedCount}} حرف من التحديد",
@@ -1337,6 +1377,7 @@ const messages: ToolkitAgentChatTranslation = {
     "يتضمن Builder.io أرصدة مجانية، أو يمكنك استخدام مفتاح API الخاص بك.",
   "setup.builderOrOwnKeys":
     "استخدم Builder.io (بأرصدة مجانية)، أو أضف مفاتيح مزوّديك الخاصة.",
+  "setup.reconnectBuilder": "إعادة الاتصال بـ Builder.io",
   "setup.connectAi": "اتصال بالذكاء الاصطناعي",
   "setup.connectBuilder": "استخدم Builder.io",
   "setup.connectionsDescription":
@@ -1474,6 +1515,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "عام",
   "share.publicDescription": "يمكن لأي شخص لديه الرابط العرض",
   "share.remove": "إزالة",
+  "share.removeInvitee": "إزالة {{email}}",
   "share.role": "الدور",
   "share.searching": "جارٍ البحث...",
   "share.share": "مشاركة",
@@ -1498,6 +1540,10 @@ const messages: ToolkitAgentChatTranslation = {
     "سيتمكن جميع أفراد {{organization}}، بمن فيهم الأعضاء الجدد، من فتح هذا وعرض كل ما فيه، بما في ذلك أي رسائل وملفات ومحتوى آخر. يمكنك تغيير ذلك لاحقًا.",
   "share.confirmOrganizationAction": "المشاركة مع المؤسسة",
   "share.confirmOrganizationSharing": "جارٍ المشاركة...",
+  "share.confirmPublicTitle": "هل تريد المشاركة مع أي شخص لديه الرابط؟",
+  "share.confirmPublicDescription":
+    "سيتمكن أي شخص لديه الرابط، بمن في ذلك أشخاص من خارج مؤسستك، من فتح هذا ورؤية كل ما فيه. يمكنك تغيير ذلك لاحقًا.",
+  "share.confirmPublicAction": "مشاركة بشكل عام",
   "status.resuming": "جارٍ الاستئناف",
   "status.stillWorking": "لا يزال قيد العمل",
   "status.thinking": "يفكّر",
@@ -1521,6 +1567,11 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "جارٍ سؤال {{agent}}...",
   "tool.elapsed": "انقضت {{duration}}",
   "tool.askingAgentFailed": "حدث خطأ أثناء سؤال {{agent}}",
+  "tool.agentApprovalTitle": "يحتاج {{agent}} إلى موافقتك",
+  "tool.agentApprovalReview": "المراجعة في {{agent}}",
+  "tool.agentApprovalReturn": "وافق عليه في {{agent}}، ثم تابع هنا.",
+  "tool.agentApprovalContinueMessage":
+    "وافقت عليه في {{agent}}. يرجى المتابعة.",
   "tool.failedWithoutDetails": "لا تتوفر تفاصيل للخطأ.",
   "tool.input": "الإدخال",
   "tool.inputWithLabel": "الإدخال - {{label}}",
@@ -1628,6 +1679,29 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "إحالات أرصدة Builder",
   "featureFlags.builderCreditReferrals.description":
     "عرض تفاصيل إحالات مساحة عمل Builder المتصلة في الاستخدام.",
+  "featureFlags.scope.appliesTo": "ينطبق على",
+  "featureFlags.scope.org": "هذه المؤسسة",
+  "featureFlags.scope.global": "كل المؤسسات",
+  "featureFlags.scope.setForOrg": "مضبوط لهذه المؤسسة",
+  "featureFlags.scope.setForGlobal": "مضبوط لكل المؤسسات",
+  "featureFlags.scope.overridesGlobal": "يتجاوز قاعدة كل المؤسسات",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "قاعدة هذه المؤسسة الخاصة تحل محل قاعدة كل المؤسسات، وهي: {{audience}}.",
+  "featureFlags.scope.unreadable": "تعذّرت القراءة",
+  "featureFlags.scope.enableForMeOrg": "يضيفك إلى قاعدة هذه المؤسسة",
+  "featureFlags.scope.enableForMeGlobal": "يضيفك إلى قاعدة كل المؤسسات",
+  "featureFlags.scope.turnOffOrg": "إيقاف لهذه المؤسسة",
+  "featureFlags.scope.turnOffGlobal": "إيقاف لكل المؤسسات",
+  "featureFlags.scope.turnOffOrgTitle": "هل تريد إيقاف {{name}} لهذه المؤسسة؟",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "هل تريد إيقاف {{name}} لكل المؤسسات؟",
+  "featureFlags.scope.turnOffOrgDescription":
+    "يؤدي هذا إلى إزالة وصول كل الأشخاص في هذه المؤسسة فورًا. يمكنك إعداد طرح جديد لاحقًا.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "يؤدي هذا إلى إزالة الوصول فورًا في كل مؤسسة ليست لها قاعدة خاصة. يمكنك إعداد طرح جديد لاحقًا.",
+  "featureFlags.scope.summaryOrg": "في هذه المؤسسة: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "في كل المؤسسات: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule": "تحتفظ هذه المؤسسة بقاعدتها الخاصة.",
   "usage.inviteFriends": "ادعُ الأصدقاء",
   "usage.inviteCredits":
     "احصل على {{amount}} من أرصدة Builder عندما يشترك صديق.",
@@ -2069,6 +2143,7 @@ const messages: ToolkitAgentChatTranslation = {
     "تم مسح بيانات اعتماد التخزين. ستذهب الملفات الجديدة إلى Builder.io.",
   "settings.storage.saveFailed": "تعذّر حفظ تخزين الملفات.",
   "settings.storage.clearFailed": "تعذّر مسح بيانات اعتماد التخزين.",
+  "settings.timezoneLoadFailed": "تعذّر تحميل منطقتك الزمنية.",
   "settings.storage.loadFailed": "تعذّر تحميل إعدادات تخزين الملفات.",
   "settings.storage.retry": "إعادة المحاولة",
   "settings.storage.unreadable":
@@ -2318,6 +2393,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "تم تحديث كلمة المرور",
   "settingsShell.account.photoError": "تعذّر تحديث الصورة.",
   "settingsShell.account.photoUpdated": "تم تحديث الصورة",
+  "settingsShell.account.photoRemoved": "تمت إزالة الصورة",
+  "settingsShell.account.removePhoto": "إزالة الصورة",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "لم يتم إعداد إرسال البريد الإلكتروني هنا",
   "settingsShell.account.profilePhoto": "صورة الملف الشخصي",
   "settingsShell.account.requestCopyDescription":
     "يتحقق أحد المسؤولين من هويتك ويتابع معك.",
@@ -2385,15 +2464,16 @@ const messages: ToolkitAgentChatTranslation = {
     "استخدم بيانات نموذجية في هذا المتصفح للعروض التقديمية.",
   "settingsShell.appGroup.labsFootnote":
     "قد تحتوي هذه الميزات الجديدة غير المستقرة على أخطاء.",
+  "settingsShell.appGroup.labsHostDecided":
+    "هذا الإعداد مضبوط لك، لذا لا يمكن تغييره هنا.",
   "settingsShell.appGroup.labsLoadError": "تعذّر تحميل المختبرات.",
   "settingsShell.appGroup.labsReadError":
     "تعذّرت قراءة هذا الاختيار المحفوظ. اختر تشغيل أو إيقاف لإعداده مجددًا.",
   "settingsShell.appGroup.labsSaveError": "تعذّر تغيير {{lab}}. حاول مرة أخرى.",
+  "settingsShell.appGroup.labsShowAll": "عرض جميع ميزات Labs",
+  "settingsShell.appGroup.labsUseDefault": "استخدام الافتراضي",
   "settingsShell.appGroup.mcpAbout":
     "اربط {{app}} بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في {{app}} نيابةً عنك. ولا يرى إلا ما يمكنك رؤيته.",
-  "settingsShell.appGroup.mcpAppCards": "بطاقات التطبيق في تطبيقات الدردشة",
-  "settingsShell.appGroup.mcpAppCardsDescription":
-    "تعرض الأدوات بطاقات تفاعلية، مثل مسودة بريد إلكتروني يمكنك تعديلها وإرسالها، في تطبيقات الدردشة التي تدعم MCP Apps، مثل Claude وChatGPT. بعد تغيير هذا الإعداد، أعد ربط هذا التطبيق في تطبيق الدردشة.",
   "settingsShell.appGroup.mcpFootnote":
     "للاطلاع على الأدوات التي يستخدمها الوكيل نفسه، راجع {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "أتمتة جديدة",
@@ -2593,6 +2673,9 @@ const messages: ToolkitAgentChatTranslation = {
     "يستخدم الوكيل رمز الوصول الذي تضيفه، لذلك يرى ما يمكن لهذا الرمز رؤيته.",
   "settingsShell.integrationDetail.accessToken": "رمز الوصول",
   "settingsShell.integrationDetail.addAccessToken": "إضافة رمز وصول",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "تعذّر التحقق من رمز الوصول المحفوظ.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "إعادة المحاولة",
   "settingsShell.integrationDetail.callout.adminNeeded": "يجب أن يُعدّ مسؤول هذا",
   "settingsShell.integrationDetail.callout.adminNeededBody":
     "اطلب من مالك أو مسؤول في {{org}} إضافة معرّف العميل والسر الخاصين بـ {{name}}. بعد ذلك يمكنك ربط حسابك.",
@@ -2987,6 +3070,118 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "رفع ملف مهارة",
   "settingsResources.skills.describePlaceholder":
     "مهارة تراجع طلبات الدمج بحثًا عن مشكلات أمنية",
+  "settingsResources.skills.personalHint": "أنت فقط من يملك هذه.",
+  "settingsResources.skills.orgHint":
+    "مشتركة مع الجميع في {{org}}. مفاتيحك تخصك وحدك.",
+  "settingsResources.skills.orgAdminHint":
+    "مشتركة مع الجميع في {{org}}. بما أنك مسؤول، تختار كيف تبدأ كل واحدة للآخرين.",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch هو المكان الذي تحفظ فيه مساحة عملك المهارات التي تشاركها كل التطبيقات. إيقاف إحداها هنا يغيّر {{app}} فقط.",
+  "settingsResources.skills.thisApp": "هذا التطبيق",
+  "settingsResources.skills.forEveryone": "للجميع",
+  "settingsResources.skills.forYou": "لك",
+  "settingsResources.skills.markRecommended": "موصى بها",
+  "settingsResources.skills.markRecommendedHint": "مفعّلة ما لم يوقفها أحد.",
+  "settingsResources.skills.markOptional": "اختيارية",
+  "settingsResources.skills.markOptionalHint": "متوقفة ما لم يفعّلها أحد.",
+  "settingsResources.skills.markRequired": "مطلوبة",
+  "settingsResources.skills.markRequiredHint":
+    "مفعّلة للجميع. لا يمكن لأحد إيقافها أو استخدام نسخته الخاصة.",
+  "settingsResources.skills.recommendedBy": "موصى بها من {{org}}",
+  "settingsResources.skills.requiredBy": "مطلوبة من {{org}}",
+  "settingsResources.skills.requiredHidesOwn":
+    "غير مستخدمة: تشترط {{org}} على الجميع استخدام النسخة المشتركة",
+  "settingsResources.skills.optionalOff": "اختيارية: متوقفة حتى تفعّلها",
+  "settingsResources.skills.optionalOn": "اختيارية: فعّلتها أنت",
+  "settingsResources.skills.switchedOffOn": "أوقفتها في {{date}}",
+  "settingsResources.skills.alwaysOn": "مفعّلة دائمًا",
+  "settingsResources.skills.requiredLockHint":
+    "مطلوبة من {{org}}، لذا فهي مفعّلة دائمًا",
+  "settingsResources.skills.dispatchClash":
+    "يحتوي Dispatch أيضًا على {{name}}. يستخدم الوكيل هذه ويتخطى التي في Dispatch. أعد تسمية إحداهما لاستخدام الاثنتين.",
+  "settingsResources.skills.dispatchClashRequired":
+    "{{name}} في Dispatch مطلوبة، لذا يستخدمها الوكيل ويتخطى هذه. أعد تسمية إحداهما لاستخدام الاثنتين.",
+  "settingsResources.skills.choicesLoadFailed":
+    "تعذّر تحميل المهارات المفعّلة لك، لذا أُخفيت مفاتيح التبديل. أعد تحميل الصفحة للمحاولة مرة أخرى.",
+  "settingsResources.skills.requireChecking": "جارٍ التحقق ممن يتأثر بهذا…",
+  "settingsResources.skills.requireCountsFailed": "تعذّر التحقق ممن يتأثر بهذا.",
+  "settingsResources.skills.requireTitle": "جعل {{name}} مطلوبة؟",
+  "settingsResources.skills.makeRequired": "جعلها مطلوبة",
+  "settingsResources.skills.switchFailed": "تعذّر حفظ اختيارك لـ {{name}}.",
+  "settingsResources.skills.markFailed":
+    "تعذّر تغيير كيفية بدء {{name}} للآخرين.",
+  "settingsResources.skills.addForMe": "إضافة لي",
+  "settingsResources.skills.addForEveryone": "إضافة للجميع",
+  "settingsResources.skills.offFor_zero": "متوقفة لدى {{off}} من {{count}} شخص",
+  "settingsResources.skills.offFor_one": "متوقفة لدى {{off}} من {{count}} شخص",
+  "settingsResources.skills.offFor_two":
+    "متوقفة لدى {{off}} من {{count}} شخصين",
+  "settingsResources.skills.offFor_few":
+    "متوقفة لدى {{off}} من {{count}} أشخاص",
+  "settingsResources.skills.offFor_many":
+    "متوقفة لدى {{off}} من {{count}} شخصًا",
+  "settingsResources.skills.offFor_other":
+    "متوقفة لدى {{off}} من {{count}} شخص",
+  "settingsResources.skills.onFor_zero": "مفعّلة لدى {{on}} من {{count}} شخص",
+  "settingsResources.skills.onFor_one": "مفعّلة لدى {{on}} من {{count}} شخص",
+  "settingsResources.skills.onFor_two": "مفعّلة لدى {{on}} من {{count}} شخصين",
+  "settingsResources.skills.onFor_few": "مفعّلة لدى {{on}} من {{count}} أشخاص",
+  "settingsResources.skills.onFor_many": "مفعّلة لدى {{on}} من {{count}} شخصًا",
+  "settingsResources.skills.onFor_other": "مفعّلة لدى {{on}} من {{count}} شخص",
+  "settingsResources.skills.ownVersions_zero": "لدى {{count}} شخص نسخة خاصة",
+  "settingsResources.skills.ownVersions_one": "لدى {{count}} شخص نسخة خاصة",
+  "settingsResources.skills.ownVersions_two": "لدى {{count}} شخصين نسخة خاصة",
+  "settingsResources.skills.ownVersions_few": "لدى {{count}} أشخاص نسخة خاصة",
+  "settingsResources.skills.ownVersions_many": "لدى {{count}} شخصًا نسخة خاصة",
+  "settingsResources.skills.ownVersions_other": "لدى {{count}} شخص نسخة خاصة",
+  "settingsResources.skills.requireTurnsBackOn_zero":
+    "ستُفعَّل من جديد لـ {{count}} شخص أوقفوها.",
+  "settingsResources.skills.requireTurnsBackOn_one":
+    "ستُفعَّل من جديد لـ {{count}} شخص أوقفها.",
+  "settingsResources.skills.requireTurnsBackOn_two":
+    "ستُفعَّل من جديد لـ {{count}} شخصين أوقفاها.",
+  "settingsResources.skills.requireTurnsBackOn_few":
+    "ستُفعَّل من جديد لـ {{count}} أشخاص أوقفوها.",
+  "settingsResources.skills.requireTurnsBackOn_many":
+    "ستُفعَّل من جديد لـ {{count}} شخصًا أوقفوها.",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "ستُفعَّل من جديد لـ {{count}} شخص أوقفوها.",
+  "settingsResources.skills.requireTurnsOn_zero":
+    "ستُفعَّل لـ {{count}} شخص لم يفعّلوها.",
+  "settingsResources.skills.requireTurnsOn_one":
+    "ستُفعَّل لـ {{count}} شخص لم يفعّلها.",
+  "settingsResources.skills.requireTurnsOn_two":
+    "ستُفعَّل لـ {{count}} شخصين لم يفعّلاها.",
+  "settingsResources.skills.requireTurnsOn_few":
+    "ستُفعَّل لـ {{count}} أشخاص لم يفعّلوها.",
+  "settingsResources.skills.requireTurnsOn_many":
+    "ستُفعَّل لـ {{count}} شخصًا لم يفعّلوها.",
+  "settingsResources.skills.requireTurnsOn_other":
+    "ستُفعَّل لـ {{count}} شخص لم يفعّلوها.",
+  "settingsResources.skills.requireOwnVersions_zero":
+    "سيحصل {{count}} شخص لديهم نسخهم الخاصة على نص {{org}} بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersions_one":
+    "سيحصل {{count}} شخص لديه نسخته الخاصة على نص {{org}} بدلًا منها. تُحفظ نسخته، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersions_two":
+    "سيحصل {{count}} شخصان لديهما نسختهما الخاصة على نص {{org}} بدلًا منها. تُحفظ نسختاهما، وتعودان إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersions_few":
+    "سيحصل {{count}} أشخاص لديهم نسخهم الخاصة على نص {{org}} بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersions_many":
+    "سيحصل {{count}} شخصًا لديهم نسخهم الخاصة على نص {{org}} بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersions_other":
+    "سيحصل {{count}} شخص لديهم نسخهم الخاصة على نص {{org}} بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_zero":
+    "سيحصل {{count}} شخص لديهم نسخهم الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "سيحصل {{count}} شخص لديه نسخته الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخته، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_two":
+    "سيحصل {{count}} شخصان لديهما نسختهما الخاصة على نص Dispatch بدلًا منها. تُحفظ نسختاهما، وتعودان إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_few":
+    "سيحصل {{count}} أشخاص لديهم نسخهم الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_many":
+    "سيحصل {{count}} شخصًا لديهم نسخهم الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "سيحصل {{count}} شخص لديهم نسخهم الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
   "settingsResources.files.empty": "أضف ملفًا لمنح وكيلك سياقًا أكثر.",
   "settingsResources.files.emptyTitle": "لا توجد ملفات بعد",
   "settingsResources.files.orgEmpty": "لا توجد ملفات مشتركة بعد",
@@ -3047,6 +3242,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "ينشئ صورًا للشرائح والتصاميم.",
   "settingsInfra.whyEmbeddings":
     "يحسّن البحث الدلالي. البحث بالكلمات المفتاحية يعمل بدونه.",
+  "settingsInfra.semanticSearch": "البحث الدلالي",
+  "settingsInfra.semanticSearchOn":
+    "يعثر على الصفحات حسب المعنى إلى جانب الكلمات. يُرسَل نص الصفحات وعمليات البحث إلى مزوّد التضمينات.",
+  "settingsInfra.semanticSearchOff":
+    "متوقف. يطابق البحث الكلمات فقط، ولا يُرسَل أي نص من الصفحات إلى مزوّد التضمينات.",
+  "settingsInfra.semanticSearchUnknown":
+    "تعذّرت معرفة ما إذا كان البحث الدلالي مُفعّلًا.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "البحث الدلالي مُفعّل. تتم فهرسة الصفحات الحالية في الخلفية.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "البحث الدلالي متوقف. تم حذف متجهات الصفحات المخزّنة.",
+  "settingsInfra.semanticSearchSaveFailed": "تعذّر تغيير البحث الدلالي.",
   "settingsInfra.designSystem": "ذكاء نظام التصميم",
   "settingsInfra.whyDesignSystem":
     "يُبقي الشرائح والتصاميم المُنشأة متوافقة مع علامتك التجارية.",
@@ -3446,7 +3653,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "فشل الرد",
   "message.waitingForApproval": "في انتظار الموافقة",
   "message.waitingForInput": "في انتظار الإدخال",
-  "message.workSummaryFailedCount": "{{summary}}، فشل {{count}}",
+  "message.workSummaryFailedCount": "{{summary}}، المحاولات الفاشلة: {{count}}",
   "message.taskStatusPending": "قيد الانتظار",
   "message.taskStatusRunning": "قيد التشغيل",
   "message.taskStatusCompleted": "تم",
@@ -3483,6 +3690,14 @@ const messages: ToolkitAgentChatTranslation = {
   "guided.other": "أخرى…",
   "guided.otherDescription": "أخبر الوكيل بما تقصده بالضبط.",
   "guided.recommended": "موصى به",
+  "guided.question": "سؤال",
+  "guided.questionProgress": "{{current}}/{{total}}",
+  "guided.questionProgressLabel": "{{current}} من {{total}}",
+  "guided.ownResponse": "أو اكتب ردك الخاص",
+  "guided.next": "التالي",
+  "guided.send": "إرسال",
+  "guided.dismiss": "إغلاق الأسئلة",
+  "guided.chooseFiles": "اختيار ملفات…",
   "guided.typeAnswer": "اكتب إجابتك…",
   "guided.typeCustomAnswer": "اكتب إجابة مخصصة…",
   "guided.dropFiles": "اسحب الملفات إلى هنا أو",
@@ -3520,6 +3735,10 @@ const messages: ToolkitAgentChatTranslation = {
   "toolCells.showMoreLines": "عرض {{count}} من الأسطر الإضافية",
   "toolCells.partial": "جزئي",
   "toolCells.timedOut": "انتهت المهلة",
+  "toolCells.exitCode": "رمز الخروج {{code}}",
+  "toolCells.copyOutput": "نسخ المخرجات",
+  "toolCells.lineAdded": "مضاف",
+  "toolCells.lineRemoved": "محذوف",
   "codeRequired.requestFailed": "فشل الطلب ({{status}})",
   "chatFirst.chats": "المحادثات",
   "chatFirst.noChats": "لا توجد محادثات بعد.",
@@ -3634,6 +3853,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mentions.noCommands": "لا توجد أوامر",
   "mentions.noMatches": "لا توجد نتائج مطابقة",
   "queue.dragToReorder": "اسحب لإعادة الترتيب",
+  "queue.attachedImage": "صورة مرفقة",
   "queue.moveUp": "نقل لأعلى",
   "queue.moveDown": "نقل لأسفل",
   "queue.movedToPosition": "تم النقل إلى الموضع {{position}} من {{count}}",
@@ -3689,6 +3909,10 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.readPagesOther": "تمت قراءة صفحات: {{count}}",
   "workSteps.fetchedOne": "تم جلب عنوان URL واحد",
   "workSteps.fetchedOther": "تم جلب عناوين URL: {{count}}",
+  "workSteps.sourcesOne": "تم استخدام مصدر واحد",
+  "workSteps.sourcesOther": "مصادر مستخدمة: {{count}}",
+  "workSteps.frameworkFrames": "إطارات إطار العمل: {{count}}",
+  "workSteps.copyStackTrace": "نسخ تتبع المكدس",
   "workSteps.readFilesOne": "تمت قراءة ملف واحد",
   "workSteps.readFilesOther": "تمت قراءة ملفات: {{count}}",
   "workSteps.editedOne": "تم تعديل ملف واحد",
@@ -3706,6 +3930,26 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.editing": "جارٍ تعديل الملفات",
   "workSteps.runningCommands": "جارٍ تشغيل الأوامر",
   "workSteps.runningActions": "جارٍ تشغيل الإجراءات",
+  "workSteps.sourcesUsed": "تم استخدام: {{sources}}",
+  "workSteps.sourcesSeparator": "، ",
+  "workSteps.sourcesDocumentsOne": "صفحة واحدة",
+  "workSteps.sourcesDocumentsOther": "صفحات ({{count}})",
+  "workSteps.sourcesWebOne": "صفحة ويب واحدة",
+  "workSteps.sourcesWebOther": "صفحات ويب ({{count}})",
+  "workSteps.sourcesFilesOne": "ملف واحد",
+  "workSteps.sourcesFilesOther": "ملفات ({{count}})",
+  "workSteps.sourcesSearchesOne": "بحث واحد",
+  "workSteps.sourcesSearchesOther": "عمليات بحث ({{count}})",
+  "workSteps.sourceRead": "تمت القراءة",
+  "workSteps.sourceOpened": "تم الفتح",
+  "workSteps.sourceSearched": "تم البحث",
+  "workSteps.sourceFailedRead": "تعذّرت قراءة {{name}}",
+  "workSteps.sourceFailedOpen": "تعذّر فتح {{name}}",
+  "workSteps.sourceFailedSearch": "تعذّر البحث عن {{name}}",
+  "workSteps.sourceFailedPage": "تعذّرت قراءة صفحة",
+  "workSteps.sourceFailedFile": "تعذّرت قراءة ملف",
+  "workSteps.sourceFailedWeb": "تعذّر فتح صفحة ويب",
+  "workSteps.sourceFailedSearchAny": "تعذّر البحث",
   "composer.effortDefaultBadge": "موصى به",
   "queue.itemBusy": "سيتم إرسال هذه الرسالة بعد هذا الرد.",
   "queue.itemBlocked": "تعذر إرسال هذه الرسالة. أزلها وأرسلها مرة أخرى.",
@@ -3772,6 +4016,171 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "تعذّر حفظ إعدادات المحادثة الصوتية.",
   "voice.dictation.cancelTranscription": "إلغاء التفريغ النصي",
+  "common.noData": "لا توجد بيانات",
+  "common.rowsPerPage": "الصفوف في كل صفحة:",
+  "dashboardMode.columnResizePersonal":
+    "اسحب لتغيير الحجم لك وحدك. انقر نقرًا مزدوجًا لإعادة التعيين.",
+  "dashboardMode.columnResizeShared": "اسحب لتغيير الحجم للجميع",
+  "sessions.watchReplay": "مشاهدة إعادة التشغيل",
+  "sqlDashboard.calloutSeverityCritical": "حرج",
+  "sqlDashboard.calloutSeverityInfo": "معلومات",
+  "sqlDashboard.calloutSeverityWarning": "تحذير",
+  "sqlDashboard.chartPointLimitFirst":
+    "عرض أول {{shown}} من أصل {{total}} نقطة",
+  "sqlDashboard.chartPointLimitLast": "عرض آخر {{shown}} من أصل {{total}} نقطة",
+  "sqlDashboard.chartPointLimitNewest":
+    "عرض أحدث {{shown}} من أصل {{total}} نقطة",
+  "sqlDashboard.collapseDescription": "طي الوصف",
+  "sqlDashboard.columnFormat": "التنسيق",
+  "sqlDashboard.columnFormatCurrency": "عملة",
+  "sqlDashboard.columnFormatDate": "تاريخ",
+  "sqlDashboard.columnFormatDuration": "المدة (بالثواني)",
+  "sqlDashboard.columnFormatNumber": "رقم",
+  "sqlDashboard.columnFormatPercent": "نسبة مئوية",
+  "sqlDashboard.columnFormatText": "نص عادي",
+  "sqlDashboard.columnHide": "إخفاء العمود",
+  "sqlDashboard.columnName": "اسم العمود",
+  "sqlDashboard.columnRename": "إعادة تسمية العمود",
+  "sqlDashboard.columnResize": "تغيير حجم العمود",
+  "sqlDashboard.columnShow": 'إظهار "{{name}}"',
+  "sqlDashboard.columnShowHidden": "إظهار الأعمدة المخفية",
+  "sqlDashboard.drilldownChartPoints": "نقاط المخطط",
+  "sqlDashboard.drilldownNextPage": "الصفحة التالية لنقاط المخطط",
+  "sqlDashboard.drilldownPageRange":
+    "عرض {{start}}–{{end}} من إجمالي {{total}}",
+  "sqlDashboard.drilldownPreviousPage": "الصفحة السابقة لنقاط المخطط",
+  "sqlDashboard.expandDescription": "توسيع الوصف",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "أكمل",
+  "sqlDashboard.funnelLeft": "غادر التطبيق",
+  "sqlDashboard.funnelLeftHere": "غادر التطبيق هنا",
+  "sqlDashboard.funnelMovedOn": "تابع دون أيٍّ منهما",
+  "sqlDashboard.funnelOptional": "اختياري",
+  "sqlDashboard.funnelShown": "عُرضت على {{count}}",
+  "sqlDashboard.funnelShownLabel": "عُرضت على",
+  "sqlDashboard.funnelSkipped": "تخطّى",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (أفضل)",
+  "sqlDashboard.metricComparisonDown":
+    "انخفاض بمقدار {{change}} عن {{previous}}، {{period}}",
+  "sqlDashboard.metricComparisonFlat": "بلا تغيير عن {{previous}}، {{period}}",
+  "sqlDashboard.metricComparisonNoChange": "بلا تغيير",
+  "sqlDashboard.metricComparisonPoints": "{{value}} نقطة",
+  "sqlDashboard.metricComparisonPreviousPeriod": "الفترة السابقة",
+  "sqlDashboard.metricComparisonUp":
+    "ارتفاع بمقدار {{change}} عن {{previous}}، {{period}}",
+  "sqlDashboard.metricComparisonVs": "مقارنةً مع {{period}}",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (أسوأ)",
+  "sqlDashboard.multiColumnSortHelp":
+    "انقر للفرز. انقر مع الضغط على Shift لإضافة فرز آخر.",
+  "sqlDashboard.noXValue": "بلا قيمة",
+  "filters.filter": "تصفية",
+  "filters.toolbar": "شريط التصفية",
+  "filters.clear": "مسح",
+  "filters.done": "تم",
+  "filters.back": "رجوع",
+  "filters.apply": "تطبيق",
+  "filters.copyLink": "نسخ الرابط",
+  "filters.linkCopied": "تم نسخ الرابط",
+  "filters.copyFailed": "تعذّر نسخ الرابط",
+  "filters.activeRules": "القواعد المطبّقة: {{number}}",
+  "filters.matchSentence": "عرض {{items}} التي تطابق {{mode}} هذه القواعد",
+  "filters.modeAll": "كل",
+  "filters.modeAny": "أيًّا من",
+  "filters.and": "و",
+  "filters.or": "أو",
+  "filters.modeAllDescription": "يجب أن تتطابق كل قاعدة (AND)",
+  "filters.modeAnyDescription": "تكفي مطابقة قاعدة واحدة (OR)",
+  "filters.switchMode": "تغيير طريقة دمج القواعد",
+  "filters.groupSentence": "تطابق {{mode}} هذه القواعد:",
+  "filters.addRule": "إضافة قاعدة",
+  "filters.addGroup": "إضافة مجموعة",
+  "filters.removeRule": "إزالة القاعدة",
+  "filters.removeGroup": "إزالة المجموعة",
+  "filters.removeChip": "إزالة {{label}}",
+  "filters.groupChip": "({{rules}})",
+  "filters.noRules": "لا توجد قواعد بعد. أضف قاعدة لتضييق القائمة.",
+  "filters.fieldValue": "{{field}}: {{value}}",
+  "filters.quoted": "«{{value}}»",
+  "filters.chipNot": "ليس {{value}}",
+  "filters.chipOperator": "{{operator}} {{value}}",
+  "filters.chooseValue": "اختر قيمة",
+  "filters.pickField": "اختر حقلًا",
+  "filters.searchFieldsAndValues": "ابحث في الحقول والقيم…",
+  "filters.search": "بحث…",
+  "filters.fields": "الحقول",
+  "filters.values": "القيم",
+  "filters.noFieldMatch": "لا شيء يطابق «{{query}}».",
+  "filters.noValueMatch":
+    "لا يوجد شيء باسم «{{query}}». لا تستخدم عوامل التصفية إلا القيم الموجودة.",
+  "filters.noValueMatchNoun":
+    "لا يوجد {{noun}} باسم «{{query}}». لا تستخدم عوامل التصفية إلا {{nouns}} الموجودة.",
+  "filters.noOptions": "لا يوجد ما يمكن اختياره بعد.",
+  "filters.nobody": "لا أحد",
+  "filters.yes": "نعم",
+  "filters.no": "لا",
+  "filters.typeValue": "اكتب قيمة",
+  "filters.enterNumber": "أدخل رقمًا",
+  "filters.exactDate": "تاريخ محدد",
+  "filters.startDate": "تاريخ البدء",
+  "filters.endDate": "تاريخ الانتهاء",
+  "filters.dateBetween": "{{start}} – {{end}}",
+  "filters.dateTimeFormat": "YYYY-MM-DD أو YYYY-MM-DD HH:MM",
+  "filters.op.is": "هو",
+  "filters.op.isNot": "ليس",
+  "filters.op.isAnyOf": "أي من",
+  "filters.op.isNoneOf": "ليس أيًّا من",
+  "filters.op.isEmpty": "فارغ",
+  "filters.op.isNotEmpty": "غير فارغ",
+  "filters.op.hasAnyOf": "يحتوي على أي من",
+  "filters.op.hasNoneOf": "لا يحتوي على أي من",
+  "filters.op.hasNone": "لا يحتوي على شيء",
+  "filters.op.hasSome": "يحتوي على شيء",
+  "filters.op.contains": "يحتوي على",
+  "filters.op.doesNotContain": "لا يحتوي على",
+  "filters.op.startsWith": "يبدأ بـ",
+  "filters.op.endsWith": "ينتهي بـ",
+  "filters.op.isOn": "في يوم",
+  "filters.op.isNotOn": "ليس في يوم",
+  "filters.op.isBefore": "قبل",
+  "filters.op.isAfter": "بعد",
+  "filters.op.isOnOrBefore": "في يوم أو قبله",
+  "filters.op.isOnOrAfter": "في يوم أو بعده",
+  "filters.op.isWithin": "ضمن",
+  "filters.op.isBetween": "بين",
+  "filters.op.isMoreThan": "أكبر من",
+  "filters.op.isLessThan": "أصغر من",
+  "filters.op.isAtLeast": "على الأقل",
+  "filters.op.isAtMost": "على الأكثر",
+  "filters.date.today": "اليوم",
+  "filters.date.yesterday": "أمس",
+  "filters.date.tomorrow": "غدًا",
+  "filters.date.this.day": "اليوم",
+  "filters.date.this.week": "هذا الأسبوع",
+  "filters.date.this.month": "هذا الشهر",
+  "filters.date.this.year": "هذا العام",
+  "filters.date.past": "آخر {{duration}}",
+  "filters.date.next": "{{duration}} القادمة",
+  "filters.views.notSaved": "غير محفوظ",
+  "filters.views.save": "حفظ",
+  "filters.views.saveForMe": "حفظ لي",
+  "filters.views.saveForEveryone": "حفظ للجميع",
+  "filters.views.onlyYou": "أنت وحدك ترى هذا العرض.",
+  "filters.views.everyoneSees": "يرى الجميع في مساحة العمل هذا العرض.",
+  "filters.views.update": "تحديث",
+  "filters.views.updateNamed": "تحديث «{{name}}»",
+  "filters.views.shareWithEveryone": "مشاركة مع الجميع",
+  "filters.views.rename": "إعادة تسمية",
+  "filters.views.delete": "حذف",
+  "filters.views.deleteConfirm": "حذف «{{name}}»؟ لا يمكن التراجع عن ذلك.",
+  "filters.views.cancel": "إلغاء",
+  "filters.views.name": "الاسم",
+  "filters.views.nameTaken": "يوجد عرض باسم «{{name}}» بالفعل.",
+  "filters.views.nameRequired": "أعطِ العرض اسمًا.",
+  "filters.views.byAuthor": "بواسطة {{name}}",
+  "filters.views.yours": "عروضك",
+  "filters.views.team": "مشتركة مع الجميع",
+  "filters.views.menu": "خيارات {{name}}",
 };
 
 export default messages;

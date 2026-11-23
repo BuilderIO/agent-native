@@ -3,8 +3,11 @@
 import { execFileSync, execSync, spawn } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
+
+import crossSpawn from "cross-spawn";
 
 import {
   clearAgentNativeNitroPresetMarker,
@@ -12,9 +15,23 @@ import {
 } from "../deploy/nitro-preset.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
+import {
+  CREATE_FINISHED_EVENT,
+  createFinishedProperties,
+  DEPLOY_FINISHED_EVENT,
+  deployFinishedProperties,
+  noteCreateReturned,
+  readPresetForReport,
+  reportAtExit,
+  startDevReadyReport,
+} from "./activation-telemetry.js";
 import { buildStepFailureReport } from "./build-failure-report.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
-import { cliSpawnOptions, runDevServer } from "./process.js";
+import {
+  cliSpawnOptions,
+  runDevServer,
+  WORKSPACE_DEPLOY_BUILD_ENV,
+} from "./process.js";
 import {
   findBinUpwards,
   findReactRouterInvocation,
@@ -217,19 +234,45 @@ function findViteJsEntry(): string | null {
 }
 
 function findTsxBin(): string {
-  const localTsx = path.resolve("node_modules/.bin/tsx");
-  if (fs.existsSync(localTsx)) return localTsx;
-  return "tsx";
+  return findBinUpwards("tsx") ?? "tsx";
 }
 
-function findTypeScriptCompilerBin(): string {
-  const localTsc = path.resolve("node_modules/.bin/tsc");
-  if (fs.existsSync(localTsc)) return localTsc;
+function findTypeScriptCompilerBin(): string | undefined {
+  const names =
+    process.platform === "win32"
+      ? ["tsc.cmd", "tsc", "tsgo.cmd", "tsgo"]
+      : ["tsc", "tsgo"];
+  return findBinUpwards(names);
+}
 
-  const localTsgo = path.resolve("node_modules/.bin/tsgo");
-  if (fs.existsSync(localTsgo)) return localTsgo;
-
-  return "tsc";
+function runTypeScriptCompiler(args: string[]): void {
+  const compiler = findTypeScriptCompilerBin();
+  if (process.platform === "win32" && args.some((arg) => /[\r\n]/.test(arg))) {
+    throw new Error(
+      "Cannot run the TypeScript compiler with a newline in an argument on Windows.",
+    );
+  }
+  run(compiler ?? "tsc", args, {
+    shell: false,
+    spawnProcess: process.platform === "win32" ? crossSpawn.spawn : spawn,
+    onError: (error) => {
+      if (error.code === "ENOENT") {
+        console.error(error.message);
+        console.error(
+          "Could not execute TypeScript compiler; check that TypeScript and its interpreter are installed.",
+        );
+        process.exit(1);
+      }
+      if (error.code === "EACCES") {
+        console.error(error.message);
+        console.error(
+          "Permission denied while executing the TypeScript compiler. Check executable and directory permissions, the compiler location on PATH, and mount options such as noexec.",
+        );
+        process.exit(1);
+      }
+      throw error;
+    },
+  });
 }
 
 function isReactRouterFramework(): boolean {
@@ -311,10 +354,7 @@ function isWorkspaceRoot(): boolean {
   if (!fs.existsSync(pkgPath)) return false;
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-    return (
-      typeof pkg?.["agent-native"]?.workspaceCore === "string" &&
-      fs.existsSync(path.resolve("apps"))
-    );
+    return typeof pkg?.["agent-native"]?.workspaceCore === "string";
   } catch {
     return false;
   }
@@ -336,6 +376,26 @@ function extractNodeInspectFlag(args: string[]): {
   return { inspectFlag, rest };
 }
 
+/**
+ * The exit status the CLI reports for a finished child (57526).
+ *
+ * `code ?? 0` made a child killed by a signal look successful, so a SIGKILLed `tsc` passed a preflight that then shipped. A signal exit is 128 plus the
+ * signal's number, the shell convention: nonzero for a caller that only asks "did it fail", and still the signal for a caller that asks which.
+ */
+export function childExitCode(
+  code: number | null,
+  signal: NodeJS.Signals | string | null,
+): number {
+  if (signal) {
+    const number =
+      typeof signal === "string"
+        ? (os.constants.signals as Record<string, number>)[signal]
+        : undefined;
+    return typeof number === "number" ? 128 + number : 1;
+  }
+  return code ?? 1;
+}
+
 function run(
   cmd: string,
   cmdArgs: string[],
@@ -343,10 +403,17 @@ function run(
     stdio?: "inherit" | "pipe";
     env?: NodeJS.ProcessEnv;
     shell?: boolean;
+    onError?: (error: NodeJS.ErrnoException) => void;
+    spawnProcess?: typeof spawn;
   },
 ) {
-  const child = spawn(cmd, cmdArgs, cliSpawnOptions(opts));
-  child.on("exit", (code) => process.exit(code ?? 0));
+  const child = (opts?.spawnProcess ?? spawn)(
+    cmd,
+    cmdArgs,
+    cliSpawnOptions(opts),
+  );
+  if (opts?.onError) child.on("error", opts.onError);
+  child.on("exit", (code, signal) => process.exit(childExitCode(code, signal)));
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => {
       child.kill(sig);
@@ -371,6 +438,9 @@ function inferFirstPartyTemplate(cwd: string): string | undefined {
   }
   return template;
 }
+
+// What `build` was doing when it ended, for its finished event.
+let buildStep = "doctor";
 
 function runBuildStep(
   cmd: string,
@@ -425,6 +495,7 @@ function runBuildStep(
         extra: report.extra,
       });
       reportToSentryAndExit(exitCode, err, {
+        fingerprint: report.fingerprint,
         tags: report.tags,
         extra: report.extra,
       });
@@ -432,23 +503,39 @@ function runBuildStep(
   });
 }
 
+function runWorkspaceDevCommand(): void {
+  let appCount = 0;
+  const env = startDevReadyReport(cliTelemetry, {
+    workspace: true,
+    appCount: () => appCount,
+  });
+  import("./workspace-dev.js")
+    .then((m) => m.runWorkspaceDev({ args, env }))
+    .then((workspace) => {
+      appCount = workspace.apps.length;
+    })
+    .catch((err) => {
+      console.error(err?.message ?? err);
+      process.exit(1);
+    });
+}
+
 if (shouldTrackCliRun(command, args)) trackCli("cli.run");
 
 switch (command) {
   case "dev": {
     if (isWorkspaceRoot()) {
-      import("./workspace-dev.js")
-        .then((m) => m.runWorkspaceDev({ args }))
-        .catch((err) => {
-          console.error(err?.message ?? err);
-          process.exit(1);
-        });
+      runWorkspaceDevCommand();
       break;
     }
+    const devEnv = startDevReadyReport(cliTelemetry, {
+      workspace: false,
+      appCount: () => 1,
+    });
     const vite = findViteBin();
     const { inspectFlag, rest } = extractNodeInspectFlag(args);
     if (!inspectFlag) {
-      runDevServer(vite, rest);
+      runDevServer(vite, rest, { env: devEnv });
       break;
     }
     const viteJsEntry = findViteJsEntry();
@@ -457,7 +544,7 @@ switch (command) {
         "[agent-native] Could not resolve Vite's JS entry; starting dev " +
           "server without the debugger.",
       );
-      runDevServer(vite, rest);
+      runDevServer(vite, rest, { env: devEnv });
       break;
     }
     const parsed = inspectFlag.match(/^--(inspect(?:-brk)?)(?:=(.+))?$/);
@@ -470,8 +557,8 @@ switch (command) {
         `process.env.NODE_OPTIONS=((process.env.NODE_OPTIONS??"")+" ${directive}").trim();`,
       );
     const env = {
-      ...process.env,
-      NITRO_DEV_RUNNER: process.env.NITRO_DEV_RUNNER ?? "node-process",
+      ...devEnv,
+      NITRO_DEV_RUNNER: devEnv.NITRO_DEV_RUNNER ?? "node-process",
     };
     console.log(`[agent-native] API server debugger listening on ${target}`);
     runDevServer(
@@ -486,16 +573,19 @@ switch (command) {
   }
 
   case "workspace-dev": {
-    import("./workspace-dev.js")
-      .then((m) => m.runWorkspaceDev({ args }))
-      .catch((err) => {
-        console.error(err?.message ?? err);
-        process.exit(1);
-      });
+    runWorkspaceDevCommand();
     break;
   }
 
   case "build": {
+    if (!process.env[WORKSPACE_DEPLOY_BUILD_ENV]) {
+      reportAtExit(cliTelemetry, DEPLOY_FINISHED_EVENT, (exitCode) =>
+        deployFinishedProperties(exitCode, {
+          step: buildStep,
+          preset: readPresetForReport(resolveAgentNativeNitroPreset),
+        }),
+      );
+    }
     (async () => {
       try {
         const { runDoctorBuildHook } = await import("./doctor.js");
@@ -517,6 +607,7 @@ switch (command) {
       }
 
       if (isReactRouterFramework()) {
+        buildStep = "react-router-build";
         clearAgentNativeNitroPresetMarker();
         const { clearAgentNativeBuildConfigMarker } =
           await import("../vite/agent-native-config-loader.js");
@@ -529,12 +620,14 @@ switch (command) {
           shell: rr.shell,
         });
       } else {
+        buildStep = "vite-build";
         const vite = findViteBin();
         console.log("Building...");
         await runBuildStep(vite, ["build"], { label: "vite-build" });
       }
 
       if (isReactRouterFramework()) {
+        buildStep = "deploy-build";
         const configuredNitroPreset = resolveAgentNativeNitroPreset();
         const deployEnv = configuredNitroPreset
           ? { ...process.env, NITRO_PRESET: configuredNitroPreset }
@@ -576,7 +669,7 @@ switch (command) {
       );
       process.exit(1);
     }
-    run(process.execPath, [serverEntry, ...args]);
+    run(process.execPath, [serverEntry, ...args], { shell: false });
     break;
   }
 
@@ -616,7 +709,7 @@ switch (command) {
         declarations,
         ...identityArgs,
       ]);
-    else run(process.execPath, [script, ...identityArgs]);
+    else run(process.execPath, [script, ...identityArgs], { shell: false });
     break;
   }
 
@@ -688,7 +781,7 @@ switch (command) {
         process.exit((error as { status?: number | null }).status ?? 1);
       }
     }
-    run(findTypeScriptCompilerBin(), ["--noEmit", ...args]);
+    runTypeScriptCompiler(["--noEmit", ...args]);
     break;
   }
 
@@ -697,6 +790,7 @@ switch (command) {
       console.log(CREATE_HELP);
       break;
     }
+    reportAtExit(cliTelemetry, CREATE_FINISHED_EVENT, createFinishedProperties);
     const parsed = parseScaffoldArgs(args);
     import("./create.js")
       .then((m) =>
@@ -705,6 +799,7 @@ switch (command) {
           standalone: parsed.standalone,
         }),
       )
+      .then(noteCreateReturned)
       .catch(handleScaffoldImportError);
     break;
   }
@@ -976,10 +1071,29 @@ switch (command) {
   }
 
   case "deploy": {
+    const deployRun: { step: string; preset?: string } = { step: "prepare" };
+    reportAtExit(cliTelemetry, DEPLOY_FINISHED_EVENT, (exitCode) =>
+      deployFinishedProperties(exitCode, deployRun),
+    );
     import("../deploy/workspace-deploy.js")
-      .then((m) => m.runWorkspaceDeploy({ args }))
+      .then((m) =>
+        m.runWorkspaceDeploy({
+          args,
+          onProgress: (progress) => Object.assign(deployRun, progress),
+        }),
+      )
       .catch((err) => {
         console.error("Deploy failed:", err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "netlify-deploy": {
+    import("./netlify-deploy.js")
+      .then((m) => m.runNetlifyDeploy(args))
+      .catch((err) => {
+        console.error("Netlify deploy failed:", err?.message ?? err);
         process.exit(1);
       });
     break;
@@ -1051,6 +1165,16 @@ switch (command) {
   case "audit-agent-web": {
     import("./audit-agent-web.js")
       .then((m) => m.runAuditAgentWeb(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "capture-evidence": {
+    import("./capture-evidence.js")
+      .then((m) => m.runCaptureEvidence(args))
       .catch((err) => {
         console.error(err?.message ?? err);
         process.exit(1);
@@ -1170,6 +1294,9 @@ Usage:
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to
                                 a single origin (your-agents.com/<app>/*)
+  agent-native netlify-deploy   Zip workspace functions deterministically and
+                                run 'netlify deploy', so unchanged functions
+                                are not re-uploaded
   agent-native amplify-stream   Build a Nitro streaming Lambda and connect it
                                 to an AWS Amplify branch
   agent-native setup-agents     Create symlinks for all agent tools
@@ -1203,6 +1330,10 @@ Usage:
                                 unless --apply; --builds also selects build/,
                                 dist/, .output/ and .netlify bundles.
   agent-native audit-agent-web  Audit a public URL for agent-readable surfaces
+  agent-native capture-evidence Capture bounded evidence of a page effect in one
+                                browser session (viewports, geometry, motion,
+                                GPU facts, source slices) into a manifest.
+                                Run with --help for options.
   agent-native eval [pattern]   Run the app's evals (**/*.eval.ts, evals/*.ts)
                                 and exit non-zero if any scores below its
                                 threshold. A CI deploy gate. --json for CI,
@@ -1228,7 +1359,7 @@ Options:
   --eager                       With workspace dev, start every app immediately
   --prewarm                     With workspace dev, warm non-default apps in the background
   --no-prewarm                  With workspace dev, keep non-default apps lazy
-  --no-open                     With workspace dev, do not open a browser
+  --no-open                     With dev or workspace dev, do not open a browser
   --url <url>                   URL to audit with audit-agent-web
 
 Feedback:  ${FEEDBACK_URL}

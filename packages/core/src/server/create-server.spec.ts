@@ -5,7 +5,11 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
+import * as org from "../org/context.js";
+import * as auth from "./auth.js";
 import { createServer } from "./create-server.js";
+import * as credentials from "./credential-provider.js";
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
 
 describe("createServer", () => {
   afterEach(() => {
@@ -14,13 +18,7 @@ describe("createServer", () => {
     resetAppConfigForTests();
   });
 
-  it("returns an H3 app and router", () => {
-    const { app, router } = createServer();
-    expect(app).toBeDefined();
-    expect(router).toBeDefined();
-    expect(typeof router.get).toBe("function");
-    expect(typeof router.post).toBe("function");
-  });
+  // oracle-change: removed defined-only createServer option tests (cors false, jsonLimit, router shape) and the parseEnvFile block that tested a copy of the parser inside the spec; the createServer behaviour tests below remain the proof
 
   it("keeps safe database codes and causes in server error logs", async () => {
     const privateValue = "private customer value";
@@ -68,11 +66,6 @@ describe("createServer", () => {
     expect(JSON.stringify(loggedParts)).not.toContain(privateValue);
   });
 
-  it("disables CORS when cors is false", () => {
-    const { app } = createServer({ cors: false });
-    expect(app).toBeDefined();
-  });
-
   it("answers MCP directory preflights before authentication", async () => {
     vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://chatgpt.com");
     const { app } = createServer();
@@ -99,11 +92,6 @@ describe("createServer", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe(
       "https://chatgpt.com",
     );
-  });
-
-  it("accepts custom jsonLimit", () => {
-    const { app } = createServer({ jsonLimit: "1mb" });
-    expect(app).toBeDefined();
   });
 
   it("uses the shared app config for the liveness message", async () => {
@@ -144,6 +132,39 @@ describe("createServer", () => {
       "X-User-Timezone",
     );
   });
+
+  it.each([
+    { code: "57014", status: 503 },
+    { code: "42501", status: 500 },
+  ])(
+    "does not probe Personal credentials after org failure $code",
+    async ({ code, status }) => {
+      const cause = Object.assign(new Error("Fake membership failure"), {
+        code,
+      });
+      const error = sessionResolutionFailure(cause);
+      vi.spyOn(auth, "getSession").mockResolvedValue({
+        email: "member@example.test",
+        orgId: "stale-org",
+      });
+      vi.spyOn(org, "getOrgContext").mockRejectedValue(error);
+      const secret = vi
+        .spyOn(credentials, "resolveSecret")
+        .mockResolvedValue("fake-secret");
+      const { app } = createServer({
+        envKeys: [{ key: "OPENAI_API_KEY", label: "OpenAI" }],
+      });
+      const response = await app.request(
+        "http://localhost/_agent-native/env-status",
+      );
+      expect(response.status).toBe(status);
+      expect(response.headers.get("Retry-After")).toBe(
+        status === 503 ? "5" : null,
+      );
+      expect(secret).not.toHaveBeenCalled();
+      expect(await response.text()).not.toContain(cause.message);
+    },
+  );
 
   it("reports deploy-time env values as configured", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://deploy.example/db");
@@ -243,6 +264,34 @@ describe("createServer", () => {
     expect(JSON.stringify(body)).not.toContain("a".repeat(64));
   });
 
+  it("reports a required env var the app declared at build time", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DATABASE_URL", "postgres://deploy.example/db");
+    vi.stubEnv("BETTER_AUTH_SECRET", "a".repeat(64));
+    vi.stubEnv("AGENT_NATIVE_BUILD_REQUIRED_ENV", '["NOTION_API_KEY"]');
+    vi.stubEnv("NOTION_API_KEY", "");
+    const { app } = createServer();
+
+    const missing = await app.request(
+      "http://localhost/_agent-native/ping?configuration=1",
+    );
+    const { configuration } = await missing.json();
+    expect(configuration.issues).toEqual([
+      expect.objectContaining({
+        code: "missing-required-env",
+        envKeys: ["NOTION_API_KEY"],
+      }),
+    ]);
+
+    vi.stubEnv("NOTION_API_KEY", "secret-notion-value");
+    const configured = await app.request(
+      "http://localhost/_agent-native/ping?configuration=1",
+    );
+    const body = await configured.json();
+    expect(body.configuration.issues).toEqual([]);
+    expect(JSON.stringify(body)).not.toContain("secret-notion-value");
+  });
+
   describe("missing-settings line of the configuration probe", () => {
     // Cleared explicitly so ambient deploy markers and secrets in the shell or
     // a leaked stub cannot decide the answer.
@@ -331,6 +380,21 @@ describe("createServer", () => {
         expect(codesOf(configuration)).not.toContain(code);
       }
     });
+
+    it("asks a new local app to fix nothing", async () => {
+      // The setup prompt has the agent read this probe; an "ok" answer must
+      // not come with instructions to change the deployment.
+      stubUnconfiguredDeploy();
+      vi.stubEnv("NODE_ENV", "development");
+      const { app } = createServer();
+
+      const res = await app.request(
+        "http://localhost/_agent-native/ping?configuration=1",
+      );
+
+      const { configuration } = await res.json();
+      expect(configuration).toMatchObject({ status: "ok", prompt: "" });
+    });
   });
 
   it("honors app opt-outs in the public configuration probe", async () => {
@@ -366,74 +430,5 @@ describe("createServer", () => {
     expect(await res.json()).toEqual({
       error: "Unsupported env key: GOOGLE_CLIENT_SECRET",
     });
-  });
-});
-
-describe("parseEnvFile (logic)", () => {
-  function parseEnvFile(content: string): Map<string, string> {
-    const vars = new Map<string, string>();
-    for (const line of content.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const eqIndex = trimmed.indexOf("=");
-      if (eqIndex === -1) continue;
-      const key = trimmed.slice(0, eqIndex).trim();
-      let value = trimmed.slice(eqIndex + 1).trim();
-      if (
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
-      }
-      vars.set(key, value);
-    }
-    return vars;
-  }
-
-  it("parses simple key=value pairs", () => {
-    const result = parseEnvFile("FOO=bar\nBAZ=qux");
-    expect(result.get("FOO")).toBe("bar");
-    expect(result.get("BAZ")).toBe("qux");
-  });
-
-  it("strips double quotes", () => {
-    const result = parseEnvFile('API_KEY="my-secret"');
-    expect(result.get("API_KEY")).toBe("my-secret");
-  });
-
-  it("strips single quotes", () => {
-    const result = parseEnvFile("API_KEY='my-secret'");
-    expect(result.get("API_KEY")).toBe("my-secret");
-  });
-
-  it("skips comments", () => {
-    const result = parseEnvFile("# This is a comment\nFOO=bar");
-    expect(result.size).toBe(1);
-    expect(result.get("FOO")).toBe("bar");
-  });
-
-  it("skips empty lines", () => {
-    const result = parseEnvFile("\n\nFOO=bar\n\n");
-    expect(result.size).toBe(1);
-  });
-
-  it("skips lines without =", () => {
-    const result = parseEnvFile("INVALID\nFOO=bar");
-    expect(result.size).toBe(1);
-  });
-
-  it("handles values with = in them", () => {
-    const result = parseEnvFile("URL=https://example.com?a=1&b=2");
-    expect(result.get("URL")).toBe("https://example.com?a=1&b=2");
-  });
-
-  it("handles empty value", () => {
-    const result = parseEnvFile("EMPTY=");
-    expect(result.get("EMPTY")).toBe("");
-  });
-
-  it("trims whitespace around key and value", () => {
-    const result = parseEnvFile("  FOO  =  bar  ");
-    expect(result.get("FOO")).toBe("bar");
   });
 });

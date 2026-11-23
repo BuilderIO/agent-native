@@ -22,6 +22,7 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(500).default(200),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const me = getCurrentOwnerEmail();
@@ -32,6 +33,7 @@ export default defineAction({
         title: schema.recordings.title,
         ownerEmail: schema.recordings.ownerEmail,
         password: schema.recordings.password,
+        visibility: schema.recordings.visibility,
         expiresAt: schema.recordings.expiresAt,
         trashedAt: schema.recordings.trashedAt,
         enableComments: schema.recordings.enableComments,
@@ -43,6 +45,7 @@ export default defineAction({
         ownerEmail: recording.ownerEmail,
         recipientEmail: me,
         hasPassword: Boolean(recording.password),
+        visibility: recording.visibility,
         expiresAt: recording.expiresAt,
         trashedAt: recording.trashedAt,
       }),

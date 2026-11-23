@@ -1,4 +1,19 @@
 const messages = {
+  "settingsOrg.inviteAdminExplanation":
+    "Only admins can invite others. Ask your admin for help inviting others, or have them make you an admin too.",
+  "settingsApiKeys.approvedOrigins": "Approved origins",
+  "settingsApiKeys.originsHint":
+    "One exact HTTPS origin per line. Empty blocks forwarding. Local loopback HTTP is allowed.",
+  "settingsApiKeys.invalidOrigins": "Enter exact HTTPS origins, one per line.",
+  "settingsApiKeys.editOrigins": "Edit origins",
+  "settingsApiKeys.originsSaved": "Origins saved",
+  "settingsApiKeys.originsCount_one": "{{count}} approved origin",
+  "settingsApiKeys.originsCount_other": "{{count}} approved origins",
+  "settingsApiKeys.noApprovedOrigins": "No approved origins",
+  "extensions.cancel": "Cancel",
+  "extensions.context": "Context",
+  "extensions.confirmAgentMessage": "Send extension message to agent?",
+  "extensions.sendToAgent": "Send to agent",
   "auth.logOutFailed": "Log out failed",
   "block.renderUnavailable": "This block is temporarily unavailable.",
   "block.loading": "Loading block.",
@@ -31,10 +46,13 @@ const messages = {
   "activity.groupLabel": "Agent activity",
   "activity.agents": "Agent collaboration",
   "activity.tasks": "Agent tasks",
+  "activity.tasksProgress": "{{completed}} of {{total}} done",
   "agent.started": "started working",
   "agent.resumed": "resumed working",
   "agent.messaged": "sent a message",
   "agent.delegated": "delegated work",
+  "agent.working": "working",
+  "agent.workedFor": "worked for {{duration}}",
   "agent.paused": "paused",
   "agent.queued": "queued",
   "agent.completed": "finished",
@@ -144,7 +162,7 @@ const messages = {
   "onboarding.builderCredits": "Included with Builder.io free credits",
   "onboarding.builderIncludedFreeWithAccount":
     "Included free with a Builder.io account",
-  "onboarding.builderMonthlyCredits": "60 monthly Agent Credits",
+  "onboarding.builderMonthlyCredits": "15 free credits a day, up to 60 a month",
   "onboarding.builderIncludedFree": "Included free",
   "onboarding.builderMoreServices": "+ {{count}} more services",
   "onboarding.builderLlmCredits": "LLM credits",
@@ -178,9 +196,10 @@ const messages = {
   "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
   "onboarding.builderExistingAccount": "I have a Builder.io account",
-  "onboarding.creditsTitle": "Try it with 60 free Agent Credits a month",
+  "onboarding.creditsTitle":
+    "Try it with 15 free credits a day, up to 60 a month",
   "onboarding.creditsTitleClips":
-    "Try it with free video storage and 60 Agent Credits a month",
+    "Try it with free video storage and 15 credits a day, up to 60 a month",
   "onboarding.creditsActivate": "Activate free credits",
   "onboarding.creditsFinePrint":
     "This will create a free Builder.io account. By continuing, you agree to our",
@@ -429,6 +448,7 @@ const messages = {
   "composer.attachmentTooLarge": "File is over 8 MB",
   "composer.attachmentNotUtf8": "File isn't UTF-8 text",
   "composer.scrollToBottom": "Scroll to bottom",
+  "composer.skipToMessageBox": "Skip to message box",
   "composer.suggestedPrompts": "Suggested prompts",
   "composer.stopResponse": "Stop response",
   "composer.subAgentReadOnly":
@@ -506,7 +526,12 @@ const messages = {
   "composer.useIntegrationTools": "Use {{integration}} tools",
   "composer.menu.scheduleTask": "Schedule Task",
   "composer.menu.scheduleTaskDescription": "Run something on a schedule",
-  "composer.menu.uploadFile": "Upload File",
+  "composer.menu.uploadFile": "Files and images",
+  "composer.menu.searchWorkspace": "Search workspace…",
+  "composer.menu.references": "References",
+  "composer.menu.referenceFile": "Reference a file",
+  "composer.menu.attachToMessage": "Add context",
+  "composer.menu.commands": "Commands",
   "composer.menu.uploadFileDescription": "Images, PDFs, text/code, JSON, CSV",
   "composer.messageAgent": "Message agent...",
   "composer.model": "Model",
@@ -595,6 +620,7 @@ const messages = {
   "pastedText.remove": "Remove pasted text",
   "pastedText.title": "Pasted text",
   "voice.dictation.start": "Dictate ({{shortcut}})",
+  "voice.dictation.startPlain": "Dictate",
   "voice.dictation.stopRecording": "Stop recording",
   "voice.dictation.transcribing": "Transcribing…",
   "voiceMode.errors.channelDisconnected":
@@ -682,6 +708,8 @@ const messages = {
   "errorMessages.errorPrefix": "Error: {{message}}",
   "errorMessages.gatewayInternalError":
     "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.",
+  "errorMessages.modelRefusal":
+    "I can’t help with that request. I can help with a different question.",
   "errorMessages.gatewayNoDetails":
     "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
   "errorMessages.creditsLimitReached": "You've reached your AI credits limit.",
@@ -708,7 +736,7 @@ const messages = {
   "errorMessages.invalidAttachment":
     "The model provider rejected this attachment's format or size. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported file format or paste the relevant text, then attach it again.",
   "errorMessages.noProviderConnected":
-    "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
+    "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.",
   "errorMessages.openBuilderSpaceSettings": "Open Builder space settings",
   "errorMessages.providerAuthentication":
     "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
@@ -717,6 +745,8 @@ const messages = {
   "errorMessages.providerHtml": "The provider returned an HTML error page.",
   "errorMessages.providerNetwork":
     "The model provider could not be reached. Check your connection and retry.",
+  "errorMessages.emailVerificationRequired":
+    "Verify an eligible email address with the connected AI provider account or space, then retry.",
   "errorMessages.providerRateLimit":
     "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
   "errorMessages.providerTransientRejection":
@@ -749,6 +779,10 @@ const messages = {
   "history.searching": "Searching...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Yesterday",
+  "history.today": "Today",
+  "commandMenu.systemGroup": "Application",
+  "share.alreadyInvited": "Already invited",
+  "share.notInvitedToPage": "Not invited to page",
   "history.mine": "My chats",
   "history.sharedWithYou": "Shared with you",
   "history.showAll": "Show all",
@@ -1243,7 +1277,7 @@ const messages = {
     "This run can't be continued anymore. Send a message to keep going.",
   "errorMessages.invalidAttachmentNamed":
     "The model provider rejected {{name}} because its format or size is unsupported. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported format or paste the relevant text, then retry.",
-  "recovery.resendVerificationEmail": "Resend verification email",
+  "recovery.resendVerificationEmail": "Resend app account verification email",
   "recovery.sendingVerificationEmail": "Sending...",
   "recovery.verificationEmailRequested":
     "Verification email requested. Check your inbox and spam folder.",
@@ -1317,6 +1351,8 @@ const messages = {
   "secrets.required": "Required",
   "secrets.searchKeys": "Search keys...",
   "secrets.usePersonalKey": "Use a personal key instead",
+  "secrets.testing": "Testing…",
+  "secrets.cannotCheckAlone": "This key can't be checked on its own",
   "selection.attached": "{{formattedCount}} characters of selection attached",
   "selection.attached_one":
     "{{formattedCount}} character of selection attached",
@@ -1334,6 +1370,7 @@ const messages = {
     "Builder.io includes free credits, or use your own API key.",
   "setup.builderOrOwnKeys":
     "Use Builder.io (free credits), or add your own provider keys.",
+  "setup.reconnectBuilder": "Reconnect Builder.io",
   "setup.connectAi": "Connect AI",
   "setup.connectBuilder": "Use Builder.io",
   "setup.connectionsDescription":
@@ -1472,6 +1509,7 @@ const messages = {
   "share.public": "Public",
   "share.publicDescription": "Anyone with the link can view",
   "share.remove": "Remove",
+  "share.removeInvitee": "Remove {{email}}",
   "share.role": "Role",
   "share.searching": "Searching...",
   "share.share": "Share",
@@ -1495,6 +1533,10 @@ const messages = {
     "Everyone in {{organization}}, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
   "share.confirmOrganizationAction": "Share with organization",
   "share.confirmOrganizationSharing": "Sharing...",
+  "share.confirmPublicTitle": "Share with anyone who has the link?",
+  "share.confirmPublicDescription":
+    "Anyone with the link, including people outside your organization, will be able to open this and see everything in it. You can change this later.",
+  "share.confirmPublicAction": "Share publicly",
   "status.resuming": "Resuming",
   "status.stillWorking": "Still working",
   "status.thinking": "Thinking",
@@ -1518,6 +1560,11 @@ const messages = {
   "tool.askingAgent": "Asking {{agent}}...",
   "tool.elapsed": "{{duration}} elapsed",
   "tool.askingAgentFailed": "Error asking {{agent}}",
+  "tool.agentApprovalTitle": "{{agent}} needs your approval",
+  "tool.agentApprovalReview": "Review in {{agent}}",
+  "tool.agentApprovalReturn": "Approve it in {{agent}}, then continue here.",
+  "tool.agentApprovalContinueMessage":
+    "I approved it in {{agent}}. Please continue.",
   "tool.failedWithoutDetails": "No error details are available.",
   "tool.input": "Input",
   "tool.inputWithLabel": "Input - {{label}}",
@@ -1609,6 +1656,32 @@ const messages = {
   "featureFlags.builderCreditReferrals.name": "Builder credit referrals",
   "featureFlags.builderCreditReferrals.description":
     "Show connected Builder workspace referral details in Usage.",
+  "featureFlags.scope.appliesTo": "Applies to",
+  "featureFlags.scope.org": "This organization",
+  "featureFlags.scope.global": "All organizations",
+  "featureFlags.scope.setForOrg": "Set for this organization",
+  "featureFlags.scope.setForGlobal": "Set for all organizations",
+  "featureFlags.scope.overridesGlobal":
+    "Overrides the rule for all organizations",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "This organization's own rule replaces the rule for all organizations, which is: {{audience}}.",
+  "featureFlags.scope.unreadable": "Couldn't be read",
+  "featureFlags.scope.enableForMeOrg": "Adds you to this organization's rule",
+  "featureFlags.scope.enableForMeGlobal":
+    "Adds you to the rule for all organizations",
+  "featureFlags.scope.turnOffOrg": "Turn off for this organization",
+  "featureFlags.scope.turnOffGlobal": "Turn off for all organizations",
+  "featureFlags.scope.turnOffOrgTitle":
+    "Turn off {{name}} for this organization?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "Turn off {{name}} for all organizations?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "This immediately removes access for everyone in this organization. You can configure a new rollout later.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "This immediately removes access in every organization that doesn't have its own rule. You can configure a new rollout later.",
+  "featureFlags.scope.summaryOrg": "In this organization: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "In all organizations: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule": "This organization keeps its own rule.",
   "usage.inviteFriends": "Invite friends",
   "usage.inviteCredits":
     "Earn {{amount}} Builder credits when a friend subscribes.",
@@ -1948,6 +2021,7 @@ const messages = {
     "Storage credentials cleared. New uploads go to Builder.io.",
   "settings.storage.saveFailed": "Could not save file storage.",
   "settings.storage.clearFailed": "Could not clear storage credentials.",
+  "settings.timezoneLoadFailed": "Couldn't load your timezone.",
   "settings.storage.loadFailed": "Could not load file storage settings.",
   "settings.storage.retry": "Retry",
   "settings.storage.unreadable":
@@ -2168,6 +2242,10 @@ const messages = {
   "settingsShell.account.passwordSaved": "Password updated",
   "settingsShell.account.photoError": "Could not update photo.",
   "settingsShell.account.photoUpdated": "Photo updated",
+  "settingsShell.account.photoRemoved": "Photo removed",
+  "settingsShell.account.removePhoto": "Remove photo",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "Email delivery is not set up here",
   "settingsShell.account.profilePhoto": "Profile photo",
   "settingsShell.account.requestCopyDescription":
     "An administrator verifies your identity and follows up.",
@@ -2238,15 +2316,16 @@ const messages = {
     "Use sample data in this browser for presentations.",
   "settingsShell.appGroup.labsFootnote":
     "These new, unstable features may have bugs.",
+  "settingsShell.appGroup.labsHostDecided":
+    "This one is set for you, so it can't be changed here.",
   "settingsShell.appGroup.labsLoadError": "Couldn't load your labs.",
   "settingsShell.appGroup.labsReadError":
     "Couldn't read this saved choice. Choose On or Off to set it again.",
   "settingsShell.appGroup.labsSaveError": "Couldn't change {{lab}}. Try again.",
+  "settingsShell.appGroup.labsShowAll": "Show all Labs features",
+  "settingsShell.appGroup.labsUseDefault": "Use default",
   "settingsShell.appGroup.mcpAbout":
     "Connect {{app}} to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in {{app}} for you. It sees only what you can see.",
-  "settingsShell.appGroup.mcpAppCards": "App cards in chat apps",
-  "settingsShell.appGroup.mcpAppCardsDescription":
-    "Tools show interactive cards, such as an email draft you can edit and send, in chat apps that support MCP Apps, like Claude and ChatGPT. After you change this, reconnect this app in your chat app.",
   "settingsShell.appGroup.mcpFootnote":
     "For tools the agent itself uses, see {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "New automation",
@@ -2453,6 +2532,9 @@ const messages = {
     "The agent uses the access token you add, so it sees what that token can see.",
   "settingsShell.integrationDetail.accessToken": "Access token",
   "settingsShell.integrationDetail.addAccessToken": "Add access token",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Couldn't check for a saved access token.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Try again",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "An admin needs to set this up",
   "settingsShell.integrationDetail.callout.adminNeededBody":
@@ -2868,6 +2950,77 @@ const messages = {
   "settingsResources.skills.upload": "Upload a skill file",
   "settingsResources.skills.describePlaceholder":
     "A skill that reviews pull requests for security issues",
+  "settingsResources.skills.personalHint": "Only you have these.",
+  "settingsResources.skills.orgHint":
+    "Shared with everyone at {{org}}. Your switches are just for you.",
+  "settingsResources.skills.orgAdminHint":
+    "Shared with everyone at {{org}}. You're an admin, so you choose how each one starts for people.",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch is where your workspace keeps skills that every app shares. Switching one off here only changes {{app}}.",
+  "settingsResources.skills.thisApp": "this app",
+  "settingsResources.skills.forEveryone": "For everyone",
+  "settingsResources.skills.forYou": "For you",
+  "settingsResources.skills.markRecommended": "Recommended",
+  "settingsResources.skills.markRecommendedHint":
+    "On unless someone switches it off.",
+  "settingsResources.skills.markOptional": "Optional",
+  "settingsResources.skills.markOptionalHint":
+    "Off unless someone switches it on.",
+  "settingsResources.skills.markRequired": "Required",
+  "settingsResources.skills.markRequiredHint":
+    "On for everyone. Nobody can switch it off or use their own version.",
+  "settingsResources.skills.recommendedBy": "Recommended by {{org}}",
+  "settingsResources.skills.requiredBy": "Required by {{org}}",
+  "settingsResources.skills.requiredHidesOwn":
+    "Not used: {{org}} requires everyone to use the shared one",
+  "settingsResources.skills.optionalOff":
+    "Optional: off until you switch it on",
+  "settingsResources.skills.optionalOn": "Optional: you switched it on",
+  "settingsResources.skills.switchedOffOn": "You switched it off on {{date}}",
+  "settingsResources.skills.alwaysOn": "Always on",
+  "settingsResources.skills.requiredLockHint":
+    "Required by {{org}}, so it's always on",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch also has a {{name}}. The agent uses this one and skips Dispatch's. Rename one to use both.",
+  "settingsResources.skills.dispatchClashRequired":
+    "Dispatch's {{name}} is Required, so the agent uses it and skips this one. Rename one to use both.",
+  "settingsResources.skills.choicesLoadFailed":
+    "Couldn't load which skills are on for you, so the switches are hidden. Reload the page to try again.",
+  "settingsResources.skills.requireChecking": "Checking who this changes…",
+  "settingsResources.skills.requireCountsFailed":
+    "Couldn't check who this changes.",
+  "settingsResources.skills.requireTitle": "Make {{name}} required?",
+  "settingsResources.skills.makeRequired": "Make required",
+  "settingsResources.skills.switchFailed":
+    "Couldn't save your choice for {{name}}.",
+  "settingsResources.skills.markFailed":
+    "Couldn't change how {{name}} starts for people.",
+  "settingsResources.skills.addForMe": "Add for me",
+  "settingsResources.skills.addForEveryone": "Add for everyone",
+  "settingsResources.skills.offFor_one": "Off for {{off}} of {{count}} person",
+  "settingsResources.skills.offFor_other":
+    "Off for {{off}} of {{count}} people",
+  "settingsResources.skills.onFor_one": "On for {{on}} of {{count}} person",
+  "settingsResources.skills.onFor_other": "On for {{on}} of {{count}} people",
+  "settingsResources.skills.ownVersions_one": "{{count}} has their own version",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}} have their own version",
+  "settingsResources.skills.requireTurnsBackOn_one":
+    "It turns back on for the {{count}} person who switched it off.",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "It turns back on for the {{count}} people who switched it off.",
+  "settingsResources.skills.requireTurnsOn_one":
+    "It turns on for the {{count}} person who hadn't switched it on.",
+  "settingsResources.skills.requireTurnsOn_other":
+    "It turns on for the {{count}} people who hadn't switched it on.",
+  "settingsResources.skills.requireOwnVersions_one":
+    "The {{count}} person with their own version gets {{org}}'s text instead. Their version is kept, and comes back if you change this later.",
+  "settingsResources.skills.requireOwnVersions_other":
+    "The {{count}} people with their own version get {{org}}'s text instead. Their versions are kept, and come back if you change this later.",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "The {{count}} person with their own version gets Dispatch's text instead. Their version is kept, and comes back if you change this later.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "The {{count}} people with their own version get Dispatch's text instead. Their versions are kept, and come back if you change this later.",
   "settingsResources.files.empty":
     "Add a file to give your agent more context.",
   "settingsResources.files.emptyTitle": "No files yet",
@@ -2930,6 +3083,18 @@ const messages = {
   "settingsInfra.whyImages": "Generates images for slides and designs.",
   "settingsInfra.whyEmbeddings":
     "Improves semantic search. Keyword search still works without it.",
+  "settingsInfra.semanticSearch": "Semantic search",
+  "settingsInfra.semanticSearchOn":
+    "Finds pages by meaning as well as words. Page text and searches go to the Embeddings provider.",
+  "settingsInfra.semanticSearchOff":
+    "Off. Search matches words only, and no page text goes to the Embeddings provider.",
+  "settingsInfra.semanticSearchUnknown":
+    "Couldn't read whether semantic search is on.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "Semantic search is on. Existing pages are indexed in the background.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "Semantic search is off. Stored page vectors were deleted.",
+  "settingsInfra.semanticSearchSaveFailed": "Couldn't change semantic search.",
   "settingsInfra.designSystem": "Design system intelligence",
   "settingsInfra.whyDesignSystem":
     "Keeps generated slides and designs on brand.",
@@ -3309,7 +3474,7 @@ const messages = {
   "message.responseFailed": "Response failed",
   "message.waitingForApproval": "Waiting for approval",
   "message.waitingForInput": "Waiting for input",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}} failed",
+  "message.workSummaryFailedCount": "{{summary}}, failed attempts: {{count}}",
   "message.taskStatusPending": "Pending",
   "message.taskStatusRunning": "Running",
   "message.taskStatusCompleted": "Done",
@@ -3346,6 +3511,14 @@ const messages = {
   "guided.other": "Other…",
   "guided.otherDescription": "Tell the agent exactly what you mean.",
   "guided.recommended": "Recommended",
+  "guided.question": "Question",
+  "guided.questionProgress": "{{current}}/{{total}}",
+  "guided.questionProgressLabel": "{{current}} of {{total}}",
+  "guided.ownResponse": "Or write your own response",
+  "guided.next": "Next",
+  "guided.send": "Send",
+  "guided.dismiss": "Dismiss questions",
+  "guided.chooseFiles": "Choose files…",
   "guided.typeAnswer": "Type your answer…",
   "guided.typeCustomAnswer": "Type a custom answer…",
   "guided.dropFiles": "Drag files here or",
@@ -3383,6 +3556,10 @@ const messages = {
   "toolCells.showMoreLines": "Show {{count}} more lines",
   "toolCells.partial": "Partial",
   "toolCells.timedOut": "Timed out",
+  "toolCells.exitCode": "Exit code {{code}}",
+  "toolCells.copyOutput": "Copy output",
+  "toolCells.lineAdded": "Added",
+  "toolCells.lineRemoved": "Removed",
   "codeRequired.requestFailed": "Request failed ({{status}})",
   "chatFirst.chats": "Chats",
   "chatFirst.noChats": "No chats yet.",
@@ -3497,6 +3674,7 @@ const messages = {
   "mentions.noCommands": "No commands",
   "mentions.noMatches": "No matches",
   "queue.dragToReorder": "Drag to reorder",
+  "queue.attachedImage": "Attached image",
   "queue.moveUp": "Move up",
   "queue.moveDown": "Move down",
   "queue.movedToPosition": "Moved to position {{position}} of {{count}}",
@@ -3554,6 +3732,10 @@ const messages = {
   "workSteps.readPagesOther": "Read {{count}} pages",
   "workSteps.fetchedOne": "Fetched 1 URL",
   "workSteps.fetchedOther": "Fetched {{count}} URLs",
+  "workSteps.sourcesOne": "Used 1 source",
+  "workSteps.sourcesOther": "Used {{count}} sources",
+  "workSteps.frameworkFrames": "{{count}} framework frames",
+  "workSteps.copyStackTrace": "Copy stack trace",
   "workSteps.readFilesOne": "Read 1 file",
   "workSteps.readFilesOther": "Read {{count}} files",
   "workSteps.editedOne": "Edited 1 file",
@@ -3571,6 +3753,26 @@ const messages = {
   "workSteps.editing": "Editing files",
   "workSteps.runningCommands": "Running commands",
   "workSteps.runningActions": "Running actions",
+  "workSteps.sourcesUsed": "Used {{sources}}",
+  "workSteps.sourcesSeparator": ", ",
+  "workSteps.sourcesDocumentsOne": "1 page",
+  "workSteps.sourcesDocumentsOther": "{{count}} pages",
+  "workSteps.sourcesWebOne": "1 web page",
+  "workSteps.sourcesWebOther": "{{count}} web pages",
+  "workSteps.sourcesFilesOne": "1 file",
+  "workSteps.sourcesFilesOther": "{{count}} files",
+  "workSteps.sourcesSearchesOne": "1 search",
+  "workSteps.sourcesSearchesOther": "{{count}} searches",
+  "workSteps.sourceRead": "Read",
+  "workSteps.sourceOpened": "Opened",
+  "workSteps.sourceSearched": "Searched",
+  "workSteps.sourceFailedRead": "Couldn't read {{name}}",
+  "workSteps.sourceFailedOpen": "Couldn't open {{name}}",
+  "workSteps.sourceFailedSearch": "Couldn't search for {{name}}",
+  "workSteps.sourceFailedPage": "Couldn't read a page",
+  "workSteps.sourceFailedFile": "Couldn't read a file",
+  "workSteps.sourceFailedWeb": "Couldn't open a web page",
+  "workSteps.sourceFailedSearchAny": "Couldn't search",
   "composer.effortDefaultBadge": "Recommended",
   "queue.itemBusy": "This message sends after this reply.",
   "queue.itemBlocked":
@@ -3642,6 +3844,172 @@ const messages = {
   "settingsShell.account.voiceChatSaveError":
     "Could not save your voice chat settings.",
   "voice.dictation.cancelTranscription": "Cancel transcription",
+  "common.noData": "No data",
+  "common.rowsPerPage": "Rows per page:",
+  "dashboardMode.columnResizePersonal":
+    "Drag to resize for you only. Double-click to reset.",
+  "dashboardMode.columnResizeShared": "Drag to resize for everyone",
+  "sessions.watchReplay": "Watch replay",
+  "sqlDashboard.calloutSeverityCritical": "Critical",
+  "sqlDashboard.calloutSeverityInfo": "Info",
+  "sqlDashboard.calloutSeverityWarning": "Warning",
+  "sqlDashboard.chartPointLimitFirst":
+    "Showing the first {{shown}} of {{total}} points",
+  "sqlDashboard.chartPointLimitLast":
+    "Showing the last {{shown}} of {{total}} points",
+  "sqlDashboard.chartPointLimitNewest":
+    "Showing the newest {{shown}} of {{total}} points",
+  "sqlDashboard.collapseDescription": "Collapse description",
+  "sqlDashboard.columnFormat": "Format",
+  "sqlDashboard.columnFormatCurrency": "Currency",
+  "sqlDashboard.columnFormatDate": "Date",
+  "sqlDashboard.columnFormatDuration": "Duration (seconds)",
+  "sqlDashboard.columnFormatNumber": "Number",
+  "sqlDashboard.columnFormatPercent": "Percent",
+  "sqlDashboard.columnFormatText": "Plain text",
+  "sqlDashboard.columnHide": "Hide column",
+  "sqlDashboard.columnName": "Column name",
+  "sqlDashboard.columnRename": "Rename column",
+  "sqlDashboard.columnResize": "Resize column",
+  "sqlDashboard.columnShow": 'Show "{{name}}"',
+  "sqlDashboard.columnShowHidden": "Show hidden columns",
+  "sqlDashboard.drilldownChartPoints": "Chart points",
+  "sqlDashboard.drilldownNextPage": "Next page of chart points",
+  "sqlDashboard.drilldownPageRange": "Showing {{start}}–{{end}} of {{total}}",
+  "sqlDashboard.drilldownPreviousPage": "Previous page of chart points",
+  "sqlDashboard.expandDescription": "Expand description",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "Completed",
+  "sqlDashboard.funnelLeft": "Left the app",
+  "sqlDashboard.funnelLeftHere": "Left the app here",
+  "sqlDashboard.funnelMovedOn": "Moved on without either",
+  "sqlDashboard.funnelOptional": "Optional",
+  "sqlDashboard.funnelShown": "{{count}} shown",
+  "sqlDashboard.funnelShownLabel": "Shown",
+  "sqlDashboard.funnelSkipped": "Skipped",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (better)",
+  "sqlDashboard.metricComparisonDown":
+    "Down {{change}} from {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonFlat":
+    "No change from {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonNoChange": "No change",
+  "sqlDashboard.metricComparisonPoints": "{{value}} pts",
+  "sqlDashboard.metricComparisonPreviousPeriod": "the period before",
+  "sqlDashboard.metricComparisonUp":
+    "Up {{change}} from {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonVs": "vs {{period}}",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (worse)",
+  "sqlDashboard.multiColumnSortHelp":
+    "Click to sort. Shift-click to add another sort.",
+  "sqlDashboard.noXValue": "No value",
+  "filters.filter": "Filter",
+  "filters.toolbar": "Filters",
+  "filters.clear": "Clear",
+  "filters.done": "Done",
+  "filters.back": "Back",
+  "filters.apply": "Apply",
+  "filters.copyLink": "Copy link",
+  "filters.linkCopied": "Link copied",
+  "filters.copyFailed": "Couldn't copy the link",
+  "filters.activeRules": "Rules in use: {{number}}",
+  "filters.matchSentence": "Show {{items}} that match {{mode}} of these rules",
+  "filters.modeAll": "all",
+  "filters.modeAny": "any",
+  "filters.and": "and",
+  "filters.or": "or",
+  "filters.modeAllDescription": "Every rule has to match (AND)",
+  "filters.modeAnyDescription": "One matching rule is enough (OR)",
+  "filters.switchMode": "Change how rules combine",
+  "filters.groupSentence": "Match {{mode}} of these rules:",
+  "filters.addRule": "Add rule",
+  "filters.addGroup": "Add group",
+  "filters.removeRule": "Remove rule",
+  "filters.removeGroup": "Remove group",
+  "filters.removeChip": "Remove {{label}}",
+  "filters.groupChip": "({{rules}})",
+  "filters.noRules": "No rules yet. Add one to narrow the list.",
+  "filters.fieldValue": "{{field}}: {{value}}",
+  "filters.quoted": "“{{value}}”",
+  "filters.chipNot": "not {{value}}",
+  "filters.chipOperator": "{{operator}} {{value}}",
+  "filters.chooseValue": "Choose a value",
+  "filters.pickField": "Choose a field",
+  "filters.searchFieldsAndValues": "Search fields and values…",
+  "filters.search": "Search…",
+  "filters.fields": "Fields",
+  "filters.values": "Values",
+  "filters.noFieldMatch": "Nothing matches “{{query}}”.",
+  "filters.noValueMatch":
+    "Nothing called “{{query}}”. Filters only use values that already exist.",
+  "filters.noValueMatchNoun":
+    "No {{noun}} called “{{query}}”. Filters only use {{nouns}} that already exist.",
+  "filters.noOptions": "Nothing to choose from yet.",
+  "filters.nobody": "Nobody",
+  "filters.yes": "Yes",
+  "filters.no": "No",
+  "filters.typeValue": "Type a value",
+  "filters.enterNumber": "Enter a number",
+  "filters.exactDate": "Exact date",
+  "filters.startDate": "Start date",
+  "filters.endDate": "End date",
+  "filters.dateBetween": "{{start}} – {{end}}",
+  "filters.dateTimeFormat": "YYYY-MM-DD or YYYY-MM-DD HH:MM",
+  "filters.op.is": "is",
+  "filters.op.isNot": "is not",
+  "filters.op.isAnyOf": "is any of",
+  "filters.op.isNoneOf": "is none of",
+  "filters.op.isEmpty": "is empty",
+  "filters.op.isNotEmpty": "is not empty",
+  "filters.op.hasAnyOf": "has any of",
+  "filters.op.hasNoneOf": "has none of",
+  "filters.op.hasNone": "has none",
+  "filters.op.hasSome": "has some",
+  "filters.op.contains": "contains",
+  "filters.op.doesNotContain": "does not contain",
+  "filters.op.startsWith": "starts with",
+  "filters.op.endsWith": "ends with",
+  "filters.op.isOn": "is on",
+  "filters.op.isNotOn": "is not on",
+  "filters.op.isBefore": "is before",
+  "filters.op.isAfter": "is after",
+  "filters.op.isOnOrBefore": "is on or before",
+  "filters.op.isOnOrAfter": "is on or after",
+  "filters.op.isWithin": "is within",
+  "filters.op.isBetween": "is between",
+  "filters.op.isMoreThan": "is more than",
+  "filters.op.isLessThan": "is less than",
+  "filters.op.isAtLeast": "is at least",
+  "filters.op.isAtMost": "is at most",
+  "filters.date.today": "Today",
+  "filters.date.yesterday": "Yesterday",
+  "filters.date.tomorrow": "Tomorrow",
+  "filters.date.this.day": "Today",
+  "filters.date.this.week": "This week",
+  "filters.date.this.month": "This month",
+  "filters.date.this.year": "This year",
+  "filters.date.past": "Past {{duration}}",
+  "filters.date.next": "Next {{duration}}",
+  "filters.views.notSaved": "Not saved",
+  "filters.views.save": "Save",
+  "filters.views.saveForMe": "Save for me",
+  "filters.views.saveForEveryone": "Save for everyone",
+  "filters.views.onlyYou": "Only you see this view.",
+  "filters.views.everyoneSees": "Everyone in the workspace sees this view.",
+  "filters.views.update": "Update",
+  "filters.views.updateNamed": "Update “{{name}}”",
+  "filters.views.shareWithEveryone": "Share with everyone",
+  "filters.views.rename": "Rename",
+  "filters.views.delete": "Delete",
+  "filters.views.deleteConfirm": "Delete “{{name}}”? This can't be undone.",
+  "filters.views.cancel": "Cancel",
+  "filters.views.name": "Name",
+  "filters.views.nameTaken": "A view called “{{name}}” already exists.",
+  "filters.views.nameRequired": "Give the view a name.",
+  "filters.views.byAuthor": "by {{name}}",
+  "filters.views.yours": "Your views",
+  "filters.views.team": "Shared with everyone",
+  "filters.views.menu": "Options for {{name}}",
 } as const;
 
 export default messages;

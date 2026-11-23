@@ -542,7 +542,6 @@ describe("execute Builder source execution", () => {
       request: plan.payload.request,
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
-      requireSourceBinding: true,
     });
     expect(deps.markExecutionSucceeded).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -572,7 +571,6 @@ describe("execute Builder source execution", () => {
               hasAutosaves: null,
               values: {
                 "data.title": "Old title",
-                [BUILDER_CMS_ENTRY_NAME_KEY]: null,
               },
             },
           }),
@@ -614,7 +612,6 @@ describe("execute Builder source execution", () => {
     expect(deps.readLiveEntry).toHaveBeenCalledWith({
       model: BUILDER_CMS_SAFE_WRITE_MODEL,
       entryId: "builder-entry-1",
-      fieldPaths: ["data.title", BUILDER_CMS_ENTRY_NAME_KEY],
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
     });
@@ -1051,7 +1048,6 @@ describe("execute Builder source execution", () => {
       }),
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
-      requireSourceBinding: true,
     });
   });
 
@@ -1180,7 +1176,6 @@ describe("execute Builder source execution", () => {
       }),
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
-      requireSourceBinding: true,
     });
   });
 
@@ -1345,7 +1340,6 @@ describe("execute Builder source execution", () => {
       }),
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
-      requireSourceBinding: true,
     });
   });
 
@@ -1372,7 +1366,6 @@ describe("execute Builder source execution", () => {
     expect(deps.readLiveEntry).toHaveBeenCalledWith({
       model: BUILDER_CMS_SAFE_WRITE_MODEL,
       entryId: "builder-entry-1",
-      fieldPaths: ["data.title", BUILDER_CMS_ENTRY_NAME_KEY],
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
     });
@@ -2584,7 +2577,7 @@ describe("Builder unpublished saves", () => {
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
-  it("blocks a save that would overwrite an entry name Builder changed", async () => {
+  it("saves without touching an entry name Builder changed", async () => {
     const { deps, run } = unpublishedSave({
       rows: [
         publishedRow({
@@ -2613,37 +2606,24 @@ describe("Builder unpublished saves", () => {
       },
     });
 
-    await expect(run()).rejects.toThrow(
-      "Entry name changed in Builder since you edited it; refresh and re-review.",
-    );
-    expect(deps.executeWrite).not.toHaveBeenCalled();
+    await expect(run()).resolves.toMatchObject(RESPONSE);
+    expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(deps.executeWrite).mock.calls[0]?.[0].request.body,
+    ).not.toHaveProperty("name");
   });
 
-  it("checks and keeps Builder's own entry name on a save that leaves the title", async () => {
+  it("keeps Builder's own entry name when a save changes the title", async () => {
     const { deps, run } = unpublishedSave({
       rows: [
         publishedRow({
-          lastSourceUpdatedAt: String(STALE_BUILDER_LAST_UPDATED_MS),
           sourceValues: {
             published: "published",
             "data.title": "Old title",
-            "data.blurb": "Old blurb",
-            [BUILDER_CMS_ENTRY_NAME_KEY]: "CMS internal label",
+            [BUILDER_CMS_ENTRY_NAME_KEY]: "Dev Drop: Old title",
           },
         }),
       ],
-      changeSet: changeSet({
-        fieldChanges: [
-          {
-            propertyId: null,
-            propertyName: "Blurb",
-            localFieldKey: "blurb",
-            sourceFieldKey: "data.blurb",
-            currentValue: "Old blurb",
-            proposedValue: "New blurb",
-          },
-        ],
-      }),
       readLiveEntry: {
         exists: true,
         published: "published",
@@ -2651,21 +2631,17 @@ describe("Builder unpublished saves", () => {
         blocksHash: null,
         id: "builder-entry-1",
         values: {
-          "data.blurb": "Old blurb",
-          [BUILDER_CMS_ENTRY_NAME_KEY]: "CMS internal label",
+          "data.title": "Old title",
+          [BUILDER_CMS_ENTRY_NAME_KEY]: "Dev Drop: Old title",
         },
       },
     });
 
     await expect(run()).resolves.toMatchObject(RESPONSE);
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
-    expect(deps.executeWrite).toHaveBeenCalledWith(
-      expect.objectContaining({
-        request: expect.objectContaining({
-          body: expect.objectContaining({ name: "CMS internal label" }),
-        }),
-      }),
-    );
+    const body = vi.mocked(deps.executeWrite).mock.calls[0]?.[0].request.body;
+    expect(body).toMatchObject({ data: { title: "New title" } });
+    expect(body).not.toHaveProperty("name");
   });
 
   it("treats the live value Content saved over as the value this edit was made against", async () => {
@@ -2770,7 +2746,6 @@ describe("Builder unpublished saves", () => {
               values: {
                 "data.author": "Sam Lee",
                 "__agent_native_builder_reference_id:data.author": "author-1",
-                [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
               },
             }),
           }),
@@ -2908,7 +2883,7 @@ describe("Builder unpublished saves", () => {
         existingSourceValuesJson: JSON.stringify({
           published: "published",
           "data.title": "Old title",
-          [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
+          [BUILDER_CMS_ENTRY_NAME_KEY]: "Dev Drop: Old title",
         }),
         snapshotSourceValues: undefined,
         changeSet: approvedChangeSet,
@@ -2924,10 +2899,7 @@ describe("Builder unpublished saves", () => {
               lastUpdated: BUILDER_LAST_UPDATED_MS,
               blocksHash: null,
               hasAutosaves: null,
-              values: {
-                "data.title": "Old title",
-                [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
-              },
+              values: { "data.title": "Old title" },
             },
           },
         },
@@ -2935,12 +2907,9 @@ describe("Builder unpublished saves", () => {
     );
 
     expect(values["data.title"]).toBe("New title");
-    expect(values[BUILDER_CMS_ENTRY_NAME_KEY]).toBe("New title");
+    expect(values[BUILDER_CMS_ENTRY_NAME_KEY]).toBe("Dev Drop: Old title");
     expect(JSON.parse(values[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY])).toEqual({
-      liveValues: {
-        "data.title": "Old title",
-        [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
-      },
+      liveValues: { "data.title": "Old title" },
       liveLastUpdated: BUILDER_LAST_UPDATED_MS,
     });
   });
@@ -3295,5 +3264,220 @@ describe("Builder unpublished saves", () => {
 
     expect(values["data.title"]).toBe("New title");
     expect(values).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+  });
+});
+
+describe("automatic Builder article saves", () => {
+  const draftRow = () =>
+    row({ sourceValues: { published: "draft", "data.title": "Old title" } });
+  const liveDraft: BuilderCmsEntryLiveState = {
+    exists: true,
+    published: "draft",
+    lastUpdated: BUILDER_LAST_UPDATED_MS,
+    blocksHash: null,
+    id: "builder-entry-1",
+    values: { "data.title": "Old title" },
+  };
+
+  function runAutomatic(
+    args: {
+      rows?: ContentDatabaseSource["rows"];
+      readLiveEntry?: BuilderCmsEntryLiveState;
+      metadata?: Partial<ContentDatabaseSource["metadata"]>;
+      pushMode?: "autosave" | "publish";
+    } = {},
+  ) {
+    const pushMode = args.pushMode ?? "autosave";
+    const approved = changeSet({ pushMode });
+    const builderSource = source({
+      rows: args.rows ?? [draftRow()],
+      changeSets: [approved],
+      metadata: args.metadata,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution: executionFor({ source: builderSource, changeSet: approved }),
+      readLiveEntry: args.readLiveEntry ?? liveDraft,
+    });
+    return {
+      deps,
+      result: executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approved.id,
+          pushModeConfirmation: pushMode,
+        },
+        deps,
+        { automatic: true },
+      ),
+    };
+  }
+
+  it("saves a draft with a plain draft save after the live check", async () => {
+    const { deps, result } = runAutomatic();
+    await expect(result).resolves.toMatchObject(RESPONSE);
+    expect(deps.readLiveEntry).toHaveBeenCalledTimes(1);
+    expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+    expect(deps.executeWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          method: "PATCH",
+          query: expect.not.objectContaining({
+            autoSaveOnly: expect.anything(),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("stops without writing once the live entry reads as published", async () => {
+    const { deps, result } = runAutomatic({
+      readLiveEntry: {
+        ...liveDraft,
+        published: "published",
+        lastUpdated: BUILDER_LAST_UPDATED_MS + 1000,
+      },
+    });
+    await expect(result).rejects.toMatchObject({
+      errorCode: "builder_autosave_published",
+    });
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+    expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        restore: expect.objectContaining({ state: "blocked" }),
+      }),
+    );
+  });
+
+  it("waits while Builder's editor reports changes Content didn't make", async () => {
+    const { deps, result } = runAutomatic({
+      readLiveEntry: { ...liveDraft, hasAutosaves: true },
+    });
+    await expect(result).rejects.toMatchObject({
+      errorCode: "builder_autosave_editor_changes",
+    });
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("keeps the reviewed save's timestamp and field checks", async () => {
+    const { deps, result } = runAutomatic({
+      readLiveEntry: {
+        ...liveDraft,
+        lastUpdated: BUILDER_LAST_UPDATED_MS + 1000,
+        values: { "data.title": "Renamed in Builder" },
+      },
+    });
+    await expect(result).rejects.toMatchObject({
+      errorCode: "builder_entry_changed_since_review",
+    });
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("refuses a change that isn't a draft save before claiming it", async () => {
+    const { deps, result } = runAutomatic({
+      metadata: { writeMode: "publish_updates" },
+      pushMode: "publish",
+    });
+    await expect(result).rejects.toMatchObject({
+      errorCode: "builder_autosave_needs_review",
+    });
+    expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("never sends a draft save with an unknown outcome again", async () => {
+    const approved = changeSet({ pushMode: "autosave" });
+    const builderSource = source({
+      rows: [draftRow()],
+      changeSets: [approved],
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution: executionFor({
+        source: builderSource,
+        changeSet: approved,
+        state: "reconciliation_required",
+        updatedAt: "2026-06-15T11:00:00.000Z",
+      }),
+      readLiveEntry: liveDraft,
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approved.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+        { automatic: true },
+      ),
+    ).rejects.toMatchObject({ errorCode: "builder_autosave_unconfirmed" });
+    expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.readLiveEntry).not.toHaveBeenCalled();
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+    expect(deps.updateExecutionState).not.toHaveBeenCalled();
+  });
+
+  it("settles a lost draft create only from Builder's read-only lookup", async () => {
+    const draftCreate = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      rows: [],
+      changeSets: [draftCreate],
+      metadata: {
+        pushMode: "draft",
+        allowDraftWrites: true,
+        allowedWriteModes: ["draft", "autosave"],
+      },
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution: executionFor({
+        source: builderSource,
+        changeSet: draftCreate,
+        state: "reconciliation_required",
+        updatedAt: "2026-06-15T11:00:00.000Z",
+      }),
+      lookupMatches: [],
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: draftCreate.id,
+          pushModeConfirmation: "draft",
+        },
+        deps,
+        { automatic: true },
+      ),
+    ).rejects.toMatchObject({ errorCode: "builder_autosave_unconfirmed" });
+    expect(deps.lookupSafeModelIntent).toHaveBeenCalledTimes(1);
+    expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("leaves a reviewed save to a published entry alone", async () => {
+    const approved = changeSet();
+    const builderSource = source({
+      rows: [draftRow()],
+      changeSets: [approved],
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution: executionFor({ source: builderSource, changeSet: approved }),
+      readLiveEntry: { ...liveDraft, published: "published" },
+    });
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approved.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+      ),
+    ).resolves.toMatchObject(RESPONSE);
+    expect(deps.executeWrite).toHaveBeenCalledTimes(1);
   });
 });

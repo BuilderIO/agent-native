@@ -139,6 +139,33 @@ function isInlineFileBody(value: string): boolean {
   return INLINE_FILE_BASE64_PREFIXES.some((prefix) => prefix.test(normalized));
 }
 
+const STORAGE_DOWNLOAD_QUERY_KEYS = new Set(["alt", "token", "apiKey"]);
+
+/**
+ * A query string usually means an expiring signature or a secret, so durable
+ * references carry none. The one exception is Builder storage's file download
+ * URL (`/o/<object>?alt=media&token=…`): the token is the object's permanent
+ * download token, and it is the only URL Builder returns for non-image
+ * uploads, so rejecting it fails every such attachment. `apiKey` is the
+ * space's public key, which these URLs also carry. The token makes the stored
+ * URL a bearer link to the file: every store that persists it (threads, runs,
+ * resources, dispatched work) must already be access-scoped to the people
+ * allowed to read the file.
+ */
+function hasDurableQuery(url: URL): boolean {
+  if (!url.search) return true;
+  const keys = [...url.searchParams.keys()];
+  return (
+    url.protocol === "https:" &&
+    url.hostname === "cdn.builder.io" &&
+    url.pathname.startsWith("/o/") &&
+    url.searchParams.get("alt") === "media" &&
+    Boolean(url.searchParams.get("token")) &&
+    new Set(keys).size === keys.length &&
+    keys.every((key) => STORAGE_DOWNLOAD_QUERY_KEYS.has(key))
+  );
+}
+
 export function isPersistableAttachmentUrl(value: unknown): value is string {
   if (typeof value !== "string" || !value.trim()) return false;
   if (!URL.canParse(value)) return false;
@@ -148,7 +175,7 @@ export function isPersistableAttachmentUrl(value: unknown): value is string {
     Boolean(url.hostname) &&
     !url.username &&
     !url.password &&
-    !url.search &&
+    hasDurableQuery(url) &&
     !url.hash
   );
 }
@@ -170,7 +197,7 @@ export function isPersistableAttachmentReferenceUrl(
     Boolean(url.hostname) &&
     !url.username &&
     !url.password &&
-    !url.search &&
+    hasDurableQuery(url) &&
     !url.hash
   );
 }
@@ -644,11 +671,83 @@ export interface AgentUploadTarget {
   expiresAt?: string;
 }
 
+export interface AgentUploadFile {
+  name: string;
+  mediaType: string;
+  size: number;
+  body: Blob;
+}
+
+export type AgentUploadDriver = (
+  target: AgentUploadTarget,
+  file: AgentUploadFile,
+  context?: AgentRequestContext,
+) => Promise<void>;
+
 export interface AgentUploadProgress {
   uploadId: UploadId;
   loaded: number;
   total: number;
 }
+
+export const ACTION_SUGGESTION_KINDS = [
+  "filter",
+  "saved-view",
+  "automation",
+  "customize-app",
+  "create-app",
+] as const;
+
+export const ACTION_SUGGESTION_TRIGGERS = [
+  "ai-narrowing",
+  "repeated-query",
+  "missing-control",
+  "cross-app-workflow",
+  "new-domain",
+] as const;
+
+export const MAX_ACTION_SUGGESTIONS_PER_TURN = 2;
+
+export interface ActionSuggestion {
+  id: string;
+  kind: (typeof ACTION_SUGGESTION_KINDS)[number];
+  trigger: (typeof ACTION_SUGGESTION_TRIGGERS)[number];
+  label: string;
+  rationale: string;
+  /** The target installation, or "dispatch" for a proposed new app. */
+  appId: string;
+  execution:
+    | { type: "action"; action: string; params: Record<string, unknown> }
+    | { type: "customize"; targetAppId: string; editSpec: string }
+    | { type: "create-app"; domainSpec: string };
+}
+
+export interface ActionSuggestionResult {
+  suggestions: ActionSuggestion[];
+}
+
+export type ActionSuggestionReceipt =
+  | {
+      suggestionId: string;
+      status: "accepted";
+      outcome:
+        | "action-completed"
+        | "app-creation-started"
+        | "customization-started";
+      url?: string;
+    }
+  | {
+      suggestionId: string;
+      status: "handoff";
+      outcome: "open-creation-workspace";
+      url: string;
+    }
+  | {
+      suggestionId: string;
+      status: "handoff";
+      outcome: "local-app-creation";
+      prompt: string;
+    };
 
 export interface AgentSuggestion {
   id: string;
@@ -1185,7 +1284,15 @@ export interface UpdateThreadInput extends ThreadIdInput {
 }
 
 export interface ForkThreadInput extends ThreadIdInput {
+  /** Retain this message and everything preceding it. */
   fromMessageId?: string;
+  /**
+   * Retain only messages preceding this message; excludes the boundary itself.
+   * Derived state requires retained event provenance or an explicit message/run
+   * binding. Unscoped snapshots without that provenance are omitted.
+   */
+  beforeMessageId?: string;
+  forkPurpose?: "edit";
   title?: string;
   metadata?: AgentProtocolMetadata;
 }
@@ -1320,6 +1427,8 @@ export interface AgentTransportThreadOperations {
 }
 
 export interface AgentTransport extends AgentTransportThreadOperations {
+  /** Local binary transfer for transports whose upload response needs interpretation. */
+  upload?: AgentUploadDriver;
   dispose?(): void | Promise<void>;
   capabilities?: AgentCapabilities;
   /** Checks whether a new user-initiated chat dispatch is allowed to start. */

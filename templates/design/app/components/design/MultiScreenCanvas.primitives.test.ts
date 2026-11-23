@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 // @vitest-environment happy-dom
 
 import { getFrameGroupBounds, type FrameBounds } from "@shared/canvas-math";
@@ -499,9 +500,6 @@ describe("board surface pointer capture", () => {
     );
     expect(shouldBoardSurfaceCapturePointerEvents({ tool: "pen" })).toBe(false);
     expect(shouldBoardSurfaceCapturePointerEvents({ tool: "comment" })).toBe(
-      false,
-    );
-    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "draw" })).toBe(
       false,
     );
   });

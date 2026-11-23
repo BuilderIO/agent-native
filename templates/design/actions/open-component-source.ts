@@ -35,6 +35,7 @@ async function liveContent(
 }
 
 export default defineAction({
+  allowsAgentNavigation: true,
   description:
     "Navigate to a component's source: for inline/Alpine designs, selects " +
     "the component root in the editor and returns the design file as the " +
@@ -72,7 +73,7 @@ export default defineAction({
         : eq(schema.designFiles.filename, "index.html"),
     ];
 
-    const [file] = await db
+    const files = await db
       .select({
         id: schema.designFiles.id,
         designId: schema.designFiles.designId,
@@ -86,8 +87,14 @@ export default defineAction({
       )
       .where(and(...conditions))
       .limit(1);
+    const file = files.length > 0 ? files[0] : undefined;
 
-    if (!file) throw new Error("Design HTML file not found.");
+    if (!file) {
+      fail("Design HTML file not found.", {
+        errorCode: "source_file_not_found",
+        statusCode: 404,
+      });
+    }
 
     const html = await liveContent(file.id, file.content ?? "");
 
@@ -106,15 +113,23 @@ export default defineAction({
       componentNodeIdMatches(n, nodeId),
     );
     if (!node) {
-      throw new Error(
-        `Node "${nodeId}" not found. Run get-code-layer-projection to list current ids.`,
+      fail(
+        "That component is no longer on this screen. Reselect it and try again.",
+        {
+          errorCode: "component_node_not_found",
+          statusCode: 404,
+        },
       );
     }
 
     const componentName = componentNameFor(node);
     if (!componentName) {
-      throw new Error(
-        `Node "${nodeId}" is not a component root (no data-agent-native-component attribute).`,
+      fail(
+        "The selected element is not a component, so it has no source to open.",
+        {
+          errorCode: "not_component_root",
+          statusCode: 400,
+        },
       );
     }
 

@@ -18,7 +18,7 @@ export default defineAction({
     url: z.string().optional().describe("Alias for --pageId"),
   }),
   http: { method: "POST" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const documentId = resolveDocumentId(args);
     const pageIdOrUrl = args.pageId || args.pageIdOrUrl || args.url;
 
@@ -26,8 +26,10 @@ export default defineAction({
       throw new Error("documentId and pageId are required");
     }
 
-    const owner = await getNotionDocumentOwner(documentId);
+    const owner = await getNotionDocumentOwner(documentId, {
+      requireOwner: true,
+    });
     await flushNotionDocumentEditor(documentId, owner);
-    return linkDocumentToNotionPage(owner, documentId, pageIdOrUrl);
+    return linkDocumentToNotionPage(owner, documentId, pageIdOrUrl, ctx);
   },
 });

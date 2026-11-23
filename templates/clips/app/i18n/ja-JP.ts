@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "録画を参照…",
+    group: "録画",
+    authentication: "参照を追加するにはログインしてください。",
+    invalid: "送信する前に有効な参照を選択してください。",
+    unavailable:
+      "選択した参照は利用できなくなりました。削除するか、もう一度選択してください。",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "回答欄のサイズを変更、または閉じる",
   },
@@ -225,7 +233,6 @@ const messages = {
     spaces: "スペース",
     meetings: "ミーティング",
     dictate: "ディクテーション",
-    fromContent: "Content から",
     archive: "アーカイブ",
     trash: "ゴミ箱",
     agent: "エージェント",
@@ -281,10 +288,6 @@ const messages = {
     archive: {
       title: "アーカイブした録画はありません",
       body: "アーカイブした Clips は、戻すまでここに保管されます。",
-    },
-    fromContent: {
-      title: "Content からのアップロードはまだありません",
-      body: "Content のページにアップロードした動画は、Clips としてここに保存されます。",
     },
     trash: {
       title: "ゴミ箱は空です",
@@ -621,6 +624,8 @@ const messages = {
     them: "彼ら",
     me: "自分",
     regeneratingNotes: "要約を再生成中",
+    notesAlreadyGenerating:
+      "要約はすでに生成中です。完了するとここに表示されます。",
     meetingRemoved: "会議が削除されました",
     couldNotRemoveMeeting: "会議を削除できませんでした",
     couldNotLoadMeeting: "この会議を読み込めませんでした。",
@@ -646,6 +651,14 @@ const messages = {
     desktopHint:
       "メモを開始するには、メニューバーから Clips Desktop を開いて Start Meeting Notes を選ぶか、リマインダーが表示されたら Start notes をクリックします。Clips はマイクとシステム音声を取り込み、ここに文字起こしを書き込みます。",
     getDesktopApp: "デスクトップアプリを入手",
+    earlierAudioAdded_one: "開始前の {{count}} 分を追加しました",
+    earlierAudioAdded_other: "開始前の {{count}} 分を追加しました",
+    earlierAudioUnreadable:
+      "この文字起こしに開始前の音声が含まれているか確認できませんでした",
+    removeEarlierAudioTitle: "開始前の音声を削除しますか?",
+    removeEarlierAudioDescription:
+      "文字起こしから削除し、要約、アクションアイテム、クリップの説明を作り直します。説明をご自身で書いた場合も作り直されます。自動生成タイトルも作り直されますが、ご自身で選んだタイトルはそのまま残ります。チャプターも削除されます。",
+    couldNotRemoveEarlierAudio: "開始前の音声を削除できませんでした",
     generateNotesFailed:
       "要約を生成できませんでした。もう一度やり直してください。",
     attendee_one: "{{count}} 出席者",
@@ -698,6 +711,10 @@ const messages = {
     noMatches: "一致はありません。",
     noTranscript: "まだトランスクリプトはありません。",
     noTranscriptCaptured: "記録はキャプチャされませんでした。",
+    unreadableDescription:
+      "保存されている文字起こしが破損しています。再生成すると、クリップの音声から新しい文字起こしが作成されます。",
+    partialTranscript:
+      "一部のみの文字起こし: 録画が途中で途切れたため、欠けている部分があるかもしれません。",
     backupFailed:
       "ローカルで音声がキャプチャされておらず、バックアップの文字起こしが完了していません。再試行するか、マイクと音声の許可を確認してください。",
     backupNotSetup:
@@ -780,6 +797,10 @@ const messages = {
     saveThumbnail: "サムネイルを保存",
   },
   shareDialog: {
+    enterPassword: "パスワードを入力",
+    showPassword: "パスワードを表示",
+    hidePassword: "パスワードを非表示",
+    copyPassword: "パスワードをコピー",
     redactionsPendingTitle: "共有前にマスキングを適用",
     redactionsPendingBody:
       "未適用のマスキング: {{count}} 件。共有前にエディターで適用してください。動画には元の内容が残っています。",
@@ -805,7 +826,7 @@ const messages = {
     openInCodex: "Codex で開く",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:
-      "このClipsエージェントコンテキストURLを読み取ってください: {{agentContextUrl}}。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。バグ報告ではbrowserDiagnosticsがあれば確認してください。ツールが画像を返せない、またはこれらのリンクを開けない場合は、ツール側の制限であり、Clipsのエラーではないと伝えてください。",
+      "このClipsエージェントコンテキストURLを読み取ってください: {{agentContextUrl}}。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。バグ報告ではbrowserDiagnosticsがあれば確認してください。フレームのURLを画像として開けない場合は、利用可能であれば、このコンテキストURLの録画IDを指定してClipsのget-recording-framesツールを呼び出してください。利用できない場合は、{{connectUrl}} でClipsを接続するとフレームを確認できるようになると、ユーザーに伝えてください。",
     agentTokenDescription:
       "このクリップは非公開のため、エージェント用の一時的な読み取り専用リンクです。2 時間で期限切れになります。",
     agentPublicDescription:
@@ -1166,6 +1187,11 @@ const messages = {
     reconnect: "再接続",
     connectedAs: "{{account}} として接続中",
     needsReconnect: "{{account}} の再接続が必要です。",
+    calendarsDescription:
+      "Clips はオンにしたカレンダーのミーティングを表示します。",
+    mainCalendar: "メインカレンダー",
+    showCalendar: "{{calendar}} のミーティングを表示",
+    calendarsLoadFailed: "このアカウントのカレンダーを読み込めませんでした。",
     disconnectFailed: "カレンダーの接続を解除できませんでした。",
     disconnectCalendarDescription:
       "Clips は {{account}} の今後のミーティングの同期を停止します。",
@@ -1270,6 +1296,44 @@ const messages = {
     startChatAction: "チャットを開始",
     trackInDashboard: "ダッシュボードで追跡",
     chooseDashboardAction: "ダッシュボードを選択",
+  },
+  libraryFilters: {
+    source: "追加元",
+    sourceShort: "追加元",
+    sourceClips: "Clips で録画",
+    sourceContent: "Content のページからアップロード",
+    sourceAll: "すべての追加元",
+    madeBy: "作成者",
+    madeByPerson: "人",
+    madeByAgent: "エージェント",
+    created: "作成日",
+    sharing: "共有",
+    sharingPrivate: "非公開",
+    sharingOrg: "組織",
+    sharingPublic: "公開",
+    sharingShared: "誰かと共有済み",
+    sharingNotShared: "誰とも共有していない",
+    length: "長さ",
+    lengthUnder1m: "1 分未満",
+    length1To5m: "1〜5 分",
+    length5To20m: "5〜20 分",
+    lengthOver20m: "20 分超",
+    tag: "タグ",
+    tagOne: "タグ",
+    tagOther: "タグ",
+    transcript: "文字起こし",
+    transcriptYes: "文字起こしあり",
+    transcriptNo: "文字起こしなし",
+    items: "クリップ",
+    matchCount_one: "{{count}} 件のクリップが一致",
+    matchCount_other: "{{count}} 件のクリップが一致",
+    showCount_one: "{{count}} 件のクリップを表示",
+    showCount_other: "{{count}} 件のクリップを表示",
+    emptyTitle: "これらのフィルターに一致するクリップはありません",
+    emptyBody:
+      "フィルターを変更またはクリアすると、ほかのクリップが表示されます。",
+    showAll: "すべての追加元のクリップを表示",
+    clear: "フィルターをクリア",
   },
   libraryGrid: {
     spaceRoot: "スペースのルート",
@@ -1532,6 +1596,7 @@ const messages = {
   transcriptBubbles: {
     listening: "聞き取り中…",
     noTranscript: "文字起こしはまだありません。",
+    unreadable: "この文字起こしを読み込めませんでした。",
     liveTranscriptDescription:
       "ノートが始まるとライブ文字起こしがここに表示されます。",
     me: "自分",
@@ -2026,6 +2091,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "無料クリップの残り {{count}} 本",
     freeClipsLeft_other: "無料クリップの残り {{count}} 本",
+    activateBuilder: "Builder.io を有効にする",
     hostedClipsExhaustedTitle: "Builder.io に無料で接続して録画を続ける",
     hostedClipsExhaustedDescription:
       "無料のホスト録画枠を使い切りました。Builder.io ストレージに接続すると、ライブラリへのクリップ保存を続けられます。",
@@ -2238,6 +2304,13 @@ const messages = {
     flowOriginalTranscript: "元の文字起こしを表示",
     flowCleanupSkipped: "テキストの整理を省略し、元の文章を保持しました",
     flowBacktrackSkipped: "テキスト編集を省略し、認識した文章を保持しました",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet は未ダウンロード",
+    flowAppleSpeechParakeetDownloading:
+      "Apple Speech · Parakeet をダウンロード中",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet を読み込み中",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet は使用中",
+    flowAppleSpeechParakeetFailed:
+      "Apple Speech · Parakeet を読み込めませんでした",
     flowCancelDictation: "音声入力をキャンセル",
     flowCopying: "文字起こしをコピーしています…",
     aiProcessed: "AI処理済み",
@@ -2377,7 +2450,6 @@ const messages = {
     goHome: "ホームへ移動",
     testMic: "マイクをテスト",
     archivePageTitle: "アーカイブ · Clips",
-    fromContentPageTitle: "Content から · Clips",
     openContentPage: "ページを開く",
     insightsPageTitle: "インサイト · Clips",
     folderPageTitle: "フォルダー · Clips",

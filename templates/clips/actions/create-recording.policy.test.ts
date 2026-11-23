@@ -115,6 +115,7 @@ vi.mock("../server/lib/source-fingerprint.js", () => ({
     calls.findUploadedSource(...args),
 }));
 
+import { personStartedContext } from "../server/lib/recording-made-by.js";
 import { S3MultipartStartError } from "../server/lib/s3-upload-provider.js";
 import createRecording, {
   classifyInitialUploadFailure,
@@ -362,6 +363,107 @@ describe("create-recording policy", () => {
     );
   });
 
+  it("records an agent's Clip as made by that agent, on the agent platform", async () => {
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: Record<string, unknown>,
+      ) => Promise<unknown>;
+    };
+
+    await action.run(
+      { id: "rec-1", recordingSource: "agent_upload" },
+      {
+        userEmail: "owner@example.com",
+        caller: "mcp",
+        mcpClient: { name: "claude-code" },
+      },
+    );
+
+    expect(calls.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        madeBy: "agent",
+        madeByAgent: "Claude",
+        recordingPlatform: "agent",
+      }),
+    );
+    expect(calls.track).toHaveBeenCalledWith(
+      "recording_created",
+      expect.objectContaining({
+        recording_platform: "agent",
+        recording_source: "agent_upload",
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("records a person's recording as theirs and keeps its recorder platform", async () => {
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: Record<string, unknown>,
+      ) => Promise<unknown>;
+    };
+
+    await action.run(
+      { id: "rec-1", recordingPlatform: "web" },
+      { userEmail: "owner@example.com", caller: "frontend" },
+    );
+
+    expect(calls.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        madeBy: "person",
+        madeByAgent: null,
+        recordingPlatform: "web",
+      }),
+    );
+  });
+
+  it("records a Content page upload as a person's though it arrives over A2A", async () => {
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: Record<string, unknown>,
+      ) => Promise<unknown>;
+    };
+
+    await action.run(
+      { id: "rec-1", recordingSource: "file_upload" },
+      personStartedContext({
+        userEmail: "owner@example.com",
+        caller: "a2a",
+        networkProtocol: "a2a",
+      }),
+    );
+
+    expect(calls.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        madeBy: "person",
+        madeByAgent: null,
+        recordingPlatform: "unknown",
+      }),
+    );
+  });
+
+  it("leaves who made it unrecorded when the call doesn't say", async () => {
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: Record<string, unknown>,
+      ) => Promise<unknown>;
+    };
+
+    await action.run({ id: "rec-1" }, { userEmail: "owner@example.com" });
+
+    expect(calls.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        madeBy: null,
+        madeByAgent: null,
+        recordingPlatform: "unknown",
+      }),
+    );
+  });
+
   it("refuses another account's file before looking up its fingerprint", async () => {
     const action = createRecording as unknown as {
       run: (
@@ -476,6 +578,7 @@ describe("create-recording policy", () => {
     expect(calls.releaseReservation).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "user-1",
+      reason: "create_failed",
     });
     expect(calls.insert).not.toHaveBeenCalled();
   });
@@ -582,6 +685,7 @@ describe("create-recording policy", () => {
     expect(calls.releaseReservation).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "user-1",
+      reason: "create_failed",
     });
   });
 
@@ -674,6 +778,7 @@ describe("create-recording policy", () => {
     expect(calls.releaseReservation).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "user-1",
+      reason: "create_failed",
     });
   });
 
@@ -784,6 +889,7 @@ describe("create-recording policy", () => {
     expect(calls.releaseReservation).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "user-1",
+      reason: "create_failed",
     });
   });
 

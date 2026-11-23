@@ -11,12 +11,17 @@ import {
   getRequestUserEmail,
   getRequestUserName,
 } from "@agent-native/core/server";
+import { resolveMcpClientHostId } from "@agent-native/core/shared/mcp-connect-content";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveCommentBlocksField } from "../server/lib/comment-blocks-field.js";
+import {
+  attachableCommentImages,
+  commentWriteByAgent,
+} from "../server/lib/comment-images.js";
 import {
   assertMentionsInText,
   submittedCommentMentions,
@@ -30,6 +35,11 @@ import {
   type CommentAnchorBlockType,
 } from "../shared/comment-block-anchor.js";
 import {
+  MAX_COMMENT_IMAGES,
+  MAX_SUBMITTED_COMMENT_IMAGES,
+  serializeStoredCommentImages,
+} from "../shared/comment-images.js";
+import {
   personMentions,
   readStoredCommentMentions,
   serializeStoredCommentMentions,
@@ -41,6 +51,7 @@ import {
   enqueueCommentWebhooks,
   scheduleContentWebhookDelivery,
 } from "./_content-webhooks.js";
+import { assertAgentsMayCommentOnPage } from "./_document-agent-lock.js";
 import {
   listPropertiesForAllDocumentDatabases,
   listPropertiesForDocument,
@@ -126,7 +137,7 @@ const commentSchema = z.object({
     .max(200)
     .optional()
     .describe(
-      "Block ID, to start a thread on a whole block, such as a video, instead of on text. A video's ID is the id attribute of its <video> tag in get-document's content; give a video without one an id with edit-document first. In a Blocks field tab, pass fieldId too. Not used with quotedText, the anchor fields, propertyId, or on replies.",
+      "Block ID, to start a thread on a whole block, such as a video, instead of on text. A video's ID is the id attribute of its <video> tag in get-document's content; give a video without one an id with edit-document first. An image or audio clip has no id in the content, so only a person can start a thread on one. In a Blocks field tab, pass fieldId too. Not used with quotedText, the anchor fields, propertyId, or on replies.",
     ),
   blockType: z
     .enum(COMMENT_ANCHOR_BLOCK_TYPES)
@@ -137,6 +148,13 @@ const commentSchema = z.object({
     .optional()
     .describe(
       'JSON-encoded mentions, one per @name in text order (one entry covers a person named again). People: {"email":"a@x.com","name":"A"}; agents: {"kind":"agent","model":"<model id>","name":"<label>"}. A malformed list, or an entry no @name in the text reaches, is rejected with a 400.',
+    ),
+  attachments: z
+    .array(z.unknown())
+    .max(MAX_SUBMITTED_COMMENT_IMAGES)
+    .optional()
+    .describe(
+      `Up to ${MAX_COMMENT_IMAGES} images, each { url, name, contentType } as uploaded to this page through the comment box, which only a signed-in person can do. Each must be one the caller uploaded to this page; an agent can't attach images.`,
     ),
 });
 
@@ -163,6 +181,7 @@ const RETRY_VARIABLE_KEYS = new Set([
   "submissionThreadId",
   "authorModel",
   "authorEffort",
+  "authorClient",
   "propertyName",
   "propertyValue",
   "fieldName",
@@ -198,9 +217,9 @@ async function commentTargetDoc(
  * The type of the block a new thread is on. An id more than one video goes
  * by names none of them, so no caller starts a thread on it. A caller without
  * a live editor names a block it read from the saved page, so a block that
- * isn't there is a mistake to report, as is a video known only by its derived
- * id: that id passes to another video when videos with its source are added
- * or reordered outside an editor. A person's editor can be ahead of the save,
+ * isn't there is a mistake to report, as is a block known only by its derived
+ * id, as every image and audio clip is: that id passes to another block when
+ * blocks with its source are added or reordered outside an editor. A person's editor can be ahead of the save,
  * so their thread is kept as they started it, and shows as unanchored if the
  * block never arrives.
  */
@@ -221,7 +240,9 @@ async function resolveCommentBlockType(args: {
   if (!args.strict && named) return named;
   if (found && !found.saved) {
     fail(
-      "That video has no id saved in the page yet; give its <video> tag a new unique id with edit-document, then comment with that id",
+      found.blockType === "video"
+        ? "That video has no id saved in the page yet; give its <video> tag a new unique id with edit-document, then comment with that id"
+        : "An image or audio clip goes by an id derived from its file, which the page doesn't save, so only a person can start a thread on one; quote text beside it instead",
       { statusCode: 400, errorCode: "comment_block_id_unsaved" },
     );
   }
@@ -370,6 +391,14 @@ export async function addCommentWithGuard(
   const mentions = submittedCommentMentions(args.mentions ?? []);
   assertMentionsInText(content, mentions);
   const mentionsJson = serializeStoredCommentMentions(mentions);
+  const images = args.attachments?.length
+    ? await attachableCommentImages({
+        documentId,
+        userEmail: email,
+        images: args.attachments,
+        byAgent: commentWriteByAgent(ctx),
+      })
+    : [];
   const submissionSource = commentSubmissionSource(ctx?.caller);
   const submissionRunId = ctx?.runId ?? null;
   const submissionThreadId =
@@ -499,6 +528,7 @@ export async function addCommentWithGuard(
     blockId: blockId ?? null,
     blockType,
     mentionsJson,
+    attachmentsJson: serializeStoredCommentImages(images),
     authorEmail: email,
     authorName: name,
     submissionSource,
@@ -507,6 +537,10 @@ export async function addCommentWithGuard(
     actorKind,
     authorModel,
     authorEffort,
+    authorClient:
+      actorKind === "agent" && submissionSource === "mcp"
+        ? (resolveMcpClientHostId(ctx?.mcpClient) ?? null)
+        : null,
   };
 
   let webhookEvents = 0;
@@ -573,11 +607,16 @@ export async function addCommentWithGuard(
         { statusCode: 400, errorCode: "comment_quote_not_found" },
       );
     }
-    await assertAccess("document", documentId, "commenter", {
+    const current = await assertAccess("document", documentId, "commenter", {
       userEmail: email,
-      orgId: ctx?.orgId ?? undefined,
+      ...(ctx?.orgId != null ? { orgId: ctx.orgId } : {}),
       transaction: getDbExec(),
     });
+    // After the receipt, so a retry of a comment that landed first replays.
+    assertAgentsMayCommentOnPage(
+      current.resource as { agentTextLocked?: number | null },
+      ctx,
+    );
     if (args.threadId && args.parentId) {
       const [root] = await tx
         .select()
@@ -667,6 +706,7 @@ export async function addCommentWithGuard(
     submissionSource,
     content,
     mentions: personMentions(mentions),
+    imageCount: images.length,
     isReply: Boolean(parentId ?? args.threadId),
   });
 
@@ -674,6 +714,7 @@ export async function addCommentWithGuard(
 }
 
 export default defineAction({
+  searchHints: ["leave a comment", "comment on text", "annotate"],
   description:
     "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. To reply, provide both threadId and parentId; omit both to start a thread. A new thread with no quotedText, propertyId, or blockId is a comment on the whole page; it shows in the page's Discussion. Pass blockId to start a thread on a whole video. Pass fieldId to start a thread in a Blocks field tab other than the page body.",
   deferLoading: false,

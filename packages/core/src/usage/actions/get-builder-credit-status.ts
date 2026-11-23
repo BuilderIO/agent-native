@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import {
   describeChatCredentialState,
   type CredentialState,
@@ -10,6 +10,7 @@ import {
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
 import { getAppConfig } from "../../app-config/index.js";
+import { commercialSurfacesHidden } from "../../client/app-config.js";
 import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 import { getBuilderCreditUsage } from "../../server/fusion-app.js";
 import { getRequestOrgId } from "../../server/request-context.js";
@@ -34,11 +35,16 @@ export default defineAction({
     /** The engine the user picked in the chat composer, if they picked one. */
     engine: z.string().optional(),
   }),
+  mcpTool: false,
   run: async ({ orgId, engine: chosenEngine }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     const activeOrgId = getRequestOrgId() ?? null;
-    if (orgId !== undefined && orgId !== activeOrgId) {
-      throw new Error("The active organization changed. Please retry.");
+    const requestedOrgId = orgId === "" ? null : orgId;
+    if (requestedOrgId !== undefined && requestedOrgId !== activeOrgId) {
+      fail("The active organization changed. Please retry.", {
+        errorCode: "builder_credit_org_mismatch",
+        statusCode: 409,
+      });
     }
 
     const canViewWorkspace = await canViewWorkspaceUsage({
@@ -95,7 +101,9 @@ export default defineAction({
       state,
       exhausted: state.kind === "exhausted",
       period: usage.quota.period,
-      ...(canViewWorkspace
+      // Where commercial surfaces are hidden, the chat-blocking state still
+      // reports, but no credit balance or quota amount does.
+      ...(canViewWorkspace && !commercialSurfacesHidden()
         ? { balance: usage.balance, quota: usage.quota }
         : {}),
     };

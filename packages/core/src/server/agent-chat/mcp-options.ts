@@ -16,6 +16,8 @@ export interface AgentChatMcpOptions {
   enabled?: boolean;
   catalog?: "app" | "directory";
   connectorCatalog?: string[];
+  taskCandidates?: MCPConfig["taskCandidates"];
+  readOnlyResources?: boolean;
   directoryProfile?: {
     connectorCatalog: string[];
     directoryRoute?: false;
@@ -97,6 +99,8 @@ export interface ResolvedAgentChatMcp {
   enabled: boolean;
   catalog: "app" | "directory" | undefined;
   connectorCatalog: string[] | undefined;
+  taskCandidates: MCPConfig["taskCandidates"];
+  readOnlyResources: boolean | undefined;
   directoryProfile: AgentChatMcpOptions["directoryProfile"] | undefined;
   externalAgents: ExternalAgentPolicy | undefined;
   builtinCrossAppTools: boolean | undefined;
@@ -147,6 +151,23 @@ function pick<T>(
   return nestedValue ?? legacyValue;
 }
 
+function warnIfWritesAskAppOnly(policy: ExternalAgentPolicy | undefined) {
+  if (!policy || warnedLegacyKeys.has("externalAgents.writes")) return;
+  const explicit = policy.writes === "ask_app_only";
+  const implied =
+    policy.authenticatedReads === "auto" && policy.writes === undefined;
+  if (!explicit && !implied) return;
+  warnedLegacyKeys.add("externalAgents.writes");
+  const setting = explicit
+    ? '`externalAgents.writes: "ask_app_only"`'
+    : '`externalAgents.authenticatedReads: "auto"` without `writes: "allowlisted"`';
+  console.warn(
+    `[agent-native] ${setting} sends every write through ask_app, which is deprecated. ` +
+      `Decide each write on its action instead: \`mcpTool: false\` keeps it in the app, where outside ` +
+      `agents reach it through ask_app, and \`mcpTool: true\` or \`"search"\` serves it to them directly.`,
+  );
+}
+
 export function resolveAgentChatMcpOptions(
   input: AgentChatMcpLegacyInput | undefined,
 ): ResolvedAgentChatMcp {
@@ -175,18 +196,22 @@ export function resolveAgentChatMcpOptions(
         `external surface, or drop it and keep \`catalog: "app"\` — not both.`,
     );
   }
+  const externalAgents = pick(
+    "externalAgents",
+    "externalAgents",
+    input?.externalAgents,
+    mcp.externalAgents,
+  );
+  warnIfWritesAskAppOnly(externalAgents);
 
   return {
     enabled: enabled ?? true,
     catalog: mcp.catalog,
     connectorCatalog,
+    taskCandidates: mcp.taskCandidates,
+    readOnlyResources: mcp.readOnlyResources,
     directoryProfile: mcp.directoryProfile,
-    externalAgents: pick(
-      "externalAgents",
-      "externalAgents",
-      input?.externalAgents,
-      mcp.externalAgents,
-    ),
+    externalAgents,
     builtinCrossAppTools: mcp.builtinCrossAppTools,
     title: pick("title", "mcpServerInfo.title", legacyInfo?.title, mcp.title),
     description: pick(

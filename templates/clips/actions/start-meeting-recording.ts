@@ -14,6 +14,7 @@ import {
   meetingRecordingReference,
 } from "../server/lib/meeting-recording-access.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
+import { recordingMadeBy } from "../server/lib/recording-made-by.js";
 import {
   getCurrentOwnerEmail,
   getActiveOrganizationId,
@@ -29,7 +30,8 @@ export default defineAction({
     hasCamera: z.boolean().optional().default(false),
     hasAudio: z.boolean().optional().default(true),
   }),
-  run: async (args) => {
+  mcpTool: false,
+  run: async (args, actionContext) => {
     let meetingId = args.meetingId;
     if (parseCalendarMeetingId(args.meetingId)) {
       const materialized = await materializeCalendarMeetingFromVirtualId(
@@ -93,6 +95,7 @@ export default defineAction({
       // Meeting recordings are captured by the desktop app's native macOS
       // transcript stream; it is this action's only caller.
       recordingPlatform: "desktop",
+      ...recordingMadeBy(actionContext),
       status: "uploading",
       ownerEmail,
       orgId: orgId ?? null,

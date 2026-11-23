@@ -12,19 +12,7 @@ import {
 } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import {
-  getGenerationCreativeContext,
-  recordGenerationCreativeContext,
-  replaceCreativeContextElementProvenance,
-  resolveGenerationCreativeContext,
-  validateCreativeContextReuseLabels,
-  validateGenerationCreativeContext,
-} from "@agent-native/creative-context/server";
-import type {
-  CreativeContextElementProvenance,
-  CreativeContextReuseLabel,
-} from "@agent-native/creative-context/types";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -32,6 +20,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { trackDesign } from "../server/lib/design-tracking.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { readDesignDataForUpdate } from "../server/lib/screen-frame-type-store.js";
 import {
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
@@ -59,6 +48,7 @@ import {
   getOverviewScreenFileIds,
   isOverviewScreenFile,
 } from "../shared/design-files.js";
+import { parseDesignDataBlob } from "../shared/full-app.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { DESIGN_GENERATION_ATTEMPT_QUERY_PARAM } from "../shared/generation-provenance.js";
 import {
@@ -73,8 +63,11 @@ import {
   inspectDesignHtmlDocumentIntegrity,
   isDesignHtmlIntegrityError,
 } from "../shared/html-integrity.js";
-import { assertHubSpotEmailFrameContent } from "../shared/hubspot-email-authoring.js";
-import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
+import { assertHubSpotEmailFileType } from "../shared/hubspot-email-authoring.js";
+import {
+  HUBSPOT_EMAIL_FRAME_TYPE,
+  isHubSpotEmailHtml,
+} from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { derivePromptTitle } from "../shared/prompt-title.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
@@ -88,6 +81,10 @@ import {
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
 import { annotateAgentScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import {
+  storedScreenFrameType,
+  withScreenFrameTypeLayout,
+} from "../shared/screen-frame-type.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 import { withGenerationAttempt } from "./_generation-tracking.js";
 
@@ -106,6 +103,11 @@ function designDeepLink(
     },
   });
 }
+
+// PostgreSQL trim and [:space:] do not match String.prototype.trim, so the
+// class lists exactly the characters trim removes.
+const NON_WHITESPACE_SOURCE_PATTERN =
+  "[^\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]";
 
 function isRenderableDesignFile(file: {
   fileType?: string | null;
@@ -188,34 +190,6 @@ function isFixedCanvasFormatConversion(prompt: string): boolean {
   );
 }
 
-const reuseLabelSchema = z
-  .object({
-    itemId: z.string().min(1).optional(),
-    itemVersionId: z.string().min(1).optional(),
-    kind: z.string().min(1),
-    label: z.string().min(1),
-    dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
-    elementId: z.string().min(1).optional(),
-    influence: z
-      .enum(["reused", "adapted", "reference-conditioned", "generated"])
-      .optional(),
-  })
-  .superRefine((label, context) => {
-    const influence = label.influence ?? "reference-conditioned";
-    if (Boolean(label.itemId) !== Boolean(label.itemVersionId)) {
-      context.addIssue({
-        code: "custom",
-        message: "itemId and itemVersionId must be provided together",
-      });
-    }
-    if (influence !== "generated" && !label.itemId) {
-      context.addIssue({
-        code: "custom",
-        message: "Only generated labels may omit context item ids",
-      });
-    }
-  });
-
 function classifyBreakpointSet(
   value: unknown,
 ): "absent" | "malformed" | "present" {
@@ -249,142 +223,9 @@ function withGenerationSessionLock<T>(
   return next;
 }
 
-interface DesignCreativeContextProvenance {
-  contextMode: "off" | "auto" | "pinned";
-  contextPackId: string | null;
-  reuseLabels: CreativeContextReuseLabel[];
-}
-
-async function resolveDesignCreativeContext(input: {
-  prompt: string;
-  generationSession: DesignGenerationSession | null;
-  contextPackId?: string;
-  contextModeOverride?: "off";
-  reuseLabels: CreativeContextReuseLabel[];
-}): Promise<DesignCreativeContextProvenance> {
-  if (input.contextModeOverride === "off") {
-    const validated = await validateGenerationCreativeContext({
-      contextPackId: input.contextPackId,
-      contextModeOverride: "off",
-      reuseLabels: input.reuseLabels,
-    });
-    return {
-      contextMode: validated.contextMode,
-      contextPackId: validated.contextPackId,
-      reuseLabels: validated.reuseLabels,
-    };
-  }
-
-  const sessionContext = input.generationSession?.creativeContext;
-  if (sessionContext) {
-    if (
-      input.contextPackId !== undefined &&
-      input.contextPackId !== sessionContext.contextPackId
-    ) {
-      throw new NoWriteError(
-        "generate-design must preserve the generation session's creative-context pack",
-      );
-    }
-    const requestedLabels = input.reuseLabels.length
-      ? input.reuseLabels
-      : sessionContext.reuseLabels;
-    if (!sessionContext.contextPackId) {
-      return {
-        contextMode: sessionContext.contextMode,
-        contextPackId: null,
-        reuseLabels: validateCreativeContextReuseLabels(requestedLabels, {
-          generatedOnly: true,
-        }),
-      };
-    }
-    const validated = await validateGenerationCreativeContext({
-      contextPackId: sessionContext.contextPackId,
-      contextPackSource: "inherited",
-      reuseLabels: requestedLabels,
-      reuseLabelsSource: input.reuseLabels.length ? "explicit" : "inherited",
-    });
-    return {
-      contextMode: sessionContext.contextMode,
-      contextPackId: validated.contextPackId,
-      reuseLabels: validated.reuseLabels,
-    };
-  }
-
-  if (input.contextPackId) {
-    const validated = await validateGenerationCreativeContext({
-      contextPackId: input.contextPackId,
-      reuseLabels: input.reuseLabels.length ? input.reuseLabels : undefined,
-    });
-    return {
-      contextMode: validated.contextMode,
-      contextPackId: validated.contextPackId,
-      reuseLabels: validated.reuseLabels,
-    };
-  }
-
-  const resolved = await resolveGenerationCreativeContext({
-    query: input.prompt,
-    role: "design",
-  });
-  if (!input.reuseLabels.length) {
-    return {
-      contextMode: resolved.contextMode,
-      contextPackId: resolved.contextPackId,
-      reuseLabels: resolved.reuseLabels,
-    };
-  }
-  const validated = await validateGenerationCreativeContext({
-    contextPackId: resolved.contextPackId,
-    reuseLabels: input.reuseLabels,
-  });
-  return {
-    contextMode: validated.contextMode,
-    contextPackId: validated.contextPackId,
-    reuseLabels: validated.reuseLabels,
-  };
-}
-
-function provenanceForSavedFiles(
-  savedFiles: readonly { id: string; filename: string }[],
-  generationSession: DesignGenerationSession | null,
-  reuseLabels: readonly CreativeContextReuseLabel[],
-): CreativeContextElementProvenance[] {
-  return savedFiles.flatMap((file) => {
-    const frame = generationSession?.frames.find(
-      (candidate) => candidate.filename === file.filename,
-    );
-    const elementId = frame?.frameId ?? file.id;
-    const labels = reuseLabels.filter(
-      (label) =>
-        !label.elementId ||
-        label.elementId === file.id ||
-        label.elementId === file.filename ||
-        label.elementId === frame?.frameId,
-    );
-    if (!labels.length) {
-      return [
-        {
-          elementId,
-          influence: "generated" as const,
-          label: file.filename,
-        },
-      ];
-    }
-    return labels.map((label) => ({
-      elementId,
-      influence: label.influence ?? ("reference-conditioned" as const),
-      ...(label.itemId ? { itemId: label.itemId } : {}),
-      ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
-      label: label.label,
-    }));
-  });
-}
-
 async function finalizeGenerationForSavedFiles(
   designId: string,
   savedFiles: readonly { id: string; filename: string }[],
-  generationSession: DesignGenerationSession | null,
-  creativeContext: DesignCreativeContextProvenance,
 ) {
   await withGenerationSessionLock(designId, async () => {
     const key = designGenerationSessionKey(designId);
@@ -404,35 +245,6 @@ async function finalizeGenerationForSavedFiles(
         }
       }
     }
-
-    const nextElementProvenance = provenanceForSavedFiles(
-      savedFiles,
-      generationSession,
-      creativeContext.reuseLabels,
-    );
-    const previous =
-      creativeContext.contextMode === "off"
-        ? null
-        : await getGenerationCreativeContext({
-            appId: "design",
-            artifactType: "design",
-            artifactId: designId,
-          });
-    const elementProvenance =
-      previous?.contextMode === creativeContext.contextMode &&
-      previous.contextPackId === creativeContext.contextPackId
-        ? replaceCreativeContextElementProvenance(
-            previous.elementProvenance,
-            nextElementProvenance,
-          )
-        : nextElementProvenance;
-    await recordGenerationCreativeContext({
-      appId: "design",
-      artifactType: "design",
-      artifactId: designId,
-      ...creativeContext,
-      elementProvenance,
-    });
   });
 }
 
@@ -446,6 +258,12 @@ const designFileSchema = z.object({
     .optional()
     .default("html")
     .describe("Type of file"),
+  frameType: z
+    .enum(["unspecified", HUBSPOT_EMAIL_FRAME_TYPE])
+    .optional()
+    .describe(
+      'Set "hubspot-email" only on a HubSpot marketing email HTML file. Omit or use "unspecified" for other files; this keeps any existing frame type and legacy email markers.',
+    ),
 });
 
 const canvasFrameSchema = z
@@ -483,29 +301,20 @@ const promptField = z
 
 const filesDescription =
   "Files to save. Pass one compact, complete, renderable index.html first, with a flat layer tree (no single-child wrapper divs) and whole-pixel lengths. " +
-  'For HubSpot email HTML author email-safe tables with `<meta name="agent-native:frame-type" content="hubspot-email">` in the head; the marker is not required for export. ' +
+  'For HubSpot email HTML author email-safe tables and set `frameType: "hubspot-email"` on the file. ' +
   "Do not use generate-design to replace a selected variant screen after a variant pick; snapshot that fileId and use edit-design instead.";
 
 const filesField = z.array(designFileSchema).min(1).describe(filesDescription);
-
-const designSystemIdField = z
-  .string()
-  .nullable()
-  .optional()
-  .describe(
-    "Optional design system ID used for generation. Pass null to unlink.",
-  );
-
-// The agent's copies of `designSystemId` and `tweaks` reject null and []. A
-// model that pads every field sends both for fields it is not using, and
-// accepted they would unlink the design system and replace its tweaks; rejected
-// they are dropped as placeholders. `update-design` unlinks.
-const agentDesignSystemIdField = z
-  .string()
-  .optional()
-  .describe(
-    "Optional design system ID used for generation. It cannot unlink a design system.",
-  );
+const runtimeFilesField = z
+  .array(
+    designFileSchema.extend({
+      frameType: designFileSchema.shape.frameType.transform((value) =>
+        value === "unspecified" ? undefined : value,
+      ),
+    }),
+  )
+  .min(1)
+  .describe(filesDescription);
 
 const projectTypeField = z
   .enum(["prototype", "other"])
@@ -564,29 +373,6 @@ const canvasFramesField = z
       "For screens with different exact sizes, make separate calls scoped to one screen each.",
   );
 
-const contextPackIdField = z
-  .string()
-  .optional()
-  .describe(
-    "Immutable creative-context pack. Omit to preserve the active generation session pack.",
-  );
-
-const contextModeOverrideField = z
-  .literal("off")
-  .optional()
-  .describe(
-    "Disable Creative Context for this generation only without changing the saved preference.",
-  );
-
-const reuseLabelsField = z
-  .array(reuseLabelSchema)
-  .optional()
-  .default([])
-  .describe(
-    "Optional exact item/version labels, with elementId set to a target filename or frame id when evidence applies to one screen. " +
-      "itemId and itemVersionId go together; only `generated` labels may omit them.",
-  );
-
 const primaryViewportField = z
   .enum(["mobile", "tablet", "desktop"])
   .optional()
@@ -605,9 +391,8 @@ const devicesField = z
       "in the original prompt always use no device breakpoints and ignore " +
       "this field. For a fixed-artwork inference without exact pixels or a " +
       "preset, honor variants explicitly named in the original prompt; omit " +
-      'to default to ["desktop","mobile"]. Pass [] for fixed artwork ' +
-      "without those named variants and for follow-ups on an existing " +
-      "fixed canvas. " +
+      'to default to ["desktop","mobile"]. An empty list is the same as ' +
+      "leaving it out; set `fixedCanvas: true` for one fixed canvas. " +
       "The result lists ignored model devices as `ignoredDevices`; give " +
       "each other exact size its own call. " +
       "One exact canvas size per call; prompts with multiple distinct exact sizes are rejected. " +
@@ -616,6 +401,18 @@ const devicesField = z
       "breakpoint frames — never a duplicate of the base width and never an " +
       "auto-added tablet. A single device yields one frame with no breakpoints. " +
       "When provided, this overrides primaryViewport.",
+  );
+
+const fixedCanvasField = z
+  .boolean()
+  .optional()
+  .describe(
+    "Set true for one fixed canvas with no device breakpoints: fixed " +
+      "artwork without device variants named in the original prompt, and " +
+      "later edits to an existing fixed canvas. It replaces `devices`, which " +
+      "are then listed in `ignoredDevices`. Exact pixels or a platform " +
+      "preset in the prompt pin the canvas without it. False or left out " +
+      "changes nothing.",
   );
 
 // Strings are still accepted for the CLI and older callers. A failure names the
@@ -651,10 +448,8 @@ const generateDesignAction = defineAction({
     "Do not use this action to replace a selected variant screen after a " +
     "variant pick; call `get-design-snapshot` for the selected `fileId` and " +
     "`edit-design` that same `fileId` instead. " +
-    "Before writing, use `designSystem.agentContext` from create-design or " +
-    "get-design-system, or call get-design-snapshot for an existing design; " +
-    "apply its tokens/docs before writing file content. Do not treat an id " +
-    "alone as enough design-system context. " +
+    "For an existing design, call get-design-snapshot and index-design-tokens " +
+    "and reuse its tokens before writing file content. " +
     "Every app or website UI must be responsive unless the user requests a " +
     "fixed canvas. Static artwork such as ads, banners, social posts, flyers, " +
     "and posters is one fixed canvas by default. Exact pixel dimensions or a " +
@@ -669,40 +464,35 @@ const generateDesignAction = defineAction({
     "duplicate desktop). Pass `devices` to honor the form factors the prompt " +
     "explicitly names — the widest becomes the base frame and the narrower " +
     "ones become breakpoint frames. Set `primaryViewport` for a mobile- or " +
-    "tablet-primary design when not passing `devices`. " +
+    "tablet-primary design when not passing `devices`, and `fixedCanvas: " +
+    "true` for one fixed canvas. " +
     "Do not report a design as ready until this action succeeds. " +
     "When adding multiple screens or states, pass canvasFrames with filenames " +
     "and numeric x/y/width/height so the new screens appear placed on the " +
-    "overview canvas. For HubSpot email output, author email-safe table HTML without browser runtimes, with the `agent-native:frame-type` meta marker in the head. Any HTML frame can be validated with export-hubspot-html before reporting compatibility.",
+    'overview canvas. For HubSpot email output, author email-safe table HTML without browser runtimes and set `frameType: "hubspot-email"` on the file. Any HTML frame can be validated with export-hubspot-html before reporting compatibility.',
   schema: z.object({
     designId: designIdField,
     prompt: promptField,
-    files: z.preprocess(jsonField("files"), filesField),
-    designSystemId: designSystemIdField,
+    files: z.preprocess(jsonField("files"), runtimeFilesField),
     projectType: projectTypeField,
     tweaks: z.preprocess(jsonField("tweaks"), tweaksField).optional(),
     canvasFrames: z
       .preprocess(jsonField("canvasFrames"), canvasFramesField)
       .optional(),
-    contextPackId: contextPackIdField,
-    contextModeOverride: contextModeOverrideField,
-    reuseLabels: z.preprocess(jsonField("reuseLabels"), reuseLabelsField),
     primaryViewport: primaryViewportField,
     devices: devicesField,
+    fixedCanvas: fixedCanvasField,
   }),
   agentInputSchema: z.object({
     designId: designIdField,
     prompt: promptField,
     files: filesField,
-    designSystemId: agentDesignSystemIdField,
     projectType: projectTypeField,
     tweaks: agentTweaksField,
     canvasFrames: canvasFramesField,
-    contextPackId: contextPackIdField,
-    contextModeOverride: contextModeOverrideField,
-    reuseLabels: reuseLabelsField,
     primaryViewport: primaryViewportField,
     devices: devicesField,
+    fixedCanvas: fixedCanvasField,
   }),
   mcpApp: {
     compactCatalog: true,
@@ -720,29 +510,33 @@ const generateDesignAction = defineAction({
     openWorldHint: false,
   },
   eagerInputStreaming: true,
-  // `devices: []` asks for a fixed canvas; the other lists add to what's there.
-  // GPT-6 Luna sends `[]` for every list it isn't using, beside padded nulls.
+  // Every list here adds to what's there, and `devices: []` means the same as
+  // leaving it out: GPT-6 Luna sends `[]` for every list it isn't using, beside
+  // padded nulls, so only `fixedCanvas: true` asks for a fixed canvas.
   emptyListsEraseNothing: true,
   run: withGenerationAttempt(async (input, context, attempt) => {
     const {
       designId,
       prompt,
       files,
-      designSystemId,
       projectType,
       tweaks,
       canvasFrames,
       primaryViewport,
-      devices,
-      contextPackId,
-      contextModeOverride,
-      reuseLabels,
+      fixedCanvas,
     } = input;
+    const modelDevices = input.devices ?? [];
+    // From here on, `[]` is the fixed canvas `fixedCanvas: true` asked for.
+    const devices = fixedCanvas
+      ? []
+      : modelDevices.length > 0
+        ? modelDevices
+        : undefined;
     const canvasIntent = resolveCanvasIntent(prompt);
     assertSingleCanvasOutput(canvasIntent);
     const promptCanvasDimensions =
       canvasIntent.kind === "fixed" ? canvasIntent.dimensions : undefined;
-    await assertAccess("design", designId, "editor");
+    const designAccess = await assertAccess("design", designId, "editor");
     const rawGenerationSession = (await readAppState(
       designGenerationSessionKey(designId),
       // coercion-ok: an unreadable session means generating without plan context.
@@ -766,7 +560,6 @@ const generateDesignAction = defineAction({
       designId,
       generationPath: fillsPlannedScreen ? "screens" : "generate_design",
       prompt,
-      hasReferenceDesignSystem: Boolean(designSystemId),
       properties: {
         prompt_type: "ui",
         source: "generate_design_action",
@@ -775,9 +568,6 @@ const generateDesignAction = defineAction({
           : {}),
       },
     });
-    if (designSystemId) {
-      await assertAccess("design-system", designSystemId, "viewer");
-    }
     const db = getDb();
     const now = new Date().toISOString();
 
@@ -800,57 +590,122 @@ const generateDesignAction = defineAction({
     }> = [];
     attempt.savedFileCount = () => savedFiles.length;
 
+    const requestedFilenames = files.map((file) => file.filename);
     const existingFiles = await db
-      .select()
+      .select({
+        id: schema.designFiles.id,
+        designId: schema.designFiles.designId,
+        filename: schema.designFiles.filename,
+        fileType: schema.designFiles.fileType,
+        content: sql<
+          string | null
+        >`case when ${inArray(schema.designFiles.filename, requestedFilenames)} then ${schema.designFiles.content} else null end`,
+        contentOperationSource: schema.designFiles.contentOperationSource,
+        contentOperationRevision: schema.designFiles.contentOperationRevision,
+        contentOperationResultHash:
+          schema.designFiles.contentOperationResultHash,
+        createdAt: schema.designFiles.createdAt,
+        updatedAt: schema.designFiles.updatedAt,
+      })
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, designId));
 
-    const hasRenderableFile =
-      files.some(isRenderableDesignFile) ||
-      existingFiles.some(isRenderableDesignFile);
+    const existingFileIds = new Set(existingFiles.map((file) => file.id));
+    const existingByName = new Map(
+      existingFiles.map((file) => [file.filename, file]),
+    );
+    const seenPlacementIds = new Set<string>();
+    const availableFilenames = new Set([
+      ...existingFiles.map((file) => file.filename),
+      ...requestedFilenames,
+    ]);
+    for (const placement of canvasFrames ?? []) {
+      const matches = placement.fileId
+        ? existingFileIds.has(placement.fileId)
+        : Boolean(
+            placement.filename && availableFilenames.has(placement.filename),
+          );
+      if (!matches) {
+        throw new NoWriteError(
+          `canvasFrames entry did not match a design file: ${placement.fileId || placement.filename}`,
+        );
+      }
+      const fileId =
+        placement.fileId ||
+        (placement.filename && existingByName.get(placement.filename)?.id);
+      if (fileId && seenPlacementIds.has(fileId)) {
+        throw new NoWriteError(
+          `canvasFrames entry duplicates the target already placed (fileId ${fileId}). Pass exactly one placement per screen.`,
+        );
+      }
+      if (fileId) seenPlacementIds.add(fileId);
+    }
+
+    const accessedDesignData = parseDesignDataBlob(
+      (designAccess.resource as { data?: unknown }).data,
+    );
+    // A legacy screen keeps its email type when it has no stored type and
+    // either its previous or its new HTML carries the meta marker.
+    const generatedFrameType = (
+      file: (typeof files)[number],
+      designData: unknown,
+      fileId = existingByName.get(file.filename)?.id,
+    ) => {
+      if (file.frameType) return file.frameType;
+      const stored =
+        fileId === undefined
+          ? undefined
+          : storedScreenFrameType(designData, fileId);
+      if (stored !== undefined) {
+        return stored === HUBSPOT_EMAIL_FRAME_TYPE ? stored : null;
+      }
+      const previous = existingByName.get(file.filename)?.content;
+      return isHubSpotEmailHtml(file.content) ||
+        (typeof previous === "string" && isHubSpotEmailHtml(previous))
+        ? HUBSPOT_EMAIL_FRAME_TYPE
+        : null;
+    };
+
+    for (const file of files) {
+      try {
+        assertHubSpotEmailFileType({
+          fileType: file.fileType,
+          frameType: generatedFrameType(file, accessedDesignData),
+        });
+      } catch (error) {
+        const validationError = noWriteValidationError(error);
+        if (validationError.errorCode === "hubspot_email_html_required") {
+          throw new NoWriteError(
+            `${validationError.message} For an actual email, use fileType "html" and email-safe HTML. For non-email artwork, use renderable HTML with fileType "html" and omit frameType or use "unspecified". For a genuine non-email asset, omit frameType or use "unspecified". Omission and "unspecified" do not clear existing email metadata or legacy email markers; to convert an existing email screen, use update-file to set frameType "web", or save a new non-email file without an email marker.`,
+            {
+              errorCode: validationError.errorCode,
+              statusCode: validationError.statusCode,
+            },
+          );
+        }
+        throw validationError;
+      }
+    }
+
+    let hasRenderableFile = files.some(isRenderableDesignFile);
+    if (!hasRenderableFile) {
+      const renderable = await db
+        .select({ id: schema.designFiles.id })
+        .from(schema.designFiles)
+        .where(
+          and(
+            eq(schema.designFiles.designId, designId),
+            inArray(schema.designFiles.fileType, ["html", "jsx"]),
+            sql`${schema.designFiles.content} ~ ${NON_WHITESPACE_SOURCE_PATTERN}`,
+          ),
+        )
+        .limit(1);
+      hasRenderableFile = renderable.length > 0;
+    }
     if (!hasRenderableFile) {
       throw new NoWriteError(
         "generate-design requires at least one non-empty HTML or JSX file before the design can be reported as ready",
       );
-    }
-
-    const creativeContextProvenance = await resolveDesignCreativeContext({
-      prompt,
-      generationSession,
-      ...(contextPackId ? { contextPackId } : {}),
-      ...(contextModeOverride ? { contextModeOverride } : {}),
-      reuseLabels: reuseLabels.map(
-        ({
-          itemId,
-          itemVersionId,
-          kind,
-          label,
-          dataRole,
-          elementId,
-          influence,
-        }) => ({
-          ...(itemId ? { itemId } : {}),
-          ...(itemVersionId ? { itemVersionId } : {}),
-          kind,
-          label,
-          dataRole,
-          ...(elementId ? { elementId } : {}),
-          ...(influence ? { influence } : {}),
-        }),
-      ),
-    });
-
-    const existingByName = new Map(existingFiles.map((f) => [f.filename, f]));
-
-    for (const file of files) {
-      try {
-        assertHubSpotEmailFrameContent({
-          content: file.content,
-          fileType: file.fileType,
-        });
-      } catch (error) {
-        throw noWriteValidationError(error);
-      }
     }
 
     const annotatedFiles = files.map((file) => ({
@@ -865,6 +720,11 @@ const generateDesignAction = defineAction({
     for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
       if (!existing) continue;
+      if (existing.content === null) {
+        throw new NoWriteError(
+          `Requested source was not loaded for ${existing.filename}`,
+        );
+      }
       const workspaceFile: SourceWorkspaceFile = {
         id: existing.id,
         designId: existing.designId,
@@ -934,28 +794,29 @@ const generateDesignAction = defineAction({
 
         try {
           try {
-            const workspaceFile: SourceWorkspaceFile = {
-              id: existing.id,
-              designId: existing.designId,
-              filename: existing.filename ?? "",
-              fileType: existing.fileType ?? "html",
-              content: existing.content,
-              createdAt: null,
-              updatedAt: null,
-            };
             const live = liveFilesById.get(existing.id);
-            if (!live) {
-              // guard:allow-bare-error — invariant: every existing file is inserted during the preflight loop before this write phase.
+            if (!live || existing.content === null) {
+              // guard:allow-bare-error — every replacement must have a loaded preflight source before writes begin.
               throw new Error(
                 `Missing preflight source version for ${existing.filename}`,
               );
             }
+            const workspaceFile: SourceWorkspaceFile = {
+              id: existing.id,
+              designId: existing.designId,
+              filename: existing.filename,
+              fileType: existing.fileType,
+              content: existing.content,
+              createdAt: null,
+              updatedAt: null,
+            };
 
             await writeInlineSourceFile({
               designId: existing.designId,
               file: workspaceFile,
               content: file.content,
               expectedVersionHash: live.versionHash,
+              ...(file.frameType ? { frameType: file.frameType } : {}),
             });
 
             const nextFileType = file.fileType ?? "html";
@@ -998,8 +859,8 @@ const generateDesignAction = defineAction({
         });
       } else {
         const fileId = nanoid();
-        await withDesignSourceMutationTransaction(designId, (tx) =>
-          tx.insert(schema.designFiles).values({
+        await withDesignSourceMutationTransaction(designId, async (tx) => {
+          await tx.insert(schema.designFiles).values({
             id: fileId,
             designId,
             filename: file.filename,
@@ -1010,8 +871,30 @@ const generateDesignAction = defineAction({
             contentOperationResultHash: null,
             createdAt: now,
             updatedAt: now,
-          }),
-        );
+          });
+          // The type and its layout commit with the insert: markerless email
+          // HTML has no other record of being an email if the placement write
+          // below fails.
+          if (
+            generatedFrameType(file, accessedDesignData, fileId) ===
+            HUBSPOT_EMAIL_FRAME_TYPE
+          ) {
+            const current = await readDesignDataForUpdate(tx, designId);
+            await tx
+              .update(schema.designs)
+              .set({
+                data: JSON.stringify(
+                  withScreenFrameTypeLayout(
+                    current,
+                    fileId,
+                    HUBSPOT_EMAIL_FRAME_TYPE,
+                    null,
+                  ),
+                ),
+              })
+              .where(eq(schema.designs.id, designId));
+          }
+        });
 
         agentEnterDocument(fileId);
         agentUpdateSelection(fileId, {
@@ -1082,7 +965,11 @@ const generateDesignAction = defineAction({
     const renderableFiles = files.filter(isRenderableDesignScreenFile);
     const emailOnlyOutput =
       renderableFiles.length > 0 &&
-      renderableFiles.every((file) => isHubSpotEmailHtml(file.content));
+      renderableFiles.every(
+        (file) =>
+          generatedFrameType(file, accessedDesignData) ===
+          HUBSPOT_EMAIL_FRAME_TYPE,
+      );
     const requestedDevices =
       emailOnlyOutput || exactFixedCanvasOutput
         ? []
@@ -1091,7 +978,8 @@ const generateDesignAction = defineAction({
           : devices !== undefined && fixedArtworkFollowUp
             ? []
             : devices;
-    const ignoredModelDevices = exactFixedCanvasOutput ? (devices ?? []) : [];
+    const ignoredModelDevices =
+      exactFixedCanvasOutput || fixedCanvas ? modelDevices : [];
     const explicitDeviceSelection =
       requestedDevices !== undefined && requestedDevices.length > 0;
     const explicitlyEmptyDeviceSelection =
@@ -1111,7 +999,6 @@ const generateDesignAction = defineAction({
           lastPrompt: prompt,
           generatedAt: now,
           fileCount: files.length,
-          creativeContext: creativeContextProvenance,
         };
         if (normalizedTweaks !== undefined) {
           mergedData.tweaks = normalizedTweaks;
@@ -1215,7 +1102,9 @@ const generateDesignAction = defineAction({
               ? (rawMetadata as Record<string, unknown>)
               : {};
           const frame = merged.canvasFrames[file.id];
-          const emailFrame = isHubSpotEmailHtml(source.content);
+          const emailFrame =
+            generatedFrameType(source, prevData, file.id) ===
+            HUBSPOT_EMAIL_FRAME_TYPE;
           const width =
             (emailFrame ? 600 : undefined) ??
             promptCanvasDimensions?.width ??
@@ -1299,6 +1188,7 @@ const generateDesignAction = defineAction({
             delete nextMetadata.breakpointWidths;
           }
           if (emailFrame) {
+            nextMetadata.frameType = HUBSPOT_EMAIL_FRAME_TYPE;
             nextMetadata.heightPinned = false;
             nextMetadata.heightMode = "hug";
             if (frame)
@@ -1455,7 +1345,9 @@ const generateDesignAction = defineAction({
           );
           if (!source || !isRenderableDesignScreenFile(source)) continue;
           const current = merged.canvasFrames[file.id] ?? {};
-          const emailFrame = isHubSpotEmailHtml(source.content);
+          const emailFrame =
+            generatedFrameType(source, prevData, file.id) ===
+            HUBSPOT_EMAIL_FRAME_TYPE;
           if (
             preExistingFrameIds.has(file.id) &&
             !exactSizeResizedFileIds.has(file.id) &&
@@ -1609,10 +1501,6 @@ const generateDesignAction = defineAction({
           current.lastPrompt !== prompt ||
           current.generatedAt !== now ||
           current.fileCount !== files.length ||
-          !jsonValuesEqual(
-            current.creativeContext,
-            creativeContextProvenance,
-          ) ||
           (normalizedTweaks !== undefined &&
             !jsonValuesEqual(current.tweaks, normalizedTweaks))
         ) {
@@ -1711,9 +1599,6 @@ const generateDesignAction = defineAction({
     }
 
     const designUpdates: Record<string, unknown> = {};
-    if (designSystemId !== undefined) {
-      designUpdates.designSystemId = designSystemId;
-    }
     if (projectType !== undefined) {
       designUpdates.projectType = projectType;
     }
@@ -1724,12 +1609,7 @@ const generateDesignAction = defineAction({
         .where(eq(schema.designs.id, designId));
     }
 
-    await finalizeGenerationForSavedFiles(
-      designId,
-      savedFiles,
-      generationSession,
-      creativeContextProvenance,
-    );
+    await finalizeGenerationForSavedFiles(designId, savedFiles);
 
     trackDesign(
       "design_edited",
@@ -1764,7 +1644,6 @@ const generateDesignAction = defineAction({
         : {}),
       ...(integrityWarnings.length > 0 ? { warnings: integrityWarnings } : {}),
       ...(fileErrors.length > 0 ? { fileErrors } : {}),
-      ...creativeContextProvenance,
     };
   }),
   link: ({ result }) => {

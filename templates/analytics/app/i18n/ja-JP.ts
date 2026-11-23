@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "選択したファイルをアップロードできませんでした。",
+    reference: "ダッシュボードを参照…",
+    group: "ダッシュボード",
+    authentication: "参照を追加するにはログインしてください。",
+    invalid: "送信する前に有効な参照を選択してください。",
+    unavailable:
+      "選択した参照は利用できなくなりました。削除するか、もう一度選択してください。",
+  },
   root: {
     whatsNew: "新着情報",
   },
@@ -1190,6 +1199,7 @@ export default {
     monitoring: "監視 - Analytics",
     agents: "エージェント - Analytics",
     session: "セッションリプレイ - Analytics",
+    sessionReport: "セッションレポート - Analytics",
     tool: "ツール - Analytics",
     extensions: "拡張機能 - Analytics",
     overview: "概要 - Analytics",
@@ -1368,6 +1378,8 @@ export default {
     resetFilters: "フィルターをリセット",
     collapseFilters: "フィルターを折りたたむ",
     expandFilters: "フィルターを展開する",
+    collapseDescription: "説明を折りたたむ",
+    expandDescription: "説明を展開する",
     drilldownChartPoints: "グラフのデータポイント",
     drilldownPreviousPage: "グラフのデータポイントの前のページ",
     drilldownNextPage: "グラフのデータポイントの次のページ",
@@ -1387,6 +1399,8 @@ export default {
       "グラフは {{chart}} ですが、一致したレコードは {{total}} 件です",
     drilldownAggregateOnly:
       "このパネルには集計行しかありません。クリックしたポイントに一致する行を強調表示しています。",
+    drilldownNoXValueAggregateOnly:
+      "このパネルでは値なしのポイントのレコードを開けないため、集計行を表示しています。クリックしたポイントに一致する行を強調表示しています。",
     drilldownNoRecords: "一致するレコードがありません",
     drilldownNoRecordsIncomplete:
       "レコードは読み込まれませんでした。結果が不完全なため、一致するレコードがある可能性があります。",
@@ -1396,11 +1410,16 @@ export default {
     drilldownOverByteCap:
       "これらのレコードは {{gib}} GiB を超えて読み込むため、読み込みませんでした。ダッシュボードのフィルターか期間を絞ってから、もう一度お試しください。",
     filterSeries: "Filter",
+    noXValue: "値なし",
     chartTimeRangeOverride: "このチャートの期間を上書き",
     chartTimeRangeInherit: "ダッシュボードの期間",
     hide: "Hide",
     show: "Show",
     saveAsView: "ビューとして保存",
+    unknownTraffic: "不明 {{count}}",
+    unknownTrafficUnavailable: "不明の件数を取得できません",
+    unknownTrafficTip:
+      "過去 {{days}} 日間のイベントのうち、ホストがなく、既知の環境も記録されていないもの。本番としてカウントされます。",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
@@ -1688,6 +1707,10 @@ export default {
     hideEmptySessions: "空のセッションを非表示",
     networkErrors: "ネットワークエラー",
     rageClicksFilter: "連続クリック",
+    traffic: "トラフィック",
+    allTraffic: "すべてのトラフィック",
+    productionTraffic: "本番",
+    betaTraffic: "ベータ",
     visitors: "訪問者",
     allVisitors: "すべての訪問者",
     internalVisitors: "内部",
@@ -1855,6 +1878,28 @@ export default {
     emptyStepVisit: "アプリを開く",
     installSnippetTitle: "セッションリプレイを追加",
     backToSessions: "セッションに戻る",
+    createReport: "レポートを作成",
+    createReportTooltip:
+      "このセッションについてエージェントにレポートを書かせます：何が問題だったか、重要な場面、再現方法。",
+    createReportMessage: "このセッションについてレポートを書いてください。",
+    reportCount: "レポート（{{count}}）",
+    reportsUnavailable: "レポートを利用できません",
+    reportNeedsLab: "セッションレポートはセッショントリアージ Lab の機能です。",
+    reportNotFound: "このレポートは存在しないか、あなたと共有されていません。",
+    reportLoadFailed: "このレポートを読み込めませんでした：{{message}}",
+    reportBackToSession: "セッションに戻る",
+    reportTitleLabel: "レポートのタイトル",
+    reportSummaryLabel: "概要",
+    reportSummaryPlaceholder: "何が問題だったか、その理由",
+    reportKeyMoments: "重要な場面",
+    reportReproSteps: "再現手順",
+    reportErrorIssue: "エラーイシュー",
+    reportCommit: "コミット",
+    reportNoCommit: "このセッションはコミットを報告していません",
+    reportSaveFailed: "レポートを保存できませんでした：{{message}}",
+    reportDelete: "レポートを削除",
+    reportDeleteTitle:
+      "このレポートを削除しますか？エージェント用リンクは使えなくなります。",
     copyForAgent: "エージェント用にコピー",
     copyForAgentTooltip:
       "エージェントがこのリプレイを確認できる一時的なプライベートリンクをコピーします。",
@@ -2131,6 +2176,10 @@ export default {
     flagsUnavailable: "機能フラグを利用できません",
     flagsUnreachable:
       "ワークスペースディレクトリに接続できません。接続可能になったら再試行してください。",
+    verifiedFlagChangeOrg:
+      "{{time}} に確認済み：{{app}} の {{flag}} は、この組織で {{availability}} に設定されています。",
+    verifiedFlagChangeGlobal:
+      "{{time}} に確認済み：{{app}} の {{flag}} は、すべての組織で {{availability}} に設定されています。",
     flagsEmpty: "フラグを報告したワークスペースアプリはありません",
     flagsEmptyDetail:
       "接続済みアプリの準備ができると、登録済みフラグがここに表示されます。",

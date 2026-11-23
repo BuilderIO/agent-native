@@ -1,10 +1,6 @@
 #!/usr/bin/env tsx
-import {
-  spawn,
-  spawnSync,
-  type ChildProcess,
-  type SpawnOptions,
-} from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -12,6 +8,10 @@ import path from "node:path";
 import type { Duplex } from "node:stream";
 import { fileURLToPath } from "node:url";
 
+import {
+  resolveWorkspaceAppPaths,
+  readWorkspaceAppDisplayNames,
+} from "../deploy/workspace-app-paths.js";
 import {
   BUILTIN_AGENTS_ENV_KEY,
   workspaceBuiltinAgentsJson,
@@ -24,6 +24,7 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { withWorkspaceRootEnv } from "../shared/workspace-default-app.js";
 import {
   inferWorkspaceAppRootHomePath,
   readConfiguredWorkspaceAppHomePath,
@@ -35,8 +36,16 @@ import {
   escapeHtml,
 } from "./gateway-helpers.js";
 import { openUrlInBrowser } from "./open-url.js";
-import { DEV_SERVER_SUPERVISOR_ENV } from "./process.js";
+import { DEV_SERVER_SUPERVISOR_ENV, shimSpawnTarget } from "./process.js";
 import { captureSentryException } from "./sentry-telemetry.js";
+
+// App directories may contain spaces, so Windows gets a quoted command line.
+export function pnpmSpawnTarget(
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): [string, string[], boolean] {
+  return shimSpawnTarget("pnpm", args, platform);
+}
 
 export interface WorkspaceApp {
   id: string;
@@ -102,56 +111,6 @@ const STARTING_APP_RESPONSE_HEADERS: http.OutgoingHttpHeaders = {
   pragma: "no-cache",
   expires: "0",
 };
-
-const WINDOWS_ARG_ENV_PREFIX = "AGENT_NATIVE_PNPM_ARG_";
-
-function quoteForWindowsShell(arg: string): string {
-  // Backslashes before the closing quote would otherwise escape it.
-  return `"${arg.replace(/\\+$/, "$&$&")}"`;
-}
-
-/**
- * Starts pnpm. On Windows pnpm is usually a `pnpm.cmd` shim (npm, Corepack and
- * `pnpm self-update` install one): Node cannot find it without a shell
- * (`spawn pnpm ENOENT`), and it refuses to spawn the `.cmd` itself without one
- * (`EINVAL`). The shell gets one quoted command line, so a workspace path with
- * spaces stays a single argument.
- *
- * cmd.exe expands `%NAME%` even inside double quotes, and a `"` cannot be
- * escaped at all. An argument with a `%` therefore travels in a private
- * environment variable that the command line refers to (cmd.exe does not expand
- * a value a second time), and an argument with a `"` is refused.
- */
-export function spawnPnpm(
-  spawnProcess: typeof spawn,
-  args: string[],
-  options: SpawnOptions,
-  platform: NodeJS.Platform = process.platform,
-): ChildProcess {
-  if (platform !== "win32") return spawnProcess("pnpm", args, options);
-
-  const env: NodeJS.ProcessEnv = { ...(options.env ?? process.env) };
-  const tokens = args.map((arg, index) => {
-    if (arg.includes('"')) {
-      throw new Error(
-        "cannot pass an argument containing a double quote through cmd.exe",
-      );
-    }
-    if (!arg.includes("%")) return quoteForWindowsShell(arg);
-    const name = `${WINDOWS_ARG_ENV_PREFIX}${index}`;
-    env[name] = arg.replace(/\\+$/, "$&$&");
-    return `"%${name}%"`;
-  });
-  // `pnpm` stays unquoted: npm's and pnpm's shims find their files through
-  // `%~dp0`, which cmd.exe resolves to the working directory for a quoted name.
-  return spawnProcess(["pnpm", ...tokens].join(" "), [], {
-    ...options,
-    ...(tokens.some((token) => token.includes(WINDOWS_ARG_ENV_PREFIX))
-      ? { env }
-      : {}),
-    shell: true,
-  });
-}
 
 export function workspaceGatewayUrl(host: string, port: number): string {
   const bindHost =
@@ -381,6 +340,8 @@ async function discoverApps(
   appsDir: string,
   appPortStart: number,
   stderr: Pick<NodeJS.WriteStream, "write">,
+  includes: (name: string) => boolean,
+  names: Map<string, string>,
 ): Promise<WorkspaceApp[]> {
   if (!fs.existsSync(appsDir)) return [];
   let entries: fs.Dirent[];
@@ -407,7 +368,9 @@ async function discoverApps(
     return [];
   }
   const apps: WorkspaceApp[] = [];
-  for (const entry of entries.filter((entry) => entry.isDirectory())) {
+  for (const entry of entries.filter(
+    (entry) => entry.isDirectory() && includes(entry.name),
+  )) {
     const dir = path.join(appsDir, entry.name);
     const pkg = readJson(path.join(dir, "package.json"));
     if (!pkg) continue;
@@ -427,7 +390,7 @@ async function discoverApps(
     }
     apps.push({
       id: entry.name,
-      name: pkg.displayName || pkg.name || entry.name,
+      name: names.get(entry.name) ?? pkg.displayName ?? pkg.name ?? entry.name,
       description: typeof pkg.description === "string" ? pkg.description : "",
       audience:
         workspaceAppAudienceFromPackageJson(pkg) ??
@@ -729,15 +692,23 @@ export async function runWorkspaceDev(
   options: WorkspaceDevOptions = {},
 ): Promise<WorkspaceDevHandle> {
   const args = options.args ?? process.argv.slice(2);
-  const env = options.env ?? process.env;
   const root = options.root ?? process.cwd();
-  const appsDir = path.join(root, "apps");
+  const env = options.env ?? process.env;
+  const { appsDir, includes } = await resolveWorkspaceAppPaths(root);
   const spawnProcess = options.spawnProcess ?? spawn;
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
 
   fs.mkdirSync(path.join(root, "data"), { recursive: true });
   const gatewayHost = env.WORKSPACE_HOST || DEFAULT_GATEWAY_HOST;
+  if (gatewayHost !== "127.0.0.1" && gatewayHost !== "::1") {
+    throw new Error(
+      "Workspace gateway must bind to a loopback address (127.0.0.1 or ::1)",
+    );
+  }
+  const gatewayToken = randomBytes(32).toString("hex");
+  const gatewayFile = path.join(root, ".agent-native", "dev-gateway.json");
+  let gatewayFileIdentity: { dev: number; ino: number } | undefined;
   const requestedPort = Number(
     env.WORKSPACE_PORT || env.PORT || DEFAULT_GATEWAY_PORT,
   );
@@ -762,9 +733,15 @@ export async function runWorkspaceDev(
   );
   let gatewayUrl = workspaceGatewayUrl(gatewayHost, requestedPort);
 
-  const apps = await discoverApps(appsDir, appPortStart, stderr);
+  const apps = await discoverApps(
+    appsDir,
+    appPortStart,
+    stderr,
+    includes,
+    readWorkspaceAppDisplayNames(root),
+  );
   if (apps.length === 0) {
-    throw new Error("[workspace] No apps found under ./apps");
+    throw new Error(`[workspace] No apps found under ${appsDir}`);
   }
 
   function probePortAvailable(port: number): Promise<boolean> {
@@ -806,7 +783,8 @@ export async function runWorkspaceDev(
   }
 
   const appById = new Map(apps.map((app) => [app.id, app]));
-  const requestedDefaultApp = env.WORKSPACE_DEFAULT_APP || null;
+  const requestedDefaultApp =
+    withWorkspaceRootEnv(root, env).WORKSPACE_DEFAULT_APP?.trim() || null;
   const explicitDefaultApp =
     requestedDefaultApp && appById.has(requestedDefaultApp)
       ? requestedDefaultApp
@@ -825,6 +803,8 @@ export async function runWorkspaceDev(
   const appsAwaitingInstall = new Set<WorkspaceApp>();
 
   let syncTimer: NodeJS.Timeout | undefined;
+  let workspaceWatcher: fs.FSWatcher | undefined;
+  let discoveryInterval: NodeJS.Timeout | undefined;
   let syncInFlight: Promise<void> | undefined;
   let shuttingDown = false;
   let workspaceStarted = false;
@@ -836,9 +816,13 @@ export async function runWorkspaceDev(
   }
 
   let readyResolve: (value: { port: number; url: string }) => void;
-  const ready = new Promise<{ port: number; url: string }>((resolve) => {
-    readyResolve = resolve;
-  });
+  let readyReject: (error: unknown) => void;
+  const ready = new Promise<{ port: number; url: string }>(
+    (resolve, reject) => {
+      readyResolve = resolve;
+      readyReject = reject;
+    },
+  );
 
   function builtinAgentsEnv(): Record<string, string> {
     const json = workspaceBuiltinAgentsJson(root);
@@ -864,7 +848,13 @@ export async function runWorkspaceDev(
   async function syncApps(): Promise<void> {
     if (syncInFlight) return syncInFlight;
     const run = (async () => {
-      const discovered = await discoverApps(appsDir, appPortStart, stderr);
+      const discovered = await discoverApps(
+        appsDir,
+        appPortStart,
+        stderr,
+        includes,
+        readWorkspaceAppDisplayNames(root),
+      );
       for (const app of discovered) {
         const existing = appById.get(app.id);
         if (existing) {
@@ -989,7 +979,23 @@ export async function runWorkspaceDev(
       );
     }
 
-    const child = spawnPnpm(spawnProcess, childArgs, {
+    let pnpmTarget: ReturnType<typeof pnpmSpawnTarget>;
+    try {
+      pnpmTarget = pnpmSpawnTarget(childArgs);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      scheduleAppRestart(app, {
+        code: null,
+        signal: null,
+        installing: shouldInstall,
+        output: message,
+        logMessage: message,
+      });
+      return;
+    }
+    const [pnpmCommand, pnpmArgs, pnpmShell] = pnpmTarget;
+    const child = spawnProcess(pnpmCommand, pnpmArgs, {
+      ...(pnpmShell ? { shell: true } : {}),
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
@@ -1024,6 +1030,9 @@ export async function runWorkspaceDev(
           VITE_APP_BASE_PATH: basePath,
           VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(env, gatewayUrl),
           VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
+          ...(app.id === "dispatch"
+            ? { VITE_DISPATCH_WORKSPACE_HOME: "1" }
+            : {}),
           PORT: String(app.port),
           WORKSPACE_GATEWAY_URL: gatewayUrl,
         },
@@ -1455,16 +1464,17 @@ export async function runWorkspaceDev(
       if (app) startApp(app);
     }
     try {
-      const watcher = fs.watch(appsDir, { recursive: true }, scheduleSync);
-      watcher.on("error", (err) => {
+      workspaceWatcher = fs.watch(appsDir, { recursive: true }, scheduleSync);
+      workspaceWatcher.on("error", (err) => {
         handleWatcherError(err as NodeJS.ErrnoException);
       });
     } catch (err) {
       handleWatcherError(err as NodeJS.ErrnoException);
     }
-    setInterval(() => {
+    discoveryInterval = setInterval(() => {
       void syncApps().catch(() => {});
-    }, 2_000).unref();
+    }, 2_000);
+    discoveryInterval.unref();
   }
 
   async function prewarmRemainingApps(): Promise<void> {
@@ -1556,6 +1566,42 @@ export async function runWorkspaceDev(
       return;
     }
 
+    if (pathname === "/_workspace/manifest") {
+      const expected = Buffer.from(`Bearer ${gatewayToken}`);
+      const provided = Buffer.from(req.headers.authorization ?? "");
+      if (
+        req.method !== "GET" ||
+        expected.length !== provided.length ||
+        !timingSafeEqual(expected, provided)
+      ) {
+        res.writeHead(401, { "cache-control": "no-store" });
+        res.end();
+        return;
+      }
+      try {
+        await syncApps();
+      } catch {
+        res.writeHead(500, { "cache-control": "no-store" });
+        res.end();
+        return;
+      }
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+      });
+      res.end(
+        JSON.stringify({
+          apps: apps.map((app) => ({
+            id: app.id,
+            name: app.name,
+            path: `/${app.id}`,
+            url: `${gatewayUrl}/${app.id}`,
+          })),
+        }),
+      );
+      return;
+    }
+
     if (pathname === "/_workspace/apps") {
       await syncApps().catch(() => {});
       res.writeHead(200, { "content-type": "application/json" });
@@ -1614,6 +1660,42 @@ export async function runWorkspaceDev(
       const actualPort =
         typeof address === "object" && address ? address.port : port;
       gatewayUrl = workspaceGatewayUrl(gatewayHost, actualPort);
+      try {
+        const dir = path.dirname(gatewayFile);
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+        if (!fs.lstatSync(dir).isDirectory())
+          throw new Error("Workspace metadata path is not a directory");
+        const temporary = path.join(
+          dir,
+          `.dev-gateway-${randomBytes(12).toString("hex")}.tmp`,
+        );
+        try {
+          const fd = fs.openSync(temporary, "wx", 0o600);
+          try {
+            fs.fchmodSync(fd, 0o600);
+            fs.writeFileSync(
+              fd,
+              JSON.stringify({
+                port: actualPort,
+                pid: process.pid,
+                startedAt: new Date().toISOString(),
+                token: gatewayToken,
+              }),
+            );
+          } finally {
+            fs.closeSync(fd);
+          }
+          fs.renameSync(temporary, gatewayFile);
+        } finally {
+          if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+        }
+        const { dev, ino } = fs.lstatSync(gatewayFile);
+        gatewayFileIdentity = { dev, ino };
+      } catch (error) {
+        shutdown();
+        readyReject(error);
+        return;
+      }
       stdout.write(`[workspace] Root: ${root}\n`);
       if (requestedPort > 0 && actualPort !== requestedPort) {
         stdout.write(
@@ -1654,10 +1736,29 @@ export async function runWorkspaceDev(
     });
   }
 
+  function removeGatewayFile(): void {
+    if (!gatewayFileIdentity) return;
+    try {
+      const file = fs.lstatSync(gatewayFile);
+      if (
+        file.dev === gatewayFileIdentity.dev &&
+        file.ino === gatewayFileIdentity.ino
+      )
+        fs.unlinkSync(gatewayFile);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    gatewayFileIdentity = undefined;
+  }
+
   function shutdown(): void {
     if (shuttingDown) return;
     shuttingDown = true;
+    removeGatewayFile();
+    process.off("exit", removeGatewayFile);
     server.close();
+    workspaceWatcher?.close();
+    if (discoveryInterval) clearInterval(discoveryInterval);
     for (const app of apps) {
       if (app.restartTimer) {
         clearTimeout(app.restartTimer);
@@ -1672,6 +1773,7 @@ export async function runWorkspaceDev(
 
   const handleSigint = () => shutdown();
   const handleSigterm = () => shutdown();
+  process.once("exit", removeGatewayFile);
   process.once("SIGINT", handleSigint);
   process.once("SIGTERM", handleSigterm);
 

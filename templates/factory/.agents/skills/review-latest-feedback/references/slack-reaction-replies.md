@@ -193,9 +193,9 @@ Work that remains with this workflow is active and needs no `🎫` by itself, bu
 this workflow could not land gets `🎫` as a human handoff, matching the parent skill.
 Requests for a reporter-provided URL, evidence, or clarification are separate human
 actions, not team handoffs. Access, credentials, admin rights, and account changes
-are never asked of the reporter. They are Steve's internal work: record them in `handoffs[]` with a `🎫`, owner `"unassigned"`,
-and `status: "unassigned"` until Steve explicitly commits in the thread; name Steve in
-the action text, not the owner field. They
+are never asked of the reporter. They are internal work for someone with access: record them in `handoffs[]` with a `🎫`, owner `"unassigned"`,
+and `status: "unassigned"` until a maintainer explicitly commits in the thread; describe
+what's needed in the action text without naming anyone. They
 are not in `reporterRequests[]`, so they do not expire with the reporter-request
 lifecycle.
 When this workflow asks a reporter for a URL, evidence, or clarification,
@@ -287,3 +287,16 @@ ticket exists. Keep any existing ticket link in the internal inventory. Do not
 balance reactions for appearance. Treat
 reaction text in a reply, another actor's mark, or a reply-row reaction as no
 substitute for the required root read-back.
+
+## Backstop for unclaimed roots
+
+Every run, also search `in:<#channel> -has::eyes: -from:<@connected-profile-id>
+after:<YYYY-MM-DD>` and page through every result. Slack's `after:` is
+date-only and excludes that day, so use the day before the window starts,
+then discard any root older than the window's exact start. The filter also
+hides roots someone else reacted 👀 to; the channel read's
+`slack_get_reactions` check covers those.
+Treat each root it returns as a candidate, even one older than your last-seen
+point. A last-seen timestamp alone skips reports: one was set to the bot's own
+reply and silently dropped three roots posted minutes earlier. Advance a
+last-seen point only to the newest report root handled, never to a bot reply.

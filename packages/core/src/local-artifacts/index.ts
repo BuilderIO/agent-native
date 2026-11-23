@@ -6,6 +6,8 @@ import path from "node:path";
 
 import { minimatch } from "minimatch";
 
+import { noteObservedWrite } from "../action-frame.js";
+
 export type AgentNativeDataMode = "database" | "local-files";
 
 export interface AgentNativeManifestRoot {
@@ -872,6 +874,7 @@ export async function writeLocalArtifactFile(
     }
 
     await assertNoSymlinkPath(root, absolutePath, { allowMissingLeaf: true });
+    noteObservedWrite("local-file");
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
     const tempPath = path.join(
       path.dirname(absolutePath),
@@ -893,6 +896,7 @@ export async function deleteLocalArtifactFile(
   const { root, absolutePath } = await resolveArtifactPath(app, options.path);
   try {
     await assertNoSymlinkPath(root, absolutePath);
+    noteObservedWrite("local-file");
     await fs.unlink(absolutePath);
     return true;
   } catch (error) {
@@ -1338,6 +1342,83 @@ export async function readLocalWorkspaceResource(
   }
 }
 
+/**
+ * Whether two resource paths name one local workspace file, so that writing
+ * one and deleting the other would lose it. That's the same resource path
+ * spelled another way (".agent/skills/x/SKILL.md" is "skills/x/SKILL.md",
+ * and deleting either removes the skill from every skill root), or one file
+ * on disk, as "skills/Review/SKILL.md" and "skills/review/SKILL.md" are on a
+ * case-insensitive disk. False when either file is missing, and when the
+ * disk gives files no ids to compare.
+ */
+export async function isSameLocalWorkspaceFile(
+  options: LocalWorkspaceResourceOptions & { path: string; otherPath: string },
+): Promise<boolean> {
+  if (
+    normalizeLocalWorkspaceResourcePath(options.path) ===
+    normalizeLocalWorkspaceResourcePath(options.otherPath)
+  ) {
+    return true;
+  }
+  const workspaceRoot = await resolveLocalWorkspaceRoot(options);
+  if (!workspaceRoot) return false;
+  const statOf = (resourcePath: string) =>
+    fs.stat(
+      localWorkspaceResourceAbsolutePath(workspaceRoot, resourcePath, {
+        preferExisting: true,
+      }).absolutePath,
+      { bigint: true },
+    );
+  try {
+    const [first, second] = await Promise.all([
+      statOf(options.path),
+      statOf(options.otherPath),
+    ]);
+    return (
+      first.ino !== 0n && first.dev === second.dev && first.ino === second.ino
+    );
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return false;
+    throw error;
+  }
+}
+
+/** Errors a disk gives when it can't make hard links. */
+const HARD_LINK_UNSUPPORTED_CODES = new Set(["EPERM", "ENOTSUP", "ENOSYS"]);
+
+/**
+ * Moves a finished temp file to a path that must still be free. A rename
+ * would replace a file another process made there after the caller's check;
+ * a hard link, or an exclusive copy where the disk has no hard links, fails
+ * instead, with `EEXIST`.
+ */
+async function moveTempFileToFreePath(
+  tempPath: string,
+  absolutePath: string,
+  resourcePath: string,
+): Promise<void> {
+  try {
+    try {
+      await fs.link(tempPath, absolutePath);
+    } catch (error) {
+      const code = errorCode(error);
+      if (code === undefined || !HARD_LINK_UNSUPPORTED_CODES.has(code)) {
+        throw error;
+      }
+      await fs.copyFile(tempPath, absolutePath, fs.constants.COPYFILE_EXCL);
+    }
+  } catch (error) {
+    if (errorCode(error) === "EEXIST") {
+      throw Object.assign(new Error(`File "${resourcePath}" already exists`), {
+        code: "EEXIST",
+      });
+    }
+    throw error;
+  } finally {
+    await fs.rm(tempPath, { force: true });
+  }
+}
+
 export async function writeLocalWorkspaceResource(
   options: WriteLocalWorkspaceResourceOptions,
 ): Promise<LocalWorkspaceResourceMeta> {
@@ -1359,7 +1440,9 @@ export async function writeLocalWorkspaceResource(
       path: resourcePath,
     });
     if (options.ifNotExists && existing) {
-      throw new Error(`File "${resourcePath}" already exists`);
+      throw Object.assign(new Error(`File "${resourcePath}" already exists`), {
+        code: "EEXIST",
+      });
     }
     if (
       options.expectedHash &&
@@ -1373,13 +1456,18 @@ export async function writeLocalWorkspaceResource(
     assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath, {
       allowMissingLeaf: true,
     });
+    noteObservedWrite("local-file");
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
     const tempPath = path.join(
       path.dirname(absolutePath),
       `.${path.basename(absolutePath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
     );
     await fs.writeFile(tempPath, options.content, "utf8");
-    await fs.rename(tempPath, absolutePath);
+    if (options.ifNotExists) {
+      await moveTempFileToFreePath(tempPath, absolutePath, resourcePath);
+    } else {
+      await fs.rename(tempPath, absolutePath);
+    }
     const stat = await fs.stat(absolutePath);
     return localWorkspaceResourceMeta(
       resourcePath,
@@ -1405,6 +1493,7 @@ export async function deleteLocalWorkspaceResource(
   for (const absolutePath of absolutePaths) {
     try {
       assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath);
+      noteObservedWrite("local-file");
       await fs.unlink(absolutePath);
       deleted = true;
     } catch (error) {
@@ -1447,6 +1536,7 @@ export async function deleteLocalWorkspaceResourceIfCurrent(
     }
     try {
       assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath);
+      noteObservedWrite("local-file");
       await fs.unlink(absolutePath);
       return true;
     } catch (error) {
@@ -1489,6 +1579,7 @@ export async function writeLocalWorkspaceResourceIfCurrent(
     assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath, {
       allowMissingLeaf: true,
     });
+    noteObservedWrite("local-file");
     const tempPath = path.join(
       path.dirname(absolutePath),
       `.${path.basename(absolutePath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
@@ -1530,6 +1621,7 @@ export async function writeLocalWorkspaceResourceIfAbsentAtPath(
     assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath, {
       allowMissingLeaf: true,
     });
+    noteObservedWrite("local-file");
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
     const tempPath = path.join(
       path.dirname(absolutePath),

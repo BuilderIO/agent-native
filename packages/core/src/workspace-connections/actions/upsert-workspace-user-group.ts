@@ -1,12 +1,13 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, isOutsideAgentCall } from "../../action.js";
 import {
   assertWorkspaceUserGroupManager,
   upsertWorkspaceUserGroup,
 } from "../groups.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Create or update a reusable workspace user group and its member list. Only workspace owners and admins can change groups.",
   schema: z.object({
@@ -22,6 +23,8 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args, ctx) => {
     await assertWorkspaceUserGroupManager(ctx?.orgId, ctx?.userEmail);
     return upsertWorkspaceUserGroup({

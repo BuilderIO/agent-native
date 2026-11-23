@@ -39,8 +39,9 @@ import {
 } from "@agent-native/toolkit/app/chat/agentkit-chat/connections";
 import { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";
 import {
-  GuidedQuestionFlow,
+  GuidedQuestionCard,
   useGuidedQuestionFlow,
+  useRefetchGuidedQuestionsWhenAsked,
 } from "@agent-native/toolkit/app/chat/agentkit-chat/questions";
 import { isClientDraftThread } from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
 import {
@@ -81,6 +82,7 @@ import {
 import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
+import { useChatComposerMenuItems } from "@/components/ChatComposerContext";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -898,6 +900,8 @@ function ChatInitialMessage({
       control.sendMessage({
         text: requestText,
         attachments: [...(composerOptions?.uploadedAttachments ?? [])],
+        // The run reads mentions from here; metadata only records them.
+        ...(references.length ? { references: [...references] } : {}),
         options: runOptions,
         metadata,
         queueWhileRunning: metadata.custom.agentNativeQueueWhileRunning,
@@ -1047,6 +1051,7 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
     retryProviderStatus,
     handleSubmit,
     handleSkip,
+    refetchPendingQuestion,
   } = useGuidedQuestionFlow({
     stateKey: "guided-questions",
     queryKey: ["guided-questions", "agentkit"],
@@ -1057,12 +1062,16 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
     onSubmitMessage: submitAnswers,
     onSkipMessage: skipQuestions,
   });
+  useRefetchGuidedQuestionsWhenAsked({
+    tools: thread.tools,
+    refetch: refetchPendingQuestion,
+  });
 
   return (
     <div className="agent-kit-chat-footer-stack">
       {questions?.length ? (
         <div className="agent-kit-chat-guided-question">
-          <GuidedQuestionFlow
+          <GuidedQuestionCard
             questions={questions}
             onSubmit={handleSubmit}
             onSkip={handleSkip}
@@ -1073,7 +1082,6 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
             isSubmissionBlocked={isSubmissionBlocked}
             providerStatus={providerStatus}
             onRetryProviderStatus={retryProviderStatus}
-            className="h-auto items-stretch justify-stretch bg-transparent"
           />
         </div>
       ) : null}
@@ -1390,6 +1398,7 @@ function ChatCanvas({
     ),
     [setWorkspaceOpen, t, workspaceOpen],
   );
+  const contextMenuItems = useChatComposerMenuItems();
   const chatTitle = thread.thread?.title?.trim() || APP_TITLE;
 
   return (
@@ -1406,6 +1415,7 @@ function ChatCanvas({
         expectExistingThread={!isDraftThread}
         onStartNewChat={() => void navigate(NEW_CHAT_PATH)}
         composerProps={{
+          contextMenuItems,
           requireAgentEngine: true,
           contextUsageSlot: <ChatContextRing threadId={threadId} />,
           ...(initialText === undefined ? {} : { initialText }),

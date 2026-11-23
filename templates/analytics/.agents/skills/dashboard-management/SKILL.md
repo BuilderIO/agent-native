@@ -151,15 +151,48 @@ collection stays off until a property owner adds the service account that
 `get-content-collection` returns as `serviceAccount.email`; then set its
 `searchConsoleSites` and turn it on.
 
+Search Console also writes `search_console_position_weighted`: average
+position times impressions, so a range's average position is
+`SUM(position_weighted)` over the impressions of the same pages and days,
+never an average of daily averages. Days collected before position was stored
+have impressions but no position, so leave them out of the divisor, as the
+Content view's Articles table does. Each run fills about 90 more days of
+history backward, up to `searchConsoleHistoryMonths` (1 to 16, default 16,
+all Search Console keeps).
+The `search_console_queries` step writes `analytics_content_search_queries`:
+each article's top `searchConsoleQueriesPerPage` queries (default 25) per
+Monday-to-Sunday week, with `clicks`, `impressions` and `position_weighted`.
+It runs only while Search Console runs (turn it off alone with
+`searchConsoleQueries: false`), rereads the newest two finished weeks each run
+and fills a few older weeks a run. Search Console leaves rare and private
+queries out, so an article's queries add up to less than its clicks. A run's
+`detail` notes a day that hit Search Console's daily row limit. Until the
+page-level step has succeeded under the current properties, the queries step
+stops as `not_configured`, waiting for the daily page numbers that say which
+weeks are final. A week arrives some days after its Sunday, so a panel over a
+rolling range should reach back to the newest stored week, as the Search
+queries panel does, or a 7-day range can come up empty.
+
 The `signups` step writes `signups_first_touch` per article: people who
 first landed on the article and later signed up, on the day of that first
-visit, so a window's days add up to its total. It is the only step that reads
-the warehouse. It stays `not_configured` until `configure-content-collection`
-sets its `signups` tables, `signupSource`, `signupsSince` and
-`maxBytesBilled`. Measure the cap with `estimate-content-signups-cost` (a dry
-run, free) and get the spend approved before turning the step on. Each run
-dry-runs first, stops as `cost_limited` without querying when the estimate is
-over the cap, and runs the join with that cap as BigQuery's billing limit.
+visit, so a window's days add up to its total. It reads the warehouse. It
+stays `not_configured` until `configure-content-collection` sets its `signups`
+tables, `signupSource`, `signupsSince` and `maxBytesBilled`. Measure the cap
+with `estimate-content-signups-cost` (a dry run, free) and get the spend
+approved before turning the step on. Each run dry-runs first, stops as
+`cost_limited` without querying when the estimate is over the cap, and runs the
+join with that cap as BigQuery's billing limit.
+
+The `agent_native_signups` step writes `agent_native_signups` per article:
+signups in the organization's own first-party analytics (the Agent-Native
+apps' signups) whose link has `utm_source` set to the blog's host and
+`utm_content` set to the article's handle, on the signup day. A tag that names
+no collected article, such as `/hackathon`, is never credited, and test
+identities don't count. It reads the warehouse behind the same dry run and cap:
+set `agentNativeSignups.eventsTable` and `maxBytesBilled` with
+`configure-content-collection`, and measure the cap with
+`estimate-content-signups-cost` and `step: "agent_native_signups"`, which
+prices the first run's 90-day backfill. Later runs read back three days.
 
 The catalog's "Content" dashboard (`content-view`) is the reference for these
 tables: start from its panels before writing new content SQL. Its Missing
@@ -175,7 +208,12 @@ lists and `IS DISTINCT FROM`: list fixed rows with `SELECT … UNION ALL` and
 compare with `COALESCE(x, '') <> …`. Its daily signups chart uses wide
 rows (`yKeys`), not `pivot`: a pivot fills a missing series with 0, so an
 uncollected day would draw as a zero instead of a gap. Pivot only where a
-missing row is a real zero, like an author's week without signups. Content is a
+missing row is a real zero, like an author's week without signups. Each daily
+chart's "Since collection began" starts at the first day of its own metric, so
+16 months of search history doesn't stretch the signups charts. Its Search tab
+has clicks per full month since collection began, each article's clicks
+against the same 28 days a year before, top queries for the time range, and
+queries close to page one or seen near the top but rarely clicked. Content is a
 built-in: turning collection on with `configure-content-collection` lists it
 in the organization's Dashboards at `content-view` (`contentDashboardId` in the
 result). It is read-only; build on it with `duplicate-dashboard`.
@@ -245,7 +283,7 @@ pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
 pnpm action navigate --view=adhoc --dashboardId=weekly-metrics
 ```
 
-The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. Never work around validation by writing directly to a table.
+The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. A `sql_validation_unavailable` error (status 503) means the validator could not run, not that the SQL is wrong: retry the same write, or report the outage, without rewriting the query. Never work around validation by writing directly to a table.
 
 ### Replicating Or Adapting Another Dashboard
 
@@ -433,7 +471,10 @@ another organization's); it is still saved. A set or note the dashboard hides
 is that dashboard's choice, so ask before showing it.
 
 To explain a spike or dip, read `keyDateSets` and `dataNotes` from
-`get-sql-dashboard` or `view-screen` first and cite what they say. If
+`get-sql-dashboard` or `view-screen` first and cite what they say. They are the
+organization's records, not part of the dashboard's saved config: a config
+write needn't carry them and can't change them, though its `annotations` field
+picks which ones this dashboard hides. If
 `annotationsError` is there instead, say the markers could not be read rather
 than that there are none. `omittedKeyDateSetCount` or `omittedDataNoteCount`
 means the list was cut to fit, so read `list-key-dates` or `list-data-notes`
@@ -516,6 +557,18 @@ backticks or `#` outside strings, and nested block comments.
 Declared record templates do not support `{{?variable}}…{{/variable}}`
 blocks, which could assemble new literal contexts after validation. Use SQL
 `CASE` expressions with ordinary variables for optional filters.
+
+**A point with no x value needs `{{drillXIsNull}}`.** A row whose x is null
+plots at a "No value" tick, and a click on it sends `{{drillX}}` as an empty
+string, the same as a row whose x is `''`. `{{drillXIsNull}}` is `'true'` for
+that click and `'false'` for every other, so match both:
+`(country = '{{drillX}}' OR ('{{drillXIsNull}}' = 'true' AND country IS NULL))`.
+When the column isn't a string, such as a `DATE`, the database reads an empty
+`{{drillX}}` as an invalid date and fails the query, even where the `OR`
+doesn't need it, so compare with `CAST(NULLIF('{{drillX}}', '') AS DATE)`
+instead. A template that doesn't use
+`{{drillXIsNull}}` opens the chart's aggregate rows for a "No value" click,
+not records.
 
 **Record templates can't use `:list` variables.** With nothing selected,
 `{{appFilter:list}}` renders as the bare name `__empty_list_filter__`. BigQuery
@@ -735,6 +788,8 @@ and a predicate that consumes the declared filter, such as
 its options; date variables must have a matching date-range filter. The server
 rejects unbound first-party SQL during dashboard validation.
 
+**Traffic.** `traffic_environment` is a reserved filter id for first-party panels, with the values `all`, `production` and `beta` (beta includes PR previews and local runs). It never appears in panel SQL; reads apply it through the query scope, so don't add a hostname condition for it. A dashboard created by `compose-dashboard` or by `update-dashboard` with a new id starts with it set to `production`; a duplicate keeps its source's value, and one from folder sync, a Sigma migration or a template clone starts without it. One saved without it shows the menu on `all` until someone saves a default view with another value. A report saved without `f_traffic_environment` reads all traffic whatever the dashboard shows; set it in the report's `filters` to switch. Save verification reads all traffic unless `filters` names one, and refuses a first-party panel the dashboard's default traffic can't load, such as a rollup with no start date. Alerts always read all traffic. `get-traffic-counts` reports the events counted as production only because they have no host and no recognized environment.
+
 **Filter ids must be unique.** Two filters with the same `id` collide on the same URL param, so changing one visibly updates the other in the UI. The dashboard save endpoint rejects duplicates with a 400.
 
 **Use `type: "date-range"` for paired start/end dates.** Don't add two `type: "date"` filters labeled "Start" and "End" — even with distinct ids, that ships the wrong UX. A single date-range filter renders as the "from … to …" pair and exposes both halves to SQL via `{{<id>Start}}` / `{{<id>End}}`.
@@ -876,7 +931,13 @@ asks for a low-level JSON-pointer edit. Use `moveBefore`, `moveAfter`,
 For visible placement requests like "second row" or "next to return rates", use
 row-aware placement: `dashboard.insertPanel({...}).nextTo("retention-over-time")`,
 `.atRow(2)`, or `dashboard.panel("panel-a").moveNextTo("panel-b")`. These keep
-panels in the intended rendered row and rebalance that row when needed. In
+panels in the intended rendered row and rebalance the widths of the row the
+panel joins and the row it leaves. A row that needs another column widens its
+section and rebalances every row there; above the first section it widens the
+dashboard, and sections without their own column count are pinned to the one
+they had. Other panels keep their widths unless that would merge their row into
+the next one. The op's `commandLog` entry names every width or column count it
+changed. In
 `operations`, `movePanels`, `insertPanel`, and `duplicatePanel` take the same
 placement as fields: `position`, `index`, `beforePanelId`, `afterPanelId`,
 `nextToPanelId` (same visible row, after that panel), or `rowNumber` (1-based

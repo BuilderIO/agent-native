@@ -1,3 +1,4 @@
+import { suggestionNodeRole } from "../app/components/editor/suggestions/model";
 import {
   canonicalizeNfm,
   docToNfm,
@@ -28,8 +29,10 @@ type TextRun = {
   escapedBlockMarker?: boolean;
   /** Its placeholder starts with a digit, as the run's bytes do. */
   digitLead?: boolean;
+  frame: number;
 };
 type TextRange = { from: number; to: number };
+type FramedRange = TextRange & { frame: number };
 
 export class SuggestionFormattingMappingError extends Error {
   constructor() {
@@ -107,6 +110,7 @@ function computeFormattingRuns(
   // Block syntax between two runs maps to their shared text boundary; an image,
   // rule, or empty block there is a document position of its own and does not.
   let nonTextPending = false;
+  let frame = 0;
   // `position` is the node's index among its siblings: NFM protects leading
   // whitespace only in a block's first inline node.
   const withMarkers = (node: PMNode, position = 0): PMNode => {
@@ -131,6 +135,7 @@ function computeFormattingRuns(
         sourceTo: -1,
         nonTextBefore: nonTextPending,
         verbatim: true,
+        frame,
       });
       nonTextPending = false;
       offset += text.length;
@@ -151,6 +156,7 @@ function computeFormattingRuns(
       // An empty cell has no text, so a zero-length run gives typing into it
       // a position on both sides.
       const index = runs.length;
+      frame += 1;
       runs.push({
         text: "",
         marks: "[]",
@@ -163,7 +169,9 @@ function computeFormattingRuns(
         sourceTo: -1,
         nonTextBefore: nonTextPending,
         emptyCell: true,
+        frame,
       });
+      frame += 1;
       nonTextPending = true;
       const marker = { type: "text", text: `${markerPrefix}${index}x` };
       return { ...node, content: [{ ...paragraph, content: [marker] }] };
@@ -197,6 +205,7 @@ function computeFormattingRuns(
         nonTextBefore: nonTextPending,
         escapedBlockMarker: spellings.escapedBlockMarker.has(node),
         digitLead,
+        frame,
       });
       nonTextPending = false;
       offset += node.text.length;
@@ -208,10 +217,11 @@ function computeFormattingRuns(
       !node.content?.length
     )
       nonTextPending = true;
-    return {
-      ...node,
-      ...(node.content ? { content: node.content.map(withMarkers) } : {}),
-    };
+    const isFrame = suggestionNodeRole(node.type) === "frame";
+    if (isFrame) frame += 1;
+    const content = node.content?.map(withMarkers);
+    if (isFrame) frame += 1;
+    return { ...node, ...(content ? { content } : {}) };
   };
   const withPlaceholders = docToNfm({
     type: "doc",
@@ -410,6 +420,7 @@ function normalizedSourceGap(source: string, from: number, to: number): string {
 }
 
 const TABLE_TAG = /<\/?(?:table|tr|td|th)\b[^>]*>/;
+const TABLE_TAG_AT = new RegExp(TABLE_TAG.source, "y");
 
 const ASCII_PUNCTUATION = /^[!-/:-@[-`{-~]$/; // L7 bridge
 
@@ -496,12 +507,26 @@ function mapStoredSourceRuns(
   let canonicalCursor = 0;
   const pieces: string[] = [];
   // An empty cell has no text to find, so it goes right after the first
-  // pipe that opens a cell, outside the delimiter row, where the gap before
-  // it matches. A row's closing pipe also reads as a row break, so a pipe
-  // opens a cell only when another pipe follows it on its line.
+  // syntax that opens a cell where the gap before it matches: an HTML
+  // table's cell tag, or a pipe outside the delimiter row. A row's closing
+  // pipe also reads as a row break, so a pipe opens a cell only when another
+  // pipe follows it on its line.
   const emptyCellStart = (canonicalTo: number) => {
-    for (let start = cursor + 1; start <= source.length; start += 1) {
-      if (!/[\s|:-]/.test(source[start - 1]!)) return -1;
+    let start = cursor;
+    while (start < source.length) {
+      TABLE_TAG_AT.lastIndex = start;
+      const tag = source[start] === "<" && TABLE_TAG_AT.exec(source);
+      if (tag) {
+        start += tag[0].length;
+        if (
+          /^<t[dh]\b/.test(tag[0]) &&
+          gapMatches(cursor, start, canonicalCursor, canonicalTo)
+        )
+          return start;
+        continue;
+      }
+      if (!/[\s|:-]/.test(source.charAt(start))) return -1;
+      start += 1;
       if (source[start - 1] !== "|") continue;
       const lineFrom = source.lastIndexOf("\n", start - 1) + 1;
       const lineTo = source.indexOf("\n", start);
@@ -656,6 +681,8 @@ export type SuggestionFormattingSlicePart =
 const EMPTY_BLOCK = "<empty-block/>";
 // The syntax that opens a line's block: a heading, list item, task, or quote.
 const BLOCK_MARKER = /^(?:#{1,6} |(?:> )+|[-*+] (?:\[[ xX]\] )?|\d+[.)] )/;
+const WHOLE_LINE_BLOCK =
+  /^(?:(?:-{3,}|\*{3,}|_{3,})[ \t]*|`{3,}[^\r\n`]*|~{3,}[^\r\n]*)(?=\r\n|\r|\n|$)/;
 
 // `blocks` admits block syntax and empty paragraphs. Without it a gap holds
 // only line breaks and indentation, which is what places a zero-width
@@ -711,6 +738,12 @@ function structuralGapParts(
     ) {
       parts.push({ type: "block", text: "¶" });
       offset = lineEnd;
+      continue;
+    }
+    const line = WHOLE_LINE_BLOCK.exec(source.slice(offset));
+    if (line && offset + line[0].length <= to) {
+      parts.push({ type: "block", text: line[0] });
+      offset += line[0].length;
       continue;
     }
     const marker = BLOCK_MARKER.exec(source.slice(offset, to));
@@ -784,13 +817,16 @@ function textBoundarySourceOffset(run: TextRun, index: number): number | null {
   return offset === undefined ? null : run.sourceFrom + offset;
 }
 
-function mergeRanges(ranges: TextRange[]): TextRange[] {
-  const merged: TextRange[] = [];
+function mergeRanges(ranges: FramedRange[]): FramedRange[] {
+  const merged: FramedRange[] = [];
+  let previous: FramedRange | undefined;
   for (const range of ranges.sort((left, right) => left.from - right.from)) {
-    const previous = merged[merged.length - 1];
-    if (previous && range.from <= previous.to)
+    if (previous?.frame === range.frame && range.from <= previous.to)
       previous.to = Math.max(previous.to, range.to);
-    else merged.push({ ...range });
+    else {
+      previous = { ...range };
+      merged.push(previous);
+    }
   }
   return merged;
 }
@@ -834,14 +870,14 @@ export function suggestionFormattingChanges(
   if (!previous || !next) throw new SuggestionFormattingMappingError();
   let left = 0;
   let right = 0;
-  const changes: TextRange[] = [];
+  const changes: FramedRange[] = [];
   while (left < previous.runs.length && right < next.runs.length) {
     const beforeRun = previous.runs[left]!;
     const afterRun = next.runs[right]!;
     const from = Math.max(beforeRun.from, afterRun.from);
     const to = Math.min(beforeRun.to, afterRun.to);
     if (beforeRun.marks !== afterRun.marks && to > from)
-      changes.push({ from, to });
+      changes.push({ from, to, frame: beforeRun.frame });
     if (beforeRun.to <= afterRun.to) left += 1;
     if (afterRun.to <= beforeRun.to) right += 1;
   }

@@ -32,6 +32,7 @@ const {
   SANDBOX_EXECUTION_MAX_STORED_OUTPUT_CHARS,
   claimSandboxExecution,
   createSandboxExecution,
+  discardSandboxExecutionOutput,
   failExpiredSandboxExecution,
   finalizeSandboxExecution,
   getSandboxExecutionForOwner,
@@ -57,6 +58,12 @@ function baseInput(overrides: Record<string, unknown> = {}) {
 
 beforeEach(async () => {
   pglite = await createTestPglite();
+  await pglite.exec(`
+    CREATE TABLE organizations (id TEXT PRIMARY KEY, identity_authority TEXT, identity_id TEXT);
+    CREATE TABLE org_members (org_id TEXT, email TEXT, role TEXT, federation_removal_pending_at BIGINT);
+    INSERT INTO organizations (id) VALUES ('org-1'), ('org-2');
+    INSERT INTO org_members (org_id, email, role) VALUES ('org-1', 'alice@example.com', 'member');
+  `);
   resetSandboxExecutionsStoreForTests();
 });
 
@@ -78,6 +85,16 @@ describe("sandbox executions store", () => {
     expect(row.claimToken).toBeNull();
     expect(row.leaseExpiresAt).toBeNull();
     expect(row.allowedActionNames).toBeUndefined();
+    expect(row.caller).toBeNull();
+    expect(row.networkProtocol).toBeNull();
+  });
+
+  it("keeps the caller and network protocol that queued the run", async () => {
+    const row = await createSandboxExecution(
+      baseInput({ caller: "mcp", networkProtocol: "mcp" }),
+    );
+    expect(row.caller).toBe("mcp");
+    expect(row.networkProtocol).toBe("mcp");
   });
 
   it("persists an explicit action surface and fails malformed data closed", async () => {
@@ -97,9 +114,26 @@ describe("sandbox executions store", () => {
 
   it("scopes owner reads: another owner cannot see the row", async () => {
     const row = await createSandboxExecution(baseInput());
-    expect(await getSandboxExecutionForOwner(row.id, OWNER)).not.toBeNull();
+    const personal = await createSandboxExecution(baseInput({ orgId: null }));
     expect(
-      await getSandboxExecutionForOwner(row.id, "mallory@example.com"),
+      await getSandboxExecutionForOwner(row.id, OWNER, "org-1"),
+    ).not.toBeNull();
+    expect(
+      await getSandboxExecutionForOwner(row.id, OWNER, "org-2"),
+    ).toBeNull();
+    expect(await getSandboxExecutionForOwner(row.id, OWNER, null)).toBeNull();
+    expect(
+      await getSandboxExecutionForOwner(personal.id, OWNER, null),
+    ).not.toBeNull();
+    expect(
+      await getSandboxExecutionForOwner(personal.id, OWNER, "org-1"),
+    ).toBeNull();
+    expect(
+      await getSandboxExecutionForOwner(row.id, "mallory@example.com", "org-1"),
+    ).toBeNull();
+    await pglite.exec("DELETE FROM org_members WHERE org_id = 'org-1'");
+    expect(
+      await getSandboxExecutionForOwner(row.id, OWNER, "org-1"),
     ).toBeNull();
     expect(await getSandboxExecutionInternal(row.id)).not.toBeNull();
   });
@@ -183,7 +217,7 @@ describe("sandbox executions store", () => {
       }),
     ).toBe(true);
 
-    const done = await getSandboxExecutionForOwner(row.id, OWNER);
+    const done = await getSandboxExecutionForOwner(row.id, OWNER, "org-1");
     expect(done!.status).toBe("succeeded");
     expect(done!.stdout).toBe("fresh result");
     expect(done!.exitCode).toBe(0);
@@ -218,6 +252,41 @@ describe("sandbox executions store", () => {
     expect(done!.stdout.length).toBeLessThanOrEqual(
       SANDBOX_EXECUTION_MAX_STORED_OUTPUT_CHARS,
     );
+  });
+
+  it("keeps a data program's whole result and the evaluator's truncation flag", async () => {
+    const maxOutputChars = 4 * 1024 * 1024 + 512 * 1024;
+    const row = await createSandboxExecution(baseInput({ maxOutputChars }));
+    await claimSandboxExecution(row.id, "token-a", 90_000);
+    await finalizeSandboxExecution(row.id, "token-a", {
+      status: "succeeded",
+      stdout: "x".repeat(maxOutputChars),
+      stdoutTruncated: true,
+      exitCode: 0,
+    });
+    const done = await getSandboxExecutionInternal(row.id);
+    expect(done?.stdout).toHaveLength(maxOutputChars);
+    expect(done?.stdoutTruncated).toBe(true);
+  });
+
+  it("discards a finished execution's output and keeps its outcome", async () => {
+    const row = await createSandboxExecution(baseInput());
+    await claimSandboxExecution(row.id, "token-a", 90_000);
+    await finalizeSandboxExecution(row.id, "token-a", {
+      status: "succeeded",
+      stdout: "result",
+      stderr: "log",
+      exitCode: 0,
+    });
+
+    await discardSandboxExecutionOutput(row.id);
+
+    expect(await getSandboxExecutionInternal(row.id)).toMatchObject({
+      status: "succeeded",
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
   });
 
   it("reaps an expired row to failed only after the attempt budget is exhausted", async () => {

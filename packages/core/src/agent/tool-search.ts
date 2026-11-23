@@ -1,14 +1,23 @@
 import { isActionHiddenFromEveryAgentSurface } from "../action.js";
 import { parseMcpToolName } from "../mcp-client/manager.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
-import { frameworkMcpTool } from "../mcp/framework-tools.js";
+import {
+  frameworkMcpTool,
+  isFrameworkMcpTool,
+} from "../mcp/framework-tools.js";
 import { getRequestRunContext } from "../server/request-context.js";
 import { clipHead } from "./clip-text.js";
 import type { ActionEntry } from "./production-agent.js";
+import {
+  rankGrantedTask,
+  type Candidate,
+  type Ranking,
+} from "./tool-search-task.js";
 
 export const TOOL_SEARCH_ACTION_NAME = "tool-search";
 
 type ToolSearchArgs = {
+  task?: unknown;
   query?: unknown;
   queries?: unknown;
   names?: unknown;
@@ -33,13 +42,50 @@ type ToolSearchResult = {
   score: number;
   callable: boolean;
   planAvailability: "read" | "conditional" | "act-only";
+  /** Present on a tool that deletes or cancels; absent on every other. */
+  destructive?: true;
   parameters: ToolParameterSummary[];
 };
 
 type ToolSearchOptions = {
   defaultLimit?: number;
   maxLimit?: number;
+  /** Server-only boundaries; candidates must already be authorized for this request. */
+  taskCandidates?: readonly Candidate[] | undefined;
+  taskDeadline?: number | undefined;
+  taskCandidateProvider?:
+    | ((input: {
+        callableActionNames: readonly string[];
+        signal: AbortSignal;
+      }) => Promise<readonly Candidate[]>)
+    | undefined;
+  taskRank?:
+    | ((
+        task: string,
+        candidates: readonly Candidate[],
+        signal: AbortSignal,
+      ) => Promise<Ranking>)
+    | undefined;
 };
+
+// Host-supplied candidates are checked field by field before use; this is the
+// shape that check reads, not a promise that any field is present.
+type UntrustedTaskCandidate =
+  | {
+      id?: unknown;
+      kind?: unknown;
+      name?: unknown;
+      description?: unknown;
+      use?: {
+        type?: unknown;
+        app?: unknown;
+        path?: unknown;
+        action?: unknown;
+        scope?: unknown;
+      };
+    }
+  | null
+  | undefined;
 
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 10;
@@ -70,20 +116,26 @@ export function createToolSearchEntry(
   return frameworkMcpTool({
     tool: {
       description:
-        "Find actions and connected MCP tools by capability or exact name. The system prompt's Tool index lists every deferred tool name grouped by topic; loading several exact names in one call is the fastest path. A targeted search returns concise details and adds matches allowed in the current mode, with their full schemas, to the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. If every match is already callable, call it directly instead of searching again. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
+        "Find actions and connected MCP tools by what they do or by exact name. The system prompt's Tool index lists every deferred tool name grouped by topic; loading several exact names in one call is the fastest path. A targeted search returns concise details and adds matches allowed in the current mode, with their full schemas, to the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. If every match is already callable, call it directly instead of searching again. Results rank by words, not intent: before calling one marked `destructive`, confirm the user wants that change. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
       parameters: {
         type: "object",
         properties: {
+          task: {
+            type: "string",
+            maxLength: 3600,
+            description:
+              "One-line task summary for relevant recommendations. Results report ranking and provider status.",
+          },
           query: {
             type: "string",
             description:
-              "Capability or exact tool name to find. A targeted search adds matches allowed in the current mode, with their full schemas, to the next model step. Omit for a bounded alphabetical inventory.",
+              'The task in a few plain words ("edit auto-archive rules") or an exact tool name; the user\'s own words work. Omit for a bounded alphabetical inventory.',
           },
           queries: {
             type: "array",
             items: { type: "string" },
             maxItems: MAX_QUERIES,
-            description: `Up to ${MAX_QUERIES} capability searches run together; all matches load on the next step.`,
+            description: `Up to ${MAX_QUERIES} searches run together, one per task step; all matches load on the next step.`,
           },
           names: {
             type: "array",
@@ -305,6 +357,7 @@ function searchOnce(
         score: 0,
         callable: registry[name]?.allowInPlanMode !== false,
         planAvailability: getPlanAvailability(name, registry[name]),
+        ...destructiveMark(name, registry[name]),
         description:
           "Already returned by an earlier identical tool-search call.",
         parameters: [],
@@ -349,6 +402,7 @@ function searchOnce(
         score: 0,
         callable,
         planAvailability,
+        ...destructiveMark(name, entry),
         parameters: [],
       });
       continue;
@@ -363,6 +417,7 @@ function searchOnce(
       score: 0,
       callable,
       planAvailability,
+      ...destructiveMark(name, entry),
       parameters: parameters
         .slice(0, MAX_PARAMETER_COUNT)
         .map(boundParameterSummary),
@@ -375,7 +430,14 @@ function searchOnce(
     }
     rankable.push({
       candidate,
-      terms: searchDocumentTerms({ name, source, description, parameters }),
+      prior: isFrameworkMcpTool(entry) ? FRAMEWORK_TOOL_PRIOR : 1,
+      fields: searchDocumentFields({
+        name,
+        source,
+        hints: entry.searchHints,
+        description,
+        parameters,
+      }),
     });
   }
   if (!listAll && !exactNames) {
@@ -436,17 +498,300 @@ function searchOnce(
   return result;
 }
 
+class TaskSearchTimeout extends Error {}
+
 export async function searchToolRegistryForRequest(
   registry: Record<string, ActionEntry>,
   args: ToolSearchArgs = {},
   options: ToolSearchOptions = {},
   context?: import("../action.js").ActionRunContext,
-): Promise<ReturnType<typeof searchToolRegistry>> {
-  const visibleRegistry = await filterActionsForAgentDiscovery(
-    registry,
-    context,
+): Promise<
+  ToolSearchOutput & {
+    ranking?: "jev" | "bm25";
+    status?: import("./tool-search-task.js").Status;
+    recommendations?: Candidate[];
+  }
+> {
+  const task = typeof args.task === "string" ? args.task.trim() : "";
+  if (!task) {
+    const visibleRegistry = await filterActionsForAgentDiscovery(
+      registry,
+      context,
+    );
+    return searchToolRegistry(visibleRegistry, args, options);
+  }
+  const deadline = Math.min(
+    options.taskDeadline ?? Infinity,
+    Date.now() + 1300,
   );
-  return searchToolRegistry(visibleRegistry, args, options);
+  const empty = (
+    status: "timed_out" | "failed",
+  ): ToolSearchOutput & {
+    ranking: "bm25";
+    status: typeof status;
+    recommendations: Candidate[];
+  } => ({
+    query: task,
+    totalTools: 0,
+    count: 0,
+    results: [],
+    ranking: "bm25",
+    status,
+    recommendations: [],
+  });
+  if (task.length > 3600) return empty("failed");
+  const controller = new AbortController();
+  if (context?.signal?.aborted) return empty("failed");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const withinDeadline = async <T>(work: () => Promise<T>): Promise<T> => {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new TaskSearchTimeout();
+    let onAbort: (() => void) | undefined;
+    try {
+      return await Promise.race([
+        Promise.resolve().then(work),
+        new Promise<never>((_, reject) => {
+          onAbort = () => {
+            controller.abort();
+            reject(new Error("task search cancelled"));
+          };
+          if (context?.signal?.aborted) onAbort();
+          else
+            context?.signal?.addEventListener("abort", onAbort, { once: true });
+        }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            reject(new TaskSearchTimeout());
+          }, remaining);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      if (onAbort) context?.signal?.removeEventListener("abort", onAbort);
+    }
+  };
+  let visibleRegistry: Record<string, ActionEntry>;
+  try {
+    visibleRegistry = await withinDeadline(() =>
+      filterActionsForAgentDiscovery(registry, context),
+    );
+  } catch (error) {
+    return empty(error instanceof TaskSearchTimeout ? "timed_out" : "failed");
+  }
+  const candidates: Candidate[] = Object.entries(visibleRegistry).flatMap(
+    ([name, entry]) => {
+      if (
+        name === TOOL_SEARCH_ACTION_NAME ||
+        isActionHiddenFromEveryAgentSurface(entry)
+      )
+        return [];
+      if (name.startsWith("mcp__") && !isMcpToolAllowedForRequest(name))
+        return [];
+      const availability = getPlanAvailability(name, entry);
+      if (
+        parseBoolean(args.readOnlyOnly) &&
+        availability !== "read" &&
+        (availability !== "conditional" || name === "bash")
+      )
+        return [];
+      return [
+        {
+          id: name,
+          kind: "tool" as const,
+          name,
+          description: entry.tool.description,
+          use: { type: "tools/call" as const },
+          callable:
+            context?.caller === "mcp" || entry.allowInPlanMode !== false,
+          reason: "Relevant to the task",
+        },
+      ];
+    },
+  );
+  const baselineFor = (input: readonly Candidate[]) =>
+    rankByBm25(
+      task,
+      tokenize(task),
+      input.map((candidate) => ({
+        candidate: {
+          name: candidate.id,
+          kind: "action" as const,
+          description: candidate.description,
+          score: 0,
+          callable: candidate.callable,
+          planAvailability: "read" as const,
+          parameters: [],
+        },
+        prior: 1,
+        fields: searchDocumentFields({
+          name: candidate.name,
+          source:
+            candidate.kind === "tool"
+              ? parseMcpToolName(candidate.name)?.serverId
+              : undefined,
+          hints: undefined,
+          description: candidate.description,
+          parameters:
+            candidate.kind === "tool"
+              ? summarizeParameters(
+                  visibleRegistry[candidate.name]?.tool?.parameters,
+                )
+              : [],
+        }),
+      })),
+    )
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+      .slice(
+        0,
+        parseLimit(
+          args.limit,
+          options.defaultLimit ?? DEFAULT_LIMIT,
+          Math.min(options.maxLimit ?? MAX_LIMIT, MAX_LIMIT),
+        ),
+      );
+  const authorizedTools = [...candidates];
+  const callableActionNames = new Set(
+    candidates
+      .filter((candidate) => candidate.callable)
+      .map((candidate) => candidate.name),
+  );
+  try {
+    const { taskCandidateProvider } = options;
+    const extra = taskCandidateProvider
+      ? await withinDeadline(() =>
+          taskCandidateProvider({
+            callableActionNames: [...callableActionNames],
+            signal: controller.signal,
+          }),
+        )
+      : [];
+    const untrustedCandidates: readonly UntrustedTaskCandidate[] = [
+      ...(options.taskCandidates ?? []),
+      ...extra,
+    ];
+    for (const candidate of untrustedCandidates) {
+      if (
+        !candidate ||
+        typeof candidate.id !== "string" ||
+        typeof candidate.name !== "string" ||
+        typeof candidate.description !== "string" ||
+        !candidate.use
+      )
+        return empty("failed");
+      if (candidate.kind === "tool") continue;
+      if (
+        candidate.kind === "app" &&
+        candidate.use.type === "open_app" &&
+        (typeof candidate.use.app !== "string" ||
+          !candidate.use.app.trim() ||
+          typeof candidate.use.path !== "string" ||
+          !candidate.use.path.startsWith("/"))
+      )
+        return empty("failed");
+      if (
+        (candidate.kind === "skill" || candidate.kind === "memory") &&
+        candidate.use.type === "resources" &&
+        (candidate.use.action !== "read" ||
+          typeof candidate.use.path !== "string" ||
+          !candidate.use.path ||
+          typeof candidate.use.scope !== "string" ||
+          !candidate.use.scope)
+      )
+        return empty("failed");
+      if (
+        candidate.kind === "app" &&
+        (candidate.use.type !== "open_app" ||
+          !callableActionNames.has("open_app"))
+      )
+        continue;
+      if (
+        (candidate.kind === "skill" || candidate.kind === "memory") &&
+        (candidate.use.type !== "resources" ||
+          !callableActionNames.has("resources"))
+      )
+        continue;
+      if (
+        candidate.kind !== "app" &&
+        candidate.kind !== "skill" &&
+        candidate.kind !== "memory"
+      )
+        return empty("failed");
+      candidates.push(candidate as Candidate);
+    }
+  } catch (error) {
+    if (error instanceof TaskSearchTimeout) return empty("timed_out");
+    if (context?.signal?.aborted) return empty("failed");
+    const names = baselineFor(authorizedTools).map((item) => item.name);
+    const recommendations = names.flatMap((name) =>
+      authorizedTools.filter((item) => item.id === name),
+    );
+    const output = names.length
+      ? searchToolRegistry(visibleRegistry, { names }, options)
+      : empty("failed");
+    return {
+      ...output,
+      ...(context?.caller === "mcp"
+        ? {
+            results: output.results.map((item) => ({
+              ...item,
+              callable: true,
+            })),
+          }
+        : {}),
+      ranking: "bm25",
+      status: "failed",
+      recommendations,
+      message:
+        "Supplemental candidate discovery failed; showing authorized tool matches only.",
+    };
+  }
+  if (context?.signal?.aborted) return empty("failed");
+  const ranked = await rankGrantedTask(task, candidates, {
+    deadline,
+    rank: (signal) =>
+      options.taskRank?.(
+        task,
+        candidates,
+        context?.signal ? AbortSignal.any([signal, context.signal]) : signal,
+      ) ?? Promise.resolve({ status: "unavailable", ids: [] }),
+    bm25: () => baselineFor(candidates).map((item) => item.name),
+  });
+  ranked.recommendations = ranked.recommendations.slice(
+    0,
+    parseLimit(
+      args.limit,
+      options.defaultLimit ?? DEFAULT_LIMIT,
+      Math.min(options.maxLimit ?? MAX_LIMIT, MAX_LIMIT),
+    ),
+  );
+  const toolNames = ranked.recommendations
+    .filter((item) => item.kind === "tool")
+    .map((item) => item.name);
+  const output = toolNames.length
+    ? searchToolRegistry(
+        visibleRegistry,
+        { names: toolNames, limit: args.limit },
+        options,
+      )
+    : { query: task, totalTools: candidates.length, count: 0, results: [] };
+  return {
+    ...output,
+    ...(args.names || args.query || args.queries
+      ? {
+          message: [
+            output.message,
+            "Task mode ignores query, queries and names; use a separate call for exact names or lexical searches.",
+          ]
+            .filter(Boolean)
+            .join(" "),
+        }
+      : {}),
+    ...(context?.caller === "mcp"
+      ? { results: output.results.map((item) => ({ ...item, callable: true })) }
+      : {}),
+    ...ranked,
+  };
 }
 
 const PLAN_MODE_BLOCKED_DISCOVERY_TOOLS = new Set([
@@ -522,7 +867,92 @@ function parseToolSearchLists(args: ToolSearchArgs) {
  */
 export function isTargetedToolSearch(args: object): boolean {
   const { parsedQueries, parsedNames } = parseToolSearchLists(args);
-  return parsedQueries.kept.length > 0 || parsedNames.kept.length > 0;
+  const task = (args as ToolSearchArgs).task;
+  return (
+    parsedQueries.kept.length > 0 ||
+    parsedNames.kept.length > 0 ||
+    (typeof task === "string" && task.trim().length > 0)
+  );
+}
+
+/**
+ * Whether a search should also name tools the caller can't call: a targeted
+ * search that hasn't asked for read-only tools only, since the tool those
+ * names point the caller to (`ask_app`) isn't read-only.
+ */
+export function namesUnservedTools(args: object): boolean {
+  return (
+    isTargetedToolSearch(args) &&
+    !parseBoolean((args as ToolSearchArgs).readOnlyOnly)
+  );
+}
+
+/**
+ * The best matches in `registry` for a targeted search's queries, names and
+ * task, ranked as a query search ranks them but outside its repeat guard, by
+ * name and a short description only. A menu search matches nothing. MCP's
+ * `tool-search` runs it over the actions a caller can't call, to name the ones
+ * the app's own agent could run for it.
+ */
+export function closestToolMatches(
+  registry: Record<string, ActionEntry>,
+  args: object,
+  limit: number,
+): Array<{ name: string; description: string }> {
+  const { parsedQueries, parsedNames } = parseToolSearchLists(args);
+  const task = (args as ToolSearchArgs).task;
+  const texts = [
+    ...parsedQueries.kept,
+    ...(typeof task === "string" && task.trim() ? [task.trim()] : []),
+  ];
+  const exactNames = new Set(
+    parsedNames.kept.map((name) => name.toLowerCase()),
+  );
+  const rankable: RankableTool[] = [];
+  for (const [name, entry] of Object.entries(registry)) {
+    if (name === TOOL_SEARCH_ACTION_NAME) continue;
+    if (isActionHiddenFromEveryAgentSurface(entry)) continue;
+    if (parseMcpToolName(name)) continue;
+    const description = normalizeWhitespace(entry.tool.description);
+    rankable.push({
+      candidate: {
+        name,
+        kind: "action",
+        description: truncate(description, MAX_SUGGESTION_DESCRIPTION_CHARS),
+        score: 0,
+        callable: false,
+        planAvailability: getPlanAvailability(name, entry),
+        parameters: [],
+      },
+      prior: 1,
+      fields: searchDocumentFields({
+        name,
+        source: undefined,
+        hints: entry.searchHints,
+        description,
+        parameters: summarizeParameters(entry.tool.parameters),
+      }),
+    });
+  }
+  const best = new Map<string, ToolSearchResult>();
+  const keep = (match: ToolSearchResult) => {
+    const earlier = best.get(match.name);
+    if (!earlier || match.score > earlier.score) best.set(match.name, match);
+  };
+  for (const { candidate } of rankable) {
+    if (exactNames.has(candidate.name.toLowerCase())) {
+      keep({ ...candidate, score: EXACT_NAME_SCORE });
+    }
+  }
+  for (const text of texts) {
+    for (const match of rankByBm25(text, tokenize(text), rankable)) {
+      keep(match);
+    }
+  }
+  return [...best.values()]
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .slice(0, limit)
+    .map(({ name, description }) => ({ name, description }));
 }
 
 /** Callable matches of a targeted search; empty for a menu or an error. */
@@ -690,32 +1120,192 @@ function summarizeType(value: unknown): string | undefined {
 const BM25_K1 = 1.2;
 const BM25_B = 0.75;
 const NAME_PHRASE_BONUS = 5;
+const SYNONYM_WEIGHT = 0.5;
 
-type RankableTool = { candidate: ToolSearchResult; terms: string[] };
+// BM25F: each field is length-normalised on its own, then weighted, so a long
+// description cannot drown a one-word name match. Search hints are words users
+// say for the action, so they rank just below the name; the first sentence of
+// a description says what the tool is for and outranks the caveats after it.
+const FIELD_WEIGHTS = {
+  name: 5,
+  hints: 4,
+  source: 2,
+  summary: 2,
+  details: 1,
+  parameters: 0.5,
+} as const;
 
-// Weighting by repetition keeps one BM25 pass: a name hit counts three times a
-// description hit, an MCP server hit twice.
-function searchDocumentTerms(doc: {
-  name: string;
-  source?: string;
-  description: string;
-  parameters: ToolParameterSummary[];
-}): string[] {
-  const name = searchTerms(doc.name);
-  const source = searchTerms(doc.source ?? "");
-  return [
-    ...name,
-    ...name,
-    ...name,
-    ...source,
-    ...source,
-    ...searchTerms(doc.description),
-    ...searchTerms(
-      doc.parameters
-        .map((p) => `${p.name} ${p.type ?? ""} ${p.description ?? ""}`)
-        .join(" "),
+type SearchField = keyof typeof FIELD_WEIGHTS;
+const SEARCH_FIELDS = Object.keys(FIELD_WEIGHTS) as SearchField[];
+
+type FieldTerms = { counts: Map<string, number>; length: number };
+type RankableTool = {
+  candidate: ToolSearchResult;
+  /** Multiplies the text score; see `FRAMEWORK_TOOL_PRIOR`. */
+  prior: number;
+  fields: Record<SearchField, FieldTerms>;
+};
+
+// Framework tools (sharing, review comments, usage, settings) ship in every
+// app and share its vocabulary: in Mail, "email" also names transactional
+// email logs. A request made in an app is usually about that app's own work,
+// so on similar text the app's actions rank first. Exact names still win.
+const FRAMEWORK_TOOL_PRIOR = 0.8;
+
+// Stemming would fold these nouns into an unrelated word ("news" into "new",
+// which then expands to the create synonyms; "setting" into "set"), so they
+// are indexed as themselves. Declared before the stemmed set below, which
+// calls `stem` as the module loads.
+const PROTECTED_TERMS: ReadonlyMap<string, string> = new Map([
+  ["news", "news"],
+  ["setting", "setting"],
+  ["settings", "setting"],
+  ["recording", "recording"],
+  ["recordings", "recording"],
+  ["mapping", "mapping"],
+  ["mappings", "mapping"],
+  ["heading", "heading"],
+  ["headings", "heading"],
+]);
+
+// Verbs that lose data. "Remove" and "clear" also name reversible edits
+// (removing a tag, clearing a filter), so they count only through a declared
+// `destructiveHint`, as does "permanently remove" spelled any other way.
+// Verbs that lose data or undo something another person relies on. "Remove"
+// and "clear" also name reversible edits (removing a tag, clearing a filter),
+// so they count only through a declared `destructiveHint`.
+const DESTRUCTIVE_VERBS: ReadonlySet<string> = new Set(
+  ["delete", "destroy", "trash", "purge", "cancel"].map(stem),
+);
+
+/** "delete", "deleteNode", "delete-node", "delete_node": the value leads with one. */
+function leadsWithDestructiveVerb(value: string): boolean {
+  const verb = searchTerms(value).at(0);
+  return verb !== undefined && DESTRUCTIVE_VERBS.has(verb);
+}
+
+/**
+ * The `destructive` mark every result carries, on every path that builds one.
+ * Ranking ignores it: whether the user wants the change ("delete it" or "don't
+ * delete it") is the agent's call, so a search finds the tool either way and
+ * the mark tells the agent to check.
+ *
+ * Declared annotations decide, `destructiveHint: false` included. Without
+ * them, a read-only tool is never destructive (a `status: "cancelled"` filter
+ * on a list is not a write), and any other tool is when an `enum` or `const`
+ * value anywhere in its input schema leads with a destructive verb
+ * (`operation: "delete"`, `op: "delete"`, `kind: "deleteNode"`) or its own
+ * name does, since most delete actions declare no annotations.
+ */
+function destructiveMark(
+  name: string,
+  entry: ActionEntry | undefined,
+): { destructive?: true } {
+  if (!entry) return {};
+  if (entry.mcpAnnotations) {
+    return entry.mcpAnnotations.destructiveHint ? { destructive: true } : {};
+  }
+  if (entry.readOnly === true) return {};
+  return schemaHasDestructiveValue(entry.tool.parameters, 0) ||
+    leadsWithDestructiveVerb(parseMcpToolName(name)?.toolName ?? name)
+    ? { destructive: true }
+    : {};
+}
+
+// Deep enough for a list of tagged operations (properties → items → oneOf →
+// properties → op), shallow enough that a huge or cyclic schema cannot stall a
+// search.
+const MAX_SCHEMA_DEPTH = 6;
+
+function schemaHasDestructiveValue(schema: unknown, depth: number): boolean {
+  if (depth > MAX_SCHEMA_DEPTH || !schema || typeof schema !== "object") {
+    return false;
+  }
+  const node = schema as Record<string, unknown>;
+  const literals = [
+    ...(Array.isArray(node.enum) ? node.enum : []),
+    node.const,
+  ].filter((value): value is string => typeof value === "string");
+  if (literals.some(leadsWithDestructiveVerb)) return true;
+  const children = [
+    ...(node.properties && typeof node.properties === "object"
+      ? Object.values(node.properties)
+      : []),
+    ...(Array.isArray(node.items) ? node.items : [node.items]),
+    ...[node.oneOf, node.anyOf, node.allOf].flatMap((list) =>
+      Array.isArray(list) ? list : [],
     ),
   ];
+  return children.some((child) => schemaHasDestructiveValue(child, depth + 1));
+}
+
+function fieldTerms(value: string): FieldTerms {
+  const terms = searchTerms(value);
+  const counts = new Map<string, number>();
+  for (const term of terms) counts.set(term, (counts.get(term) ?? 0) + 1);
+  return { counts, length: terms.length };
+}
+
+function searchDocumentFields(doc: {
+  name: string;
+  source: string | undefined;
+  hints: readonly string[] | undefined;
+  description: string;
+  parameters: ToolParameterSummary[];
+}): Record<SearchField, FieldTerms> {
+  const sentenceEnd = doc.description.search(/[.!?](\s|$)/);
+  const summaryEnd = sentenceEnd < 0 ? doc.description.length : sentenceEnd + 1;
+  return {
+    name: fieldTerms(doc.name),
+    hints: fieldTerms((doc.hints ?? []).join(" ")),
+    source: fieldTerms(doc.source ?? ""),
+    summary: fieldTerms(doc.description.slice(0, summaryEnd)),
+    details: fieldTerms(doc.description.slice(summaryEnd)),
+    parameters: fieldTerms(
+      doc.parameters.map((p) => `${p.name} ${p.description ?? ""}`).join(" "),
+    ),
+  };
+}
+
+// Common verbs and nouns users say in place of the words tool names use. They
+// count for half of a literal match, so the user's own word still wins.
+const SYNONYM_GROUPS: readonly (readonly string[])[] = [
+  ["create", "make", "new", "add"],
+  ["delete", "remove", "trash", "erase", "clear"],
+  ["update", "change", "edit", "modify", "rename", "adjust"],
+  ["search", "find", "look", "lookup"],
+  ["list", "show"],
+  ["view", "see", "open"],
+  ["restore", "undo", "revert", "recover"],
+  ["export", "download"],
+  ["duplicate", "copy", "clone"],
+  ["reply", "respond", "answer"],
+  ["image", "picture", "photo"],
+  ["document", "doc", "page"],
+  ["email", "mail", "message"],
+  ["setting", "preference"],
+];
+
+const SYNONYMS: ReadonlyMap<string, readonly string[]> = (() => {
+  const map = new Map<string, string[]>();
+  for (const group of SYNONYM_GROUPS) {
+    const stems = group.map(stem);
+    for (const word of stems) {
+      const others = stems.filter((other) => other !== word);
+      map.set(word, [...(map.get(word) ?? []), ...others]);
+    }
+  }
+  return map;
+})();
+
+function weightedQueryTerms(queryTokens: string[]): Map<string, number> {
+  const weights = new Map(queryTokens.map((term) => [term, 1]));
+  for (const term of queryTokens) {
+    for (const synonym of SYNONYMS.get(term) ?? []) {
+      if (!weights.has(synonym)) weights.set(synonym, SYNONYM_WEIGHT);
+    }
+  }
+  return weights;
 }
 
 // Corpus statistics come from every tool that survived this call's filters, so
@@ -726,18 +1316,25 @@ function rankByBm25(
   docs: RankableTool[],
 ): ToolSearchResult[] {
   if (queryTokens.length === 0 || docs.length === 0) return [];
-  const counts = docs.map((doc) => {
-    const termCounts = new Map<string, number>();
-    for (const term of doc.terms) {
-      termCounts.set(term, (termCounts.get(term) ?? 0) + 1);
-    }
-    return termCounts;
-  });
-  const averageLength =
-    docs.reduce((sum, doc) => sum + doc.terms.length, 0) / docs.length || 1;
+  const queryTerms = weightedQueryTerms(queryTokens);
+  // Averaged over the tools that fill the field: most tools have no search
+  // hints, and counting them would make every hint list look too long.
+  const averageLength = Object.fromEntries(
+    SEARCH_FIELDS.map((field) => {
+      const lengths = docs
+        .map((doc) => doc.fields[field].length)
+        .filter((length) => length > 0);
+      return [
+        field,
+        lengths.reduce((sum, length) => sum + length, 0) / lengths.length || 1,
+      ];
+    }),
+  ) as Record<SearchField, number>;
   const idf = new Map(
-    queryTokens.map((term) => {
-      const frequency = counts.filter((c) => c.has(term)).length;
+    [...queryTerms.keys()].map((term) => {
+      const frequency = docs.filter((doc) =>
+        SEARCH_FIELDS.some((field) => doc.fields[field].counts.has(term)),
+      ).length;
       return [
         term,
         Math.log(1 + (docs.length - frequency + 0.5) / (frequency + 0.5)),
@@ -745,27 +1342,50 @@ function rankByBm25(
     }),
   );
   const wholeQuery = query.trim().toLowerCase();
-  const phrase = queryTokens.length > 1 ? queryTokens.join(" ") : "";
-  return docs.flatMap((doc, index) => {
+  return docs.flatMap((doc) => {
     const { candidate } = doc;
     if (candidate.name.toLowerCase() === wholeQuery) {
       return [{ ...candidate, score: EXACT_NAME_SCORE }];
     }
-    const norm =
-      BM25_K1 * (1 - BM25_B + (BM25_B * doc.terms.length) / averageLength);
     let score = 0;
-    for (const term of queryTokens) {
-      const count = counts[index].get(term);
-      if (!count) continue;
+    for (const [term, queryWeight] of queryTerms) {
+      let weightedFrequency = 0;
+      for (const field of SEARCH_FIELDS) {
+        const count = doc.fields[field].counts.get(term);
+        if (!count) continue;
+        weightedFrequency +=
+          (FIELD_WEIGHTS[field] * count) /
+          (1 -
+            BM25_B +
+            (BM25_B * doc.fields[field].length) / averageLength[field]);
+      }
+      if (weightedFrequency === 0) continue;
       score +=
-        (idf.get(term) ?? 0) * ((count * (BM25_K1 + 1)) / (count + norm));
+        queryWeight *
+        (idf.get(term) ?? 0) *
+        ((weightedFrequency * (BM25_K1 + 1)) / (weightedFrequency + BM25_K1));
     }
     if (score <= 0) return [];
-    if (phrase && tokenize(candidate.name).join(" ").includes(phrase)) {
+    if (
+      queryTokens.length > 1 &&
+      containsTokenRun(tokenize(candidate.name), queryTokens)
+    ) {
       score += NAME_PHRASE_BONUS;
     }
+    score *= doc.prior;
     return [{ ...candidate, score: Math.round(score * 100) / 100 }];
   });
+}
+
+// Whole tokens in order, so "view email" never matches inside "preview-email"
+// and "archive email" never matches inside "unarchive-email".
+function containsTokenRun(tokens: string[], run: string[]): boolean {
+  for (let start = 0; start + run.length <= tokens.length; start++) {
+    if (run.every((token, offset) => tokens[start + offset] === token)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Suggestions are never loaded, so a query with no exact term still points the
@@ -779,8 +1399,13 @@ function suggestCloseTools(
     .map((token) => token.slice(0, 3));
   if (prefixes.length === 0) return [];
   return docs
-    .map(({ candidate }) => {
-      const terms = tokenize(`${candidate.name} ${candidate.description}`);
+    .map(({ candidate, fields }) => {
+      const terms = [
+        ...fields.name.counts.keys(),
+        ...fields.hints.counts.keys(),
+        ...fields.summary.counts.keys(),
+        ...fields.details.counts.keys(),
+      ];
       const overlap = prefixes.filter((prefix) =>
         terms.some((term) => term.startsWith(prefix)),
       ).length;
@@ -802,46 +1427,84 @@ function suggestCloseTools(
     }));
 }
 
-const STOP_WORDS: ReadonlySet<string> = new Set([
-  "a",
-  "an",
-  "and",
-  "are",
-  "as",
-  "at",
-  "be",
-  "by",
-  "for",
-  "from",
-  "in",
-  "is",
-  "it",
-  "of",
-  "on",
-  "or",
-  "that",
-  "the",
-  "this",
-  "to",
-  "with",
-]);
+// Function words carry no capability, and conversational requests are full of
+// them ("can you show me what I have"). Indexed text drops them too, so a
+// description's "you can" never matches a request's.
+const STOP_WORDS: ReadonlySet<string> = new Set(
+  (
+    "a about after again also am an and any are as at be been before being " +
+    "but by can could did do does doing done for from had has have having " +
+    "he her here hers him his how i if in into is it its just let lets me " +
+    "mine my myself no not now of off on once only or our ours please she " +
+    "should so some such than thank thanks that the their theirs them then " +
+    "there these they this those to too up us very want was we were what " +
+    "when where which while who whom why will with would you your yours"
+  ).split(" "),
+);
 
+// Light, inflection-only stemming, the same on both sides of the match:
+// plurals, "-ed" and "-ing" (undoubling "running" to "run"), and a final
+// "-e", so "archived", "archiving" and "archive" meet at "archiv" and "saved"
+// meets "save". Full Porter stemming was measured on the benchmark and lost a
+// held-out case: it folds derivations together ("engineering" into "engine").
 function stem(term: string): string {
-  if (term.length > 4 && term.endsWith("ies")) return `${term.slice(0, -3)}y`;
-  if (term.length > 4 && /(ches|shes|sses|xes|zes)$/.test(term))
-    return term.slice(0, -2);
-  if (term.length > 3 && term.endsWith("s") && !term.endsWith("ss"))
-    return term.slice(0, -1);
-  return term;
+  const protectedTerm = PROTECTED_TERMS.get(term);
+  if (protectedTerm) return protectedTerm;
+  let stemmed = term;
+  if (stemmed.length > 4 && stemmed.endsWith("ies")) {
+    stemmed = `${stemmed.slice(0, -3)}y`;
+  } else if (stemmed.length > 4 && /(ches|shes|sses|xes|zes)$/.test(stemmed)) {
+    stemmed = stemmed.slice(0, -2);
+  } else if (
+    stemmed.length > 3 &&
+    stemmed.endsWith("s") &&
+    !/(ss|us|is)$/.test(stemmed)
+  ) {
+    stemmed = stemmed.slice(0, -1);
+  }
+  if (/^[aeiou][^aeiouy](?:ing|ed)$/u.test(stemmed)) {
+    // "using" and "used" lost the "e" of "use", as "owing" did of "owe".
+    stemmed = `${stemmed.slice(0, 2)}e`;
+  } else if (stemmed.length > 5 && stemmed.endsWith("ing")) {
+    stemmed = undoubleFinalConsonant(stemmed.slice(0, -3));
+  } else if (stemmed.length > 4 && stemmed.endsWith("ied")) {
+    stemmed = `${stemmed.slice(0, -3)}y`;
+  } else if (stemmed.length > 4 && stemmed.endsWith("ed")) {
+    stemmed = undoubleFinalConsonant(stemmed.slice(0, -2));
+  }
+  if (stemmed.length >= 4 && stemmed.endsWith("e")) {
+    stemmed = stemmed.slice(0, -1);
+  }
+  return stemmed;
+}
+
+// "running" and "stopped" double the consonant before the suffix, so their
+// stems must drop it to meet "run" and "stop". Base words that end in a double
+// letter ("fill", "dress", "buzz", "stuff") keep it, as do stems that would
+// shrink to two letters ("adding" stays "add"). A long "-ell" stem is the
+// British doubling of "cancelled" and "labelled"; "spell" and "sell" are short.
+function undoubleFinalConsonant(stemmed: string): string {
+  return (stemmed.length >= 4 && /([bcdgkmnprt])\1$/.test(stemmed)) ||
+    (stemmed.length >= 6 && stemmed.endsWith("ell"))
+    ? stemmed.slice(0, -1)
+    : stemmed;
 }
 
 function searchTerms(value: string): string[] {
   return value
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((term) => term.length > 0 && !STOP_WORDS.has(term))
+    .split(/[^A-Za-z0-9]+/)
+    .flatMap((word) => {
+      const parts = word
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+        .toLowerCase()
+        .split(" ");
+      // Users type "PowerPoint" and "HubSpot" as one word, too.
+      return parts.length > 1 ? [...parts, word.toLowerCase()] : parts;
+    })
+    .filter(
+      (term) => (term.length > 1 || /\d/.test(term)) && !STOP_WORDS.has(term),
+    )
     .map(stem);
 }
 

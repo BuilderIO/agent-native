@@ -1,5 +1,78 @@
 # @agent-native/creative-context
 
+## 0.8.75
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.74
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.73
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.72
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.71
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.70
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.69
+
+### Patch Changes
+
+- dc1be54: Add `isCreativeContextOffForUser`, which reports when the lab is unavailable to the user or their saved preference is off, so callers can drop reuse labels that `validateGenerationCreativeContext` would refuse.
+- Release all public npm packages with a patch version bump.
+
+## 0.8.68
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.67
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.66
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.65
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.64
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.63
 
 ### Patch Changes
@@ -563,95 +636,5 @@
 ### Patch Changes
 
 - Release all public npm packages with a patch version bump.
-
-## 0.7.1
-
-### Patch Changes
-
-- 10de7b9: Remove unused imports and unreachable declarations. Dispatch drops unused
-  imports from its layout, transactional email pages, and MCP gateway;
-  creative-context drops unused type imports and an unread `headingStyle`;
-  recap-cli drops the `node:os` import and two unread locals; skills drops the
-  unreferenced `maybeUpdateInstructions` helper; toolkit drops unused imports and
-  an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
-  `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
-  blocks new ones.
-
-## 0.7.0
-
-### Minor Changes
-
-- 39383b5: designs can be generated using creative context
-
-## 0.6.6
-
-### Patch Changes
-
-- 4c7c289: Keep browser-rendered website style extraction working when the shared evaluator
-  is bundled before it is serialized into Chromium.
-
-## 0.6.5
-
-### Patch Changes
-
-- b3b4580: Normalize commenter access to the read-only creative-context role contract.
-
-## 0.6.4
-
-### Patch Changes
-
-- 9204f85: Fix the Context tab's dropdown in the Share dialog rendering invisibly behind the host popover and dismissing the whole dialog on interaction. The select now matches the popover's nested-overlay z-index and is marked so `ShareButton` doesn't treat clicks inside it as outside clicks.
-
-## 0.6.3
-
-### Patch Changes
-
-- 25f588e: Redirect legacy `/agent` management URLs to the canonical settings routes and preserve app-owned settings tabs.
-
-## 0.6.2
-
-### Patch Changes
-
-- e177059: Restore the serverless Playwright fallback so production URL extraction can use packaged Chromium.
-
-## 0.6.1
-
-### Patch Changes
-
-- aa24c7e: Use the declared optional Playwright runtime through a literal import so Cloudflare deployments can apply their fail-closed browser stub.
-- 9d8ae68: Run website brand extraction in an isolated real browser through the SSRF-safe network proxy, with serverless Chromium support and an explicit static fallback.
-
-## 0.6.0
-
-### Minor Changes
-
-- abb0cf5: Add a shared browser-rendered website design-system extraction surface with computed visual tokens, component evidence, and bounded design.md summaries.
-
-## 0.5.12
-
-### Patch Changes
-
-- 2765110: Avoid database migrations and recurring sweeps during durable background cold starts.
-
-## 0.5.11
-
-### Patch Changes
-
-- c71d383: Include the shared creative-context and toolkit updates in the next package release.
-
-## 0.5.10
-
-### Patch Changes
-
-- d6e7c5c: Stop a second Chromium from being downloaded alongside the one already on disk.
-
-  First-party workspace packages now take Playwright from an exact catalog pin, so
-  a caret cannot resolve forward to a release tied to a different Chromium
-  revision. The two packages that declare Playwright as a published optional
-  dependency — `@agent-native/creative-context` and `@agent-native/recap-cli` —
-  deliberately keep a caret range instead: an exact range in a library stops a
-  consumer who already has a different Playwright from deduping, which forces a
-  nested copy and downloads exactly the second browser this change exists to
-  avoid.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -85,8 +85,8 @@ les modèles officiels. Omettez `?app` pour choisir interactivement dans l'espac
 de travail source, ou incluez-le pour une installation scriptable :
 
 ```bash
-npx @agent-native/core@latest add-app my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+pnpm exec agent-native add-app my-app --template community:owner/repo#v1.2.0
+pnpm exec agent-native add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
 ```
 
 Seuls les dépôts GitHub publics sont acceptés. Les dépôts privés, les

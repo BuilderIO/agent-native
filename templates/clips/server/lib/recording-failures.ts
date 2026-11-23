@@ -1,6 +1,11 @@
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import { track } from "@agent-native/core/tracking";
 
+import {
+  RECORDER_STAGES,
+  type RecorderStage,
+} from "../../shared/recorder-stage.js";
+
 export type RecordingFailureCode =
   | "storage_setup_required"
   | "hosted_storage_unavailable"
@@ -107,6 +112,7 @@ export type RecordingPlatform =
   | "extension"
   | "mobile"
   | "import"
+  | "agent"
   | "unknown";
 
 const recordingPlatforms = new Set<RecordingPlatform>([
@@ -115,6 +121,7 @@ const recordingPlatforms = new Set<RecordingPlatform>([
   "extension",
   "mobile",
   "import",
+  "agent",
   "unknown",
 ]);
 
@@ -139,15 +146,110 @@ export function recordingTrackingSource(
   };
 }
 
+export type RecordingFailureStage =
+  | "multipart_start"
+  | "chunk_upload"
+  | "reset_chunks"
+  | "finalize";
+
+export interface BuilderGatewayFailure {
+  step: "signed_url" | "session_start" | "complete";
+  status?: number;
+  attempts: number;
+  /** The last attempt's trace id; search the upload function's logs by it. */
+  traceId?: string;
+  /** The `server` response header, which says which layer answered. */
+  server?: string;
+}
+
+const builderGatewaySteps = new Set<string>([
+  "signed_url",
+  "session_start",
+  "complete",
+]);
+
+/**
+ * Details of a Builder upload gateway failure, found through the `cause`
+ * chain because finalize and the 401 refresh wrap the original error. Matches
+ * on the error's name and fields so this file does not import the core module.
+ */
+export function builderGatewayFailure(
+  error: unknown,
+): BuilderGatewayFailure | null {
+  const pending = [error];
+  const seen = new Set<object>();
+
+  for (let depth = 0; depth < 5 && pending.length > 0; depth += 1) {
+    const candidate = pending.shift();
+    if (!candidate || typeof candidate !== "object" || seen.has(candidate)) {
+      continue;
+    }
+    seen.add(candidate);
+    const details = candidate as Record<string, unknown>;
+    if (
+      details.name === "BuilderGatewayError" &&
+      typeof details.step === "string" &&
+      builderGatewaySteps.has(details.step) &&
+      Number.isInteger(details.attempts)
+    ) {
+      const traceIds = Array.isArray(details.traceIds) ? details.traceIds : [];
+      const traceId = traceIds[traceIds.length - 1];
+      const headers =
+        details.headers && typeof details.headers === "object"
+          ? (details.headers as Record<string, unknown>)
+          : {};
+      return {
+        step: details.step as BuilderGatewayFailure["step"],
+        attempts: Number(details.attempts),
+        ...(Number.isInteger(details.status) && Number(details.status) > 0
+          ? { status: Number(details.status) }
+          : {}),
+        ...(typeof traceId === "string" ? { traceId } : {}),
+        ...(typeof headers.server === "string"
+          ? { server: headers.server }
+          : {}),
+      };
+    }
+    if (details.cause) pending.push(details.cause);
+  }
+  return null;
+}
+
+/** The fields a failed finalize adds to its failure event. */
+export function finalizeFailureTracking(error: unknown): {
+  failureStage: "finalize";
+  httpStatus?: number;
+  gateway?: BuilderGatewayFailure;
+} {
+  const gateway = builderGatewayFailure(error);
+  return {
+    failureStage: "finalize",
+    ...(gateway?.status ? { httpStatus: gateway.status } : {}),
+    ...(gateway ? { gateway } : {}),
+  };
+}
+
+const recorderStages = new Set<string>(RECORDER_STAGES);
+
+export function normalizeRecorderStage(value: unknown): RecorderStage | null {
+  return typeof value === "string" && recorderStages.has(value as RecorderStage)
+    ? (value as RecorderStage)
+    : null;
+}
+
 export function trackRecordingFailure(params: {
   recordingId: string;
   userId: string;
   uploadAttemptId?: string | null;
   platform: unknown;
   failureCode: RecordingFailureCode;
-  failureStage?: "multipart_start" | "chunk_upload" | "reset_chunks";
+  failureStage?: RecordingFailureStage;
   httpStatus?: number;
+  gateway?: BuilderGatewayFailure | null;
   browserSessionId?: string;
+  recorderStage?: RecorderStage | null;
+  /** The row's status when its upload lease expired. */
+  statusAtTimeout?: "uploading" | "processing";
 }): void {
   try {
     track(
@@ -165,9 +267,27 @@ export function trackRecordingFailure(params: {
           : {}),
         recording_platform: normalizeRecordingPlatform(params.platform),
         failure_code: params.failureCode,
+        ...(params.recorderStage
+          ? { recorder_stage: params.recorderStage }
+          : {}),
+        ...(params.statusAtTimeout
+          ? { status_at_timeout: params.statusAtTimeout }
+          : {}),
         ...(params.failureStage ? { failure_stage: params.failureStage } : {}),
         ...(Number.isInteger(params.httpStatus)
           ? { http_status: params.httpStatus }
+          : {}),
+        ...(params.gateway
+          ? {
+              gateway_step: params.gateway.step,
+              gateway_attempts: params.gateway.attempts,
+              ...(params.gateway.traceId
+                ? { gateway_trace_id: params.gateway.traceId }
+                : {}),
+              ...(params.gateway.server
+                ? { gateway_server: params.gateway.server }
+                : {}),
+            }
           : {}),
       },
       recordingTrackingSource(params.userId, params.browserSessionId),

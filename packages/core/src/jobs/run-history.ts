@@ -315,8 +315,16 @@ export function ensureTable(): Promise<void> {
 function toRun(row: Record<string, unknown>, now: number): AutomationRun {
   const stored = stringifyValue(row.status) as AutomationRunStatus;
   const startedAt = Number(row.started_at);
+  const dispatchPending = Number(row.dispatch_pending ?? 0) === 1;
+  const claimedAt = row.claimed_at == null ? null : Number(row.claimed_at);
+  // A queued "Run now" row keeps its enqueue time in started_at. When a worker
+  // claims it late, the claim lease — not the queue age — is what keeps it live.
+  const livenessFrom =
+    dispatchPending && claimedAt !== null && Number.isFinite(claimedAt)
+      ? claimedAt
+      : startedAt;
   const status: AutomationRunStatus =
-    stored === "running" && now - startedAt > resolveRunLivenessCeilingMs()
+    stored === "running" && now - livenessFrom > resolveRunLivenessCeilingMs()
       ? "interrupted"
       : stored;
   return {
@@ -344,8 +352,8 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
         : row.error_code == null
           ? null
           : stringifyValue(row.error_code),
-    dispatchPending: Number(row.dispatch_pending ?? 0) === 1,
-    claimedAt: row.claimed_at == null ? null : Number(row.claimed_at),
+    dispatchPending,
+    claimedAt,
   };
 }
 
@@ -634,6 +642,31 @@ async function setFailureAlertOutcome(
             AND failure_alert_claimed_at = ?`,
     args: [nextState, nextAttemptAt, id, claimedAt],
   });
+}
+
+/**
+ * When `processPendingAutomationFailureAlerts` next has an alert to send, as
+ * epoch ms, or `null` when none is waiting. An alert still being evaluated is
+ * due now and answers `0`; one claimed by a sender is due when its claim lapses.
+ */
+export async function nextAutomationFailureAlertDueAt(): Promise<
+  number | null
+> {
+  await ensureTable();
+  const result = await getDbExec().execute({
+    sql: `SELECT MIN(CASE
+                WHEN failure_alert_state = 'evaluating' THEN 0
+                WHEN failure_alert_state = 'pending' THEN failure_alert_next_attempt_at
+                ELSE failure_alert_claimed_at + ? END) AS due_at
+          FROM automation_runs
+          WHERE failure_alert_state = 'sending' OR (
+            failure_alert_state IN ('evaluating', 'pending')
+            AND status IN ('error', 'interrupted')
+            AND notification_email IS NOT NULL)`,
+    args: [FAILURE_ALERT_LEASE_MS],
+  });
+  const dueAt = (result.rows[0] as { due_at?: unknown } | undefined)?.due_at;
+  return dueAt === null || dueAt === undefined ? null : Number(dueAt);
 }
 
 export async function processPendingAutomationFailureAlerts(options?: {

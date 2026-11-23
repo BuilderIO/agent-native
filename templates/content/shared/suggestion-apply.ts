@@ -8,7 +8,9 @@ import {
 import { createContentEditorStructuralSchema } from "./content-editor-structural-schema.js";
 import { nfmToDoc } from "./nfm.js";
 import {
+  canonicalMarkdownOf,
   changedRegion,
+  placeInCanonicalForm,
   resolveMarkdownSuggestionRange,
   resolveOutsideChange,
 } from "./suggestion-rebase.js";
@@ -111,6 +113,60 @@ export function applyMarkdownSuggestionOperation(
  */
 export type AcceptedSiblingRange = MarkdownRange & { text?: string };
 
+export function rangeOnText<T extends MarkdownRange>(
+  text: string,
+  onto: string,
+  range: T,
+): T | null {
+  if (text === onto) return range;
+  const moved = resolveOutsideChange(text, onto, range);
+  return moved &&
+    onto.slice(moved.from, moved.to) === text.slice(range.from, range.to)
+    ? { ...range, from: moved.from, to: moved.to }
+    : null;
+}
+
+export function operationOnText<T extends MarkdownSuggestionOperationLike>(
+  operation: T,
+  onto: string,
+): T | null {
+  const before = markdownPayload(operation.before, "before");
+  if (before.markdown === onto) return operation;
+  const after = markdownPayload(operation.after, "after");
+  if (
+    operation.anchor == null ||
+    typeof before.changedText !== "string" ||
+    typeof after.changedText !== "string"
+  )
+    return null;
+  const anchor = operationAnchor(operation);
+  const range = rangeOnText(before.markdown, onto, anchor);
+  if (!range) return null;
+  const siblingRanges = anchor.siblingRanges?.flatMap((sibling) => {
+    const moved = rangeOnText(before.markdown, onto, sibling);
+    return moved ? [{ from: moved.from, to: moved.to }] : [];
+  });
+  return {
+    ...operation,
+    before: { ...before, markdown: onto },
+    after: {
+      ...after,
+      markdown: `${onto.slice(0, range.from)}${after.changedText}${onto.slice(range.to)}`,
+    },
+    anchor: {
+      ...anchor,
+      from: range.from,
+      to: range.to,
+      prefix: onto.slice(
+        Math.max(0, range.from - anchor.prefix.length),
+        range.from,
+      ),
+      suffix: onto.slice(range.to, range.to + anchor.suffix.length),
+      ...(siblingRanges && { siblingRanges }),
+    },
+  };
+}
+
 export function withSiblingRanges<T extends MarkdownSuggestionOperationLike>(
   operation: T,
   ranges: MarkdownRange[],
@@ -200,6 +256,24 @@ export function placeOnAcceptedSiblings(
 ): MarkdownRange | null {
   const rebased = rebaseOntoAcceptedSiblings(operation, accepted);
   if (!rebased) return null;
+  const placed = placeOnRebuiltText(currentMarkdown, rebased);
+  if (placed) return placed;
+  // A page an agent wrote with blank lines between blocks loses them when
+  // the editor saves it, often between one accept and the next, and then
+  // differs from the rebuilt text everywhere. Read the rebuilt text as the
+  // editor would save it instead.
+  const canonical = canonicalMarkdownOf(rebased.text);
+  if (canonical === rebased.text) return null;
+  const range = placeInCanonicalForm(rebased.text, canonical, rebased);
+  return range
+    ? placeOnRebuiltText(currentMarkdown, { ...range, text: canonical })
+    : null;
+}
+
+function placeOnRebuiltText(
+  currentMarkdown: string,
+  rebased: MarkdownRange & { text: string },
+): MarkdownRange | null {
   const { text, from, to } = rebased;
   const range = resolveOutsideChange(text, currentMarkdown, rebased);
   if (!range || currentMarkdown === text) return range;

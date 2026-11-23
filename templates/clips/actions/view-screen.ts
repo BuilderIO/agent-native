@@ -11,22 +11,29 @@ import {
   desc,
   eq,
   gte,
+  inArray,
   isNotNull,
   isNull,
   lte,
   not,
   notInArray,
+  sql,
 } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import {
   activeUploadFromContent,
   contentPageUrls,
-  uploadedFromContent,
   uploadFromTrashedPage,
 } from "../server/lib/content-uploads.js";
+import {
+  filterLibraryRecordings,
+  librarySourceCondition,
+  librarySources,
+} from "../server/lib/library-filter.js";
 import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
@@ -44,11 +51,14 @@ import {
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { getAgentClipReadiness } from "../shared/agent-context.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
+import { storedEarlierAudioMinutes } from "../shared/earlier-audio.js";
 import {
   isEmbedBackedRecording,
   recordingEmbedProvider,
 } from "../shared/embed-provider.js";
+import { readLibraryFilter } from "../shared/library-filters.js";
 import { buildTranscriptPreview } from "./lib/transcript-preview.js";
+import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 interface NavigationState {
   view?: string;
@@ -57,6 +67,7 @@ interface NavigationState {
   folderId?: string;
   shareId?: string;
   search?: string;
+  filters?: string;
   path?: string;
   meetingId?: string;
   dictationId?: string;
@@ -148,6 +159,7 @@ async function fetchTranscript(recordingId: string) {
 }
 
 async function fetchComments(recordingId: string) {
+  await assertCommentAccess(recordingId, "read");
   const db = getDb();
   const rows = await db
     .select()
@@ -206,19 +218,25 @@ async function fetchBugReportSummary(recordingId: string) {
 
 async function fetchLibrary({
   folderId,
+  search,
   shared = false,
   fromContent = false,
   organizationId,
+  filters,
 }: {
   folderId?: string;
+  search?: string;
   shared?: boolean;
   /** The caller's uploads from Content pages, which Library leaves out. */
   fromContent?: boolean;
   organizationId?: string | null;
+  filters?: string;
 }) {
   const db = getDb();
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) return [];
+  const libraryFilter =
+    shared || fromContent || folderId ? null : readLibraryFilter(filters ?? "");
   const conditions = [
     recordingExpiryQuery(ownerEmail).available,
     agentRecordingAccessFilter(
@@ -243,7 +261,10 @@ async function fetchLibrary({
       conditions.push(eq(schema.recordings.organizationId, organizationId));
     }
     if (fromContent) conditions.push(activeUploadFromContent());
-    else if (!folderId) conditions.push(not(uploadedFromContent()));
+    else if (libraryFilter && libraryFilter.items.length === 0) {
+      const source = librarySourceCondition(libraryFilter);
+      if (source) conditions.push(source);
+    }
   }
   const resolvedDb = await Promise.resolve(db);
   const meetingRecordingIds = resolvedDb
@@ -254,12 +275,36 @@ async function fetchLibrary({
   if (folderId) {
     conditions.push(eq(schema.recordings.folderId, folderId));
   }
+  const searchTerm = search?.trim();
+  if (searchTerm) {
+    const pattern = buildCaseInsensitiveSearchPattern(searchTerm);
+    const transcriptMatch = sql`EXISTS (SELECT 1 FROM ${schema.recordingTranscripts} rt WHERE rt.recording_id = ${schema.recordings.id} AND lower(rt.full_text) LIKE ${pattern} ESCAPE '\\')`;
+    const transcriptCondition = shared
+      ? sql`((${schema.recordings.visibility} <> 'public' OR ${schema.recordings.password} IS NULL OR ${schema.recordings.password} = '') AND ${transcriptMatch})`
+      : transcriptMatch;
+    conditions.push(
+      sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\' OR ${transcriptCondition})`,
+    );
+  }
+  if (libraryFilter && libraryFilter.items.length > 0) {
+    const { ids } = await filterLibraryRecordings({
+      where: conditions,
+      state: libraryFilter,
+      orderBy: [desc(schema.recordings.updatedAt)],
+    });
+    if (ids.length === 0) return [];
+    conditions.push(inArray(schema.recordings.id, ids.slice(0, 50)));
+  }
   const rows = await db
     .select()
     .from(schema.recordings)
     .where(and(...conditions))
     .orderBy(desc(schema.recordings.updatedAt))
     .limit(50);
+  const pages =
+    libraryFilter && librarySources(libraryFilter).includes("content")
+      ? await contentPageUrls(rows.map((r) => r.id))
+      : new Map<string, string>();
   return rows.map((r) => ({
     id: r.id,
     title: r.title,
@@ -268,6 +313,7 @@ async function fetchLibrary({
     thumbnailUrl: listingThumbnailUrl(r),
     folderId: r.folderId,
     updatedAt: r.updatedAt,
+    ...(pages.has(r.id) ? { contentPageUrl: pages.get(r.id) } : {}),
   }));
 }
 
@@ -463,6 +509,9 @@ async function fetchMeetingDetail(meetingId: string) {
     })),
     recording,
     transcriptSnippet,
+    earlierAudioMinutes: storedEarlierAudioMinutes(
+      linked.transcript?.segmentsJson,
+    ),
   };
 }
 
@@ -516,23 +565,30 @@ async function addRecordingContext(
   const recording = await fetchRecording(recordingId);
   if (!recording) return;
 
-  const transcriptProtected = isRecordingPasswordProtectedForViewer({
+  // A password-protected Clip keeps its transcript and comments behind the
+  // share flow for nonowners; the screen still carries permitted metadata.
+  const passwordProtected = isRecordingPasswordProtectedForViewer({
     hasPassword: recording.hasPassword,
+    visibility: recording.visibility,
     viewerIsOwner: sameOwnerEmail(recording.ownerEmail, getRequestUserEmail()),
   });
   const [transcript, comments, browserDiagnosticsSummary, bugReportSummary] =
     await Promise.all([
-      transcriptProtected ? null : fetchTranscript(recordingId),
-      recording.enableComments ||
-      sameOwnerEmail(recording.ownerEmail, getRequestUserEmail())
-        ? fetchComments(recordingId)
-        : [],
+      passwordProtected ? null : fetchTranscript(recordingId),
+      passwordProtected
+        ? null
+        : recording.enableComments ||
+            sameOwnerEmail(recording.ownerEmail, getRequestUserEmail())
+          ? fetchComments(recordingId)
+          : [],
       fetchBrowserDiagnosticsSummary(recordingId),
       fetchBugReportSummary(recordingId),
     ]);
   screen.recording = recording;
-  if (transcriptProtected)
+  if (passwordProtected) {
     screen.transcriptUnavailableReason = "password_required";
+    screen.commentsUnavailableReason = "password_required";
+  }
   if (transcript) {
     screen.transcript = buildTranscriptPreview({
       recordingId: transcript.recordingId,
@@ -543,7 +599,7 @@ async function addRecordingContext(
       segments: transcript.segments,
     });
   }
-  screen.comments = comments.slice(0, 50);
+  if (comments) screen.comments = comments.slice(0, 50);
   if (browserDiagnosticsSummary) {
     screen.browserDiagnostics = {
       summary: browserDiagnosticsSummary,
@@ -566,7 +622,9 @@ export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current navigation state plus relevant context (recording + transcript + comments on a recording page, visible clips on library/shared-with-me, space list on spaces, etc.). Prefer reading the auto-included <current-screen> block — call this only when you need a refreshed snapshot.",
   schema: z.object({}),
+  readOnly: true,
   http: false,
+  mcpTool: "search",
   run: async () => {
     const navigation = (await readAppStateForCurrentTab(
       "navigation",
@@ -598,13 +656,16 @@ export default defineAction({
         const [recordings, folders] = await Promise.all([
           fetchLibrary({
             folderId: nav.folderId,
+            search: nav.search,
             organizationId,
+            filters: nav.filters,
           }),
           fetchFoldersForSpace(null),
         ]);
         screen.library = {
           folderId: nav.folderId ?? null,
           search: nav.search ?? null,
+          filters: nav.filters ?? null,
           count: recordings.length,
           recordings,
           folders,
@@ -614,9 +675,11 @@ export default defineAction({
       case "shared": {
         const recordings = await fetchLibrary({
           shared: true,
+          search: nav.search,
           organizationId,
         });
         screen.shared = {
+          search: nav.search ?? null,
           count: recordings.length,
           recordings,
         };
@@ -625,10 +688,12 @@ export default defineAction({
       case "from-content": {
         const recordings = await fetchLibrary({
           fromContent: true,
+          search: nav.search,
           organizationId,
         });
         const pages = await contentPageUrls(recordings.map((r) => r.id));
         screen.fromContent = {
+          search: nav.search ?? null,
           count: recordings.length,
           recordings: recordings.map((recording) => ({
             ...recording,
@@ -648,7 +713,7 @@ export default defineAction({
             fetchSpaces(organizationId),
           ]);
           const space = spaces.find((s) => s.id === nav.spaceId) ?? null;
-          screen.space = { space, folders };
+          screen.space = { space, folders, search: nav.search ?? null };
         }
         break;
       }

@@ -48,6 +48,13 @@ import {
   validateMaxIterationsInput,
   writeAgentLoopSettings,
 } from "../agent/loop-settings.js";
+import {
+  createBuilderSignupExperiment,
+  builderSignupClientFailureExperimentId,
+  setBuilderSignupVerifiedStarter,
+  getBuilderSignupConnectError,
+  getBuilderSignupTrackingIdentity,
+} from "./builder-signup-experiment.js";
 export {
   normalizeAgentEngineStatusModel,
   resolveAgentEngineStatus,
@@ -78,6 +85,7 @@ import {
 } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
+import { scrubUrl } from "../client/url-scrub.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
 import {
   getDbExec,
@@ -277,6 +285,7 @@ import {
   createChatGPTSubscriptionOAuthCallbackHandler,
   createChatGPTSubscriptionOAuthStartHandler,
 } from "./chatgpt-subscription-oauth.js";
+import { getClientIp } from "./client-ip.js";
 import {
   resolveCoreRoutesMcpOptions,
   type CoreRoutesMcpOptions,
@@ -292,6 +301,7 @@ import {
   CredentialStoreUnavailableError,
   builderCreditsRefusalStatus,
   getBuilderKeyConnections,
+  hasCompletedAutomaticBuilderSignup,
   prefetchSecrets,
   resolveSecret,
   resolveSecretDetailed,
@@ -316,6 +326,8 @@ import {
 import { getMissingDeploySettings } from "./deploy-settings.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
 import {
+  BUILDER_SIGNUP_EXPERIMENT_PATH,
+  awaitFrameworkReadyWithinDeadline,
   FRAMEWORK_AUTH_EARLY_PATHS,
   getH3App,
   type H3AppShim,
@@ -366,6 +378,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
+import { loadRequiredEnv } from "./required-env-config.js";
 import { startSandboxExecutionSweep } from "./sandbox-execution-sweep.js";
 import {
   findUnsupportedScopedKeyNames,
@@ -378,7 +391,10 @@ import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { mountUiActionCapabilityRoute } from "./ui-action-capability.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
-import { createWorkspaceProviderOAuthHandler } from "./workspace-provider-oauth.js";
+import {
+  createWorkspaceProviderOAuthHandler,
+  WORKSPACE_PROVIDER_OAUTH_PROVIDERS,
+} from "./workspace-provider-oauth.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -528,21 +544,7 @@ export async function resolveBuilderOrgMutation(
   deny: string | null;
   whoCanFix?: CredentialFixer;
 }> {
-  let orgCtx: Awaited<ReturnType<typeof getOrgContext>>;
-  try {
-    orgCtx = await getOrgContext(event);
-  } catch (error) {
-    console.warn(
-      "[builder-connect] could not read organization membership:",
-      error instanceof Error ? error.message : error,
-    );
-    return {
-      orgId: null,
-      role: null,
-      deny: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
-      whoCanFix: "self",
-    };
-  }
+  const orgCtx = await getOrgContext(event);
   const orgId = orgCtx.orgId ?? null;
   const role = orgCtx.role ?? null;
   if (options.allowMemberInitiation) {
@@ -572,8 +574,6 @@ export const BUILDER_CONNECT_NEEDS_ORGANIZATION =
   "Builder.io access is managed through an organization. Switch to one you belong to, or ask an organization owner or admin to invite you, then set up Builder.io again.";
 export const BUILDER_CONNECT_SESSION_NOT_SHARED =
   "This window can't see your sign-in, which happens in previews and embedded browsers. Open the app in its own browser tab, sign in, then set up Builder.io there.";
-export const BUILDER_ORG_MEMBERSHIP_UNREADABLE =
-  "Couldn't check your organization membership. Try starting Builder.io setup again in a moment.";
 export const BUILDER_ORG_ALREADY_CONNECTED =
   "Your organization already has a Builder.io connection, and a new account would take its place. An organization owner or admin can sign in to Builder.io again in Settings.";
 export const BUILDER_ORG_RECONNECT_BY_LOGIN =
@@ -765,18 +765,6 @@ export async function decideBuilderActivation(
   const member =
     input.member ??
     (await resolveBuilderOrgMutation(event, { allowMemberInitiation: true }));
-  // Without the membership the org's connection cannot be seen, and a new
-  // personal account would shadow it (reads try personal first).
-  if (member.deny === BUILDER_ORG_MEMBERSHIP_UNREADABLE) {
-    return {
-      refuse: {
-        status: 503,
-        message: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
-        reason: "membership_unreadable",
-        code: "membership_unreadable",
-      },
-    };
-  }
   const write = resolveBuilderActivationWrite({
     requestedScope: input.requestedScope,
     orgId: member.orgId,
@@ -1297,6 +1285,9 @@ export async function runDbHealthProbe(
   if (db && options.schema) {
     schema = await runDatabaseSchemaHealthCheck({
       exec: dbExec as ReturnType<typeof getDbExec>,
+      // D210: `?schema=1` is the publish step's read-back, so it carries the
+      // migration ledgers too. Opt-in only — the plain health poll stays cheap.
+      migrations: true,
     });
   }
   // Same bounded-read pattern as the `SELECT 1` above, and reuses this exact
@@ -1333,8 +1324,8 @@ export async function runDbHealthProbe(
       identity.app !== runningApp;
   }
   const database = getDatabaseRuntimeFingerprint();
-  // Measured on the connection `SELECT 1` just warmed, so the number reflects
-  // the database's own load rather than a serverless cold start.
+  // Reuse the liveness timing, which can include connection acquisition and
+  // network latency as well as database execution.
   let pressure: DbPressure | undefined;
   if (options.pressure) {
     pressure = db
@@ -1497,30 +1488,11 @@ function normalizeWaitlistRateLimitPart(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function getBuilderWaitlistClientIp(event: H3Event): string | undefined {
-  const trusted =
-    getHeader(event, "x-nf-client-connection-ip") ??
-    getHeader(event, "cf-connecting-ip") ??
-    getHeader(event, "true-client-ip") ??
-    getHeader(event, "x-real-ip");
-  if (trusted && trusted.trim()) return trusted.trim();
-
-  const forwardedFor = getHeader(event, "x-forwarded-for");
-  const forwardedClientIp = forwardedFor?.split(",")[0]?.trim();
-  if (forwardedClientIp) return forwardedClientIp;
-
-  try {
-    return getRequestIP(event) ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function getBuilderWaitlistRateLimitKeys(
   event: H3Event,
   email: string,
 ): string[] {
-  const clientIp = getBuilderWaitlistClientIp(event);
+  const clientIp = getClientIp(event);
   return [
     `email:${normalizeWaitlistRateLimitPart(email)}`,
     `ip:${normalizeWaitlistRateLimitPart(clientIp ?? "unknown")}`,
@@ -1621,10 +1593,14 @@ export function buildBuilderWaitlistFormPayload(
   sessionEmail: string,
   body: BuilderWaitlistBody,
 ) {
+  // The page URL comes from the browser, or from the Referer when it sent none;
+  // its query and hash can hold a token the form has no use for.
   const appUrl =
-    cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
-    cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
-    getOrigin(event);
+    scrubUrl(
+      cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
+        cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
+        getOrigin(event),
+    ) ?? "";
   const source =
     cleanBuilderWaitlistText(body.source, 100) ?? BUILDER_WAITLIST_FORM_SOURCE;
   const template = normalizeBuilderWaitlistTemplate(body.template);
@@ -1698,6 +1674,11 @@ function parseBuilderCallbackBoolean(
 // attributes that execute when the browser renders them as an <img> src or
 // inlines them in the DOM. Mirrors SAFE_DATA_IMAGE in sanitize-html.ts.
 export const AVATAR_RASTER_MIME = /^data:image\/(png|jpe?g|gif|webp);/i;
+// The client crops the photo to a 64x64 JPEG before uploading, which lands far
+// under this. The cap is here because the write is a straight data URI from the
+// browser: without it one request could put any size of base64 in the settings
+// row that every page reads.
+export const AVATAR_MAX_DATA_URL_LENGTH = 256 * 1024;
 
 export function resolveAvatarEmailParam(
   pathname: string,
@@ -2510,7 +2491,7 @@ async function authorizeBuilderConnectScope(
 }
 
 export type BuilderAccountActivationResult =
-  | { ok: true; scope: "user" | "org" }
+  | { ok: true; scope: "user" | "org"; code?: string }
   | {
       ok: false;
       status: number;
@@ -2522,6 +2503,8 @@ export type BuilderAccountActivationResult =
     };
 
 interface BuilderAccountActivationInput {
+  newAccountOnly?: boolean;
+  signupActivationReceipt?: string;
   ownerEmail: string;
   session: AuthSession | null;
   provisioningToken: string | null | undefined;
@@ -2530,6 +2513,26 @@ interface BuilderAccountActivationInput {
   member: BuilderConnectMember | null;
   connectAttemptId: string | null;
   tracking: BuilderConnectTrackingParams;
+}
+
+/** Read the exact automatic-write receipt using the same membership policy as activation. */
+export async function reconcileBuilderSignupActivation(
+  event: H3Event,
+  session: AuthSession,
+  owner: { experimentId: string; attempt: string; startedAt: number },
+): Promise<boolean> {
+  // Activation permits solo users at personal scope, so a deny here is not a
+  // refusal. Do not refuse an existing org connection either: that completed
+  // write is precisely what we are recovering.
+  const member = await resolveBuilderOrgMutation(event, {
+    allowMemberInitiation: true,
+  });
+  return hasCompletedAutomaticBuilderSignup(
+    session.email,
+    `${owner.experimentId}:${owner.attempt}`,
+    owner.startedAt,
+    member,
+  );
 }
 
 /**
@@ -2600,6 +2603,7 @@ export async function activateBuilderAccount(
     }
     const activationOrg = activation.write;
     const credentials = await provisionBuilderAccount({
+      ...(input.newAccountOnly ? { newAccountOnly: true } : {}),
       email: ownerEmail,
       name: session.name,
       agentNativeApp: input.tracking.agentNativeApp,
@@ -2607,50 +2611,79 @@ export async function activateBuilderAccount(
     });
     const { writeBuilderCredentials } =
       await import("./credential-provider.js");
-    const written = await writeBuilderCredentials(
-      ownerEmail,
-      credentials,
-      activationOrg ?? undefined,
-    );
-    await Promise.all([
-      deleteSetting("builder-disconnected").catch(
-        () => false, // coercion-ok: best-effort cleanup after successful provisioning
-      ),
-      ...getBuilderConnectErrorCleanupKeys(ownerEmail, connectAttemptId).map(
-        (key) =>
-          deleteSetting(key).catch(
-            () => false, // coercion-ok: best-effort cleanup after successful provisioning
-          ),
-      ),
-    ]);
-    await trackBuilderLifecycle(
-      event,
-      "builder connect succeeded",
-      ownerEmail,
-      {
-        ...builderConnectTrackingProperties(input.tracking),
-        stage: "provision",
-        credential_scope: written.scope,
-        account_provisioned: true,
-      },
-    );
-    track(
-      "llm_credential_changed",
-      {
-        change_type: "connected",
-        provider: "builder",
+    let written: Awaited<ReturnType<typeof writeBuilderCredentials>>;
+    try {
+      const writeOptions = input.signupActivationReceipt
+        ? {
+            ...activationOrg,
+            automaticSignupReceipt: input.signupActivationReceipt,
+          }
+        : (activationOrg ?? undefined);
+      written = await writeBuilderCredentials(
+        ownerEmail,
+        credentials,
+        writeOptions,
+      );
+    } catch (error) {
+      captureError(error, { route: "builder.provision.credential-write" });
+      return fail(
+        409,
+        "A Builder.io account already exists for this email. Sign in to Builder.io to use it.",
+        "credential_write_failed",
+        "account_exists",
+      );
+    }
+    try {
+      await Promise.all([
+        deleteSetting("builder-disconnected").catch(
+          () => false, // coercion-ok: best-effort cleanup after successful provisioning
+        ),
+        ...getBuilderConnectErrorCleanupKeys(ownerEmail, connectAttemptId).map(
+          (key) =>
+            deleteSetting(key).catch(
+              () => false, // coercion-ok: best-effort cleanup after successful provisioning
+            ),
+        ),
+      ]);
+      await trackBuilderLifecycle(
+        event,
+        "builder connect succeeded",
+        ownerEmail,
+        {
+          ...builderConnectTrackingProperties(input.tracking),
+          stage: "provision",
+          credential_scope: written.scope,
+          account_provisioned: true,
+        },
+      );
+      track(
+        "llm_credential_changed",
+        {
+          change_type: "connected",
+          provider: "builder",
+          scope: written.scope,
+          credential_kind: "builder",
+        },
+        { userId: ownerEmail },
+      );
+      await recordBuilderConnectionAudit({
+        connected: true,
+        ownerEmail,
+        orgId: activationOrg?.orgId ?? null,
         scope: written.scope,
-        credential_kind: "builder",
-      },
-      { userId: ownerEmail },
-    );
-    await recordBuilderConnectionAudit({
-      connected: true,
-      ownerEmail,
-      orgId: activationOrg?.orgId ?? null,
-      scope: written.scope,
-      attribution: routeAuditAttribution(event),
-    });
+        attribution: routeAuditAttribution(event),
+      });
+    } catch (error) {
+      captureError(error, {
+        route: "builder.provision.post-write",
+        tags: { credential_write: "completed" },
+      });
+      return {
+        ok: true,
+        scope: written.scope,
+        code: "post_write_reporting_failed",
+      };
+    }
     return { ok: true, scope: written.scope };
   } catch (error) {
     const provisioningError =
@@ -2671,7 +2704,7 @@ export async function activateBuilderAccount(
       BUILDER_UPSTREAM_FAILURE_STATUS,
       "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
       "provision_failed",
-      undefined,
+      "provision_failed",
       {
         upstream_response_received: provisioningError?.upstreamStatus != null,
         upstream_status: provisioningError?.upstreamStatus ?? null,
@@ -3114,11 +3147,24 @@ export function createOAuthPopupWaitingHandler() {
     if (completingWorkspaceConnection) {
       setResponseHeader(event, "Content-Language", locale);
     }
-    // Keep the opener alive until the client replaces this inert page with the
-    // provider URL. This only works while every opener document sends no COOP
-    // or `same-origin-allow-popups` (security-headers.ts); an opener sending
-    // `same-origin` severs the popup here and leaves it blank.
-    setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
+    // The inert waiting page opts out of COOP (`unsafe-none`) so the opener can
+    // replace it with the provider URL; that only works while the opener sends
+    // no COOP or `same-origin-allow-popups` (security-headers.ts), because an
+    // opener sending `same-origin` severs the popup here and leaves it blank.
+    //
+    // The completion page must not opt out: its script posts the
+    // `agent-native:workspace-connection-complete` message to `window.opener`,
+    // and a COOP value that differs from the opener's severs that handle first
+    // (the popup reaches "Connection done" with `window.opener === null`, so
+    // the add-account dialog never closes). Match
+    // the framework pages instead.
+    setResponseHeader(
+      event,
+      "Cross-Origin-Opener-Policy",
+      completingWorkspaceConnection
+        ? "same-origin-allow-popups"
+        : "unsafe-none",
+    );
     return completingWorkspaceConnection
       ? oauthPopupCompletionHtml(
           locale,
@@ -3354,6 +3400,21 @@ export function createCoreRoutesPlugin(
       resolveInit = resolve;
       rejectInit = reject;
     });
+    let resolveBuilderSignupReady: () => void = () => {};
+    let rejectBuilderSignupReady: (error: unknown) => void = () => {};
+    let builderSignupReadySettled = false;
+    const builderSignupReadyPromise = new Promise<void>((resolve, reject) => {
+      resolveBuilderSignupReady = () => {
+        if (builderSignupReadySettled) return;
+        builderSignupReadySettled = true;
+        resolve();
+      };
+      rejectBuilderSignupReady = (error: unknown) => {
+        if (builderSignupReadySettled) return;
+        builderSignupReadySettled = true;
+        reject(error);
+      };
+    });
     trackPluginInit(nitroApp, initPromise, {
       paths: [FRAMEWORK_ROUTE_PREFIX, "/mcp", "/.well-known"],
       // Liveness and BYOA auth routes are mounted before the DB-dependent
@@ -3369,6 +3430,48 @@ export function createCoreRoutesPlugin(
         "/.well-known/openai-apps-challenge",
         ...FRAMEWORK_AUTH_EARLY_PATHS,
       ],
+    });
+    trackPluginInit(nitroApp, builderSignupReadyPromise, {
+      paths: [BUILDER_SIGNUP_EXPERIMENT_PATH],
+    });
+    const builderSignupExperiment = createBuilderSignupExperiment({
+      getSession,
+      sameOrigin: isSameOriginConnect,
+      activate: async (event, session, owner) => {
+        const authorization = await authorizeBuilderConnectScope(
+          event,
+          session.email,
+          null,
+        );
+        if ("deny" in authorization)
+          return { ok: false, code: authorization.deny.reason };
+        const result = await activateBuilderAccount(event, {
+          ownerEmail: session.email,
+          session,
+          provisioningToken: signBuilderProvisioningToken(
+            session.email,
+            session.token ?? "",
+          ),
+          requestedScope: null,
+          member: authorization.member,
+          connectAttemptId: null,
+          tracking: getBuilderSignupTrackingIdentity(),
+          newAccountOnly: true,
+          signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
+        });
+        if (result.ok) return result;
+        return {
+          ok: false,
+          code: result.code ?? result.reason,
+          message: result.message,
+        };
+      },
+
+      reconcile: reconcileBuilderSignupActivation,
+    });
+    setBuilderSignupVerifiedStarter(async (event, session) => {
+      await awaitFrameworkReadyWithinDeadline(builderSignupReadyPromise);
+      return builderSignupExperiment.startVerifiedSignup(event, session);
     });
     try {
       const P = FRAMEWORK_ROUTE_PREFIX;
@@ -3454,7 +3557,7 @@ export function createCoreRoutesPlugin(
       if (!options.disablePing) {
         getH3App(nitroApp).use(
           `${P}/ping`,
-          defineEventHandler((event) => {
+          defineEventHandler(async (event) => {
             const message = getAppConfig().app.pingMessage;
             const configuration =
               event.url?.searchParams.get("configuration") === "1" ||
@@ -3468,6 +3571,7 @@ export function createCoreRoutesPlugin(
               ...(event.url?.searchParams.get("database") === "0"
                 ? { databaseRequired: false }
                 : {}),
+              requiredEnv: await loadRequiredEnv(),
             };
             return {
               message,
@@ -3824,9 +3928,11 @@ export function createCoreRoutesPlugin(
               for (const [k, v] of Object.entries(persistedEnvVars)) {
                 if (!builderKeys.has(k)) cleaned[k] = v;
               }
-              await putSetting("persisted-env-vars", cleaned);
+              await putSetting("persisted-env-vars", cleaned, {
+                global: true,
+              });
               console.warn(
-                `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars (cross-tenant leak fix).`,
+                `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars.`,
               );
             } catch {
               // Couldn't rewrite the row — the skip-on-rehydrate above
@@ -3916,23 +4022,7 @@ export function createCoreRoutesPlugin(
         // Audit module not available — skip
       }
 
-      for (const provider of [
-        "figma",
-        "gmail",
-        "google_calendar",
-        "google_docs",
-        "google_drive",
-        "bigquery",
-        "google_sheets",
-        "google_slides",
-        "github",
-        "hubspot",
-        "salesforce",
-        "jira",
-        "sentry",
-        "notion",
-        "sigma",
-      ] as const) {
+      for (const provider of WORKSPACE_PROVIDER_OAUTH_PROVIDERS) {
         getH3App(nitroApp).use(
           `${P}/connections/oauth/${provider}/start`,
           createWorkspaceProviderOAuthHandler(provider, "start"),
@@ -3975,7 +4065,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
@@ -4253,7 +4343,7 @@ export function createCoreRoutesPlugin(
         `${P}/debug/runtime`,
         defineEventHandler(async (event) => {
           setResponseHeader(event, "cache-control", "no-store");
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const productionLike =
             process.env.NODE_ENV?.trim() === "production" ||
             isProductionServerlessFunctionRuntime();
@@ -4300,6 +4390,10 @@ export function createCoreRoutesPlugin(
         const envStatus = getBuilderBrowserStatusForEvent(event);
         const ownerContext = await resolveBuilderOwnerContext(event);
         const userEmail = ownerContext.email;
+        const signupConnectError = await getBuilderSignupConnectError(
+          event,
+          ownerContext.session?.userId,
+        );
         const provisioningToken =
           userEmail &&
           ownerContext.session?.token &&
@@ -4319,6 +4413,7 @@ export function createCoreRoutesPlugin(
         const withConnectToken = <
           T extends {
             connectUrl: string;
+            configured?: boolean;
             agentNativeProvisioningEnabled?: boolean;
           },
         >(
@@ -4328,7 +4423,14 @@ export function createCoreRoutesPlugin(
           BuilderConnectionsStatus & {
             effective: BuilderEffectiveConnection | null;
           } => {
-          const withConnections = { ...status, ...connections, effective };
+          const withConnections = {
+            ...status,
+            ...connections,
+            effective,
+            ...(signupConnectError && status.configured !== true
+              ? { connectError: signupConnectError }
+              : {}),
+          };
           if (!userEmail) return withConnections;
           return {
             ...withConnections,
@@ -5055,6 +5157,12 @@ export function createCoreRoutesPlugin(
       );
 
       getH3App(nitroApp).use(
+        BUILDER_SIGNUP_EXPERIMENT_PATH,
+        builderSignupExperiment.handler,
+      );
+      resolveBuilderSignupReady();
+
+      getH3App(nitroApp).use(
         `${P}/builder/provision`,
         createBuilderProvisionHandler((event) =>
           resolveBuilderOwnerContext(event),
@@ -5092,7 +5200,7 @@ export function createCoreRoutesPlugin(
               error: error instanceof Error ? error.message : "Invalid context",
             };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
@@ -5176,7 +5284,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const body = ((await readBody(event).catch(() => ({}))) ??
             {}) as BuilderWaitlistBody;
           const waitlistEmail = resolveWaitlistEmail(
@@ -5582,7 +5690,7 @@ export function createCoreRoutesPlugin(
             pending.tracking && typeof pending.tracking === "object"
               ? (pending.tracking as BuilderConnectTrackingParams)
               : {};
-          const session = await getSession(event).catch(() => null); // coercion-ok: callback treats session read failure as unauthenticated
+          const session = await getSession(event);
           const expiresAt =
             typeof pending.expiresAt === "number" ? pending.expiresAt : 0;
           const encryptedOAuthFlow =
@@ -5825,7 +5933,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 403);
             return { error: "Cross-origin request rejected" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -5852,21 +5960,20 @@ export function createCoreRoutesPlugin(
             return { error: "Unknown Builder.io connection." };
           }
 
+          let orgId: string | null = null;
+          let role: string | null = null;
+          try {
+            const orgCtx = await getOrgContext(event);
+            orgId = orgCtx.orgId ?? null;
+            role = orgCtx.role ?? null;
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
+          }
           try {
             const {
               deleteBuilderCredentials,
               resolveBuilderCredentialsDetailed,
             } = await import("./credential-provider.js");
-            let orgId: string | null = null;
-            let role: string | null = null;
-            try {
-              const { getOrgContext } = await import("../org/context.js");
-              const orgCtx = await getOrgContext(event);
-              orgId = orgCtx.orgId ?? null;
-              role = orgCtx.role ?? null;
-            } catch (error) {
-              if (!isMissingOrganizationTableError(error)) throw error;
-            }
             if (requestedConnectionScope) {
               const result = await disconnectBuilderConnectionAtScope({
                 email: session.email,
@@ -5992,13 +6099,7 @@ export function createCoreRoutesPlugin(
                 reason: "credential_delete_failed",
               },
             );
-            setResponseStatus(event, 500);
-            return {
-              ok: false,
-              error:
-                "Could not fully remove Builder credentials. Please retry.",
-              cause: err instanceof Error ? err.message : String(err),
-            };
+            throw err;
           }
         }),
       );
@@ -6012,7 +6113,7 @@ export function createCoreRoutesPlugin(
             return { error: "Method not allowed" };
           }
 
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -6093,7 +6194,7 @@ export function createCoreRoutesPlugin(
         getH3App(nitroApp).use(
           `${P}/env-status`,
           defineEventHandler(async (event) => {
-            const session = await getSession(event).catch(() => null);
+            const session = await getSession(event);
             const userEmail = session?.email;
             let orgId: string | undefined;
             if (userEmail) {
@@ -6169,8 +6270,7 @@ export function createCoreRoutesPlugin(
                 setResponseStatus(event, err.statusCode);
                 return { error: err.message };
               }
-              setResponseStatus(event, 500);
-              return { error: "Failed to save keys" };
+              throw err;
             }
           }),
         );
@@ -6269,7 +6369,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const userEmail = session?.email;
           if (!userEmail) {
             setResponseStatus(event, 401);
@@ -6325,6 +6425,13 @@ export function createCoreRoutesPlugin(
               ...(browserSessionId ? { sessionId: browserSessionId } : {}),
               telemetryOrigin: "client" as const,
             };
+            const builderSignupExperimentId =
+              builderSignupClientFailureExperimentId(
+                event,
+                validation.name as string,
+              );
+            if (builderSignupExperimentId)
+              Object.assign(trackingSource, { builderSignupExperimentId });
             const trackClientEvent = () =>
               track(validation.name as string, properties, trackingSource);
             if (isFirstRunOnboardingEvent) {
@@ -6373,7 +6480,7 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/agent-loop-settings`,
         defineEventHandler(async (event: H3Event) => {
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -6468,7 +6575,7 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/usage`,
         defineEventHandler(async (event: H3Event) => {
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -6507,7 +6614,7 @@ export function createCoreRoutesPlugin(
           // (DB), which requires request context (AsyncLocalStorage) to know which
           // user to scope by. Without runWithRequestContext() the ALS store is empty
           // and it falls back to process.env only — missing OAuth-connected users.
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const userEmail = session?.email;
 
           return userEmail
@@ -6747,7 +6854,10 @@ export function createCoreRoutesPlugin(
       // GET    /_agent-native/runs[?active&limit]
       // GET    /_agent-native/runs/:id
       // DELETE /_agent-native/runs/:id
-      getH3App(nitroApp).use(`${P}/runs`, createProgressHandler());
+      getH3App(nitroApp).use(
+        `${P}/runs`,
+        createProgressHandler({ localApp: true }),
+      );
 
       // ─── Automations API ──────────────────────────────────────────────
       // GET  /_agent-native/automations — list all automations (parsed triggers)
@@ -6838,6 +6948,18 @@ export function createCoreRoutesPlugin(
             const data = await getSetting(
               `avatar:${decodeURIComponent(emailParam)}`,
             );
+            // Removing a photo is a decision about this account, not about the
+            // sign-in provider: the provider's picture must not come back and
+            // make the remove control look like it did nothing.
+            const removedOverride = await getSetting(
+              `avatarRemoved:${decodeURIComponent(emailParam)}`,
+            );
+            if (
+              (removedOverride as { removed?: boolean } | null)?.removed ===
+              true
+            ) {
+              return { image: null };
+            }
             const storedImage = (data as any)?.image;
             // A silhouette saved before it was recognized is not a photo either.
             if (
@@ -6881,7 +7003,46 @@ export function createCoreRoutesPlugin(
                   "image must be a data URI with a raster MIME type (png, jpeg, gif, or webp)",
               };
             }
-            await putSetting(`avatar:${session.email}`, { image });
+            if (image.length > AVATAR_MAX_DATA_URL_LENGTH) {
+              setResponseStatus(event, 413);
+              return {
+                error: `image must be at most ${AVATAR_MAX_DATA_URL_LENGTH} bytes`,
+              };
+            }
+            const avatarOwner = session.email.trim().toLowerCase();
+            // The photo is the one setting that is a small raster image by
+            // design, so this write carries the inline-bytes exemption; the
+            // MIME allowlist and the size cap above are what bound it.
+            await putSetting(
+              `avatar:${session.email}`,
+              { image },
+              { owner: avatarOwner, allowInlineImageBytes: true },
+            );
+            await deleteSetting(`avatarRemoved:${session.email}`, {
+              owner: avatarOwner,
+              requestSource: "avatar",
+            });
+            return { ok: true };
+          }
+
+          // DELETE /_agent-native/avatar — drop the current user's photo, so the
+          // initials fallback shows again (auth required).
+          if (method === "DELETE") {
+            const session = await getSession(event);
+            if (!session?.email) {
+              setResponseStatus(event, 401);
+              return { error: "unauthorized" };
+            }
+            const avatarOwner = session.email.trim().toLowerCase();
+            await deleteSetting(`avatar:${session.email}`, {
+              owner: avatarOwner,
+              requestSource: "avatar",
+            });
+            await putSetting(
+              `avatarRemoved:${session.email}`,
+              { removed: true, at: Date.now() },
+              { owner: avatarOwner, requestSource: "avatar" },
+            );
             return { ok: true };
           }
 
@@ -6997,6 +7158,7 @@ export function createCoreRoutesPlugin(
       // every in-flight request on it returns a bare 502. `rejectInit` already
       // routes this failure to the readiness gate, which answers the affected
       // paths with a retryable 503 instead.
+      rejectBuilderSignupReady(error);
       rejectInit(error);
     }
   };

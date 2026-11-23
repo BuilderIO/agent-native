@@ -34,8 +34,8 @@ The list was a grid of tiles until 2026-08-14. That contradicted §2 of the ref 
 - **`meetings`** — title, scheduled/actual start+end, platform, joinUrl, recordingId, transcriptStatus, summaryMd, bulletsJson, actionItemsJson, source, ownableColumns.
 - **`meeting_participants`** — meetingId + email + name + isOrganizer + attendedAt.
 - **`meeting_action_items`** — meetingId, assigneeEmail, text, dueDate, completedAt.
-- **`calendar_accounts`** — provider, externalAccountId, secret refs, lastSyncedAt. (See onboarding-calendar plugin.)
-- **`calendar_events`** — compatibility snapshot for events that have been recorded or edited; the visible list reads Google Calendar live.
+- **`calendar_accounts`** — provider, externalAccountId, secret refs, lastSyncedAt, and `enabledCalendarIdsJson`: the calendars Clips reads in that Google account (NULL means only `primary`, the main calendar). (See onboarding-calendar plugin.)
+- **`calendar_events`** — compatibility snapshot for events that have been recorded or edited, with the `calendarId` they came from (NULL for the main calendar); the visible list reads Google Calendar live.
 - **`recordings`** — when a meeting is recorded, the resulting recording row carries `meeting_id` (non-null) so we keep a bidirectional link. See the `recording` skill for the inverse direction.
 
 ## Audio capture: mic + system, tagged
@@ -81,18 +81,21 @@ Desktop notes also check for web End meeting requests every five seconds while a
 
 | Action                    | What it does                                                          |
 | ------------------------- | --------------------------------------------------------------------- |
-| `list-meetings`           | Upcoming + past, scoped via `accessFilter`; reads connected Google Calendar live. `hasContent` filters to meetings worth reopening; `offset` + `hasMore` page the history |
-| `search-meetings`         | Find a meeting by title, summary, notes, attendee, or linked transcript text, with a match snippet. Use this — not `list-meetings` — when the user describes what was said rather than when it happened |
-| `get-meeting`             | One meeting + participants + segments + notes                         |
+| `list-meetings`           | Upcoming + past, scoped via `accessFilter`; reads connected Google Calendar live. `hasContent` filters to meetings worth reopening; `offset` + `hasMore` page the history. Agent calls get at most 25 meetings per call, each with `summaryPreview`, `hasNotes`, `actionItemCount`, the first 10 `participants` and `participantCount` in place of its whole summary, notes, bullets, action items and attendee list; `get-meeting` has those. Live calendar events merge into the first 1,000 saved meetings; `historyCapped: true` means older ones remain, reachable with `includeLiveCalendar=false` and `offset`, or `search-meetings` |
+| `search-meetings`         | Find a meeting by title, summary, notes, attendee, or linked transcript text, with a match snippet. Use this — not `list-meetings` — when the user describes what was said rather than when it happened. Agent calls get at most 25 matches, each with `summaryPreview`, `hasNotes`, `actionItemCount`, the first 10 `participants` and `participantCount` in place of its whole summary, notes, action items and attendee list |
+| `get-meeting`             | One meeting + participants + notes + transcript. Agent calls get the transcript in chunks: pass `transcriptOffset` from `nextFullTextOffset` until it is null. The rest comes whole, each detail once: action items only in `actionItems`, bullets only parsed. Its text carries `Me:` / `Them:` labels; `segments` covers only the start |
 | `create-meeting`          | Create a meeting row (`source`: `calendar` / `adhoc` / `manual`); desktop adhoc Zoom/Teams/Meet/Webex detection passes `source: "adhoc"` |
 | `update-meeting`          | Inline title/notes edits; owner/admin changes to visibility and `shareTranscript` |
 | `delete-meeting`          | Soft-delete a meeting from the visible list; linked recordings and calendar events stay intact |
 | `start-meeting-recording` | Begin native macOS transcript stream + create the linked recording   |
 | `stop-meeting-recording`  | End the active capture                                                |
 | `finalize-meeting`        | Delegate Gemini Flash-Lite cleanup + summary + bullets + action items |
+| `remove-earlier-meeting-audio` | Take audio recovered from before the user started recording out of the transcript, rebuild the notes and the linked Clip's description and generated title, and delete its chapters. `get-meeting` and `view-screen` report it as `earlierAudioMinutes`, which is null when the transcript can't be parsed |
 | `cleanup-transcript`      | Shared cleanup pipeline (used by Clips, Meetings, Dictate)            |
 | `connect-calendar`        | Returns OAuth URL for Google Calendar                                 |
 | `list-calendar-accounts`  | What's connected                                                      |
+| `list-calendars`          | The calendars in each connected Google account and which are on (`enabled`). Callers who can't change an account see only the ones that are on |
+| `set-calendar-enabled`    | Turn one calendar on or off. Only the main calendar (`primary`) is on until changed; `list-meetings`, reminders and `sync-calendars` read every calendar that is on, keeping a meeting on several of them once. Turning one off drops its cached events that no meeting holds |
 | `sync-calendars`          | Compatibility refresh for `calendar_events`; not needed for the visible list |
 | `disconnect-calendar`     | Revoke + clear secret refs                                            |
 

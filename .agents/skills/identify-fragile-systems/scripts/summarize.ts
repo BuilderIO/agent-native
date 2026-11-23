@@ -6,7 +6,7 @@ import path from "node:path";
 
 import {
   artifact,
-  readJiraResults,
+  readFindingResults,
 } from "../../fragility-common/lib/artifacts.ts";
 import {
   main,
@@ -16,24 +16,27 @@ import {
   runDir,
   runId,
 } from "../../fragility-common/lib/cli.ts";
+import {
+  loadTracker,
+  trackerName,
+} from "../../fragility-common/lib/findings.ts";
 import { readPlan } from "../../fragility-common/lib/plan-format.ts";
-import { loadJiraConfig } from "../../jira-refactor-findings/scripts/jira.ts";
 import { plansDir } from "../../refactor-plan/scripts/lib.ts";
 import type { Analysis } from "../../system-history/scripts/analyze.ts";
 
-main((args) => {
+main(async (args) => {
   if (args.help) {
     console.log(
-      "summarize --run <id>   (reads analysis, plans, jira-results.json, decisions.json; writes the plans README)",
+      "summarize --run <id>   (reads analysis, plans, finding-results.json, decisions.json; writes the plans README)",
     );
     return;
   }
-  const { baseUrl } = loadJiraConfig();
+  const { ticketUrl } = await loadTracker();
   const id = runId(args);
   const data = runDir(id);
   const out = plansDir(id);
   const analysis = readJson<Analysis>(artifact(id, "analysis"));
-  const results = readJiraResults(id);
+  const results = readFindingResults(id);
   const decisions = readJsonOr<Record<string, string>>(
     artifact(id, "decisions"),
     {},
@@ -47,8 +50,8 @@ main((args) => {
     const decision = decisions[r.system];
     let disposition: string;
     if (plan) {
-      const ticket = plan.meta.jira
-        ? `[${plan.meta.jira}](${baseUrl}/browse/${plan.meta.jira})`
+      const ticket = plan.meta.ticket
+        ? `[${plan.meta.ticket}](${ticketUrl(plan.meta.ticket)})`
         : "no ticket yet";
       disposition = `plan [${plan.file}](./${plan.file}), ${ticket}`;
     } else if (results.some((x) => x.system === r.system)) {
@@ -75,7 +78,7 @@ main((args) => {
     "|---|---|---|---|---|",
     ...rows,
     "",
-    "## Jira actions",
+    `## ${trackerName() === "github" ? "GitHub" : "Jira"} actions`,
     "",
     ...(results.length
       ? results.map(
@@ -84,7 +87,7 @@ main((args) => {
         )
       : ["- none"]),
     "",
-    `Raw data: \`${rel(data)}\` (commits.json, analysis.md, jira-matches.json).`,
+    `Raw data: \`${rel(data)}\` (commits.json, analysis.md, finding-matches.json).`,
     "",
   ].join("\n");
   const file = path.join(out, "README.md");

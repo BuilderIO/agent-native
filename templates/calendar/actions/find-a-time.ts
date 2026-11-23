@@ -125,14 +125,20 @@ function addCalendarEventBusyBlocks(
   events: CalendarEvent[],
   organizerEmail: string,
   participantEmailSet: Set<string>,
+  ownedAccountSet: Set<string>,
   ignoreStart?: string,
   ignoreEnd?: string,
 ) {
   for (const event of events.filter(eventBlocksAvailability)) {
     if (event.allDay) continue;
+    const eventAccount = event.accountEmail?.toLowerCase();
     const participantEmail = (
       event.overlayEmail ||
-      event.accountEmail ||
+      (eventAccount &&
+      event.calendarPrimary !== false &&
+      ownedAccountSet.has(eventAccount)
+        ? organizerEmail
+        : event.accountEmail) ||
       organizerEmail
     ).toLowerCase();
     if (!participantEmailSet.has(participantEmail)) continue;
@@ -156,6 +162,7 @@ function projectTimeChoice(result: unknown) {
 }
 
 export default defineAction({
+  mcpTool: true,
   description:
     "Find shared available time slots for a calendar event organizer and attendees using Google free/busy plus local calendar conflicts.",
   schema: z.object({
@@ -322,6 +329,7 @@ export default defineAction({
         eventResult.events,
         organizerEmail,
         participantEmailSet,
+        new Set(connectedAccounts.map((account) => account.toLowerCase())),
         args.ignoreStart,
         args.ignoreEnd,
       );

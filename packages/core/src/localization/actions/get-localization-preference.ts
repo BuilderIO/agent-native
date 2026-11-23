@@ -13,6 +13,7 @@ export default defineAction({
     "Get the current user's interface language preference. Returns { locale }, where locale is 'system' or a valid BCP-47 locale registered by the app.",
   schema: z.object({}),
   http: { method: "GET" },
+  mcpTool: false,
   run: async (_args, ctx): Promise<ResolvedLocalizationPreference> => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     const stored = await getUserSetting(

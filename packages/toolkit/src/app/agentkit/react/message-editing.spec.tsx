@@ -2,11 +2,12 @@
 
 import { AgentKitClient as AgentKitClientImplementation } from "@agent-native/agentkit/client";
 import type { AgentTransport } from "@agent-native/agentkit/protocol";
-import { act } from "react";
+import { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
 import { ComposerRuntimeAdaptersProvider } from "../../../composer/runtime-adapters.js";
+import type { TiptapComposerHandle } from "../../../composer/TiptapComposer.js";
 import { AgentKitChat } from "./components.js";
 import { AgentKitProvider } from "./context.js";
 
@@ -19,18 +20,18 @@ class AgentKitClient extends AgentKitClientImplementation {
 }
 
 async function renderEditableThread() {
+  const composerRef = createRef<TiptapComposerHandle>();
+  const startRun = vi.fn(async () => ({ runId: "run-edit" }));
+  const onThreadForked = vi.fn();
+  const forkThread = vi.fn(async (input: { threadId: string }) => ({
+    id: `${input.threadId}-fork`,
+    createdAt: "2026-09-26T00:00:00.000Z",
+    updatedAt: "2026-09-26T00:00:00.000Z",
+  }));
   const transport: AgentTransport = {
     capabilities: { threadForking: true },
-    async forkThread(input) {
-      return {
-        id: `${input.threadId}-fork`,
-        createdAt: "2026-09-26T00:00:00.000Z",
-        updatedAt: "2026-09-26T00:00:00.000Z",
-      };
-    },
-    async startRun() {
-      return { runId: "run-edit" };
-    },
+    forkThread,
+    startRun,
     async *subscribeToRun() {},
     async cancelRun() {},
     async getThreadSnapshot(threadId) {
@@ -42,7 +43,7 @@ async function renderEditableThread() {
           {
             id: "user-edit",
             role: "user",
-            parts: [{ type: "text", text: "Original prompt" }],
+            parts: [{ type: "text", text: "First prompt" }],
           },
         ],
       };
@@ -70,9 +71,15 @@ async function renderEditableThread() {
         <AgentKitProvider
           controller={client}
           threadId="thread-edit"
-          onThreadForked={vi.fn()}
+          onThreadForked={onThreadForked}
         >
-          <AgentKitChat composerProps={{ modelStatusChecksEnabled: false }} />
+          <AgentKitChat
+            composerProps={{
+              autoFocus: false,
+              modelStatusChecksEnabled: false,
+              composerRef,
+            }}
+          />
         </AgentKitProvider>
       </ComposerRuntimeAdaptersProvider>,
     );
@@ -80,9 +87,12 @@ async function renderEditableThread() {
   });
   const startEditing = async () => {
     await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>('button[aria-label="Edit message"]')
-        ?.click();
+      const edit = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Edit message"]',
+      );
+      if (!edit) throw new Error("Edit button is missing");
+      edit.focus();
+      edit.click();
       await Promise.resolve();
     });
   };
@@ -95,10 +105,89 @@ async function renderEditableThread() {
     container.remove();
     vi.unstubAllGlobals();
   };
-  return { container, startEditing, cleanup };
+  return {
+    container,
+    startEditing,
+    cleanup,
+    startRun,
+    forkThread,
+    composerRef,
+    onThreadForked,
+  };
 }
 
 describe("AgentKit message editing", () => {
+  it("opens the edited first prompt's fork after the new run is registered", async () => {
+    const {
+      container,
+      startEditing,
+      cleanup,
+      startRun,
+      forkThread,
+      composerRef,
+      onThreadForked,
+    } = await renderEditableThread();
+    let resolveRun = (_receipt: { runId: string }): void => {};
+    startRun.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRun = resolve;
+        }),
+    );
+    try {
+      await startEditing();
+      await act(async () => composerRef.current!.setText("Edited request"));
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-agent-composer-slot="send-button"]',
+          )!
+          .click();
+      });
+      await vi.waitFor(() => expect(startRun).toHaveBeenCalledOnce());
+      expect(forkThread).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: "thread-edit",
+          beforeMessageId: "user-edit",
+          forkPurpose: "edit",
+          fromMessageId: undefined,
+        }),
+        expect.anything(),
+      );
+      expect(startRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: "thread-edit-fork",
+          messages: [
+            expect.objectContaining({
+              role: "user",
+              parts: [{ type: "text", text: "Edited request" }],
+            }),
+          ],
+        }),
+        expect.anything(),
+      );
+      expect(onThreadForked).not.toHaveBeenCalled();
+      await act(async () => resolveRun({ runId: "run-edit" }));
+      expect(onThreadForked).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "thread-edit-fork" }),
+      );
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("focuses the editor when Edit is selected in a chat without autofocus", async () => {
+    const { container, startEditing, cleanup } = await renderEditableThread();
+    try {
+      await startEditing();
+      const editor = container.querySelector('[contenteditable="true"]');
+      expect(editor?.textContent).toBe("First prompt");
+      await vi.waitFor(() => expect(document.activeElement).toBe(editor));
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("labels the edit above the editor and marks the source message", async () => {
     const { container, startEditing, cleanup } = await renderEditableThread();
     try {
@@ -174,7 +263,7 @@ describe("AgentKit message editing", () => {
       const editor = container.querySelector<HTMLElement>(
         '[contenteditable="true"]',
       );
-      expect(editor?.textContent).toBe("Original prompt");
+      expect(editor?.textContent).toBe("First prompt");
 
       await act(async () => {
         editor?.dispatchEvent(
@@ -220,7 +309,7 @@ describe("AgentKit message editing", () => {
           ?.hasAttribute("data-editing"),
       ).toBe(true);
       expect(container.querySelector(".ProseMirror")?.textContent).toBe(
-        "Original prompt",
+        "First prompt",
       );
     } finally {
       await cleanup();

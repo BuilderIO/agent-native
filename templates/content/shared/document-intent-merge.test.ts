@@ -617,6 +617,51 @@ describe("document body intent merge", () => {
     ).toEqual({ status: "preservation-required", reason: "structure" });
   });
 
+  it("merges two writers' edits across every block of a page over 500,000 characters", () => {
+    const blocks = Array.from(
+      { length: 11_000 },
+      (_, index) => `Paragraph ${index} ${"x".repeat(50)}`,
+    );
+    const edited = (parity: number | null, mark: string) =>
+      blocks
+        .map((block, index) =>
+          parity !== null && index % 2 === parity ? `${mark} ${block}` : block,
+        )
+        .join("\n");
+    const expected = blocks
+      .map((block, index) =>
+        index % 2 === 0 ? `Browser ${block}` : `Agent ${block}`,
+      )
+      .join("\n");
+    expect(edited(null, "").length).toBeGreaterThan(500_000);
+
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: edited(null, ""),
+        authoredCandidateContent: edited(0, "Browser"),
+        currentContent: edited(1, "Agent"),
+        currentRevision: 2,
+        incoming: {
+          writerId: "browser:a",
+          operationId: "a:1",
+          authoredBaseRevision: 1,
+        },
+        priorIntents: [
+          {
+            writerId: "mcp:z",
+            operationId: "z:1",
+            authoredBaseRevision: 1,
+            committedRevision: 2,
+            affectedBlockIndexes: blocks.flatMap((_, index) =>
+              index % 2 === 1 ? [index] : [],
+            ),
+            canonicalChanged: true,
+          },
+        ],
+      }),
+    ).toMatchObject({ status: "resolved", content: expected });
+  }, 30_000);
+
   it("merges a save authored on the blank-line body an agent stored", () => {
     expect(
       mergeDocumentBodyIntents({
@@ -673,6 +718,30 @@ describe("document body intent merge", () => {
     ).toEqual({ status: "preservation-required", reason: "structure" });
   });
 
+  it("keeps a blank-line body that already holds the editor's save", () => {
+    // An accepted suggestion rewrote the agent's page on the server while the
+    // editor saved the same accepted text in its one-block-per-line form.
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: "Alpha.\n\nBravo.\n\nCharlie.",
+        authoredCandidateContent: "Alpha.\nBravo. accepted\nCharlie. accepted",
+        currentContent: "Alpha.\n\nBravo. accepted\n\nCharlie. accepted",
+        currentRevision: 3,
+        incoming: {
+          writerId: "browser:b",
+          operationId: "b:1",
+          authoredBaseRevision: 1,
+        },
+        priorIntents: [],
+      }),
+    ).toEqual({
+      status: "resolved",
+      content: "Alpha.\n\nBravo. accepted\n\nCharlie. accepted",
+      changedBlockIndexes: [],
+      displaced: false,
+    });
+  });
+
   it("compares a held body against the blank-line body an agent stored", () => {
     expect(
       bodyHoldsChanges(
@@ -691,6 +760,42 @@ describe("document body intent merge", () => {
       true,
     );
     expect(bodyHoldsChanges(base, "Alpha.\nBravo.", accepted)).toBe(false);
+  });
+
+  it.each([
+    [
+      "the server's answer merged another writer's edit into the save",
+      "Typed. Alpha paragraph.\nBravo paragraph.\nCharlie paragraph, revised.",
+      true,
+    ],
+    [
+      "the editor typed on after the words the save sent",
+      "Typed. More. Alpha paragraph.\nBravo paragraph.\nCharlie paragraph.",
+      true,
+    ],
+    [
+      "the editor typed before the words the save sent",
+      "More. Typed. Alpha paragraph.\nBravo paragraph.\nCharlie paragraph.",
+      false,
+    ],
+    [
+      "the server's answer dropped the words the save sent",
+      "Alpha paragraph.\nBravo paragraph.\nCharlie paragraph, revised.",
+      false,
+    ],
+    [
+      "the editor never held the words the save sent",
+      "Alpha paragraph.\nNow. Bravo paragraph.\nCharlie paragraph.",
+      false,
+    ],
+  ])("tells whether a body holds a save's words when %s", (_, holder, held) => {
+    expect(
+      bodyHoldsChanges(
+        "Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+        holder,
+        "Typed. Alpha paragraph.\nBravo paragraph.\nCharlie paragraph.",
+      ),
+    ).toBe(held);
   });
 });
 

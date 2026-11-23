@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "引用录制内容…",
+    group: "录制内容",
+    authentication: "登录以添加引用。",
+    invalid: "发送前请选择有效的引用。",
+    unavailable: "所选引用已不可用。请移除或重新选择。",
+  },
   meetingAsk: { resizeOrDismissAnswers: "调整答案区域大小或关闭" },
   meetingBrowserConfirmation:
     "Clips 检测到此浏览器正在使用麦克风，但无法判断会议在哪个标签页中进行。",
@@ -208,7 +215,6 @@ const messages = {
     spaces: "空间",
     meetings: "会议",
     dictate: "听写",
-    fromContent: "来自 Content",
     archive: "归档",
     trash: "废纸篓",
     agent: "代理",
@@ -263,10 +269,6 @@ const messages = {
     archive: {
       title: "暂无归档的录制",
       body: "归档的 Clips 会一直保存在这里，直到你准备好将它们恢复。",
-    },
-    fromContent: {
-      title: "还没有来自 Content 的上传",
-      body: "你上传到 Content 页面的视频会作为 Clips 保存在这里。",
     },
     trash: {
       title: "废纸篓是空的",
@@ -571,6 +573,7 @@ const messages = {
     them: "他们",
     me: "我",
     regeneratingNotes: "正在重新生成摘要",
+    notesAlreadyGenerating: "摘要已在生成中，完成后会显示在这里。",
     meetingRemoved: "会议已删除",
     couldNotRemoveMeeting: "无法删除会议",
     couldNotLoadMeeting: "无法加载该会议。",
@@ -596,6 +599,13 @@ const messages = {
     desktopHint:
       "要开始记录，请从菜单栏打开 Clips Desktop 并选择 Start Meeting Notes，或在提醒出现时点击 Start notes。Clips 会捕获麦克风和系统音频，并在这里写入文字记录。",
     getDesktopApp: "获取桌面应用程序",
+    earlierAudioAdded_one: "已添加开始前的 {{count}} 分钟",
+    earlierAudioAdded_other: "已添加开始前的 {{count}} 分钟",
+    earlierAudioUnreadable: "无法检查此转录是否包含开始前的音频",
+    removeEarlierAudioTitle: "移除开始前的音频吗？",
+    removeEarlierAudioDescription:
+      "这会将其从转录中移除，并重新生成摘要、待办事项和片段描述，即使描述是你自己写的也一样。自动生成的标题也会重新生成；你选择的标题会保留。章节也会被删除。",
+    couldNotRemoveEarlierAudio: "无法移除开始前的音频",
     generateNotesFailed: "无法生成摘要。再试一次。",
     attendee_one: "{{count}} 与会者",
     attendee_other: "{{count}} 与会者",
@@ -644,6 +654,9 @@ const messages = {
     noMatches: "没有匹配项。",
     noTranscript: "还没有文字记录。",
     noTranscriptCaptured: "没有捕获任何文字记录。",
+    unreadableDescription:
+      "已保存的转录文本已损坏。重新生成会根据片段的音频创建新的转录文本。",
+    partialTranscript: "部分文字记录：录制被截断，部分内容可能缺失。",
     backupFailed:
       "本地未捕获任何语音，备份转录未完成。重试或检查麦克风和语音权限。",
     backupNotSetup: "本地未捕获任何语音，且未设置备份转录。",
@@ -720,6 +733,10 @@ const messages = {
     saveThumbnail: "保存缩略图",
   },
   shareDialog: {
+    enterPassword: "输入密码",
+    showPassword: "显示密码",
+    hidePassword: "隐藏密码",
+    copyPassword: "复制密码",
     redactionsPendingTitle: "分享前完成遮挡处理",
     redactionsPendingBody:
       "待应用的遮挡：{{count}} 处。请先在编辑器中应用；视频中仍保留原始内容。",
@@ -744,7 +761,7 @@ const messages = {
     openInCodex: "在 Codex 中打开",
     copyAgentPrompt: "复制代理提示",
     agentPrompt:
-      "读取这个 Clips 代理上下文 URL：{{agentContextUrl}}。使用 apis.transcript 阅读完整转录，并将 recommendedFrames[].url（或带 atMs 的 apis.frame.urlTemplate）作为图像获取。请原样保留 id 和 agent_access。发生错误时，检查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，请说明此链接无法授予访问权限；对于私有剪辑，请让所有者在 Clips 分享菜单中选择 {{shareWithAgents}} 并发送生成的链接。如果转录可用但 failureKind=media，请说明无法获取存储的媒体，换链接无法解决。如果 failureKind=processing，请遵循 nextStep；这不表示剪辑缺失或链接无效。如果 failureKind=expired，请让所有者在分享菜单中延长或取消剪辑的过期时间并保存，然后选择 {{shareWithAgents}} 并发送新链接。报告问题时也请使用可用的 browserDiagnostics。如果你的工具无法返回图像或打开这些链接，请说明是你的工具存在此限制，这不是 Clips 的错误。",
+      "读取这个 Clips 代理上下文 URL：{{agentContextUrl}}。使用 apis.transcript 阅读完整转录，并将 recommendedFrames[].url（或带 atMs 的 apis.frame.urlTemplate）作为图像获取。请原样保留 id 和 agent_access。发生错误时，检查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，请说明此链接无法授予访问权限；对于私有剪辑，请让所有者在 Clips 分享菜单中选择 {{shareWithAgents}} 并发送生成的链接。如果转录可用但 failureKind=media，请说明无法获取存储的媒体，换链接无法解决。如果 failureKind=processing，请遵循 nextStep；这不表示剪辑缺失或链接无效。如果 failureKind=expired，请让所有者在分享菜单中延长或取消剪辑的过期时间并保存，然后选择 {{shareWithAgents}} 并发送新链接。报告问题时也请使用可用的 browserDiagnostics。如果你无法将帧 URL 作为图像打开，请在可用时使用此上下文 URL 中的录制 ID 调用 Clips 的 get-recording-frames 工具。如果不可用，请告诉用户在 {{connectUrl}} 连接 Clips 后你就能查看帧。",
     agentTokenDescription:
       "此剪辑未公开，因此提供供代理使用的临时只读链接。2 小时后过期。",
     agentPublicDescription: "供代理使用的只读链接。剪辑保持公开期间有效。",
@@ -1084,6 +1101,10 @@ const messages = {
     reconnect: "重新连接",
     connectedAs: "已连接为 {{account}}",
     needsReconnect: "{{account}} 需要重新连接。",
+    calendarsDescription: "Clips 会显示你开启的日历中的会议。",
+    mainCalendar: "主日历",
+    showCalendar: "显示 {{calendar}} 中的会议",
+    calendarsLoadFailed: "无法加载此账号的日历。",
     disconnectFailed: "无法断开日历连接。",
     disconnectCalendarDescription:
       "Clips 将停止同步 {{account}} 中即将开始的会议。",
@@ -1186,6 +1207,43 @@ const messages = {
     startChatAction: "开始对话",
     trackInDashboard: "在仪表板中跟踪",
     chooseDashboardAction: "选择仪表板",
+  },
+  libraryFilters: {
+    source: "来源",
+    sourceShort: "来源",
+    sourceClips: "在 Clips 中录制",
+    sourceContent: "从 Content 页面上传",
+    sourceAll: "所有来源",
+    madeBy: "创建者",
+    madeByPerson: "人",
+    madeByAgent: "智能体",
+    created: "创建时间",
+    sharing: "共享",
+    sharingPrivate: "私密",
+    sharingOrg: "组织",
+    sharingPublic: "公开",
+    sharingShared: "已与他人共享",
+    sharingNotShared: "未与任何人共享",
+    length: "时长",
+    lengthUnder1m: "不到 1 分钟",
+    length1To5m: "1 到 5 分钟",
+    length5To20m: "5 到 20 分钟",
+    lengthOver20m: "超过 20 分钟",
+    tag: "标签",
+    tagOne: "标签",
+    tagOther: "标签",
+    transcript: "转录",
+    transcriptYes: "有转录",
+    transcriptNo: "无转录",
+    items: "剪辑",
+    matchCount_one: "{{count}} 个剪辑符合",
+    matchCount_other: "{{count}} 个剪辑符合",
+    showCount_one: "显示 {{count}} 个剪辑",
+    showCount_other: "显示 {{count}} 个剪辑",
+    emptyTitle: "没有剪辑符合这些筛选条件",
+    emptyBody: "更改或清除筛选条件即可查看更多剪辑。",
+    showAll: "显示所有来源的剪辑",
+    clear: "清除筛选条件",
   },
   libraryGrid: {
     spaceRoot: "空间根目录",
@@ -1440,6 +1498,7 @@ const messages = {
   transcriptBubbles: {
     listening: "正在聆听…",
     noTranscript: "还没有转录。",
+    unreadable: "无法读取此转录。",
     liveTranscriptDescription: "开始记录后，实时转录会显示在这里。",
     me: "我",
     them: "对方",
@@ -1908,6 +1967,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "还剩 {{count}} 个免费片段",
     freeClipsLeft_other: "还剩 {{count}} 个免费片段",
+    activateBuilder: "激活 Builder.io",
     hostedClipsExhaustedTitle: "免费连接 Builder.io，继续录制",
     hostedClipsExhaustedDescription:
       "免费托管录制次数已用完。连接 Builder.io 存储，即可继续将片段保存到资料库。",
@@ -2102,6 +2162,11 @@ const messages = {
     flowOriginalTranscript: "显示原始转写文本",
     flowCleanupSkipped: "未整理文本，已保留原始文本",
     flowBacktrackSkipped: "未应用文本编辑，已保留识别结果",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet 未下载",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Parakeet 下载中",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet 加载中",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet 正忙",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet 加载失败",
     flowCancelDictation: "取消听写",
     flowCopying: "正在复制转写文本…",
     aiProcessed: "AI 已处理",
@@ -2230,7 +2295,6 @@ const messages = {
     goHome: "返回首页",
     testMic: "测试麦克风",
     archivePageTitle: "归档 · Clips",
-    fromContentPageTitle: "来自 Content · Clips",
     openContentPage: "打开页面",
     insightsPageTitle: "洞察 · Clips",
     folderPageTitle: "文件夹 · Clips",

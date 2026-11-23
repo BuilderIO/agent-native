@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { canonicalizeNfm } from "./nfm.js";
 import {
   applyMarkdownSuggestionWithSiblings,
+  operationOnText,
+  rangeOnText,
   rebaseOntoAcceptedSiblings,
   type AcceptedSiblingRange,
 } from "./suggestion-apply.js";
@@ -31,12 +34,12 @@ const edits = [
   },
 ] as const;
 
-function split(edit: { find: string; replace: string }) {
+function split(edit: { find: string; replace: string }, before = page) {
   return markdownSuggestionOperationsForFindReplace({
-    before: page,
+    before,
     find: edit.find,
     replace: edit.replace,
-    start: page.indexOf(edit.find),
+    start: before.indexOf(edit.find),
   });
 }
 
@@ -83,10 +86,23 @@ function pieceChanging(pieces: Operation[], text: string) {
   return piece;
 }
 
+type Accepting = {
+  /** The Page before the first piece. */
+  start?: string;
+  /** Pieces of the same edit accepted before these. */
+  earlier?: Operation[];
+  /** What the Page is saved as after each accept. */
+  save?: (body: string) => string;
+};
+
 /** Accepts each piece in turn, as the server does, or reports the first that fails. */
-function acceptInOrder(pieces: Operation[], withText = true, start = page) {
+function acceptInOrder(
+  pieces: Operation[],
+  withText = true,
+  { start = page, earlier = [], save = (body) => body }: Accepting = {},
+) {
   let body = start;
-  const done: AcceptedSiblingRange[] = [];
+  const done = earlier.map(accepted);
   for (const piece of pieces) {
     const next = applyMarkdownSuggestionWithSiblings(
       body,
@@ -94,7 +110,7 @@ function acceptInOrder(pieces: Operation[], withText = true, start = page) {
       withText ? done : done.map(({ from, to }) => ({ from, to })),
     );
     if (next === null) return { body, failed: piece };
-    body = next;
+    body = save(next);
     done.push(accepted(piece));
   }
   return { body, failed: null };
@@ -125,13 +141,15 @@ describe("placing a piece of an agent's edit after its siblings", () => {
     expect(reversed.body).toBe(approved);
   });
 
-  it("needed the text the siblings wrote", () => {
-    expect(acceptInOrder([...host, ...vendor], false).failed).not.toBeNull();
+  it("places every piece from the siblings' ranges alone", () => {
+    const result = acceptInOrder([...host, ...vendor], false);
+    expect(result.failed).toBeNull();
+    expect(result.body).toBe(approved);
   });
 
   it("places every piece after an edit to the Page below them", () => {
     const signed = page.replace("Thanks.", "Thanks, Sam.");
-    const result = acceptInOrder([...host, ...vendor], true, signed);
+    const result = acceptInOrder([...host, ...vendor], true, { start: signed });
     expect(result.failed).toBeNull();
     expect(result.body).toBe(approved.replace("Thanks.", "Thanks, Sam."));
   });
@@ -204,6 +222,117 @@ describe("placing a piece of an agent's edit after its siblings", () => {
   });
 });
 
+describe("placing a piece after the editor saves the Page in its own form", () => {
+  // An agent wrote this Page with blank lines around the list. The editor
+  // saves it without them the first time someone edits it, which can happen
+  // between one accept and the next.
+  const written = [
+    "**To confirm:**",
+    "",
+    "- **Vendor:** whether to feature request signing, and in which piece; which plan includes the retry hooks we'd use; whether the vendor's test tool can point at our host; and the vendor's technical reviewer.",
+    "- **Host:** which regions to test, and who reviews the benchmark.",
+    "",
+    "Thanks.",
+  ].join("\n");
+  const rewrites = [
+    {
+      find: "whether to feature request signing, and in which piece; which plan includes the retry hooks we'd use; whether the vendor's test tool can point at our host; and the vendor's technical reviewer.",
+      replace:
+        "\n\t- **Request signing.** Would the vendor like to show that, and in which article?\n\t- **Retries.** Which vendor plan includes them?\n\t- **Testing.** Can its test tool point at our host?\n\t- **Reviewer.** Who should check the vendor claims?",
+    },
+    {
+      find: "which regions to test, and who reviews the benchmark.",
+      replace:
+        "\n\t- **Regions.** Which three should we test?\n\t- **Benchmark.** Who reviews it?",
+    },
+  ];
+  const [upper, lower] = rewrites.map((edit) => split(edit, written)) as [
+    Operation[],
+    Operation[],
+  ];
+  const result = canonicalizeNfm(
+    rewrites.reduce(
+      (text, edit) => text.replace(edit.find, edit.replace),
+      written,
+    ),
+  );
+
+  /** The Page as the editor saved it after `earlier` was accepted. */
+  function savedAfter(earlier: Operation[]) {
+    const accepts = acceptInOrder(earlier, true, { start: written });
+    expect(accepts.failed).toBeNull();
+    return canonicalizeNfm(accepts.body);
+  }
+
+  const piece4 = pieceChanging(upper, ";");
+  const beforePiece4 = [...lower, ...upper.slice(0, upper.indexOf(piece4))];
+
+  it("places a piece anchored to a single character", () => {
+    const saved = savedAfter(beforePiece4);
+    expect(saved).not.toContain("\n\n");
+    const accepts = acceptInOrder([piece4], true, {
+      start: saved,
+      earlier: beforePiece4,
+    });
+    expect(accepts.failed).toBeNull();
+    expect(accepts.body).toContain("in which article?\n\t- which plan");
+  });
+
+  it("places every piece wherever the editor saves between accepts", () => {
+    for (const pieces of [
+      [...upper, ...lower],
+      [...lower, ...upper],
+    ]) {
+      for (let count = 1; count < pieces.length; count += 1) {
+        const earlier = pieces.slice(0, count);
+        const accepts = acceptInOrder(pieces.slice(count), true, {
+          start: savedAfter(earlier),
+          earlier,
+        });
+        expect(accepts.failed).toBeNull();
+        expect(canonicalizeNfm(accepts.body)).toBe(result);
+      }
+    }
+  });
+
+  it("places every piece when the editor saves after each accept", () => {
+    const pieces = [...lower, ...upper];
+    for (const order of [pieces, [...pieces].reverse()]) {
+      const accepts = acceptInOrder(order, true, {
+        start: written,
+        save: canonicalizeNfm,
+      });
+      expect(accepts.failed).toBeNull();
+      expect(accepts.body).toBe(result);
+    }
+  });
+
+  it("still refuses a piece whose words someone else changed", () => {
+    const edited = savedAfter(beforePiece4).replace(
+      "in which article;",
+      "in which article,",
+    );
+    expect(
+      applyMarkdownSuggestionWithSiblings(
+        edited,
+        piece4,
+        beforePiece4.map(accepted),
+      ),
+    ).toBeNull();
+  });
+
+  it("refuses a piece another copy could have slid into", () => {
+    // Someone deleted "foo X " and changed "Y" to "Z", then "A" was accepted
+    // as "C", and the editor saved the Page without its blank line.
+    const piece = suggestion("A foo X foo Y\n\nEnd", 2, 5, "new");
+    expect(
+      applyMarkdownSuggestionWithSiblings("C foo Z\nEnd", piece, [
+        { from: 0, to: 1, text: "C" },
+      ]),
+    ).toBeNull();
+  });
+});
+
 describe("rebaseOntoAcceptedSiblings", () => {
   const target = pieceChanging(vendor, "can");
   const earlier = vendor.slice(0, vendor.indexOf(target));
@@ -245,5 +374,67 @@ describe("rebaseOntoAcceptedSiblings", () => {
       ),
     );
     expect(rebased && rebased.text.slice(rebased.from, rebased.to)).toBe("can");
+  });
+});
+
+describe("moving a suggestion onto a later text of the Page", () => {
+  const original =
+    "The coastal town wakes early as gulls circle overhead and boats leave at dawn.";
+  const later = original.replace("coastal", "harbour-side");
+  const at = (text: string, word: string) => ({
+    from: text.indexOf(word),
+    to: text.indexOf(word) + word.length,
+  });
+
+  it("moves a range the texts differ only away from", () => {
+    expect(rangeOnText(original, later, at(original, "early"))).toEqual(
+      at(later, "early"),
+    );
+    expect(
+      rangeOnText(original, later, { ...at(original, "The"), text: "A" }),
+    ).toEqual({ ...at(later, "The"), text: "A" });
+  });
+
+  it("leaves out a range the later text already changed", () => {
+    expect(rangeOnText(original, later, at(original, "coastal"))).toBeNull();
+    expect(
+      rangeOnText(original, later, at(original, "coastal town")),
+    ).toBeNull();
+  });
+
+  it("saves the suggestion as if from the later text", () => {
+    const { from, to } = at(original, "early");
+    const slowly = {
+      ...suggestion(original, from, to, "slowly"),
+      anchor: {
+        ...suggestion(original, from, to, "slowly").anchor,
+        siblingRanges: [at(original, "coastal"), at(original, "dawn")],
+      },
+    };
+    const moved = operationOnText(slowly, later);
+    expect(moved).toEqual({
+      kind: "replace_text",
+      before: { markdown: later, changedText: "early" },
+      after: {
+        markdown: later.replace("early", "slowly"),
+        changedText: "slowly",
+      },
+      anchor: {
+        ...at(later, "early"),
+        prefix: " ",
+        suffix: " ",
+        siblingRanges: [at(later, "dawn")],
+      },
+    });
+    expect(moved && applyMarkdownSuggestionWithSiblings(later, moved, [])).toBe(
+      later.replace("early", "slowly"),
+    );
+  });
+
+  it("can't move the suggestion the later text already holds", () => {
+    const { from, to } = at(original, "coastal");
+    const seaside = suggestion(original, from, to, "harbour-side");
+    expect(operationOnText(seaside, later)).toBeNull();
+    expect(operationOnText(seaside, original)).toBe(seaside);
   });
 });

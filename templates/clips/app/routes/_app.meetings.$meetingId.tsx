@@ -1,12 +1,12 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import {
+  actionErrorMessage,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useLabState } from "@agent-native/core/client/labs";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
-import { CLIPS_MEETINGS } from "@shared/labs";
 import {
   IconArrowLeft,
   IconCheck,
@@ -25,7 +25,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, NavLink, useNavigate, useParams } from "react-router";
+import { NavLink, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
@@ -37,6 +37,11 @@ import {
 } from "@/components/meetings/attendee-stack";
 import { BulletLink } from "@/components/meetings/bullet-link";
 import { CanvasEditor } from "@/components/meetings/canvas-editor";
+import {
+  EarlierAudioNotice,
+  useDeferredNotesWait,
+  withEarlierAudioRemoved,
+} from "@/components/meetings/earlier-audio-notice";
 import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
 import { ShareMeetingPopover } from "@/components/meetings/share-meeting-dialog";
 import {
@@ -117,6 +122,23 @@ interface Meeting {
   actionItemsJson?: ActionItem[] | null;
   segmentsJson?: TranscriptSegment[] | null;
   participants?: Participant[];
+}
+
+/**
+ * finalize-meeting skips a run while another notes run (the server's job after
+ * a meeting ends, another tab, the agent) holds the meeting, and returns the
+ * old notes. It gives the same answer for a meeting it can't claim from its
+ * status, which has no run to wait for.
+ */
+function skippedForRunningNotes(result: unknown): boolean {
+  const reply = result as {
+    skipped?: unknown;
+    transcriptStatus?: unknown;
+  } | null;
+  return (
+    reply?.skipped === "already-in-progress" &&
+    reply.transcriptStatus === "pending"
+  );
 }
 
 function formatDateTime(iso?: string | null): string {
@@ -458,7 +480,6 @@ function ActionItemTextEditor({
 
 export default function MeetingDetailRoute() {
   const t = useT();
-  const lab = useLabState(CLIPS_MEETINGS.key);
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -472,6 +493,7 @@ export default function MeetingDetailRoute() {
       segmentsJson?: TranscriptSegment[] | null;
     } | null;
     recording?: { id: string; durationMs?: number | null } | null;
+    earlierAudioMinutes?: number | null;
     role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
     reason?: "unavailable";
   };
@@ -501,10 +523,19 @@ export default function MeetingDetailRoute() {
 
   const updateMeeting = useActionMutation<any, any>("update-meeting");
   const deleteMeeting = useActionMutation<any, any>("delete-meeting");
-  const finalize = useActionMutation<any, any>("finalize-meeting");
+  const finalize = useActionMutation("finalize-meeting", {
+    errorNotification: "caller",
+    onSuccess: (result, { meetingId: finalizedId }) => {
+      if (skippedForRunningNotes(result)) waitForRunningNotes(finalizedId);
+    },
+  });
   const stopMeetingRecording = useActionMutation<any, any>(
     "stop-meeting-recording",
   );
+  const removeEarlierAudio = useActionMutation<
+    { notes: string },
+    { meetingId: string }
+  >("remove-earlier-meeting-audio");
 
   const [notesJustArrived, setNotesJustArrived] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -576,11 +607,11 @@ export default function MeetingDetailRoute() {
   const canEdit =
     data?.role === "owner" || data?.role === "admin" || data?.role === "editor";
 
-  const hasNotes =
+  const hasGeneratedNotes =
     !!meeting?.summaryMd ||
-    !!meeting?.userNotesMd ||
     (meeting?.bulletsJson?.length ?? 0) > 0 ||
     (meeting?.actionItemsJson?.length ?? 0) > 0;
+  const hasNotes = hasGeneratedNotes || !!meeting?.userNotesMd;
 
   useEffect(() => {
     if (!meeting) {
@@ -717,7 +748,9 @@ export default function MeetingDetailRoute() {
         ) {
           patchCachedMeeting({ title: meetingTitleDraftRef.current.value });
         }
-        toast.error(t("transcriptPanel.saveFailed", { status: "title" }));
+        reportWriteFailure(error, {
+          label: t("transcriptPanel.saveFailed", { status: "title" }),
+        });
       })();
     });
   };
@@ -765,9 +798,11 @@ export default function MeetingDetailRoute() {
               patchCachedMeeting(nextPending.patch);
               continue;
             }
-            toast.error(
-              t("transcriptPanel.saveFailed", { status: current.label }),
-            );
+            reportWriteFailure(error, {
+              label: t("transcriptPanel.saveFailed", {
+                status: current.label,
+              }),
+            });
           }
         }
       })
@@ -822,11 +857,11 @@ export default function MeetingDetailRoute() {
     meetingContentSaveQueueRef.current = save
       .catch(async (error) => {
         console.error("[clips] action-item save failed", error);
-        toast.error(
-          t("transcriptPanel.saveFailed", {
+        reportWriteFailure(error, {
+          label: t("transcriptPanel.saveFailed", {
             status: t("meetingDetail.actionItems"),
           }),
-        );
+        });
         const hasNewerDraft = actionItemsSaveRevisionRef.current !== revision;
         const refreshed = await refetchMeetingAfterSaveFailure();
         if (hasNewerDraft) {
@@ -908,11 +943,103 @@ export default function MeetingDetailRoute() {
 
   const handleFinalize = () => {
     if (!meeting) return;
-    if (hasNotes) {
-      toast.info(t("meetingDetail.regeneratingNotes"));
-    }
+    const toastId = hasNotes
+      ? toast.info(t("meetingDetail.regeneratingNotes"))
+      : undefined;
     autoFinalizedRef.current = true;
-    finalize.mutate({ meetingId: meeting.id, force: true });
+    finalize.mutate(
+      { meetingId: meeting.id, force: true },
+      {
+        onSuccess: (result) => {
+          if (!meeting.actualEnd || !skippedForRunningNotes(result)) return;
+          toast.info(
+            t("meetingDetail.notesAlreadyGenerating"),
+            toastId === undefined ? undefined : { id: toastId },
+          );
+        },
+      },
+    );
+  };
+
+  const showNotesFailed = () => {
+    toast.error(t("meetingDetail.generateNotesFailed"), {
+      action: {
+        label: t("meetingDetail.retry"),
+        onClick: handleFinalize,
+      },
+    });
+  };
+
+  const deferredNotes = useDeferredNotesWait({
+    meetingId: meeting?.id,
+    notesArrived: hasGeneratedNotes,
+    refetch: refetchMeeting,
+    onGiveUp: showNotesFailed,
+  });
+  // Waits out the notes run that made this page's finalize skip. The run sets
+  // `ready` or `failed` when it finishes.
+  const runningNotes = useDeferredNotesWait({
+    meetingId: meeting?.id,
+    notesArrived: meeting?.transcriptStatus !== "pending",
+    notesFailed: meeting?.transcriptStatus === "failed",
+    refetch: refetchMeeting,
+    onGiveUp: showNotesFailed,
+  });
+  const waitForRunningNotes = (id: string) => {
+    // The reply may come after the page moved to another meeting. A live
+    // meeting is `pending` from its recording until it ends, with no run to
+    // wait for.
+    if (id !== meeting?.id || !meeting.actualEnd) return;
+    // The page's copy may predate that run's claim. It's keyed by the address
+    // the page opened, which for a calendar event isn't the meeting's id.
+    qc.setQueryData<GetMeetingResp | undefined>(
+      ["action", "get-meeting", { id: meetingId }],
+      (prev) =>
+        prev?.meeting
+          ? {
+              ...prev,
+              meeting: { ...prev.meeting, transcriptStatus: "pending" },
+            }
+          : prev,
+    );
+    runningNotes.start(id);
+  };
+  const generatingNotes =
+    finalize.isPending ||
+    removeEarlierAudio.isPending ||
+    deferredNotes.pending ||
+    runningNotes.pending;
+
+  const handleRemoveEarlierAudio = () => {
+    if (!meeting) return;
+    const queryKey = ["action", "get-meeting", { id: meetingId }];
+    const previous = qc.getQueryData<GetMeetingResp>(queryKey);
+    // The cleared notes would otherwise start a finalize that races the removal.
+    // A running meeting keeps its notes, and its end still has to start them.
+    if (meeting.actualEnd) autoFinalizedRef.current = true;
+    void qc.cancelQueries({ queryKey });
+    qc.setQueryData<GetMeetingResp | undefined>(
+      queryKey,
+      (prev) => prev && withEarlierAudioRemoved(prev),
+    );
+    removeEarlierAudio.mutate(
+      { meetingId: meeting.id },
+      {
+        onSuccess: (result) => {
+          if (result.notes === "regenerating") deferredNotes.start(meeting.id);
+          if (result.notes === "failed") showNotesFailed();
+        },
+        onError: (err: unknown) => {
+          qc.setQueryData(queryKey, previous);
+          // A timeout can land after the server committed the removal.
+          void qc.invalidateQueries({ queryKey });
+          toast.error(
+            actionErrorMessage(err) ??
+              t("meetingDetail.couldNotRemoveEarlierAudio"),
+          );
+        },
+      },
+    );
   };
 
   const handleDeleteMeeting = () => {
@@ -997,10 +1124,6 @@ export default function MeetingDetailRoute() {
     finalize,
   ]);
 
-  if (lab.isSuccess && !lab.enabled) {
-    return <Navigate replace to="/library" />;
-  }
-
   if (isError && !meeting) {
     return (
       <div className="p-6 max-w-2xl mx-auto w-full">
@@ -1054,6 +1177,10 @@ export default function MeetingDetailRoute() {
   const segments = meeting.segmentsJson ?? [];
   const hasSummary =
     !!meeting.summaryMd || bullets.length > 0 || actionItems.length > 0;
+  // A rebuild that fails after notes were cleared leaves no summary to
+  // regenerate from, and its Retry toast doesn't survive a reload.
+  const canRetryNotes =
+    meeting.transcriptStatus === "failed" && segments.length > 0;
 
   const handleCopyTranscript = async () => {
     if (!segments.length) return;
@@ -1120,7 +1247,7 @@ export default function MeetingDetailRoute() {
           )}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {!canEdit ? null : finalize.isPending ? (
+          {!canEdit ? null : generatingNotes ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
               {t("meetingDetail.generatingNotesInline")}
@@ -1245,6 +1372,12 @@ export default function MeetingDetailRoute() {
         </div>
       )}
 
+      <EarlierAudioNotice
+        minutes={data?.earlierAudioMinutes}
+        canRemove={canEdit}
+        onRemove={handleRemoveEarlierAudio}
+      />
+
       {finalize.isError && (
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {(finalize.error as Error)?.message ||
@@ -1297,13 +1430,13 @@ export default function MeetingDetailRoute() {
               {t("meetingDetail.summary")}
             </div>
             <div className="flex items-center gap-2">
-              {finalize.isPending && (
+              {generatingNotes && (
                 <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                   <IconLoader2 className="h-3 w-3 animate-spin" />
                   {t("meetingDetail.working")}
                 </span>
               )}
-              {canEdit && hasSummary && (
+              {canEdit && (hasSummary || canRetryNotes) && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -1311,7 +1444,7 @@ export default function MeetingDetailRoute() {
                       variant="ghost"
                       className="h-7 w-7 cursor-pointer"
                       aria-label={t("meetingDetail.regenerateNotes")}
-                      disabled={finalize.isPending}
+                      disabled={generatingNotes}
                       onClick={handleFinalize}
                     >
                       <IconRefresh className="h-3.5 w-3.5" />
@@ -1387,6 +1520,7 @@ export default function MeetingDetailRoute() {
           <TranscriptBubbles
             segments={segments}
             isLive={isLive}
+            unreadable={data?.earlierAudioMinutes === null}
             participants={meeting.participants ?? []}
             ownerEmail={meeting.ownerEmail}
             registerScrollTo={(fn) => {

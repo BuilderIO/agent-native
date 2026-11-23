@@ -34,6 +34,7 @@ export interface TaskListRowProps {
   highlighted?: boolean;
   hideAfterComplete: boolean;
   onOpenDetails: () => void;
+  onStartTitleEdit?: () => void;
   onUpdateTitle: (title: string) => Promise<unknown>;
   onUpdateDone: (done: boolean) => Promise<unknown>;
   onRequestDelete: () => void;
@@ -50,6 +51,7 @@ export function TaskListRow({
   highlighted = false,
   hideAfterComplete,
   onOpenDetails,
+  onStartTitleEdit,
   onUpdateTitle,
   onUpdateDone,
   onRequestDelete,
@@ -138,6 +140,7 @@ export function TaskListRow({
                 <InlineEditable
                   value={item.title}
                   onSave={onUpdateTitle}
+                  onEditStart={onStartTitleEdit}
                   onDisplayTitleChange={setDisplayTitle}
                   ariaLabel={t("common.editTitleAriaLabel")}
                   disabled={busy}
@@ -161,14 +164,13 @@ export function TaskListRow({
               disabled={busy || rowSelection.selectionMode}
             >
               <DropdownMenuItem
-                className="gap-2"
                 onSelect={() => selection.actions.startSelection(item.id)}
               >
                 <IconChecks className="size-4" />
                 {t("selection.select")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="gap-2 text-destructive focus:bg-destructive focus:text-destructive-foreground"
+                className="text-destructive focus:bg-destructive focus:text-destructive-foreground"
                 onSelect={onRequestDelete}
               >
                 <IconTrash className="size-4" />

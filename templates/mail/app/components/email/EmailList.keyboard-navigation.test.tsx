@@ -10,7 +10,7 @@ import {
   within,
   waitFor,
 } from "@testing-library/react";
-import { isValidElement, useState } from "react";
+import { isValidElement, useCallback, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   virtualWindowSize: Number.POSITIVE_INFINITY,
   freezeVirtualStart: false,
   view: "all",
+  threadId: undefined as string | undefined,
   headerActions: null as unknown,
   priorityToast: vi.fn(),
   priorityRequest: vi.fn(),
@@ -90,7 +91,7 @@ vi.mock("@tanstack/react-virtual", () => ({
 vi.mock("react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) => children,
   useNavigate: () => mocks.navigate,
-  useParams: () => ({ view: mocks.view }),
+  useParams: () => ({ view: mocks.view, threadId: mocks.threadId }),
   useSearchParams: () => [
     new URLSearchParams(
       mocks.searchQuery ? { q: mocks.searchQuery } : undefined,
@@ -284,6 +285,9 @@ function Harness({
   priorityProviderIdentity,
   onJevRetry,
   sortMode,
+  readingPane,
+  keyboardEnabled,
+  onThreadOrderChange,
 }: {
   emails?: React.ComponentProps<typeof EmailList>["emails"];
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
@@ -302,6 +306,9 @@ function Harness({
   priorityProviderIdentity?: string;
   onJevRetry?: React.ComponentProps<typeof EmailList>["onJevRetry"];
   sortMode?: "newest" | "priority";
+  readingPane?: boolean;
+  keyboardEnabled?: boolean;
+  onThreadOrderChange?: (threadIds: string[]) => void;
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
@@ -331,6 +338,9 @@ function Harness({
         priorityProviderIdentity={priorityProviderIdentity}
         onJevRetry={onJevRetry}
         sortMode={sortMode}
+        readingPane={readingPane}
+        keyboardEnabled={keyboardEnabled}
+        onThreadOrderChange={onThreadOrderChange}
       />
     </>
   );
@@ -406,6 +416,7 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
     mocks.freezeVirtualStart = false;
     mocks.view = "all";
+    mocks.threadId = undefined;
     mocks.headerActions = null;
     mocks.automations = [];
     mocks.priorityToast.mockReset();
@@ -694,6 +705,63 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(
       screen.queryByRole("button", { name: "mail.sort.priority 0.90" }),
     ).toBeNull();
+  });
+
+  it("reports threads in the ranked order it shows them", async () => {
+    mocks.view = "inbox";
+    const onThreadOrderChange = vi.fn();
+    mocks.priorityRequest.mockImplementationOnce(
+      async ({
+        emails,
+      }: {
+        emails: Array<{ id: string; accountEmail: string }>;
+      }) => ({
+        scores: emails.map(({ id, accountEmail }) => ({
+          emailId: id,
+          accountEmail,
+          score: id === "last" ? 0.9 : 0.4,
+        })),
+        failures: [],
+      }),
+    );
+
+    render(
+      <Harness
+        emails={messages.map((email) => ({ ...email, labelIds: ["inbox"] }))}
+        showPrioritySort
+        sortMode="priority"
+        onThreadOrderChange={onThreadOrderChange}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onThreadOrderChange).toHaveBeenLastCalledWith([
+        "thread-last",
+        "thread-first",
+        "thread-middle",
+      ]),
+    );
+  });
+
+  it("reports an unchanged order once while the page re-renders the list with fresh rows", () => {
+    const reports: string[][] = [];
+    function Page() {
+      const [, setOrder] = useState<string[] | null>(null);
+      const report = useCallback((threadIds: string[]) => {
+        reports.push(threadIds);
+        if (reports.length <= 5) setOrder(threadIds);
+      }, []);
+      return (
+        <Harness
+          emails={messages.map((email) => ({ ...email }))}
+          onThreadOrderChange={report}
+        />
+      );
+    }
+
+    render(<Page />);
+
+    expect(reports).toHaveLength(1);
   });
 
   it("ranks a newly scored message that enters the priority window", async () => {
@@ -1375,6 +1443,18 @@ describe("EmailList keyboard navigation interactions", () => {
     ]);
   });
 
+  it("brings keyboard focus along to the current row only when a row holds it", () => {
+    render(<Harness />);
+    press("j");
+    expect(document.activeElement).toBe(document.body);
+
+    rows()[1]?.focus();
+    press("j");
+    expect(document.activeElement).toBe(rows()[2]);
+    press("k");
+    expect(document.activeElement).toBe(rows()[1]);
+  });
+
   it("extends selected rows with Shift+j and Shift+ArrowDown; plain j clears selection", () => {
     render(<Harness />);
 
@@ -1455,6 +1535,63 @@ describe("EmailList keyboard navigation interactions", () => {
     ]);
   });
 
+  it("selects and deselects the focused conversation with x", () => {
+    render(<Harness />);
+    press("j");
+    press("x");
+    expect(rows().map((row) => row.getAttribute("aria-selected"))).toEqual([
+      "false",
+      "true",
+      "false",
+    ]);
+
+    press("x");
+    expect(rows().map((row) => row.getAttribute("aria-selected"))).toEqual([
+      "false",
+      "false",
+      "false",
+    ]);
+  });
+
+  it("pages focus down with Space and back up with Shift+Space", () => {
+    render(<Harness />);
+    const scroller = rows()[0]?.closest(".overflow-y-auto") as HTMLElement;
+    Object.defineProperty(scroller, "clientHeight", {
+      configurable: true,
+      value: 3 * 38,
+    });
+
+    press(" ");
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      null,
+      null,
+      "true",
+    ]);
+    press(" ", true);
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      "true",
+      null,
+      null,
+    ]);
+  });
+
+  it("leaves Shift+I and Shift+U to the app shell instead of marking mail", () => {
+    render(<Harness />);
+    const before = rows().map((row) => row.getAttribute("aria-selected"));
+    for (const key of ["I", "U"]) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        shiftKey: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(rows().map((row) => row.getAttribute("aria-selected"))).toEqual(
+      before,
+    );
+  });
+
   it.each(["Enter", "o"])("opens the focused thread with %s", (key) => {
     render(<Harness />);
     press("ArrowDown");
@@ -1462,7 +1599,55 @@ describe("EmailList keyboard navigation interactions", () => {
 
     expect(mocks.navigate).toHaveBeenCalledWith(
       "/all/thread-middle?accountEmail=synthetic%40example.test",
+      { replace: false },
     );
+  });
+
+  it("opens each row the focus lands on beside the reading pane", () => {
+    render(<Harness readingPane />);
+    press("j");
+
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-middle?accountEmail=synthetic%40example.test",
+      { replace: false },
+    );
+  });
+
+  it("replaces history while the reading pane already shows an email", () => {
+    mocks.threadId = "thread-middle";
+    render(<Harness readingPane />);
+    press("j");
+
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-middle?accountEmail=synthetic%40example.test",
+      { replace: true },
+    );
+  });
+
+  it("replaces history for clicks and Enter once the route shows an email", () => {
+    const { rerender } = render(<Harness readingPane />);
+    mocks.threadId = "thread-first";
+    rerender(<Harness readingPane />);
+
+    press("Enter");
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-first?accountEmail=synthetic%40example.test",
+      { replace: true },
+    );
+
+    fireEvent.click(screen.getByText("Subject middle"));
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-middle?accountEmail=synthetic%40example.test",
+      { replace: true },
+    );
+  });
+
+  it("leaves j and k to the open email when it owns the keyboard", () => {
+    render(<Harness readingPane keyboardEnabled={false} />);
+    press("j");
+
+    expect(screen.getByLabelText("Focused id").textContent).toBe("first");
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -189,18 +189,6 @@ function isLocalDatabaseUrl(url: string): boolean {
   );
 }
 
-function isLoopbackUrl(url: string): boolean {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return (
-      hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
-    );
-  } catch {
-    // coercion-ok: malformed URLs are not loopback; validation reports the config issue.
-    return false;
-  }
-}
-
 function missingDatabaseUrlIssue(
   dbKeys: string[],
 ): Omit<RuntimeConfigIssue, "severity"> {
@@ -261,6 +249,9 @@ export function buildRuntimeConfigPrompt(
   report: Pick<RuntimeConfigReport, "environment" | "phase" | "issues">,
   appName?: string,
 ): string {
+  // A healthy report has nothing to fix. A "fix this" prompt here would send
+  // an agent that reads the probe looking for problems that are not there.
+  if (report.issues.length === 0) return "";
   const appLine = appName ? `\nApp: ${appName}` : "";
   const issueLines = report.issues
     .map(
@@ -274,7 +265,7 @@ export function buildRuntimeConfigPrompt(
     `Phase: ${report.phase}${appLine}`,
     "",
     "Detected issues:",
-    issueLines || "- No issues were reported.",
+    issueLines,
     "",
     "Inspect the app's agent-native.json or agent-native.config.ts (including compatibility aliases), its deployment configuration, and the framework defaults. Make the smallest safe fix. Keep secrets out of source control. Do not print secret values in your response. Tell me exactly which deploy settings still need to be set, then verify the production build and runtime health check.",
   ].join("\n");
@@ -336,26 +327,35 @@ export function getRuntimeConfigReport(
         );
       }
 
-      const explicitAuthUrl =
-        valueOf(env, "APP_URL") ?? valueOf(env, "BETTER_AUTH_URL");
+      const appUrl = valueOf(env, "APP_URL");
+      const authUrlKey = appUrl ? "APP_URL" : "BETTER_AUTH_URL";
+      const explicitAuthUrl = appUrl ?? valueOf(env, authUrlKey);
       if (explicitAuthUrl) {
-        let invalid = false;
+        const local =
+          valueOf(env, "AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT")?.toLowerCase() ===
+          "local";
+        let validAuthUrl: boolean;
         try {
           const parsed = new URL(explicitAuthUrl);
-          invalid = !["http:", "https:"].includes(parsed.protocol);
+          const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(
+            parsed.hostname,
+          );
+          validAuthUrl =
+            ["http:", "https:"].includes(parsed.protocol) &&
+            (local || !loopback);
         } catch {
-          invalid = true;
+          validAuthUrl = false;
         }
-        if (isLoopbackUrl(explicitAuthUrl)) invalid = true;
-        if (invalid) {
+        if (!validAuthUrl) {
           addIssue(
             issues,
             {
               code: "invalid-auth-url",
-              title: "The public auth URL is not deployable",
-              message:
-                "APP_URL or BETTER_AUTH_URL must be an absolute public http(s) URL. Leave them unset when the platform URL should be inferred.",
-              envKeys: ["APP_URL", "BETTER_AUTH_URL"],
+              title: `${authUrlKey} is not a valid auth URL`,
+              message: local
+                ? `Set ${authUrlKey} to an absolute HTTP or HTTPS URL.`
+                : `Set ${authUrlKey} to an absolute public HTTP or HTTPS URL, or unset it to infer the platform URL. For a local production build, set AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT=local to use a loopback URL.`,
+              envKeys: [authUrlKey],
             },
             environment,
           );

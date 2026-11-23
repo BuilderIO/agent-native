@@ -1,5 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   BookingLinkCreateDialog,
   CustomFieldsEditor as SharedCustomFieldsEditor,
@@ -141,6 +142,7 @@ import {
 import {
   useBookingLinks,
   useCreateBookingLink,
+  useCreateSingleUseLink,
   useDeleteBookingLink,
   useUpdateBookingLink,
   OPTIMISTIC_PREFIX,
@@ -898,6 +900,7 @@ export default function BookingLinksPage({
   } = bookingLinksQuery;
   const createBookingLink = useCreateBookingLink();
   const updateBookingLink = useUpdateBookingLink();
+  const createSingleUseLink = useCreateSingleUseLink();
   const deleteBookingLink = useDeleteBookingLink();
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   useEffect(() => {
@@ -1178,8 +1181,10 @@ export default function BookingLinksPage({
       setDraft(nextDraft);
       setSavedDraftSignature(getDraftSignature(nextDraft));
       toast.success(t("bookingLinks.bookingLinkUpdated"));
-    } catch {
-      toast.error(t("bookingLinks.bookingLinkUpdateFailed"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("bookingLinks.bookingLinkUpdateFailed"),
+      });
     }
   }
 
@@ -1189,8 +1194,10 @@ export default function BookingLinksPage({
       await deleteBookingLink.mutateAsync({ id: draft.id });
       void navigate("/booking-links");
       toast.success(t("bookingLinks.bookingLinkDeleted"));
-    } catch {
-      toast.error(t("bookingLinks.bookingLinkDeleteFailed"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("bookingLinks.bookingLinkDeleteFailed"),
+      });
     }
   }
 
@@ -1222,6 +1229,49 @@ export default function BookingLinksPage({
       return;
     }
     toast.error(t("common.clipboardUnavailable"));
+  }
+
+  async function copySingleUseLink(link: { id: string; slug: string }) {
+    let url: string;
+    try {
+      const created = await createSingleUseLink.mutateAsync({
+        bookingLinkId: link.id,
+      });
+      url = `${getBookingUrl(link.slug)}?once=${encodeURIComponent(created.token)}`;
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("bookingLinks.singleUseLinkCreateFailed"),
+      });
+      return;
+    }
+    const share = () =>
+      trackEvent("booking_link_shared", {
+        app_name: "calendar",
+        template_name: "calendar",
+        booking_type_id: link.slug,
+        share_method: "copy_single_use_link",
+      });
+    if (await copyTextToClipboard(url)) {
+      share();
+      toast.success(t("bookingLinks.singleUseLinkCopied"));
+      return;
+    }
+    toast(t("bookingLinks.singleUseLinkReady"), {
+      duration: 30_000,
+      action: {
+        label: t("bookingLinks.copyLink"),
+        onClick: () => {
+          void copyTextToClipboard(url).then((copied) => {
+            if (copied) {
+              share();
+              toast.success(t("bookingLinks.singleUseLinkCopied"));
+            } else {
+              toast.error(t("common.clipboardUnavailable"));
+            }
+          });
+        },
+      },
+    });
   }
 
   function bookingPreviewPath(slug: string) {
@@ -2065,6 +2115,16 @@ export default function BookingLinksPage({
                                     {t("eventForm.edit")}
                                   </Link>
                                 </DropdownMenuItem>
+                                {link.isActive &&
+                                  !link.id.startsWith(OPTIMISTIC_PREFIX) && (
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        void copySingleUseLink(link);
+                                      }}
+                                    >
+                                      {t("bookingLinks.copySingleUseLink")}
+                                    </DropdownMenuItem>
+                                  )}
                                 <DropdownMenuItem
                                   onClick={() => {
                                     updateBookingLink.mutate(

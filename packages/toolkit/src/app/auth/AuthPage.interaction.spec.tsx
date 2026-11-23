@@ -41,7 +41,265 @@ describe("AuthPage interactions", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
+
+  it.each(
+    [
+      "analytics",
+      "assets",
+      "brain",
+      "calendar",
+      "clips",
+      "content",
+      "crm",
+      "design",
+      "dispatch",
+      "factory",
+      "forms",
+      "mail",
+      "plan",
+      "slides",
+    ].flatMap((app) =>
+      (["control", "automatic"] as const).map((variant) => ({ app, variant })),
+    ),
+  )(
+    "shows Builder legal disclosure before $app signup only for $variant",
+    async ({ app, variant }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => ({
+          ok: true,
+          status: 200,
+          json: async () =>
+            String(input).includes("builder-signup-experiment")
+              ? {
+                  status: "assigned",
+                  id: "a".repeat(32),
+                  variant,
+                  policy: "builder-signup-2026-11-06",
+                }
+              : { available: false },
+        })),
+      );
+      await act(async () => {
+        root.render(
+          <AuthPage
+            {...propsFromHtml(
+              getOnboardingHtml({
+                requestHost: "127.0.0.1",
+                requestPath: "/signup",
+                builderSignupEnabled: true,
+              }),
+            )}
+            trackingApp={app}
+            googleOnly
+            showGoogle
+            signupLegalNotice={{
+              termsUrl: "https://example.com/terms",
+              privacyUrl: "https://example.com/privacy",
+            }}
+            identitySsoEnabled={false}
+          />,
+        );
+      });
+      expect(
+        container.textContent?.includes(
+          "You also create a Builder.io account and agree to Builder’s",
+        ),
+      ).toBe(variant === "automatic");
+      expect(
+        container.querySelector<HTMLButtonElement>("#google-btn")?.disabled,
+      ).toBe(false);
+      const footer = container.querySelector(".legal-note");
+      if (variant === "automatic") {
+        expect(footer?.textContent).not.toContain(
+          "By signing up, you accept our",
+        );
+        expect(
+          container
+            .querySelector("#google-btn")
+            ?.compareDocumentPosition(footer ?? container),
+        ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+        expect(footer?.querySelectorAll("a").length).toBe(2);
+        expect(
+          container.querySelector(
+            'a[href="https://www.builder.io/legal/terms"]',
+          ),
+        ).not.toBeNull();
+        expect(
+          container.querySelector(
+            'a[href="https://www.builder.io/legal/privacy"]',
+          ),
+        ).not.toBeNull();
+      } else {
+        expect(footer).toBeNull();
+      }
+    },
+  );
+
+  it("never asks for a Builder assignment when the server has not enabled it", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      status: 200,
+      json: async () =>
+        String(input).includes("builder-signup-experiment")
+          ? {
+              status: "assigned",
+              id: "a".repeat(32),
+              variant: "automatic",
+              policy: "builder-signup-2026-11-06",
+            }
+          : { available: false },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    await act(async () => {
+      root.render(
+        <AuthPage
+          {...propsFromHtml(
+            getOnboardingHtml({
+              requestHost: "design.example.com",
+              requestPath: "/signup",
+            }),
+          )}
+          trackingApp="design"
+          googleOnly
+          showGoogle
+          identitySsoEnabled={false}
+        />,
+      );
+    });
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes("builder-signup-experiment"),
+      ),
+    ).toBe(false);
+    expect(container.textContent).not.toContain("Builder.io account");
+    expect(
+      container.querySelector<HTMLButtonElement>("#google-btn")?.disabled,
+    ).toBe(false);
+  });
+
+  it.each([200, 409])(
+    "opens Google immediately and preserves the existing flow when acceptance returns %s",
+    async (acceptStatus) => {
+      window.history.replaceState({}, "", "/signup");
+      const popup = {
+        closed: false,
+        location: { href: "" },
+      } as unknown as Window;
+      const open = vi.fn(() => popup);
+      vi.stubGlobal("open", open);
+      let accept: () => void = () => {
+        throw new Error("Acceptance has not started");
+      };
+      const oauthRequests = vi.fn();
+      let oauthUrl: string | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (
+            url.includes("builder-signup-experiment") &&
+            init?.method === "POST"
+          ) {
+            return new Promise<Response>((resolve) => {
+              accept = () =>
+                resolve(
+                  new Response(JSON.stringify({ status: "accepted" }), {
+                    status: acceptStatus,
+                  }),
+                );
+            });
+          }
+          if (url.includes("google/auth-url")) {
+            oauthUrl = url;
+            oauthRequests();
+            return new Promise<Response>(() => {});
+          }
+          return Promise.resolve(
+            new Response(
+              JSON.stringify(
+                url.includes("builder-signup-experiment")
+                  ? {
+                      status: "assigned",
+                      id: "a".repeat(32),
+                      variant: "automatic",
+                      policy: "builder-signup-2026-11-06",
+                    }
+                  : { available: false },
+              ),
+            ),
+          );
+        }),
+      );
+      await act(async () => {
+        root.render(
+          <AuthPage
+            {...propsFromHtml(
+              getOnboardingHtml({
+                requestHost: "127.0.0.1",
+                requestPath: "/signup",
+                builderSignupEnabled: true,
+              }),
+            )}
+            trackingApp="design"
+            identitySsoEnabled={false}
+            googleViaIdentitySso={false}
+            googleAuthMode="popup"
+            showGoogle
+          />,
+        );
+      });
+      const button = container.querySelector<HTMLButtonElement>("#google-btn");
+      await act(async () => button?.click());
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(button?.getAttribute("aria-busy")).toBe("true");
+      expect(oauthRequests).not.toHaveBeenCalled();
+      await act(async () => accept());
+      expect(oauthRequests).toHaveBeenCalledTimes(1);
+      expect(
+        new URL(oauthUrl ?? "", "https://design.example.com").searchParams.has(
+          "builder_signup_attempt",
+        ),
+      ).toBe(acceptStatus === 200);
+    },
+  );
+  const jsonReply = (body: unknown) =>
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => body,
+    } as Response);
+
+  const renderGooglePopup = async () => {
+    await act(async () => {
+      root.render(
+        <AuthPage
+          {...propsFromHtml(
+            getOnboardingHtml({
+              requestHost: "127.0.0.1",
+              requestPath: "/sign-in?c=%2Fhome",
+            }),
+          )}
+          identitySsoEnabled={false}
+          googleViaIdentitySso={false}
+          googleAuthMode="popup"
+          showGoogle
+        />,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("#local-dev-full-options")
+        ?.click();
+    });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#google-btn")?.click();
+      await vi.advanceTimersByTimeAsync(100);
+    });
+  };
 
   it("opens and closes the auth options without dropping focus from the localized toggle", async () => {
     await act(async () => {
@@ -87,6 +345,69 @@ describe("AuthPage interactions", () => {
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     expect(toggle?.dataset.i18n).toBe("localDevFullOptions");
     expect(toggle?.textContent?.trim()).toBe("Show full sign in options");
+  });
+
+  it("uses a full-page Google redirect without a popup or desktop flow id", async () => {
+    const open = vi.spyOn(window, "open");
+    const replace = vi
+      .spyOn(window.location, "replace")
+      .mockImplementation(() => {});
+    await act(async () => {
+      root.render(
+        <AuthPage
+          {...propsFromHtml(getOnboardingHtml({ requestHost: "127.0.0.1" }))}
+          identitySsoEnabled={false}
+          googleViaIdentitySso={false}
+          googleAuthMode="auto"
+          showGoogle
+        />,
+      );
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("#local-dev-full-options")
+        ?.click();
+    });
+    const button = container.querySelector<HTMLButtonElement>("#google-btn");
+    expect(button?.disabled).toBe(false);
+    await act(async () => button?.click());
+    expect(open).not.toHaveBeenCalled();
+    expect(replace).toHaveBeenCalledOnce();
+    const target = new URL(replace.mock.calls[0]![0], window.location.origin);
+    expect(target.pathname).toBe("/_agent-native/google/auth-url");
+    expect(target.searchParams.get("redirect")).toBe("1");
+    expect(target.searchParams.get("return")).toBeTruthy();
+    expect(target.searchParams.has("flow_id")).toBe(false);
+  });
+
+  it("keeps automatic Google sign-in in a popup when embedded", async () => {
+    vi.stubGlobal("top", {});
+    const popup = {
+      closed: false,
+      location: { href: "" },
+    } as unknown as Window;
+    const open = vi.spyOn(window, "open").mockReturnValue(popup);
+    await act(async () => {
+      root.render(
+        <AuthPage
+          {...propsFromHtml(getOnboardingHtml({ requestHost: "127.0.0.1" }))}
+          identitySsoEnabled={false}
+          googleViaIdentitySso={false}
+          googleAuthMode="auto"
+          showGoogle
+        />,
+      );
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("#local-dev-full-options")
+        ?.click();
+    });
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("#google-btn")?.click(),
+    );
+    expect(open).toHaveBeenCalledOnce();
+    expect(open.mock.calls[0]?.[1]).toBe("_blank");
   });
 
   it("shows a loader in the disabled Google button while OAuth starts", async () => {
@@ -247,6 +568,284 @@ describe("AuthPage interactions", () => {
     }
   });
 
+  it("clears Google busy with a retry notice when a closed popup has no session", async () => {
+    vi.useFakeTimers();
+    const replace = vi
+      .spyOn(window.location, "replace")
+      .mockImplementation(() => {});
+    const popup = {
+      closed: false,
+      location: { href: "" },
+    } as unknown as Window & { closed: boolean };
+    vi.stubGlobal(
+      "open",
+      vi.fn(() => popup),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("google/auth-url")) {
+          return jsonReply({
+            url: "https://accounts.google.com/o/oauth2/v2/auth",
+          });
+        }
+        if (url.includes("desktop-exchange")) return jsonReply({});
+        if (url.includes("/auth/session")) {
+          return jsonReply({ error: "Not authenticated" });
+        }
+        if (url.includes("/auth/local-dev"))
+          return jsonReply({ available: true });
+        return jsonReply({ error: "Not authenticated" });
+      }),
+    );
+
+    try {
+      await renderGooglePopup();
+      popup.closed = true;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+
+      const googleButton =
+        container.querySelector<HTMLButtonElement>("#google-btn");
+      expect(googleButton?.disabled).toBe(false);
+      expect(googleButton?.getAttribute("aria-busy")).toBe("false");
+      expect(
+        container.querySelector("#google-signin .msg.error")?.textContent,
+      ).toContain("Unable to sign in with Google");
+      expect(replace).not.toHaveBeenCalled();
+    } finally {
+      replace.mockRestore();
+      delete window.__agentNativeNavigationStarted;
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([false, true])(
+    "bounds Google busy independently of popup state (closed=%s)",
+    async (closed) => {
+      vi.useFakeTimers();
+      const popup = {
+        closed,
+        location: { href: "" },
+      } as unknown as Window & { closed: boolean };
+      vi.stubGlobal(
+        "open",
+        vi.fn(() => popup),
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.includes("google/auth-url")) {
+            return jsonReply({
+              url: "https://accounts.google.com/o/oauth2/v2/auth",
+            });
+          }
+          if (url.includes("desktop-exchange")) return jsonReply({});
+          if (closed && url.includes("/auth/session")) {
+            return new Promise<Response>(() => {});
+          }
+          if (url.includes("/auth/local-dev"))
+            return jsonReply({ available: true });
+          return jsonReply({ error: "Not authenticated" });
+        }),
+      );
+
+      try {
+        await renderGooglePopup();
+        const googleButton =
+          container.querySelector<HTMLButtonElement>("#google-btn");
+        expect(googleButton?.disabled).toBe(true);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(30_000);
+        });
+
+        expect(popup.closed).toBe(closed);
+        expect(googleButton?.disabled).toBe(false);
+        expect(googleButton?.getAttribute("aria-busy")).toBe("false");
+        expect(
+          container.querySelector("#google-signin .msg.error")?.textContent,
+        ).toContain("Unable to sign in with Google");
+      } finally {
+        delete window.__agentNativeNavigationStarted;
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("still finishes Google after the busy bound cleared the spinner", async () => {
+    vi.useFakeTimers();
+    const replace = vi
+      .spyOn(window.location, "replace")
+      .mockImplementation(() => {});
+    const popup = {
+      closed: false,
+      location: { href: "" },
+    } as unknown as Window & { closed: boolean };
+    vi.stubGlobal(
+      "open",
+      vi.fn(() => popup),
+    );
+    let exchangeReady = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("google/auth-url")) {
+          return jsonReply({
+            url: "https://accounts.google.com/o/oauth2/v2/auth",
+          });
+        }
+        if (url.includes("desktop-exchange")) {
+          return jsonReply(
+            exchangeReady
+              ? { email: "person@example.com", token: "session-token" }
+              : {},
+          );
+        }
+        if (url.includes("/auth/local-dev"))
+          return jsonReply({ available: true });
+        return jsonReply({ error: "Not authenticated" });
+      }),
+    );
+
+    try {
+      await renderGooglePopup();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(
+        container.querySelector<HTMLButtonElement>("#google-btn")?.disabled,
+      ).toBe(false);
+      expect(
+        container.querySelector("#google-signin .msg.error"),
+      ).not.toBeNull();
+      expect(replace).not.toHaveBeenCalled();
+
+      exchangeReady = true;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_500);
+      });
+
+      expect(replace).toHaveBeenCalledTimes(1);
+    } finally {
+      replace.mockRestore();
+      delete window.__agentNativeNavigationStarted;
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores a late completion from a stale Google flow after retry", async () => {
+    vi.useFakeTimers();
+    const replace = vi
+      .spyOn(window.location, "replace")
+      .mockImplementation(() => {});
+    const popup = {
+      closed: false,
+      location: { href: "" },
+    } as unknown as Window & { closed: boolean };
+    vi.stubGlobal(
+      "open",
+      vi.fn(() => popup),
+    );
+    const pending: Array<(value: Response) => void> = [];
+    const holdResponse = () =>
+      new Promise<Response>((resolve) => {
+        pending.push(resolve);
+      });
+    let flowA: string | null = null;
+    let flowB: string | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("google/auth-url")) {
+          return jsonReply({
+            url: "https://accounts.google.com/o/oauth2/v2/auth",
+          });
+        }
+        if (url.includes("desktop-exchange")) {
+          const id =
+            new URL(url, "http://localhost").searchParams.get("flow_id") ?? "";
+          if (!flowA) flowA = id;
+          if (id === flowA) return holdResponse();
+          if (!flowB) flowB = id;
+          if (id === flowB) return holdResponse();
+          return jsonReply({});
+        }
+        if (url.includes("/auth/local-dev"))
+          return jsonReply({ available: true });
+        return jsonReply({ error: "Not authenticated" });
+      }),
+    );
+
+    try {
+      await renderGooglePopup();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+      expect(flowA).not.toBeNull();
+      expect(pending.length).toBe(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(
+        container.querySelector<HTMLButtonElement>("#google-btn")?.disabled,
+      ).toBe(false);
+
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>("#google-btn")?.click();
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+      expect(flowB).not.toBeNull();
+      expect(flowB).not.toBe(flowA);
+
+      await act(async () => {
+        pending[0]!({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            email: "stale@example.com",
+            token: "stale-token",
+          }),
+        } as Response);
+        await vi.advanceTimersByTimeAsync(50);
+      });
+
+      expect(replace).not.toHaveBeenCalled();
+      expect(
+        container
+          .querySelector<HTMLButtonElement>("#google-btn")
+          ?.getAttribute("aria-busy"),
+      ).toBe("true");
+
+      await act(async () => {
+        pending[pending.length - 1]!({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            email: "live@example.com",
+            token: "live-token",
+          }),
+        } as Response);
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+
+      expect(replace).toHaveBeenCalledTimes(1);
+    } finally {
+      replace.mockRestore();
+      delete window.__agentNativeNavigationStarted;
+      vi.useRealTimers();
+    }
+  });
+
   it("stores no visitor id on the sign-in page before analytics consent", async () => {
     const originalHref = window.location.href;
     const sendBeacon = vi.fn(() => true);
@@ -382,6 +981,234 @@ describe("AuthPage interactions", () => {
       window.localStorage.removeItem("agent-native.anonymous_id");
       Reflect.deleteProperty(navigator, "sendBeacon");
       window.happyDOM.setURL(originalHref);
+    }
+  });
+
+  it("shows Builder disclosure on /login when Google is shown and enrolls Google signups from login", async () => {
+    window.history.replaceState({}, "", "/login");
+    const popup = {
+      closed: false,
+      location: { href: "" },
+    } as unknown as Window;
+    vi.stubGlobal(
+      "open",
+      vi.fn(() => popup),
+    );
+    const acceptCalls: Array<Record<string, unknown>> = [];
+    let oauthUrl = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("builder-signup-experiment")) {
+          if (init?.method === "POST") {
+            acceptCalls.push(
+              JSON.parse(String(init.body)) as Record<string, unknown>,
+            );
+            return new Response(JSON.stringify({ status: "accepted" }), {
+              status: 200,
+            });
+          }
+          return new Response(
+            JSON.stringify({
+              status: "assigned",
+              id: "b".repeat(32),
+              variant: "automatic",
+              policy: "builder-signup-2026-11-06",
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes("google/auth-url")) {
+          oauthUrl = url;
+          return new Response(
+            JSON.stringify({
+              url: "https://accounts.google.com/o/oauth2/v2/auth",
+            }),
+            {
+              status: 200,
+            },
+          );
+        }
+        return new Response(JSON.stringify({ available: false }), {
+          status: 200,
+        });
+      }),
+    );
+
+    await act(async () => {
+      root.render(
+        <AuthPage
+          {...propsFromHtml(
+            getOnboardingHtml({
+              requestHost: "127.0.0.1",
+              requestPath: "/login",
+              builderSignupEnabled: true,
+            }),
+          )}
+          trackingApp="clips"
+          initialView="login"
+          showGoogle
+          identitySsoEnabled={false}
+          googleViaIdentitySso={false}
+          googleAuthMode="popup"
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    const loginForm = container.querySelector("#login-form");
+    expect(loginForm?.querySelector(".legal-note")?.textContent).toContain(
+      "Builder.io account",
+    );
+    expect(
+      loginForm?.querySelector('a[href="https://www.builder.io/legal/terms"]'),
+    ).not.toBeNull();
+
+    const googleButton =
+      container.querySelector<HTMLButtonElement>("#google-btn");
+    await act(async () => {
+      googleButton?.click();
+    });
+    await vi.waitFor(() => {
+      expect(oauthUrl).not.toBe("");
+    });
+
+    expect(acceptCalls).toEqual([
+      expect.objectContaining({
+        operation: "accept",
+        assignmentId: "b".repeat(32),
+        method: "google",
+      }),
+    ]);
+    expect(
+      new URL(oauthUrl, "https://clips.example.com").searchParams.get(
+        "builder_signup_attempt",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("hides Builder disclosure on /login when Google sign-in is disabled", async () => {
+    window.history.replaceState({}, "", "/login");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (input: RequestInfo | URL) =>
+          new Response(
+            JSON.stringify(
+              String(input).includes("builder-signup-experiment")
+                ? {
+                    status: "assigned",
+                    id: "c".repeat(32),
+                    variant: "automatic",
+                    policy: "builder-signup-2026-11-06",
+                  }
+                : { available: false },
+            ),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    await act(async () => {
+      root.render(
+        <AuthPage
+          {...propsFromHtml(
+            getOnboardingHtml({
+              requestHost: "127.0.0.1",
+              requestPath: "/login",
+              builderSignupEnabled: true,
+            }),
+          )}
+          trackingApp="clips"
+          initialView="login"
+          showGoogle={false}
+          identitySsoEnabled={false}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    const loginForm = container.querySelector("#login-form");
+    expect(loginForm?.querySelector(".legal-note")).toBeNull();
+  });
+
+  it("records acceptance and attaches builder_signup_attempt for mobile WebView Google OAuth", async () => {
+    window.history.replaceState({}, "", "/signup");
+    const mobileStart = vi.fn(async () => "cancelled" as const);
+    window.__agentNativeMobileOAuth = { start: mobileStart };
+    const acceptCalls: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("builder-signup-experiment")) {
+          if (init?.method === "POST") {
+            acceptCalls.push(
+              JSON.parse(String(init.body)) as Record<string, unknown>,
+            );
+            return new Response(JSON.stringify({ status: "accepted" }), {
+              status: 200,
+            });
+          }
+          return new Response(
+            JSON.stringify({
+              status: "assigned",
+              id: "d".repeat(32),
+              variant: "automatic",
+              policy: "builder-signup-2026-11-06",
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ available: false }), {
+          status: 200,
+        });
+      }),
+    );
+
+    try {
+      await act(async () => {
+        root.render(
+          <AuthPage
+            {...propsFromHtml(
+              getOnboardingHtml({
+                requestHost: "127.0.0.1",
+                requestPath: "/signup",
+                builderSignupEnabled: true,
+              }),
+            )}
+            trackingApp="design"
+            showGoogle
+            identitySsoEnabled={false}
+            googleViaIdentitySso={false}
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      const googleButton =
+        container.querySelector<HTMLButtonElement>("#google-btn");
+      await act(async () => {
+        googleButton?.click();
+      });
+      await vi.waitFor(() => {
+        expect(mobileStart).toHaveBeenCalledTimes(1);
+      });
+
+      expect(acceptCalls).toHaveLength(1);
+      expect(acceptCalls[0]).toMatchObject({
+        operation: "accept",
+        assignmentId: "d".repeat(32),
+        method: "google",
+      });
+      expect(mobileStart).toHaveBeenCalledTimes(1);
+      const startedUrl = new URL(String(mobileStart.mock.calls[0]?.[0]));
+      expect(startedUrl.searchParams.get("builder_signup_attempt")).toBe(
+        acceptCalls[0]?.attemptId,
+      );
+    } finally {
+      delete window.__agentNativeMobileOAuth;
     }
   });
 });

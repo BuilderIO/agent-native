@@ -13,6 +13,7 @@ import test from "node:test";
 
 import {
   classifyChangedPaths,
+  readAddedPaths,
   readChangedPaths,
   readDeletedPaths,
   readSameDirectoryPureDesignSpecRenames,
@@ -248,4 +249,194 @@ test("only diagnostics use the filtered Design spec list", () => {
       "needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs",
     ),
   );
+});
+
+test("runs the guards when docs add or rename a page browsers load", () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "ci-change-scope-added-"));
+  const runGit = (...args: string[]) => {
+    const result = spawnSync("git", ["-C", repoPath, ...args], {
+      encoding: "utf8",
+    });
+    assert.equal(
+      result.status,
+      0,
+      `git ${args.join(" ")} failed: ${result.stderr}`,
+    );
+    return result.stdout.trim();
+  };
+
+  try {
+    runGit("init", "--quiet");
+    runGit("config", "user.name", "CI Change Scope Test");
+    runGit("config", "user.email", "ci-change-scope@example.invalid");
+    const pagePath = "packages/core/docs/content/actions.md";
+    mkdirSync(join(repoPath, "packages/core/docs/content"), {
+      recursive: true,
+    });
+    writeFileSync(join(repoPath, pagePath), "# Actions\n");
+    runGit("add", "--all");
+    runGit("commit", "--quiet", "-m", "add docs page");
+    const baseSha = runGit("rev-parse", "HEAD");
+
+    const scopeFor = (message: string, change: () => void) => {
+      runGit("reset", "--hard", baseSha);
+      change();
+      runGit("add", "--all");
+      runGit("commit", "--quiet", "-m", message);
+      const headSha = runGit("rev-parse", "HEAD");
+      const addedPaths = readAddedPaths(baseSha, headSha, repoPath);
+      const scope = classifyChangedPaths(
+        readChangedPaths(baseSha, headSha, repoPath),
+        [],
+        repoPath,
+        readDeletedPaths(baseSha, headSha, repoPath),
+        addedPaths,
+      );
+      return {
+        addedPaths,
+        docsOnly: scope.docsOnly,
+        guards: scope.checks.guards,
+      };
+    };
+
+    // An edit keeps the page's name.
+    assert.deepEqual(
+      scopeFor("edit docs page", () => {
+        writeFileSync(join(repoPath, pagePath), "# Actions\n\nMore.\n");
+      }),
+      { addedPaths: [], docsOnly: true, guards: false },
+    );
+    const renamedPath = "packages/core/docs/content/cookie-notice.md";
+    assert.deepEqual(
+      scopeFor("rename docs page", () => {
+        runGit("mv", pagePath, renamedPath);
+      }),
+      { addedPaths: [renamedPath], docsOnly: true, guards: true },
+    );
+    // Plans and other repo docs never reach a browser.
+    const planPath = "docs/plans/cookie-notice.md";
+    assert.deepEqual(
+      scopeFor("add plan", () => {
+        mkdirSync(join(repoPath, "docs/plans"), { recursive: true });
+        writeFileSync(join(repoPath, planPath), "# Plan\n");
+      }),
+      { addedPaths: [planPath], docsOnly: true, guards: false },
+    );
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+  }
+});
+
+test("reads changed, deleted and added paths in a blobless clone without fetching blobs", () => {
+  const root = mkdtempSync(join(tmpdir(), "ci-change-scope-blobless-"));
+  const sourcePath = join(root, "source");
+  const clonePath = join(root, "clone");
+  const git = (cwd: string, ...args: string[]) => {
+    const result = spawnSync("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    assert.equal(
+      result.status,
+      0,
+      `git ${args.join(" ")} failed: ${result.stderr}`,
+    );
+    return result.stdout.trim();
+  };
+
+  try {
+    mkdirSync(sourcePath);
+    git(sourcePath, "init", "--quiet");
+    git(sourcePath, "config", "user.name", "CI Change Scope Test");
+    git(sourcePath, "config", "user.email", "ci-change-scope@example.invalid");
+    const body = Array.from({ length: 40 }, (_, line) => `line ${line}\n`);
+    writeFileSync(join(sourcePath, "old.ts"), body.join(""));
+    writeFileSync(join(sourcePath, "gone.ts"), "export const gone = 1;\n");
+    git(sourcePath, "add", "--all");
+    git(sourcePath, "commit", "--quiet", "-m", "base");
+    const baseSha = git(sourcePath, "rev-parse", "HEAD");
+    rmSync(join(sourcePath, "old.ts"));
+    rmSync(join(sourcePath, "gone.ts"));
+    writeFileSync(join(sourcePath, "new.ts"), [...body, "edited\n"].join(""));
+    git(sourcePath, "add", "--all");
+    git(sourcePath, "commit", "--quiet", "-m", "head");
+    const headSha = git(sourcePath, "rev-parse", "HEAD");
+
+    git(
+      root,
+      "-c",
+      "uploadpack.allowFilter=true",
+      "clone",
+      "--quiet",
+      "--no-checkout",
+      "--filter=blob:none",
+      "--upload-pack",
+      "git -c uploadpack.allowFilter=true upload-pack",
+      `file://${sourcePath}`,
+      clonePath,
+    );
+    git(
+      clonePath,
+      "remote",
+      "set-url",
+      "origin",
+      "https://invalid.example/none.git",
+    );
+
+    assert.deepEqual(readChangedPaths(baseSha, headSha, clonePath).sort(), [
+      "gone.ts",
+      "new.ts",
+      "old.ts",
+    ]);
+    assert.deepEqual(readDeletedPaths(baseSha, headSha, clonePath).sort(), [
+      "gone.ts",
+      "old.ts",
+    ]);
+    assert.deepEqual(readAddedPaths(baseSha, headSha, clonePath), ["new.ts"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reads diffs that name more than a megabyte of paths", () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "ci-change-scope-large-"));
+  const runGit = (...args: string[]) => {
+    const result = spawnSync("git", ["-C", repoPath, ...args], {
+      encoding: "utf8",
+    });
+    assert.equal(
+      result.status,
+      0,
+      `git ${args.join(" ")} failed: ${result.stderr}`,
+    );
+    return result.stdout.trim();
+  };
+
+  try {
+    runGit("init", "--quiet");
+    runGit("config", "user.name", "CI Change Scope Test");
+    runGit("config", "user.email", "ci-change-scope@example.invalid");
+    writeFileSync(join(repoPath, "README.md"), "base\n");
+    runGit("add", "--all");
+    runGit("commit", "--quiet", "-m", "base");
+    const baseSha = runGit("rev-parse", "HEAD");
+
+    const dir = `packages/${"nested-directory-name/".repeat(10)}`;
+    mkdirSync(join(repoPath, dir), { recursive: true });
+    const paths: string[] = [];
+    for (let index = 0; index < 4500; index++) {
+      const path = `${dir}${String(index).padStart(5, "0")}-${"x".repeat(20)}.ts`;
+      writeFileSync(join(repoPath, path), "");
+      paths.push(path);
+    }
+    runGit("add", "--all");
+    runGit("commit", "--quiet", "-m", "many paths");
+    const headSha = runGit("rev-parse", "HEAD");
+
+    assert.ok(paths.join("\0").length > 1024 * 1024);
+    assert.equal(readChangedPaths(baseSha, headSha, repoPath).length, 4500);
+    assert.equal(readAddedPaths(baseSha, headSha, repoPath).length, 4500);
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+  }
 });

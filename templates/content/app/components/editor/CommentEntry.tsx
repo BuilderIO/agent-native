@@ -1,9 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { mcpConnectHostLabel } from "@agent-native/core/shared/mcp-connect-content";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import { isCommentAnchorBlockType } from "@shared/comment-block-anchor";
 import { commentMentionsForText } from "@shared/comment-mentions";
 import { IconDots } from "@tabler/icons-react";
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -12,23 +13,23 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   useCreateComment,
+  useDeleteComment,
   useEditComment,
   useReactToComment,
   type Comment,
 } from "@/hooks/use-comments";
 
-import {
-  AgentAvatar,
-  agentDisplayName,
-  modelDisplayName,
-} from "./agent-identity";
-import { draftMention, useCommentDraft } from "./comment-drafts";
+import { AgentAvatar, modelDisplayName } from "./agent-identity";
+import { draftImages, draftMention, useCommentDraft } from "./comment-drafts";
 import { CommentComposer } from "./CommentComposer";
+import { CommentConfirmDialog } from "./CommentConfirmDialog";
 import type { CommentIdentity } from "./CommentIdentity";
+import { CommentImages } from "./CommentImages";
 import { AddReactionButton, CommentReactionChips } from "./CommentReactions";
 import {
   CommentAgentBadge,
@@ -39,6 +40,40 @@ import {
   useCommentTimestamp,
 } from "./CommentRow";
 
+/** Why delete-comment refused, by its error code. */
+const DELETE_REFUSALS: Record<string, string> = {
+  comment_thread_changed: "comments.deleteRefusedReplied",
+  comment_synced_with_notion: "comments.deleteRefusedNotion",
+  comment_ai_already_active: "comments.deleteRefusedAiWorking",
+  comment_ai_suggestion_pending: "comments.deleteRefusedAiSuggestion",
+  comment_thread_busy: "comments.deleteRefusedBusy",
+};
+
+/**
+ * What takes focus once a delete has removed a comment's row, menu and all:
+ * the thread a deleted reply was in, or the thread after (or before) a
+ * deleted one.
+ */
+function focusAfterDelete(
+  row: HTMLElement | null,
+  deletesThread: boolean,
+): HTMLElement | null {
+  const card = row?.closest<HTMLElement>("[data-thread-card]");
+  if (!card || !deletesThread) return card ?? null;
+  const cards = [
+    ...(card
+      .closest("[data-comments-sidebar]")
+      ?.querySelectorAll<HTMLElement>("[data-thread-card]") ?? []),
+  ];
+  const index = cards.indexOf(card);
+  if (index < 0) return null;
+  return (
+    cards.find((_, at) => at === index + 1) ??
+    cards.find((_, at) => at === index - 1) ??
+    null
+  );
+}
+
 export function getAiCommentSource(
   submissionSource: string | null | undefined,
 ): "mcp" | "agent" | null {
@@ -48,35 +83,47 @@ export function getAiCommentSource(
 }
 
 /**
- * "Agent" pill for comments posted through MCP or the in-app agent. The
- * comment's author is still the accountable person; the tooltip says so.
+ * The pill on a comment or suggested edit an agent wrote, through MCP or the
+ * in-app agent. It names the outside agent, such as Claude Code, when its MCP
+ * client said which it was, and reads "Agent" otherwise. The author is still
+ * the accountable person; the tooltip says so.
  */
-export function CommentAttributionBadge({ comment }: { comment: Comment }) {
+export function AgentAttributionBadge({
+  source,
+  authorName,
+  client,
+  model,
+}: {
+  source: "mcp" | "agent";
+  authorName: string;
+  /** The MCP host id the agent's client reported, such as `claude-code`. */
+  client?: string | null | undefined;
+  model?: string | null | undefined;
+}) {
   const t = useT();
-  const source = getAiCommentSource(comment.submission_source);
-  if (!source) return null;
-
-  const authorName =
-    comment.author_name ??
-    comment.author_email.split("@")[0] ??
-    comment.author_email;
   const attribution = t("comments.aiAttribution", { name: authorName });
   const sourceLabel = t(
     source === "mcp" ? "comments.aiSourceMcp" : "comments.aiSourceAgent",
   );
-  const modelLabel = comment.author_model
-    ? modelDisplayName(comment.author_model)
-    : null;
+  const clientLabel =
+    source === "mcp" ? (mcpConnectHostLabel(client) ?? null) : null;
+  const modelLabel = model ? modelDisplayName(model) : null;
+  const title = modelLabel ?? clientLabel;
 
   return (
-    <span data-comment-ai-attribution={source} className="contents">
+    <span
+      data-comment-ai-attribution={source}
+      data-comment-ai-client={clientLabel ? client : undefined}
+      className="contents"
+    >
       <CommentAgentBadge
-        ariaLabel={`${attribution}. ${sourceLabel}${modelLabel ? `. ${modelLabel}` : ""}`}
+        label={clientLabel ?? undefined}
+        ariaLabel={[clientLabel, attribution, sourceLabel, modelLabel]
+          .filter(Boolean)
+          .join(". ")}
         details={
           <span className="grid gap-0.5">
-            {modelLabel ? (
-              <span className="font-medium">{modelLabel}</span>
-            ) : null}
+            {title ? <span className="font-medium">{title}</span> : null}
             <span>{attribution}</span>
             <span className="text-muted-foreground">{sourceLabel}</span>
           </span>
@@ -86,23 +133,53 @@ export function CommentAttributionBadge({ comment }: { comment: Comment }) {
   );
 }
 
+export function CommentAttributionBadge({ comment }: { comment: Comment }) {
+  const source = getAiCommentSource(comment.submission_source);
+  if (!source) return null;
+  return (
+    <AgentAttributionBadge
+      source={source}
+      authorName={
+        comment.author_name ?? comment.author_email.replace(/@.*$/, "")
+      }
+      client={comment.author_client}
+      model={comment.author_model}
+    />
+  );
+}
+
 export function CommentEntry({
   comment,
   documentId,
   currentUserEmail,
+  currentUserName,
   canComment,
   headerActions,
   revealActions = "always",
   replyAction,
   footer,
   body,
+  canDeleteThread = false,
+  keepsAppliedAiChange = false,
   onOpenAiConversation,
   onCreatedCommentConfirmed,
 }: {
   comment: Comment;
   documentId: string;
   currentUserEmail?: string;
+  currentUserName?: string;
   canComment: boolean;
+  /**
+   * On a thread's first comment, whether its author may delete the thread:
+   * no one else has written in it and nothing is working on it.
+   */
+  canDeleteThread?: boolean;
+  /**
+   * Whether the AI changed the page from this thread and hasn't undone it.
+   * The change stays when the thread goes, but undoing or reviewing it from
+   * the thread doesn't, so the confirmation says so.
+   */
+  keepsAppliedAiChange?: boolean;
   /** Thread-level actions (resolve, accept) shown after this row's menu. */
   headerActions?: ReactNode;
   revealActions?: "always" | "hover";
@@ -120,8 +197,12 @@ export function CommentEntry({
   const t = useT();
   const timestamp = useCommentTimestamp();
   const edit = useEditComment();
+  const remove = useDeleteComment();
   const react = useReactToComment();
-  const create = useCreateComment({ email: currentUserEmail });
+  const create = useCreateComment({
+    email: currentUserEmail ?? null,
+    name: currentUserName ?? null,
+  });
   const [checking, setChecking] = useState(false);
   const [checkedUnresolvedOperationId, setCheckedUnresolvedOperationId] =
     useState<string | null>(null);
@@ -129,21 +210,37 @@ export function CommentEntry({
     comment.parent_id ? `reply:${documentId}:${comment.thread_id}` : "pending",
   );
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const savedImages = comment.attachments ?? [];
   const initialDraft = {
     text: comment.content,
     mentions: comment.mentions,
     aiDraft: null,
   };
   const draft = useCommentDraft(`edit:${comment.id}`, initialDraft);
+  const editImages = draft.draft.images ?? savedImages;
   const inputRef = useRef<TiptapComposerHandle>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
+  // Set once a delete lands: where focus goes when the row goes.
+  const focusAfterDeleteRef = useRef<HTMLElement | null>(null);
+  useEffect(
+    () => () => {
+      const target = focusAfterDeleteRef.current;
+      // Focus was in the row or its dialog, so it fell to the page with them.
+      const fell =
+        !document.activeElement || document.activeElement === document.body;
+      if (target?.isConnected && fell) target.focus();
+    },
+    [],
+  );
   const pending = comment.mutation?.status === "pending";
   const showMutationStatus =
     comment.mutation?.kind !== "resolve" || !comment.parent_id;
   const aiAuthored = comment.actorKind === "agent" && !!comment.author_model;
   const visibleAuthor = aiAuthored
-    ? agentDisplayName(comment.author_model)
+    ? modelDisplayName(comment.author_model)
     : (comment.author_name ?? comment.author_email.split("@")[0]);
+  const aiSource = getAiCommentSource(comment.submission_source);
   const identity: CommentIdentity = aiAuthored
     ? {
         kind: "agent",
@@ -157,6 +254,17 @@ export function CommentEntry({
             currentUserEmail.toLowerCase() ===
               comment.author_email.toLowerCase(),
         },
+        ...(aiSource
+          ? {
+              onBehalfOf: {
+                name:
+                  comment.author_name ??
+                  comment.author_email.replace(/@.*$/, ""),
+                source: aiSource,
+                client: comment.author_client,
+              },
+            }
+          : {}),
       }
     : {
         kind: "person",
@@ -170,6 +278,36 @@ export function CommentEntry({
     !pending &&
     comment.mutation?.kind !== "create" &&
     body === undefined;
+  // A thread's first comment deletes the thread. Notion sync would bring a
+  // synced comment back, so those are deleted in Notion.
+  const deletesThread = !comment.parent_id;
+  const canDelete =
+    canEdit &&
+    !comment.notion_comment_id &&
+    (!deletesThread || canDeleteThread);
+  const confirmDelete = async () => {
+    // Found now, while this row is still here to start from.
+    const nextFocus = focusAfterDelete(menuRef.current, deletesThread);
+    try {
+      await remove.mutateAsync({ id: comment.id, documentId });
+      // The dialog hands focus back to this row's menu, which the delete
+      // takes away with the row.
+      focusAfterDeleteRef.current = nextFocus;
+      setConfirmingDelete(false);
+    } catch (error) {
+      const reason =
+        DELETE_REFUSALS[
+          String((error as { errorCode?: unknown } | null)?.errorCode)
+        ];
+      toast.error(t("empty.genericError"), {
+        description: reason
+          ? t(reason)
+          : error instanceof Error
+            ? error.message
+            : undefined,
+      });
+    }
+  };
   const checkSaved = async () => {
     if (!comment.mutation?.ambiguous || checking) return;
     const submitted = sourceDraft.getSubmittedDraft(
@@ -236,6 +374,7 @@ export function CommentEntry({
         anchorSuffix: comment.anchor_suffix ?? undefined,
         anchorStartOffset: comment.anchor_start_offset ?? undefined,
         mentions: JSON.stringify(comment.mentions),
+        attachments: comment.attachments,
       });
       setCheckedUnresolvedOperationId(null);
       onCreatedCommentConfirmed?.(operationId);
@@ -258,8 +397,12 @@ export function CommentEntry({
   };
   // Compared as a save would store them: the editor reports a mention per
   // pill, the stored comment one per name.
+  const imagesEdited =
+    draft.draft.images !== undefined &&
+    JSON.stringify(draft.draft.images) !== JSON.stringify(savedImages);
   const edited =
     draft.draft.text.trim() !== comment.content.trim() ||
+    imagesEdited ||
     commentMentionsForText(
       draft.draft.text,
       draft.draft.mentions.map(draftMention),
@@ -284,6 +427,7 @@ export function CommentEntry({
                 submitted.text,
                 submitted.mentions.map(draftMention),
               ) ?? "[]",
+            ...(imagesEdited ? { attachments: draftImages(submitted) } : {}),
           },
           {
             onSuccess: close,
@@ -352,9 +496,49 @@ export function CommentEntry({
               </DropdownMenuItem>
             ) : null}
           </DropdownMenuGroup>
+          {canDelete ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onSelect={() => setConfirmingDelete(true)}
+              >
+                {t(
+                  deletesThread
+                    ? "comments.deleteThread"
+                    : "comments.deleteComment",
+                )}
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     ) : null;
+  const deleteDialog = canDelete ? (
+    <CommentConfirmDialog
+      open={confirmingDelete}
+      onCancel={() => setConfirmingDelete(false)}
+      title={t(
+        deletesThread
+          ? "comments.deleteThreadQuestion"
+          : "comments.deleteCommentQuestion",
+      )}
+      description={t(
+        !deletesThread
+          ? "comments.deleteCommentDescription"
+          : keepsAppliedAiChange
+            ? "comments.deleteThreadAiChangeDescription"
+            : "comments.deleteThreadDescription",
+      )}
+      cancelLabel={t("comments.cancel")}
+      confirmLabel={
+        remove.isPending ? t("comments.deleting") : t("comments.delete")
+      }
+      onConfirm={() => void confirmDelete()}
+      busy={remove.isPending}
+      onClosed={() => menuRef.current?.focus()}
+    />
+  ) : null;
   const time = timestamp(comment.created_at);
   const saveStatus = (
     <>
@@ -427,13 +611,16 @@ export function CommentEntry({
       }
       name={visibleAuthor}
       identity={identity}
-      badge={<CommentAttributionBadge comment={comment} />}
+      badge={
+        aiAuthored ? undefined : <CommentAttributionBadge comment={comment} />
+      }
       timestamp={{ ...time, dateTime: comment.created_at }}
       actions={
         (!feedLayout && addReaction) || menu || headerActions ? (
           <>
             {feedLayout ? null : addReaction}
             {menu}
+            {deleteDialog}
             {headerActions}
           </>
         ) : null
@@ -477,6 +664,9 @@ export function CommentEntry({
             onChange={draft.setText}
             mentions={draft.draft.mentions}
             onMentionsChange={draft.setMentions}
+            images={editImages}
+            onImagesChange={draft.setImages}
+            imageDocumentId={documentId}
             onSubmit={save}
             onEscape={cancel}
             confirmEscape={edited && !edit.isPending ? "edit" : false}
@@ -487,7 +677,10 @@ export function CommentEntry({
           />
         </div>
       ) : (
-        (body ?? renderCommentBody(comment.content, comment.mentions))
+        <>
+          {body ?? renderCommentBody(comment.content, comment.mentions)}
+          <CommentImages images={savedImages} />
+        </>
       )}
     </CommentRow>
   );

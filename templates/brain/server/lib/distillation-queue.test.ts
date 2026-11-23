@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   insertValues: vi.fn(),
+  lockCapture: vi.fn(),
   nanoid: vi.fn(),
   nowIso: vi.fn(),
   readBrainAgentGuidance: vi.fn(),
@@ -10,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   updateWhere: vi.fn(),
   writeAppState: vi.fn(),
 }));
+
+vi.mock("@agent-native/core/sharing", () => ({ assertAccess: vi.fn() }));
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mocks.writeAppState,
@@ -22,30 +25,35 @@ vi.mock("drizzle-orm", () => ({
   inArray: vi.fn((...values: unknown[]) => values),
 }));
 
-vi.mock("../db/index.js", () => ({
-  getDb: () => ({
+vi.mock("../db/index.js", () => {
+  const db = {
+    transaction: async (run: (tx: unknown) => Promise<unknown>) => run(db),
     insert: () => ({ values: mocks.insertValues }),
     select: () => ({
       from: () => ({
         where: () => ({
           orderBy: () => ({ limit: mocks.selectLimit }),
+          limit: () => ({ for: mocks.lockCapture }),
         }),
       }),
     }),
     update: () => ({ set: mocks.updateSet }),
-  }),
-  schema: {
-    brainIngestQueue: {
-      captureId: "captureId",
-      operation: "operation",
-      status: "status",
-      updatedAt: "updatedAt",
+  };
+  return {
+    getDb: () => db,
+    schema: {
+      brainIngestQueue: {
+        captureId: "captureId",
+        operation: "operation",
+        status: "status",
+        updatedAt: "updatedAt",
+      },
+      brainRawCaptures: {
+        id: "id",
+      },
     },
-    brainRawCaptures: {
-      id: "id",
-    },
-  },
-}));
+  };
+});
 
 vi.mock("./brain.js", () => ({
   nanoid: mocks.nanoid,
@@ -83,6 +91,9 @@ describe("enqueueCaptureDistillation", () => {
     mocks.nowIso.mockReturnValue("2026-07-30T10:00:00.000Z");
     mocks.readBrainAgentGuidance.mockResolvedValue({ guidance });
     mocks.selectLimit.mockResolvedValue([]);
+    mocks.lockCapture.mockResolvedValue([
+      { id: "capture-1", status: "pending" },
+    ]);
     mocks.updateSet.mockReturnValue({ where: mocks.updateWhere });
     mocks.updateWhere.mockResolvedValue(undefined);
     mocks.writeAppState.mockResolvedValue(undefined);
@@ -126,6 +137,12 @@ describe("enqueueCaptureDistillation", () => {
     expect(mocks.writeAppState.mock.calls[0]?.[1].message).toContain(
       "brief dated launch announcements",
     );
+    const handoff = mocks.writeAppState.mock.calls[0]?.[1].message;
+    expect(handoff).toContain("list-intelligence with captureId=capture-1");
+    expect(handoff).toContain("write-intelligence");
+    expect(handoff).toContain("speaker label");
+    expect(handoff).toContain("expectedRevision");
+    expect(handoff).toContain("never verify records automatically");
     expect(mocks.writeAppState.mock.calls[0]?.[1].message).toContain(
       "Keep launch plans distinct from confirmed launches",
     );

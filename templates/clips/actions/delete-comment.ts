@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
@@ -6,10 +6,11 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import {
-  isRecordingExpiredForViewer,
-  isRecordingTrashedForViewer,
-} from "../server/lib/recording-page-access.js";
+  deleteMirroredRecordingComments,
+  prepareRecordingCommentMirror,
+} from "../server/lib/recording-comment-mirror.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -18,7 +19,9 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Comment ID"),
   }),
-  run: async (args) => {
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
+  run: async (args, ctx) => {
     const db = getDb();
     const [existing] = await db
       .select()
@@ -30,27 +33,11 @@ export default defineAction({
     const userEmail = getRequestUserEmail();
     const isAuthor = sameOwnerEmail(existing.authorEmail, userEmail);
 
-    const access = await assertAccess(
-      "recording",
+    await assertCommentAccess(
       existing.recordingId,
-      "viewer",
+      "delete",
+      ctx?.requestHeaders,
     );
-    if (
-      isRecordingTrashedForViewer({
-        trashedAt: (access.resource as { trashedAt?: string | null }).trashedAt,
-        viewerIsOwner: access.role === "owner",
-      })
-    ) {
-      throw new ForbiddenError();
-    }
-    if (
-      isRecordingExpiredForViewer({
-        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
-        viewerIsOwner: access.role === "owner",
-      })
-    ) {
-      throw new ForbiddenError("Recording has expired");
-    }
 
     if (!isAuthor) {
       try {
@@ -88,15 +75,26 @@ export default defineAction({
       frontier = nextIds;
     }
 
-    await db
-      .delete(schema.recordingComments)
-      .where(
-        and(
-          inArray(schema.recordingComments.id, Array.from(deletedIds)),
-          eq(schema.recordingComments.recordingId, existing.recordingId),
-          eq(schema.recordingComments.organizationId, existing.organizationId),
-        ),
+    await prepareRecordingCommentMirror();
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(schema.recordingComments)
+        .where(
+          and(
+            inArray(schema.recordingComments.id, Array.from(deletedIds)),
+            eq(schema.recordingComments.recordingId, existing.recordingId),
+            eq(
+              schema.recordingComments.organizationId,
+              existing.organizationId,
+            ),
+          ),
+        );
+      await deleteMirroredRecordingComments(
+        existing.recordingId,
+        Array.from(deletedIds),
+        userEmail ?? null,
       );
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

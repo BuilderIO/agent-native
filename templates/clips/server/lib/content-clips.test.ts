@@ -8,6 +8,7 @@ import { mockEvent, type H3Event } from "h3";
 import {
   afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -71,6 +72,11 @@ vi.mock("./context-footage.js", async (importOriginal) => {
     },
   };
 });
+vi.mock("./recording-comment-mirror.js", () => ({
+  prepareRecordingCommentMirror: async () => {},
+  mirrorRecordingComments: async () => {},
+  deleteMirroredRecordingComments: async () => {},
+}));
 vi.mock("./activity-notifications.js", () => ({
   notifyRecordingComment: async (input: {
     recordingId: string;
@@ -490,13 +496,9 @@ function afterGrantExpires(issuedAt: number) {
   });
 }
 
-beforeEach(async () => {
+beforeAll(async () => {
   client = await PGlite.create("memory://");
   state.db = drizzle(client);
-  state.blobs.clear();
-  state.notified = [];
-  state.notification = null;
-  __resetContentClipRateLimitsForTests();
   for (const table of [
     schema.recordings,
     schema.recordingShares,
@@ -515,15 +517,25 @@ beforeEach(async () => {
       key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at BIGINT NOT NULL
     );
   `);
+});
+
+beforeEach(async () => {
+  const { rows } = await client.query(
+    "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+  );
+  await client.exec(
+    `TRUNCATE ${rows.map((row: { tablename: string }) => `"${row.tablename}"`).join(", ")} CASCADE`,
+  );
+  state.blobs.clear();
+  state.notified = [];
+  state.notification = null;
+  __resetContentClipRateLimitsForTests();
   await insertRecording("rec-upload");
   await insertBinding("binding-doc-1");
 });
 
-afterEach(async () => {
+afterAll(async () => {
   await client.close();
-});
-
-afterAll(() => {
   vi.unstubAllEnvs();
 });
 
@@ -681,13 +693,17 @@ describe("Content doc readers play a Clip uploaded to the doc", () => {
   });
 
   it("refuses doc readers a Clip its owner protected with a password", async () => {
-    await updateRecording("rec-upload", { password: "hashed-secret" });
+    await updateRecording("rec-upload", {
+      visibility: "public",
+      password: "hashed-secret",
+    });
     const result = await playback("rec-upload", await token());
     expect(result.status).toBe(403);
     expect(result.body).toMatchObject({ code: "password_required" });
   });
 
   it("stops an issued playback URL once a password is set, even with the password", async () => {
+    await updateRecording("rec-upload", { visibility: "public" });
     const result = await playback("rec-upload", await token());
     await updateRecording("rec-upload", { password: "hashed-secret" });
 

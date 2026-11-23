@@ -47,7 +47,7 @@ Checklist each item: symptom, expected behavior, evidence, owning surface.
 - **UX proposal:** adding, moving, hiding, or restyling controls, or anything
   "hard to find". These are product calls. Don't build them on your own; write
   the proposal (what changes, why, the tradeoff) and flag it for a person. A
-  proposal Steve has explicitly approved (such as an `:upvote:`) is a request to
+  proposal a maintainer has explicitly approved (such as an `:upvote:`) is a request to
   build the smallest version.
 - **Unclear:** you've read everything and one concrete detail still blocks a
   safe fix.
@@ -58,6 +58,13 @@ For data, permissions, or lifecycle feedback, check the whole capability before
 calling it UX: does the action exist when a control is missing, and do owner,
 shared, and non-owner access behave? Use safe fixtures, never another user's
 production data. Possible cross-user exposure is a security bug.
+
+Before fixing, group the bugs by root cause or component (cite the source for
+each group): one package, one PR, every symptom an acceptance check. Skip
+this for top-priority items and a single obvious bug; it is a grouping aid, never a gate that delays a start. Also glance at open PRs, including other people's, for the same files
+(`gh pr list --state open --json number,files --limit 1000`; if it returns
+exactly 1000, say the list is partial). Advisory, never a gate: coordinate by
+file instead of duplicating, and keep going.
 
 ## 3. Ask only when you must
 

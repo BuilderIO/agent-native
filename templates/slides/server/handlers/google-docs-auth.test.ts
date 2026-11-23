@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  decodeOAuthState: vi.fn(),
   encodeOAuthState: vi.fn(),
+  exchangeGoogleDocsCode: vi.fn(),
+  matchesDesktopOAuthBrowserBinding: vi.fn(),
+  oauthErrorPage: vi.fn(),
+  prepareDesktopOAuthBrowserBinding: vi.fn(),
   getAvailableGoogleDocsAccessToken: vi.fn(),
   getGoogleDocsAuthUrl: vi.fn(),
   getQuery: vi.fn(),
@@ -20,15 +25,19 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  decodeOAuthState: vi.fn(),
+  decodeOAuthState: mocks.decodeOAuthState,
   encodeOAuthState: mocks.encodeOAuthState,
   getAppUrl: vi.fn(),
   getSession: mocks.getSession,
   getOrigin: () => "https://slides.example.com",
   getQuery: mocks.getQuery,
   isElectron: mocks.isElectron,
+  logOAuthStateDecodeFailure: vi.fn(),
+  matchesDesktopOAuthBrowserBinding: mocks.matchesDesktopOAuthBrowserBinding,
+  oauthCallbackOwner: (sessionEmail: string | undefined) => sessionEmail,
   oauthCallbackResponse: vi.fn(),
-  oauthErrorPage: vi.fn(),
+  oauthErrorPage: mocks.oauthErrorPage,
+  prepareDesktopOAuthBrowserBinding: mocks.prepareDesktopOAuthBrowserBinding,
   resolveOAuthRedirectUri: mocks.resolveOAuthRedirectUri,
   safeReturnPath: mocks.safeReturnPath,
 }));
@@ -51,7 +60,7 @@ vi.mock("../lib/google-docs-error.js", () => ({
 
 vi.mock("../lib/google-docs-oauth.js", () => ({
   disconnectGoogleDocs: vi.fn(),
-  exchangeGoogleDocsCode: vi.fn(),
+  exchangeGoogleDocsCode: mocks.exchangeGoogleDocsCode,
   getGoogleDocsAuthUrl: mocks.getGoogleDocsAuthUrl,
   getGooglePickerConfig: mocks.getGooglePickerConfig,
   hasGoogleDriveExportScope: (scope: string) =>
@@ -75,6 +84,7 @@ import {
   getGoogleDocsAuthUrlHandler,
   getGoogleDocsPickerToken,
   getGoogleDocsStatus,
+  handleGoogleDocsCallback,
 } from "./google-docs-auth";
 
 describe("getGoogleDocsStatus", () => {
@@ -124,6 +134,50 @@ describe("getGoogleDocsStatus", () => {
       "oauth-state",
       "owner@example.com",
     );
+  });
+
+  it("binds a desktop flow to the browser that starts it", async () => {
+    mocks.getQuery.mockReturnValue({ desktop: "1", flow_id: "flow-1" });
+    mocks.resolveOAuthRedirectUri.mockReturnValue(
+      "https://slides.example/_agent-native/google-docs/callback",
+    );
+    mocks.safeReturnPath.mockReturnValue("/home");
+    mocks.prepareDesktopOAuthBrowserBinding.mockReturnValue("binding-hash");
+    mocks.getGoogleDocsAuthUrl.mockResolvedValue(
+      "https://accounts.google.com/oauth",
+    );
+
+    await getGoogleDocsAuthUrlHandler({} as never);
+
+    expect(mocks.encodeOAuthState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flowId: "flow-1",
+        desktopBrowserBindingHash: "binding-hash",
+      }),
+    );
+  });
+
+  it("refuses a desktop callback from a browser that did not start the flow", async () => {
+    mocks.getQuery.mockReturnValue({ code: "code-1", state: "state-1" });
+    mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
+      redirectUri: "https://slides.example/_agent-native/google-docs/callback",
+      owner: "owner@example.com",
+      desktop: true,
+      flowId: "flow-1",
+      desktopBrowserBindingHash: "binding-hash",
+    });
+    mocks.matchesDesktopOAuthBrowserBinding.mockReturnValue(false);
+    mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
+
+    await handleGoogleDocsCallback({} as never);
+
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      401,
+    );
+    expect(mocks.oauthErrorPage).toHaveBeenCalled();
+    expect(mocks.exchangeGoogleDocsCode).not.toHaveBeenCalled();
   });
 
   it("keeps a local Picker connection reconnectable when managed OAuth is stale", async () => {
@@ -179,6 +233,31 @@ describe("getGoogleDocsStatus", () => {
       expect.anything(),
       500,
     );
+  });
+
+  it("reports disconnectable when the caller owns the Drive account", async () => {
+    mocks.resolveManagedGoogleDriveAccount.mockResolvedValue({
+      email: "shared@example.com",
+      scope: "https://www.googleapis.com/auth/drive.readonly",
+    });
+
+    await expect(getGoogleDocsStatus({} as never)).resolves.toMatchObject({
+      connected: true,
+      disconnectable: true,
+    });
+  });
+
+  it("does not report disconnectable when only the workspace's shared account is connected", async () => {
+    mocks.listGoogleDocsAccounts.mockResolvedValue([]);
+    mocks.resolveManagedGoogleDriveAccount.mockResolvedValue({
+      email: "shared@example.com",
+      scope: "https://www.googleapis.com/auth/drive.readonly",
+    });
+
+    await expect(getGoogleDocsStatus({} as never)).resolves.toMatchObject({
+      connected: true,
+      disconnectable: false,
+    });
   });
 
   it("keeps Picker setup failures distinct from disconnected accounts", async () => {

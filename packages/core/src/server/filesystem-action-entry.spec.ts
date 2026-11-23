@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -6,18 +10,47 @@ import {
   ACTION_EXECUTION_KEY,
   actionCallIntent,
   defineAction,
+  isActionDefinitionError,
   preparedCallArguments,
 } from "../action.js";
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
 import {
   actionDefinition,
   filesystemActionEntry,
+  importDevActionEntry,
 } from "./filesystem-action-entry.js";
 
 const keyOf = (entry: object) =>
   (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
 
 describe("filesystemActionEntry", () => {
+  it("keeps each declared user turn and the required-turn flag, and drops anything else", () => {
+    const gate = () => false;
+    for (const userTurn of ["read", "approval", "direct"] as const) {
+      const entry = filesystemActionEntry({
+        description: "Turn",
+        userTurn,
+        needsApproval: gate,
+        run: async () => null,
+      } as never);
+      expect(entry.userTurn).toBe(userTurn);
+      expect(entry.requiresUserTurn).toBeUndefined();
+    }
+    const unknown = filesystemActionEntry({
+      description: "Turn",
+      userTurn: "grant",
+      run: async () => null,
+    } as never);
+    expect(unknown.userTurn).toBeUndefined();
+    const required = filesystemActionEntry({
+      description: "Turn",
+      userTurn: "approval",
+      requiresUserTurn: true,
+      run: async () => null,
+    } as never);
+    expect(required.requiresUserTurn).toBe(true);
+  });
+
   it("keeps the execution key, retry safety and zoneless-time zone of a defineAction module", () => {
     const action = defineAction({
       description: "Replace the dashboard config",
@@ -76,6 +109,81 @@ describe("filesystemActionEntry", () => {
     expect(entry.needsApproval).toBe(true);
     expect(entry.requiresAuth).toBe(true);
     expect(entry.capabilityScopes).toEqual(["messages:send"]);
+  });
+
+  it("keeps the approval card's question in the dev scan and a built registry", () => {
+    const action = defineAction({
+      description: "Send a message",
+      schema: z.object({ to: z.string() }),
+      needsApproval: true,
+      approvalLabel: (args) => `Send this to ${args.to}?`,
+      run: async () => ({ ok: true }),
+    });
+
+    expect(filesystemActionEntry(action).approvalLabel).toBe(
+      action.approvalLabel,
+    );
+    expect(
+      loadActionsFromStaticRegistry({ send: { default: action } }).send!
+        .approvalLabel,
+    ).toBe(action.approvalLabel);
+  });
+
+  it("keeps an MCP-only approval, its notice and its proof in the dev scan and a built registry", () => {
+    const action = defineAction({
+      description: "Read the warehouse",
+      schema: z.object({ big: z.boolean() }),
+      readOnly: true,
+      mcpNeedsApproval: (args) => args.big,
+      approvalNotice: () => "Allow up to $5.00 of BigQuery today?",
+      approvalProof: "review-page",
+      run: async () => ({ rows: 1 }),
+    });
+    const registry = loadActionsFromStaticRegistry({
+      read: { default: action },
+    });
+    expect(Object.keys(registry)).toEqual(["read"]);
+
+    for (const entry of [
+      filesystemActionEntry(action),
+      ...Object.values(registry),
+    ]) {
+      expect(entry.mcpNeedsApproval).toBe(action.mcpNeedsApproval);
+      expect(entry.approvalNotice).toBe(action.approvalNotice);
+      expect(entry.approvalProof).toBe("review-page");
+      expect(entry.needsApproval).toBeUndefined();
+    }
+  });
+
+  it("drops an MCP-only approval, notice or proof of the wrong shape from a module that skipped defineAction", () => {
+    const entry = filesystemActionEntry({
+      description: "Read the warehouse",
+      mcpNeedsApproval: true,
+      approvalNotice: "Allow up to $5.00 of BigQuery today?",
+      approvalProof: "client",
+      run: async () => null,
+    } as never);
+
+    expect(entry.mcpNeedsApproval).toBeUndefined();
+    expect(entry.approvalNotice).toBeUndefined();
+    expect(entry.approvalProof).toBeUndefined();
+  });
+
+  it("refuses an approval proof it doesn't know, or a predicate that isn't a function", () => {
+    const base = {
+      description: "Read the warehouse",
+      schema: z.object({}),
+      run: async () => ({}),
+    };
+    expect(() =>
+      defineAction({ ...base, approvalProof: "client" as "review-page" }),
+    ).toThrow(/approvalProof is "review-page" or left out/);
+    expect(() =>
+      defineAction({
+        ...base,
+        mcpNeedsApproval: true as unknown as () => boolean,
+      }),
+    ).toThrow("defineAction: mcpNeedsApproval must be a function.");
   });
 
   it("keeps the browser-persistence opt-out in the dev scan and a built registry", () => {
@@ -176,6 +284,21 @@ describe("filesystemActionEntry", () => {
     expect(entry.mcpAnnotationDefaults).toBeUndefined();
   });
 
+  it("keeps each MCP decision from the action module and drops anything else", () => {
+    const decided = (mcpTool: unknown) =>
+      filesystemActionEntry({
+        tool: { description: "Decided", parameters: { type: "object" } },
+        run: async () => ({}),
+        mcpTool,
+      }).mcpTool;
+
+    expect(decided(true)).toBe(true);
+    expect(decided(false)).toBe(false);
+    expect(decided("search")).toBe("search");
+    expect(decided("yes")).toBeUndefined();
+    expect(decided(undefined)).toBeUndefined();
+  });
+
   it("drops malformed MCP annotations and uses the conservative defaults", () => {
     const entry = filesystemActionEntry({
       tool: { description: "Malformed", parameters: { type: "object" } },
@@ -242,6 +365,22 @@ describe("actionDefinition", () => {
     ).toBe(true);
   });
 
+  it("keeps the signed-in-browser requirement through the registry", () => {
+    const action = { tool, run, requiresSignedInBrowser: true };
+    expect(filesystemActionEntry(action).requiresSignedInBrowser).toBe(true);
+    expect(
+      loadActionsFromStaticRegistry({ rotate: { default: action } }).rotate!
+        .requiresSignedInBrowser,
+    ).toBe(true);
+    expect(
+      filesystemActionEntry({ tool, run }).requiresSignedInBrowser,
+    ).toBeUndefined();
+    expect(
+      filesystemActionEntry({ tool, run, opensAnotherAppEmbed: true })
+        .opensAnotherAppEmbed,
+    ).toBe(true);
+  });
+
   it("takes a default action when the module names none", () => {
     const action = { tool, run };
     expect(actionDefinition({ default: action })).toBe(action);
@@ -250,5 +389,69 @@ describe("actionDefinition", () => {
   it("finds no action in a CLI script", () => {
     expect(actionDefinition({ default: async () => {} })).toBeUndefined();
     expect(actionDefinition({ tool })).toBeUndefined();
+  });
+});
+
+describe("importDevActionEntry", () => {
+  const write = (dir: string, file: string, source: string) => {
+    const filePath = path.join(dir, file);
+    fs.writeFileSync(filePath, source);
+    return filePath;
+  };
+
+  it("loads a real action, and leaves CLI scripts to the shell wrapper", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-entry-"));
+    try {
+      const good = write(
+        dir,
+        "good.ts",
+        `export default { tool: { description: "Rules", parameters: { type: "object" } }, searchHints: ["inbox rule"], run: async () => "ok" };
+`,
+      );
+      const cli = write(dir, "cli.ts", 'throw new Error("runs at import");\n');
+      const plain = write(dir, "plain.ts", "export const value = 1;\n");
+
+      expect((await importDevActionEntry(good, "good"))?.searchHints).toEqual([
+        "inbox rule",
+      ]);
+      await expect(importDevActionEntry(cli, "cli")).resolves.toBeNull();
+      await expect(importDevActionEntry(plain, "plain")).resolves.toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws a named definition error instead of falling back to the wrapper", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-entry-"));
+    try {
+      // What `defineAction` throws at import for bad hints: a definition error
+      // that cannot name the file it is in.
+      const defined = write(
+        dir,
+        "defined.ts",
+        `throw Object.assign(new TypeError("searchHints must be at most 12 non-empty strings."), { name: "ActionDefinitionError", actionDefinitionError: true });
+`,
+      );
+      const handBuilt = write(
+        dir,
+        "hand-built.ts",
+        `export default { tool: { description: "Rules", parameters: { type: "object" } }, searchHints: "inbox rule", run: async () => "ok" };
+`,
+      );
+
+      for (const [filePath, name] of [
+        [defined, "manage-rules"],
+        [handBuilt, "hand-built"],
+      ] as const) {
+        await expect(importDevActionEntry(filePath, name)).rejects.toSatisfy(
+          (error) =>
+            isActionDefinitionError(error) &&
+            error.actionName === name &&
+            error.message.startsWith(`Action "${name}": searchHints`),
+        );
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

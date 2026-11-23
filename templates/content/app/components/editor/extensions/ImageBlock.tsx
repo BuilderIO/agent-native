@@ -1,4 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
@@ -6,18 +5,15 @@ import {
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
-  IconArrowsMinimize,
   IconCopy,
   IconDownload,
   IconDots,
   IconHierarchy2,
+  IconLoader2,
   IconMessageCircle,
-  IconMinus,
   IconPhoto,
-  IconPlus,
   IconRefresh,
   IconTrash,
   IconX,
@@ -34,13 +30,7 @@ import { toast } from "sonner";
 
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -55,9 +45,19 @@ import {
 } from "@/components/ui/tooltip";
 
 import { deleteNodeFromMenu } from "../editor-transaction-meta";
-import { createImagePickerId } from "../image-upload";
+import { createImagePickerId, pickedAssetImageFile } from "../image-upload";
+import {
+  releaseImageUploadPreview,
+  retryImageUpload,
+  useFinishedImageUpload,
+  useImageUploadPreview,
+} from "../image-upload-previews";
+import { downloadImage, ImageLightbox } from "../ImageLightbox";
+import { imageDisplaySrc } from "../private-media-src";
 import { storedBodyImageFailed } from "../stored-body-images";
+import { useEditorEditable } from "../useEditorEditable";
 import type { ContentImageOptions } from "./ImageNode";
+import { useQuietAltText } from "./use-quiet-alt-text";
 
 type ImageSourceTab = "upload" | "assets" | "link";
 type ResizeDirection = "left" | "right";
@@ -73,7 +73,10 @@ const MIN_IMAGE_WIDTH = 160;
 const MAX_AGENT_IMAGE_DIMENSION = 1600;
 const ALT_TEXT_CONTEXT_WORD_LIMIT = 250;
 const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
+/** What the Assets picker answers with the file of an image chosen in it. */
+const ASSETS_IMAGE_FILE_REQUEST = "imageFile";
 interface PickedAssetImagePayload {
+  assetId?: unknown;
   url?: unknown;
   previewUrl?: unknown;
   downloadUrl?: unknown;
@@ -108,6 +111,11 @@ function pickedAssetImageAlt(payload: unknown) {
   if (!payload || typeof payload !== "object") return null;
   const image = payload as PickedAssetImagePayload;
   return pickedAssetString(image.altText) ?? pickedAssetString(image.title);
+}
+
+function pickedAssetId(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  return pickedAssetString((payload as PickedAssetImagePayload).assetId);
 }
 
 interface AssetsPickerDialogProps {
@@ -208,55 +216,6 @@ function clampImageWidth(width: number, maxWidth: number): number {
   return Math.round(Math.min(Math.max(width, MIN_IMAGE_WIDTH), maxWidth));
 }
 
-function imageDownloadName(src: string, alt: string): string {
-  const cleanAlt = alt.trim().replace(/[^a-z0-9._-]+/gi, "-");
-  if (cleanAlt) return cleanAlt.toLowerCase();
-
-  try {
-    const pathname = new URL(src).pathname;
-    const name = pathname.split("/").filter(Boolean).pop();
-    if (name) return decodeURIComponent(name);
-  } catch {}
-
-  return "image";
-}
-
-async function downloadImage(
-  src: string,
-  alt: string,
-  copy: {
-    started: string;
-    opened: string;
-  },
-) {
-  const filename = imageDownloadName(src, alt);
-
-  try {
-    const response = await fetch(src);
-    if (!response.ok) throw new Error("Download failed");
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-    toast.success(copy.started);
-  } catch {
-    const anchor = document.createElement("a");
-    anchor.href = src;
-    anchor.download = filename;
-    anchor.target = "_blank";
-    anchor.rel = "noopener noreferrer";
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    toast.info(copy.opened);
-  }
-}
-
 async function blobToPng(blob: Blob): Promise<Blob> {
   const bitmap = await createImageBitmap(blob);
   const canvas = document.createElement("canvas");
@@ -308,7 +267,7 @@ async function copyImage(
     ]);
     toast.success(copy.copied);
   } catch {
-    if (await writeClipboardText(src)) {
+    if (await writeClipboardText(new URL(src, window.location.href).href)) {
       toast.info(copy.urlCopied);
     } else {
       toast.error(copy.failed);
@@ -493,6 +452,23 @@ function buildAltTextArticleContext({
     .join("\n\n");
 }
 
+/**
+ * Sets or clears a block's upload id outside undo history, like the upload's
+ * own steps. Undo bringing back a picker id would hold the page's saves, and
+ * taking one back would stop the upload it starts.
+ */
+function setUploadIdOutsideHistory(
+  editor: NodeViewProps["editor"],
+  position: number,
+  uploadId: string | null,
+) {
+  editor.view.dispatch(
+    editor.state.tr
+      .setNodeAttribute(position, "uploadId", uploadId)
+      .setMeta("addToHistory", false),
+  );
+}
+
 export function ImageBlock({
   node,
   editor,
@@ -516,24 +492,52 @@ export function ImageBlock({
   const [altDraft, setAltDraft] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [lightboxZoomed, setLightboxZoomed] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [isGeneratingAlt, setIsGeneratingAlt] = useState(false);
   const altInputRef = useRef<HTMLInputElement>(null);
   const emptyBlockRef = useRef<HTMLDivElement>(null);
-  const lightboxImageRef = useRef<HTMLImageElement>(null);
   const mediaBlockRef = useRef<HTMLDivElement>(null);
   const resizeStateRef = useRef<ImageResizeState | null>(null);
+  const assetsPickerRef = useRef<EmbeddedAppRef | null>(null);
+  // The copy of a picked image under way; closing the picker clears it.
+  const assetCopyRef = useRef<object | null>(null);
   const options = extension.options as ContentImageOptions;
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
   const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
-  const isEditable = canMutateMediaNow();
+  const editorEditable = useEditorEditable(editor);
+  const isEditable = editorEditable && (options.canMutateMedia?.() ?? true);
   const src = node.attrs.src as string;
+  const displaySrc = imageDisplaySrc(src);
   const alt = (node.attrs.alt as string) || "";
+  const quietAlt = useQuietAltText({ currentAlt: alt });
+  const altRunBusy = isGeneratingAlt || quietAlt.state.phase === "running";
   const isUploading = String(node.attrs.uploadId ?? "").startsWith(
     "image-upload-",
   );
+  // Only the tab uploading the image has its preview; any other shows the
+  // block as the page has it.
+  const uploadPreview = useImageUploadPreview(node.attrs.uploadId);
+  const uploadFailure = uploadPreview?.failure ?? null;
+  // A block can come back carrying an upload this tab has let go of, such as
+  // through undo. Nothing will finish it, so it drops the id and shows what
+  // the page holds; leaving undo history alone, so undo can't bring it back.
+  const uploadFinished = useFinishedImageUpload(node.attrs.uploadId);
+  useEffect(() => {
+    if (!uploadFinished || !isEditable || typeof getPos !== "function") return;
+    const position = getPos();
+    if (typeof position !== "number") return;
+    setUploadIdOutsideHistory(editor, position, null);
+  }, [editor, getPos, isEditable, uploadFinished]);
+  // A file this browser can't draw, such as HEIC outside Safari, leaves the
+  // block in its plain uploading state.
+  const [undrawablePreview, setUndrawablePreview] = useState<string | null>(
+    null,
+  );
+  const previewUrl =
+    uploadPreview?.url && uploadPreview.url !== undrawablePreview
+      ? uploadPreview.url
+      : null;
   const width = normalizedImageWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
@@ -555,12 +559,12 @@ export function ImageBlock({
     const probe = new Image();
     probe.onload = () => setFailure(null);
     probe.onerror = () => setFailure({ src, ownLoad: true });
-    probe.src = src;
+    probe.src = displaySrc;
     return () => {
       probe.onload = null;
       probe.onerror = null;
     };
-  }, [awaitingOwnLoad, src]);
+  }, [awaitingOwnLoad, displaySrc, src]);
 
   useEffect(() => {
     if (!sourcePanelOpen && !selected) return;
@@ -574,11 +578,13 @@ export function ImageBlock({
       ) {
         return;
       }
+      const position = typeof getPos === "function" ? getPos() : undefined;
       if (
         !src &&
+        typeof position === "number" &&
         String(node.attrs.uploadId ?? "").startsWith("image-picker-")
       ) {
-        updateAttributes({ uploadId: null });
+        setUploadIdOutsideHistory(editor, position, null);
       }
       setSourcePanelOpen(false);
       setSourcePanelDismissed(true);
@@ -587,14 +593,13 @@ export function ImageBlock({
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () =>
       document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [node.attrs.uploadId, selected, sourcePanelOpen, src, updateAttributes]);
+  }, [editor, getPos, node.attrs.uploadId, selected, sourcePanelOpen, src]);
 
   function handleComment() {
     if (!options.onImageComment) return;
     const position = typeof getPos === "function" ? getPos() : undefined;
-    const coords = editor.view.coordsAtPos(
-      typeof position === "number" ? position : editor.state.selection.from,
-    );
+    if (typeof position !== "number") return;
+    const coords = editor.view.coordsAtPos(position);
     const wrapper = editor.view.dom.closest(".visual-editor-wrapper");
     const scrollContainer = wrapper?.closest(".flex-1.min-h-0.overflow-auto");
     const containerTop = scrollContainer
@@ -602,12 +607,7 @@ export function ImageBlock({
       : 0;
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
-    options.onImageComment(
-      alt.trim()
-        ? t("editor.media.imageCommentWithAlt", { alt: alt.trim() })
-        : t("editor.media.image"),
-      offsetTop,
-    );
+    options.onImageComment(editor.view, position, offsetTop);
   }
 
   function openAltEditor() {
@@ -628,99 +628,140 @@ export function ImageBlock({
     setSourcePanelDismissed(true);
   }
 
-  function handleLightboxOpenChange(open: boolean) {
-    setLightboxOpen(open);
-    if (!open) {
-      setLightboxZoomed(false);
-    }
-  }
-
   function openLightbox() {
     setSourcePanelOpen(false);
-    setLightboxZoomed(false);
     setLightboxOpen(true);
-  }
-
-  function handleLightboxViewportPointerDown(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
-    const image = lightboxImageRef.current;
-    if (!image) return;
-
-    const imageRect = image.getBoundingClientRect();
-    const rootFontSize = Number.parseFloat(
-      window.getComputedStyle(document.documentElement).fontSize,
-    );
-    const closeBuffer = 4 * (Number.isFinite(rootFontSize) ? rootFontSize : 16);
-    const isFarOutsideImage =
-      event.clientX < imageRect.left - closeBuffer ||
-      event.clientX > imageRect.right + closeBuffer || // i18n-ignore non-copy geometry expression
-      event.clientY < imageRect.top - closeBuffer ||
-      event.clientY > imageRect.bottom + closeBuffer;
-
-    if (isFarOutsideImage) {
-      handleLightboxOpenChange(false);
-    }
   }
 
   function updateAltText(nextAlt: string) {
     if (!canMutateMediaNow()) return;
+    if (quietAlt.state.phase === "running") quietAlt.keepTypedAlt();
     setAltDraft(nextAlt);
     updateAttributes({ alt: nextAlt });
   }
 
   async function handleGenerateAltText() {
-    if (!canMutateMediaNow()) return;
+    if (!canMutateMediaNow() || altRunBusy) return;
     const documentId = options.documentId;
     if (!documentId) {
       toast.error(t("editor.media.currentDocumentMissing"));
       return;
     }
 
-    const toastId = toast.loading(t("editor.media.generatingAltText"));
     setIsGeneratingAlt(true);
-
+    let imageDataUrl: string | null;
     try {
-      const imageDataUrl = await imageDataUrlForAgent(src);
-      if (editor.isDestroyed || !canMutateMediaNow()) {
-        toast.error(t("empty.genericError"), { id: toastId });
-        return;
-      }
-      const imageOccurrence = imageOccurrenceIndex({ editor, getPos, src });
-      const articleContext = buildAltTextArticleContext({
-        editor,
-        getPos,
-        src,
-      });
-      sendToAgentChat({
-        message: t("editor.media.generateAltTextPrompt"),
-        context: [
-          "The user clicked the alt text generator for an image block in Content.",
-          `Document ID: ${documentId}`,
-          `Image URL: ${src}`,
-          `Image occurrence for this URL: ${imageOccurrence}`,
-          `Current alt text: ${alt.trim() || "(empty)"}`,
-          articleContext
-            ? `Article context around this image, in markdown. The target image is marked with IMAGE TO DESCRIBE comments. Use up to this context to understand the image's purpose in the article, but do not invent details that are not visible in the image:\n\n${articleContext}`
-            : "Article context could not be serialized from the editor.",
-          imageDataUrl
-            ? "The image contents are attached to this message."
-            : "The browser could not attach the image contents, so use the image URL and surrounding document context.",
-          "Generate concise, useful alt text for accessibility. Use the attached image as the source of truth and the article context only for disambiguation. Then call set-image-alt-text with documentId, imageUrl, altText, and imageOccurrence so the generated text is applied to this exact image. Keep the alt text factual and avoid phrases like 'image of' unless needed for clarity.",
-          "After the action succeeds, do not repeat the alt text in chat. Give one short confirmation that the image alt text was updated.",
-        ].join("\n"),
-        images: imageDataUrl ? [imageDataUrl] : undefined,
-        submit: true,
-      });
-      toast.success(t("editor.media.generatingAltText"), { id: toastId });
-    } catch {
-      toast.error(t("editor.media.altTextGenerationFailed"), {
-        id: toastId,
-      });
+      imageDataUrl = await imageDataUrlForAgent(displaySrc);
     } finally {
       setIsGeneratingAlt(false);
     }
+    if (editor.isDestroyed || !canMutateMediaNow()) return;
+    const imageOccurrence = imageOccurrenceIndex({ editor, getPos, src });
+    const articleContext = buildAltTextArticleContext({
+      editor,
+      getPos,
+      src,
+    });
+    await quietAlt.start({
+      documentId,
+      message: t("editor.media.generateAltTextPrompt"),
+      instructions: [
+        "The user clicked the alt text generator for an image block in Content. This runs quietly: the user is not watching this chat, so do the work without asking questions.",
+        `Document ID: ${documentId}`,
+        `Image URL: ${src}`,
+        `Image occurrence for this URL: ${imageOccurrence}`,
+        `Current alt text, as a JSON string: ${JSON.stringify(alt)}`,
+        articleContext
+          ? `Article context around this image, in markdown. The target image is marked with IMAGE TO DESCRIBE comments. Use up to this context to understand the image's purpose in the article, but do not invent details that are not visible in the image:\n\n${articleContext}`
+          : "Article context could not be serialized from the editor.",
+        imageDataUrl
+          ? "The image contents are attached to this message."
+          : "The browser could not attach the image contents, so use the image URL and surrounding document context.",
+        "Generate concise, useful alt text for accessibility. Use the attached image as the source of truth and the article context only for disambiguation. Then call set-image-alt-text with documentId, imageUrl, altText, imageOccurrence, and expectedAltText set to the current alt text above, so the generated text is applied to this exact image and alt text the user typed in the meantime is kept. Keep the alt text factual and avoid phrases like 'image of' unless needed for clarity.",
+        "If the user asks for changes later in this chat, call set-image-alt-text again for the same image, without expectedAltText.",
+        "After the action succeeds, do not repeat the alt text in chat. Give one short confirmation that the image alt text was updated.",
+      ].join("\n"),
+      imageDataUrl,
+      imageUrl: src,
+      imageOccurrence,
+      altAtStart: alt,
+    });
   }
+
+  function renderAltTextStatus() {
+    const { state } = quietAlt;
+    const message = altRunBusy
+      ? t("editor.media.generatingAltText")
+      : state.phase === "done"
+        ? t("editor.media.altTextAdded")
+        : state.phase === "kept"
+          ? t("editor.media.keptYourAltText")
+          : state.phase === "failed"
+            ? state.reason === "setup"
+              ? t("editor.media.altTextNeedsAiSetup")
+              : t("editor.media.altTextGenerationFailed")
+            : "";
+    const actionButton = (label: string, onClick: () => void) => (
+      <button
+        type="button"
+        className="media-block__alt-status-action"
+        onClick={onClick}
+      >
+        {label}
+      </button>
+    );
+    return (
+      <>
+        <span className="sr-only" role="status" aria-live="polite">
+          {message}
+        </span>
+        {message ? (
+          <div className="media-block__alt-status" data-phase={state.phase}>
+            {altRunBusy ? (
+              <IconLoader2 size={14} className="animate-spin" aria-hidden />
+            ) : null}
+            <span className="media-block__alt-status-text" aria-hidden>
+              {message}
+            </span>
+            {state.phase === "done"
+              ? actionButton(t("editor.media.editAltTextInChat"), () =>
+                  quietAlt.openChat(),
+                )
+              : null}
+            {state.phase === "failed" ? (
+              <>
+                {actionButton(
+                  t("editor.media.tryAgain"),
+                  () => void handleGenerateAltText(),
+                )}
+                {actionButton(t("editor.media.openChat"), () =>
+                  quietAlt.openChat(),
+                )}
+              </>
+            ) : null}
+            {altRunBusy ? null : (
+              <button
+                type="button"
+                className="media-block__alt-status-dismiss"
+                aria-label={t("editor.media.dismissAltTextStatus")}
+                onClick={() => quietAlt.dismiss()}
+              >
+                <IconX size={14} />
+              </button>
+            )}
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
+  // A block that goes away mid-copy drops the copy without an error.
+  useEffect(
+    () => () => {
+      assetCopyRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!altPopoverOpen) return;
@@ -812,15 +853,22 @@ export function ImageBlock({
   function handleImageFileSelectionStart() {
     if (!canMutateMediaNow()) return;
     if (isUploading) return;
-    if (!fileStorageConfigured) {
+    // Private uploads report missing private storage from their own route.
+    if (!fileStorageConfigured && !options.usesPrivateImageUploads?.()) {
       setStorageSetupOpen(true);
       return;
     }
     if (typeof getPos !== "function") return;
     const position = getPos();
     if (typeof position !== "number") return;
-    const pickerId = String(node.attrs.uploadId || createImagePickerId());
-    if (!node.attrs.uploadId) updateAttributes({ uploadId: pickerId });
+    // Another tab's failed upload leaves its id here, which isn't this pick's.
+    const currentId = String(node.attrs.uploadId ?? "");
+    const pickerId = currentId.startsWith("image-picker-")
+      ? currentId
+      : createImagePickerId();
+    if (pickerId !== currentId) {
+      setUploadIdOutsideHistory(editor, position, pickerId);
+    }
     options.onImageFilePickerRequest?.({
       pickerId,
       position,
@@ -844,7 +892,7 @@ export function ImageBlock({
       return;
     }
 
-    updateAttributes({ src: nextSrc, alt, uploadId: null });
+    updateAttributes({ src: nextSrc, alt, assetId: null, uploadId: null });
     setImageUrl("");
     setSourcePanelOpen(false);
   }
@@ -854,6 +902,7 @@ export function ImageBlock({
     _event: MessageEvent,
     ref: EmbeddedAppRef,
   ) {
+    assetsPickerRef.current = ref;
     ref.postMessage("configure", {
       prompt: alt.trim() || undefined,
       query: alt.trim() || undefined,
@@ -863,6 +912,7 @@ export function ImageBlock({
   function handleAssetsPickerMessage(name: string, payload: unknown) {
     if (!canMutateMediaNow()) return;
     if (name === "close") {
+      assetCopyRef.current = null;
       setAssetsPickerOpen(false);
       if (!src) {
         updateAttributes({ uploadId: null });
@@ -877,10 +927,85 @@ export function ImageBlock({
       toast.error(t("editor.media.assetsMissingImageUrl"));
       return;
     }
+    const nextAlt = pickedAssetImageAlt(payload) ?? alt;
+    const assetId = pickedAssetId(payload);
+    const picker = assetsPickerRef.current;
+    const canStoreImage =
+      fileStorageConfigured || Boolean(options.usesPrivateImageUploads?.());
+    if (assetId && picker && canStoreImage && options.onPickedImageFile) {
+      void copyPickedAssetImage(picker, assetId, nextSrc, nextAlt);
+      return;
+    }
+    linkPickedAssetImage(nextSrc, nextAlt, assetId);
+  }
 
+  // Assets' link only loads for people in that library, so the page keeps its
+  // own copy of the image, which follows the page's sharing like an upload.
+  async function copyPickedAssetImage(
+    picker: EmbeddedAppRef,
+    assetId: string,
+    nextSrc: string,
+    nextAlt: string,
+  ) {
+    // A later pick replaces a copy still under way: the last image chosen wins.
+    const copy = {};
+    assetCopyRef.current = copy;
+    let answer: unknown;
+    try {
+      answer = await picker.request(ASSETS_IMAGE_FILE_REQUEST, { assetId });
+    } catch {
+      // Closing the picker mid-copy cancels the copy without an error.
+      if (assetCopyRef.current === copy) {
+        assetCopyRef.current = null;
+        toast.error(t("editor.media.assetsCopyFailed"));
+      }
+      return;
+    }
+    if (assetCopyRef.current !== copy) return;
+    assetCopyRef.current = null;
+    const file = pickedAssetImageFile(answer);
+    // A picker from before Assets sent files: link the image, as it used to.
+    if (!file) {
+      linkPickedAssetImage(nextSrc, nextAlt, assetId);
+      return;
+    }
+    const target = pickedImageTarget();
+    if (!target) return;
+    const { position, current } = target;
+    setAssetsPickerOpen(false);
+    const pickerId = String(current.attrs.uploadId || createImagePickerId());
+    if (!current.attrs.uploadId) updateAttributes({ uploadId: pickerId });
+    options.onPickedImageFile?.(
+      { pickerId, position, attrs: { ...current.attrs, uploadId: pickerId } },
+      file,
+      { alt: nextAlt, assetId },
+      // With nowhere to keep a copy, link the image, as before Assets sent
+      // files; uploads don't work on such a page either.
+      () => linkPickedAssetImage(nextSrc, nextAlt, assetId),
+    );
+  }
+
+  // This image, while the author may still change it. A copy can finish after
+  // they start suggesting or the block is gone.
+  function pickedImageTarget() {
+    if (editor.isDestroyed || !canMutateMediaNow()) return null;
+    if (typeof getPos !== "function") return null;
+    const position = getPos();
+    if (typeof position !== "number") return null;
+    const current = editor.state.doc.nodeAt(position);
+    return current?.type.name === "image" ? { position, current } : null;
+  }
+
+  function linkPickedAssetImage(
+    nextSrc: string,
+    nextAlt: string,
+    assetId: string | null,
+  ) {
+    if (!pickedImageTarget()) return;
     updateAttributes({
       src: nextSrc,
-      alt: pickedAssetImageAlt(payload) ?? alt,
+      alt: nextAlt,
+      assetId,
       uploadId: null,
     });
     setAssetsPickerOpen(false);
@@ -888,6 +1013,7 @@ export function ImageBlock({
   }
 
   function handleAssetsPickerOpenChange(open: boolean) {
+    if (!open) assetCopyRef.current = null;
     setAssetsPickerOpen(open);
     if (!open && !src) {
       updateAttributes({ uploadId: null });
@@ -1001,6 +1127,155 @@ export function ImageBlock({
     );
   }
 
+  function handleRemoveFailedUpload() {
+    if (!canMutateMediaNow()) return;
+    const uploadId = node.attrs.uploadId;
+    // A replaced image goes back to what it showed; a new block goes away.
+    if (src) updateAttributes({ uploadId: null });
+    else deleteNode();
+    releaseImageUploadPreview(uploadId);
+  }
+
+  function renderUploadFailure(onPreview: boolean, overPageImage = false) {
+    // Over the image the page still holds, a broken upload reads as a failed
+    // one, since the image on show is fine.
+    const message =
+      uploadFailure === "render" && !overPageImage
+        ? t("editor.media.imageBroken")
+        : t("editor.media.imageUploadFailed");
+    const handleRetry = () => {
+      if (canMutateMediaNow()) retryImageUpload(node.attrs.uploadId);
+    };
+    const retryLabel = (
+      <>
+        <IconRefresh size={14} aria-hidden />
+        {t("editor.media.retryImageUpload")}
+      </>
+    );
+    const removeLabel = (
+      <>
+        <IconTrash size={14} aria-hidden />
+        {t("editor.media.removeImage")}
+      </>
+    );
+    const actions = !isEditable ? null : onPreview ? (
+      <div className="media-block__upload-failure-actions">
+        <button
+          type="button"
+          className="media-block__btn"
+          onClick={handleRetry}
+        >
+          {retryLabel}
+        </button>
+        <button
+          type="button"
+          className="media-block__btn"
+          onClick={handleRemoveFailedUpload}
+        >
+          {removeLabel}
+        </button>
+      </div>
+    ) : (
+      <div className="media-block__upload-failure-actions">
+        <Button type="button" size="sm" variant="outline" onClick={handleRetry}>
+          {retryLabel}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={handleRemoveFailedUpload}
+        >
+          {removeLabel}
+        </Button>
+      </div>
+    );
+
+    if (onPreview) {
+      return (
+        <div className="media-block__upload-failure">
+          <span className="media-block__upload-failure-text">{message}</span>
+          {actions}
+        </div>
+      );
+    }
+    return (
+      <div className="media-empty-block__trigger media-empty-block__trigger--static">
+        <IconPhoto size={20} aria-hidden />
+        <span>{message}</span>
+        <span className="media-empty-block__note">{actions}</span>
+      </div>
+    );
+  }
+
+  // The picked file, drawn while it uploads, or kept after a failed upload
+  // with Retry and Remove.
+  if (uploadPreview && (uploadFailure || (isUploading && previewUrl))) {
+    return (
+      <NodeViewWrapper
+        className="media-block-wrapper"
+        data-drag-handle
+        data-image-upload-id={node.attrs.uploadId || undefined}
+      >
+        {previewUrl ? (
+          <div
+            className="media-block media-block--upload"
+            data-failed={uploadFailure ? "true" : undefined}
+            style={activeWidth ? { width: `${activeWidth}px` } : undefined}
+          >
+            <img
+              src={previewUrl}
+              alt={alt || ""}
+              className="media-block__content"
+              data-upload-preview="true"
+              draggable={false}
+              onError={() => setUndrawablePreview(previewUrl)}
+            />
+            {isUploading && src ? (
+              // The uploaded copy loads unseen beneath the preview; the editor
+              // swaps it in once it has drawn.
+              <img
+                src={displaySrc}
+                alt=""
+                aria-hidden
+                className="media-block__staged-upload"
+                draggable={false}
+              />
+            ) : null}
+            {isUploading ? (
+              <span
+                className="media-block__upload-status"
+                role="status"
+                aria-label={t("editor.media.uploadingImage")}
+              >
+                <IconLoader2 size={16} className="animate-spin" aria-hidden />
+              </span>
+            ) : null}
+            {uploadFailure ? renderUploadFailure(true) : null}
+          </div>
+        ) : src ? (
+          // The browser couldn't draw the picked file, so a failed replacement
+          // keeps showing the image the page still holds.
+          <div
+            className="media-block media-block--upload"
+            data-failed="true"
+            style={activeWidth ? { width: `${activeWidth}px` } : undefined}
+          >
+            <img
+              src={displaySrc}
+              alt={alt || ""}
+              className="media-block__content"
+              draggable={false}
+            />
+            {renderUploadFailure(true, true)}
+          </div>
+        ) : (
+          <div className="media-empty-block">{renderUploadFailure(false)}</div>
+        )}
+      </NodeViewWrapper>
+    );
+  }
+
   if (!src && !isEditable) {
     // A read-only page can't add an image, so say what's missing instead.
     return (
@@ -1098,7 +1373,7 @@ export function ImageBlock({
           </div>
         ) : (
           <img
-            src={src}
+            src={displaySrc}
             alt={alt || ""}
             className="media-block__content"
             draggable={false}
@@ -1172,11 +1447,19 @@ export function ImageBlock({
                       type="button"
                       className="media-block__alt-generate"
                       aria-label={t("editor.media.generateAltText")}
-                      aria-busy={isGeneratingAlt}
-                      disabled={isGeneratingAlt}
+                      aria-busy={altRunBusy}
+                      aria-disabled={altRunBusy}
                       onClick={() => void handleGenerateAltText()}
                     >
-                      <IconHierarchy2 size={18} />
+                      {altRunBusy ? (
+                        <IconLoader2
+                          size={18}
+                          className="animate-spin"
+                          aria-hidden
+                        />
+                      ) : (
+                        <IconHierarchy2 size={18} />
+                      )}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -1187,6 +1470,8 @@ export function ImageBlock({
             </PopoverContent>
           </Popover>
         ) : null}
+
+        {isEditable ? renderAltTextStatus() : null}
 
         {isEditable && (
           <>
@@ -1223,19 +1508,21 @@ export function ImageBlock({
                 event.preventDefault();
               }}
             >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleComment}
-                    className="media-block__toolbar-btn"
-                    aria-label={t("editor.media.commentOnImage")}
-                  >
-                    <IconMessageCircle size={16} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("editor.comment")}</TooltipContent>
-              </Tooltip>
+              {options.onImageComment ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleComment}
+                      className="media-block__toolbar-btn"
+                      aria-label={t("editor.media.commentOnImage")}
+                    >
+                      <IconMessageCircle size={16} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("editor.comment")}</TooltipContent>
+                </Tooltip>
+              ) : null}
 
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1256,7 +1543,7 @@ export function ImageBlock({
                   <button
                     type="button"
                     onClick={() =>
-                      void downloadImage(src, alt, {
+                      void downloadImage(displaySrc, alt, {
                         started: t("editor.media.imageDownloadStarted"),
                         opened: t("editor.media.openedImageInNewTab"),
                       })
@@ -1340,7 +1627,7 @@ export function ImageBlock({
                       role="menuitem"
                       onClick={() => {
                         setMoreMenuOpen(false);
-                        void copyImage(src, {
+                        void copyImage(displaySrc, {
                           copied: t("editor.media.imageCopied"),
                           urlCopied: t("editor.media.copiedImageUrl"),
                           failed: t("editor.media.couldNotCopyImage"),
@@ -1389,7 +1676,7 @@ export function ImageBlock({
             data-visible={isHovered ? "true" : undefined}
             aria-hidden={!isHovered}
           >
-            {editor.isEditable && options.onImageComment ? (
+            {editorEditable && options.onImageComment ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -1423,7 +1710,7 @@ export function ImageBlock({
                 <button
                   type="button"
                   onClick={() =>
-                    void downloadImage(src, alt, {
+                    void downloadImage(displaySrc, alt, {
                       started: t("editor.media.imageDownloadStarted"),
                       opened: t("editor.media.openedImageInNewTab"),
                     })
@@ -1442,95 +1729,12 @@ export function ImageBlock({
         {isEditable && sourcePanelOpen ? renderSourcePanel(true) : null}
         {renderAssetsPickerDialog()}
 
-        <Dialog open={lightboxOpen} onOpenChange={handleLightboxOpenChange}>
-          <DialogPortal>
-            <DialogOverlay className="media-lightbox__overlay" />
-            <DialogPrimitive.Content
-              className="media-lightbox"
-              aria-describedby={undefined}
-              onOpenAutoFocus={(event) => event.preventDefault()}
-            >
-              <DialogTitle className="sr-only">
-                {t("editor.media.imagePreview")}
-              </DialogTitle>
-              <div
-                className="media-lightbox__viewport"
-                onPointerDown={handleLightboxViewportPointerDown}
-              >
-                <button
-                  type="button"
-                  className="media-lightbox__image-button"
-                  data-zoomed={lightboxZoomed ? "true" : undefined}
-                  aria-label={
-                    lightboxZoomed
-                      ? t("editor.media.zoomImageOut")
-                      : t("editor.media.zoomImageIn")
-                  }
-                  aria-pressed={lightboxZoomed}
-                  onClick={() => setLightboxZoomed((zoomed) => !zoomed)}
-                >
-                  <img
-                    ref={lightboxImageRef}
-                    src={src}
-                    alt={alt || ""}
-                    className="media-lightbox__image"
-                    draggable={false}
-                  />
-                </button>
-              </div>
-
-              <div
-                className="media-lightbox__toolbar"
-                aria-label={t("editor.media.imageView")}
-              >
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label={t("editor.media.zoomOut")}
-                  disabled={!lightboxZoomed}
-                  onClick={() => setLightboxZoomed(false)}
-                >
-                  <IconMinus size={17} />
-                </button>
-                <span className="media-lightbox__zoom-value">
-                  {lightboxZoomed ? "150%" : "100%"}
-                </span>
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label={t("editor.media.zoomIn")}
-                  disabled={lightboxZoomed}
-                  onClick={() => setLightboxZoomed(true)}
-                >
-                  <IconPlus size={17} />
-                </button>
-                <span className="media-lightbox__separator" aria-hidden />
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label={t("editor.media.downloadImage")}
-                  onClick={() =>
-                    void downloadImage(src, alt, {
-                      started: t("editor.media.imageDownloadStarted"),
-                      opened: t("editor.media.openedImageInNewTab"),
-                    })
-                  }
-                >
-                  <IconDownload size={17} />
-                </button>
-                <span className="media-lightbox__separator" aria-hidden />
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label={t("editor.media.closeImagePreview")}
-                  onClick={() => handleLightboxOpenChange(false)}
-                >
-                  <IconArrowsMinimize size={17} />
-                </button>
-              </div>
-            </DialogPrimitive.Content>
-          </DialogPortal>
-        </Dialog>
+        <ImageLightbox
+          open={lightboxOpen}
+          onOpenChange={setLightboxOpen}
+          src={displaySrc}
+          alt={alt || ""}
+        />
       </div>
     </NodeViewWrapper>
   );

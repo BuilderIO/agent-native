@@ -21,7 +21,6 @@ import {
   IconInbox,
   IconPhoto,
   IconArchive,
-  IconFileText,
   IconCalendar,
   IconMicrophone2,
   IconTrash,
@@ -38,6 +37,7 @@ import {
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router";
 
+import { ClipsComposerContextProvider } from "@/components/ClipsComposerContext";
 import {
   Collapsible,
   CollapsibleContent,
@@ -249,9 +249,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     kind: "image",
   });
   const { data: sharedCount } = useRecordingsCount({ view: "shared" });
-  const { data: fromContentCount } = useRecordingsCount({
-    view: "from-content",
-  });
   const { data: archiveCount } = useRecordingsCount({ view: "archive" });
   const { data: trashCount } = useRecordingsCount({ view: "trash" });
   const suggestionCountArgs = useMemo(() => {
@@ -273,9 +270,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       };
     }
     if (location.pathname === "/shared") return { view: "shared" as const };
-    if (location.pathname === "/from-content") {
-      return { view: "from-content" as const };
-    }
     if (location.pathname === "/archive") return { view: "archive" as const };
     if (location.pathname === "/trash") return { view: "trash" as const };
     if (spaceId && location.pathname.startsWith(`/spaces/${spaceId}`)) {
@@ -518,18 +512,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         p.startsWith("/spaces/") ||
         (p.startsWith("/r/") && recordingSection === "spaces"),
     },
-    // Only for someone who has uploaded from a Content page.
-    ...(fromContentCount || location.pathname === "/from-content"
-      ? [
-          {
-            to: "/from-content",
-            label: t("navigation.fromContent"),
-            icon: IconFileText,
-            match: (p: string) => p === "/from-content",
-            count: fromContentCount,
-          },
-        ]
-      : []),
     ...(meetingsLabEnabled
       ? [
           {
@@ -915,6 +897,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       </aside>
 
       <AgentSidebar
+        composerContextProvider={ClipsComposerContextProvider}
         position="right"
         defaultOpen={false}
         enabled={!isRecordingRoute}

@@ -7,8 +7,11 @@ import { z } from "zod";
 
 import { installBuiltinDashboardOnce } from "../server/lib/builtin-dashboards.js";
 import {
+  agentNativeSignupsSettingsUpdateSchema,
   contentCollectionConfigSchema,
   ga4PropertyIdSchema,
+  searchConsoleHistoryMonthsSchema,
+  searchConsoleQueriesPerPageSchema,
   searchConsoleSiteSchema,
   signupsSettingsUpdateSchema,
   storedSearchConsoleSiteSchema,
@@ -48,7 +51,26 @@ export default defineAction({
     searchConsole: cliBoolean
       .optional()
       .describe(
-        "Collect daily Search Console clicks and impressions. Turn on only after a property owner has given the service account access.",
+        "Collect daily Search Console clicks, impressions and average position. Turn on only after a property owner has given the service account access.",
+      ),
+    searchConsoleHistoryMonths: z.coerce
+      .number<string | number>()
+      .pipe(searchConsoleHistoryMonthsSchema)
+      .optional()
+      .describe(
+        "How many months back to fill Search Console history, 1 to 16 (default 16, all Search Console keeps). The first run reads the last 90 days; later runs fill older days 90 at a time, and query weeks a few at a time.",
+      ),
+    searchConsoleQueries: cliBoolean
+      .optional()
+      .describe(
+        "Collect each page's top Search Console queries per week (on by default whenever Search Console is). The API is free.",
+      ),
+    searchConsoleQueriesPerPage: z.coerce
+      .number<string | number>()
+      .pipe(searchConsoleQueriesPerPageSchema)
+      .optional()
+      .describe(
+        "Most queries kept per page per week, by impressions, 1 to 100 (default 25). Changing it reads the query history again.",
       ),
     searchConsoleSites: z
       .array(storedSearchConsoleSiteSchema)
@@ -60,7 +82,12 @@ export default defineAction({
     signups: signupsSettingsUpdateSchema
       .optional()
       .describe(
-        "Per-article signups settings, merged into the saved ones: enabled, signupEventsTable and firstPageviewsTable (project.dataset.table), signupSource (its signups are also counted on their own, as Source signups), signupsSince (YYYY-MM-DD) and maxBytesBilled. The step stays not set up until all are set; measure maxBytesBilled with estimate-content-signups-cost, and get it approved before turning the step on, since every run scans the warehouse.",
+        "Per-article signups settings, merged into the saved ones: enabled, signupEventsTable and firstPageviewsTable (project.dataset.table), signupSource (its signups are also counted on their own), signupsSince (YYYY-MM-DD) and maxBytesBilled. The step stays not set up until all are set; measure maxBytesBilled with estimate-content-signups-cost, and get it approved before turning the step on, since every run scans the warehouse.",
+      ),
+    agentNativeSignups: agentNativeSignupsSettingsUpdateSchema
+      .optional()
+      .describe(
+        "Agent-Native signups settings, merged into the saved ones: enabled, eventsTable (this organization's first-party analytics events, project.dataset.table) and maxBytesBilled. Signups whose link has utm_source set to the blog's host and utm_content set to an article's handle count for that article, as Agent-Native signups. Measure maxBytesBilled with estimate-content-signups-cost and get it approved before turning the step on, since every run scans the warehouse.",
       ),
   }),
   run: async (
@@ -71,7 +98,11 @@ export default defineAction({
       ga4PropertyId,
       searchConsole,
       searchConsoleSites,
+      searchConsoleHistoryMonths,
+      searchConsoleQueries,
+      searchConsoleQueriesPerPage,
       signups,
+      agentNativeSignups,
     },
     ctx,
   ) => {
@@ -95,8 +126,19 @@ export default defineAction({
       searchConsole: {
         enabled: searchConsole ?? saved.searchConsole.enabled,
         sites: searchConsoleSites ?? saved.searchConsole.sites,
+        historyMonths:
+          searchConsoleHistoryMonths ?? saved.searchConsole.historyMonths,
+      },
+      searchConsoleQueries: {
+        enabled: searchConsoleQueries ?? saved.searchConsoleQueries.enabled,
+        perPage:
+          searchConsoleQueriesPerPage ?? saved.searchConsoleQueries.perPage,
       },
       signups: { ...saved.signups, ...signups },
+      agentNativeSignups: {
+        ...saved.agentNativeSignups,
+        ...agentNativeSignups,
+      },
     });
     if (enabled && config.searchConsole.enabled) {
       z.array(searchConsoleSiteSchema)

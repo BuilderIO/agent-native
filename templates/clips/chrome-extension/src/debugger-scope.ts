@@ -8,12 +8,15 @@ export const MAX_DEBUGGED_TABS = 5;
 export const RECENT_TAB_WINDOW_MS = 10 * 60 * 1000;
 const MAX_TRACKED_ACTIVATIONS = 50;
 
-export type TabActivation = { tabId: number; lastActiveMs: number };
+export type TabActivation = {
+  tabId: number;
+  lastActiveMs: number;
+  windowId?: number;
+};
 
-// The recording's own tab first, then tabs active within the window, most
-// recent first, capped at MAX_DEBUGGED_TABS.
 export function pickDebugTabIds(input: {
   targetTabId: number;
+  targetWindowId: number | undefined;
   activations: readonly TabActivation[];
   nowMs: number;
 }): number[] {
@@ -21,6 +24,8 @@ export function pickDebugTabIds(input: {
     .filter(
       (tab) =>
         tab.tabId !== input.targetTabId &&
+        input.targetWindowId !== undefined &&
+        tab.windowId === input.targetWindowId &&
         input.nowMs - tab.lastActiveMs <= RECENT_TAB_WINDOW_MS,
     )
     .sort((a, b) => b.lastActiveMs - a.lastActiveMs)
@@ -32,9 +37,10 @@ export function recordTabActivation(
   activations: readonly TabActivation[],
   tabId: number,
   nowMs: number,
+  windowId?: number,
 ): TabActivation[] {
   return [
-    { tabId, lastActiveMs: nowMs },
+    { tabId, lastActiveMs: nowMs, windowId },
     ...activations.filter(
       (tab) =>
         tab.tabId !== tabId && nowMs - tab.lastActiveMs <= RECENT_TAB_WINDOW_MS,

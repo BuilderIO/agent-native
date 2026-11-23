@@ -74,6 +74,7 @@ async function recordPolicyAudit(
 }
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Read or change the organization's \"Restrict personal API keys\" setting. While restricted, members (not owners or admins) can't use or save their own model provider keys (Anthropic, OpenAI, Gemini, OpenRouter, and the rest) or a personal Builder.io connection, so their chats use organization providers only. Nothing is deleted: turning it off makes their stored keys work again. Omit `set` to read the setting; owners and admins also get `affectedMembers` (each member and the providers that stop working for them). Pass `set` to change it; owners and admins only. Before turning it on, read it first and tell the user who is affected.",
   schema: z.object({
@@ -98,6 +99,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpTool: false,
   run: async (args, ctx): Promise<ProviderKeyPolicyStatus> => {
     const email = ctx?.userEmail?.trim().toLowerCase();
     const orgId = ctx?.orgId?.trim();

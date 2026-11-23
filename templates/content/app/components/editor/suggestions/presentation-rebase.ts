@@ -1,6 +1,11 @@
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { canonicalizeNfm } from "@shared/nfm";
-import { markdownSuggestionOperations } from "@shared/suggestion-diff";
+import { operationOnText } from "@shared/suggestion-apply";
+import {
+  joinRewrittenParagraphs,
+  markdownSuggestionOperations,
+  type MarkdownSuggestionOperation,
+} from "@shared/suggestion-diff";
 import {
   SuggestionFormattingMappingError,
   suggestionSourceAlignment,
@@ -130,24 +135,42 @@ function verifiedTransition(transition: SuggestionPresentationTransition) {
 
 // Saved operations keep their identity across renders, and each one diffs a
 // full Page, so a Page with many suggestions reuses the result.
-const preciseOperationsBySaved = new WeakMap<
+const presentationOperationsBySaved = new WeakMap<
   object,
-  ReturnType<typeof computePreciseSuggestionPresentationOperations>
+  ReturnType<typeof computeSuggestionPresentationOperations>
 >();
 
+function suggestionPresentationOperations(operation: MarkdownOperation) {
+  const cached = presentationOperationsBySaved.get(operation);
+  if (cached !== undefined) return cached;
+  const computed = computeSuggestionPresentationOperations(operation);
+  presentationOperationsBySaved.set(operation, computed);
+  return computed;
+}
+
+/** A saved operation cut down to the words each of its changes touches. */
 export function preciseSuggestionPresentationOperations(
   operation: MarkdownOperation,
 ) {
-  if (preciseOperationsBySaved.has(operation))
-    return preciseOperationsBySaved.get(operation)!;
-  const precise = computePreciseSuggestionPresentationOperations(operation);
-  preciseOperationsBySaved.set(operation, precise);
-  return precise;
+  const computed = suggestionPresentationOperations(operation);
+  return computed ? computed.precise : null;
 }
 
-function computePreciseSuggestionPresentationOperations(
+/**
+ * The changes to draw for a saved operation: its precise changes, with each
+ * paragraph they mostly rewrite drawn as one. Storing joins such a paragraph,
+ * so drawing it split would show word pieces after all. Rebasing keeps the
+ * precise changes: a joined change also covers the words it keeps, so another
+ * edit to those words would seem to collide with it.
+ */
+export function drawnSuggestionPresentationOperations(
   operation: MarkdownOperation,
 ) {
+  const computed = suggestionPresentationOperations(operation);
+  return computed ? computed.drawn : null;
+}
+
+function computeSuggestionPresentationOperations(operation: MarkdownOperation) {
   const identity = operation as MarkdownOperation & {
     targetId?: unknown;
     kind?: unknown;
@@ -171,33 +194,41 @@ function computePreciseSuggestionPresentationOperations(
   )
     return null;
   try {
-    const precise = markdownSuggestionOperations(
+    const siblings =
+      (operation.anchor as { siblingRanges?: Range[] }).siblingRanges ?? [];
+    const spans = (pieces: MarkdownSuggestionOperation[]) => {
+      const changes = pieces.map((span) => ({
+        from: span.anchor.from,
+        to: span.anchor.to,
+        beforeText: span.before.changedText,
+        afterText: span.after.changedText,
+      }));
+      if (
+        pieces.length === 0 ||
+        changes.some(
+          (span) =>
+            span.from < checked.range.from || span.to > checked.range.to,
+        ) ||
+        reconstruct(checked.before.markdown, changes) !== checked.after.markdown
+      )
+        return null;
+      return pieces.map((span) => ({
+        ...span,
+        anchor: {
+          ...span.anchor,
+          siblingRanges: [...(span.anchor.siblingRanges ?? []), ...siblings],
+        },
+      }));
+    };
+    const pieces = markdownSuggestionOperations(
       checked.before.markdown,
       checked.after.markdown,
     );
-    const changes = precise.map((span) => ({
-      from: span.anchor.from,
-      to: span.anchor.to,
-      beforeText: span.before.changedText,
-      afterText: span.after.changedText,
-    }));
-    if (
-      precise.length === 0 ||
-      changes.some(
-        (span) => span.from < checked.range.from || span.to > checked.range.to,
-      ) ||
-      reconstruct(checked.before.markdown, changes) !== checked.after.markdown
-    )
-      return null;
-    const siblings =
-      (operation.anchor as { siblingRanges?: Range[] }).siblingRanges ?? [];
-    return precise.map((span) => ({
-      ...span,
-      anchor: {
-        ...span.anchor,
-        siblingRanges: [...(span.anchor.siblingRanges ?? []), ...siblings],
-      },
-    }));
+    const precise = spans(pieces);
+    if (!precise) return null;
+    const joined = joinRewrittenParagraphs(checked.before.markdown, pieces);
+    const drawn = joined === pieces ? precise : spans(joined);
+    return { precise, drawn: drawn ?? precise };
   } catch (error) {
     if (!(error instanceof SuggestionFormattingMappingError)) throw error;
     return null;
@@ -405,9 +436,78 @@ export function retainCommittedSuggestionPresentationTransitions(
   return next;
 }
 
+function placesOnResult(
+  operation: MarkdownOperation,
+  transition: SuggestionPresentationTransition,
+) {
+  const precise = dependentPresentationOperations(operation, transition);
+  return (
+    precise !== null &&
+    precise.every(
+      (span) =>
+        resolveSuggestionPresentationRange(
+          transition.after,
+          span,
+          transition,
+        ) !== null,
+    )
+  );
+}
+
+// A piece can depend on several accepted edits at once, such as the rest of its
+// own edit and a neighboring one. None of them alone explains the Page then, but
+// together they can. Records that only repeat one another add no proof.
+function jointTransition(
+  operation: MarkdownOperation,
+  transitions: SuggestionPresentationTransition[],
+) {
+  const [first = null, ...rest] = transitions;
+  if (!first || rest.length === 0) return null;
+  const joint = rest.reduce<SuggestionPresentationTransition | null>(
+    (all, transition) => all && combinePresentationTransitions(all, transition),
+    first,
+  );
+  return joint &&
+    transitions.every(({ changes }) => joint.changes.length > changes.length) &&
+    placesOnResult(operation, joint)
+    ? joint
+    : null;
+}
+
+type SavedOperation = ResourceSuggestion["operations"][number];
+const operationsOnBasis = new WeakMap<
+  SavedOperation,
+  Map<string, SavedOperation | null>
+>();
+
+function firstOperation(suggestion: {
+  operations: SavedOperation[];
+}): SavedOperation | undefined {
+  return suggestion.operations[0];
+}
+
+function operationOnBasis(operation: SavedOperation, basis: string) {
+  let moved = operationsOnBasis.get(operation);
+  if (!moved) operationsOnBasis.set(operation, (moved = new Map()));
+  const known = moved.get(basis);
+  if (known !== undefined) return known;
+  const anchor = operation.anchor as {
+    prefix?: unknown;
+    suffix?: unknown;
+  } | null;
+  const result =
+    typeof anchor?.prefix === "string" && typeof anchor.suffix === "string"
+      ? operationOnText(operation, basis)
+      : null;
+  moved.set(basis, result);
+  return result;
+}
+
 export function hydrateSuggestionPresentationTransitions(
   current: SuggestionPresentationTransitions,
-  suggestions: PendingSuggestion[],
+  suggestions: Array<
+    PendingSuggestion & { proposalId?: ResourceSuggestion["proposalId"] }
+  >,
   committed: Array<
     Pick<ResourceSuggestion, "status" | "operations"> & {
       proposalId?: ResourceSuggestion["proposalId"];
@@ -423,28 +523,46 @@ export function hydrateSuggestionPresentationTransitions(
       !retained.has(suggestionPresentationTransitionKey(suggestion)),
   );
   if (missing.length === 0) return retained;
-  const bases = new Set(
-    missing.map(
-      (suggestion) =>
-        checkedOperation(suggestion.operations[0]!)?.before.markdown,
-    ),
-  );
-  const groups = new Map<string, typeof committed>();
-  committed.forEach((suggestion, index) => {
-    const operation = suggestion.operations[0];
+  const bases = new Set<string>();
+  const proposalBases = new Map<string, Set<string>>();
+  for (const suggestion of missing) {
+    const [operation] = suggestion.operations;
     const basis = operation && checkedOperation(operation)?.before.markdown;
-    if (
-      suggestion.status !== "accepted" ||
-      basis === undefined ||
-      !bases.has(basis)
-    )
-      return;
-    const key = suggestion.proposalId
-      ? JSON.stringify([suggestion.proposalId, basis])
-      : `record:${index}`;
+    if (basis === undefined) continue;
+    bases.add(basis);
+    if (!suggestion.proposalId) continue;
+    const known = proposalBases.get(suggestion.proposalId) ?? new Set();
+    proposalBases.set(suggestion.proposalId, known.add(basis));
+  }
+  const groups = new Map<string, typeof committed>();
+  const group = (key: string, member: (typeof committed)[number]) => {
     const members = groups.get(key) ?? [];
-    members.push(suggestion);
+    members.push(member);
     groups.set(key, members);
+  };
+  committed.forEach((suggestion, index) => {
+    const operation = firstOperation(suggestion);
+    if (!operation || suggestion.status !== "accepted") return;
+    const basis = checkedOperation(operation)?.before.markdown;
+    if (basis === undefined) return;
+    if (bases.has(basis))
+      group(
+        suggestion.proposalId
+          ? JSON.stringify([suggestion.proposalId, basis])
+          : `record:${index}`,
+        suggestion,
+      );
+    const late = suggestion.proposalId
+      ? proposalBases.get(suggestion.proposalId)
+      : undefined;
+    for (const onto of late ?? []) {
+      const moved = onto === basis ? null : operationOnBasis(operation, onto);
+      if (moved)
+        group(JSON.stringify([suggestion.proposalId, onto]), {
+          ...suggestion,
+          operations: [moved],
+        });
+    }
   });
   const candidates = [...groups.values()]
     .map(createCommittedSuggestionPresentationTransition)
@@ -456,22 +574,13 @@ export function hydrateSuggestionPresentationTransitions(
   let next: Map<string, SuggestionPresentationTransition> | undefined;
   for (const suggestion of missing) {
     const operation = suggestion.operations[0]!;
-    const matching = candidates.filter((transition) => {
-      const precise = dependentPresentationOperations(operation, transition);
-      return (
-        precise &&
-        precise.every(
-          (span) =>
-            resolveSuggestionPresentationRange(
-              transition.after,
-              span,
-              transition,
-            ) !== null,
-        )
-      );
-    });
-    if (matching.length !== 1) continue;
-    const transition = matching[0]!;
+    const matching = candidates.filter((transition) =>
+      placesOnResult(operation, transition),
+    );
+    const [only, ...others] = matching;
+    const transition =
+      others.length === 0 ? only : jointTransition(operation, matching);
+    if (!transition) continue;
     const precise = dependentPresentationOperations(operation, transition)!;
     if (
       canonical !== canonicalizeNfm(transition.before) &&

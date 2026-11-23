@@ -66,6 +66,8 @@ export type DragHandleMenuRequest = {
   dispatch: (tr: Transaction) => void;
   duplicate: () => void;
   remove: () => void;
+  /** Adds an empty paragraph above the block, with the caret in it. */
+  insertAbove: () => void;
   insertBelow: () => void;
   /** Tells the grip the menu closed. */
   onClose: () => void;
@@ -926,18 +928,27 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       );
     };
 
-    const insertParagraphBelow = (context: DragHandleMenuContext) => {
+    const insertParagraph = (
+      context: DragHandleMenuContext,
+      side: "above" | "below",
+    ) => {
       const resolved = resolveMenuContext(context);
       const paragraph = resolved?.view.state.schema.nodes.paragraph;
       if (!resolved || !paragraph) return;
 
-      const insertPos = resolved.sourcePos + resolved.sourceNodeSize;
+      const insertPos =
+        side === "above"
+          ? resolved.sourcePos
+          : resolved.sourcePos + resolved.sourceNodeSize;
       const paragraphNode = paragraph.createAndFill() ?? paragraph.create();
       const tr = resolved.view.state.tr.insert(insertPos, paragraphNode);
       tr.setSelection(TextSelection.create(tr.doc, insertPos + 1));
       resolved.view.dispatch(markUserAction(tr).scrollIntoView());
       resolved.view.focus();
     };
+
+    const insertParagraphBelow = (context: DragHandleMenuContext) =>
+      insertParagraph(context, "below");
 
     const resolveMenuAnchorRect = (
       ...candidates: Array<Element | null | undefined>
@@ -1069,6 +1080,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
           },
           duplicate: () => duplicateBlock(block),
           remove: () => deleteBlock(block),
+          insertAbove: () => insertParagraph(block, "above"),
           insertBelow: () => insertParagraphBelow(block),
           onClose: () => {
             if (hostMenu !== entry) return;
@@ -1435,7 +1447,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
         !menuPanned &&
         active instanceof Element &&
         active.matches("input, textarea") &&
-        active.closest('[role="menu"]') &&
+        active.closest('[role="menu"], [role="dialog"]') &&
         typeof window.matchMedia === "function" &&
         window.matchMedia("(pointer: coarse)").matches
       ) {
@@ -1469,6 +1481,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
           const sourceNode = session.view.state.doc.nodeAt(sourceStart);
           if (sourceNode) {
             let dropCommitted = false;
+            let caretPos = dropPos;
             const sourceRegistration = registrationForView(session.view);
             const transferData = sourceRegistration?.getDragTransferData?.({
               view: session.view,
@@ -1497,11 +1510,14 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             } else if (target.view === session.view) {
               const insertPos =
                 dropPos > sourceStart ? dropPos - sourceNode.nodeSize : dropPos;
+              // Deleting the old copy shifts later blocks up, so a block moved
+              // down starts at insertPos, not dropPos. The caret follows it.
+              caretPos = insertPos;
               const tr = session.view.state.tr
                 .delete(sourceStart, sourceEnd)
                 .insert(insertPos, sourceNode);
 
-              session.view.dispatch(markUserAction(tr).scrollIntoView());
+              session.view.dispatch(markUserAction(tr));
               dropCommitted = true;
             } else {
               try {
@@ -1533,7 +1549,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             }
 
             if (dropCommitted) {
-              collapseAndBlurEditorAfterDrop(target.view, dropPos);
+              collapseAndBlurEditorAfterDrop(target.view, caretPos);
               if (target.view !== session.view) {
                 collapseAndBlurEditorAfterDrop(session.view, sourceStart);
               }

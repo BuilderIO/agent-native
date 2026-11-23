@@ -136,6 +136,7 @@ async function insertGeneratedImageWithStatus(args: {
 }
 
 export default defineAction({
+  searchHints: ["create an image", "picture", "illustration", "AI image"],
   description:
     "Generate a slide image locally by default. Set `useBrandLibrary: true` only when the user asks for Assets' brand library or an asset/capability exclusive to Assets is required; this delegates through A2A and falls back locally only when Assets is unreachable. Show the returned `url` as inline markdown (![alt](url)), never as a bare link. If `insertIntoSlide` returns `inserted: false`, the generated URL is still available; report the insertion error and reuse that URL instead of generating again.",
   schema: z.object({

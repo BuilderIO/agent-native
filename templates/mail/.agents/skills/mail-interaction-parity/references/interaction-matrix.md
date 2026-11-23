@@ -93,8 +93,9 @@ traffic to any one path.
 - NAV-007 — Resize 1440×900 → 1024×768 → 768×1024 → 390×844 while a list,
   thread, dropdown, snooze modal, and compose are open. Check overflow,
   popover anchoring, focus, and action reachability.
-- NAV-008 — Collapse, pin, expand, and unpin the sidebar. Reload and confirm
-  the preference persists without changing the mailbox view.
+- NAV-008 — Collapse and expand the docked sidebar. Reload and confirm the
+  choice persists without changing the mailbox view; with no saved choice,
+  windows under 1280 px start collapsed to icons.
 - NAV-009 — Switch one account, multiple accounts, and combined inbox. Confirm
   rows, labels, counts, sender dots, account selector, and mutation targets are
   scoped to the same accounts.
@@ -652,7 +653,9 @@ app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.t
   account, reauth, account-specific contacts, and preserved draft account.
 - COMPOSE-012 — Type, blur, route-change, refresh, close, reopen, multi-tab, and
   concurrent-agent draft updates. Confirm app state and persistent draft stay
-  distinct and failure is visible.
+  distinct and failure is visible. When an agent update and typing overlap,
+  including after choosing the other version in the conflict prompt, confirm
+  the Gmail draft ends with the text Mail stores.
 - COMPOSE-013 — Close one or all popout/inline drafts while persistence is
   pending; choose Reopen or Delete from the recovery toast. Repeat with To-only,
   Cc-only, Bcc-only, failed save, existing Gmail draft, local fallback, and a
@@ -1129,9 +1132,18 @@ app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.t
   Command → Shortcuts reference displays both. Focused list mutation coverage,
   conversation source coverage, and the full Mail suite passed on 2026-09-14
   (963 tests across 112 files).
-  The thread toolbar now advertises the same `D / #` aliases as the local
-  Command → Shortcuts reference; the paired toolbar tooltip appearance and
-  full shortcut replay remain unverified.
+  On 2026-11-08 Mail re-mapped the keys whose meaning contradicted this
+  baseline: `?` opens the agent chat (Superhuman's Ask AI), Shift+U opens
+  Unread instead of marking unread, Shift+I is unbound (Mail has no fixed
+  Important view), `x` selects the focused conversation, Space/Shift+Space
+  page the list or the open conversation instead of selecting a row, and Enter
+  in a conversation is Reply All while `o` expands. Delete and Backspace stay
+  unbound because the baseline binds neither. Every row and conversation
+  toolbar button now shows its name and Superhuman's key in one shared
+  tooltip (`ActionTooltip`); Mail-only aliases (`d`, `a`) still work but are
+  not advertised there. Arrow keys in an open conversation move to the
+  next/previous conversation; the baseline's "arrows Superhuman Focus" entry
+  is ambiguous, so pair that one before claiming parity.
 
 - SETTINGS-008 — Compare notification preferences by platform and account.
   On desktop, toggle Email Notifications from Command and distinguish the app

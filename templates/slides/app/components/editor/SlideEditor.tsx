@@ -182,6 +182,7 @@ import {
   type FloatingToolbarMoveTool,
   type FloatingToolbarTransition,
 } from "./FloatingToolbar";
+import { SLIDE_FONT_SIZE_MIN, SLIDE_FONT_SIZE_MAX } from "./font-size-scale";
 import { HandPanLayer } from "./HandPanLayer";
 import ImageCropOverlay, {
   writeImageCropPercentGeometry,
@@ -205,6 +206,8 @@ import {
 } from "./list-editing";
 import {
   applyInlineTextStyle,
+  applyInlineFontSizeDelta,
+  applyObjectFontSizeDelta,
   getInlineTextStyleSnapshot,
   getInlineTextStyleSnapshotForRange,
   normalizeSlideClipboardHtml,
@@ -3068,17 +3071,20 @@ export default function SlideEditor({
     [persistInlineEditDraft, serializeSlideContentHtml, t],
   );
 
-  const flushInlineEditDraft = useCallback(() => {
-    const activeSlideId = textSessionRef.current?.slideId;
-    if (activeSlideId === slide.id) captureInlineEditDraft(activeSlideId);
-    const draft = inlineEditDraftRef.current;
-    if (!draft) return false;
-    if (activeSlideId !== slide.id && draft.slideId === slide.id) {
-      captureInlineEditDraft(draft.slideId);
-    }
-    flushPendingSaves();
-    return true;
-  }, [captureInlineEditDraft, slide.id]);
+  const flushInlineEditDraft = useCallback(
+    (options?: { keepalive?: boolean }) => {
+      const activeSlideId = textSessionRef.current?.slideId;
+      if (activeSlideId === slide.id) captureInlineEditDraft(activeSlideId);
+      const draft = inlineEditDraftRef.current;
+      if (!draft) return false;
+      if (activeSlideId !== slide.id && draft.slideId === slide.id) {
+        captureInlineEditDraft(draft.slideId);
+      }
+      flushPendingSaves(options);
+      return true;
+    },
+    [captureInlineEditDraft, slide.id],
+  );
 
   useEffect(() => {
     if (!flushInlineEditRef) return;
@@ -3094,24 +3100,29 @@ export default function SlideEditor({
   // not rerender the contentEditable on every keystroke. Hand that draft to
   // the keepalive queue before browser teardown.
   useEffect(() => {
+    // Hidden and beforeunload leave the page alive, so a plain request can
+    // carry a body past the keepalive cap; DeckContext's own listeners would
+    // otherwise find a keepalive request already started and not replay it.
+    const flushPlain = () => flushInlineEditDraft({ keepalive: false });
+    const flushKeepalive = () => flushInlineEditDraft();
     const flushWhenHidden = () => {
-      if (document.visibilityState === "hidden") flushInlineEditDraft();
+      if (document.visibilityState === "hidden") flushPlain();
     };
 
-    window.addEventListener("beforeunload", flushInlineEditDraft, {
+    window.addEventListener("beforeunload", flushPlain, {
       capture: true,
     });
-    window.addEventListener("pagehide", flushInlineEditDraft, {
+    window.addEventListener("pagehide", flushKeepalive, {
       capture: true,
     });
     document.addEventListener("visibilitychange", flushWhenHidden, {
       capture: true,
     });
     return () => {
-      window.removeEventListener("beforeunload", flushInlineEditDraft, {
+      window.removeEventListener("beforeunload", flushPlain, {
         capture: true,
       });
-      window.removeEventListener("pagehide", flushInlineEditDraft, {
+      window.removeEventListener("pagehide", flushKeepalive, {
         capture: true,
       });
       document.removeEventListener("visibilitychange", flushWhenHidden, {
@@ -10650,7 +10661,8 @@ export default function SlideEditor({
   }, [getRichTextEditorSurface]);
 
   const applySelectedStylePatch = useCallback(
-    (patch: SlideStylePatch) => {
+    (patch: SlideStylePatch, fontSizeStep?: number) => {
+      const sizeBounds = { min: SLIDE_FONT_SIZE_MIN, max: SLIDE_FONT_SIZE_MAX };
       if (multiSelection.size > 0) {
         const targets = getStyleTargets();
         const currentSnapshot = mergeSlideStyleSnapshots(
@@ -10672,8 +10684,12 @@ export default function SlideEditor({
               );
         let rotationApplied = true;
         for (const target of targets) {
-          const result = applyStylePatchToElement(target, patch);
-          rotationApplied &&= result.rotationApplied;
+          if (fontSizeStep !== undefined) {
+            applyObjectFontSizeDelta(target, fontSizeStep, sizeBounds);
+          } else {
+            const result = applyStylePatchToElement(target, patch);
+            rotationApplied &&= result.rotationApplied;
+          }
         }
         if (patch.rotation !== undefined) {
           rotationApplied &&= targets.every((target) =>
@@ -10716,7 +10732,36 @@ export default function SlideEditor({
         (editing
           ? snapshotEditableTextRange(getRichTextEditorSurface() ?? editing)
           : null);
-      const result = applyStylePatchToElement(element, patch, savedRange);
+      let result: { styledRange: Range | null; rotationApplied: boolean };
+      if (fontSizeStep !== undefined) {
+        let styledRange: Range | null = null;
+        const applyDelta = () => {
+          if (savedRange) {
+            const applied = applyInlineFontSizeDelta(
+              element,
+              fontSizeStep,
+              sizeBounds,
+              null,
+              savedRange,
+            );
+            if (applied.scope === "selection") {
+              styledRange = applied.range ?? null;
+              return applied.changed;
+            }
+          }
+          return applyObjectFontSizeDelta(element, fontSizeStep, sizeBounds)
+            .changed;
+        };
+        const session =
+          textSessionRef.current?.text.element === element
+            ? textSessionRef.current.text
+            : null;
+        const changed = session ? session.apply(applyDelta) : applyDelta();
+        if (!changed) return;
+        result = { styledRange, rotationApplied: true };
+      } else {
+        result = applyStylePatchToElement(element, patch, savedRange);
+      }
       const nextRange = result.styledRange;
       if (editing && nextRange) {
         richTextSelectionRef.current = nextRange.cloneRange();
@@ -12297,7 +12342,6 @@ export default function SlideEditor({
         key={slideId || slide.id}
         active={!!pinMode}
         canComment={canComment}
-        canEdit={!readOnly}
         comments={comments}
         deckId={deckId ?? null}
         slideId={slideId || slide.id}

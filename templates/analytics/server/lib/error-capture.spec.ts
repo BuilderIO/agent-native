@@ -6,7 +6,16 @@ const { PGlite } = createRequire(
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 type SqlStatement = string | { sql: string; args?: unknown[] };
 
@@ -84,6 +93,7 @@ import {
   type DerivedExceptionFields,
   type RawExceptionInput,
 } from "./error-capture";
+import { resetPublicSchema } from "./testing/pglite-reset";
 
 describe("parseStack", () => {
   it("parses V8/Chrome frames with function + location", () => {
@@ -618,8 +628,16 @@ async function createTables(client: PGliteClient): Promise<void> {
 describe("ingestException", () => {
   let client: PGliteClient;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     await createTables(client);
     const db = drizzle(client, { schema });
     getDbMock.mockReturnValue(db);
@@ -627,10 +645,6 @@ describe("ingestException", () => {
     notifyWithDeliveryMock.mockClear();
     getUserSettingMock.mockReset();
     getUserSettingMock.mockResolvedValue(null);
-  });
-
-  afterEach(async () => {
-    await client.close();
   });
 
   async function loadIssues() {
@@ -844,6 +858,64 @@ describe("ingestException", () => {
       { userId: "tim@example.com" },
     );
     expect(byUserKey.map((issue) => issue.id)).toEqual([tim.issueId]);
+  });
+
+  it("finds an issue by the traffic it occurred in and keeps its counts merged", async () => {
+    const betaUrl = "https://beta.slides.example.com/deck";
+    const productionUrl = "https://slides.example.com/deck";
+    const otherFailure = (message: string, environment: string | null) =>
+      baseRaw({
+        type: "RangeError",
+        message,
+        environment,
+        rawStack: `RangeError: ${message}\n    at ${message} (https://app.example.com/assets/${message}.js:1:1)`,
+      });
+
+    const onBoth = await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ url: productionUrl }),
+    );
+    await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ url: betaUrl, timestamp: "2026-07-08T12:01:00.000Z" }),
+    );
+    const onBeta = await ingestException(
+      SCOPE,
+      otherFailure("betaFailure", "production"),
+      derivedFor({ url: betaUrl }),
+    );
+    const noHostMarkedBeta = await ingestException(
+      SCOPE,
+      otherFailure("markedFailure", "beta"),
+      derivedFor({ url: null }),
+    );
+    const noHost = await ingestException(
+      SCOPE,
+      otherFailure("unmarkedFailure", null),
+      derivedFor({ url: null }),
+    );
+    const viewer = { userEmail: SCOPE.ownerEmail, orgId: null };
+
+    const beta = await listErrorIssues(viewer, { environment: "beta" });
+    const production = await listErrorIssues(viewer, {
+      environment: "production",
+    });
+    const all = await listErrorIssues(viewer);
+
+    expect(beta.map((issue) => issue.id).sort()).toEqual(
+      [onBoth.issueId, onBeta.issueId, noHostMarkedBeta.issueId].sort(),
+    );
+    expect(production.map((issue) => issue.id).sort()).toEqual(
+      [onBoth.issueId, noHost.issueId].sort(),
+    );
+    expect(all).toHaveLength(4);
+    for (const issues of [beta, production, all]) {
+      expect(
+        issues.find((issue) => issue.id === onBoth.issueId)?.eventCount,
+      ).toBe(2);
+    }
   });
 
   it("does not match an occurrence outside its issue owner scope", async () => {
@@ -1065,14 +1137,18 @@ describe("ingestException", () => {
 describe("listRecordingErrorIssues", () => {
   let client: PGliteClient;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
-    await createTables(client);
-    getDbMock.mockReturnValue(drizzle(client, { schema }));
   });
 
-  afterEach(async () => {
+  afterAll(async () => {
     await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
+    await createTables(client);
+    getDbMock.mockReturnValue(drizzle(client, { schema }));
   });
 
   it("uses the legacy recording session while associations are not migrated", async () => {
@@ -1355,8 +1431,16 @@ describe("listRecordingErrorIssues", () => {
 describe("matchErrorIssuesBySignatures", () => {
   let client: PGliteClient;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     await createTables(client);
     const db = drizzle(client, { schema });
     getDbMock.mockReturnValue(db);
@@ -1364,10 +1448,6 @@ describe("matchErrorIssuesBySignatures", () => {
     notifyWithDeliveryMock.mockClear();
     getUserSettingMock.mockReset();
     getUserSettingMock.mockResolvedValue(null);
-  });
-
-  afterEach(() => {
-    client.close();
   });
 
   it("resolves a session console error line to its captured issue", async () => {
@@ -1750,11 +1830,19 @@ describe("extractExceptionInput PII", () => {
 describe("error ingest flood control", () => {
   let client: PGliteClient;
 
+  beforeAll(async () => {
+    client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-01T12:00:00.000Z"));
     resetErrorIngestStateForTests();
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createTables(client);
     getDbMock.mockReturnValue(drizzle(client, { schema }));
     recordChangeMock.mockReset();
@@ -1766,7 +1854,6 @@ describe("error ingest flood control", () => {
   afterEach(async () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
-    await client.close();
   });
 
   const db = () => drizzle(client, { schema }) as any;
@@ -1922,6 +2009,33 @@ describe("error ingest flood control", () => {
     [issue] = await issues();
     expect(issue.eventCount).toBe(121);
     expect(await events()).toHaveLength(22);
+  });
+
+  it("samples each kind of traffic on its own once an issue is hot", async () => {
+    const at = (n: number, url: string | null) =>
+      derivedFor({
+        userKey: "same-user",
+        anonymousId: "same-user",
+        sessionId: `s${n}`,
+        url,
+      });
+    const production = "https://app.example.com/dashboard";
+    const beta = "https://beta.app.example.com/dashboard";
+    for (let i = 0; i < 21; i += 1) {
+      await ingestException(SCOPE, baseRaw(), at(i, production));
+    }
+    expect(await events()).toHaveLength(21);
+
+    await ingestException(SCOPE, baseRaw(), at(21, production));
+    expect(await events()).toHaveLength(21);
+
+    await ingestException(SCOPE, baseRaw(), at(22, beta));
+    expect(await events()).toHaveLength(22);
+    await ingestException(SCOPE, baseRaw(), at(23, beta));
+    expect(await events()).toHaveLength(22);
+
+    const [issue] = await issues();
+    expect(issue.eventCount).toBe(24);
   });
 
   it("still stores the first event from each new user so usersAffected keeps growing", async () => {

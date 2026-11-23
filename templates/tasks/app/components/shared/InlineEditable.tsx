@@ -1,3 +1,4 @@
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   useEffect,
   useRef,
@@ -52,9 +53,10 @@ function useInlineTitleEdit(input: {
     setEditing(false);
     try {
       await input.onSave(trimmed);
-    } catch {
+    } catch (error) {
       setOptimisticTitle(null);
       setDraftTitle(input.title);
+      reportWriteFailure(error);
     }
   }
 
@@ -101,6 +103,7 @@ interface InlineEditableProps {
   displayDone?: boolean;
   className?: string;
   onDisplayTitleChange?: (title: string) => void;
+  onEditStart?: () => void;
 }
 
 export function InlineEditable({
@@ -112,6 +115,7 @@ export function InlineEditable({
   displayDone = false,
   className,
   onDisplayTitleChange,
+  onEditStart,
 }: InlineEditableProps) {
   const {
     editing,
@@ -151,7 +155,10 @@ export function InlineEditable({
     <button
       type="button"
       {...titleDragProps}
-      onClick={() => setEditing(true)}
+      onClick={() => {
+        onEditStart?.();
+        setEditing(true);
+      }}
       disabled={disabled}
       className={cn(
         LIST_ROW_TITLE_FIELD_CLASS,

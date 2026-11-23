@@ -10,7 +10,10 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isTerminalRecoveryErrorCode,
 } from "../agent/engine/error-detail.js";
-import type { AgentChatRichEventEnvelope } from "../agent/types.js";
+import type {
+  A2APeerApproval,
+  AgentChatRichEventEnvelope,
+} from "../agent/types.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { normalizeConnectRequiredResult } from "../shared/connect-required.js";
@@ -107,6 +110,7 @@ export interface SSEEvent {
   suggestions?: AgentSuggestion[];
   event?: AgentChatRichEventEnvelope;
   tool?: string;
+  navigationKeys?: string[];
   /** Server-assigned call identifier emitted on tool_start / tool_done events. */
   id?: string;
   /** Stable transport identity, preserved when a durable turn is replayed. */
@@ -148,12 +152,15 @@ export interface SSEEvent {
   agentCallId?: string;
   durationMs?: number;
   terminalCode?: string;
+  /** A peer approval on a pending `agent_call` (mirrors AgentChatEvent). */
+  approval?: A2APeerApproval;
   snapshot?: A2AAgentActivitySnapshot;
   reason?: string;
   // Agent task fields
   taskId?: string;
   threadId?: string;
   description?: string;
+  name?: string;
   preview?: string;
   currentStep?: string;
   summary?: string;
@@ -1425,6 +1432,14 @@ function hasCompletedUserFacingToolOutput(content: ContentPart[]): boolean {
   return hasCompletedTool && lastCompletedToolIsUserFacing;
 }
 
+export function hasFailedOrUnknownToolResult(content: ContentPart[]): boolean {
+  return content.some(
+    (part) =>
+      part.type === "tool-call" &&
+      (part.isError === true || part.outcome === "unknown"),
+  );
+}
+
 export function appendMissingFinalResponseWarning(
   content: ContentPart[],
   completedToolNames?: Iterable<string>,
@@ -1989,6 +2004,7 @@ export function processEvent(
             result: ev.result,
             isError: ev.isError === true,
             completedSideEffect: ev.completedSideEffect === true,
+            navigationKeys: ev.navigationKeys,
             tabId,
             browserTabId: getBrowserTabId(),
             runId: context?.runId,
@@ -2453,10 +2469,13 @@ export function processEvent(
         },
       };
     }
-    const runWarning = appendMissingFinalResponseWarning(
-      content,
-      state ? state.completedToolsAfterLastAssistantText : undefined,
-    );
+    const runWarning =
+      ev.reason === "action_settled" && !hasFailedOrUnknownToolResult(content)
+        ? null
+        : appendMissingFinalResponseWarning(
+            content,
+            state ? state.completedToolsAfterLastAssistantText : undefined,
+          );
     if (runWarning) {
       return {
         action: "done",

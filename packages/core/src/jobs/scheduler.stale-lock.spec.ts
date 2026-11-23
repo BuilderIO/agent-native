@@ -501,6 +501,11 @@ describe("stale automation run-lock recovery across trigger types", () => {
     "settles an invalid %s firing reference once without replay or foreign history writes",
     async (problem) => {
       const fixture = interruptedScheduledJob();
+      const deps = { ...recoveryDeps, appId: "reports" };
+      fixture.resource.content = fixture.resource.content.replace(
+        "enabled: true",
+        `enabled: true\nappId: ${deps.appId}`,
+      );
       const referenced =
         problem === "missing"
           ? null
@@ -515,7 +520,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
       );
       const finish = vi.spyOn(runHistory, "finishAutomationRun");
       try {
-        await processRecurringJobs(recoveryDeps);
+        await processRecurringJobs(deps);
         expect(resourcePutMock).toHaveBeenCalledOnce();
         const content = resourcePutMock.mock.calls[0]![2];
         const settled = parseJobResource(content).meta;
@@ -530,7 +535,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
         expect(settled.lastError).not.toContain("No delivery was confirmed");
         expect(Date.parse(settled.nextRun!)).toBeGreaterThan(Date.now());
         fixture.resource.content = content;
-        await processRecurringJobs(recoveryDeps);
+        await processRecurringJobs(deps);
         expect(resourcePutMock).toHaveBeenCalledOnce();
         expect(runHistory.getAutomationRun).toHaveBeenCalledOnce();
         expect(finish).not.toHaveBeenCalled();
@@ -2176,8 +2181,8 @@ describe("stale automation run-lock recovery across trigger types", () => {
   it("keeps a queued dispatch inside its claim lease and closes one past it", async () => {
     resourceListAllOwnersMock.mockResolvedValueOnce([staleHistoryJob()]);
     const finishes = routeHistoryDb([
-      // Started 20 minutes ago, so it lists as `interrupted`, but claimed a
-      // minute ago: the stored claim, not the derived status, must protect it.
+      // Claimed a minute ago: the stored claim, not the derived status, must
+      // protect it even though its queue age is past the liveness ceiling.
       historyRow("run-claimed-recently", Date.now() - 20 * 60 * 1000, {
         dispatchPending: true,
         claimedAt: Date.now() - 60_000,

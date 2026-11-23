@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { CommentImage } from "@shared/comment-images";
 import { serializeStoredCommentMentions } from "@shared/comment-mentions";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -10,17 +11,22 @@ import type { Comment } from "@/hooks/use-comments";
 import { CommentDraftProvider, useCommentDraft } from "./comment-drafts";
 import { CommentEntry } from "./CommentEntry";
 
-const { reconcile, mutateAsync, createRetry } = vi.hoisted(() => ({
-  reconcile: vi.fn(),
-  mutateAsync: vi.fn(),
-  createRetry: vi.fn(),
-}));
+const { reconcile, mutateAsync, createRetry, deleteComment, toastError } =
+  vi.hoisted(() => ({
+    reconcile: vi.fn(),
+    mutateAsync: vi.fn(),
+    createRetry: vi.fn(),
+    deleteComment: vi.fn(),
+    toastError: vi.fn(),
+  }));
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
 vi.mock("@/hooks/use-comments", () => ({
   useCreateComment: () => ({
     reconcileAmbiguous: reconcile,
     mutateAsync: createRetry,
   }),
   useEditComment: () => ({ isPending: false, mutateAsync }),
+  useDeleteComment: () => ({ isPending: false, mutateAsync: deleteComment }),
   useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
@@ -53,7 +59,21 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     children: ReactNode;
     onSelect: () => void;
   }) => <button onClick={onSelect}>{children}</button>,
+  DropdownMenuSeparator: () => <hr />,
 }));
+vi.mock("@/components/ui/dialog", () => {
+  const Part = ({ children }: { children?: ReactNode }) => <>{children}</>;
+  return {
+    Dialog: ({ open, children }: { open: boolean; children: ReactNode }) =>
+      open ? <div role="alertdialog">{children}</div> : null,
+    DialogClose: Part,
+    DialogContent: Part,
+    DialogDescription: Part,
+    DialogFooter: Part,
+    DialogHeader: Part,
+    DialogTitle: Part,
+  };
+});
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -69,6 +89,8 @@ vi.mock("./CommentComposer", () => ({
     confirmEscape,
     ariaLabel,
     submitLabel,
+    images,
+    onImagesChange,
   }: {
     value: string;
     onChange: (value: string) => void;
@@ -78,6 +100,8 @@ vi.mock("./CommentComposer", () => ({
     confirmEscape?: string | false;
     ariaLabel: string;
     submitLabel?: string;
+    images?: readonly CommentImage[];
+    onImagesChange?: (images: CommentImage[]) => void;
   }) => (
     <>
       <textarea
@@ -89,6 +113,11 @@ vi.mock("./CommentComposer", () => ({
       {submitLabel ? <button onClick={onSubmit}>{submitLabel}</button> : null}
       {onCancel ? <button onClick={onCancel}>comments.cancel</button> : null}
       {onEscape ? <button onClick={onEscape}>Escape</button> : null}
+      {onImagesChange ? (
+        <button onClick={() => onImagesChange(images?.slice(1) ?? [])}>
+          Remove first image
+        </button>
+      ) : null}
     </>
   ),
 }));
@@ -132,9 +161,13 @@ function DraftProbe() {
 function Harness({
   visible = true,
   entry = comment,
+  canDeleteThread,
+  keepsAppliedAiChange,
 }: {
   visible?: boolean;
   entry?: Comment;
+  canDeleteThread?: boolean;
+  keepsAppliedAiChange?: boolean;
 }) {
   return (
     <CommentDraftProvider
@@ -148,10 +181,31 @@ function Harness({
           documentId="doc-1"
           currentUserEmail={comment.author_email}
           canComment
+          canDeleteThread={canDeleteThread}
+          keepsAppliedAiChange={keepsAppliedAiChange}
         />
       )}
     </CommentDraftProvider>
   );
+}
+async function type(text: string) {
+  const area = container.querySelector("textarea");
+  const setValue = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "value",
+  )?.set;
+  if (!area || !setValue) throw new Error("No edit box to type in");
+  await act(async () => {
+    setValue.call(area, text);
+    area.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+function image(id: string): CommentImage {
+  return {
+    url: `/api/private-media/${id}`,
+    name: `${id}.png`,
+    contentType: "image/png",
+  };
 }
 async function click(label: string) {
   const button = [...container.querySelectorAll("button")].find(
@@ -325,6 +379,46 @@ it("has Escape confirm only a changed edit, and restores the comment once it can
   expect(confirmEscape()).toBe("false");
 });
 
+it("leaves images another save added alone when an edit only changes the text", async () => {
+  mutateAsync.mockResolvedValue(undefined);
+  const first = { ...comment, attachments: [image("first")] };
+  await act(async () => root.render(<Harness entry={first} />));
+  await click("comments.edit");
+  await type("Original comment, revised");
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{ ...first, attachments: [image("first"), image("second")] }}
+      />,
+    ),
+  );
+  await click("comments.save");
+
+  expect(mutateAsync).toHaveBeenCalledTimes(1);
+  const request = mutateAsync.mock.calls[0]?.[0];
+  expect(request).toMatchObject({ content: "Original comment, revised" });
+  expect(request).not.toHaveProperty("attachments");
+});
+
+it("sends the images an edit changed", async () => {
+  mutateAsync.mockResolvedValue(undefined);
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{ ...comment, attachments: [image("first"), image("second")] }}
+      />,
+    ),
+  );
+  await click("comments.edit");
+  await click("Remove first image");
+  await click("comments.save");
+
+  expect(mutateAsync).toHaveBeenCalledWith(
+    expect.objectContaining({ attachments: [image("second")] }),
+    expect.anything(),
+  );
+});
+
 it("does not count a repeated mention's extra pills as an edit", async () => {
   const ana = {
     kind: "person" as const,
@@ -399,7 +493,7 @@ it("keeps the submitted draft when checking remains unresolved", async () => {
   );
 });
 
-it("names the agent, keeps the exact model in its badge, and keeps the time compact", async () => {
+it("names the agent without a badge, says who it wrote for in its card, and keeps the time compact", async () => {
   await act(async () =>
     root.render(
       <Harness
@@ -415,14 +509,43 @@ it("names the agent, keeps the exact model in its badge, and keeps the time comp
   );
 
   expect(container.textContent).toContain("GPT");
-  const badge = container.querySelector("[data-comment-agent-badge]");
-  expect(badge?.textContent).toBe("comments.agentBadge");
-  expect(badge?.getAttribute("aria-label")).toContain("GPT-5.6 Sol");
+  expect(container.querySelector("[data-comment-agent-badge]")).toBeNull();
   const time = container.querySelector("time");
   expect(time?.getAttribute("datetime")).toBe(comment.created_at);
   // The time truncates before a short author name does.
   expect(time?.className).toContain("truncate");
   expect(time?.className).toContain("whitespace-nowrap");
+
+  const name = container.querySelector<HTMLElement>(
+    "[data-comment-author-name]",
+  );
+  expect(name).not.toBeNull();
+  await act(async () => name?.click());
+  const onBehalf = document.querySelector("[data-comment-identity-on-behalf]");
+  expect(onBehalf?.getAttribute("data-comment-identity-on-behalf")).toBe(
+    "agent",
+  );
+  expect(onBehalf?.textContent).toContain("comments.aiAttribution");
+  expect(onBehalf?.textContent).toContain("comments.aiSourceAgent");
+});
+
+it("keeps the Agent badge on a person's row their agent posted", async () => {
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{
+          ...comment,
+          submission_source: "mcp",
+          author_client: "claude-code",
+        }}
+      />,
+    ),
+  );
+
+  expect(
+    container.querySelector("[data-comment-author-name]")?.textContent,
+  ).toContain(comment.author_name ?? "");
+  expect(container.querySelector("[data-comment-agent-badge]")).not.toBeNull();
 });
 
 it("gives a comment another app's agent wrote the agent's card", async () => {
@@ -510,4 +633,148 @@ it("keeps the exact AI conversation link in the comment overflow", async () => {
 
   await click("comments.aiOpenConversation");
   expect(onOpenAiConversation).toHaveBeenCalledOnce();
+});
+
+function hasButton(label: string) {
+  return [...container.querySelectorAll("button")].some(
+    (node) => node.textContent === label,
+  );
+}
+
+it("deletes your own reply once you confirm", async () => {
+  deleteComment.mockResolvedValue({ ok: true, deletedIds: ["reply-1"] });
+  const reply: Comment = {
+    ...comment,
+    id: "reply-1",
+    parent_id: "comment-1",
+    content: "My reply",
+  };
+  await act(async () => root.render(<Harness entry={reply} />));
+
+  await click("comments.deleteComment");
+  expect(container.textContent).toContain("comments.deleteCommentQuestion");
+  expect(deleteComment).not.toHaveBeenCalled();
+  await click("comments.delete");
+  expect(deleteComment).toHaveBeenCalledWith({
+    id: "reply-1",
+    documentId: "doc-1",
+  });
+  expect(container.querySelector("[role=alertdialog]")).toBeNull();
+});
+
+it("moves focus to what is left once a delete takes the row away", async () => {
+  deleteComment.mockResolvedValue({ ok: true });
+  const reply: Comment = {
+    ...comment,
+    id: "reply-1",
+    parent_id: "comment-1",
+    content: "My reply",
+  };
+  // The delete drops the row from the list; the cards stay, as in the
+  // sidebar, and the deleted thread's card stands in for its neighbor.
+  const renderCards = (entry: Comment, visible: boolean) =>
+    act(async () =>
+      root.render(
+        <div data-comments-sidebar>
+          <div data-thread-card="comment-1" tabIndex={0}>
+            <Harness visible={visible} entry={entry} canDeleteThread />
+          </div>
+          <div data-thread-card="comment-2" tabIndex={0} />
+        </div>,
+      ),
+    );
+  // Confirming focuses the dialog's button, as a real click would.
+  const confirm = async () => {
+    [...container.querySelectorAll("button")]
+      .find((node) => node.textContent === "comments.delete")
+      ?.focus();
+    await click("comments.delete");
+  };
+  const card = (id: string) =>
+    container.querySelector(`[data-thread-card="${id}"]`);
+
+  // A deleted reply leaves its thread, which takes focus.
+  await renderCards(reply, true);
+  await click("comments.deleteComment");
+  await confirm();
+  await renderCards(reply, false);
+  expect(document.activeElement).toBe(card("comment-1"));
+
+  // A deleted thread hands focus to the next thread.
+  await renderCards(comment, true);
+  await click("comments.deleteThread");
+  await confirm();
+  await renderCards(comment, false);
+  expect(document.activeElement).toBe(card("comment-2"));
+});
+
+it("says the AI's change stays in the page when its thread goes", async () => {
+  await act(async () =>
+    root.render(<Harness entry={comment} canDeleteThread />),
+  );
+  await click("comments.deleteThread");
+  expect(container.textContent).toContain("comments.deleteThreadDescription");
+
+  await act(async () =>
+    root.render(
+      <Harness entry={comment} canDeleteThread keepsAppliedAiChange />,
+    ),
+  );
+  expect(container.textContent).toContain(
+    "comments.deleteThreadAiChangeDescription",
+  );
+});
+
+it("keeps the delete dialog open with the error when a delete fails", async () => {
+  deleteComment.mockRejectedValue(
+    Object.assign(new Error("Someone else replied"), {
+      errorCode: "comment_thread_changed",
+    }),
+  );
+  await act(async () =>
+    root.render(<Harness entry={comment} canDeleteThread />),
+  );
+
+  await click("comments.deleteThread");
+  expect(container.textContent).toContain("comments.deleteThreadQuestion");
+  await click("comments.delete");
+  expect(deleteComment).toHaveBeenCalledWith({
+    id: "comment-1",
+    documentId: "doc-1",
+  });
+  expect(container.querySelector("[role=alertdialog]")).not.toBeNull();
+  // The reason in the reader's language, not the server's English.
+  expect(toastError).toHaveBeenCalledWith("empty.genericError", {
+    description: "comments.deleteRefusedReplied",
+  });
+});
+
+it("offers Delete thread only when the thread can go, and never for a Notion comment or someone else's", async () => {
+  await act(async () => root.render(<Harness entry={comment} />));
+  expect(hasButton("comments.deleteThread")).toBe(false);
+  expect(hasButton("comments.edit")).toBe(true);
+
+  await act(async () =>
+    root.render(<Harness entry={comment} canDeleteThread />),
+  );
+  expect(hasButton("comments.deleteThread")).toBe(true);
+
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{ ...comment, notion_comment_id: "notion-1" }}
+        canDeleteThread
+      />,
+    ),
+  );
+  expect(hasButton("comments.deleteThread")).toBe(false);
+
+  const othersReply: Comment = {
+    ...comment,
+    id: "reply-2",
+    parent_id: "comment-1",
+    author_email: "someone-else@example.test",
+  };
+  await act(async () => root.render(<Harness entry={othersReply} />));
+  expect(hasButton("comments.deleteComment")).toBe(false);
 });

@@ -31,6 +31,8 @@ export const documents = table("documents", {
   position: integer("position").notNull().default(0),
   isFavorite: integer("is_favorite").notNull().default(0),
   hideFromSearch: integer("hide_from_search").notNull().default(0),
+  // 1 when a person has set agents to Can comment on this page.
+  agentTextLocked: integer("agent_text_locked").notNull().default(0),
   sourceMode: text("source_mode"),
   sourceKind: text("source_kind"),
   sourcePath: text("source_path"),
@@ -70,6 +72,29 @@ export const privateIconReferences = table(
     index("content_private_icon_reference_document_idx").on(
       reference.documentId,
     ),
+  ],
+);
+
+/**
+ * Which pages carry each private image (`@agent-native/core/private-media`).
+ * A row exists only after the page's editor uploaded the image there, or
+ * saved it into the page while already able to see it elsewhere. A reader
+ * gets the image when they can view a live page that has a row and whose
+ * body still contains the image's link.
+ */
+export const privateMediaReferences = table(
+  "content_private_media_references",
+  {
+    mediaId: text("media_id").notNull(),
+    documentId: text("document_id").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (reference) => [
+    uniqueIndex("content_private_media_reference_unique").on(
+      reference.documentId,
+      reference.mediaId,
+    ),
+    index("content_private_media_reference_media_idx").on(reference.mediaId),
   ],
 );
 
@@ -302,6 +327,12 @@ export const documentComments = table(
     actorKind: text("actor_kind"),
     authorModel: text("author_model"),
     authorEffort: text("author_effort"),
+    /**
+     * The MCP host an outside agent said it was, as a connect host id such as
+     * `claude-code`, on a comment it posted over MCP.
+     */
+    authorClient: text("author_client"),
+    attachmentsJson: text("attachments_json"),
     resolved: integer("resolved").notNull().default(0),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
@@ -844,6 +875,32 @@ export const contentDatabaseSourceExecutionClaims = table(
     executionId: text("execution_id").notNull(),
     createdAt: text("created_at").notNull().default(now()),
   },
+);
+
+export const contentDatabaseBuilderAutosaves = table(
+  "content_database_builder_autosaves",
+  {
+    id: text("id").primaryKey(),
+    sourceId: text("source_id").notNull(),
+    databaseItemId: text("database_item_id").notNull(),
+    documentId: text("document_id").notNull(),
+    enabled: integer("enabled").notNull().default(1),
+    state: text("state").notNull().default("idle"),
+    reason: text("reason"),
+    lastError: text("last_error"),
+    attemptId: text("attempt_id"),
+    claimedEditAt: text("claimed_edit_at"),
+    savedEditAt: text("saved_edit_at"),
+    lastSavedAt: text("last_saved_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (autosave) => [
+    uniqueIndex("content_database_builder_autosaves_source_item_unique").on(
+      autosave.sourceId,
+      autosave.databaseItemId,
+    ),
+  ],
 );
 
 export const contentDatabaseMigrationReceipts = table(

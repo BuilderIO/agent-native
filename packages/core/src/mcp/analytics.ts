@@ -2,7 +2,8 @@ import { getAppConfig } from "../app-config/store.js";
 import { safeValue } from "../tracking/redaction.js";
 import { listTrackingProviders, track } from "../tracking/registry.js";
 import {
-  DATABASE_FAILURE_MESSAGE,
+  databaseFailureCode,
+  databaseFailureMessage,
   isDatabaseQueryFailure,
 } from "./embed-redaction.js";
 
@@ -307,8 +308,8 @@ export function describeMcpError(err: unknown): {
 } {
   if (isDatabaseQueryFailure(err)) {
     return {
-      errorType: "DrizzleQueryError",
-      errorMessage: DATABASE_FAILURE_MESSAGE,
+      errorType: databaseFailureCode(err) ?? "DrizzleQueryError",
+      errorMessage: databaseFailureMessage(err),
     };
   }
   if (err && typeof err === "object") {

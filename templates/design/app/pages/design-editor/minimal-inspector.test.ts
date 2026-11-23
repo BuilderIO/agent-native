@@ -1,3 +1,4 @@
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 import { describe, expect, it } from "vitest";
 
 import {
@@ -73,9 +74,7 @@ describe("isRightInspectorVisible", () => {
   });
 
   it("is hidden in Annotate rather than left as an empty column", () => {
-    expect(isRightInspectorVisible({ ...docked, mode: "annotate" })).toBe(
-      false,
-    );
+    expect(isRightInspectorVisible({ ...docked, mode: "comment" })).toBe(false);
   });
 
   it("is hidden for someone who cannot edit: Code and Comments tabs no longer give them one", () => {
@@ -84,9 +83,9 @@ describe("isRightInspectorVisible", () => {
 
   it("keeps the rail outside Design where the top bar is absent, because it carries the share controls", () => {
     const withoutTopBar = { ...docked, topBarVisible: false };
-    expect(
-      isRightInspectorVisible({ ...withoutTopBar, mode: "annotate" }),
-    ).toBe(true);
+    expect(isRightInspectorVisible({ ...withoutTopBar, mode: "comment" })).toBe(
+      true,
+    );
     expect(isRightInspectorVisible({ ...withoutTopBar, canEdit: false })).toBe(
       true,
     );
@@ -140,17 +139,6 @@ describe("hasMinimalInspectorSelection", () => {
         selectedScreenGeometry: null,
       }),
     ).toBe(false);
-  });
-
-  it("shows the inspector for an active Motion easing selection", () => {
-    expect(
-      hasMinimalInspectorSelection({
-        selectedElement: null,
-        selectedLayerIds: [],
-        selectedScreenGeometry: null,
-        motionEasingSegmentSelected: true,
-      }),
-    ).toBe(true);
   });
 
   it("is true for an element selection", () => {

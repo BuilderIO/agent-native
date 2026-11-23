@@ -19,6 +19,10 @@ import {
   getRequestRunContext,
   getRequestUserEmail,
 } from "../request-context.js";
+import {
+  createResourceWriteEntry,
+  RESOURCE_EXPECTED_REVISION_DESCRIPTION,
+} from "./resource-write-tool.js";
 
 type CliMain = (args: string[]) => Promise<void>;
 
@@ -369,16 +373,30 @@ export function shouldDefaultResourceWriteToShared(path: string): boolean {
   return path.replace(/^\/+/, "") === "LEARNINGS.md";
 }
 
+function isJobsResourcePath(path: unknown): boolean {
+  if (typeof path !== "string") return false;
+  const segments: string[] = [];
+  for (const segment of path.trim().replace(/\\/g, "/").split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") segments.pop();
+    else segments.push(segment);
+  }
+  return segments.length > 1 && segments[0] === "jobs";
+}
+
 function requiresSharedResourceApproval(
   args: Record<string, unknown>,
 ): boolean {
+  const action = String(args.action);
   return (
-    ["write", "promote", "delete"].includes(String(args.action)) &&
-    (args.scope === "shared" ||
-      (args.action === "write" &&
-        args.scope == null &&
-        typeof args.path === "string" &&
-        shouldDefaultResourceWriteToShared(args.path)))
+    (["write", "promote", "delete"].includes(action) &&
+      (args.scope === "shared" ||
+        (action === "write" &&
+          args.scope == null &&
+          typeof args.path === "string" &&
+          shouldDefaultResourceWriteToShared(args.path)))) ||
+    ((action === "write" || action === "delete") &&
+      isJobsResourcePath(args.path))
   );
 }
 
@@ -406,14 +424,6 @@ export async function createResourceScriptEntries(): Promise<
       list.default,
       { readOnly: true },
     );
-    const readEntry = wrapCliScript(
-      {
-        description: "",
-        parameters: { type: "object" as const, properties: {} },
-      },
-      read.default,
-      { readOnly: true },
-    );
     const writeEntry = wrapCliScript(
       {
         description: "",
@@ -437,11 +447,11 @@ export async function createResourceScriptEntries(): Promise<
       del.default,
     );
 
-    return frameworkMcpTools({
+    const entries = frameworkMcpTools({
       resources: {
         tool: {
           description:
-            'Manage workspace resources: list/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval.',
+            'Manage workspace resources: list/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval. For creating or replacing file content, prefer write-resource; load write-resource with tool-search if it is not available.',
           parameters: {
             type: "object",
             properties: {
@@ -460,11 +470,20 @@ export async function createResourceScriptEntries(): Promise<
               path: {
                 type: "string",
                 description:
-                  "Resource path (e.g. 'LEARNINGS.md', 'notes/ideas.md'). Required for read/write/delete.",
+                  "Resource path (e.g. 'notes/ideas.md'). Required for read/write/delete.",
               },
               content: {
                 type: "string",
                 description: "Content to write. Required for write.",
+              },
+              offset: {
+                type: "string",
+                description:
+                  "read: start character; list: start entry. Use the next offset given.",
+              },
+              length: {
+                type: "string",
+                description: "read: max chars (default/max 40000).",
               },
               scope: {
                 type: "string",
@@ -474,19 +493,24 @@ export async function createResourceScriptEntries(): Promise<
               },
               prefix: {
                 type: "string",
-                description:
-                  "Filter by path prefix when listing (e.g. 'notes/')",
+                description: "list: path prefix filter (e.g. 'notes/')",
               },
               mime: {
                 type: "string",
-                description:
-                  "MIME type for write (default: inferred from extension)",
+                description: "write: MIME type (default: from extension)",
+              },
+              expectedRevision: {
+                type: "string",
+                description: RESOURCE_EXPECTED_REVISION_DESCRIPTION,
               },
               format: {
                 type: "string",
-                description:
-                  'Output format for list: "json" or "text" (default: text)',
+                description: "list output format (default: text)",
                 enum: ["json", "text"],
+              },
+              limit: {
+                type: "number",
+                description: "list: page size, 1-100.",
               },
               visibility: {
                 type: "string",
@@ -496,7 +520,7 @@ export async function createResourceScriptEntries(): Promise<
               },
               includeAgentScratch: {
                 type: "boolean",
-                description: "Include hidden agent scratch files when listing.",
+                description: "list: include hidden agent scratch files.",
               },
             },
             required: ["action"],
@@ -515,12 +539,34 @@ export async function createResourceScriptEntries(): Promise<
         },
         needsApproval: requiresSharedResourceApproval,
         allowPersistentApproval: false,
-        run: async (args: Record<string, string>) => {
+        run: async (args: Record<string, string>, context) => {
           const { action: a, ...rest } = args;
-          if (a === "list") return listEntry.run(rest);
+          if (a === "list") {
+            // The CLI keeps unpaged json as a bare array; the agent always pages.
+            const noPageArgs = !rest.limit && !rest.offset;
+            return listEntry.run(noPageArgs ? { ...rest, offset: "0" } : rest);
+          }
           if (a === "read") {
             if (!rest.path) return "Error: path is required for read";
-            return readEntry.run(rest);
+            let limitError:
+              | InstanceType<typeof read.ResourceReadResultLimitError>
+              | undefined;
+            const result = await captureCliOutput(async () => {
+              try {
+                await read.default(serializeCliArgs(rest), {
+                  withRevision: true,
+                  ...(context?.maxResultChars !== undefined && {
+                    maxResultChars: context.maxResultChars,
+                  }),
+                });
+              } catch (error) {
+                if (!(error instanceof read.ResourceReadResultLimitError))
+                  throw error;
+                limitError = error;
+              }
+            });
+            if (limitError) throw limitError;
+            return result;
           }
           if (a === "effective") {
             if (!rest.path) return "Error: path is required for effective";
@@ -656,6 +702,12 @@ export async function createResourceScriptEntries(): Promise<
         delMem.default,
       ),
     });
+    return {
+      ...entries,
+      ...frameworkMcpTools({
+        "write-resource": createResourceWriteEntry(entries.resources),
+      }),
+    };
   } catch {
     // Resources not available — skip silently
     return frameworkMcpTools({});

@@ -1,7 +1,18 @@
 import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
+import { composeAttachmentLink } from "@shared/compose-attachments.js";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import type { ComposeAttachment, EmailMessage } from "@shared/types.js";
-import { and, asc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { db, schema } from "../db/index.js";
@@ -656,7 +667,7 @@ export async function getSyntheticEmailsForView(
                 filename: att.originalName,
                 mimeType: att.mimeType,
                 size: att.size,
-                url: att.url,
+                url: composeAttachmentLink(att),
               })),
             }
           : {}),
@@ -1224,4 +1235,30 @@ export async function getDuePendingJobs(
     .limit(limit);
 
   return due as ScheduledJobRecord[];
+}
+
+export async function getNextScheduledJobDueAt(): Promise<number | null> {
+  const jobs = schema.scheduledJobs;
+  const leaseUntil = sql`COALESCE(${jobs.processingLeaseUntil}, 0)`;
+  const [next] = await db
+    .select({
+      dueAt: sql<number | string | null>`MIN(CASE
+        WHEN ${jobs.status} = 'processing' AND ${jobs.type} = 'send_later'
+          AND ${jobs.sendStartedAt} IS NOT NULL THEN ${leaseUntil}
+        WHEN ${jobs.status} = 'processing' AND ${leaseUntil} > ${jobs.runAt}
+          THEN ${leaseUntil}
+        ELSE ${jobs.runAt} END)`,
+    })
+    .from(jobs)
+    .where(
+      or(
+        eq(jobs.status, "processing"),
+        and(
+          eq(jobs.status, "pending"),
+          or(eq(jobs.type, "snooze"), isNull(jobs.sendStartedAt)),
+        ),
+      ),
+    );
+  const dueAt = next?.dueAt;
+  return dueAt === null || dueAt === undefined ? null : Number(dueAt);
 }

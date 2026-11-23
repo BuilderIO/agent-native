@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useCallback,
   useRef,
   useState,
   type ReactNode,
@@ -13,6 +14,8 @@ export interface ComposerContextPickerItem {
   id: string;
   title: string;
   description?: string | null;
+  group?: string;
+  icon?: ReactNode;
   preview?: ReactNode;
   metadata?: ReactNode;
   disabled?: boolean;
@@ -45,8 +48,10 @@ export type ComposerContextPickerFooterAction = {
 export type ComposerContextPickerConfig = {
   footerAction?: ComposerContextPickerFooterAction;
   searchPlaceholder: string;
+  searchable?: boolean;
   selectedIds?: readonly string[];
   scopeKey?: string;
+  identityScope?: "workspace";
   refreshKey?: string | number;
   link?: {
     label?: string;
@@ -84,7 +89,7 @@ export type ComposerContextPickerConfig = {
           | { type: "dialog"; mode: "url" }
           | {
               type: "dialog";
-              mode: "single";
+              mode: "single" | "action";
               layout?: "list" | "gallery";
             };
         onSelect: (
@@ -148,9 +153,17 @@ export function useComposerContextPicker({
   const [chosen, setChosen] = useState<
     ReadonlyMap<string, ComposerContextPickerItem>
   >(() => new Map());
-  const [stage, setStage] = useState<"link" | "results">(
-    config.link || presentation?.mode === "url" ? "link" : "results",
+  const linkMode = Boolean(config.link || presentation?.mode === "url");
+  const [previousLinkMode, setPreviousLinkMode] = useState(linkMode);
+  const [currentStage, setStage] = useState<"link" | "results">(
+    linkMode ? "link" : "results",
   );
+  const stage =
+    previousLinkMode === linkMode
+      ? currentStage
+      : linkMode
+        ? "link"
+        : "results";
   const [link, setLink] = useState("");
   const [location, setLocation] = useState<PickerLocation>({
     search: "",
@@ -174,13 +187,13 @@ export function useComposerContextPicker({
   const keyRef = useRef(key);
   keyRef.current = key;
 
-  const invalidateSelection = () => {
+  const invalidateSelection = useCallback(() => {
     epoch.current++;
     pendingSelection.current?.abort();
     pendingSelection.current = null;
     setSelecting(false);
     setActionError(undefined);
-  };
+  }, []);
   useEffect(
     () => () => {
       epoch.current++;
@@ -188,6 +201,13 @@ export function useComposerContextPicker({
     },
     [],
   );
+
+  useEffect(() => {
+    if (previousLinkMode === linkMode) return;
+    invalidateSelection();
+    setPreviousLinkMode(linkMode);
+    setStage(linkMode ? "link" : "results");
+  }, [previousLinkMode, linkMode, invalidateSelection]);
 
   useEffect(() => {
     if (!remote || stage !== "results") return;

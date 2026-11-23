@@ -1678,7 +1678,7 @@ describe("Slides prompt-led home", () => {
     };
     callAction.mockImplementation(async (action: string) => {
       if (action === "import-pptx") {
-        return { imported: true, deckId: "new-deck", slideCount: 0 };
+        return { imported: true, id: "new-deck", slideCount: 0 };
       }
       if (action === "get-deck-reference-context") {
         return {
@@ -1732,7 +1732,7 @@ describe("Slides prompt-led home", () => {
     };
     callAction.mockImplementation(async (action: string) => {
       if (action === "import-pptx") {
-        return { imported: true, deckId: "new-deck", slideCount: 3 };
+        return { imported: true, id: "new-deck", slideCount: 3 };
       }
       if (action === "get-deck-reference-context") {
         return {
@@ -1951,7 +1951,11 @@ describe("Slides prompt-led home", () => {
     expect(ensureDeckPersisted).toHaveBeenCalledWith("new-deck");
     expect(callAction).toHaveBeenCalledWith(
       "import-pptx",
-      { filePath: uploadedSource.path, deckId: "new-deck" },
+      {
+        filePath: uploadedSource.path,
+        deckId: "new-deck",
+        replaceExisting: true,
+      },
       expect.objectContaining({ timeoutMs: expect.any(Number) }),
     );
     expect(deleteDeck).not.toHaveBeenCalled();

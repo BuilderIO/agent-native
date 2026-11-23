@@ -1,27 +1,31 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { sanitizeReviewCommentMetadata } from "../attachments.js";
-import { reviewAuthorNameFromContext } from "../identity.js";
+import {
+  assertReviewCommentHasContent,
+  sanitizeReviewCommentMetadata,
+} from "../attachments.js";
+import {
+  reviewActorKindFromContext,
+  reviewAuthorNameFromContext,
+} from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
 import {
   notifyReviewComment,
   notifyReviewCommentWithReceipt,
 } from "../notifications.js";
 import {
-  assertReviewableResourceAccess,
+  assertPersonReviewAnchorKind,
+  assertReviewCommentAccess,
   normalizeReviewVisibility,
+  reviewCommentPolicy,
 } from "../registry.js";
 import {
   insertReviewComment,
   insertReviewCommentIdempotently,
   reviewCommentIdForClientOperation,
 } from "../store.js";
-import type {
-  ReviewActorKind,
-  ReviewCommentKind,
-  ReviewResourceContext,
-} from "../types.js";
+import type { ReviewCommentKind, ReviewResourceContext } from "../types.js";
 
 const mentionSchema = z.object({
   label: z.string().min(1),
@@ -33,6 +37,12 @@ const schema = z.object({
   resourceType: z.string().min(1),
   resourceId: z.string().min(1),
   targetId: z.string().nullable().optional(),
+  surfaceId: z
+    .string()
+    .min(1)
+    .nullable()
+    .optional()
+    .describe("The part of the resource the thread sits on, such as a slide"),
   kind: z
     .enum([
       "comment",
@@ -44,7 +54,22 @@ const schema = z.object({
     ])
     .optional(),
   anchor: z.unknown().nullable().optional(),
-  body: z.string().min(1),
+  anchorKind: z
+    .string()
+    .min(1)
+    .nullable()
+    .optional()
+    .describe("The anchor's kind, when the resource declares anchor kinds"),
+  anchorVersion: z
+    .number()
+    .int()
+    .positive()
+    .nullable()
+    .optional()
+    .describe("The version the anchor was written at; defaults to the latest"),
+  body: z
+    .string()
+    .describe("Inline Markdown; may be empty when the comment has an image"),
   authorName: z.string().nullable().optional(),
   resolutionTarget: z.enum(["agent", "human"]).nullable().optional(),
   mentions: z.array(mentionSchema).optional(),
@@ -65,37 +90,46 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: true,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
-    const access = await assertReviewableResourceAccess(
+    const access = await assertReviewCommentAccess(
       args.resourceType,
       args.resourceId,
       actionCtx,
-      "commenter",
     );
+    const metadata = await sanitizeReviewCommentMetadata(args.metadata);
+    assertReviewCommentHasContent(args.body, metadata);
     const mentions = normalizeReviewMentions([
       ...normalizeReviewMentions(args.mentions),
       ...extractReviewMentions(args.body),
     ]);
     const resolutionTarget =
-      args.resolutionTarget ?? (mentions.length > 0 ? "human" : "agent");
+      args.resolutionTarget ??
+      (mentions.length > 0
+        ? "human"
+        : reviewCommentPolicy(args.resourceType).unmentionedRoute);
 
+    assertPersonReviewAnchorKind(args.anchorKind);
     const input = {
       resourceType: args.resourceType,
       resourceId: args.resourceId,
       targetId: args.targetId ?? null,
+      surfaceId: args.surfaceId ?? null,
       kind: (args.kind ?? "comment") as ReviewCommentKind,
       anchor: args.anchor ?? null,
+      anchorKind: args.anchorKind ?? null,
+      anchorVersion: args.anchorVersion ?? null,
       body: args.body,
       authorEmail: actionCtx?.userEmail ?? null,
       authorName: args.authorName ?? reviewAuthorNameFromContext(actionCtx),
-      createdBy: actorKindFromContext(actionCtx),
+      createdBy: reviewActorKindFromContext(actionCtx),
       resolutionTarget,
       mentions,
       ownerEmail: access.ownerEmail ?? actionCtx?.userEmail ?? null,
       orgId: access.orgId ?? actionCtx?.orgId ?? null,
       visibility: normalizeReviewVisibility(access.visibility),
-      metadata: await sanitizeReviewCommentMetadata(args.metadata),
+      metadata,
     };
     const result = args.clientOperationId
       ? await insertReviewCommentIdempotently({
@@ -129,13 +163,3 @@ export default defineAction({
     },
   },
 });
-
-function actorKindFromContext(
-  ctx: ReviewResourceContext | undefined,
-): ReviewActorKind {
-  const caller = typeof ctx?.caller === "string" ? ctx.caller : "";
-  if (caller === "agent" || caller === "tool") {
-    return "agent";
-  }
-  return ctx?.userEmail ? "human" : "system";
-}

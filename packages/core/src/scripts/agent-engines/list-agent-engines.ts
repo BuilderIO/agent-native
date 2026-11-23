@@ -1,9 +1,11 @@
 import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../../agent/chatgpt-subscription-contract.js";
 import {
+  isDefaultAgentEngineScopeResolved,
   readDefaultAgentEngineSettingDetailed,
   resolveDefaultAgentEngineAuthority,
 } from "../../agent/default-agent-engine.js";
+import { resolveDefaultAgentEngineModel } from "../../agent/engine-status.js";
 import { listChatGPTSubscriptionModels } from "../../agent/engine/chatgpt-subscription-engine.js";
 import {
   listAgentEngines,
@@ -13,7 +15,6 @@ import {
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
-  normalizeModelForEngine,
   resolveEngineAcceptsCustomModels,
   resolveEnginePreservesCustomModels,
 } from "../../agent/engine/index.js";
@@ -21,6 +22,7 @@ import {
   applyProviderModelSelection,
   providerForEngineName,
   resolveEffectiveProviderModelSelection,
+  resolveUncheckedDefaultModelReplacement,
   type EffectiveProviderModelSelection,
   type ProviderModelSelectionProvider,
 } from "../../agent/provider-model-selection.js";
@@ -29,12 +31,14 @@ import { getAppConfig } from "../../app-config/index.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
 import { getUserLabEnabled } from "../../labs/store.js";
 import {
+  CredentialStoreUnavailableError,
   prefetchSecrets,
   readProviderCredentialRejections,
   resolveSecretDetailed,
   type ProviderCredentialRejection,
 } from "../../server/credential-provider.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { ForbiddenError } from "../../sharing/errors.js";
 
 export const tool: ActionTool = {
   description:
@@ -147,11 +151,7 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     ProviderModelSelectionProvider,
     Promise<EffectiveProviderModelSelection>
   >();
-  const selectionFor = (
-    engineName: string,
-  ): Promise<EffectiveProviderModelSelection> | null => {
-    const provider = providerForEngineName(engineName);
-    if (!provider) return null;
+  const selectionFor = (provider: ProviderModelSelectionProvider) => {
     let pending = selections.get(provider);
     if (!pending) {
       pending = resolveEffectiveProviderModelSelection(provider);
@@ -159,81 +159,88 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     }
     return pending;
   };
-  const [defaultSetting, defaultAuthority] = await Promise.all([
-    readDefaultAgentEngineSettingDetailed(),
-    resolveDefaultAgentEngineAuthority(),
-  ]);
+  // An unresolved scope cannot say which default applies. Listing engines
+  // must still work, so the read is skipped and reported as "unresolved"
+  // instead of "none", which would claim no default is saved.
+  const defaultAuthority = await resolveDefaultAgentEngineAuthority();
+  const scopeUnresolved = !isDefaultAgentEngineScopeResolved();
+  const defaultSetting: {
+    value: Record<string, unknown> | null;
+    source: string;
+  } = scopeUnresolved
+    ? { value: null, source: "unresolved" }
+    : await readDefaultAgentEngineSettingDetailed();
   const current = defaultSetting.value
     ? (defaultSetting.value as { engine?: string; model?: string })
     : null;
 
-  const storedEntry =
-    typeof current?.engine === "string" ? engineFor(current.engine) : undefined;
-  const storedUsable =
-    !!storedEntry &&
-    (await isStoredEngineUsableForRequest(current, storedEntry));
-  const appDefault = await getAgentAppModelDefaultForCurrentRequest(args.appId);
-  const appDefaultEntry =
-    typeof appDefault?.engine === "string"
-      ? engineFor(appDefault.engine)
-      : undefined;
-  const appDefaultUsable =
-    !!appDefault &&
-    !!appDefaultEntry &&
-    (await isStoredEngineUsableForRequest(appDefault, appDefaultEntry));
-  const detectedFromUser = await detectEngineFromUserSecrets();
-  const configuredEngine = getAppConfig().agent.engine;
-  const envEntry = configuredEngine ? engineFor(configuredEngine) : undefined;
-  const envUsable =
-    !!envEntry &&
-    (await isStoredEngineUsableForRequest({ engine: envEntry.name }, envEntry));
-  const envUnavailable = !!envEntry && !envUsable;
-  const detectedFromEnv = detectEngineFromEnv();
-  const envSelectedEntry = envUsable ? envEntry : undefined;
+  let currentEngine: { engine: string; model: string | undefined } | null =
+    null;
+  let currentError: string | undefined;
+  try {
+    const storedEntry =
+      typeof current?.engine === "string"
+        ? engineFor(current.engine)
+        : undefined;
+    const storedUsable =
+      !!storedEntry &&
+      (await isStoredEngineUsableForRequest(current, storedEntry));
+    const appDefault = await getAgentAppModelDefaultForCurrentRequest(
+      args.appId,
+    );
+    const appDefaultEntry =
+      typeof appDefault?.engine === "string"
+        ? engineFor(appDefault.engine)
+        : undefined;
+    const appDefaultUsable =
+      !!appDefault &&
+      !!appDefaultEntry &&
+      (await isStoredEngineUsableForRequest(appDefault, appDefaultEntry));
+    const detectedFromUser = await detectEngineFromUserSecrets();
+    const configuredEngine = getAppConfig().agent.engine;
+    const envEntry = configuredEngine ? engineFor(configuredEngine) : undefined;
+    const envUsable =
+      !!envEntry &&
+      (await isStoredEngineUsableForRequest(
+        { engine: envEntry.name },
+        envEntry,
+      ));
+    const envUnavailable = !!envEntry && !envUsable;
+    const detectedFromEnv = detectEngineFromEnv();
+    const envSelectedEntry = envUsable ? envEntry : undefined;
 
-  const currentEntry = envUnavailable
-    ? undefined
-    : (envSelectedEntry ??
-      (appDefaultUsable ? appDefaultEntry : undefined) ??
-      (storedUsable ? storedEntry : undefined) ??
-      detectedFromUser ??
-      detectedFromEnv ??
-      getAgentEngineEntry("anthropic"));
-  const configuredModel = getAppConfig().agent.model;
-  const currentModelCandidate =
-    configuredModel && configuredModel !== "auto"
-      ? configuredModel
-      : appDefaultUsable && currentEntry?.name === appDefault?.engine
-        ? appDefault?.model
-        : storedUsable && currentEntry?.name === current?.engine
-          ? current?.model
-          : undefined;
-  const acceptsCustomModels = currentEntry
-    ? await resolveEngineAcceptsCustomModels(currentEntry)
-    : false;
-  const preserveCustomModels = currentEntry
-    ? await resolveEnginePreservesCustomModels(currentEntry)
-    : false;
-  // Mirrors the runtime: an engine default nobody picked yields to the first
-  // checked model once it's unchecked.
-  const currentSelection =
-    currentEntry && !currentModelCandidate
-      ? await selectionFor(currentEntry.name)
+    const currentEntry = envUnavailable
+      ? undefined
+      : (envSelectedEntry ??
+        (appDefaultUsable ? appDefaultEntry : undefined) ??
+        (storedUsable ? storedEntry : undefined) ??
+        detectedFromUser ??
+        detectedFromEnv ??
+        getAgentEngineEntry("anthropic"));
+    const configuredModel = getAppConfig().agent.model?.trim();
+    const currentModelCandidate =
+      configuredModel && configuredModel !== "auto"
+        ? configuredModel
+        : appDefaultUsable && currentEntry?.name === appDefault.engine
+          ? appDefault.model
+          : storedUsable && currentEntry?.name === current?.engine
+            ? current?.model
+            : undefined;
+    currentEngine = currentEntry
+      ? {
+          engine: currentEntry.name,
+          model: await resolveDefaultAgentEngineModel(
+            currentEntry,
+            currentModelCandidate,
+            (entry) =>
+              resolveUncheckedDefaultModelReplacement(entry, selectionFor),
+          ),
+        }
       : null;
-  const checkedDefault =
-    currentSelection?.state === "selected" &&
-    currentEntry &&
-    !currentSelection.models.includes(currentEntry.defaultModel)
-      ? currentSelection.models[0]
-      : undefined;
-  const currentModel =
-    currentEntry && !envUnavailable
-      ? normalizeModelForEngine(
-          currentEntry,
-          currentModelCandidate ?? checkedDefault ?? currentEntry.defaultModel,
-          { acceptsCustomModels, preserveCustomModels },
-        )
-      : undefined;
+  } catch (error) {
+    if (!(error instanceof CredentialStoreUnavailableError)) throw error;
+    currentError = error.message;
+  }
   const engineEntries = await Promise.all(
     engines.map(async (e) => {
       // Resolved per engine, not across the set: one provider whose credential
@@ -253,6 +260,7 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
           e,
         );
       } catch (error) {
+        if (error instanceof ForbiddenError) throw error;
         configuredError =
           error instanceof Error ? error.message : String(error);
       }
@@ -265,9 +273,11 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
           ? []
           : e.requiredEnvVars.map((key) => keyRejections.get(key));
       const rejection = rejectionStates.find((state) => !!state);
-      const modelSelection = isAgentEnginePackageInstalled(e)
-        ? await selectionFor(e.name)
-        : null;
+      const provider = providerForEngineName(e.name);
+      const modelSelection =
+        provider && isAgentEnginePackageInstalled(e)
+          ? await selectionFor(provider)
+          : null;
       const credentialRejected = rejection
         ? true
         : rejectionStates.includes(undefined)
@@ -318,13 +328,8 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
   );
   const result = {
     engines: engineEntries,
-    current:
-      !currentEntry || envUnavailable
-        ? null
-        : {
-            engine: currentEntry.name,
-            model: currentModel,
-          },
+    current: currentEngine,
+    ...(currentError ? { currentError } : {}),
     canUpdateDefault: defaultAuthority.allowed,
     defaultSource: defaultSetting.source,
   };

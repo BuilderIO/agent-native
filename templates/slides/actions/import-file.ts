@@ -1,8 +1,7 @@
 import path from "path";
 
-import { defineAction, fail } from "@agent-native/core/action";
+import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
-import { writeAppState } from "@agent-native/core/application-state";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -300,7 +299,8 @@ export default defineAction({
           tablesDegraded,
         });
         if (imagesSkipped > 0) {
-          fail(
+          // The images that did upload are orphan blobs, not saved deck data.
+          throw new NoWriteError(
             `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No slides were written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
             { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
           );
@@ -316,7 +316,6 @@ export default defineAction({
           deckId,
           title,
           slides,
-          "import-file:pptx",
           aspectRatio,
           sourceImport,
           pptxResults[0]?.sourceText,
@@ -385,7 +384,6 @@ export default defineAction({
           deckId,
           title,
           slides,
-          "import-file:docx",
           undefined,
           undefined,
           doc.text,
@@ -523,7 +521,6 @@ async function importPdfFromSidecar(args: {
     deckId,
     sidecar.title?.trim() || "",
     slides,
-    "import-file:pdf-sidecar",
     aspectRatio,
     undefined,
     undefined,
@@ -734,7 +731,6 @@ async function importPdfPagesWithFidelity(args: {
     deckId,
     title,
     slides,
-    "import-file:pdf",
     aspectRatio,
     sourceImport,
     titleSource,
@@ -949,7 +945,6 @@ async function appendDeckSlides(
     transitionSpeed?: number;
     splitByParagraph?: boolean;
   }>,
-  source: string,
   aspectRatio?: AspectRatio,
   sourceImport?: ReturnType<typeof buildSourceImportMetadata>,
   titleSource?: unknown,
@@ -959,7 +954,7 @@ async function appendDeckSlides(
   await assertAccess("deck", deckId, "editor");
 
   let resolvedTitle = title;
-  const now = await withDeckLock(deckId, async () => {
+  await withDeckLock(deckId, async () => {
     const db = getDb();
     const existing = await db
       .select()
@@ -1021,7 +1016,6 @@ async function appendDeckSlides(
   });
 
   await notifyClients(deckId);
-  await writeAppState("refresh-signal", { ts: now, source });
   return resolvedTitle;
 }
 

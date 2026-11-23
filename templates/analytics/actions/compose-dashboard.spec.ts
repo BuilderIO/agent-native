@@ -1,4 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { sameJsonValue } from "./dashboard-mutation-api";
 
@@ -138,6 +146,14 @@ const CONTENT_OR_CHAT_RETENTION_METRICS = [
   "seven-day-retention-by-template",
 ];
 
+beforeAll(() => {
+  vi.stubEnv("DATABASE_URL", "pglite:memory");
+});
+
+afterAll(() => {
+  vi.unstubAllEnvs();
+});
+
 beforeEach(() => {
   store.clear();
   vi.clearAllMocks();
@@ -168,6 +184,64 @@ beforeEach(() => {
 });
 
 describe("compose-dashboard", () => {
+  it("starts a new dashboard on production traffic", async () => {
+    await composeDashboard.run(
+      {
+        dashboardId: "new-traffic",
+        title: "New",
+        metrics: ["total-signups"],
+      },
+      { userEmail: "alice@example.com", orgId: null, caller: "tool" },
+    );
+
+    const filters = store.get("new-traffic")!.config.filters as Array<
+      Record<string, unknown>
+    >;
+    expect(filters.find((f) => f.id === "traffic_environment")).toMatchObject({
+      default: "production",
+    });
+    const verified = mocks.verifyPanelWrite.mock.calls[0]?.[0] as {
+      next: { filters: Array<Record<string, unknown>> };
+    };
+    expect(
+      verified.next.filters.find((f) => f.id === "traffic_environment"),
+    ).toMatchObject({ default: "production" });
+  });
+
+  describe("overwriting a dashboard", () => {
+    const trafficFilter = (id: string) =>
+      (store.get(id)!.config.filters as Array<Record<string, unknown>>).find(
+        (filter) => filter.id === "traffic_environment",
+      );
+    const overwrite = (dashboardId: string) =>
+      composeDashboard.run(
+        { dashboardId, metrics: ["total-signups"], overwrite: true },
+        { userEmail: "alice@example.com", orgId: null, caller: "tool" },
+      );
+
+    it("keeps the traffic it was set to", async () => {
+      store.set("on-beta", {
+        kind: "sql",
+        config: {
+          panels: [],
+          filters: [{ id: "traffic_environment", default: "beta" }],
+        },
+      });
+
+      await overwrite("on-beta");
+
+      expect(trafficFilter("on-beta")).toMatchObject({ default: "beta" });
+    });
+
+    it("leaves a dashboard that never chose on all traffic", async () => {
+      store.set("older", { kind: "sql", config: { panels: [] } });
+
+      await overwrite("older");
+
+      expect(trafficFilter("older")).toBeUndefined();
+    });
+  });
+
   it("builds a large dashboard (21 metrics) in one call with correct SQL", async () => {
     const result: any = await composeDashboard.run(
       {
@@ -195,6 +269,10 @@ describe("compose-dashboard", () => {
         default: "exclude_builder",
       }),
       expect.objectContaining({ id: "appFilter", default: "all" }),
+      expect.objectContaining({
+        id: "traffic_environment",
+        default: "production",
+      }),
     ]);
 
     for (const panel of panels) {

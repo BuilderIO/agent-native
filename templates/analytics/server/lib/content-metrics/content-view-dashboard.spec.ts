@@ -1,6 +1,15 @@
 import { createRequire } from "node:module";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 // The Content view's seeded panels, run through the real first-party query
 // path against a local PGlite database, for an organization whose events
@@ -72,11 +81,16 @@ vi.mock("../first-party-analytics-health.js", async (importOriginal) => ({
   recordFirstPartyAnalyticsQueryPressure: async () => {},
 }));
 
+import { planPanelRender } from "@agent-native/toolkit/dashboard/panel-render-contract";
+
 import { interpolateDashboardPanelSql } from "../../../app/pages/adhoc/sql-dashboard/interpolate";
-import { planPanelRender } from "../../../shared/panel-render-contract";
 import { getDashboardCatalogEntry } from "../dashboard-catalog";
 import { queryFirstPartyAnalytics } from "../first-party-analytics";
-import { CONTENT_METRICS_MIGRATION_SQL } from "./migration";
+import { resetPublicSchema } from "../testing/pglite-reset";
+import {
+  CONTENT_METRICS_MIGRATION_SQL,
+  CONTENT_SEARCH_QUERIES_MIGRATION_SQL,
+} from "./migration";
 
 const ALICE = { userEmail: "alice@example.test", orgId: "org_a" };
 
@@ -108,12 +122,21 @@ async function runPanel(id: string, timeRange = "28d") {
 describe("Content view dashboard", () => {
   let client: PGliteClient;
 
+  beforeAll(async () => {
+    client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
   beforeEach(async () => {
     bigQuery.query.mockReset();
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     database.client = client;
     await client.exec(`
       ${CONTENT_METRICS_MIGRATION_SQL.join(";\n")};
+      ${CONTENT_SEARCH_QUERIES_MIGRATION_SQL.join(";\n")};
       CREATE TABLE first_party_analytics_cache (
         key text PRIMARY KEY, sql text NOT NULL, result text NOT NULL,
         created_at text NOT NULL, expires_at text NOT NULL
@@ -131,16 +154,54 @@ describe("Content view dashboard", () => {
         ('s5', 'org:org_a', 'alice@example.test', 'org_a', 'p1', '${daysAgo(4)}', 'search_console_impressions', 30, 'search_console', 'r9', '${daysAgo(1)}'),
         ('s6', 'org:org_b', 'carol@example.test', 'org_b', 'b1', '${daysAgo(3)}', 'ga4_pageviews', 999, 'ga4', 'rb', '${daysAgo(1)}'),
         ('s7', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'signups_first_touch', 2, 'signups', 'r5', '${daysAgo(1)}'),
-        ('s8', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'signups_first_touch_source', 1, 'signups', 'r5', '${daysAgo(1)}');
+        ('s8', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'signups_first_touch_source', 1, 'signups', 'r5', '${daysAgo(1)}'),
+        ('s14', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'agent_native_signups', 4, 'agent_native_signups', 'r6', '${daysAgo(1)}');
       INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, window_end, error_code, error_message) VALUES
         ('r1', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'scheduled', 'succeeded', '${daysAgo(1)}T07:00:00.000Z', NULL, NULL, NULL),
         ('r2', 'org:org_a', 'alice@example.test', 'org_a', 'ga4', 'scheduled', 'succeeded', '${daysAgo(1)}T07:00:01.000Z', '${daysAgo(2)}', NULL, NULL),
         ('r3', 'org:org_a', 'alice@example.test', 'org_a', 'search_console', 'scheduled', 'succeeded', '${daysAgo(2)}T07:00:02.000Z', '${daysAgo(4)}', NULL, NULL),
         ('r4', 'org:org_a', 'alice@example.test', 'org_a', 'search_console', 'scheduled', 'not_configured', '${daysAgo(1)}T07:00:02.000Z', NULL, 'search_console_no_access', 'Search Console denied access to sc-domain:example.test.'),
         ('r5', 'org:org_a', 'alice@example.test', 'org_a', 'signups', 'scheduled', 'cost_limited', '${daysAgo(1)}T07:00:03.000Z', NULL, 'signups_bytes_cap', 'The signups join would scan 5000 bytes, over the 1000-byte cap. Nothing ran.'),
+        ('r6', 'org:org_a', 'alice@example.test', 'org_a', 'agent_native_signups', 'scheduled', 'succeeded', '${daysAgo(1)}T07:00:04.000Z', '${daysAgo(2)}', NULL, NULL),
         ('rb', 'org:org_b', 'carol@example.test', 'org_b', 'ga4', 'scheduled', 'failed', '${daysAgo(1)}T07:00:00.000Z', NULL, 'step_failed', 'boom');
+      INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, window_end)
+      SELECT 'r7', 'org:org_a', 'alice@example.test', 'org_a', 'search_console_queries', 'scheduled', 'succeeded', to_char(CURRENT_DATE - 1, 'YYYY-MM-DD') || 'T07:00:03.000Z', to_char(CURRENT_DATE - 8, 'YYYY-MM-DD');
     `);
   });
+
+  async function weekStart(weeksAgo: number): Promise<string> {
+    const { rows } = (await client.query(
+      "SELECT to_char(date_trunc('week', CURRENT_DATE::timestamp)::date - 7 * $1::int, 'YYYY-MM-DD') AS day",
+      [weeksAgo],
+    )) as { rows: Array<{ day: string }> };
+    const [row = { day: "" }] = rows;
+    return row.day;
+  }
+
+  async function monthLabel(monthsAgo: number): Promise<string> {
+    const { rows } = (await client.query(
+      "SELECT to_char(date_trunc('month', CURRENT_DATE::timestamp) - make_interval(months => $1::int), 'Mon ''YY') AS month",
+      [monthsAgo],
+    )) as { rows: Array<{ month: string }> };
+    const [row = { month: "" }] = rows;
+    return row.month;
+  }
+
+  async function insertQueries(): Promise<void> {
+    await client.exec(`
+      INSERT INTO analytics_content_search_queries (id, tenant_key, owner_email, org_id, item_id, week_start, query, clicks, impressions, position_weighted, run_id, collected_at)
+      SELECT rows.item_id || rows.weeks_ago || rows.query, items.tenant_key, items.owner_email, items.org_id, rows.item_id, to_char(date_trunc('week', CURRENT_DATE::timestamp)::date - 7 * rows.weeks_ago, 'YYYY-MM-DD'), rows.query, rows.clicks, rows.impressions, rows.impressions * rows.position, 'r7', '2026-09-01'
+      FROM (VALUES
+        ('a1', 1, 'headless cms', 6, 200, 3),
+        ('a1', 2, 'headless cms', 4, 200, 5),
+        ('a1', 10, 'old query', 50, 100, 1.5),
+        ('a2', 1, 'visual cms', 1, 300, 12),
+        ('p1', 1, 'docs query', 70, 700, 2),
+        ('b1', 1, 'other org query', 99, 999, 1)
+      ) AS rows (item_id, weeks_ago, query, clicks, impressions, position)
+      JOIN analytics_content_items items ON items.id = rows.item_id;
+    `);
+  }
 
   // The database clock, not the test runner's UTC date: near midnight the two
   // name different days.
@@ -151,9 +212,21 @@ describe("Content view dashboard", () => {
     return rows[0]!.day;
   }
 
+  async function lastWeek(): Promise<string> {
+    const end = new Date(`${await yesterday("YYYY-MM-DD")}T00:00:00Z`);
+    const start = new Date(end.getTime() - 6 * 86_400_000);
+    const format = (date: Date, month: boolean) =>
+      date.toLocaleDateString("en-US", {
+        ...(month ? { month: "short" } : {}),
+        day: "numeric",
+        timeZone: "UTC",
+      });
+    const sameMonth = start.getUTCMonth() === end.getUTCMonth();
+    return `${format(start, true)}–${format(end, !sameMonth)}`;
+  }
+
   afterEach(async () => {
     database.client = null;
-    await client?.close();
   });
 
   it("reads only the content tables through the first-party source", () => {
@@ -175,7 +248,11 @@ describe("Content view dashboard", () => {
               "dates",
               "per_article",
               "top_authors",
+              "weeks",
               "windows",
+              "newest",
+              "per_query",
+              "recent",
             ].includes(name),
         );
       expect(tables.length).toBeGreaterThan(0);
@@ -199,7 +276,23 @@ describe("Content view dashboard", () => {
         data_through: daysAgo(4),
         detail: "Search Console denied access to sc-domain:example.test.",
       }),
-      expect.objectContaining({ source: "Signups", status: "Cost-limited" }),
+      expect.objectContaining({
+        source: "Search queries",
+        status: "Collected",
+        first_data: null,
+        detail:
+          "Each article's top queries per week, Monday to Sunday, once Search Console has the whole week. History fills back a few weeks a run.",
+      }),
+      expect.objectContaining({
+        source: "Builder signups",
+        status: "Cost-limited",
+      }),
+      expect.objectContaining({
+        source: "Agent-Native signups",
+        status: "Collected",
+        first_data: daysAgo(3),
+        data_through: daysAgo(2),
+      }),
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
@@ -217,7 +310,9 @@ describe("Content view dashboard", () => {
         data_through: daysAgo(2),
       }),
       expect.objectContaining({ source: "Search Console" }),
-      expect.objectContaining({ source: "Signups" }),
+      expect.objectContaining({ source: "Search queries" }),
+      expect.objectContaining({ source: "Builder signups" }),
+      expect.objectContaining({ source: "Agent-Native signups" }),
     ]);
     expect(await runPanel("missing-data")).toEqual([
       {
@@ -238,7 +333,7 @@ describe("Content view dashboard", () => {
       },
       {
         severity: "critical",
-        message: `**Signups stopped at the cost cap** on the ${runDay(1)} run.`,
+        message: `**Builder signups stopped at the cost cap** on the ${runDay(1)} run.`,
       },
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
@@ -259,12 +354,33 @@ describe("Content view dashboard", () => {
       `UPDATE analytics_content_collection_runs SET started_at = '${daysAgo(40)}T07:00:00.000Z' WHERE tenant_key = 'org:org_a'`,
     );
     expect(await runPanel("missing-data")).toEqual(
-      ["Articles", "Pageviews", "Search clicks and impressions", "Signups"].map(
-        (label) => ({
-          severity: "warning",
-          message: `**${label} haven't been collected in the last 30 days**.`,
-        }),
-      ),
+      [
+        "Articles",
+        "Pageviews",
+        "Search clicks and impressions",
+        "Search queries",
+        "Builder signups",
+        "Agent-Native signups",
+      ].map((label) => ({
+        severity: "warning",
+        message: `**${label} haven't been collected in the last 30 days**.`,
+      })),
+    );
+  });
+
+  it("dates each source's first data and explains a source with no error", async () => {
+    const rows = await runPanel("collection-status");
+    expect(rows.find((row) => row.source === "GA4 pageviews")).toEqual(
+      expect.objectContaining({
+        first_data: daysAgo(40),
+        detail: "Daily pageviews per article, as GA4 counts them.",
+      }),
+    );
+    expect(rows.find((row) => row.source === "Blog articles")).toEqual(
+      expect.objectContaining({
+        first_data: "2026-09-01",
+        detail: "Titles, authors and publish dates.",
+      }),
     );
   });
 
@@ -276,10 +392,11 @@ describe("Content view dashboard", () => {
         author: "Ada",
         published: "2026-09-01",
         signups: 2,
-        source_signups: 1,
+        agent_native_signups: 4,
         pageviews: 5,
         clicks: null,
         impressions: null,
+        position: null,
       },
       {
         title: "Post two",
@@ -287,10 +404,11 @@ describe("Content view dashboard", () => {
         author: "Grace",
         published: daysAgo(0),
         signups: null,
-        source_signups: null,
+        agent_native_signups: null,
         pageviews: null,
         clicks: null,
         impressions: null,
+        position: null,
       },
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
@@ -300,12 +418,21 @@ describe("Content view dashboard", () => {
     await client.exec(`
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at) VALUES
         ('c1', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(4)}', 'search_console_clicks', 3, 'search_console', 'r3', '${daysAgo(2)}'),
-        ('c2', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(4)}', 'search_console_impressions', 40, 'search_console', 'r3', '${daysAgo(2)}');
+        ('c2', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(4)}', 'search_console_impressions', 40, 'search_console', 'r3', '${daysAgo(2)}'),
+        ('c4', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(5)}', 'search_console_impressions', 60, 'search_console', 'r3', '${daysAgo(2)}');
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
+      SELECT 'c3', 'org:org_a', 'alice@example.test', 'org_a', 'a1', metric_date, 'search_console_position_weighted', 132, 'search_console', 'r3', '2026-09-01'
+      FROM analytics_content_metric_snapshots WHERE id = 'c1';
     `);
     expect(
       (await runPanel("articles")).find((row) => row.title === "Post one"),
     ).toEqual(
-      expect.objectContaining({ pageviews: 5, clicks: 3, impressions: 40 }),
+      expect.objectContaining({
+        pageviews: 5,
+        clicks: 3,
+        impressions: 100,
+        position: 3.3,
+      }),
     );
 
     // Search Console reports two to three days late, so its newest days stay
@@ -330,7 +457,11 @@ describe("Content view dashboard", () => {
   });
 
   it("rejects a custom date scaffold wider than the supported range", () => {
-    for (const id of ["signups-per-day", "pageviews-per-day"]) {
+    for (const id of [
+      "signups-per-day",
+      "agent-native-signups-per-day",
+      "pageviews-per-day",
+    ]) {
       const panel = contentView().panels.find((panel) => panel.id === id)!;
       expect(
         interpolateDashboardPanelSql(
@@ -365,6 +496,18 @@ describe("Content view dashboard", () => {
     );
   });
 
+  it("draws Agent-Native signups on their own chart, by signup day", async () => {
+    const days = await runPanel("agent-native-signups-per-day");
+    expect(days).toHaveLength(28);
+    expect(days.filter((row) => row.signups !== null)).toEqual([
+      { date: daysAgo(3), signups: 4 },
+    ]);
+    expect(
+      (await runPanel("signups-per-day")).find((row) => row.date === daysAgo(3))
+        ?.signups,
+    ).toBe(2);
+  });
+
   it("keeps the time range and the organization in every panel", async () => {
     await client.exec(`
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at) VALUES
@@ -385,11 +528,31 @@ describe("Content view dashboard", () => {
       { author: "Ada", signups: 2 },
     ]);
     expect(await runPanel("authors")).toEqual([
-      { author: "Ada", articles: 1, with_signups: 1, signups: 2 },
-      { author: "Grace", articles: 1, with_signups: 0, signups: null },
+      {
+        author: "Ada",
+        articles: 1,
+        with_signups: 1,
+        signups: 2,
+        agent_native_signups: 4,
+      },
+      {
+        author: "Grace",
+        articles: 1,
+        with_signups: 0,
+        signups: null,
+        agent_native_signups: null,
+      },
     ]);
-    expect(await runPanel("author-weeks")).toEqual([
-      { author: "Ada", week: await yesterday("YYYY-MM-DD"), signups: 2 },
+    const weeks = await runPanel("author-weeks");
+    expect(weeks).toEqual([
+      { author: "Ada", week: await lastWeek(), signups: 2 },
+    ]);
+    const weekly = contentView().panels.find(
+      (panel) => panel.id === "author-weeks",
+    );
+    if (!weekly) throw new Error("no author-weeks panel");
+    expect(planPanelRender(weeks, weekly, { timeRange: 28 }).rows).toEqual([
+      { week: await lastWeek(), Ada: 2 },
     ]);
     expect((await runPanel("author-articles")).map((row) => row.title)).toEqual(
       ["Post one", "Post two"],
@@ -432,7 +595,7 @@ describe("Content view dashboard", () => {
         ?.signups,
     ).toBe(5);
     expect(await runPanel("author-weeks", "7d")).toEqual([
-      { author: "Ada", week: await yesterday("YYYY-MM-DD"), signups: 5 },
+      { author: "Ada", week: await lastWeek(), signups: 5 },
     ]);
   });
 
@@ -450,7 +613,7 @@ describe("Content view dashboard", () => {
     `);
     // The chart leaves today out: Writer 5's signups are all from today, so
     // Ada keeps the fifth line, and Writer 1's 40 today stay out of their week.
-    const week = await yesterday("YYYY-MM-DD");
+    const week = await lastWeek();
     const rows = await runPanel("author-weeks");
     expect(rows).toHaveLength(5);
     expect(rows).toEqual(
@@ -507,6 +670,241 @@ describe("Content view dashboard", () => {
         previous: 5,
         change: 120,
       },
+    ]);
+    expect(bigQuery.query).not.toHaveBeenCalled();
+  });
+
+  it("lists the biggest drops with the biggest rises", async () => {
+    await client.exec(`
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
+      SELECT 'move' || item_id || days_ago, 'org:org_a', 'alice@example.test', 'org_a', item_id, to_char(CURRENT_DATE - days_ago, 'YYYY-MM-DD'), 'signups_first_touch', value, 'signups', 'r0', '2026-09-01'
+      FROM (VALUES ('a1', 40, 60), ('a1', 10, 20), ('a2', 40, 5), ('a2', 10, 17)) AS moves (item_id, days_ago, value);
+    `);
+    expect(
+      (await runPanel("rising")).map(({ title, recent, previous }) => ({
+        title,
+        recent,
+        previous,
+      })),
+    ).toEqual([
+      { title: "Post one", recent: 22, previous: 60 },
+      { title: "Post two", recent: 17, previous: 5 },
+    ]);
+  });
+
+  it("lists each article's search queries in the weeks the time range touches, from this organization's articles only", async () => {
+    await insertQueries();
+    expect(await runPanel("search-queries")).toEqual([
+      {
+        query: "headless cms",
+        title: "Post one",
+        href: "https://www.builder.io/blog/one",
+        impressions: 400,
+        clicks: 10,
+        click_rate: 0.025,
+        position: 4,
+      },
+      {
+        query: "visual cms",
+        title: "Post two",
+        href: "https://www.builder.io/blog/two",
+        impressions: 300,
+        clicks: 1,
+        click_rate: 0.0033,
+        position: 12,
+      },
+    ]);
+    expect((await runPanel("search-queries", "all"))[0]).toEqual({
+      query: "old query",
+      title: "Post one",
+      href: "https://www.builder.io/blog/one",
+      impressions: 100,
+      clicks: 50,
+      click_rate: 0.5,
+      position: 1.5,
+    });
+    expect(
+      (await runPanel("collection-status")).find(
+        (row) => row.source === "Search queries",
+      ),
+    ).toEqual(expect.objectContaining({ first_data: await weekStart(10) }));
+    expect(bigQuery.query).not.toHaveBeenCalled();
+  });
+
+  it("reaches back to the newest collected week when Search Console's lag leaves the 7-day range without one", async () => {
+    await client.exec(`
+      INSERT INTO analytics_content_search_queries (id, tenant_key, owner_email, org_id, item_id, week_start, query, clicks, impressions, position_weighted, run_id, collected_at)
+      SELECT rows.item_id || rows.weeks_ago, items.tenant_key, items.owner_email, items.org_id, rows.item_id, to_char(date_trunc('week', CURRENT_DATE::timestamp)::date - 7 * rows.weeks_ago, 'YYYY-MM-DD'), rows.query, rows.clicks, rows.impressions, rows.impressions * rows.position, 'r7', '2026-09-01'
+      FROM (VALUES
+        ('a1', 2, 'lagged query', 3, 60, 4),
+        ('a1', 3, 'older query', 5, 80, 6)
+      ) AS rows (item_id, weeks_ago, query, clicks, impressions, position)
+      JOIN analytics_content_items items ON items.id = rows.item_id;
+    `);
+    expect(await runPanel("search-queries", "7d")).toEqual([
+      {
+        query: "lagged query",
+        title: "Post one",
+        href: "https://www.builder.io/blog/one",
+        impressions: 60,
+        clicks: 3,
+        click_rate: 0.05,
+        position: 4,
+      },
+    ]);
+    const month = await runPanel("search-queries", "28d");
+    expect(month.map((row) => row.query)).toEqual([
+      "older query",
+      "lagged query",
+    ]);
+  });
+
+  it("shows a queries run's note and says when the queries step waits for Search Console access", async () => {
+    await client.exec(
+      "UPDATE analytics_content_collection_runs SET detail = 'Waiting for the page numbers to reach this week.' WHERE id = 'r7'",
+    );
+    expect(
+      (await runPanel("collection-status")).find(
+        (row) => row.source === "Search queries",
+      )?.detail,
+    ).toBe("Waiting for the page numbers to reach this week.");
+
+    await client.exec(
+      "UPDATE analytics_content_collection_runs SET status = 'not_configured' WHERE id = 'r7'",
+    );
+    expect(await runPanel("missing-data")).toEqual([
+      expect.objectContaining({ severity: "warning" }),
+      {
+        severity: "warning",
+        message:
+          "**Search queries aren't connected yet**: waiting for Search Console access.",
+      },
+      expect.objectContaining({ severity: "critical" }),
+    ]);
+  });
+
+  it("finds queries near the top of page two and top queries rarely clicked, from the four newest weeks", async () => {
+    await client.exec(`
+      INSERT INTO analytics_content_search_queries (id, tenant_key, owner_email, org_id, item_id, week_start, query, clicks, impressions, position_weighted, run_id, collected_at)
+      SELECT rows.item_id || rows.weeks_ago || rows.query, items.tenant_key, items.owner_email, items.org_id, rows.item_id, to_char(date_trunc('week', CURRENT_DATE::timestamp)::date - 7 * rows.weeks_ago, 'YYYY-MM-DD'), rows.query, rows.clicks, rows.impressions, rows.impressions * rows.position, 'r7', '2026-09-01'
+      FROM (VALUES
+        ('a1', 1, 'page two', 1, 40, 9),
+        ('a1', 4, 'page two', 0, 40, 11),
+        ('a1', 1, 'too few', 0, 30, 10),
+        ('a1', 1, 'deep', 0, 500, 25),
+        ('a1', 5, 'stale', 0, 500, 10),
+        ('a2', 2, 'seen not clicked', 1, 200, 3),
+        ('a2', 2, 'well clicked', 20, 200, 2),
+        ('b1', 1, 'other org', 0, 900, 10)
+      ) AS rows (item_id, weeks_ago, query, clicks, impressions, position)
+      JOIN analytics_content_items items ON items.id = rows.item_id;
+    `);
+    expect(await runPanel("near-page-one", "7d")).toEqual([
+      {
+        query: "page two",
+        title: "Post one",
+        href: "https://www.builder.io/blog/one",
+        impressions: 80,
+        clicks: 1,
+        click_rate: 0.0125,
+        position: 10,
+      },
+    ]);
+    expect(await runPanel("rarely-clicked", "7d")).toEqual([
+      {
+        query: "seen not clicked",
+        title: "Post two",
+        href: "https://www.builder.io/blog/two",
+        impressions: 200,
+        clicks: 1,
+        click_rate: 0.005,
+        position: 3,
+      },
+    ]);
+  });
+
+  it("totals search clicks by full month and compares the newest 28 days with the same days a year before", async () => {
+    await client.exec(`
+      UPDATE analytics_content_items SET published_at = '2024-01-01T00:00:00.000Z' WHERE id = 'a1';
+      INSERT INTO analytics_content_items (id, tenant_key, owner_email, org_id, source, external_id, url, title, author, published_at, first_seen_at, updated_at) VALUES
+        ('a3', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'a3', 'https://www.builder.io/blog/three', 'Post three', 'Ada', '2024-01-01T00:00:00.000Z', '2026-09-01', '2026-09-01'),
+        ('a4', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'a4', 'https://www.builder.io/blog/four', 'Post four', 'Ada', '2024-01-01T00:00:00.000Z', '2026-09-01', '2026-09-01');
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
+      SELECT 'yoy' || item_id || days_ago, 'org:org_a', 'alice@example.test', 'org_a', item_id, to_char(CURRENT_DATE - 3 - days_ago, 'YYYY-MM-DD'), 'search_console_clicks', value, 'search_console', 'r3', '2026-09-01'
+      FROM (VALUES
+        ('a1', 0, 30), ('a1', 27, 5), ('a1', 28, 1000), ('a1', 364, 10), ('a1', 391, 4), ('a1', 392, 500),
+        ('a2', 0, 25),
+        ('a3', 1, 5), ('a3', 370, 10),
+        ('a4', 2, 10), ('a4', 380, 40)
+      ) AS days (item_id, days_ago, value);
+    `);
+    const yearOverYear = [
+      {
+        title: "Post four",
+        href: "https://www.builder.io/blog/four",
+        recent: 10,
+        year_before: 40,
+        change: -75,
+      },
+      {
+        title: "Post one",
+        href: "https://www.builder.io/blog/one",
+        recent: 35,
+        year_before: 14,
+        change: 150,
+      },
+      {
+        title: "Post two",
+        href: "https://www.builder.io/blog/two",
+        recent: 25,
+        year_before: null,
+        change: null,
+      },
+    ];
+    expect(await runPanel("search-year-over-year", "7d")).toEqual(yearOverYear);
+
+    await client.exec(
+      "UPDATE analytics_content_metric_snapshots SET metric_date = to_char(metric_date::date - 57, 'YYYY-MM-DD') WHERE metric = 'search_console_clicks'",
+    );
+    expect(await runPanel("search-year-over-year", "7d")).toEqual(yearOverYear);
+    await client.exec(
+      "UPDATE analytics_content_metric_snapshots SET metric_date = to_char(metric_date::date + 57, 'YYYY-MM-DD') WHERE metric = 'search_console_clicks'",
+    );
+
+    await client.exec(
+      "DELETE FROM analytics_content_metric_snapshots WHERE metric = 'search_console_clicks' AND metric_date < to_char(CURRENT_DATE - 300, 'YYYY-MM-DD')",
+    );
+    expect(
+      (await runPanel("search-year-over-year", "7d")).map(
+        ({ title, year_before }) => ({ title, year_before }),
+      ),
+    ).toEqual([
+      { title: "Post one", year_before: null },
+      { title: "Post two", year_before: null },
+    ]);
+
+    await client.exec(`
+      DELETE FROM analytics_content_metric_snapshots WHERE metric = 'search_console_clicks';
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
+      SELECT 'month' || item_id || months_ago || day, items.tenant_key, items.owner_email, items.org_id, item_id, to_char((date_trunc('month', CURRENT_DATE::timestamp) - make_interval(months => months_ago))::date + day, 'YYYY-MM-DD'), 'search_console_clicks', value, 'search_console', 'r3', '2026-09-01'
+      FROM (VALUES
+        ('a1', 1, 2, 7), ('a1', 1, 5, 3), ('a2', 13, 0, 4),
+        ('a1', 0, 0, 100), ('a1', 25, 0, 9), ('p1', 1, 0, 50), ('b1', 1, 0, 60)
+      ) AS days (item_id, months_ago, day, value)
+      JOIN analytics_content_items items ON items.id = days.item_id;
+    `);
+    expect(await runPanel("search-months", "7d")).toEqual([
+      { month: await monthLabel(13), clicks: 4 },
+      { month: await monthLabel(1), clicks: 10 },
+    ]);
+
+    await client.exec(`
+      DELETE FROM analytics_content_metric_snapshots WHERE id IN ('montha1250', 'montha2130');
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
+      SELECT 'partial', 'org:org_a', 'alice@example.test', 'org_a', 'a1', to_char((date_trunc('month', CURRENT_DATE::timestamp) - make_interval(months => 2))::date + 9, 'YYYY-MM-DD'), 'search_console_clicks', 6, 'search_console', 'r3', '2026-09-01';
+    `);
+    expect(await runPanel("search-months", "7d")).toEqual([
+      { month: await monthLabel(1), clicks: 10 },
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
   });

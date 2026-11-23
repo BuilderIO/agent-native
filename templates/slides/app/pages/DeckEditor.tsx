@@ -29,6 +29,7 @@ import {
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { FirstOutputNextStepBar } from "@agent-native/toolkit/app-shell";
 import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
@@ -58,7 +59,7 @@ import {
   type CSSProperties,
   type FormEvent,
 } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   useBlocker,
   useLocation,
@@ -69,6 +70,7 @@ import {
 import { toast } from "sonner";
 
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
+import { PdfExportStage } from "@/components/deck/PdfExportStage";
 import SlideRenderer, {
   getRenderedSlideSource,
   renderRawSlideHtml,
@@ -111,6 +113,7 @@ import SlideEditor, {
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { useSlidesAgentSelect } from "@/components/editor/use-slides-agent-select";
+import { presentChannelSupported } from "@/components/presentation/present-channel";
 import {
   SlideTransitionPreview,
   transitionPreviewPair,
@@ -444,6 +447,16 @@ export function isSlideClipboardStillArmed(
   now: number = Date.now(),
 ): boolean {
   return armedAt !== null && now - armedAt <= SLIDE_CLIPBOARD_ARM_WINDOW_MS;
+}
+
+// A focused thumbnail is the rail's own paste surface and the native marker
+// already proves the copy is current, so only canvas pastes expire.
+export function isSlideClipboardPasteArmed(
+  armedAt: number,
+  hasFocusedThumbnail: boolean,
+  now: number = Date.now(),
+): boolean {
+  return hasFocusedThumbnail || isSlideClipboardStillArmed(armedAt, now);
 }
 
 function isBlockingSlideClipboardPopper(el: Element): boolean {
@@ -818,6 +831,9 @@ export default function DeckEditor() {
   const deniedPageAccessRequest = useRequestDeckAccess();
   const resetDeniedPageAccessRequest = deniedPageAccessRequest.reset;
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
+  const [exportStageSlides, setExportStageSlides] = useState<Slide[] | null>(
+    null,
+  );
   const [selectedSlideIds, setSelectedSlideIds] = useState<string[]>([]);
   const [altDragState, setAltDragState] = useState<{
     slideId: string;
@@ -1368,7 +1384,7 @@ export default function DeckEditor() {
       ? generationContext.generationAttemptId
       : searchParams.get("generation_attempt_id");
   const deckExportAnalytics = {
-    deckId: id,
+    ...(id ? { deckId: id } : {}),
     ...(typeof generationContext?.generationAttemptId === "string"
       ? { generationAttemptId: generationContext.generationAttemptId }
       : {}),
@@ -1541,7 +1557,9 @@ export default function DeckEditor() {
           emptyGenerationRecoveryRef.current = null;
         }
       })
-      .catch(() => toast.error(t("settings.saveFailed")));
+      .catch((error) =>
+        reportWriteFailure(error, { label: t("settings.saveFailed") }),
+      );
   }, [
     deck,
     flushDeckSave,
@@ -1635,7 +1653,9 @@ export default function DeckEditor() {
         generationFailureSlidesFingerprint: null,
       },
     });
-    void flushDeckSave(id).catch(() => toast.error(t("settings.saveFailed")));
+    void flushDeckSave(id).catch((error) =>
+      reportWriteFailure(error, { label: t("settings.saveFailed") }),
+    );
   }, [
     attemptObservedRun,
     flushDeckSave,
@@ -1898,9 +1918,9 @@ export default function DeckEditor() {
       try {
         updateDeck(id, { generationContext: retryContext });
         await flushDeckSave(id);
-      } catch {
+      } catch (error) {
         await restoreFailedRetry();
-        toast.error(t("settings.saveFailed"));
+        reportWriteFailure(error, { label: t("settings.saveFailed") });
         return;
       }
       let retryQuestionCheck: Awaited<
@@ -2054,8 +2074,8 @@ export default function DeckEditor() {
         ) {
           emptyGenerationRecoveryRef.current = null;
         }
-      } catch {
-        toast.error(t("settings.saveFailed"));
+      } catch (error) {
+        reportWriteFailure(error, { label: t("settings.saveFailed") });
       }
     } finally {
       retryEmptyGenerationInFlightRef.current = false;
@@ -2476,8 +2496,8 @@ export default function DeckEditor() {
         ) {
           emptyGenerationRecoveryRef.current = null;
         }
-      } catch {
-        toast.error(t("settings.saveFailed"));
+      } catch (error) {
+        reportWriteFailure(error, { label: t("settings.saveFailed") });
       }
     };
     void (async () => {
@@ -2617,8 +2637,10 @@ export default function DeckEditor() {
             ) {
               emptyGenerationRecoveryRef.current = null;
             }
-          } catch {
-            toast.error(t("editorSidebar.newSlideSaveFailed"));
+          } catch (error) {
+            reportWriteFailure(error, {
+              label: t("editorSidebar.newSlideSaveFailed"),
+            });
           }
           resumeSettlementAfterPausedSave();
           return;
@@ -2690,8 +2712,10 @@ export default function DeckEditor() {
             ) {
               emptyGenerationRecoveryRef.current = null;
             }
-          } catch {
-            toast.error(t("editorSidebar.newSlideSaveFailed"));
+          } catch (error) {
+            reportWriteFailure(error, {
+              label: t("editorSidebar.newSlideSaveFailed"),
+            });
           }
         }
         if (failureCode === "cancelled") {
@@ -2912,7 +2936,9 @@ export default function DeckEditor() {
               emptyGenerationRecoveryRef.current = null;
             }
           })
-          .catch(() => toast.error(t("settings.saveFailed")));
+          .catch((error) =>
+            reportWriteFailure(error, { label: t("settings.saveFailed") }),
+          );
       },
       Math.max(0, deadline - Date.now()),
     );
@@ -3721,8 +3747,8 @@ export default function DeckEditor() {
   );
 
   const replaceImageInSlide = useCallback(
-    (oldSrc: string, newSrc: string, alt?: string) => {
-      if (!id || !currentSlideRef.current) return;
+    (oldSrc: string, newSrc: string, alt?: string): boolean => {
+      if (!id || !currentSlideRef.current) return false;
       const slide = currentSlideRef.current;
       const currentContent =
         latestSlideContentRef.current.get(slide.id) ?? slide.content;
@@ -3732,9 +3758,9 @@ export default function DeckEditor() {
         newSrc,
         { alt },
       );
-      if (updatedContent !== currentContent) {
-        updateSlideContent(slide.id, updatedContent);
-      }
+      if (updatedContent === currentContent) return false;
+      updateSlideContent(slide.id, updatedContent);
+      return true;
     },
     [updateSlideContent],
   );
@@ -4031,8 +4057,8 @@ export default function DeckEditor() {
       replaceSrc: string | null,
       url: string,
       position?: { x: number; y: number },
-    ) => {
-      if (!id || !currentSlideRef.current) return;
+    ): boolean => {
+      if (!id || !currentSlideRef.current) return false;
       if (!replaceSrc) {
         const targetSlide = currentSlideRef.current;
         const currentContent =
@@ -4043,18 +4069,17 @@ export default function DeckEditor() {
           url,
           { position },
         );
-        if (updatedContent !== currentContent) {
-          updateSlideContent(targetSlide.id, updatedContent);
-          trackEvent("media_added", {
-            output_id: id,
-            output_type: "deck",
-            media_source: "generated_asset",
-            slide_id: targetSlide.id,
-          });
-        }
-        return;
+        if (updatedContent === currentContent) return false;
+        updateSlideContent(targetSlide.id, updatedContent);
+        trackEvent("media_added", {
+          output_id: id,
+          output_type: "deck",
+          media_source: "generated_asset",
+          slide_id: targetSlide.id,
+        });
+        return true;
       }
-      replaceImageInSlide(replaceSrc, url);
+      return replaceImageInSlide(replaceSrc, url);
     },
     [replaceImageInSlide, updateSlideContent],
   );
@@ -4199,9 +4224,13 @@ export default function DeckEditor() {
 
   const deleteSlidesWithUndo = useCallback(
     (deckId: string, slideIds: string[]) => {
-      const historyToken = deleteSlides(deckId, slideIds);
+      // A refused delete is restored by the deck resync and reported by the save
+      // banner, so "Slide deleted" with Undo would contradict both.
+      const historyToken = deleteSlides(deckId, slideIds, () =>
+        toast.dismiss(toastId),
+      );
       if (!historyToken) return;
-      toast(t("editorSidebar.slideDeleted"), {
+      const toastId = toast(t("editorSidebar.slideDeleted"), {
         className: "!bg-background !text-foreground !border-border",
         duration: 6000,
         closeButton: true,
@@ -4749,12 +4778,15 @@ export default function DeckEditor() {
         return false;
       }
 
+      const focusedThumbnail = document.activeElement?.closest(
+        "[data-slide-thumbnail-id]",
+      );
       const clipboard = syncSlideClipboard();
       const copiedAt = slideClipboardArmedAtRef.current;
       if (
         !clipboard ||
         copiedAt === null ||
-        !isSlideClipboardStillArmed(copiedAt)
+        !isSlideClipboardPasteArmed(copiedAt, Boolean(focusedThumbnail))
       ) {
         return false;
       }
@@ -4790,9 +4822,6 @@ export default function DeckEditor() {
       const isTextEntrySurface =
         isSlideClipboardTextEntrySurface(event.target as Element | null) ||
         isSlideClipboardTextEntrySurface(document.activeElement);
-      const focusedThumbnail = document.activeElement?.closest(
-        "[data-slide-thumbnail-id]",
-      );
       const shouldPasteSlide = shouldHandleSlideClipboardPaste({
         hasMatchingSlideClipboardMarker,
         hasImage,
@@ -5057,7 +5086,7 @@ export default function DeckEditor() {
     activeSlideId,
   );
   const currentSlideThreads: CommentThread[] =
-    currentSlideCommentsQuery.data ?? [];
+    currentSlideCommentsQuery.data?.threads ?? [];
   const unresolvedCommentCount = currentSlideThreads.filter(
     (t) => !t.resolved,
   ).length;
@@ -5217,6 +5246,17 @@ export default function DeckEditor() {
       const content = latestSlideContentRef.current.get(slide.id);
       return content === undefined ? slide : { ...slide, content };
     });
+
+  // Browser exports capture slides from the DOM, but the rail and canvas only
+  // render slides near the viewport, so mount every slide for the export.
+  const withExportStage = async <T,>(run: () => Promise<T>): Promise<T> => {
+    flushSync(() => setExportStageSlides(slidesWithLatestContent()));
+    try {
+      return await run();
+    } finally {
+      setExportStageSlides(null);
+    }
+  };
 
   const handleDownloadDeckBackup = () => {
     inlineEditFlushRef.current?.();
@@ -5388,12 +5428,20 @@ export default function DeckEditor() {
     }
     // A popup is only allowed while the click is still being handled, so it
     // opens blank now and gets its address once the save has been flushed.
-    const presenterWindow =
-      mode === "presenter"
-        ? window.open("", presenterWindowName(id), PRESENTER_WINDOW_FEATURES)
-        : null;
-    if (mode === "presenter" && !presenterWindow) {
-      toast.error(t("editorToolbar.presenterViewBlocked"));
+    let presenterWindow: Window | null = null;
+    if (mode === "presenter") {
+      if (!presentChannelSupported()) {
+        toast.error(t("editorToolbar.presenterViewUnsupported"));
+      } else {
+        presenterWindow = window.open(
+          "",
+          presenterWindowName(id),
+          PRESENTER_WINDOW_FEATURES,
+        );
+        if (!presenterWindow) {
+          toast.error(t("editorToolbar.presenterViewBlocked"));
+        }
+      }
     }
     presentInFlightRef.current = true;
     const attemptId = ++presentAttemptRef.current;
@@ -5584,10 +5632,15 @@ export default function DeckEditor() {
           if (exportSlides.length === 0) {
             throw new Error(t("deckEditor.deckHasNoSlides"));
           }
-          await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio, {
-            analytics: deckExportAnalytics,
-            signal,
-          });
+          const { sidecarSkipped } = await withExportStage(() =>
+            exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio, {
+              analytics: deckExportAnalytics,
+              signal,
+            }),
+          );
+          if (sidecarSkipped) {
+            toast.warning(t("editorExport.pdfSidecarSkipped"));
+          }
         }}
         flushInlineEdit={() => inlineEditFlushRef.current?.()}
         onExportPptx={async (signal) => {
@@ -5603,12 +5656,14 @@ export default function DeckEditor() {
           if (slides.length === 0) {
             throw new Error(t("deckEditor.deckHasNoSlides"));
           }
-          const { blankShapes } = await exportDeckAsPptx(
-            deck.title,
-            slides,
-            deck.aspectRatio,
-            deckExportAnalytics,
-            signal,
+          const { blankShapes } = await withExportStage(() =>
+            exportDeckAsPptx(
+              deck.title,
+              slides,
+              deck.aspectRatio,
+              deckExportAnalytics,
+              signal,
+            ),
           );
           if (blankShapes > 0) {
             toast.warning(
@@ -5644,12 +5699,14 @@ export default function DeckEditor() {
               deckExportAnalytics,
             );
           }
-          return exportDeckToGoogleSlides(
-            deck.title,
-            slides,
-            deck.aspectRatio,
-            undefined,
-            deckExportAnalytics,
+          return withExportStage(() =>
+            exportDeckToGoogleSlides(
+              deck.title,
+              slides,
+              deck.aspectRatio,
+              undefined,
+              deckExportAnalytics,
+            ),
           );
         }}
       />
@@ -5927,6 +5984,14 @@ export default function DeckEditor() {
               />
             </div>
           </div>
+        )}
+
+        {exportStageSlides && (
+          <PdfExportStage
+            slides={exportStageSlides}
+            aspectRatio={deck.aspectRatio}
+            designSystem={designSystem}
+          />
         )}
 
         {transitionPreviewOpen && canPreviewTransition && (
@@ -6282,7 +6347,6 @@ export default function DeckEditor() {
             deckId={id}
             slideId={currentSlide?.id ?? null}
             canComment={canComment}
-            canEdit={canEdit}
             currentUserEmail={session?.email ?? null}
             selectedThreadId={selectedCommentThreadId}
             selectedThreadRequestId={selectedCommentThreadRequestId}
@@ -6418,20 +6482,22 @@ export default function DeckEditor() {
         onOpenChange={setAssetLibraryOpen}
         deckId={id}
         anchorRef={panelAnchorRef}
-        onSelectAsset={
-          replaceImageSrc
-            ? (newUrl) => {
-                replaceImageInSlide(replaceImageSrc, newUrl);
-                trackEvent("media_added", {
-                  output_id: id,
-                  output_type: "deck",
-                  media_source: "asset_library",
-                  slide_id: currentSlideRef.current?.id,
-                });
-                setReplaceImageSrc(null);
-              }
-            : undefined
-        }
+        onSelectAsset={(newUrl) => {
+          if (!replaceImageSrc) return dropImageUrlOnSlide(null, newUrl);
+          if (newUrl === replaceImageSrc) {
+            setReplaceImageSrc(null);
+            return true;
+          }
+          if (!replaceImageInSlide(replaceImageSrc, newUrl)) return false;
+          trackEvent("media_added", {
+            output_id: id,
+            output_type: "deck",
+            media_source: "asset_library",
+            slide_id: currentSlideRef.current?.id,
+          });
+          setReplaceImageSrc(null);
+          return true;
+        }}
       />
       <HistoryPanel
         deckId={id}

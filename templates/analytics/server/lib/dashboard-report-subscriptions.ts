@@ -5,20 +5,30 @@ import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 
 import { BUILTIN_DASHBOARD_HIDDEN_BY } from "../../shared/builtin-dashboard-ids.js";
+import {
+  isTrafficFilterValue,
+  TRAFFIC_FILTER_ID,
+  TRAFFIC_FILTER_PARAM,
+} from "../../shared/traffic-environment.js";
 import { getDb, schema } from "../db/index.js";
 import type { AnnotationScope } from "./annotation-scope";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { storedDashboardAnnotationScope } from "./dashboard-annotation-scope";
 import { DashboardConflictError } from "./dashboards-store";
+import {
+  firstRow,
+  type AnalyticsTransaction,
+  type GuardedCommitHook,
+} from "./guarded-writes";
 import { openDashboard, type OpenedDashboard } from "./open-dashboard";
 
 export interface ReportSubscriptionInput {
-  id?: string;
+  id?: string | undefined;
   dashboardId: string;
-  name?: string;
+  name?: string | undefined;
   recipients: string[];
-  slackWebhookUrl?: string | null;
-  filters?: Record<string, string>;
+  slackWebhookUrl?: string | null | undefined;
+  filters?: Record<string, string> | undefined;
   timeOfDay: string;
   timezone: string;
   enabled: boolean;
@@ -81,7 +91,7 @@ export async function getReportDashboard(
   );
 }
 
-function reportDashboardFromOpened(
+export function reportDashboardFromOpened(
   opened: OpenedDashboard | null,
   dashboardId: string,
   ctx: AccessCtx,
@@ -203,6 +213,33 @@ export function normalizeDashboardReportRecipients(
   return normalized;
 }
 
+/**
+ * A new report saved without a traffic choice starts on what its dashboard
+ * shows. A report that already exists is never given one: without it, it stays
+ * on all traffic until someone switches it.
+ */
+function withDashboardTraffic(
+  filters: Record<string, string> | undefined,
+  config: Record<string, unknown>,
+): Record<string, string> | undefined {
+  if (filters?.[TRAFFIC_FILTER_PARAM]) return filters;
+  const dashboardFilters: unknown[] = Array.isArray(config.filters)
+    ? config.filters
+    : [];
+  const traffic = dashboardFilters.find(
+    (filter): filter is { default: string } =>
+      typeof filter === "object" &&
+      filter !== null &&
+      "id" in filter &&
+      filter.id === TRAFFIC_FILTER_ID &&
+      "default" in filter &&
+      typeof filter.default === "string",
+  );
+  return traffic
+    ? { ...filters, [TRAFFIC_FILTER_PARAM]: traffic.default }
+    : filters;
+}
+
 function normalizeFilters(filters: Record<string, string> | undefined) {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(filters ?? {})) {
@@ -211,6 +248,23 @@ function normalizeFilters(filters: Record<string, string> | undefined) {
     if (k && v) out[k] = v;
   }
   return out;
+}
+
+function assertTrafficFilter(
+  filters: Record<string, string>,
+): Record<string, string> {
+  for (const [key, value] of Object.entries(filters)) {
+    // A report reads only f_ keys, so the bare id would be saved and ignored.
+    if (key === TRAFFIC_FILTER_ID) {
+      throw new Error(
+        `Set traffic as ${TRAFFIC_FILTER_PARAM}; a report doesn't read ${TRAFFIC_FILTER_ID}`,
+      );
+    }
+    if (key === TRAFFIC_FILTER_PARAM && !isTrafficFilterValue(value)) {
+      throw new Error(`${key} must be all, production or beta`);
+    }
+  }
+  return filters;
 }
 
 function assertTimeOfDay(value: string): string {
@@ -479,6 +533,7 @@ export async function getDashboardReportSubscription(
 export async function saveDashboardReportSubscription(
   input: ReportSubscriptionInput,
   ctx: AccessCtx,
+  onCommit?: GuardedCommitHook,
 ): Promise<DashboardReportSubscription> {
   const opened = await openDashboard(input.dashboardId, ctx);
   const dashboard = reportDashboardFromOpened(opened, input.dashboardId, ctx);
@@ -491,7 +546,13 @@ export async function saveDashboardReportSubscription(
 
   const timeOfDay = assertTimeOfDay(input.timeOfDay);
   const timezone = assertTimezone(input.timezone);
-  const filters = normalizeFilters(input.filters);
+  const filters = assertTrafficFilter(
+    normalizeFilters(
+      input.id
+        ? input.filters
+        : withDashboardTraffic(input.filters, dashboard.config),
+    ),
+  );
   const updatedAt = nowIso();
   const nextRunAt = input.enabled ? nextDailyRunAt(timeOfDay, timezone) : null;
   const name =
@@ -515,6 +576,7 @@ export async function saveDashboardReportSubscription(
     ) {
       throw new DashboardConflictError(input.dashboardId);
     }
+    let before: string | null = null;
     if (input.id) {
       const [existing] = await tx
         .select()
@@ -525,6 +587,7 @@ export async function saveDashboardReportSubscription(
           statusCode: 404,
         });
       }
+      before = existing.updatedAt;
       await tx
         .update(schema.dashboardReportSubscriptions)
         .set({
@@ -566,6 +629,12 @@ export async function saveDashboardReportSubscription(
       .from(schema.dashboardReportSubscriptions)
       .where(ownerWhere(ctx, undefined, id));
     if (!savedRow) throw new Error("Failed to save report subscription");
+    await onCommit?.(tx, {
+      targetId: id,
+      before,
+      after: updatedAt,
+      changed: true,
+    });
     return rowToSubscription(savedRow);
   });
   recordChange({
@@ -672,21 +741,41 @@ export async function queueDashboardReportSubscriptionNow(
   id: string,
   ctx: AccessCtx,
   now: Date = new Date(),
+  onCommit?: GuardedCommitHook,
 ): Promise<DashboardReportSubscription | null> {
   const db = getDb() as any;
   const queuedAt = now.toISOString();
-  const rows = await db
-    .update(schema.dashboardReportSubscriptions)
-    .set({
-      enabled: true,
-      nextRunAt: queuedAt,
-      lastStatus: null,
-      lastError: null,
-      updatedAt: queuedAt,
-    })
-    .where(ownerWhere(ctx, undefined, id))
-    .returning();
-  return rows[0] ? rowToSubscription(rows[0]) : null;
+  const target = and(
+    ownerWhere(ctx),
+    eq(schema.dashboardReportSubscriptions.id, id),
+  );
+  return db.transaction(async (tx: AnalyticsTransaction) => {
+    const existing = firstRow(
+      await tx
+        .select({ updatedAt: schema.dashboardReportSubscriptions.updatedAt })
+        .from(schema.dashboardReportSubscriptions)
+        .where(target)
+        .for("update"),
+    );
+    if (!existing) return null;
+    const [row] = await tx
+      .update(schema.dashboardReportSubscriptions)
+      .set({
+        enabled: true,
+        nextRunAt: queuedAt,
+        lastStatus: null,
+        lastError: null,
+        updatedAt: queuedAt,
+      })
+      .where(target)
+      .returning();
+    await onCommit?.(tx, {
+      before: existing.updatedAt,
+      after: queuedAt,
+      changed: true,
+    });
+    return rowToSubscription(row);
+  });
 }
 
 export async function markDashboardReportResult(

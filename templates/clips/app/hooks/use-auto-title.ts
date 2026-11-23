@@ -5,6 +5,7 @@ import {
   type BackgroundAgentSessionSnapshot,
   type BackgroundAgentSessionStartOptions,
 } from "@agent-native/core/client/agent-chat";
+import { normalizeChatError } from "@agent-native/core/client/chat-errors";
 import {
   bumpChangeVersion,
   callAction,
@@ -328,10 +329,18 @@ export function useAutoTitleBridge(): void {
               const outcome = result as {
                 queued?: boolean;
                 updated?: boolean;
+                reason?: string;
+                queueSkippedReason?: string;
               } | null;
               if (outcome?.queued === true) {
                 bumpAiRequestRefresh();
-              } else if (outcome?.updated !== true) {
+              } else if (
+                // The local title is saved but its refinement was not queued;
+                // a failed model check is transient, a missing model is not.
+                outcome?.queueSkippedReason === "ai_model_lookup_unavailable" ||
+                (outcome?.updated !== true &&
+                  outcome?.reason !== "ai_model_unavailable")
+              ) {
                 retryTitleFallback(key);
               }
             })
@@ -540,6 +549,14 @@ async function persistAiRequestStatus(
   status: "working" | BackgroundAiRequestStatus,
   snapshot?: BackgroundAgentSessionSnapshot,
 ): Promise<boolean> {
+  const reason = snapshot?.terminalReason;
+  const message =
+    snapshot?.status === "errored" && reason === "missing_api_key"
+      ? normalizeChatError(reason, reason).message
+      : snapshot?.status === "errored" &&
+          reason === "error:email_verification_required"
+        ? normalizeChatError(reason, "email_verification_required").message
+        : reason;
   try {
     await callAction(
       "update-ai-request-status" as any,
@@ -552,9 +569,7 @@ async function persistAiRequestStatus(
         ...(session.turnId ? { turnId: session.turnId } : {}),
         ...(snapshot?.runId ? { runId: snapshot.runId } : {}),
         status,
-        ...(snapshot?.terminalReason
-          ? { message: snapshot.terminalReason.slice(0, 500) }
-          : {}),
+        ...(message ? { message: message.slice(0, 500) } : {}),
       } as any,
     );
     return true;

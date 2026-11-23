@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import type {
   CalendarEvent,
@@ -646,9 +647,11 @@ export function EventDetailPopover({
             ),
             {
               onSuccess: () => toast.success(t("eventForm.eventUpdated")),
-              onError: () => {
+              onError: (error) => {
                 setSelectedAccountEmail(event.accountEmail);
-                toast.error(t("eventForm.updateFailed"));
+                reportWriteFailure(error, {
+                  label: t("eventForm.updateFailed"),
+                });
               },
               onSettled: endAction,
             },
@@ -825,7 +828,10 @@ export function EventDetailPopover({
               },
               event,
             ),
-            { onSettled: endAction },
+            {
+              onError: (error) => reportWriteFailure(error),
+              onSettled: endAction,
+            },
           );
         } catch {
           endAction();
@@ -928,7 +934,10 @@ export function EventDetailPopover({
           ),
           {
             onSuccess: () => toast(t("eventForm.googleMeetAdded")),
-            onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
+            onError: (error) =>
+              reportWriteFailure(error, {
+                label: t("eventForm.googleMeetAddFailed"),
+              }),
             onSettled: () => {
               setPendingVideoProvider(null);
               endAction();
@@ -1109,7 +1118,8 @@ export function EventDetailPopover({
             event,
           ),
           {
-            onError: () => toast.error(t("eventForm.updateFailed")),
+            onError: (error) =>
+              reportWriteFailure(error, { label: t("eventForm.updateFailed") }),
             onSettled: endAction,
           },
         );
@@ -1187,7 +1197,10 @@ export function EventDetailPopover({
       }
       if (!beginAction()) return;
       updateEvent.mutate(withCalendarEventSourceIdentity(update, event), {
-        onError: () => toast.error(t("calendarView.failedUpdateEvent")),
+        onError: (error) =>
+          reportWriteFailure(error, {
+            label: t("calendarView.failedUpdateEvent"),
+          }),
         onSettled: endAction,
       });
     },

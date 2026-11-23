@@ -123,6 +123,13 @@ const messages = {
     noAssetsYet: "アセットはまだありません。",
     assetUploadFailed: "一部のアップロードに失敗しました",
     assetDeleteFailed: "アセットの削除に失敗しました",
+    assetLoadFailed: "アセットを読み込めませんでした",
+    assetSelectNoChange: "この画像をこのスライドに適用できませんでした",
+    retry: "再試行",
+    assetDeleteInUse:
+      "このアセットはデッキで使用されています。先にデッキから削除してください",
+    assetDeleteStorageRemains:
+      "ライブラリから削除しましたが、保存されたファイルは削除できませんでした",
     contentMarkdown: "コンテンツ (Markdown)",
     speakerNotes: "スピーカーノート",
     speakerNotesForSlide: "スピーカーノート — スライド {{index}} / {{count}}",
@@ -429,6 +436,8 @@ const messages = {
     presentPresenterViewDescription: "発表中にスピーカーノートを表示",
     presenterViewBlocked:
       "発表者ビューを開くには、ポップアップを許可してください。",
+    presenterViewUnsupported:
+      "このブラウザーでは発表者ビューを利用できません。",
     export: "エクスポート",
     privacyPrivate: "非公開",
     privacyOrg: "組織と共有",
@@ -483,6 +492,11 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX ファイルを生成できませんでした。",
     exportFailed: "エクスポートに失敗しました",
+    exportFinishedWithWarnings: "警告付きでエクスポートしました",
+    imagesDropped:
+      "{{count}} 個の画像を読み込めず、PowerPoint ファイルに含まれませんでした（スライド {{slides}}）。",
+    pdfSidecarSkipped:
+      "この PDF は編集可能なソースなしでエクスポートされました。再インポートすると、ページの内容からスライドを再構築します。",
     exporting: "エクスポート中...",
     exportPptxError: "PPTX としてエクスポート中に問題が発生しました。",
     googleSlidesDownloaded: "Google Slides 用にダウンロードしました",
@@ -502,6 +516,9 @@ const messages = {
     exportPdf: "PDF としてエクスポート",
     exportPptx: "PPTX としてエクスポート",
     connectGoogle: "Google に接続",
+    disconnectGoogle: "Google の接続を解除",
+    googleDisconnectFailed: "Google Drive の接続を解除できませんでした。",
+    googleSlidesStatusUnknown: "状態を確認できませんでした",
     openInGoogleSlides: "Google Slides で開く",
     googleSlidesUnavailable: "利用不可",
     googleSlidesOpenImporter: "Google Slides のインポートを開く",
@@ -521,6 +538,7 @@ const messages = {
   share: {
     createFailed: "共有リンクを作成できませんでした",
     snapshotLinks: "スナップショットのリンク",
+    snapshotLinksLoadFailed: "スナップショットのリンクを読み込めませんでした",
     revokeLink: "取り消す",
     revokeFailed: "共有リンクを取り消せませんでした",
     title: "プレゼンテーションを共有",
@@ -598,10 +616,7 @@ const messages = {
     reactionFailed: "リアクションを更新できませんでした。",
     addCommentPlaceholder: "コメントを追加...",
     addReaction: "リアクションを追加",
-    toggleReaction: "{{emoji}} のリアクションを切り替え",
-    reactWith: "{{emoji}} でリアクション",
     cancel: "キャンセル",
-    saving: "保存中...",
     comment: "コメント",
     saveReplyFailed: "この返信を保存できませんでした。",
     replyPlaceholder: "返信...",
@@ -631,6 +646,38 @@ const messages = {
     goToSlide: "スライドに移動",
     search: "コメントを検索",
     searchPlaceholder: "すべてのコメントを検索...",
+    moreActions: "その他の操作",
+    moreActionsFor: "{{author}} のその他の操作",
+    deleteThread: "スレッドを削除",
+    reviewer: "レビュアー",
+    agentBadge: "エージェント",
+    resolved: "解決済み",
+    addEmoji: "絵文字を追加",
+    mention: "メンションする",
+    noMentions: "該当するユーザーがいません",
+    mentionsFailed: "ユーザーを読み込めませんでした",
+    agents: "エージェント",
+    agentMention: "エージェント",
+    agentMentionDescription: "このスレッドで返信します",
+    attachImage: "画像を添付",
+    removeImage: "画像を削除",
+    imageUploadFailed: "画像をアップロードできませんでした",
+    reaction: {
+      label_other: "{{emoji}}、{{count}} 件のリアクション",
+      labelMine_other: "{{emoji}}、{{count}} 件のリアクション（自分を含む）",
+    },
+    format: {
+      toolbar: "書式",
+      bold: "太字",
+      italic: "斜体",
+      strike: "取り消し線",
+      code: "コード",
+      link: "リンク",
+      linkField: "リンクのアドレス",
+      linkPlaceholder: "リンクを貼り付け",
+      applyLink: "リンクを適用",
+      removeLink: "リンクを削除",
+    },
   },
   contextToolbar: {
     insert: "挿入",
@@ -887,9 +934,6 @@ const messages = {
     newSlideSaveFailed:
       "新しいスライドを保存できませんでした。もう一度お試しください。",
     addSlides: "スライドを追加",
-    addEmptySlide: "空のスライドを追加",
-    noAi: "AI なし",
-    duplicateCurrentSlide: "現在のスライドを複製",
     promptPlaceholder: "作成したいスライドを説明してください...",
     newSlide: "新しいスライド",
     slidesHeading: "スライド",
@@ -1336,7 +1380,28 @@ const messages = {
     },
     importDeck: "デッキをインポート",
     context: {
+      googleSlides: {
+        connectionFailed:
+          "Google ドライブの接続を確認できませんでした。もう一度お試しください。",
+        attach: "添付",
+        reading: "読み取り中…",
+        authentication: "Google スライドを添付するにはログインしてください。",
+        invalid:
+          "有効な Google スライドのプレゼンテーション URL を入力してください。",
+        connect:
+          "このプレゼンテーションを読むには Google ドライブに接続してください。",
+        denied:
+          "このプレゼンテーションにアクセスできません。権限を確認するか Google ドライブに再接続してください。",
+        failed:
+          "このプレゼンテーションを読み取れませんでした。もう一度お試しください。",
+        tooLarge:
+          "このプレゼンテーションは大きすぎるためコンテキストとして読み取れません。",
+        truncated: "参照の抜粋は切り詰められ、残りの内容は含まれていません。",
+      },
       websiteReference: "ウェブサイトを追加",
+      connectFigma: "Figma を接続",
+      figmaDisconnected: "デザインを探すには Figma を接続してください。",
+      websiteReferenceMenu: "ウェブサイトを追加…",
       websiteUrlLabel: "ウェブサイトのURL",
       websiteUrl: "ウェブサイトのURLを貼り付け",
       figmaUrlLabel: "Figmaリンク",
@@ -1351,9 +1416,9 @@ const messages = {
       searchPresentations: "プレゼンテーションを検索…",
       menu: {
         system: "デザインシステムを使う",
-        figma: "Figmaを追加",
+        figma: "Figma デザイン",
         design: "デザインを参照",
-        deck: "プレゼンテーションを参照",
+        deck: "デッキを参照…",
         searchDesign: "デザインを検索…",
       },
       loadFailed: "参照を読み込めませんでした。再試行してください。",
@@ -1378,7 +1443,7 @@ const messages = {
         "Design でこの Figma 参照を読み込めませんでした。Design に保存されている Figma アクセストークンと、紐づくアカウントでファイルを開けることを確認して、もう一度お試しください。",
       tooMany: "参照は20件まで選択できます。",
       search: "参照を検索",
-      designCategory: "デザイン",
+      designCategory: "デザインの参照",
     },
     quickStart: {
       invalidUrl: "有効なHTTPまたはHTTPSのURLを入力してください。",

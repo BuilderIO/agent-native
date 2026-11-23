@@ -13,6 +13,7 @@ export {
   getShareableResource,
   requireShareableResource,
   listShareableResources,
+  MAX_PUBLIC_FOLLOWERS,
   type ShareableResourceRegistration,
   type ShareEmailExtras,
 } from "./registry.js";
@@ -20,6 +21,7 @@ export {
 export {
   accessFilter,
   resolveAccess,
+  resolveAccessMany,
   assertAccess,
   currentAccess,
   ForbiddenError,

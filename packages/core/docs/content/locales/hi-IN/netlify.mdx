@@ -11,7 +11,7 @@ serve करता है, और ऐसे functions में जिन्ह�
 Netlify ऐप को HTTPS के साथ एक public address भी देता है।
 
 यह guide शुरुआत से एक standalone ऐप deploy करने के चरण बताती है। आप ऐप बनाएंगे,
-उसे production database और auth secret देंगे, उसके लिए एक Netlify site बनाएंगे,
+उसे production database और दो secrets देंगे, उसके लिए एक Netlify site बनाएंगे,
 database तैयार करेंगे, और फिर ऐप को build करके deploy करेंगे।
 
 <Callout tone="info">
@@ -22,6 +22,9 @@ Node.js `22.22+` आवश्यक है।
 
 आपको एक Netlify account भी चाहिए। इस guide के commands अपने computer पर चलाएं।
 Netlify CLI तैयार build को आपके लिए Netlify पर upload करता है।
+
+Commands bash shell के लिए लिखे गए हैं, जैसे macOS या Linux पर Terminal। Windows
+पर इन्हें PowerShell के बजाय Git Bash या WSL में चलाएं।
 
 ## चरण 1: ऐप बनाएं {#step-1-create-the-app}
 
@@ -57,6 +60,7 @@ pnpm install
 | -------------------- | ------ | -------------------------------------------------------------- |
 | `DATABASE_URL`       | हां    | ऐप को उसके PostgreSQL database से connect करता है              |
 | `BETTER_AUTH_SECRET` | हां    | User sessions sign करता है                                     |
+| `A2A_SECRET`         | हां    | Automations चलाने वाली scheduled calls को sign करता है         |
 | `BETTER_AUTH_URL`    | नहीं   | वह public address सेट करता है जिससे लोग आपके ऐप तक पहुंचते हैं |
 
 नीचे दिए गए exports से आगे के commands इस shell में काम करते हैं। Deploy करने
@@ -99,6 +103,18 @@ export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
 Generate की गई value को किसी सुरक्षित जगह save करें, जैसे password manager में।
 हर बार deploy करते समय यही value इस्तेमाल करें।
 
+### Automation secret {#automation-secret}
+
+Netlify हर मिनट एक scheduled function चलाता है, जो ऐप के due automations और
+background काम शुरू करता है। यह हर call को `A2A_SECRET` से sign करता है, और ऐप
+हर उस call को reject कर देता है जिसे वह verify नहीं कर पाता, इसलिए इस secret के
+बिना कोई automation नहीं चलता। इसे एक बार generate करें, auth secret के साथ
+रखें, और इसे भी stable रखें:
+
+```bash
+export A2A_SECRET="$(openssl rand -hex 32)"
+```
+
 ### Public URL {#public-url}
 
 वैकल्पिक। इसे तब सेट करें जब आप custom domain, reverse proxy, या ऐसा auth/OAuth
@@ -132,18 +148,27 @@ commands को पता रहे कि कौन सी site इस्ते
 repository की ज़रूरत नहीं है, क्योंकि चरण 5 में आप ऐप अपने computer से deploy
 करते हैं।
 
-दोनों आवश्यक variables को site के environment में save करें:
+तीनों आवश्यक variables को site के environment में save करें:
 
 ```bash
 npx netlify env:set DATABASE_URL "$DATABASE_URL"
 
 npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+
+npx netlify env:set A2A_SECRET "$A2A_SECRET"
 ```
 
 हर command चरण 2 में export की गई value पढ़ता है और उसे Netlify में save करता है,
 इसलिए आपको secrets हाथ से paste नहीं करने पड़ते। अगर आपने `BETTER_AUTH_URL` सेट
 किया है, तो उसे भी इसी तरह save करें। आप बाद में Netlify dashboard पर site की
 settings में भी ये values देख और बदल सकते हैं।
+
+फिर जांचें कि site public है। कुछ Netlify teams नई sites को private बनाती हैं,
+ताकि उन्हें सिर्फ signed-in team members खोल सकें। Scheduled function भी ऐप तक
+उसके public address से पहुंचता है, इसलिए private site पर हर automation call लौटा
+दी जाती है। Netlify dashboard में site खोलें और **Project configuration** >
+**General** > **Visitor access** पर जाएं। अगर site private है, तो उसे public
+करें।
 
 ## चरण 4: Migrate करें {#step-4-migrate}
 
@@ -173,12 +198,14 @@ NITRO_PRESET=netlify pnpm build
 Build upload करें और publish करें:
 
 ```bash
-npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+npx netlify deploy --prod --no-build --dir=dist --functions=.netlify/functions-internal
 ```
 
 `--dir` और `--functions` CLI को बताते हैं कि अभी build की गई static files और
 functions कहां मिलेंगे। `--prod` उन्हें draft preview के बजाय आपके production
 address पर publish करता है।
+
+`--no-build` उसी build को बिना दोबारा build किए वैसे ही upload करता है।
 
 Command पूरा होने पर यह ऐप का production address print करता है। उसे खोलें और
 पहला account बनाएं।
@@ -193,11 +220,33 @@ pnpm migrate:production
 
 NITRO_PRESET=netlify pnpm build
 
-npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+npx netlify deploy --prod --no-build --dir=dist --functions=.netlify/functions-internal
 ```
 
 Site link और save किए गए variables अपनी जगह बने रहते हैं, इसलिए आपको चरण 3
 दोहराने की ज़रूरत नहीं है।
+
+## Automations और idle database {#netlify-idle-sweep}
+
+Build एक scheduled function, `agent-native-recurring-jobs`, जोड़ता है जो हर मिनट
+चलता है। जब तक लोग ऐप इस्तेमाल कर रहे हैं, हर run database में due automations
+और दूसरे background काम की जांच करता है। जब दस मिनट तक किसी ने ऐप नहीं खोला हो
+और कुछ भी नहीं चल रहा हो, तो function अगले automation के due होने तक, या ज़्यादा
+से ज़्यादा एक घंटे तक, जांच बंद कर देता है। यह schedule database के बजाय Netlify
+Blobs में रखता है, इसलिए शांत ऐप कोई database query नहीं करता और scale-to-zero
+database, जैसे Neon का free tier, pause हो सकता है। शांत समय के बाद की पहली
+request जांच को फिर हर मिनट पर ले आती है।
+
+कुछ background काम का कोई due time function को नहीं दिखता, जैसे connected
+accounts में बदलाव की जांच, इसलिए ऐप idle रहने पर वह काम घंटे में सिर्फ एक बार
+चलता है। सबसे लंबा इंतज़ार बदलने के लिए `AGENT_NATIVE_IDLE_SWEEP_MAX_MINUTES` को
+`0` से `1440` मिनट के बीच set करें। `0` हर मिनट जांच करता है, जिससे database
+जागा रहता है। चलता हुआ ऐप यह variable पढ़ता है, इसलिए इसे `npx netlify env:set`
+से site के environment में save करें, फिर दोबारा deploy करें। नीचे बताया गया
+keep-warm इस setting से कोई फर्क पड़े बिना database को जगाए रखता है।
+
+अगर आप `AGENT_INTEGRATION_DURABLE_DISPATCH` चालू करते हैं, तो उसका recovery
+function हर मिनट database जाँचता है, इसलिए database जागा रहता है।
 
 ## Keep-warm और scale-to-zero databases {#netlify-keep-warm}
 
@@ -223,6 +272,13 @@ Keep-warm **default रूप से बंद** है। Database को ज�
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | `AGENT_NATIVE_ENABLE_KEEP_WARM` सेट होने पर भी keep-warm बंद करता है। पुराने setups के साथ compatibility के लिए रखा गया है।                                                                                                       |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Warm-up कितनी बार चलता है, इसे `*/5 * * * *` जैसे 5-field cron expression से बदलता है। Default `* * * * *` है, यानी हर मिनट। जो value valid cron नहीं है, वह **build को fail कर देती है**।                                        |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Background function की warming छोड़ देता है और server function की warming जारी रखता है। Server की warming एक request है। Background function की warming एक नया container शुरू करती है जो database schema को फिर से check करता है। |
+| `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`        | केवल multi-app workspaces: हर app कितने server instances warm रखता है, 1 से 50 तक। Default `1` है। इस range के बाहर की value **build को fail कर देती है**।                                                                        |
+
+### Multi-app workspaces {#netlify-workspace-keep-warm}
+
+Workspace deploy भी यही variables पढ़ता है। Keep-warm चालू होने पर यह एक scheduled function, `agent-native-workspace-keep-warm`, बनाता है जो schedule के अनुसार हर app का `/<app>/_agent-native/health` endpoint call करता है।
+
+Netlify function का एक instance एक समय में एक request संभालता है, और app खोलने पर framework की कई parallel requests एक साथ जाती हैं। जिस request को कोई खाली instance नहीं मिलता, वह एक cold instance शुरू करती है, इसलिए सिर्फ़ एक warm instance से page load में ज़्यादा मदद नहीं मिलती। `AGENT_NATIVE_KEEP_WARM_CONCURRENCY` सेट करें ताकि हर app को उतनी overlapping health requests भेजी जाएँ, जिससे उतने instances warm रहें। हर run `apps x concurrency` requests भेजता है, इसलिए ऊँची value के साथ `*/3 * * * *` जैसा धीमा schedule रखें।
 
 अगर आपका database free या किसी और तरह से limited plan पर है, तो
 `AGENT_NATIVE_ENABLE_KEEP_WARM` unset छोड़ दें। अगर आप इसे चालू करते हैं, तो धीमा

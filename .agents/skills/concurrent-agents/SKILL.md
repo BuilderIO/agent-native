@@ -12,7 +12,7 @@ metadata:
 
 # Concurrent Agents
 
-Steve runs many Claude Code and Codex sessions against this one checkout on
+Many Claude Code and Codex sessions run against this one checkout on
 purpose, often on the same branch or file. Default assumption on every task:
 the working tree is shared branch state. Read existing changes before editing
 them, and never reset, clean, stash, or overwrite local work without explicit
@@ -96,8 +96,8 @@ about to do just landed, continue from the latest branch snapshot.
 Do not rebase or merge `origin/main` just to clear behind status or restart
 checks. During an explicitly authorized `/ship` for the same PR, a clean
 task-owned PR worktree at the exact live head may merge freshly fetched
-`origin/main` when GitHub reports a conflict or a failing required check is
-fixed there; the authorization persists across resumed turns and heartbeat
+`origin/main` only when GitHub reports a conflict, through
+`node scripts/merge-main-into-pr.ts <n>`; the authorization persists across resumed turns and heartbeat
 continuations, so no extra approval is needed. For shared branches, use a
 normal merge and never rebase. Pending checks or behind status alone are not a
 reason to sync.

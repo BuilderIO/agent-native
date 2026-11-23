@@ -1,6 +1,7 @@
 import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import {
   callAction,
+  callActionWithRetry,
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
@@ -35,17 +36,19 @@ import type { ContentSidebarSections } from "@shared/content-personal-navigation
 import type { ContentRecentResult } from "@shared/content-personal-navigation";
 import { applyContentPersonalNavigationPatch } from "@shared/content-personal-navigation-patch";
 import { buildListRowExcerpt } from "@shared/og-description";
-import type { QueryClient } from "@tanstack/react-query";
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import {
   hashKey,
   isCancelledError,
   useMutation,
+  useMutationState,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
+import type { DocumentTitlesResponse } from "@/lib/content-command-search";
 import { contentSaveTelemetryHeaders } from "@/lib/content-save-telemetry";
 
 import type {
@@ -69,13 +72,32 @@ import {
   isWithinCreateSettlingWindow,
 } from "../lib/document-scoped-read-retry";
 import {
+  cachedFilesRow,
+  confirmCreatedFilesRow,
+  filesRowDocument,
+  filesRowMove,
+  forgetCreatedFilesRows,
+  keepMovedFilesRow,
+  moveCachedFilesRow,
+  removeCreatedFilesRows,
+  showCreatedFilesRow,
+} from "../lib/files-navigation";
+import {
   isDocumentCreationConfirmed,
   isDocumentCreationPending,
 } from "../lib/optimistic-document";
 import {
+  pageOpenReadOwner,
+  seedPageOpenCollection,
+  type PageOpenReadAnswer,
+  type PageOpenReadOwner,
+} from "../lib/page-open-collection";
+import {
+  abortedByEither,
   adoptPageOpenRead,
   claimPageOpenRead,
   endPageOpen,
+  invalidatePageOpenReadOnLanding,
   isAwaitingSession,
   releasePageOpenRead,
   spoilPageOpenReads,
@@ -95,6 +117,7 @@ import {
   contentSpaceFilesDatabaseId,
   documentScopedQueryFilter,
   invalidateContentQueries,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
   type ContentQueryTarget,
 } from "./use-content-action-mutation";
@@ -104,10 +127,19 @@ import {
   contentDatabaseItemsContainingDocumentFilter,
   contentDatabaseNavigationQueryFilter,
   invalidateContentDatabaseNavigationQueries,
+  isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
+  removeTrashedPagesFromCachedCollections,
   useRestoreContentDatabase,
 } from "./use-content-database";
 import { CONTENT_LINK_TARGETS_QUERY_KEY } from "./use-content-links";
+import { removeTrashedFromCachedRecent } from "./use-content-recent";
+import type { ListContentSpacesResponse } from "./use-content-spaces";
+import {
+  MOVE_DOCUMENT_MUTATION_KEY,
+  type MoveDocumentContext,
+} from "./use-pending-moves";
+import { DELETE_DOCUMENT_MUTATION_KEY } from "./use-pending-trash";
 
 export {
   documentQueryFilter,
@@ -235,6 +267,7 @@ export function restoreDeletedDocumentSnapshots(
 }
 
 const DOCUMENT_LIST_PAGE_SIZE = 200;
+const DOCUMENT_TITLES_STALE_MS = 5 * 60 * 1000;
 
 export async function fetchCompleteDocumentList(
   fetchPage: (offset: number, limit: number) => Promise<DocumentListResponse>,
@@ -445,7 +478,7 @@ export function patchDocumentInDatabaseCache<
   documentId: string,
   patch: Partial<Document>,
 ): T | undefined {
-  if (!current) return current;
+  if (!current || isContentDatabaseUnavailable(current)) return current;
   let changed = false;
   const items = current.items.map((item) => {
     if (!("document" in item)) {
@@ -644,39 +677,63 @@ const NAVIGATION_CONTEXT_QUERY_KEY = [
   "get-content-navigation-context",
 ] as const;
 
+function cachedNavigationPath(
+  queryClient: Pick<QueryClient, "getQueriesData">,
+  documentId: string,
+): ContentNavigationContext | null {
+  for (const [
+    ,
+    context,
+  ] of queryClient.getQueriesData<ContentNavigationContext>({
+    queryKey: NAVIGATION_CONTEXT_QUERY_KEY,
+  })) {
+    if (!context) continue;
+    const index = context.path.findIndex((entry) => entry.id === documentId);
+    if (index >= 0) {
+      return { ...context, path: context.path.slice(0, index + 1) };
+    }
+  }
+  return null;
+}
+
 /**
- * An optimistic page opens before the server has it, so its path read fails
- * and the sidebar would stop revealing the page's ancestors. Seed the path from
- * the parent's cached one and show the parent as expandable; the create's
- * refresh replaces both, and `removeCreatedDocumentNavigation` undoes them.
- * The sidebar reveals a path only through its space's Files membership, so
- * the new entry claims that membership too.
+ * Shows a page this tab is creating in the Files sidebar: its parent becomes
+ * expandable, in its branch rows and in every cached path through it, and the
+ * page stays at the end of its branch until the server lists it.
+ * `removeCreatedDocumentNavigation` undoes them.
  */
-export function seedCreatedDocumentNavigation(
-  queryClient: Pick<
-    QueryClient,
-    "getQueriesData" | "setQueriesData" | "setQueryData"
-  >,
+export function showCreatedDocumentInFiles(
+  queryClient: QueryClient,
   document: Document,
-  workspaceFilesDatabaseId: string | null,
+  filesDatabaseId: string | null,
+  type: "page" | "database" = "page",
 ) {
   const parentId = document.parentId ?? null;
-  let parentPath: ContentNavigationPathEntry[] = [];
   if (parentId) {
-    for (const [
-      ,
-      context,
-    ] of queryClient.getQueriesData<ContentNavigationContext>({
-      queryKey: NAVIGATION_CONTEXT_QUERY_KEY,
-    })) {
-      const index =
-        context?.path?.findIndex((entry) => entry.id === parentId) ?? -1;
-      if (index >= 0) {
-        parentPath = context!.path.slice(0, index + 1);
-        workspaceFilesDatabaseId ??= context!.workspaceFilesDatabaseId;
-        break;
-      }
-    }
+    // A child page belongs to the Files tree its parent is drawn in.
+    const parentBranch = queryClient.getQueriesData<unknown>(
+      contentNavigationBranchFilter({ documentIds: [parentId] }),
+    )[0]?.[0][2] as { databaseId?: unknown } | undefined;
+    filesDatabaseId =
+      (typeof parentBranch?.databaseId === "string"
+        ? parentBranch.databaseId
+        : null) ??
+      cachedNavigationPath(queryClient, parentId)?.workspaceFilesDatabaseId ??
+      filesDatabaseId;
+    queryClient.setQueriesData<ContentNavigationContext>(
+      { queryKey: NAVIGATION_CONTEXT_QUERY_KEY },
+      (current) =>
+        current?.path.some(
+          (entry) => entry.id === parentId && entry.hasChildren !== true,
+        )
+          ? {
+              ...current,
+              path: current.path.map((entry) =>
+                entry.id === parentId ? { ...entry, hasChildren: true } : entry,
+              ),
+            }
+          : current,
+    );
     queryClient.setQueriesData<ContentDatabaseNavigationPageResponse>(
       contentNavigationBranchFilter({ documentIds: [parentId] }),
       (current) =>
@@ -689,6 +746,41 @@ export function seedCreatedDocumentNavigation(
           ),
         },
     );
+  }
+  if (filesDatabaseId) {
+    showCreatedFilesRow(queryClient, filesDatabaseId, document, type);
+  }
+}
+
+/**
+ * An optimistic page opens before the server has it, so its path read fails
+ * and the sidebar would stop revealing the page's ancestors. Seed the path from
+ * the parent's cached one and show the page in its Files branch; the create's
+ * refresh replaces both, and `removeCreatedDocumentNavigation` undoes them.
+ * The sidebar reveals a path only through its space's Files membership, so
+ * the new entry claims that membership too.
+ */
+export function seedCreatedDocumentNavigation(
+  queryClient: QueryClient,
+  document: Document,
+  workspaceFilesDatabaseId: string | null,
+  type: "page" | "database" = "page",
+) {
+  const parentId = document.parentId ?? null;
+  // First, so the parent's cached path below already shows it as expandable.
+  showCreatedDocumentInFiles(
+    queryClient,
+    document,
+    workspaceFilesDatabaseId,
+    type,
+  );
+  let parentPath: ContentNavigationPathEntry[] = [];
+  if (parentId) {
+    const parentContext = cachedNavigationPath(queryClient, parentId);
+    if (parentContext) {
+      parentPath = parentContext.path;
+      workspaceFilesDatabaseId ??= parentContext.workspaceFilesDatabaseId;
+    }
   }
   queryClient.setQueryData<ContentNavigationContext>(
     [...NAVIGATION_CONTEXT_QUERY_KEY, { id: document.id }],
@@ -718,9 +810,10 @@ export function seedCreatedDocumentNavigation(
 }
 
 export function removeCreatedDocumentNavigation(
-  queryClient: Pick<QueryClient, "invalidateQueries" | "removeQueries">,
+  queryClient: QueryClient,
   document: Pick<Document, "id" | "parentId">,
 ) {
+  removeCreatedFilesRows(queryClient, [document.id]);
   queryClient.removeQueries({
     queryKey: [...NAVIGATION_CONTEXT_QUERY_KEY, { id: document.id }],
     exact: true,
@@ -728,6 +821,7 @@ export function removeCreatedDocumentNavigation(
   if (document.parentId) {
     invalidateContentQueries(queryClient, [
       contentNavigationBranchFilter({ documentIds: [document.parentId] }),
+      contentNavigationContextFilter([document.parentId]),
     ]);
   }
 }
@@ -795,6 +889,8 @@ export function restoreQuerySnapshots(
   }
 }
 
+const DATABASE_ITEM_PREVIEW_PROPERTIES_READ_MS = 5_000;
+
 export function seedDatabaseItemDocumentCaches(
   queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
   item: ContentDatabaseItem,
@@ -818,6 +914,46 @@ export function seedDatabaseItemDocumentCaches(
   }
 }
 
+// A row's panel starts its reads ahead of the switch, so a read that lands in
+// time lets the switch go straight to the finished page. A rest on a row may
+// never become a switch, so it leaves the review reads to the switch.
+export function startDatabaseItemPreviewReads(
+  queryClient: QueryClient,
+  item: ContentDatabaseItem,
+  databaseDocumentId: string,
+  { reviewReads = true }: { reviewReads?: boolean } = {},
+) {
+  seedDatabaseItemDocumentCaches(queryClient, item);
+  startPageOpenDocumentReads(
+    queryClient,
+    item.document.id,
+    { databaseId: item.databaseId, databaseDocumentId },
+    { reviewReads },
+  );
+  // Like the review reads, this read isn't tracked as the open's own, so one
+  // sent as someone else couldn't be dropped: it starts once the session this
+  // tab accepts is known.
+  whenReadIdentityCurrent(
+    queryClient,
+    sessionReadIdentity(),
+    () =>
+      void queryClient.prefetchQuery({
+        queryKey: documentPropertiesQueryKey(item.document.id, item.databaseId),
+        // The row's panel joins this read rather than starting its own, so
+        // this read has to retry the way the panel's would.
+        queryFn: ({ signal }) =>
+          callActionWithRetry<DocumentPropertiesResponse>(
+            "list-document-properties",
+            { documentId: item.document.id, databaseId: item.databaseId },
+            { method: "GET", signal },
+          ),
+        staleTime: DATABASE_ITEM_PREVIEW_PROPERTIES_READ_MS,
+        retry: false,
+      }),
+    { documentId: item.document.id },
+  );
+}
+
 export function useDocuments(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: LIST_DOCUMENTS_QUERY_KEY,
@@ -833,6 +969,41 @@ export function useDocuments(options?: { enabled?: boolean }) {
     select: (data) => data.documents,
     retry: false,
     enabled: options?.enabled !== false,
+  });
+}
+
+const DOCUMENT_TITLES_ACTION = "list-document-titles";
+
+/**
+ * The titles search ranks in the browser. One read fills it, however large the
+ * library, so it stays across closing and reopening the command menu rather
+ * than making the next search wait for it again.
+ */
+export function useDocumentTitles(options?: { enabled?: boolean }) {
+  return useActionQuery<DocumentTitlesResponse>(
+    DOCUMENT_TITLES_ACTION,
+    {},
+    {
+      enabled: options?.enabled !== false,
+      retry: false,
+      staleTime: DOCUMENT_TITLES_STALE_MS,
+      gcTime: Infinity,
+    },
+  );
+}
+
+/** Reads the titles ahead of the first search, once the page has settled. */
+export function prefetchDocumentTitles(queryClient: QueryClient) {
+  return queryClient.prefetchQuery({
+    queryKey: ["action", DOCUMENT_TITLES_ACTION, {}],
+    queryFn: () =>
+      callAction<DocumentTitlesResponse>(
+        DOCUMENT_TITLES_ACTION,
+        {},
+        { method: "GET" },
+      ),
+    staleTime: DOCUMENT_TITLES_STALE_MS,
+    gcTime: Infinity,
   });
 }
 
@@ -953,8 +1124,19 @@ export function startPageOpenDocumentReads(
   queryClient: QueryClient,
   documentId: string,
   context: DocumentQueryContext = {},
-  // A load's own open, whose read the document head may already have sent.
-  { fromLoad = false }: { fromLoad?: boolean } = {},
+  {
+    fromLoad = false,
+    databaseViewId = null,
+    reviewReads = true,
+  }: {
+    // A load's own open, whose read the document head may already have sent.
+    fromLoad?: boolean;
+    // The collection view the opened address names, if any.
+    databaseViewId?: string | null;
+    // Off for a read ahead of a row that may never open: its comment and
+    // suggestion reads wait for the row's own open.
+    reviewReads?: boolean;
+  } = {},
 ) {
   trackDocumentReadFailures(queryClient);
   const queryKey = documentQueryKey(documentId, context);
@@ -963,19 +1145,34 @@ export function startPageOpenDocumentReads(
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const readsDraft =
     !widgetBridgeActive && previewDocumentDraftIsRead(queryClient, cached);
-  // One request answers the page and its draft, so the draft read cannot hold
-  // the page back on its own. Each read takes that answer once: a refetch
-  // through either key sends its own request rather than replaying this one.
-  let pageRead: Promise<PageOpenDocumentRead> | null = null;
-  const sendPageRead = (signal?: AbortSignal) =>
-    callAction<PageOpenDocumentRead>(
-      "get-document",
-      {
-        ...documentReadParams(documentId, context),
-        ...(readsDraft ? { includePreviewDraft: true } : {}),
-      },
-      { method: "GET", ...(signal ? { signal } : {}) },
-    );
+  // One request answers the page, its draft and, for a collection's page, the
+  // reads its table sends first, so none of them holds the page back on its
+  // own. Each read takes that answer once: a refetch through any of their keys
+  // sends its own request rather than replaying this one.
+  let pageRead: Promise<PageOpenReadAnswer> | null = null;
+  // A chat widget's ticket may call only the reads its connector lists, and
+  // get-page-open-read isn't one of them, so a widget reads the page alone.
+  const widgetHost = widgetBridgeActive || isOpenAiMcpAppHost();
+  // The page query's own signal, so a page read it drops is cancelled.
+  const sendPageRead = (signal?: AbortSignal): Promise<PageOpenReadAnswer> =>
+    widgetHost
+      ? callAction<PageOpenReadAnswer["document"]>(
+          "get-document",
+          {
+            ...documentReadParams(documentId, context),
+            ...(readsDraft ? { includePreviewDraft: true } : {}),
+          },
+          { method: "GET", ...(signal ? { signal } : {}) },
+        ).then((document) => ({ document }))
+      : callAction<PageOpenReadAnswer>(
+          "get-page-open-read",
+          {
+            ...documentReadParams(documentId, context),
+            ...(databaseViewId ? { databaseViewId } : {}),
+            ...(readsDraft ? { includePreviewDraft: true } : {}),
+          },
+          { method: "GET", ...(signal ? { signal } : {}) },
+        );
   // The load's head script may already have sent this read; a failed or
   // stalled one is sent again here, so its error comes from the app's own
   // request. Its age counts from when the script sent it.
@@ -986,11 +1183,28 @@ export function startPageOpenDocumentReads(
   // Who these reads go out as. Each is shown only once that is known to be
   // the session this tab accepts, wherever it was started from.
   const identity = startupRead?.identity ?? sessionReadIdentity();
-  const readPage = () =>
+  const readPage = (signal?: AbortSignal) =>
     (pageRead ??= startupRead
-      ? readFromStartupPageRead(startupRead, sendPageRead)
-      : sendPageRead());
+      ? readFromStartupPageRead(startupRead, (ownSignal) =>
+          sendPageRead(signal ? abortedByEither(signal, ownSignal) : ownSignal),
+        )
+      : sendPageRead(signal));
   let documentTaken = false;
+  let owner: PageOpenReadOwner | undefined;
+  // An answer older than a change sync made to its key since the server read
+  // it lands, and is then read again by whatever watches the key. A fetch
+  // cancelled or replaced meanwhile lands nothing, so it marks nothing.
+  const landsChanged = (
+    key: QueryKey,
+    syncCursor: string | undefined,
+    fetchSignal: AbortSignal,
+  ): void => {
+    if (!owner || fetchSignal.aborted) return;
+    owner.answeredAt(syncCursor);
+    if (owner.invalidatedWhileOut(key)) {
+      invalidatePageOpenReadOnLanding(queryClient, key);
+    }
+  };
   const documentReadStarted = startPageOpenRead(
     queryClient,
     documentId,
@@ -1005,9 +1219,27 @@ export function startPageOpenDocumentReads(
           );
         }
         documentTaken = true;
-        return readPage().then(
-          ({ previewDraft: _previewDraft, ...document }) => document,
+        const readOwner = pageOpenReadOwner(
+          queryClient,
+          queryKey,
+          signal,
+          identity,
+          startedAt,
         );
+        owner = readOwner;
+        return readPage(signal)
+          .then(({ document, collection, syncCursor }) => {
+            landsChanged(queryKey, syncCursor, signal);
+            if (collection) {
+              seedPageOpenCollection(queryClient, documentId, collection, {
+                owner: readOwner,
+                syncCursor,
+              });
+            }
+            const { previewDraft: _previewDraft, ...page } = document;
+            return page;
+          })
+          .finally(readOwner.finished);
       },
       retry: false,
     },
@@ -1031,7 +1263,13 @@ export function startPageOpenDocumentReads(
           // A server without the combined answer, or a page read that failed,
           // leaves the draft to its own request.
           return readPage().then(
-            (read) => read.previewDraft ?? draftRead.queryFn(context),
+            (read) => {
+              if (read.document.previewDraft === undefined) {
+                return draftRead.queryFn(context);
+              }
+              landsChanged(draftRead.queryKey, read.syncCursor, context.signal);
+              return read.document.previewDraft;
+            },
             () => draftRead.queryFn(context),
           );
         },
@@ -1039,6 +1277,7 @@ export function startPageOpenDocumentReads(
       { identity, ...(startedAt === undefined ? {} : { startedAt }) },
     );
   }
+  if (!reviewReads) return;
   // The review reads are not tracked as this open's reads, so one sent as
   // someone else could not be dropped: they start once the session this tab
   // accepts is the one the page read was sent as.
@@ -1116,10 +1355,6 @@ export interface PreviewDocumentDraftResponse {
   draft: PreviewDocumentDraftRecord | null;
   editable: boolean;
 }
-
-type PageOpenDocumentRead = Document & {
-  previewDraft?: PreviewDocumentDraftResponse;
-};
 
 function previewDocumentDraftReadOptions(
   documentId: string,
@@ -1233,6 +1468,7 @@ export function useUpdatePreviewDocumentDraft() {
       }
   >("update-preview-document-draft", {
     skipActionQueryInvalidation: true,
+    errorNotification: "caller",
     // This tab's own draft writes never come back through sync.
     onMutate: (variables) => {
       spoilPageOpenReads(queryClient, variables.documentId);
@@ -1253,7 +1489,7 @@ export function useResolvePreviewDocumentDraft() {
       urlPath?: string;
     },
     {
-      choice: "keep_mine" | "use_saved" | "save_separately";
+      choice: "keep_mine" | "use_saved" | "save_separately" | "automatic";
       documentId: string;
       expectedDraftVersion: number;
       expectedDraftTitle: string;
@@ -1287,17 +1523,23 @@ export function useCreateDocument() {
     "create-document",
     {
       skipActionQueryInvalidation: true,
-      onSuccess: (created) =>
-        invalidateContentQueries(
-          queryClient,
-          contentPlacementTargets(queryClient, {
+      onSuccess: (created, variables) => {
+        // Before the reread below starts, so that reread can settle the row.
+        confirmCreatedFilesRow(queryClient, created.id);
+        if (variables.id && variables.id !== created.id) {
+          removeCreatedFilesRows(queryClient, [variables.id]);
+        }
+        invalidateContentQueries(queryClient, [
+          ...contentPlacementTargets(queryClient, {
             documentIds: [created.id],
             parentIds: [created.parentId ?? null],
             databaseId: created.parentId
               ? undefined
               : contentSpaceFilesDatabaseId(queryClient, created.spaceId),
           }),
-        ),
+          ...SEARCH_QUERY_KEYS,
+        ]);
+      },
     },
   );
 }
@@ -1395,12 +1637,15 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
         const recentFilter = {
           queryKey: ["action", "get-content-recent"],
         } as const;
+        const documentSpaceId = currentDocumentSpaceId(
+          queryClient,
+          variables.id,
+        );
         const sidebarStateEntry = currentContentSidebarState(
           queryClient,
-          currentDocumentSpaceId(queryClient, variables.id),
+          documentSpaceId,
         );
         const sidebarStateKey = sidebarStateEntry?.[0];
-        const documentSpaceId = sidebarStateKey?.[2].spaceId;
         await Promise.all([
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
           queryClient.cancelQueries(databaseFilter),
@@ -1459,17 +1704,23 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
             state: nextSidebarState,
           });
 
+        // The first pin creates the Favorites collection, so there is none to
+        // draw it into yet, and a pin made while the list still loads has none
+        // either: Pinned draws these from `useFirstPins`.
+        const createsFavorites =
+          variables.isFavorite === true &&
+          !favoritesCollectionExists(queryClient);
+        let firstPin: Document | undefined;
         if (variables.isFavorite === true) {
-          const listSnapshot = queryClient.getQueryData(
-            LIST_DOCUMENTS_QUERY_KEY,
-          );
-          const documents: Document[] = Array.isArray(listSnapshot)
-            ? listSnapshot
-            : ((listSnapshot as DocumentListResponse | undefined)?.documents ??
-              []);
-          const document = documents.find(
-            (candidate) => candidate.id === variables.id,
-          );
+          const document = cachedDocumentForPinned(queryClient, variables.id);
+          if (document && favoritesListMissing(queryClient, documentSpaceId)) {
+            // Pinned lists the pins of one space.
+            firstPin = {
+              ...document,
+              spaceId: documentSpaceId ?? null,
+              isFavorite: true,
+            };
+          }
           if (document) {
             for (const [
               databaseKey,
@@ -1487,7 +1738,7 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
                 database.items.some((item) => item.document.id === variables.id)
               )
                 continue;
-              const optimisticItemId = `optimistic-favorite:${variables.id}`;
+              const optimisticItemId = optimisticFavoriteItemId(variables.id);
               queryClient.setQueryData(databaseKey, {
                 ...database,
                 items: [
@@ -1549,6 +1800,8 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
           renamedContentSpace,
           nextSidebarState,
           sidebarStateKey,
+          createsFavorites,
+          firstPin,
         };
       },
       onError: (_error, variables, context) => {
@@ -1679,7 +1932,7 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
             contentDatabaseConstrainedQueryFilter(),
             contentDatabaseExcerptContainingDocumentFilter(variables.id),
             ...contentRowTargets(queryClient, [variables.id]),
-            ["action", "search-documents"],
+            ...SEARCH_QUERY_KEYS,
           ]);
         }
         if (renamedContentSpace) {
@@ -1691,9 +1944,35 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
             queryKey: ["action", "get-content-database"],
           });
         }
+        const firstPin = (context as { firstPin?: Document } | undefined)
+          ?.firstPin;
+        if (variables.isFavorite === true && firstPin) {
+          firstPinAnswers.set(firstPin, Date.now());
+          // Pinned keeps the pin until a Favorites read from after this answer
+          // lists it, so a first read still loading from before it starts
+          // again.
+          const favorites = favoritesDatabaseIds(queryClient);
+          void queryClient
+            .cancelQueries({
+              queryKey: ["action", "get-content-database"],
+              predicate: (query) =>
+                query.state.data === undefined &&
+                isFavoritesListKey(query.queryKey, favorites),
+            })
+            .then(() =>
+              queryClient.invalidateQueries({
+                queryKey: ["action", "get-content-database"],
+              }),
+            );
+        }
         if (variables.isFavorite !== undefined) {
           invalidateContentQueries(queryClient, [
             contentNavigationBranchFilter({ documentIds: [variables.id] }),
+            // The spaces list names the Favorites collection a first pin made.
+            ...((context as { createsFavorites?: boolean } | undefined)
+              ?.createsFavorites
+              ? [["action", "list-content-spaces"]]
+              : []),
           ]);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-content-database"],
@@ -1826,6 +2105,21 @@ export function useDeleteDocument() {
     },
     { id: string; databaseDocumentId?: string; activeDocumentId?: string }
   >("delete-document", {
+    mutationKey: DELETE_DOCUMENT_MUTATION_KEY,
+    onSuccess: (data, variables) => {
+      // Taking a page out of Favorites deletes nothing; the page stays.
+      if (data.deleted > 0) {
+        forgetCreatedFilesRows(queryClient, [variables.id]);
+        removeTrashedFromCachedRecent(queryClient, {
+          documentIds: [variables.id],
+        });
+      }
+    },
+    onSettled: (data, _error, variables) => {
+      if (data && data.deleted > 0) {
+        removeTrashedPagesFromCachedCollections(queryClient, [variables.id]);
+      }
+    },
     invalidates: (_data, variables) => [
       ...contentPlacementTargets(queryClient, { documentIds: [variables.id] }),
       contentDatabaseItemsContainingDocumentFilter(variables.id),
@@ -1834,7 +2128,7 @@ export function useDeleteDocument() {
       ["action", "get-content-database"],
       ["action", "list-content-spaces"],
       ["action", "get-content-recent"],
-      ["action", "search-documents"],
+      ...SEARCH_QUERY_KEYS,
       ...TRASH_LIST_QUERY_KEYS,
     ],
   });
@@ -1851,6 +2145,7 @@ export function useRollbackCreatedSlashDocument() {
     },
     { id: string; parentId: string }
   >("rollback-created-slash-document", {
+    onSuccess: (_result, { id }) => removeCreatedFilesRows(queryClient, [id]),
     invalidates: (_result, { id, parentId }) => [
       ...contentPlacementTargets(queryClient, {
         documentIds: [id],
@@ -1880,7 +2175,7 @@ export function useImportContent() {
                 parentIds: [parentId ?? null],
               }),
               ["action", "list-documents"],
-              ["action", "search-documents"],
+              ...SEARCH_QUERY_KEYS,
             ],
     },
   );
@@ -1896,7 +2191,7 @@ export function useUndoContentImport() {
       ...contentPlacementTargets(queryClient, { documentIds: trashedIds }),
       ...trashedIds.map((id) => documentQueryFilter(id)),
       ["action", "list-documents"],
-      ["action", "search-documents"],
+      ...SEARCH_QUERY_KEYS,
       ...TRASH_LIST_QUERY_KEYS,
     ],
   });
@@ -1922,7 +2217,7 @@ export function restoredDocumentTargets(
     ["action", "list-documents"],
     ["action", "get-content-database"],
     ["action", "get-content-recent"],
-    ["action", "search-documents"],
+    ...SEARCH_QUERY_KEYS,
     ...TRASH_LIST_QUERY_KEYS,
   ];
 }
@@ -1963,12 +2258,80 @@ export function usePermanentlyDeleteDocument() {
   });
 }
 
+/**
+ * Puts a moved page under its new parent in the cached paths through it, so
+ * the open page's path doesn't draw it back under the parent it left before
+ * the move's reread of the path lands.
+ */
+function moveDocumentInCachedPaths(
+  queryClient: QueryClient,
+  documentId: string,
+  parentId: string | null,
+) {
+  for (const query of queryClient
+    .getQueryCache()
+    .findAll({ queryKey: ["action", "get-content-navigation-context"] })) {
+    const data = query.state.data as
+      | { path?: Array<{ id?: string; parentId?: string | null }> }
+      | undefined;
+    if (
+      !data?.path?.some(
+        (entry) => entry.id === documentId && entry.parentId !== parentId,
+      )
+    )
+      continue;
+    const stale = query.state.isInvalidated;
+    queryClient.setQueryData(
+      query.queryKey,
+      {
+        ...data,
+        path: data.path.map((entry) =>
+          entry.id === documentId ? { ...entry, parentId } : entry,
+        ),
+      },
+      { updatedAt: query.state.dataUpdatedAt },
+    );
+    if (stale) query.invalidate();
+  }
+}
+
 export function useMoveDocument() {
   const queryClient = useQueryClient();
   return useContentActionMutation<
     Document,
     DocumentMoveRequest & { id: string }
   >("move-document", {
+    mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
+    // The Files tree draws the page under its new parent while the move is
+    // pending (`usePendingMoves`); a move without a new parent stays put.
+    onMutate: (variables): MoveDocumentContext => {
+      if (variables.parentId === undefined) return {};
+      const databaseId = variables.spaceId
+        ? contentSpaceFilesDatabaseId(queryClient, variables.spaceId)
+        : undefined;
+      if (variables.spaceId && !databaseId) return {};
+      const move = filesRowMove(queryClient, {
+        documentId: variables.id,
+        parentId: variables.parentId ?? null,
+        databaseId,
+      });
+      return move ? { move } : {};
+    },
+    // Before the reread starts, so a read the move didn't wait for can't take
+    // the page out of its new branch.
+    onSuccess: (_data, variables, context) => {
+      const move = (context as MoveDocumentContext | undefined)?.move;
+      if (move) keepMovedFilesRow(queryClient, move);
+      else forgetCreatedFilesRows(queryClient, [variables.id]);
+    },
+    // After the reread starts, so it still finds the branches that listed the
+    // page; the tree then keeps the page in place until the reread lands.
+    onSettled: (_data, error, _variables, context) => {
+      const move = (context as MoveDocumentContext | undefined)?.move;
+      if (error || !move) return;
+      moveCachedFilesRow(queryClient, move);
+      moveDocumentInCachedPaths(queryClient, move.documentId, move.parentId);
+    },
     invalidates: (_data, variables) => [
       ...contentPlacementTargets(queryClient, {
         documentIds: [variables.id],
@@ -1980,6 +2343,7 @@ export function useMoveDocument() {
       documentQueryFilter(variables.id),
       contentFilesCollectionFilter(),
       ["action", "list-documents"],
+      ...SEARCH_QUERY_KEYS,
       ...(variables.spaceId
         ? [
             ["action", "get-content-database"],
@@ -2078,16 +2442,216 @@ export function filterDocumentTreeDocuments(
 
   return documents.filter((doc) => !isDatabaseContainedDocument(doc));
 }
-function currentDocumentSpaceId(queryClient: QueryClient, documentId: string) {
-  const document = queryClient
+function cachedOpenDocument(queryClient: QueryClient, documentId: string) {
+  return queryClient
     .getQueriesData<Document>(documentQueryFilter(documentId))
     .find(([, data]) => data?.id === documentId)?.[1];
-  if (document?.spaceId) return document.spaceId;
+}
+
+function cachedListedDocument(queryClient: QueryClient, documentId: string) {
   const list = queryClient.getQueryData<Document[] | DocumentListResponse>(
     LIST_DOCUMENTS_QUERY_KEY,
   );
   const documents = Array.isArray(list) ? list : list?.documents;
-  return documents?.find((candidate) => candidate.id === documentId)?.spaceId;
+  return documents?.find((candidate) => candidate.id === documentId);
+}
+
+function currentDocumentSpaceId(queryClient: QueryClient, documentId: string) {
+  const spaceId =
+    cachedOpenDocument(queryClient, documentId)?.spaceId ??
+    cachedListedDocument(queryClient, documentId)?.spaceId;
+  if (spaceId) return spaceId;
+  // A hosted sidebar lists pages only as Files rows: a row knows its space,
+  // or the Files collection it is in does.
+  const row = cachedFilesRow(queryClient, documentId);
+  if (!row) return undefined;
+  if (row.item.spaceId) return row.item.spaceId;
+  for (const [, data] of queryClient.getQueriesData<ListContentSpacesResponse>({
+    queryKey: ["action", "list-content-spaces"],
+  })) {
+    const space = data?.spaces.find(
+      (candidate) => candidate.filesDatabaseId === row.databaseId,
+    );
+    if (space) return space.id;
+  }
+  return undefined;
+}
+
+/**
+ * The page as this tab knows it, to draw it in Pinned before the server
+ * answers: from the page list, the open page, or its Files row. A hosted
+ * sidebar loads no page list, so a pin from the Files tree finds its row.
+ */
+function cachedDocumentForPinned(
+  queryClient: QueryClient,
+  documentId: string,
+): Document | undefined {
+  const listed = cachedListedDocument(queryClient, documentId);
+  if (listed) return listed;
+  const open = cachedOpenDocument(queryClient, documentId);
+  // Pinned draws a title and icon; the body stays with the page.
+  if (open) return { ...open, content: "" };
+  const row = cachedFilesRow(queryClient, documentId);
+  return row ? filesRowDocument(row.item) : undefined;
+}
+
+/**
+ * True once a loaded spaces list shows this person's Favorites collection, or
+ * shows local files, which have none. Before any list loads it is unknown, so
+ * a pin then counts as a first pin and reads the spaces list again.
+ */
+function favoritesCollectionExists(queryClient: QueryClient) {
+  const lists = queryClient
+    .getQueriesData<ListContentSpacesResponse>({
+      queryKey: ["action", "list-content-spaces"],
+    })
+    .flatMap(([, data]) => (data ? [data] : []));
+  return (
+    lists.length > 0 &&
+    !lists.some(
+      (data) => data.sourceMode === "database" && !data.favoritesDatabaseId,
+    )
+  );
+}
+
+/** Pinned's item for a pin its Favorites list doesn't list yet. */
+export function optimisticFavoriteItemId(documentId: string) {
+  return `optimistic-favorite:${documentId}`;
+}
+
+export function isOptimisticFavoriteItemId(itemId: string) {
+  return itemId.startsWith("optimistic-favorite:");
+}
+
+/** The Favorites collections the hosted spaces lists name. */
+function favoritesDatabaseIds(queryClient: QueryClient) {
+  return new Set(
+    queryClient
+      .getQueriesData<ListContentSpacesResponse>({
+        queryKey: ["action", "list-content-spaces"],
+      })
+      .flatMap(([, data]) =>
+        data?.favoritesDatabaseId ? [data.favoritesDatabaseId] : [],
+      ),
+  );
+}
+
+function isFavoritesListKey(
+  queryKey: QueryKey,
+  favorites: ReadonlySet<string>,
+  spaceId?: string | null,
+) {
+  const params = queryKey[2] as
+    | { databaseId?: unknown; contentSpaceId?: unknown }
+    | undefined;
+  return (
+    typeof params?.databaseId === "string" &&
+    favorites.has(params.databaseId) &&
+    (spaceId === undefined || (params.contentSpaceId ?? null) === spaceId)
+  );
+}
+
+/**
+ * True when Pinned has no Favorites list of `spaceId` to draw a pin into:
+ * there is no collection yet, or its list hasn't loaded.
+ */
+function favoritesListMissing(
+  queryClient: QueryClient,
+  spaceId: string | null | undefined,
+) {
+  if (!favoritesCollectionExists(queryClient)) return true;
+  const favorites = favoritesDatabaseIds(queryClient);
+  return (
+    favorites.size > 0 &&
+    !queryClient
+      .getQueriesData<ContentDatabaseResponse>({
+        queryKey: ["action", "get-content-database"],
+        predicate: (query) =>
+          isFavoritesListKey(query.queryKey, favorites, spaceId ?? null),
+      })
+      .some(([, data]) => isFavoritesDatabaseCache(data))
+  );
+}
+
+/** When the server answered each first pin, by the pin. */
+const firstPinAnswers = new WeakMap<Document, number>();
+
+/** A pin Pinned draws itself, before its Favorites list lists it. */
+export type FirstPin = {
+  document: Document;
+  /** When the server answered the pin; null while it waits. */
+  answeredAt: number | null;
+};
+
+/**
+ * Pages pinned in `spaceId` while Pinned had no Favorites list to draw them
+ * into, newest pin first, as Pinned lists a new pin. The first pin creates the
+ * collection, so Pinned draws these until the collection's own read lists
+ * them. A failed pin leaves, and so does a page unpinned since.
+ */
+export function useFirstPins(spaceId: string | null | undefined): FirstPin[] {
+  const toggles = useMutationState({
+    filters: {
+      mutationKey: DOCUMENT_UPDATE_MUTATION_KEY,
+      predicate: (mutation) =>
+        mutation.state.status !== "error" &&
+        (mutation.state.variables as DocumentUpdateRequestWithCas | undefined)
+          ?.isFavorite !== undefined,
+    },
+    select: (mutation) => {
+      const variables = mutation.state
+        .variables as DocumentUpdateRequestWithCas;
+      const document = (
+        mutation.state.context as { firstPin?: Document } | undefined
+      )?.firstPin;
+      return {
+        id: variables.id,
+        firstPin: document
+          ? {
+              document,
+              answeredAt:
+                mutation.state.status === "success"
+                  ? (firstPinAnswers.get(document) ?? 0)
+                  : null,
+            }
+          : null,
+      };
+    },
+  });
+  return useMemo(() => {
+    const latest = new Map<string, FirstPin | null>();
+    for (const toggle of toggles) {
+      latest.delete(toggle.id);
+      latest.set(toggle.id, toggle.firstPin);
+    }
+    return [...latest.values()]
+      .filter(
+        (pin): pin is FirstPin =>
+          pin !== null && Boolean(spaceId) && pin.document.spaceId === spaceId,
+      )
+      .reverse();
+  }, [spaceId, toggles]);
+}
+
+/**
+ * The first pins Pinned still draws itself: all of them until the Favorites
+ * list loads, then those it doesn't list from a read made after their answer.
+ * `readAt` is when the list's current read landed.
+ */
+export function firstPinsToDraw(
+  pins: readonly FirstPin[],
+  favorites: { items: readonly { document: { id: string } }[] } | undefined,
+  readAt: number,
+): Document[] {
+  if (!favorites) return pins.map((pin) => pin.document);
+  const listed = new Set(favorites.items.map((item) => item.document.id));
+  return pins
+    .filter(
+      (pin) =>
+        !listed.has(pin.document.id) &&
+        (pin.answeredAt === null || readAt <= pin.answeredAt),
+    )
+    .map((pin) => pin.document);
 }
 
 function currentContentSidebarState(

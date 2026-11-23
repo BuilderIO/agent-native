@@ -119,11 +119,11 @@ Copy and update this checklist. Aim for 45 minutes; note the start time
 ```text
 - [ ] 0 Host classified, source picked
 - [ ] 1 Source read, brief drafted
-- [ ] 2 Design decided; brief, App design, estimate shown; where it runs asked
+- [ ] 2 Design decided; plan and estimate shown; where it runs asked
 - [ ] 3 Real scaffold, onboarding config, local sign-in
 - [ ] 4 Actions, domain surface, sample data, agent moments, agent instructions
 - [ ] 5 Running; screenshots reviewed and refined (two passes by default)
-- [ ] 6 Typecheck, doctor, build; final report with evidence labels
+- [ ] 6 Typecheck, doctor, build; app handed over; final report
 ```
 
 Resume an unfinished run instead of starting a second app. When the working
@@ -170,15 +170,15 @@ add them to the brief under App design:
 
 Source steps become states of objects (Draft, Checked, Approved), never a
 stepper, numbered tabs, or a wizard. Chrome stays quiet: no eyebrow, subtitle,
-repeated title, or stat strip over visible data. Show the brief with its App
-design in your message (a saved file is not shown), then ask where the app runs
-and wait, unless that question is skipped.
+repeated title, or stat strip over visible data. Show the plan in your
+message (a saved file is not shown) in plain words: the job, what the person
+sees first, how it looks and why that suits the work, and what the agent does
+where. Name the steps (install, scaffold, checks, dev server, headless
+browser) and estimate work time from the source and host, with external setup
+waits apart. Codes, direction names, tokens, and the tie-break stay in the
+brief. Then ask where the app runs and wait, unless that question is skipped.
 
 ### 3. Create the real scaffold
-
-Before the first command, name the steps (install, scaffold, checks, dev server,
-headless browser) and estimate work time from the source and host. Separate
-external setup waits, so delays are expected.
 
 Choose a short slug and never overwrite an app. Run standalone creation from
 its parent directory, noting that the nested app is its own Git repository:
@@ -209,13 +209,15 @@ hand-build the app in another stack, edit a pinned dependency version to force
 an install, or continue in a half-created directory; a workaround the user
 requests is named in the report.
 
-Then save the brief as `docs/brief.md`, append the domain surface's design to
-`DESIGN.md` (UI direction guide, section 4), and follow
+Then save the brief as `docs/brief.md` and run `app-quality-bar`. Choose one or
+two interaction patterns and write or update `DESIGN.md` as the single required
+design contract, including the chosen and rejected UX options. Register
+`app.manifest.ts` with real screens, entities, `viewPolicy`, and
+`suggestableCapabilities`. Follow
 [the run and deploy guide](references/local-run-and-deploy.md) to set
-`onboarding.firstRun` in `agent-native.json` (the shared Use Builder.io /
-Custom keys setup; never a second credential form or a hardcoded key) and
-`AUTH_DISABLED=1` in the ignored `.env` before the first screenshot (loopback
-only, never committed or deployed).
+`onboarding.firstRun` in `agent-native.json` (the shared setup, never a
+credential form or a hardcoded key) and `AUTH_DISABLED=1` in the ignored
+`.env` before the first screenshot.
 
 ### 4. Build the surface, actions, and agent moments
 
@@ -261,26 +263,16 @@ section 5).
 
 ### 5. Run, look, and refine
 
-Start the dev server as the run and deploy guide says (detached, log and PID in
-`.tmp/`, polled until it answers 200), then follow
-[the review loop](references/review-loop.md):
-
-- Shoot `/` (desktop and phone, light and dark, then the main agent control
-  clicked). It must land on the domain route; a sign-in card or a restarting
-  server is not a pass.
-- Score each rubric row with evidence. An automatic fail (a stepper, `/` off
-  the domain route, an empty or form-only first viewport, scaffold tokens,
-  clipped text, raw markdown, sideways scroll, console errors) overrides the
-  mean.
-- Fix every finding in one batch, reset what the click changed, and shoot
-  again. Stop when the bar is met: two passes by default; a third only when the
-  second still misses the bar and the pace budget allows.
-- Screenshots stay in the app's `.tmp/ui-review/out/`. Installed design skills
-  are optional; the review loop limits them.
+Start the dev server and follow [the review loop](references/review-loop.md).
+Capture the signed-in domain landing screen in light and dark at desktop
+and mobile widths, plus the main agent interaction. Apply the shared
+12-row rubric, automatic fails, and blind review. Fix findings in one batch
+and recapture before marking it ready.
 
 ### 6. Verify, build, and deploy
 
-Exercise the real path, not only the files: `/` opens the domain route with
+Run the 60-second Playwright walkthrough in `app-quality-bar` and use the
+blind final review gate before marking the app ready. Exercise the real path: `/` opens the domain route with
 sample data; every AI-labeled control opens the sidebar with its bounded
 prompt (with a provider, the result lands and persists; without one, the
 object does not stay busy, and say so); actions persist (read the row back);
@@ -290,23 +282,25 @@ Run `pnpm typecheck` and `pnpm agent-native:doctor` (plain `pnpm doctor` is
 pnpm's own command), then stop the dev server, remove `AUTH_DISABLED` from
 `.env`, and run `pnpm build`. Fix a non-zero exit or a doctor finding; the
 "production configuration errors" block printed with exit 0 is the deploy
-checklist, not a defect (run and deploy guide). Deploy only when the user
-asked or the provider is already configured. Leave the dev server running
-(start it again after the build) or stop it as that guide says, and report
-which. Label evidence separately: locally running, locally verified,
-build-ready, deployed, and live-verified are different states.
+checklist, not a defect (run and deploy guide). Deploy only when asked or
+when the provider is already configured. Then hand the app over as that guide
+says: an interactive run on the person's machine restarts it with `--open`, a
+headless run stops it.
 
 ## Final report
 
-For a local build, keep it demo-short. The first line is the verdict ("Built X
-in `<dir>`; locally verified, not deployed"). Then: the app directory, local
-URL, and server state (PID and stop command); the archetype, the direction, and
-what each control does (agent handoff or local action); absolute paths of the
-final screenshots, rubric scores, and open criteria; the verification, with
-evidence labels, and what the review click left behind; a deployment URL only if
-it is real, and one precise pending step if any; what changed from the brief
-(assumptions, gaps in the source, choices where it was silent); how to change
-the app (ask this agent, in this folder).
+Lead with the app, plainly:
+
+1. Local: "Your app is open at <URL>" after an `--open` hand-off; else where
+   it is and how to open it. Hosted: what Dispatch returned (per mode).
+2. How to change it: ask this agent, in this folder (hosted: per mode).
+3. What each control does, what changed from the brief (assumptions, gaps,
+   silent choices), and one precise pending step, if any.
+4. One line on what is built in: workspace integrations, automations, and an MCP server other AI tools can use, in Settings.
+
+Under a short **Details** heading: directory; PID and stop command, if running;
+absolute screenshot paths, rubric scores, and open criteria; verification with evidence
+labels, and what the review click left behind; a deployment URL only if real.
 
 Report what exists, not what was intended. Never claim the app exists without
 a path and a verification result. If the scaffold never completed, a step was
@@ -315,5 +309,4 @@ headline, and the build is not complete.
 
 ## Related skills
 
-`turn-into-skill` packages a workflow that needs no UI. Design skills, if
-installed, join in step 5.
+`turn-into-skill` packages a workflow that needs no UI.

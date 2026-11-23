@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Referenciar uma gravação…",
+    group: "Gravações",
+    authentication: "Entre para adicionar uma referência.",
+    invalid: "Escolha uma referência válida antes de enviar.",
+    unavailable:
+      "Uma referência selecionada não está mais disponível. Remova-a ou selecione-a novamente.",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionar ou fechar as respostas",
   },
@@ -227,7 +235,6 @@ const messages = {
     spaces: "Espaços",
     meetings: "Reuniões",
     dictate: "Ditar",
-    fromContent: "Do Content",
     archive: "Arquivo",
     trash: "Lixeira",
     agent: "Agente",
@@ -284,10 +291,6 @@ const messages = {
     archive: {
       title: "Nenhuma gravação arquivada",
       body: "Clips arquivados ficam aqui até você querer trazê-los de volta.",
-    },
-    fromContent: {
-      title: "Nenhum envio do Content ainda",
-      body: "Os vídeos que você envia para uma página do Content são salvos aqui como Clips.",
     },
     trash: {
       title: "A lixeira está vazia",
@@ -630,6 +633,8 @@ const messages = {
     them: "Eles",
     me: "Meu",
     regeneratingNotes: "Regenerando resumo",
+    notesAlreadyGenerating:
+      "Um resumo já está sendo gerado. Ele aparecerá aqui quando estiver pronto.",
     meetingRemoved: "Reunião removida",
     couldNotRemoveMeeting: "Não foi possível remover a reunião",
     couldNotLoadMeeting: "Não foi possível carregar esta reunião.",
@@ -655,6 +660,18 @@ const messages = {
     desktopHint:
       "Para iniciar notas, abra o Clips Desktop na barra de menus e escolha Start Meeting Notes, ou clique em Start notes quando o lembrete aparecer. O Clips captura o microfone e o áudio do sistema e escreve a transcrição aqui.",
     getDesktopApp: "Obtenha o aplicativo para desktop",
+    earlierAudioAdded_one:
+      "{{count}} minuto de antes de você começar foi adicionado",
+    earlierAudioAdded_other:
+      "{{count}} minutos de antes de você começar foram adicionados",
+    earlierAudioAdded_many:
+      "{{count}} minutos de antes de você começar foram adicionados",
+    earlierAudioUnreadable:
+      "Não foi possível verificar se esta transcrição inclui áudio anterior",
+    removeEarlierAudioTitle: "Remover o áudio anterior?",
+    removeEarlierAudioDescription:
+      "Ele será retirado da transcrição, e o resumo, os itens de ação e a descrição do clipe serão recriados, mesmo que você tenha escrito essa descrição. Um título gerado também será recriado; o que você escolheu permanece. Os capítulos também serão excluídos.",
+    couldNotRemoveEarlierAudio: "Não foi possível remover o áudio anterior",
     generateNotesFailed: "Não foi possível gerar o resumo. Tente novamente.",
     attendee_one: "participante {{count}}",
     attendee_other: "participantes {{count}}",
@@ -707,6 +724,10 @@ const messages = {
     noMatches: "Nenhuma correspondência.",
     noTranscript: "Nenhuma transcrição ainda.",
     noTranscriptCaptured: "Nenhuma transcrição foi capturada.",
+    unreadableDescription:
+      "A transcrição salva está corrompida. Gerar novamente cria uma nova a partir do áudio do clipe.",
+    partialTranscript:
+      "Transcrição parcial: a gravação foi cortada, então parte pode estar faltando.",
     backupFailed:
       "Nenhuma fala foi capturada localmente e a transcrição de backup não foi concluída. Tente novamente ou verifique as permissões de microfone e fala.",
     backupNotSetup:
@@ -788,6 +809,10 @@ const messages = {
     saveThumbnail: "Salvar miniatura",
   },
   shareDialog: {
+    enterPassword: "Digite uma senha",
+    showPassword: "Mostrar senha",
+    hidePassword: "Ocultar senha",
+    copyPassword: "Copiar senha",
     redactionsPendingTitle: "Conclua as ocultações antes de compartilhar",
     redactionsPendingBody:
       "Ocultações pendentes: {{count}}. Aplique-as no editor antes de compartilhar; o vídeo ainda contém o conteúdo original.",
@@ -813,7 +838,7 @@ const messages = {
     openInCodex: "Abrir no Codex",
     copyAgentPrompt: "Copiar prompt para agente",
     agentPrompt:
-      "Leia esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Leia a transcrição completa em apis.transcript e busque recommendedFrames[].url (ou apis.frame.urlTemplate com atMs) como imagens. Preserve id e agent_access exatamente como fornecidos. Em qualquer erro, confira failureKind, error e nextStep no JSON. Se failureKind=access, explique que o link não dá acesso; para um clipe privado, peça ao proprietário que escolha {{shareWithAgents}} no menu Compartilhar do Clips e envie o link gerado. Se failureKind=media enquanto a transcrição funciona, explique que não foi possível recuperar a mídia armazenada e que outro link não resolverá. Se failureKind=processing, siga nextStep; isso não significa que o clipe esteja ausente ou que o link seja inválido. Se failureKind=expired, peça ao proprietário que amplie ou remova a expiração do clipe no menu Compartilhar, salve e então escolha {{shareWithAgents}} e envie o novo link. Use browserDiagnostics quando disponível para relatar um problema. Se sua ferramenta não conseguir retornar imagens ou abrir estes links, diga que a ferramenta tem essa limitação; não é um erro do Clips.",
+      "Leia esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Leia a transcrição completa em apis.transcript e busque recommendedFrames[].url (ou apis.frame.urlTemplate com atMs) como imagens. Preserve id e agent_access exatamente como fornecidos. Em qualquer erro, confira failureKind, error e nextStep no JSON. Se failureKind=access, explique que o link não dá acesso; para um clipe privado, peça ao proprietário que escolha {{shareWithAgents}} no menu Compartilhar do Clips e envie o link gerado. Se failureKind=media enquanto a transcrição funciona, explique que não foi possível recuperar a mídia armazenada e que outro link não resolverá. Se failureKind=processing, siga nextStep; isso não significa que o clipe esteja ausente ou que o link seja inválido. Se failureKind=expired, peça ao proprietário que amplie ou remova a expiração do clipe no menu Compartilhar, salve e então escolha {{shareWithAgents}} e envie o novo link. Use browserDiagnostics quando disponível para relatar um problema. Se você não conseguir abrir as URLs dos frames como imagens, chame a ferramenta get-recording-frames do Clips com o ID da gravação desta URL de contexto, se ela estiver disponível. Se não, diga ao usuário que conectar o Clips em {{connectUrl}} permite que você veja os frames.",
     agentTokenDescription:
       "Link temporário somente leitura para agentes, porque este clipe não é público. Expira em 2 horas.",
     agentPublicDescription:
@@ -1178,6 +1203,11 @@ const messages = {
     reconnect: "Reconectar",
     connectedAs: "Conectado como {{account}}",
     needsReconnect: "É preciso reconectar {{account}}.",
+    calendarsDescription:
+      "O Clips mostra as reuniões das agendas que você ativar.",
+    mainCalendar: "Agenda principal",
+    showCalendar: "Mostrar reuniões de {{calendar}}",
+    calendarsLoadFailed: "Não foi possível carregar as agendas desta conta.",
     disconnectFailed: "Não foi possível desconectar a agenda.",
     disconnectCalendarDescription:
       "O Clips deixa de sincronizar as próximas reuniões de {{account}}.",
@@ -1286,6 +1316,45 @@ const messages = {
     startChatAction: "Iniciar conversa",
     trackInDashboard: "Acompanhar em um painel",
     chooseDashboardAction: "Escolher painel",
+  },
+  libraryFilters: {
+    source: "Origem",
+    sourceShort: "Origem",
+    sourceClips: "Gravado no Clips",
+    sourceContent: "Enviado de uma página do Content",
+    sourceAll: "Qualquer origem",
+    madeBy: "Criado por",
+    madeByPerson: "Uma pessoa",
+    madeByAgent: "Um agente",
+    created: "Data de criação",
+    sharing: "Compartilhamento",
+    sharingPrivate: "Privado",
+    sharingOrg: "Organização",
+    sharingPublic: "Público",
+    sharingShared: "Compartilhado com alguém",
+    sharingNotShared: "Não compartilhado com ninguém",
+    length: "Duração",
+    lengthUnder1m: "Menos de 1 minuto",
+    length1To5m: "De 1 a 5 minutos",
+    length5To20m: "De 5 a 20 minutos",
+    lengthOver20m: "Mais de 20 minutos",
+    tag: "Etiqueta",
+    tagOne: "etiqueta",
+    tagOther: "etiquetas",
+    transcript: "Transcrição",
+    transcriptYes: "Com transcrição",
+    transcriptNo: "Sem transcrição",
+    items: "clipes",
+    matchCount_one: "{{count}} clipe corresponde",
+    matchCount_many: "{{count}} de clipes correspondem",
+    matchCount_other: "{{count}} clipes correspondem",
+    showCount_one: "Mostrar {{count}} clipe",
+    showCount_many: "Mostrar {{count}} de clipes",
+    showCount_other: "Mostrar {{count}} clipes",
+    emptyTitle: "Nenhum clipe corresponde a estes filtros",
+    emptyBody: "Altere ou limpe os filtros para ver mais clipes.",
+    showAll: "Mostrar clipes de qualquer origem",
+    clear: "Limpar filtros",
   },
   libraryGrid: {
     spaceRoot: "Raiz do espaço",
@@ -1551,6 +1620,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Ouvindo…",
     noTranscript: "Ainda não há transcrição.",
+    unreadable: "Não foi possível ler esta transcrição.",
     liveTranscriptDescription:
       "A transcrição ao vivo aparecerá aqui quando as notas começarem.",
     me: "Eu",
@@ -2043,6 +2113,7 @@ const messages = {
     freeClipsLeft_one: "{{count}} clipe grátis restante",
     freeClipsLeft_other: "{{count}} clipes grátis restantes",
     freeClipsLeft_many: "{{count}} clipes grátis restantes",
+    activateBuilder: "Ativar Builder.io",
     hostedClipsExhaustedTitle:
       "Conecte o Builder.io gratuitamente para continuar gravando",
     hostedClipsExhaustedDescription:
@@ -2251,6 +2322,12 @@ const messages = {
     flowOriginalTranscript: "Mostrar transcrição original",
     flowCleanupSkipped: "Ajuste do texto ignorado; texto original mantido",
     flowBacktrackSkipped: "Edição ignorada; texto reconhecido mantido",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet não baixado",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Baixando o Parakeet",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Carregando o Parakeet",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet ocupado",
+    flowAppleSpeechParakeetFailed:
+      "Apple Speech · Falha ao carregar o Parakeet",
     flowCancelDictation: "Cancelar ditado",
     flowCopying: "Copiando a transcrição…",
     aiProcessed: "Processado por IA",
@@ -2389,7 +2466,6 @@ const messages = {
     goHome: "Ir para o início",
     testMic: "Testar microfone",
     archivePageTitle: "Arquivo · Clips",
-    fromContentPageTitle: "Do Content · Clips",
     openContentPage: "Abrir página",
     insightsPageTitle: "Informações · Clips",
     folderPageTitle: "Pasta · Clips",

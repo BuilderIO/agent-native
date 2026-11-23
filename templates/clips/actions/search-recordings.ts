@@ -1,7 +1,7 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -99,7 +99,7 @@ function transcriptMatch(
 
 export default defineAction({
   description:
-    "Search recordings by title, description, transcript text, or comments, including recordings in the caller's Trash. Transcript and comment matches include timestamps for jumping to the matching moment. Public/unlisted recordings are searchable only when owned by or previously viewed by the current user.",
+    "Search recordings by title, description, transcript text, or comments, including recordings in the caller's Trash. Transcript and comment matches include timestamps for jumping to the matching moment. Public/unlisted recordings are searchable only when owned by or previously viewed by the current user. Read-only search: to filter the Library UI to matching clips call navigate with view='library' and search='<query>', or call navigate with view='recording' and recordingId to open a single matching clip.",
   schema: z.object({
     query: z.string().min(1).describe("Search text"),
     limit: z.coerce.number().int().min(1).max(100).default(30),
@@ -198,6 +198,7 @@ export default defineAction({
           lifecycleFilter,
           or(
             ownerFilter,
+            ne(schema.recordings.visibility, "public"),
             isNull(schema.recordings.password),
             eq(schema.recordings.password, ""),
           ),
@@ -239,12 +240,17 @@ export default defineAction({
             recordingAccess,
           ),
           lifecycleFilter,
-          userEmail
-            ? or(
-                eq(schema.recordings.enableComments, true),
-                ownerEmailMatches(schema.recordings.ownerEmail, userEmail),
-              )
-            : eq(schema.recordings.enableComments, true),
+          or(
+            ownerFilter,
+            and(
+              eq(schema.recordings.enableComments, true),
+              or(
+                ne(schema.recordings.visibility, "public"),
+                isNull(schema.recordings.password),
+                eq(schema.recordings.password, ""),
+              ),
+            ),
+          ),
           sql`lower(${schema.recordingComments.content}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )

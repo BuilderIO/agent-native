@@ -26,6 +26,14 @@ export const CLOSE_AFTER_PING_DAYS = 7;
 // #5833, #5893), so the audit flags them in our replies.
 const INTERNAL_LANGUAGE_RE =
   /\binternal (?:approval|review)\b|\bowner review\b|\bowner\/browser check\b|\bmerge-ready\b|\bready for (?:final )?internal\b/i;
+// Steve's review bot posts from his account, so its sign-off reads as a
+// Builder reply. It asks the author for nothing (#7799); review-prs now has it
+// say no changes are requested and the PR is ready for maintainer merge.
+const ALL_CLEAR_RE =
+  /\bno further (?:\w+ )?feedback\b|\bno (?:further )?changes (?:are )?requested\b|\bready for maintainer merge\b/i;
+// A closing comment that gives these reasons closed it for silence.
+const STALE_CLOSE_RE =
+  /\bstale\b|\binactiv|\bno (?:response|activity)\b|\bha(?:ve|s)n'?t heard\b|\bhave not heard\b|\bgone quiet\b/i;
 
 export type Actor = "author" | "builder" | "bot" | "other";
 
@@ -153,7 +161,8 @@ function isReply(item: Activity): boolean {
  * does after that puts it back in ours. Later Builder pings don't restart the
  * author's silence, so the 30-day ping can't reset its own clock. This reads
  * timing only: whether our reply asked for anything is the dev's call, so
- * `describeClock` words the later stages as conditions.
+ * `describeClock` words the later stages as conditions. The one reply it
+ * skips is a review sign-off, which asks the author for nothing.
  */
 export function classifyClock(input: {
   createdAt: string;
@@ -172,7 +181,9 @@ export function classifyClock(input: {
   const activity = input.activity.filter(
     (item) => Date.parse(item.at) >= Date.parse(start),
   );
-  const replies = activity.filter(isReply);
+  const replies = activity.filter(
+    (item) => isReply(item) && !ALL_CLEAR_RE.test(item.body ?? ""),
+  );
   if (replies.length === 0) {
     return {
       kind: "first-reply",
@@ -988,12 +999,15 @@ function sweep(
   const members = new Membership(gh);
   members.assertViewerCanCheck();
   const owners = ownersFromSkill();
-  const outside = outsidePrs(
-    fetchOpenPrs(gh)
-      .filter((pr) => isOutside(pr, members))
-      .map((pr) => completeTimeline(gh, pr, false)),
-    members,
-  );
+  // The clock reads reply bodies for sign-offs, so the open list finds the
+  // outside PRs and only those are read whole.
+  const numbers = fetchOpenPrs(
+    gh,
+    "number author { __typename login } headRepository { nameWithOwner }",
+  )
+    .filter((pr) => isOutside(pr, members))
+    .map((pr) => pr.number);
+  const outside = outsidePrs(fetchPrs(gh, numbers), members);
   settleMergeable(
     gh,
     outside.map(({ pr }) => pr),
@@ -1345,8 +1359,16 @@ export function auditFlags(input: {
     atClose &&
     !atClose.to
   ) {
-    // Timing can't tell a stale close from a decline that came days after an
-    // ask, so this names the timing and the dev reads the thread.
+    // Timing alone can't tell a stale close from a decline that came days
+    // after an ask. A decline says why in a comment at the close (#7626); one
+    // that blames silence, or none at all, gets the timing flag.
+    const closedAt = Date.parse(input.closedAt);
+    const declined = replies.some(
+      (reply) =>
+        Math.abs(Date.parse(reply.at) - closedAt) <= 60 * 60 * 1000 &&
+        reply.body !== undefined &&
+        !STALE_CLOSE_RE.test(reply.body),
+    );
     const clock = classifyClock({
       createdAt: input.createdAt,
       readyAt: atClose.from,
@@ -1363,7 +1385,11 @@ export function auditFlags(input: {
       // A "ping" posted the day we closed is the closing comment, not a ping.
       if (waited !== undefined && waited >= 1 && waited < CLOSE_AFTER_PING_DAYS)
         flags.push(`closed ${waited}d after the ping`);
-      else if ((waited === undefined || waited < 1) && clock.silentDays >= 1)
+      else if (
+        (waited === undefined || waited < 1) &&
+        clock.silentDays >= 1 &&
+        !declined
+      )
         flags.push(`closed ${clock.silentDays}d after our ask, with no ping`);
     }
   }

@@ -123,6 +123,13 @@ description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 acti
             "변경(mutating) action이 같은 턴의 다른 도구 호출과 동시에 실행되도록 허용합니다.",
         },
         {
+          name: "retrySafe",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            "true이면(또는 predicate가 true를 반환하면) 이 action 자신의 쓰기 이후의 실패는 현재 턴의 나머지 동안 도구를 차단하는 대신 모델이 수정하고 재시도할 수 있는 알려진 실패가 됩니다. 어떤 오류 뒤에도 안전하게 다시 실행할 수 있는 action에만 사용하세요. 쓰기 이전의 거부에는 이 옵션이 필요 없습니다. 아래의 재시도 안전 쓰기를 참고하세요.",
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,
@@ -438,6 +445,41 @@ const reply = useActionMutation("reply-to-email", {
 
 에이전트 호출자는 상태를 보지 않습니다. 에이전트는 `run()`을 프로세스 안에서 실행하므로 타입과 무관하게 메시지를 `Error running <action>: <message>` 형태로 그대로 받습니다. 기본값 `action_failed`가 아닌 `errorCode`는 `(errorCode: not_found)`로 덧붙어, 모델이 문장을 파싱하지 않고 분기할 수 있습니다. `details`는 별도의 줄에 압축된 JSON으로 이어지며(예: `Error details: {"importId":"imp_1"}`), 모델이 다음 호출에 필요한 ID를 메시지에 적지 않아도 됩니다. MCP를 통한 외부 에이전트도 같은 텍스트를 받으며, `structuredContent.error`에도 같은 details가 담깁니다. 출력 스키마를 공개하는 도구(`mcpOutputSchema: true`)는 텍스트만 반환합니다. 클라이언트가 오류 결과도 그 스키마로 검증할 수 있기 때문입니다. details는 2,000자로 제한되며, 이를 넘으면 작은 최상위 항목은 유지하고 나머지는 생략된 항목으로 나열합니다. 메시지와 details 속 비밀 값은 먼저 가려지고, 반복 오류에 대한 에이전트 자체 차단기가 재시도 횟수를 제한합니다.
 
+## 재시도 안전 쓰기 {#retry-safe}
+
+프레임워크는 실패한 쓰기 action을 그 호출이 수행한 것으로 관찰한 쓰기를 기준으로 분류합니다. 텍스트상 쓰기일 수 있는 모든 SQL 문과 GET, HEAD, OPTIONS가 아닌 모든 `fetch`가 대상입니다. 그중 어느 것보다도 먼저 발생한 거부, 예를 들어 일치하는 항목이 없는 편집, 없는 대상, 422 검증 거부는 `fail()`, 일반 `Error`, 라이브러리 오류 중 어떤 방식으로 throw되든 알려진 실패입니다. 모델은 오류를 받고, 인자를 수정한 뒤 재시도합니다.
+
+호출이 자신이 수행한 쓰기 이후에 실패하면 agent 루프는 알 수 없는 결과로 기록하고 **현재 턴**의 나머지 동안 그 도구를 차단합니다. 모델은 오류를 볼 수 있지만, 이 턴에서는 인자를 고치기 위해 같은 action을 다시 호출할 수는 없습니다. 사용자의 다음 메시지는 그 도구를 정상적으로 실행합니다.
+
+- 디스크 쓰기, 자식 프로세스, `node:http` 요청, 벤더 SDK 호출, `SELECT`가 호출하는 앱 자체의 데이터베이스 함수처럼 프레임워크가 볼 수 없는 쓰기 전에는 `@agent-native/core/action`의 `noteExternalWrite(channel)`을 호출하세요(예: `noteExternalWrite("local-disk")`). 이 호출이 없으면 그 쓰기 이후에 실패한 호출은 아무것도 저장하지 않은 것처럼 보입니다.
+- `NoWriteError` 또는 `defineActionErrors`의 `noWrite()`는 필수가 아니라 재정의 수단입니다. 거부 이전의 유일한 쓰기가 재시도로 반복되어도 해가 없는 쓰기일 때, 예를 들어 서버가 아무것도 실행하기 전에 4xx로 거부한 요청이나 아직 아무것도 참조하지 않는 업로드일 때 사용하세요. 프레임워크는 중첩된 쓰기 action이 호출의 핸들러에 들어가지 않은 경우에만 이를 받아들입니다. 작성자 규칙은 `.agents/skills/actions/SKILL.md`의 `NoWriteError` 항목입니다. `noWrite()`는 [오류 코드 선언하기](#error-codes)를 참고하세요.
+
+어떤 오류 뒤에도 다시 실행해도 데이터가 중복되거나 손상되지 않는다면 `retrySafe: true`(또는 입력을 받는 predicate)를 설정하세요. action의 모든 쓰기가 id 기준 교체처럼 최종 상태를 설정해서, 이미 반영된 쓰기를 반복해도 아무것도 바뀌지 않는 경우입니다. 그러면 자신의 쓰기 이후에 실패한 호출도 알려진 실패로 남습니다. 모델은 오류를 받고, 인자를 수정한 뒤 재시도합니다.
+
+```ts
+export default defineAction({
+  description: "Replace a dashboard panel by id.",
+  schema: z.object({
+    dashboardId: z.string().describe("Dashboard id."),
+    panelId: z.string().describe("Panel id to replace."),
+    title: z.string().describe("New panel title."),
+  }),
+  // Safe: the write is an end-state replace. Running it again after
+  // an error sets the same state, so the model can fix its args and retry.
+  retrySafe: true,
+  run: async ({ dashboardId, panelId, title }) => {
+    /* validate, then replace-by-id … */
+  },
+});
+```
+
+검증 후에 추가, 전송, 결제를 하는 action에는 설정하지 **마세요**. 다만 action이 첫 결과로 응답하는 멱등 키를 입력이 가진 경우는 예외입니다. 거부되기 전에 이후 단계가 이미 반영되었을 수 있다면 먼저 검증하는 것만으로는 충분하지 않습니다. 그 밖의 제한 사항:
+
+- **이 action 자체의 쓰기**만 해당합니다. 호출한 중첩 action이 쓰기를 한 뒤에는 실패가 여전히 알 수 없는 결과로 기록됩니다.
+- MCP 승인은 `retrySafe`가 다루는 호출에 대해 「이미 실행됨」 경고를 건너뜁니다.
+- 충돌에서 복구한 실행이 중단된 재시도 안전 호출을 같은 입력으로 다시 보내면, 그 호출은 알 수 없는 상태로 남지 않고 다시 실행됩니다.
+- action이 호출된 뒤 발생한 deadline이나 abort는 현재 턴의 나머지 동안 여전히 도구를 차단합니다. action이 직접 반환한 오류만 알려진, 재시도 가능한 실패로 취급됩니다.
+
 ## Action 표면을 작게 유지하기 {#small-surface}
 
 에이전트가 볼 수 있는 모든 action은 모델의 도구 목록에서 한 자리를 차지하며, 목록이 길고 서로 겹치면 모델이 올바른 도구를 고르기 어려워집니다. UI의 버튼 하나마다 action을 하나씩 만들기보다, 여러분이 유지 관리하는 API처럼 action 표면을 설계하세요.
@@ -446,6 +488,7 @@ const reply = useActionMutation("reply-to-email", {
 - 모든 쿼리나 필터마다 새 읽기 action을 추가하기 전에, 더 범용적인 선택지를 먼저 고려하세요. 프로바이더 데이터에는 [provider API 트리오](/docs/template-dispatch-developers#calling-a-provider-directly)(`provider-api-catalog`, `provider-api-docs`, `provider-api-request`)를, 앱 데이터에는 개발용 `db-query` 도구를 사용하세요.
 - UI 전용이거나 프로그래밍 방식 action은 [`agentTool: false`](/docs/actions-access-control#agent-tool)로 표시하세요. 모델의 도구 목록에는 자리를 차지하지 않으면서, 프런트엔드나 HTTP를 통해서는 계속 호출할 수 있습니다.
 - 에이전트가 늘 손을 뻗는 소수의 action에는 `deferLoading: false`를 표시하세요. 첫 모델 요청에 실려 가는 것이 바로 그 스키마들이고, 나머지는 에이전트가 필요로 할 때 `tool-search`를 통해 그때그때 로드됩니다. 한 action이라도 이렇게 빠지는 순간 표시하지 않은 action은 모두 뒤로 미뤄지므로, 한 번에 하나씩이 아니라 시작에 필요한 묶음을 한꺼번에 표시하세요. 이것은 접근 권한이 아니라 첫 턴의 비용에 대한 이야기입니다. 뒤로 미룬 action도 `tool-search`가 반환하는 순간 호출할 수 있습니다. 뒤로 미룬 action들은 프롬프트의 도구 색인에 이름으로 계속 나타나며, 주동사 뒤의 명사로 그룹화되어 있으므로 `list-dashboards`와 `create-dashboard` 같은 `verb-noun` 이름이 에이전트가 이들을 찾을 수 있게 해줍니다. 플러그인의 `initialToolNames` 배열을 action 단위로 표현한 것이며, 앱은 둘 중 어느 쪽이든 쓸 수 있습니다.
+- 사용자가 action의 기능을 이름이나 설명에 없는 말로 부른다면 그 action에 `searchHints`를 지정하세요. 예를 들어 받은편지함 규칙 action에는 `["auto-archive rule", "inbox rule"]`를 붙일 수 있습니다. `tool-search`는 이 단어들을 이름 바로 다음으로 중요하게 보며, 모델에는 전혀 전송되지 않으므로 컨텍스트를 쓰지 않습니다. 짧고 사실에 맞게 유지하세요(최대 12개, 각각 60자 이하). action이 처리할 수 있는 모든 요청의 목록이 아닙니다.
 - UI가 더 이상 사용하지 않는 action은 모델에 노출된 채로 두지 말고 삭제하거나 숨기세요.
 
 이 저장소에는 참고용 도우미 `node scripts/audit-template-actions.mjs [template ...]`(별칭 `pnpm actions:audit`)가 포함되어 있습니다. 이 스크립트는 템플릿의 `actions/` 폴더를 스캔하여 UI가 더 이상 사용하지 않을 수 있는 action과, 하나로 합칠 수 있는 필드별 action 그룹을 알려줍니다. 항상 종료 코드 0으로 끝나며 CI를 실패시키지 않고, 휴리스틱도 보수적이므로 그 출력은 오류가 아니라 제안으로 다루세요.

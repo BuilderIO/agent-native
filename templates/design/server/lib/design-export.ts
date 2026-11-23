@@ -1,3 +1,4 @@
+import { noteExternalWrite } from "@agent-native/core/action";
 import { decodeHTML } from "entities";
 
 import { ensureGroupRuntime } from "../../shared/group-runtime.js";
@@ -575,6 +576,7 @@ export async function trySaveExportFile(
   const filePath = path.join(exportDir, filename);
 
   try {
+    noteExternalWrite("local-disk");
     fs.mkdirSync(exportDir, { recursive: true });
     fs.writeFileSync(filePath, contents);
     return { filePath };

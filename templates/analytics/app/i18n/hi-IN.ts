@@ -1,4 +1,12 @@
 export default {
+  composerSources: {
+    uploadFailed: "चुनी गई फ़ाइल अपलोड नहीं हो सकी।",
+    reference: "डैशबोर्ड का संदर्भ दें…",
+    group: "डैशबोर्ड",
+    authentication: "संदर्भ जोड़ने के लिए साइन इन करें।",
+    invalid: "भेजने से पहले एक मान्य संदर्भ चुनें।",
+    unavailable: "चुना गया संदर्भ अब उपलब्ध नहीं है। उसे हटाएँ या फिर से चुनें।",
+  },
   root: {
     whatsNew: "नया क्या है",
   },
@@ -1150,6 +1158,7 @@ export default {
     monitoring: "मॉनिटरिंग - Analytics",
     agents: "एजेंट - Analytics",
     session: "सत्र रीप्ले - Analytics",
+    sessionReport: "सेशन रिपोर्ट - Analytics",
     tool: "उपकरण - Analytics",
     extensions: "एक्सटेंशन - Analytics",
     overview: "अवलोकन - Analytics",
@@ -1327,6 +1336,8 @@ export default {
     resetFilters: "फ़िल्टर रीसेट करें",
     collapseFilters: "फ़िल्टर संक्षिप्त करें",
     expandFilters: "फ़िल्टर का विस्तार करें",
+    collapseDescription: "विवरण संक्षिप्त करें",
+    expandDescription: "विवरण का विस्तार करें",
     drilldownChartPoints: "चार्ट के बिंदु",
     drilldownPreviousPage: "चार्ट बिंदुओं का पिछला पृष्ठ",
     drilldownNextPage: "चार्ट बिंदुओं का अगला पृष्ठ",
@@ -1346,6 +1357,8 @@ export default {
       "चार्ट {{chart}} दिखाता है, लेकिन {{total}} रिकॉर्ड मेल खाते हैं",
     drilldownAggregateOnly:
       "इस पैनल में केवल समेकित पंक्तियाँ हैं। क्लिक किए गए बिंदु से मेल खाने वाली पंक्तियाँ हाइलाइट की गई हैं।",
+    drilldownNoXValueAggregateOnly:
+      "यह पैनल बिना मान वाले बिंदु के रिकॉर्ड नहीं खोल सकता, इसलिए समेकित पंक्तियाँ दिखाता है। क्लिक किए गए बिंदु से मेल खाने वाली पंक्तियाँ हाइलाइट की गई हैं।",
     drilldownNoRecords: "कोई मेल खाता रिकॉर्ड नहीं",
     drilldownNoRecordsIncomplete:
       "कोई रिकॉर्ड लोड नहीं हुआ। परिणाम अधूरा है, इसलिए कुछ रिकॉर्ड अब भी मेल खा सकते हैं।",
@@ -1355,11 +1368,16 @@ export default {
     drilldownOverByteCap:
       "ये रिकॉर्ड {{gib}} GiB से ज़्यादा पढ़ेंगे, इसलिए लोड नहीं हुए। डैशबोर्ड के फ़िल्टर या तारीख की सीमा छोटी करें और फिर से कोशिश करें।",
     filterSeries: "Filter",
+    noXValue: "कोई मान नहीं",
     chartTimeRangeOverride: "इस चार्ट के लिए समय सीमा ओवरराइड करें",
     chartTimeRangeInherit: "डैशबोर्ड सीमा",
     hide: "Hide",
     show: "Show",
     saveAsView: "दृश्य के रूप में सहेजें",
+    unknownTraffic: "अज्ञात {{count}}",
+    unknownTrafficUnavailable: "अज्ञात की गिनती उपलब्ध नहीं",
+    unknownTrafficTip:
+      "पिछले {{days}} दिनों के ऐसे इवेंट जिनमें न होस्ट है और न कोई पहचाना गया परिवेश। इन्हें प्रोडक्शन में गिना जाता है।",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
@@ -1642,6 +1660,10 @@ export default {
     hideEmptySessions: "खाली सत्र छिपाएँ",
     networkErrors: "नेटवर्क त्रुटियाँ",
     rageClicksFilter: "बार-बार क्लिक",
+    traffic: "ट्रैफ़िक",
+    allTraffic: "सारा ट्रैफ़िक",
+    productionTraffic: "प्रोडक्शन",
+    betaTraffic: "बीटा",
     visitors: "आगंतुक",
     allVisitors: "सभी आगंतुक",
     internalVisitors: "आंतरिक",
@@ -1803,6 +1825,27 @@ export default {
     emptyStepVisit: "ऐप खोलें",
     installSnippetTitle: "सत्र रीप्ले जोड़ें",
     backToSessions: "सत्रों पर वापस जाएँ",
+    createReport: "रिपोर्ट बनाएँ",
+    createReportTooltip:
+      "एजेंट से इस सेशन पर रिपोर्ट लिखवाएँ: क्या गलत हुआ, इसके मुख्य पल और इसे कैसे दोहराएँ।",
+    createReportMessage: "इस सेशन पर एक रिपोर्ट लिखें।",
+    reportCount: "रिपोर्ट ({{count}})",
+    reportsUnavailable: "रिपोर्ट उपलब्ध नहीं हैं",
+    reportNeedsLab: "सेशन रिपोर्ट सेशन ट्राइएज Lab का हिस्सा हैं।",
+    reportNotFound: "यह रिपोर्ट मौजूद नहीं है, या आपके साथ शेयर नहीं की गई है।",
+    reportLoadFailed: "यह रिपोर्ट लोड नहीं हो सकी: {{message}}",
+    reportBackToSession: "सेशन पर वापस जाएँ",
+    reportTitleLabel: "रिपोर्ट का शीर्षक",
+    reportSummaryLabel: "सारांश",
+    reportSummaryPlaceholder: "क्या गलत हुआ, और क्यों",
+    reportKeyMoments: "मुख्य पल",
+    reportReproSteps: "दोहराने के चरण",
+    reportErrorIssue: "त्रुटि इश्यू",
+    reportCommit: "कमिट",
+    reportNoCommit: "इस सेशन ने कोई कमिट रिपोर्ट नहीं किया",
+    reportSaveFailed: "रिपोर्ट सेव नहीं हो सकी: {{message}}",
+    reportDelete: "रिपोर्ट मिटाएँ",
+    reportDeleteTitle: "यह रिपोर्ट मिटाएँ? इसके एजेंट लिंक काम करना बंद कर देंगे।",
     copyForAgent: "एजेंट के लिए कॉपी करें",
     copyForAgentTooltip:
       "एक अस्थायी निजी लिंक कॉपी करें जिसे एजेंट इस रीप्ले का निरीक्षण करने के लिए उपयोग कर सकता है।",
@@ -2056,6 +2099,10 @@ export default {
     flagsUnavailable: "फ़ीचर फ़्लैग उपलब्ध नहीं हैं",
     flagsUnreachable:
       "वर्कस्पेस डायरेक्टरी तक नहीं पहुँचा जा सका। कनेक्शन उपलब्ध होने पर फिर कोशिश करें।",
+    verifiedFlagChangeOrg:
+      "{{time}} पर सत्यापित: {{app}} में {{flag}} इस संगठन के लिए {{availability}} पर सेट है।",
+    verifiedFlagChangeGlobal:
+      "{{time}} पर सत्यापित: {{app}} में {{flag}} सभी संगठनों के लिए {{availability}} पर सेट है।",
     flagsEmpty: "किसी वर्कस्पेस ऐप ने फ़्लैग की सूचना नहीं दी",
     flagsEmptyDetail: "कनेक्टेड ऐप तैयार होने पर पंजीकृत फ़्लैग यहाँ दिखाई देंगे।",
     flagsNotReady: "यह ऐप {{status}} है; इसकी फ़्लैग स्थिति को बंद नहीं माना जाता।",

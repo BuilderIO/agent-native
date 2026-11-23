@@ -6,11 +6,12 @@ import { getUserLabStates } from "../../labs/store.js";
 import { captureError } from "../../server/capture-error.js";
 import { listFeatureFlags } from "../registry.js";
 import {
-  defaultFeatureFlagRules,
-  evaluateFeatureFlagRules,
-  getFeatureFlagRules,
+  evaluateStoredFeatureFlagRule,
+  featureFlagRuleInEffect,
   getFeatureFlagRulesForKeys,
-  type FeatureFlagRules,
+  readFeatureFlagRuleLayers,
+  type FeatureFlagScope,
+  type FeatureFlagStoredRule,
 } from "../store.js";
 
 export default defineAction({
@@ -18,8 +19,12 @@ export default defineAction({
     "Return the boolean values of every feature flag registered by this app for the current caller. Unknown or unconfigured flags always evaluate to false.",
   schema: z.object({}),
   http: { method: "GET" },
+  mcpTool: false,
   run: async (_args, ctx) => {
-    const scope = { userEmail: ctx?.userEmail, orgId: ctx?.orgId };
+    const scope: FeatureFlagScope = {
+      ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
+      ...(ctx?.orgId ? { orgId: ctx.orgId } : {}),
+    };
     const definitions = listFeatureFlags();
     const rules = await getFeatureFlagRulesForKeys(
       definitions.map(({ key }) => key),
@@ -28,15 +33,20 @@ export default defineAction({
       captureError(error, {
         tags: { source: "feature-flags", op: "get-feature-flags" },
       });
-      const fallback = new Map<string, FeatureFlagRules>();
+      const fallback = new Map<string, FeatureFlagStoredRule>();
       await Promise.all(
         definitions.map(async ({ key }) => {
           try {
-            fallback.set(key, await getFeatureFlagRules(key, scope));
+            fallback.set(
+              key,
+              featureFlagRuleInEffect(
+                await readFeatureFlagRuleLayers(key, scope),
+              ),
+            );
           } catch {
-            // coercion-ok: this flag's own read also failed; it defaults to
-            // off below via defaultFeatureFlagRules, the same false-on-error
-            // outcome evaluateFeatureFlag gives any other caller.
+            // coercion-ok: this flag's own read also failed; it evaluates
+            // off below, the same false-on-error outcome evaluateFeatureFlag
+            // gives any other caller.
           }
         }),
       );
@@ -44,14 +54,11 @@ export default defineAction({
     });
     const values = Object.fromEntries(
       definitions.map(({ key }) => {
+        const stored = rules.get(key);
         try {
           return [
             key,
-            evaluateFeatureFlagRules(
-              key,
-              rules.get(key) ?? defaultFeatureFlagRules(),
-              scope,
-            ),
+            !!stored && evaluateStoredFeatureFlagRule(key, stored, scope),
           ];
         } catch {
           return [key, false];

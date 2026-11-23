@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "बातचीत का संदर्भ दें…",
+    group: "बातचीत",
+    authentication: "संदर्भ जोड़ने के लिए साइन इन करें।",
+    invalid: "भेजने से पहले एक मान्य संदर्भ चुनें।",
+    unavailable: "चुना गया संदर्भ अब उपलब्ध नहीं है। उसे हटाएँ या फिर से चुनें।",
+  },
   composer: {
     removeAttachment: "{{name}} हटाएँ",
     removeReference: "{{name}} संदर्भ हटाएँ",

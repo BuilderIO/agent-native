@@ -1,7 +1,11 @@
 import fs from "fs";
 import path from "path";
 
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  noteExternalWrite,
+} from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -28,6 +32,7 @@ import {
   getAspectRatioDims,
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
+import type { ExportWarning } from "../shared/export-warnings.js";
 import { fillSlideNumberTokensInHtml } from "../shared/slide-number.js";
 import { getExportUrl } from "./_app-url.js";
 
@@ -319,11 +324,12 @@ export function assertServerPptxExportable(
   html: string,
   slideNumber: number,
 ): void {
-  const hasPersistedFreeformObject =
-    /\bdata-slide-object-id\s*=/i.test(html) ||
+  // Imported PPTX slides carry data-slide-object-id on their own elements, so only the editor's freeform class marks a real freeform there.
+  const hasFreeformClass =
     /\bclass\s*=\s*["'][^"']*\bfmd-freeform-object\b/i.test(html);
-  if (html.includes('data-imported-pptx="true"')) return;
-  if (!hasPersistedFreeformObject) return;
+  const hasObjectId = /\bdata-slide-object-id\s*=/i.test(html);
+  const isImported = html.includes('data-imported-pptx="true"');
+  if (!hasFreeformClass && (isImported || !hasObjectId)) return;
 
   fail(
     `Slide ${slideNumber} contains freeform positioned objects. Export this deck from the Slides editor with Export > PowerPoint so browser-rendered geometry is preserved. The server export stopped instead of silently reflowing those objects.`,
@@ -1605,38 +1611,52 @@ export async function applyDeckIdentity(
   return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 }
 
+export type ImageFetchResult =
+  | { ok: true; dataUri: string }
+  | { ok: false; reason: string };
+
 export async function fetchImageAsBase64(
   url: string,
   ownerEmail?: string,
-): Promise<string | null> {
+): Promise<ImageFetchResult> {
+  let parsedUrl: URL;
   try {
-    const parsedUrl = new URL(url, "http://slides.local");
-    if (parsedUrl.pathname.startsWith("/api/import-assets/") && ownerEmail) {
-      const token = parsedUrl.pathname.slice("/api/import-assets/".length);
-      const localAsset = await readLocalImportedAsset({
-        token,
-        email: ownerEmail,
-      });
-      if (localAsset) {
-        return `data:${localAsset.mimeType};base64,${Buffer.from(localAsset.data).toString("base64")}`;
-      }
-      return null;
-    }
+    parsedUrl = new URL(url, "http://slides.local");
+  } catch {
+    return { ok: false, reason: "malformed image URL" };
+  }
+  if (parsedUrl.pathname.startsWith("/api/import-assets/") && ownerEmail) {
+    const token = parsedUrl.pathname.slice("/api/import-assets/".length);
+    // Storage faults propagate so the export fails loudly; only a missing asset is a skipped image.
+    const localAsset = await readLocalImportedAsset({
+      token,
+      email: ownerEmail,
+    });
+    if (!localAsset) return { ok: false, reason: "local asset not found" };
+    return {
+      ok: true,
+      dataUri: `data:${localAsset.mimeType};base64,${Buffer.from(localAsset.data).toString("base64")}`,
+    };
+  }
+  try {
     const response = await ssrfSafeFetch(
       url,
       { signal: AbortSignal.timeout(10_000) },
       { maxRedirects: 3 },
     );
-    if (!response.ok) return null;
+    if (!response.ok) return { ok: false, reason: `HTTP ${response.status}` };
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.toLowerCase().startsWith("image/")) {
-      return null;
+      return { ok: false, reason: `content-type ${contentType || "missing"}` };
     }
     const buffer = await response.arrayBuffer();
     const base64 = Buffer.from(buffer).toString("base64");
-    return `data:${contentType};base64,${base64}`;
-  } catch {
-    return null;
+    return { ok: true, dataUri: `data:${contentType};base64,${base64}` };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -1779,6 +1799,8 @@ export default defineAction({
 
     const slideGradients = new Map<number, string>();
     let backgroundGradientsFlattened = 0;
+    const warnings: ExportWarning[] = [];
+    const droppedImageSlides: number[] = [];
 
     for (const [slideIndex, slide] of slides.entries()) {
       const pptxSlide = pptx.addSlide();
@@ -1895,16 +1917,21 @@ export default defineAction({
           }
         } else if (object.kind === "image") {
           const img = object.value;
-          const dataUri = await fetchImageAsBase64(img.src, userEmail);
-          if (dataUri) {
+          const image = await fetchImageAsBase64(img.src, userEmail);
+          if (image.ok) {
             pptxSlide.addImage({
-              data: dataUri,
+              data: image.dataUri,
               x: img.x,
               y: img.y,
               w: img.w,
               h: img.h,
               ...(img.rotate != null ? { rotate: img.rotate } : {}),
             });
+          } else {
+            console.warn(
+              `[export-pptx] image on slide ${slideIndex + 1} left out: ${image.reason}`,
+            );
+            droppedImageSlides.push(slideIndex + 1);
           }
         } else if (object.kind === "table") {
           pptxSlide.addTable(object.value.rows, tableOptions(object.value));
@@ -1967,6 +1994,13 @@ export default defineAction({
       }
     }
 
+    if (droppedImageSlides.length > 0) {
+      warnings.push({
+        code: "images-dropped",
+        count: droppedImageSlides.length,
+        slides: [...new Set(droppedImageSlides)],
+      });
+    }
     const buffer = await applyDeckIdentity(
       (await pptx.write({ outputType: "nodebuffer" })) as Buffer,
       { themeColors: deckThemeColors(deckData), slideGradients },
@@ -1981,6 +2015,7 @@ export default defineAction({
 
     const exportDir = tenantExportDir(userEmail);
     if (persistExport) {
+      noteExternalWrite("local-disk");
       fs.mkdirSync(exportDir, { recursive: true });
       fs.writeFileSync(path.join(exportDir, filename), buffer);
       fs.writeFileSync(
@@ -2026,6 +2061,7 @@ export default defineAction({
       ...(backgroundGradientsFlattened > 0
         ? { backgroundGradientsFlattened }
         : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   }),
 });

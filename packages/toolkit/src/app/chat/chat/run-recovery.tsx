@@ -2,9 +2,13 @@ import { isCreditsLimitErrorCode } from "@agent-native/core/agent/engine/error-d
 import {
   isProviderAuthenticationError,
   localizeKnownChatErrorText,
+  NEW_CHAT_ACTION_HREF,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
+import {
+  commercialSurfacesHidden,
+  injectedAgentNativeAppId,
+} from "@agent-native/core/client/app-config";
 import { resendVerificationEmail as requestVerificationEmail } from "@agent-native/core/client/auth/resend-verification-email";
 import { formatClientFailureReport } from "@agent-native/core/client/failure-report";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
@@ -353,6 +357,15 @@ export function BuilderConnectCta({
     onConnected: handleConnected,
   });
   const { configured, orgName, connecting } = flow;
+  const needsReconnect =
+    reconnect ||
+    Boolean(flow.authError) ||
+    (!configured &&
+      Boolean(
+        flow.grants?.org?.needsReconnect ||
+        flow.grants?.personal?.needsReconnect,
+      ));
+  const [connectAttempted, setConnectAttempted] = useState(false);
   // A failed status read changes nothing here: the card only shows while AI
   // is missing, and connecting re-reads status. Its retry lives in Settings.
   // A newer status read still must not hide the connect failure before it.
@@ -384,6 +397,7 @@ export function BuilderConnectCta({
 
   const startBuilderConnect = useCallback(
     (provisionAccount: boolean) => {
+      setConnectAttempted(true);
       connectAttemptRef.current = {
         statusAvailableAfterStart: !flow.statusUnavailable,
         terminalErrorCleared: !flow.terminalError,
@@ -394,7 +408,7 @@ export function BuilderConnectCta({
   );
 
   if (variant === "compact") {
-    const showConnected = configured && !reconnect;
+    const showConnected = configured && !needsReconnect;
     const connectedLabel = orgName
       ? t("agentChat.setup.connectedTo", { organization: orgName })
       : t("agentChat.setup.connected");
@@ -424,14 +438,18 @@ export function BuilderConnectCta({
                 type="button"
                 size="xs"
                 disabled={connecting}
-                onClick={() =>
+                onClick={(event) => {
                   trackSetupFunnelEvent(
                     "integration_method_clicked",
                     "builder",
                     "click",
                     "started",
-                  )
-                }
+                  );
+                  if (needsReconnect) {
+                    event.preventDefault();
+                    startBuilderConnect(false);
+                  }
+                }}
                 data-agent-builder-setup-slot="builder-button"
                 className="shrink-0"
                 aria-busy={connecting}
@@ -441,19 +459,19 @@ export function BuilderConnectCta({
                     <Spinner className="size-3" aria-hidden="true" />
                     {t("agentChat.common.waiting")}
                   </>
-                ) : reconnect ? (
-                  t("agentChat.recovery.reconnectBuilder")
+                ) : needsReconnect ? (
+                  t("agentChat.setup.reconnectBuilder")
                 ) : (
                   t("agentChat.setup.connectBuilder")
                 )}
               </Button>
             </DeferredBuilderConnectPopover>
           )}
-          {secondaryAction}
+          {needsReconnect ? null : secondaryAction}
         </div>
         {/* Inline-size containment keeps a long error from widening the
             buttons; it wraps to their width instead. */}
-        {error && !showConnected && (
+        {error && !showConnected && (!needsReconnect || connectAttempted) && (
           <p
             {...SESSION_REPLAY_MASK_PROPS}
             className="contain-inline-size text-[10px] leading-snug text-destructive"
@@ -839,6 +857,17 @@ export function RunErrorRecoveryCard({
 }) {
   const t = useT();
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const formattedMessage = localizeKnownChatErrorText(info.message, t);
+  const newChatLink = /\n\n\[([^\]]+)\]\(agent-native:new-chat\)$/.exec(
+    formattedMessage,
+  );
+  const message = newChatLink
+    ? formattedMessage.slice(0, newChatLink.index)
+    : formattedMessage;
+  const details =
+    info.details?.trim() === message.replace(/^Error: /, "").trim()
+      ? undefined
+      : info.details;
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
@@ -1033,6 +1062,33 @@ export function RunErrorRecoveryCard({
     );
   }
 
+  if (isBuilderCreditsLimit && commercialSurfacesHidden()) {
+    return (
+      <div className="@container relative min-w-0 rounded-lg border border-border bg-card p-3 pe-11 text-sm">
+        <div className="flex min-w-0 flex-col gap-3 @md:flex-row @md:items-center">
+          <p className="w-full min-w-0 font-medium text-foreground @md:flex-1 @md:w-auto">
+            {t("agentChat.error.failed")}
+          </p>
+          {canRecover ? (
+            <div className="flex w-full items-center @md:w-auto">
+              <Button size="sm" onClick={() => onRetry()}>
+                {t("agentChat.common.retry")}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={t("agentChat.common.dismiss")}
+          className="absolute end-2 top-2 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <IconX size={14} />
+        </button>
+      </div>
+    );
+  }
+
   if (isBuilderCreditsLimit) {
     return (
       <div className="@container relative min-w-0 rounded-lg border border-border bg-card p-3 pe-11 text-sm">
@@ -1083,8 +1139,20 @@ export function RunErrorRecoveryCard({
             {...SESSION_REPLAY_MASK_PROPS}
             className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground"
           >
-            {localizeKnownChatErrorText(info.message, t)}
+            {message}
           </p>
+          {newChatLink && (
+            <a
+              href={NEW_CHAT_ACTION_HREF}
+              onClick={(event) => {
+                event.preventDefault();
+                startNewChat();
+              }}
+              className="mt-2 inline-block text-xs font-medium text-foreground underline"
+            >
+              {newChatLink[1]}
+            </a>
+          )}
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               {t("agentChat.recovery.credentialRejected")}
@@ -1132,7 +1200,7 @@ export function RunErrorRecoveryCard({
               )}
             </div>
           )}
-          {(info.runId || info.errorCode || info.details) && (
+          {(info.runId || info.errorCode || details) && (
             <button
               type="button"
               onClick={() => setDetailsOpen((v) => !v)}
@@ -1152,12 +1220,12 @@ export function RunErrorRecoveryCard({
             <div className="mt-2 rounded-md border border-border/60 bg-background/70 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
               {info.runId && <div>run: {info.runId}</div>}
               {info.errorCode && <div>code: {info.errorCode}</div>}
-              {info.details && (
+              {details && (
                 <pre
                   {...SESSION_REPLAY_MASK_PROPS}
                   className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono"
                 >
-                  {info.details}
+                  {details}
                 </pre>
               )}
             </div>

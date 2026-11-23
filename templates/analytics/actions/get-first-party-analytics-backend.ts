@@ -25,6 +25,7 @@ export default defineAction({
       analytics_content_items: queryBackendSchema,
       analytics_content_metric_snapshots: queryBackendSchema,
       analytics_content_collection_runs: queryBackendSchema,
+      analytics_content_search_queries: queryBackendSchema,
     }),
   }),
   http: { method: "GET" },

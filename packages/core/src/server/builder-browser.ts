@@ -16,6 +16,7 @@ import {
 
 import { ActionContractError } from "../action.js";
 import { getSetting } from "../settings/store.js";
+import { safeJsonForHtml } from "../shared/agent-readable-resource.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   base64ByteLength,
@@ -1628,6 +1629,11 @@ function getConfiguredBuilderFallbackOrigin(event: H3Event): string | null {
   return isConfiguredAppOrigin(origin) ? origin : null;
 }
 
+function requestProtocol(event: H3Event): "http" | "https" {
+  const socket = event.node?.req.socket as { encrypted?: boolean } | undefined;
+  return socket?.encrypted ? "https" : "http";
+}
+
 export function getBuilderBrowserOriginForEvent(event: H3Event): string {
   const signedPreviewOrigin = getSignedBuilderPreviewOriginFromEvent(event);
   if (signedPreviewOrigin) return signedPreviewOrigin;
@@ -1650,9 +1656,11 @@ export function getBuilderBrowserOriginForEvent(event: H3Event): string {
   const proto =
     rawProto === "http" || rawProto === "https"
       ? rawProto
-      : process.env.NODE_ENV === "production"
-        ? "https"
-        : "http";
+      : isLoopbackBuilderRequestHost(headerHost)
+        ? requestProtocol(event)
+        : process.env.NODE_ENV === "production"
+          ? "https"
+          : "http";
   return `${proto}://${headerHost}`;
 }
 
@@ -1835,7 +1843,16 @@ export function resolveBuilderCallbackReturnUrl(options: {
 const BUILDER_CALLBACK_THEME_SCRIPT = `<script>
 (function () {
   try {
-    var stored = window.localStorage && window.localStorage.getItem("theme");
+    var stored = null;
+    if (window.localStorage) {
+      for (var i = 0; i < window.localStorage.length; i++) {
+        var key = window.localStorage.key(i);
+        if (key === "theme" || (key && key.slice(-6) === ":theme")) {
+          var value = window.localStorage.getItem(key);
+          if (value === "light" || value === "dark") { stored = value; if (key === "theme") break; }
+        }
+      }
+    }
     var resolved;
     if (stored === "light" || stored === "dark") {
       resolved = stored;
@@ -1976,11 +1993,11 @@ export function createBuilderBrowserCallbackPage(
   previewUrl: string,
   opts: { parentOrigin?: string; attemptId?: string } = {},
 ): string {
-  const escapedUrl = JSON.stringify(previewUrl);
-  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
+  const escapedUrl = safeJsonForHtml(previewUrl);
+  const escapedAttemptId = safeJsonForHtml(opts.attemptId ?? null);
   const parentOrigin =
     safeOriginFromUrl(opts.parentOrigin) ?? safeOriginFromUrl(previewUrl);
-  const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
+  const escapedTargetOrigin = safeJsonForHtml(parentOrigin ?? "*");
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -2001,7 +2018,7 @@ export function createBuilderBrowserCallbackPage(
       <h1>Builder connected</h1>
       <p>Browser access is now available to your app.</p>
       <p class="muted">You can close this tab and return to the workspace.</p>
-      <a class="btn" href=${escapedUrl}>Open the workspace</a>
+      <a class="btn" href="${escapeHtml(previewUrl)}">Open the workspace</a>
     </main>
     <script>
       // Tell the opener tab the connect succeeded. The parent has two ways
@@ -2055,11 +2072,11 @@ export function createBuilderBrowserCallbackErrorPage(
     attemptId?: string;
   } = {},
 ): string {
-  const escapedMessage = JSON.stringify(message);
-  const escapedCode = JSON.stringify(opts.code ?? null);
-  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
+  const escapedMessage = safeJsonForHtml(message);
+  const escapedCode = safeJsonForHtml(opts.code ?? null);
+  const escapedAttemptId = safeJsonForHtml(opts.attemptId ?? null);
   const parentOrigin = safeOriginFromUrl(opts.parentOrigin);
-  const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
+  const escapedTargetOrigin = safeJsonForHtml(parentOrigin ?? "*");
   const title = opts.title ?? "Couldn't save Builder connection";
   const body =
     opts.body ??
@@ -2568,6 +2585,8 @@ function parseBuilderAccountProvisioningResponse(
 }
 
 export async function provisionBuilderAccount(input: {
+  /** Version 3 is rejected by older servers rather than connecting an existing account. */
+  newAccountOnly?: boolean;
   email: string;
   name?: string;
   agentNativeApp?: string;
@@ -2581,8 +2600,9 @@ export async function provisionBuilderAccount(input: {
     input.name?.trim().slice(0, 120) || email.slice(0, email.indexOf("@"));
   const agentNativeApp = cleanTrackingParam(input.agentNativeApp);
   const agentNativeTemplate = cleanTrackingParam(input.agentNativeTemplate);
-  const version =
-    agentNativeApp || agentNativeTemplate
+  const version = input.newAccountOnly
+    ? "agent-native-account-v3"
+    : agentNativeApp || agentNativeTemplate
       ? "agent-native-account-v2"
       : "agent-native-account-v1";
   const timestamp = String(Date.now());
@@ -2593,9 +2613,10 @@ export async function provisionBuilderAccount(input: {
     requestId,
     email,
     name,
-    ...(version === "agent-native-account-v2"
+    ...(version !== "agent-native-account-v1"
       ? [agentNativeApp ?? "", agentNativeTemplate ?? ""]
       : []),
+    ...(input.newAccountOnly ? ["new-account-only"] : []),
   ].join("\n");
   const signature = createHmac("sha256", builderAccountProvisioningSecret())
     .update(signaturePayload)
@@ -2614,6 +2635,7 @@ export async function provisionBuilderAccount(input: {
       body: JSON.stringify({
         email,
         name,
+        ...(input.newAccountOnly ? { newAccountOnly: true } : {}),
         ...(agentNativeApp ? { agentNativeApp } : {}),
         ...(agentNativeTemplate ? { agentNativeTemplate } : {}),
       }),

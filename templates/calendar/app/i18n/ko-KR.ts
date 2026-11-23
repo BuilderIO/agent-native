@@ -148,6 +148,10 @@ export default {
     googleCalendarSettings: "Google Calendar 설정",
     hideCalendar: "캘린더 숨기기",
     myCalendars: "내 캘린더",
+    calendarDescription: "설명",
+    calendarDescriptionPlaceholder: "이 캘린더는 어떤 용도인가요?",
+    calendarDescriptionHint:
+      "에이전트가 이 내용을 읽고 알맞은 캘린더를 고릅니다.",
     feedsGroup: "피드",
     managePeerAvailability: "공유 예약 가능 시간 관리",
     nextYear: "다음 해",
@@ -545,6 +549,15 @@ export default {
     connectZoom: "Zoom 연결",
     copyBookingLink: "예약 링크 복사",
     copyLink: "링크 복사",
+    copySingleUseLink: "일회용 링크 복사",
+    singleUseLinkCopied:
+      "일회용 링크를 복사했습니다. 예약 한 건에만 사용할 수 있습니다.",
+    singleUseLinkReady: "일회용 링크가 준비되었습니다",
+    singleUseLinkCreateFailed: "일회용 링크를 만들지 못했습니다",
+    singleUseLinkUsed: "이미 사용된 링크입니다",
+    singleUseLinkInvalid: "더 이상 사용할 수 없는 링크입니다",
+    singleUseLinkAskForNew:
+      "예약 한 건을 위해 만든 링크입니다. 링크를 보낸 사람에게 새 링크를 요청하세요.",
     createFirstLink: "첫 번째 링크 만들기",
     createLink: "링크 만들기",
     custom: "맞춤",

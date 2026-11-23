@@ -273,4 +273,109 @@ describe("SearchPage: instant lane + server convergence", () => {
     const instantBetaIndex = container.textContent!.indexOf("Beta Local");
     expect(serverBetaIndex).toBeLessThan(instantBetaIndex);
   });
+
+  it("highlights the words the server matched a mistyped word as", async () => {
+    const queryClient = new QueryClient();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          jsonResponse({
+            ...searchDocumentsResponse([
+              { id: "billing", title: "Billing v2 spec" },
+            ]),
+            spellingCorrections: [
+              { term: "billng", replacements: ["billing"] },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <SearchPage
+            liveQuery="billng"
+            debouncedQuery="billng"
+            needles={["billng"]}
+            searchFields="all"
+            onOpenChange={() => {}}
+            renderList={(results?: ReactNode) => results}
+            staticItems={null}
+            titleIndex={[]}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+
+    await waitFor(() => container.textContent.includes("Billing v2 spec"));
+    expect(
+      [...container.querySelectorAll("mark")].map((mark) => mark.textContent),
+    ).toEqual(["Billing"]);
+  });
+
+  it("leaves an editor filter to the server, without instant title matches", async () => {
+    const filtered = deferred<Response>();
+    const queryClient = new QueryClient();
+    const fetchMock = vi.fn((input: string) =>
+      new URL(input, "http://localhost").searchParams.has("updatedBy")
+        ? filtered.promise
+        : Promise.resolve(jsonResponse(searchDocumentsResponse([]))),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    // The browser's title lists can't tell who last edited this page.
+    const titleIndex = buildTitleSearchIndex([
+      candidate("local-plan", "Plan someone else edited"),
+    ]);
+    const render = (updatedBy?: string) =>
+      act(async () =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <SearchPage
+              liveQuery="plan"
+              debouncedQuery="plan"
+              needles={[]}
+              searchFields="all"
+              updatedBy={updatedBy}
+              onOpenChange={() => {}}
+              renderList={(results?: ReactNode) => results}
+              staticItems={null}
+              titleIndex={titleIndex}
+            />
+          </QueryClientProvider>,
+        ),
+      );
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await render("teammate@example.com");
+
+    expect(container.textContent).not.toContain("Plan someone else edited");
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+    filtered.resolve(
+      jsonResponse(
+        searchDocumentsResponse([
+          { id: "edited-plan", title: "Plan they edited" },
+        ]),
+      ),
+    );
+    await waitFor(() => container.textContent.includes("Plan they edited"));
+    expect(container.textContent).not.toContain("Plan someone else edited");
+    const searches = fetchMock.mock.calls
+      .map(([input]) => new URL(input, "http://localhost"))
+      .filter((url) => url.searchParams.get("query") === "plan");
+    expect(searches.length).toBeGreaterThan(0);
+    for (const url of searches) {
+      expect(url.searchParams.get("updatedBy")).toBe("teammate@example.com");
+    }
+
+    // With the filter cleared, the same title index answers instantly again.
+    await render(undefined);
+    expect(container.textContent).toContain("Plan someone else edited");
+  });
 });

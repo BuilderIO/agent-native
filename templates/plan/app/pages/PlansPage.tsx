@@ -11,6 +11,11 @@ import {
   trackEvent,
 } from "@agent-native/core/client/analytics";
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  acceptBuilderSignupAssignment,
+  getBuilderSignupAssignment,
+  type BuilderSignupAssignment,
+} from "@agent-native/core/client/auth/builder-signup";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import {
   callAction,
@@ -32,9 +37,12 @@ import {
   serverAuthReturnPath,
 } from "@agent-native/core/client/sign-in-return";
 import { type ErrorReportDebugItem } from "@agent-native/core/client/ui";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
 import { commentExcerpt } from "@agent-native/core/review/plain-text";
-import { docsUrl } from "@agent-native/core/shared";
+import { saveWithMerge } from "@agent-native/core/save-conflict";
+import { docsUrl, isTestIdentityEmail } from "@agent-native/core/shared";
+import { resolveNativeAuthCopy } from "@agent-native/core/shared/auth-copy";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -51,6 +59,10 @@ import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import { ShareCopyRow, ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "@shared/builder-signup";
+import {
   SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
   formatPlanCommentAnchorForAgent,
@@ -61,6 +73,7 @@ import {
   type PlanCommentMention,
   type PlanCommentResolutionTarget,
 } from "@shared/comment-context";
+import { mergePlanBlocks } from "@shared/plan-blocks-merge";
 import type {
   PlanAnnotation,
   PlanBlock,
@@ -290,8 +303,11 @@ import {
   type RuntimeAnnotationParticipant,
 } from "@/lib/plan-annotation-runtime";
 import {
-  saveBlocksMergingConflicts,
-  type PlanBlocksRevision,
+  blockSaveInput,
+  startBlockSave,
+  type OwnBlockSave,
+  type PlanBlocksOverlapResolver,
+  type SavedPlanBlocks,
 } from "@/lib/plan-block-save";
 import {
   appendMessageToEditor,
@@ -579,6 +595,20 @@ function withPlanComments(
         .length,
     },
   };
+}
+
+/**
+ * The anchor's section id, if it names one of the plan's sections. An anchor
+ * records whatever element id was nearest the click, and a comment's section
+ * must be a real section row.
+ */
+export function planSectionIdForAnchor(
+  sections: Pick<PlanBundle["sections"][number], "id">[],
+  sectionId: string | null | undefined,
+): string | undefined {
+  return sectionId && sections.some((section) => section.id === sectionId)
+    ? sectionId
+    : undefined;
 }
 
 export function addPlanCommentToBundle(
@@ -1665,6 +1695,35 @@ function buildQuestionFormRevisionMessage(summary: string) {
   ].join("\n");
 }
 
+export function offerFrameQuestionAnswers({
+  summary,
+  context,
+  t,
+  onSent,
+}: {
+  summary: string;
+  context: string;
+  t: ReturnType<typeof useT>;
+  onSent: () => void;
+}) {
+  toast(t("plansPage.reader.sendAnswersPrompt"), {
+    duration: 15_000,
+    action: {
+      label: t("plansPage.reader.sendAnswersAction"),
+      onClick: () => {
+        sendToAgentChat({
+          type: "content",
+          submit: true,
+          context,
+          message: buildQuestionFormRevisionMessage(summary),
+        });
+        onSent();
+        toast.success(t("plansPage.reader.sentAnswers"));
+      },
+    },
+  });
+}
+
 function newCanvasMarkupId() {
   const id =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -1858,14 +1917,16 @@ function PlanStatusControl({
       updateStatus.mutate(
         { planId, status: newStatus },
         {
-          onError: () => {
+          onError: (error) => {
             if (prevBundle !== undefined)
               qc.setQueryData(bundleKey, prevBundle);
             if (prevActiveList !== undefined)
               qc.setQueryData(ACTIVE_PLANS_QUERY_KEY, prevActiveList);
             if (prevAllList !== undefined)
               qc.setQueryData(ALL_PLANS_QUERY_KEY, prevAllList);
-            toast.error(t("plansPage.status.updateFailed"));
+            reportWriteFailure(error, {
+              label: t("plansPage.status.updateFailed"),
+            });
           },
         },
       );
@@ -1903,13 +1964,13 @@ function PlanStatusControl({
           {badgeInner}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44 rounded-xl">
+      <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuLabel>{t("plansPage.status.setStatus")}</DropdownMenuLabel>
         <DropdownMenuGroup>
           {APPROVAL_STATUSES.map((s) => (
             <DropdownMenuItem
               key={s}
-              className={cn("gap-2", s === status && "font-medium")}
+              className={cn(s === status && "font-medium")}
               onClick={() => handleSelect(s)}
             >
               {s === "approved" ? (
@@ -2315,30 +2376,40 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       setAccessRequestSentPlanId(null);
     }
   }, [accessRequestSentPlanId, selectedId]);
-  const startGoogleSignIn = useCallback(async () => {
-    const returnPath = planReturnPathFromLocation(window.location);
-    try {
-      const res = await fetch(
-        `${agentNativePath("/_agent-native/google/auth-url")}?return=${encodeURIComponent(serverAuthReturnPath(appPath(returnPath), returnPath))}`,
-        { cache: "no-store" },
-      );
-      const data = (await res.json().catch(() => null)) as {
-        url?: string;
-        error?: string;
-        message?: string;
-      } | null;
-      if (res.ok && data?.url) {
-        window.location.href = data.url;
-        return;
+  const startGoogleSignIn = useCallback(
+    async (options?: { builderSignupAttemptId?: string }) => {
+      const returnPath = planReturnPathFromLocation(window.location);
+      try {
+        const params = new URLSearchParams({
+          return: serverAuthReturnPath(appPath(returnPath), returnPath),
+        });
+        if (options?.builderSignupAttemptId) {
+          params.set("builder_signup_attempt", options.builderSignupAttemptId);
+        }
+        const res = await fetch(
+          `${agentNativePath("/_agent-native/google/auth-url")}?${params.toString()}`,
+          { cache: "no-store" },
+        );
+        // coercion-ok: non-JSON error responses fall through to the full sign-in page.
+        const data = (await res.json().catch(() => null)) as {
+          url?: string;
+          error?: string;
+          message?: string;
+        } | null;
+        if (res.ok && data?.url) {
+          window.location.href = data.url;
+          return;
+        }
+        if (data?.error || data?.message) {
+          toast.error(data.error ?? data.message);
+        }
+      } catch {
+        // coercion-ok: network failures fall through to the full sign-in page.
       }
-      if (data?.error || data?.message) {
-        toast.error(data.error ?? data.message);
-      }
-    } catch {
-      // Fall through to the full sign-in page, which has the same auth options.
-    }
-    openSignIn(returnPath);
-  }, [openSignIn]);
+      openSignIn(returnPath);
+    },
+    [openSignIn],
+  );
   const requestPlanAccess = useCallback(() => {
     if (!selectedId || localPlanMode) return;
     requestPlanAccessMutation.mutate(
@@ -2731,8 +2802,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             if (selectedPlanQueryKey) {
               queryClient.setQueryData(selectedPlanQueryKey, updated);
             }
-          } catch {
-            toast.error(t("plansPage.reader.saveAnswersFailed"));
+          } catch (error) {
+            reportWriteFailure(error, {
+              label: t("plansPage.reader.saveAnswersFailed"),
+            });
           } finally {
             if (localPlanBridgeUrl) setLocalBridgeCommentPending(false);
           }
@@ -2745,8 +2818,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           comments: [comment],
         },
         {
-          onError: () => {
-            toast.error(t("plansPage.reader.saveAnswersFailed"));
+          onError: (error) => {
+            reportWriteFailure(error, {
+              label: t("plansPage.reader.saveAnswersFailed"),
+            });
           },
         },
       );
@@ -3383,14 +3458,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         data?.type === "agent-native-visual-questions-send-to-agent" &&
         typeof data.summary === "string"
       ) {
-        sendToAgentChat({
-          type: "content",
-          submit: true,
+        const summary = data.summary;
+        offerFrameQuestionAnswers({
+          summary,
           context: planAgentContext,
-          message: buildQuestionFormRevisionMessage(data.summary),
+          t,
+          onSent: () => persistQuestionFormAnswers(summary, bundle?.plan.id),
         });
-        persistQuestionFormAnswers(data.summary, bundle?.plan.id);
-        toast.success(t("plansPage.reader.sentAnswers"));
       }
     };
     window.addEventListener("message", onMessage);
@@ -4035,75 +4109,71 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
 
-  // The newest block save this tab made, with the blocks it sent. Until the
-  // open document adopts the saved result, that save (not the older revision
+  // The newest block save this tab made, with the blocks the document held. Until
+  // the open document adopts the saved result, that save (not the older revision
   // the document still reports) is what the next edit was made on top of, and
-  // the blocks sent, not the merged result, are what the document holds.
-  const lastBlockSaveRef = useRef<{
-    planId: string;
-    updatedAt: string;
-    sent: PlanBlock[];
-  } | null>(null);
+  // those blocks, not the merged result, are what the document holds.
+  const lastBlockSaveRef = useRef<OwnBlockSave | null>(null);
 
   // `base` is the saved revision the open document's edits were made on top
   // of; without a document (no live editor) the plan as loaded stands in.
   const saveBlocks = async (
     plan: PlanBundleWithHtml["plan"],
     blocks: PlanBlock[],
-    documentBase: PlanBlocksRevision | null | undefined,
+    documentBase: SavedPlanBlocks | null | undefined,
+    resolveOverlap: PlanBlocksOverlapResolver | undefined,
   ) => {
     const planId = plan.id;
-    const toRevision = (saved: PlanBundleWithHtml): PlanBlocksRevision => {
-      if (!saved.plan?.content) {
-        throw new Error("The saved plan has no structured content.");
-      }
-      return {
-        updatedAt: saved.plan.updatedAt,
-        blocks: saved.plan.content.blocks,
-      };
-    };
-    const loaded =
-      documentBase ??
-      (plan.content
-        ? { updatedAt: plan.updatedAt, blocks: plan.content.blocks }
-        : null);
     const own = lastBlockSaveRef.current;
-    const base =
-      own?.planId === planId && (!loaded || own.updatedAt >= loaded.updatedAt)
-        ? { updatedAt: own.updatedAt, blocks: own.sent }
-        : loaded;
-    const saved = await saveBlocksMergingConflicts({
-      base,
+    const { base, mine } = startBlockSave(
+      own?.planId === planId ? own : null,
+      documentBase,
+      plan.content
+        ? { value: plan.content.blocks, revision: plan.updatedAt }
+        : null,
       blocks,
-      save: async (nextBlocks, expectedUpdatedAt) =>
-        toRevision(
-          await savePlanBlocks.mutateAsync({
-            planId,
-            expectedUpdatedAt,
-            contentPatches: [{ op: "replace-blocks", blocks: nextBlocks }],
-            note: "Patched structured visual plan content.",
-          }),
-        ),
-      readLatest: async () =>
-        toRevision(
-          await callAction<PlanBundleWithHtml>(
-            "get-visual-plan",
-            planBundleQueryParams(planId),
-            { method: "GET" },
-          ),
-        ),
+    );
+    // Not `mine`, which can carry what the last save's merge brought in before
+    // the document has it. After a choice the document holds that version.
+    let held = blocks;
+    const saved = await saveWithMerge<PlanBlock[]>({
+      base,
+      mine,
+      merge: mergePlanBlocks,
+      parseCurrent: (current) => (current as PlanContent).blocks,
+      resolveOverlap:
+        resolveOverlap &&
+        (async (overlap, finished) => {
+          held = await resolveOverlap(overlap, finished);
+          return held;
+        }),
+      save: async (attempt) => {
+        const result = await savePlanBlocks.mutateAsync(
+          blockSaveInput(planId, attempt),
+        );
+        if (!result.plan?.content) {
+          throw new Error("The saved plan has no structured content.");
+        }
+        return {
+          value: result.plan.content.blocks,
+          revision: result.plan.updatedAt,
+        };
+      },
     });
     lastBlockSaveRef.current = {
       planId,
-      updatedAt: saved.updatedAt,
-      sent: blocks,
+      startedFrom: base.revision,
+      held,
+      saved,
     };
-    return saved;
   };
 
   const patchStructuredContent = async (
     patch: PlanContentPatch,
-    options?: { base?: PlanBlocksRevision | null },
+    options?: {
+      base?: SavedPlanBlocks | null;
+      resolveOverlap?: PlanBlocksOverlapResolver;
+    },
   ) => {
     if (!bundle) return;
     if (localPlanMode) {
@@ -4123,7 +4193,12 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       return;
     }
     if (patch.op === "replace-blocks") {
-      await saveBlocks(bundle.plan, patch.blocks, options?.base);
+      await saveBlocks(
+        bundle.plan,
+        patch.blocks,
+        options?.base,
+        options?.resolveOverlap,
+      );
       return;
     }
     await updatePlan.mutateAsync({
@@ -4550,11 +4625,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       resolutionTarget: draft.resolutionTarget,
       mentions: draft.mentions,
     };
-    const sectionId =
-      anchor.sectionId &&
-      bundle.sections.some((section) => section.id === anchor.sectionId)
-        ? anchor.sectionId
-        : undefined;
+    const sectionId = planSectionIdForAnchor(bundle.sections, anchor.sectionId);
     const anchorJson = JSON.stringify(anchor);
     const commentId = newCommentId();
     const now = new Date().toISOString();
@@ -4649,7 +4720,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           kind: annotation.kind as PlanBundle["comments"][number]["kind"],
           status: annotation.status as PlanBundle["comments"][number]["status"],
           message,
-          sectionId: annotation.sectionId ?? anchor.sectionId,
+          sectionId:
+            annotation.sectionId ??
+            planSectionIdForAnchor(bundle.sections, anchor.sectionId),
           anchor: JSON.stringify(anchor),
           createdBy: "human",
           authorEmail: collabUser?.email,
@@ -5080,10 +5153,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         <IconChevronDown className="size-3.5 opacity-70" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="end"
-                      className="w-64 rounded-xl"
-                    >
+                    <DropdownMenuContent align="end" className="w-64">
                       <DropdownMenuLabel>
                         {t("plansPage.reader.sendFeedback")}
                       </DropdownMenuLabel>
@@ -5149,10 +5219,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       <IconDotsVertical className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56 rounded-xl">
+                  <DropdownMenuContent align="end" className="w-56">
                     {localPlanMode && (
                       <>
-                        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                        <DropdownMenuLabel className="font-medium text-muted-foreground">
                           {t("plansPage.reader.localFiles")}
                         </DropdownMenuLabel>
                         <div className="px-2 pb-1 text-xs leading-5 text-muted-foreground">
@@ -5215,7 +5285,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     <DropdownMenuGroup>
                       {!localPlanMode && (
                         <>
-                          <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                          <DropdownMenuLabel className="font-medium text-muted-foreground">
                             {t("plansPage.comments.comments")}
                           </DropdownMenuLabel>
                           <DropdownMenuRadioGroup value={commentVisibility}>
@@ -5348,7 +5418,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         <IconCopy className="size-4" />
                         {t("plansPage.reader.copyLink")}
                       </DropdownMenuItem>
-                      <DropdownMenuItem asChild className="gap-2">
+                      <DropdownMenuItem asChild>
                         <a
                           href={PLAN_DOCS_URL}
                           target="_blank"
@@ -5369,7 +5439,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       {desktopPlanFilesAvailable && !localPlanMode && (
                         <>
                           <DropdownMenuSeparator />
-                          <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                          <DropdownMenuLabel className="font-medium text-muted-foreground">
                             {t("plansPage.reader.localFiles")}
                           </DropdownMenuLabel>
                           <DropdownMenuItem
@@ -5438,11 +5508,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         </>
                       )}
                       <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="gap-2">
+                        <DropdownMenuSubTrigger>
                           <IconDownload className="size-4" />
                           {t("plansPage.reader.export")}
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-56 rounded-xl">
+                        <DropdownMenuSubContent className="w-56">
                           <DropdownMenuItem
                             onClick={() =>
                               runPlanExportAction(copyPlanMarkdown)
@@ -6236,7 +6306,7 @@ function PlanShareControl({
         generalAccessLabel={t("plansPage.share.generalAccess", { noun })}
         accessNote={buildShareAccessNote(t, noun)}
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
-        triggerClassName="pointer-events-auto h-8 px-2"
+        triggerClassName="pointer-events-auto"
         onOpenChange={onOpenChange}
         onShareSuccess={onShareSuccess}
       />
@@ -6529,8 +6599,10 @@ function PlanInviteSuggestionCard({
     trackAction("plan_invite_suggestion_clicked", "enable_domain_join");
     try {
       await setOrgDomain.mutateAsync(domain);
-    } catch {
-      toast.error(t("plansPage.share.teammateSuggestion.enableFailed"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("plansPage.share.teammateSuggestion.enableFailed"),
+      });
       return;
     }
     trackAction("plan_invite_suggestion_accepted", "enable_domain_join");
@@ -6988,6 +7060,15 @@ function LocalPlanConnection({
   );
 }
 
+function createPlanBuilderSignupAttemptId(): string {
+  try {
+    if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  } catch {
+    // coercion-ok: randomUUID can throw in restricted browser contexts; fallback id is intentional.
+  }
+  return `plan-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function PlanLoadError({
   error,
   planId,
@@ -6999,19 +7080,26 @@ export function PlanLoadError({
   requestAccessPending,
   accessRequestSent,
   viewerEmail,
+  builderSignupEnabled,
 }: {
   error?: unknown;
   planId?: string | null;
   accessStatus?: PlanAccessStatusResponse | null;
   onRetry: () => void;
   onSignIn: () => void;
-  onGoogleSignIn: () => Promise<void> | void;
+  onGoogleSignIn: (options?: {
+    builderSignupAttemptId?: string;
+  }) => Promise<void> | void;
   onRequestAccess: () => void;
   requestAccessPending?: boolean;
   accessRequestSent?: boolean;
   viewerEmail?: string | null;
+  builderSignupEnabled?: boolean;
 }) {
   const t = useT();
+  const authCopy = resolveNativeAuthCopy(
+    typeof navigator === "undefined" ? undefined : navigator.language,
+  );
   const [emailOpen, setEmailOpen] = useState(false);
   const [switchAccountOpen, setSwitchAccountOpen] = useState(false);
   const [emailMode, setEmailMode] = useState<"sign-in" | "create">("sign-in");
@@ -7046,6 +7134,103 @@ export function PlanLoadError({
     status === 403 &&
     /not found|no access|forbidden/i.test(message);
   const showAccessHelp = hasNoAccess || likelyPrivatePlan;
+  const effectiveBuilderSignupEnabled =
+    showAccessHelp &&
+    !signedIn &&
+    (builderSignupEnabled ??
+      (typeof window !== "undefined" &&
+        BUILDER_SIGNUP_HOSTED_HOSTS.includes(
+          window.location.hostname.toLowerCase(),
+        )));
+  const [builderSignup, setBuilderSignup] =
+    useState<BuilderSignupAssignment | null>(() =>
+      effectiveBuilderSignupEnabled ? null : { status: "disabled" },
+    );
+  const builderSignupRequestRef =
+    useRef<Promise<BuilderSignupAssignment> | null>(null);
+  const builderSignupExposureRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!effectiveBuilderSignupEnabled) {
+      setBuilderSignup({ status: "disabled" });
+      return;
+    }
+    let disposed = false;
+    builderSignupRequestRef.current ??= getBuilderSignupAssignment();
+    void builderSignupRequestRef.current.then(
+      (assignment) => {
+        if (!disposed) setBuilderSignup(assignment);
+      },
+      () => {
+        builderSignupRequestRef.current = null;
+        if (disposed) return;
+        setBuilderSignup({ status: "unavailable" });
+        trackAnonymousEvent("builder_signup_experiment_unavailable", {
+          surface: "plan_access_gate",
+          stage: "assignment",
+        });
+      },
+    );
+    return () => {
+      disposed = true;
+    };
+  }, [effectiveBuilderSignupEnabled]);
+
+  useEffect(() => {
+    if (
+      !effectiveBuilderSignupEnabled ||
+      builderSignup?.status !== "assigned" ||
+      builderSignupExposureRef.current === builderSignup.id
+    ) {
+      return;
+    }
+    builderSignupExposureRef.current = builderSignup.id;
+    trackAnonymousEvent("builder_signup_experiment_exposed", {
+      surface: "plan_access_gate",
+      experiment_id: builderSignup.experimentId ?? BUILDER_SIGNUP_EXPERIMENT_ID,
+      experiment_variant: builderSignup.variant,
+      assignment_id: builderSignup.id,
+    });
+  }, [builderSignup, effectiveBuilderSignupEnabled]);
+
+  const prepareBuilderSignup = useCallback(
+    async (
+      method: "password" | "google",
+      attemptEmail?: string,
+    ): Promise<string | undefined> => {
+      if (
+        !effectiveBuilderSignupEnabled ||
+        builderSignup?.status !== "assigned" ||
+        builderSignup.variant !== "automatic"
+      ) {
+        return undefined;
+      }
+      const attemptId = createPlanBuilderSignupAttemptId();
+      try {
+        await acceptBuilderSignupAssignment(
+          builderSignup.id,
+          attemptId,
+          method,
+          attemptEmail,
+        );
+        return attemptId;
+      } catch {
+        if (!attemptEmail || !isTestIdentityEmail(attemptEmail)) {
+          trackAnonymousEvent("builder_signup_experiment_unavailable", {
+            surface: "plan_access_gate",
+            stage: "acceptance",
+          });
+        }
+        return undefined;
+      }
+    },
+    [builderSignup, effectiveBuilderSignupEnabled],
+  );
+  const builderSignupPending = effectiveBuilderSignupEnabled && !builderSignup;
+  const showBuilderDisclosure =
+    effectiveBuilderSignupEnabled &&
+    builderSignup?.status === "assigned" &&
+    builderSignup.variant === "automatic";
   const orgName = accessStatus?.orgName?.trim() || null;
   const orgAccessBody =
     orgName && accessStatus?.visibility === "org"
@@ -7119,6 +7304,10 @@ export function PlanLoadError({
     };
     try {
       if (emailMode === "create") {
+        const builderSignupAttemptId = await prepareBuilderSignup(
+          "password",
+          email.trim().toLowerCase(),
+        );
         const registerRes = await fetch(
           agentNativePath("/_agent-native/auth/register"),
           {
@@ -7129,6 +7318,7 @@ export function PlanLoadError({
               callbackURL: buildPlanEmailVerificationCallbackURL(
                 window.location,
               ),
+              ...(builderSignupAttemptId ? { builderSignupAttemptId } : {}),
             }),
           },
         );
@@ -7175,9 +7365,15 @@ export function PlanLoadError({
   };
 
   const startGoogle = async () => {
+    if (googlePending || (!signedIn && builderSignupPending)) return;
     setGooglePending(true);
     try {
-      await onGoogleSignIn();
+      const builderSignupAttemptId = signedIn
+        ? undefined
+        : await prepareBuilderSignup("google");
+      await onGoogleSignIn(
+        builderSignupAttemptId ? { builderSignupAttemptId } : undefined,
+      );
     } finally {
       setGooglePending(false);
     }
@@ -7255,7 +7451,7 @@ export function PlanLoadError({
                   <Button
                     type="button"
                     onClick={() => void startGoogle()}
-                    disabled={googlePending}
+                    disabled={googlePending || builderSignupPending}
                     className="h-9 w-full gap-2.5 rounded-md bg-white px-2 text-sm font-medium text-black shadow-none hover:bg-[#e5e5e5] hover:text-black dark:bg-white dark:text-black dark:hover:bg-[#e5e5e5]"
                   >
                     {googlePending ? (
@@ -7413,7 +7609,13 @@ export function PlanLoadError({
                         </div>
                       ) : null}
                       <div className="flex flex-wrap items-center gap-2">
-                        <Button type="submit" disabled={emailAuthPending}>
+                        <Button
+                          type="submit"
+                          disabled={
+                            emailAuthPending ||
+                            (emailMode === "create" && builderSignupPending)
+                          }
+                        >
                           {emailAuthPending ? (
                             <IconLoader2 className="size-4 animate-spin" />
                           ) : (
@@ -7443,6 +7645,29 @@ export function PlanLoadError({
                     </form>
                   </CollapsibleContent>
                 </Collapsible>
+                {showBuilderDisclosure ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {authCopy.builderSignupNewAccountDisclosure}{" "}
+                    <a
+                      href="https://www.builder.io/legal/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline underline-offset-2 hover:no-underline"
+                    >
+                      {authCopy.legalTerms}
+                    </a>{" "}
+                    {authCopy.legalConnector}{" "}
+                    <a
+                      href="https://www.builder.io/legal/privacy"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline underline-offset-2 hover:no-underline"
+                    >
+                      {authCopy.legalPrivacy}
+                    </a>
+                    {authCopy.legalSuffix}
+                  </p>
+                ) : null}
               </>
             ) : (
               <div className="flex flex-wrap gap-2">
@@ -9696,7 +9921,7 @@ function AnnotationPopover({
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
-                className="w-48 rounded-xl"
+                className="w-48"
                 data-comment-popover-portal
                 onCloseAutoFocus={(event) => {
                   // Edit puts focus in its editor; leave it there. Other
@@ -9707,7 +9932,6 @@ function AnnotationPopover({
               >
                 {canResolve && (
                   <DropdownMenuItem
-                    className="gap-2"
                     onClick={() =>
                       onStatusChange(isResolved ? "open" : "resolved")
                     }
@@ -9720,7 +9944,6 @@ function AnnotationPopover({
                 )}
                 {canEditRootComment && (
                   <DropdownMenuItem
-                    className="gap-2"
                     onClick={() => {
                       editChosenFromMenuRef.current = true;
                       setEditing(true);
@@ -9734,7 +9957,7 @@ function AnnotationPopover({
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
-                      className="gap-2 text-destructive focus:text-destructive"
+                      className="text-destructive focus:text-destructive"
                       onClick={onDelete}
                     >
                       <IconTrash className="size-4" />

@@ -54,6 +54,7 @@ export default defineAction({
       await releaseHostedClipRecording({
         recordingId: args.id,
         ownerEmail: recording.ownerEmail,
+        reason: "abandon",
       });
     }
     return trashed;

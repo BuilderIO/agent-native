@@ -1,4 +1,9 @@
-import { execFileSync, execSync, spawnSync } from "child_process";
+import {
+  execFileSync,
+  execSync,
+  spawnSync,
+  type ExecFileSyncOptions,
+} from "child_process";
 import fs from "fs";
 import { Readable, Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -9,10 +14,18 @@ import { fileURLToPath, pathToFileURL } from "url";
 
 import { fetch as fetchWithProxy } from "undici";
 
+import { resolveScaffoldWorkspaceAppPaths } from "../deploy/workspace-app-paths.js";
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
+import {
+  noteCreateCancelled,
+  noteCreateProject,
+  noteCreateStep,
+  type CreateProjectKind,
+} from "./activation-telemetry.js";
+import { wireChatStarterContract } from "./app-quality-scaffold.js";
 import type { CreateStartKind } from "./create-tui.js";
 import { releasedFrameworkPackageVersion } from "./framework-package-versions.js";
 import {
@@ -22,6 +35,7 @@ import {
   type GitHttpOptions,
 } from "./git-http.js";
 import { envProxyDispatcher } from "./http-proxy.js";
+import { shimSpawnTarget } from "./process.js";
 import {
   createAgentSymlink,
   prepareAgentSymlink,
@@ -65,49 +79,6 @@ const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/dev": "8.1.0",
   "@react-router/fs-routes": "8.1.0",
   "react-router": "8.1.0",
-};
-const TIPTAP_WORKSPACE_OVERRIDES: Record<string, string> = {
-  '"@tiptap/core"': '"3.28.0"',
-  '"@tiptap/extension-blockquote"': '"3.28.0"',
-  '"@tiptap/extension-bold"': '"3.28.0"',
-  '"@tiptap/extension-bubble-menu"': '"3.28.0"',
-  '"@tiptap/extension-bullet-list"': '"3.28.0"',
-  '"@tiptap/extension-code"': '"3.28.0"',
-  '"@tiptap/extension-code-block"': '"3.28.0"',
-  '"@tiptap/extension-code-block-lowlight"': '"3.28.0"',
-  '"@tiptap/extension-collaboration"': '"3.28.0"',
-  '"@tiptap/extension-collaboration-caret"': '"3.28.0"',
-  '"@tiptap/extension-color"': '"3.28.0"',
-  '"@tiptap/extension-document"': '"3.28.0"',
-  '"@tiptap/extension-dropcursor"': '"3.28.0"',
-  '"@tiptap/extension-floating-menu"': '"3.28.0"',
-  '"@tiptap/extension-gapcursor"': '"3.28.0"',
-  '"@tiptap/extension-hard-break"': '"3.28.0"',
-  '"@tiptap/extension-heading"': '"3.28.0"',
-  '"@tiptap/extension-horizontal-rule"': '"3.28.0"',
-  '"@tiptap/extension-image"': '"3.28.0"',
-  '"@tiptap/extension-italic"': '"3.28.0"',
-  '"@tiptap/extension-link"': '"3.28.0"',
-  '"@tiptap/extension-list"': '"3.28.0"',
-  '"@tiptap/extension-list-item"': '"3.28.0"',
-  '"@tiptap/extension-list-keymap"': '"3.28.0"',
-  '"@tiptap/extension-ordered-list"': '"3.28.0"',
-  '"@tiptap/extension-paragraph"': '"3.28.0"',
-  '"@tiptap/extension-placeholder"': '"3.28.0"',
-  '"@tiptap/extension-strike"': '"3.28.0"',
-  '"@tiptap/extension-table"': '"3.28.0"',
-  '"@tiptap/extension-table-cell"': '"3.28.0"',
-  '"@tiptap/extension-table-header"': '"3.28.0"',
-  '"@tiptap/extension-table-row"': '"3.28.0"',
-  '"@tiptap/extension-task-item"': '"3.28.0"',
-  '"@tiptap/extension-task-list"': '"3.28.0"',
-  '"@tiptap/extension-text"': '"3.28.0"',
-  '"@tiptap/extension-text-style"': '"3.28.0"',
-  '"@tiptap/extension-underline"': '"3.28.0"',
-  '"@tiptap/extensions"': '"3.28.0"',
-  '"@tiptap/pm"': '"3.28.0"',
-  '"@tiptap/react"': '"3.28.0"',
-  '"@tiptap/starter-kit"': '"3.28.0"',
 };
 const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "@react-router/dev",
@@ -224,6 +195,21 @@ export interface CreateAppOptions {
   ) => Promise<string>;
 }
 
+// A community template is reported by that word alone, never its URL.
+function noteCreateTemplates(
+  templates: string[],
+  kind?: CreateProjectKind,
+): void {
+  noteCreateProject(
+    templates.map((template) =>
+      isCommunityTemplateSelection(template)
+        ? COMMUNITY_OPTION.name
+        : normalizeTemplateName(template),
+    ),
+    kind,
+  );
+}
+
 export async function runCreateCommand(
   name?: string,
   opts?: CreateAppOptions,
@@ -233,8 +219,9 @@ export async function runCreateCommand(
     opts = { ...opts, inPlace: true };
   }
 
-  const workspace = detectWorkspace(process.cwd());
+  const workspace = opts?.standalone ? null : detectWorkspace(process.cwd());
   const parsed = parseTemplateList(opts?.template);
+  noteCreateTemplates(parsed);
   const requestedCommunityTemplate =
     parsed.find((template) => isCommunityTemplateSelection(template)) ??
     (parsed.includes(COMMUNITY_OPTION.name)
@@ -269,7 +256,7 @@ export async function runCreateCommand(
     return;
   }
   const installedApps = workspace
-    ? listInstalledApps(workspace.workspaceRoot)
+    ? await listInstalledApps(workspace.workspaceRoot)
     : [];
   const requestedApps = parsed.filter(
     (template) =>
@@ -333,6 +320,7 @@ export async function runCreateCommand(
     coreTemplates().every((template) => installedApps.includes(template.name))
   ) {
     console.log("All available apps are already installed.");
+    noteCreateCancelled();
     return;
   }
 
@@ -376,6 +364,7 @@ export async function runCreateCommand(
   });
   if (!answers) {
     console.log("Cancelled. No files were created.");
+    noteCreateCancelled();
     return;
   }
 
@@ -432,14 +421,14 @@ export async function createApp(
     assertValidProjectName(name, clack);
   }
 
-  const workspace = detectWorkspace(process.cwd());
-  if (workspace) {
-    await addAppToWorkspace(name, opts);
+  if (opts?.standalone) {
+    await createStandaloneApp(name, opts, clack);
     return;
   }
 
-  if (opts?.standalone) {
-    await createStandaloneApp(name, opts, clack);
+  const workspace = detectWorkspace(process.cwd());
+  if (workspace) {
+    await addAppToWorkspace(name, opts);
     return;
   }
 
@@ -650,7 +639,7 @@ async function createWorkspaceInteractive(
       "container — it isn't an app itself. Inside it you pick one or more apps",
       "(below), and each app gets its own route, agent, and UI. Apps in the",
       "same workspace share auth, database, and the agent chat. Add more apps",
-      "later with `npx @agent-native/core@latest add-app`. Chat is the UI on-ramp",
+      "later with `pnpm exec agent-native add-app`. Chat is the UI on-ramp",
       "for a minimal chat-first app with the browser shell already wired.",
       "Dispatch is always included as the workspace control plane —",
       "it owns shared secrets, messaging, approvals, and cross-app routing.",
@@ -667,6 +656,7 @@ async function createWorkspaceInteractive(
           excludeNames: ["dispatch"],
         });
   const templates = ["dispatch", ...optionalPicks];
+  noteCreateTemplates(templates, "workspace");
 
   const targetDir = resolveScaffoldTarget(name, opts?.inPlace, clack);
 
@@ -674,6 +664,7 @@ async function createWorkspaceInteractive(
   for (const template of templates) {
     showCommunityTemplateTrustNote(template, clack);
   }
+  noteCreateStep("scaffold");
   s.start(`Scaffolding workspace "${name}"...`);
   const appNames = new Set<string>();
   const scaffoldedApps: string[] = [];
@@ -705,7 +696,13 @@ async function createWorkspaceInteractive(
           ? `Downloading ${titleCase(appName)} template (${i + 1}/${templates.length})...`
           : `Scaffolding ${titleCase(appName)} (${i + 1}/${templates.length})...`,
       );
-      const appDir = path.join(targetDir, "apps", appName);
+      const { appsDir, includes } =
+        await resolveScaffoldWorkspaceAppPaths(targetDir);
+      if (!includes(appName))
+        throw new Error(
+          `App name ${appName} does not match workspace appInclude`,
+        );
+      const appDir = path.join(appsDir, appName);
       const resolution = await scaffoldAppTemplate(
         appDir,
         templateName,
@@ -749,6 +746,7 @@ async function createWorkspaceInteractive(
       });
       _addConfiguredFeatureDependencies(appDir, targetDir);
       ensureGuardedScaffold(appDir);
+      ensureAppQualityScaffold(appDir, appName, templateName);
       fixWebManifestName(
         appDir,
         appName,
@@ -771,6 +769,7 @@ async function createWorkspaceInteractive(
       s.stop("Cancelled.");
       cleanupOnFailure(targetDir);
       clack.outro("Cancelled. No files were created.");
+      noteCreateCancelled();
       return;
     }
     s.stop("Failed to scaffold workspace.");
@@ -779,6 +778,7 @@ async function createWorkspaceInteractive(
     process.exit(1);
   }
 
+  noteCreateStep("finish");
   finalizeScaffold(targetDir, opts?.inPlace);
 
   const installSteps = hasPnpm()
@@ -870,7 +870,8 @@ async function scaffoldWorkspaceRoot(
   rewriteCoreDependencyVersions(corePackageDir);
   setupAgentSymlinks(corePackageDir);
 
-  fs.mkdirSync(path.join(targetDir, "apps"), { recursive: true });
+  const { appsDir } = await resolveScaffoldWorkspaceAppPaths(targetDir);
+  fs.mkdirSync(appsDir, { recursive: true });
 
   linkWorkspaceRootSkills(targetDir);
   setupAgentSymlinks(targetDir);
@@ -922,7 +923,7 @@ export async function addAppToWorkspace(
 
   clack.intro("Add an app to your workspace");
 
-  const installed = listInstalledApps(workspace.workspaceRoot);
+  const installed = await listInstalledApps(workspace.workspaceRoot);
 
   const preselected = parseTemplateList(opts?.template);
   if (preselected.includes("headless")) {
@@ -933,6 +934,7 @@ export async function addAppToWorkspace(
   }
   if (name && preselected.length === 1) {
     const tpl = preselected[0];
+    noteCreateTemplates(preselected, "workspace-add");
     await scaffoldOneAppIntoWorkspace(
       workspace,
       name,
@@ -967,6 +969,7 @@ export async function addAppToWorkspace(
     process.exit(0);
   }
 
+  noteCreateTemplates(templates, "workspace-add");
   for (const t of templates) {
     const added = await scaffoldOneAppIntoWorkspace(
       workspace,
@@ -995,6 +998,7 @@ async function addSelectedAppsToWorkspace(
     process.exit(0);
   }
 
+  noteCreateTemplates(templates, "workspace-add");
   for (const template of templates) {
     const added = await scaffoldOneAppIntoWorkspace(
       workspace,
@@ -1032,7 +1036,11 @@ async function scaffoldOneAppIntoWorkspace(
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
   });
-  const appsDir = path.join(workspace.workspaceRoot, "apps");
+  const { appsDir, includes } = await resolveScaffoldWorkspaceAppPaths(
+    workspace.workspaceRoot,
+  );
+  if (!includes(appName))
+    throw new Error(`App name ${appName} does not match workspace appInclude`);
   fs.mkdirSync(appsDir, { recursive: true });
   const appDir = path.join(appsDir, appName);
 
@@ -1043,6 +1051,7 @@ async function scaffoldOneAppIntoWorkspace(
 
   const s = clack.spinner();
   showCommunityTemplateTrustNote(templateName, clack);
+  noteCreateStep("scaffold");
   s.start(
     `Working... no action needed. Scaffolding apps/${appName} from ${templateName}.`,
   );
@@ -1094,6 +1103,7 @@ async function scaffoldOneAppIntoWorkspace(
     _addConfiguredFeatureDependencies(appDir, workspace.workspaceRoot);
     ensureScaffoldEmailBrandingConfig(appDir, appName, templateName);
     ensureGuardedScaffold(appDir);
+    ensureAppQualityScaffold(appDir, appName, templateName);
     fixWebManifestName(
       appDir,
       appName,
@@ -1115,6 +1125,7 @@ async function scaffoldOneAppIntoWorkspace(
       s.stop("Cancelled.");
       cleanupOnFailure(appDir);
       clack.outro("Cancelled. No app was added.");
+      noteCreateCancelled();
       return false;
     }
     s.stop(`Failed to scaffold apps/${appName}.`);
@@ -1166,9 +1177,14 @@ async function createStandaloneApp(
   if (template === COMMUNITY_OPTION.name) {
     template = await promptCommunityTemplate(clack);
   }
+  noteCreateTemplates(
+    [template],
+    template === "headless" ? "headless" : "standalone",
+  );
 
   const s = clack.spinner();
   showCommunityTemplateTrustNote(template, clack);
+  noteCreateStep("scaffold");
   const includedAppName =
     template === "headless"
       ? "Headless"
@@ -1209,6 +1225,7 @@ async function createStandaloneApp(
       s.stop("Cancelled.");
       cleanupOnFailure(targetDir);
       clack.outro("Cancelled. No files were created.");
+      noteCreateCancelled();
       return;
     }
     s.stop("Failed to create app.");
@@ -1217,6 +1234,7 @@ async function createStandaloneApp(
     process.exit(1);
   }
 
+  noteCreateStep("finish");
   finalizeScaffold(targetDir, opts?.inPlace);
   const projectPath = opts?.inPlace ? process.cwd() : path.resolve(targetDir);
   const changeDirectory = opts?.inPlace ? "." : name;
@@ -1448,14 +1466,17 @@ async function scaffoldAppTemplate(
     }
   }
 
-  if (!getTemplate(resolved)) {
+  const sourceTemplate = templateSourceName(resolved);
+  const localTemplate = findLocalTemplate(sourceTemplate);
+  if (
+    !getTemplate(resolved) &&
+    !isLocalWorkspaceTemplate(resolved, localTemplate)
+  ) {
     throw new Error(
       `Unknown template "${template}". Known first-party templates: ${allTemplateNames().join(", ")}. For a community template, use community:owner/repo.`,
     );
   }
 
-  const sourceTemplate = templateSourceName(resolved);
-  const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
     copyTemplateTree(localTemplate, targetDir);
     removeWorkspaceOnlyTemplateWiring(targetDir);
@@ -1528,6 +1549,26 @@ function localTemplateSourceKind(
 function templateSourceName(name: string): string {
   if (name === "starter") return "chat";
   return name;
+}
+
+function isLocalWorkspaceTemplate(
+  name: string,
+  templateDir: string | undefined,
+): boolean {
+  if (!templateDir) return false;
+  const registry = path.resolve(
+    templateDir,
+    "../../.agent-native/local-templates.json",
+  );
+  if (!fs.existsSync(registry)) return false;
+  const data = JSON.parse(fs.readFileSync(registry, "utf8"));
+  if (
+    !Array.isArray(data.templates) ||
+    !data.templates.every((entry: unknown) => typeof entry === "string")
+  ) {
+    throw new Error(`Invalid local template registry: ${registry}`);
+  }
+  return data.templates.includes(name);
 }
 
 function findLocalTemplate(name: string): string | undefined {
@@ -1768,6 +1809,11 @@ function findLocalPackage(name: string): string | undefined {
   return undefined;
 }
 
+function runNpm(args: string[], options: ExecFileSyncOptions): void {
+  const [command, commandArgs, shell] = shimSpawnTarget("npm", args);
+  execFileSync(command, commandArgs, { ...options, shell });
+}
+
 function localPackageTarball(packageDir: string): string {
   const cached = localPackageTarballs.get(packageDir);
   if (cached) return cached;
@@ -1778,20 +1824,15 @@ function localPackageTarball(packageDir: string): string {
     path.join(os.tmpdir(), "agent-native-local-package-"),
   );
   const npmCacheDir = path.join(packDir, "npm-cache");
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  execFileSync(
-    npm,
-    ["pack", "--ignore-scripts", "--pack-destination", packDir],
-    {
-      cwd: packageDir,
-      env: {
-        ...process.env,
-        npm_config_cache: npmCacheDir,
-        npm_config_ignore_scripts: "true",
-      },
-      stdio: "ignore",
+  runNpm(["pack", "--ignore-scripts", "--pack-destination", packDir], {
+    cwd: packageDir,
+    env: {
+      ...process.env,
+      npm_config_cache: npmCacheDir,
+      npm_config_ignore_scripts: "true",
     },
-  );
+    stdio: "ignore",
+  });
 
   const tarballs = fs
     .readdirSync(packDir)
@@ -1817,19 +1858,15 @@ function localPackageTarball(packageDir: string): string {
     path.join(os.tmpdir(), "agent-native-local-package-repack-"),
   );
   const repackNpmCacheDir = path.join(repackDir, "npm-cache");
-  execFileSync(
-    npm,
-    ["pack", "--ignore-scripts", "--pack-destination", repackDir],
-    {
-      cwd: path.join(unpackDir, "package"),
-      env: {
-        ...process.env,
-        npm_config_cache: repackNpmCacheDir,
-        npm_config_ignore_scripts: "true",
-      },
-      stdio: "ignore",
+  runNpm(["pack", "--ignore-scripts", "--pack-destination", repackDir], {
+    cwd: path.join(unpackDir, "package"),
+    env: {
+      ...process.env,
+      npm_config_cache: repackNpmCacheDir,
+      npm_config_ignore_scripts: "true",
     },
-  );
+    stdio: "ignore",
+  });
   const repackedTarballs = fs
     .readdirSync(repackDir)
     .filter((entry) => entry.endsWith(".tgz"));
@@ -1896,12 +1933,11 @@ function ensureLocalPackageBuildOutputs(packageDir: string): void {
     );
   }
 
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   const npmCacheDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "agent-native-local-package-build-cache-"),
   );
   try {
-    execFileSync(npm, ["run", "build"], {
+    runNpm(["run", "build"], {
       cwd: packageDir,
       encoding: "utf-8",
       env: { ...process.env, npm_config_cache: npmCacheDir },
@@ -2098,6 +2134,53 @@ const GUARDED_VERIFICATION_MARKER = "Guarded verification";
 const GUARDED_VERIFICATION_GUIDANCE =
   "- Guarded verification: run `pnpm agent-native:doctor`; fix findings before done.\n";
 
+function ensureAppQualityScaffold(
+  appDir: string,
+  appName: string,
+  templateName: string | undefined,
+): void {
+  if (!fs.existsSync(path.join(appDir, "app"))) return;
+
+  const designPath = path.join(appDir, "DESIGN.md");
+  if (!fs.existsSync(designPath)) {
+    fs.writeFileSync(
+      designPath,
+      [
+        `# ${appTitleForScaffold(appName)} design contract`,
+        "",
+        "Start with the scaffold's semantic tokens, typography, and spacing.",
+        "Record the selected patterns, interaction and route map, shortcuts,",
+        "and populated, empty, pending, narrow, error, and offline states.",
+        "",
+        "## UX decisions",
+        "",
+        "Compare two or three concrete options. Record the chosen direction,",
+        "rejected alternatives, and how the riskiest assumption will be checked.",
+        "",
+      ].join("\n"),
+    );
+  }
+
+  const agentsPath = path.join(appDir, "AGENTS.md");
+  if (isChatOnRampTemplate(templateName)) {
+    const instructions = fs.readFileSync(agentsPath, "utf8");
+    fs.writeFileSync(
+      agentsPath,
+      instructions.replace(
+        /^Use `adding-a-feature` for functional .*Skip production build and extra test suites\.$/m,
+        "Use `adding-a-feature` for functional changes and `frontend-design` for user-facing screens. Run typecheck and doctor before the app quality walkthrough.",
+      ),
+    );
+    wireChatStarterContract(appDir, appName, appTitleForScaffold(appName));
+  }
+  fs.appendFileSync(
+    agentsPath,
+    "\n## App quality\n\nApply the five stages in `app-quality-bar` before presenting changed workflows as ready. " +
+      "Keep the design decisions in `DESIGN.md` and routing and actions in `app.manifest.ts`. " +
+      "Use the 12-row blind visual review and 60-second Playwright walkthrough against the running app.\n",
+  );
+}
+
 function ensureGuardedScaffold(appDir: string): void {
   const packagePath = path.join(appDir, "package.json");
   if (!fs.existsSync(packagePath)) return;
@@ -2207,6 +2290,7 @@ function postProcessStandalone(
   });
   ensureScaffoldEmailBrandingConfig(targetDir, name, templateName);
   ensureGuardedScaffold(targetDir);
+  ensureAppQualityScaffold(targetDir, name, templateName);
   fixWebManifestName(targetDir, name, templateName, resolution?.sourceIdentity);
   rewriteNetlifyToml(targetDir, name, "standalone");
 
@@ -2294,12 +2378,6 @@ function postProcessStandalone(
       '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
       '"@assistant-ui/tap"': '"^0.5.14"',
       nf3: '"0.3.17"',
-    };
-  }
-  if (templateName && getTemplate(firstPartyBaseTemplate(templateName))) {
-    sections.overrides = {
-      ...sections.overrides,
-      ...TIPTAP_WORKSPACE_OVERRIDES,
     };
   }
   const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
@@ -2498,12 +2576,13 @@ function parseTemplateList(input?: string): string[] {
     .filter(Boolean);
 }
 
-function listInstalledApps(workspaceRoot: string): string[] {
-  const appsDir = path.join(workspaceRoot, "apps");
+async function listInstalledApps(workspaceRoot: string): Promise<string[]> {
+  const { appsDir, includes } =
+    await resolveScaffoldWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return [];
   return fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
+    .filter((e) => e.isDirectory() && includes(e.name))
     .map((e) => e.name);
 }
 
@@ -3215,7 +3294,7 @@ async function resolveCommunityTemplateSource(
     return { sourceDir: stagingDir, sourceIdentity };
   }
 
-  const workspaceApps = discoverCommunityWorkspaceApps(stagingDir);
+  const workspaceApps = await discoverCommunityWorkspaceApps(stagingDir);
   if (workspaceApps.length === 0) {
     throw new ValidationError(
       `Community workspace ${selection.repo} has no installable apps. Dispatch cannot be installed from a community workspace, and apps must directly depend on @agent-native/core.`,
@@ -3254,14 +3333,15 @@ interface DiscoveredCommunityWorkspaceApp extends CommunityWorkspaceAppOption {
   sourceIdentity: ScaffoldSourceIdentity;
 }
 
-function discoverCommunityWorkspaceApps(
+async function discoverCommunityWorkspaceApps(
   workspaceRoot: string,
-): DiscoveredCommunityWorkspaceApp[] {
-  const appsDir = path.join(workspaceRoot, "apps");
+): Promise<DiscoveredCommunityWorkspaceApp[]> {
+  const { appsDir, includes } =
+    await resolveScaffoldWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return [];
   return fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && includes(entry.name))
     .flatMap((entry): DiscoveredCommunityWorkspaceApp[] => {
       const appDir = path.join(appsDir, entry.name);
       const packagePath = path.join(appDir, "package.json");
@@ -3883,6 +3963,13 @@ function getLocalFrameworkPackageOverrides(): Record<string, string> {
   if (localAgentKit) {
     overrides['"@agent-native/agentkit"'] = JSON.stringify(
       localPackageTarball(localAgentKit),
+    );
+  }
+
+  const localDesignSystem = findLocalPackage("design-system");
+  if (localDesignSystem) {
+    overrides['"@agent-native/design-system"'] = JSON.stringify(
+      localPackageTarball(localDesignSystem),
     );
   }
 

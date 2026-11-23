@@ -2,7 +2,7 @@
 
 import { AssistantRuntimeProvider, useLocalRuntime } from "@assistant-ui/react";
 import React, { act } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,7 +43,13 @@ const mockPanel = vi.hoisted(() => {
       | undefined,
     hostedHarness: undefined as boolean | undefined,
     emptyStateText: null as string | null | undefined,
+    onAgentShareHandoff: undefined as unknown,
+    composerAutoFocus: undefined as boolean | undefined,
+    headerHost: undefined as HTMLElement | null | undefined,
+    suggestionLayout: undefined as string | undefined,
+    onSettledChange: undefined as ((settled: boolean) => void) | undefined,
     composer: undefined as React.ReactNode,
+    loading: undefined as Promise<void> | undefined,
     importGate: new Promise<void>((resolve) => {
       resolveImport = resolve;
     }),
@@ -62,6 +68,11 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       mcpSuggestionExcludedIntegrationIds,
       hostedHarness,
       emptyStateText,
+      composerAutoFocus,
+      headerHost,
+      suggestionLayout,
+      onSettledChange,
+      onAgentShareHandoff,
     }: {
       onReadyChange?: (ready: boolean) => void;
       onReferenceTargetChange?: MultiTabAssistantChatProps["onReferenceTargetChange"];
@@ -69,11 +80,28 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       mcpSuggestionExcludedIntegrationIds?: readonly string[];
       hostedHarness?: boolean;
       emptyStateText?: string;
+      composerAutoFocus?: boolean;
+      headerHost?: HTMLElement | null;
+      suggestionLayout?: string;
+      onSettledChange?: (settled: boolean) => void;
+      onAgentShareHandoff?: unknown;
     }) => {
+      if (mockPanel.loading) React.use(mockPanel.loading);
       mockPanel.mcpSuggestionExcludedIntegrationIds =
         mcpSuggestionExcludedIntegrationIds;
       mockPanel.hostedHarness = hostedHarness;
       mockPanel.emptyStateText = emptyStateText;
+      mockPanel.composerAutoFocus = composerAutoFocus;
+      mockPanel.headerHost = headerHost;
+      mockPanel.suggestionLayout = suggestionLayout;
+      mockPanel.onSettledChange = onSettledChange;
+      const headTool = headerHost
+        ? createPortal(
+            <button type="button" data-testid="head-tool" />,
+            headerHost,
+          )
+        : null;
+      mockPanel.onAgentShareHandoff = onAgentShareHandoff;
       React.useEffect(() => {
         mockPanel.onNavigationChange = onNavigationChange;
         const record = (event: Event) => {
@@ -107,6 +135,7 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       return (
         <div data-agent-sidebar-panel-loaded="true">
           {mockPanel.composer ?? <textarea aria-label="Chat composer" />}
+          {headTool}
         </div>
       );
     },
@@ -227,6 +256,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
 let container: HTMLDivElement | undefined;
 
+let extraSidebarProps: Partial<React.ComponentProps<typeof AgentSidebar>> = {};
+
 function renderSidebar(
   defaultOpen: boolean,
   position?: "left" | "right",
@@ -238,6 +269,8 @@ function renderSidebar(
   storageKey?: string,
   strictMode = false,
   mcpSuggestionExcludedIntegrationIds?: readonly string[],
+  panelHost?: HTMLElement,
+  panelHeadHost?: HTMLElement,
 ) {
   const render = (nextEnabled: boolean) => {
     flushSync(() => {
@@ -252,9 +285,12 @@ function renderSidebar(
               mcpSuggestionExcludedIntegrationIds
             }
             openOnChatRunning={openOnChatRunning}
+            panelHost={panelHost}
+            panelHeadHost={panelHeadHost}
             position={position}
             screenRefreshEnabled={screenRefreshEnabled}
             storageKey={storageKey}
+            {...extraSidebarProps}
           >
             <div data-testid="app-content">App content</div>
           </AgentSidebar>
@@ -296,6 +332,9 @@ beforeEach(() => {
   mockPanel.onReady = undefined;
   mockPanel.composer = undefined;
   mockPanel.mcpSuggestionExcludedIntegrationIds = undefined;
+  mockPanel.headerHost = undefined;
+  mockPanel.suggestionLayout = undefined;
+  mockPanel.onSettledChange = undefined;
   mockTrust.frame = true;
   mockTrust.builder = false;
   mockPanelOwnership.hosted = false;
@@ -514,6 +553,21 @@ describe("AgentSidebar panel", () => {
     expect(mockPanel.mcpSuggestionExcludedIntegrationIds).toEqual(["gong"]);
   });
 
+  it("forwards the agent share handoff callback to the panel", async () => {
+    const onAgentShareHandoff = vi.fn();
+    extraSidebarProps = { onAgentShareHandoff };
+    try {
+      mockPanel.resolveImport();
+      renderSidebar(true);
+      await act(async () => {
+        await mockPanel.importGate;
+      });
+      expect(mockPanel.onAgentShareHandoff).toBe(onAgentShareHandoff);
+    } finally {
+      extraSidebarProps = {};
+    }
+  });
+
   it("leaves the empty state text unset when the host passes none", async () => {
     mockPanel.resolveImport();
     renderSidebar(true);
@@ -581,6 +635,65 @@ describe("AgentSidebar panel", () => {
           submitMessageId: "cold-recipient-before-drain",
           delivered: false,
           reason: "reference-target-changed",
+        },
+      ]);
+    } finally {
+      window.removeEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+    }
+  });
+
+  it("delivers a cold new-tab send after the panel switches to its new tab", async () => {
+    mockPanel.resolveImport();
+    mockPanel.composer = (
+      <div data-agent-chat-reference-target="restored">
+        <textarea />
+      </div>
+    );
+    // The panel mounts on the chat it last showed, then opens the send's own
+    // tab before the retained send is replayed.
+    mockPanel.onReady = (notify) => {
+      notify?.("restored", []);
+      container!
+        .querySelector("textarea")!
+        .parentElement!.setAttribute(
+          "data-agent-chat-reference-target",
+          "automation-tab",
+        );
+      notify?.("automation-tab", []);
+    };
+    const chat = await import("@agent-native/core/client/agent-chat");
+    const results: unknown[] = [];
+    const record = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+    try {
+      renderSidebar(false);
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: window.location.origin,
+            data: {
+              type: "agentNative.submitChat",
+              data: {
+                message: "Create an automation that does this: say ok",
+                submit: true,
+                newTab: true,
+                tabId: "automation-tab",
+                submitMessageId: "cold-new-tab-send",
+              },
+            },
+          }),
+        );
+      });
+      expect(results).toEqual([]);
+      expect(mockPanel.events).toEqual([
+        {
+          type: "message",
+          detail: expect.objectContaining({
+            data: expect.objectContaining({
+              submitMessageId: "cold-new-tab-send",
+            }),
+          }),
         },
       ]);
     } finally {
@@ -2296,6 +2409,254 @@ describe("AgentSidebar panel", () => {
     expect(container?.querySelector("textarea")).toBeTruthy();
   });
 
+  describe("in a host's element", () => {
+    function renderHosted(attached = true, head?: HTMLElement) {
+      const host = document.createElement("div");
+      if (attached) document.body.appendChild(host);
+      renderSidebar(
+        true,
+        undefined,
+        false,
+        true,
+        true,
+        false,
+        false,
+        undefined,
+        false,
+        undefined,
+        host,
+        head,
+      );
+      return host;
+    }
+
+    const placeholder = (host: HTMLElement) =>
+      host.querySelector("[data-agent-sidebar-placeholder]");
+
+    const press = (init: KeyboardEventInit) =>
+      act(async () => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            ...init,
+          }),
+        );
+      });
+
+    it("draws the chat there and keeps it mounted after it closes", async () => {
+      mockPanel.resolveImport();
+      const host = renderHosted();
+      await act(async () => {});
+
+      expect(
+        host.querySelector("[data-agent-sidebar-layout='hosted']"),
+      ).toBeTruthy();
+      expect(container?.querySelector(".agent-sidebar-panel")).toBeNull();
+      expect(host.querySelector("textarea")).toBeTruthy();
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+      expect(
+        host.querySelector("[data-agent-sidebar-state='closed']"),
+      ).toBeTruthy();
+      expect(host.querySelector("textarea")).toBeTruthy();
+      host.remove();
+    });
+
+    it("does not take focus from the tab that opened it", async () => {
+      mockPanel.resolveImport();
+      const host = renderHosted();
+      await act(async () => {});
+
+      expect(mockPanel.composerAutoFocus).toBe(false);
+      host.remove();
+    });
+
+    it("holds one placeholder until the chat has everything it opens with", async () => {
+      mockPanel.resolveImport();
+      const host = renderHosted();
+      await act(async () => {});
+
+      const hosted = host.querySelector("[data-agent-sidebar-layout='hosted']");
+      const inner = host.querySelector(".agent-sidebar-panel-inner");
+      expect(hosted?.getAttribute("aria-busy")).toBe("true");
+      expect(placeholder(host)).toBeTruthy();
+      expect(inner?.classList.contains("opacity-0")).toBe(true);
+      expect(host.querySelector("textarea")).toBeTruthy();
+
+      await act(async () => mockPanel.onSettledChange?.(false));
+      expect(placeholder(host)).toBeTruthy();
+
+      await act(async () => mockPanel.onSettledChange?.(true));
+      expect(hosted?.hasAttribute("aria-busy")).toBe(false);
+      expect(placeholder(host)).toBeNull();
+      expect(inner?.classList.contains("opacity-0")).toBe(false);
+
+      await act(async () => mockPanel.onSettledChange?.(false));
+      expect(placeholder(host)).toBeNull();
+      host.remove();
+    });
+
+    it("shows the chat anyway once its placeholder has held for 3 seconds", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        mockPanel.resolveImport();
+        const host = renderHosted();
+        await act(async () => {});
+
+        await act(async () => vi.advanceTimersByTime(2999));
+        expect(placeholder(host)).toBeTruthy();
+        await act(async () => vi.advanceTimersByTime(1));
+        expect(placeholder(host)).toBeNull();
+        host.remove();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps a placeholder past 3 seconds while the chat is still loading", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      let finishLoading!: () => void;
+      mockPanel.loading = new Promise<void>((resolve) => {
+        finishLoading = resolve;
+      });
+      try {
+        mockPanel.resolveImport();
+        const host = renderHosted();
+        await act(async () => {});
+
+        await act(async () => vi.advanceTimersByTime(3000));
+        const inner = host.querySelector(".agent-sidebar-panel-inner");
+        expect(inner?.classList.contains("opacity-0")).toBe(false);
+        expect(
+          inner?.querySelector("[data-agent-sidebar-placeholder]"),
+        ).toBeTruthy();
+        expect(host.querySelector("textarea")).toBeNull();
+
+        mockPanel.loading = undefined;
+        await act(async () => finishLoading());
+        expect(placeholder(host)).toBeNull();
+        expect(host.querySelector("textarea")).toBeTruthy();
+        host.remove();
+      } finally {
+        mockPanel.loading = undefined;
+        vi.useRealTimers();
+      }
+    });
+
+    it("shows the chat at once when focus goes into its box", async () => {
+      mockPanel.resolveImport();
+      const host = renderHosted();
+      await act(async () => {});
+
+      await act(async () => host.querySelector("textarea")?.focus());
+      expect(placeholder(host)).toBeNull();
+      host.remove();
+    });
+
+    it("shows the chat at once when focus goes into its head", async () => {
+      mockPanel.resolveImport();
+      const head = document.createElement("div");
+      document.body.appendChild(head);
+      const host = renderHosted(true, head);
+      await act(async () => {});
+
+      const tool = head.querySelector<HTMLButtonElement>(
+        "[data-testid='head-tool']",
+      );
+      expect(tool).toBeTruthy();
+      expect(placeholder(host)).toBeTruthy();
+      await act(async () => tool?.focus());
+      expect(placeholder(host)).toBeNull();
+      host.remove();
+      head.remove();
+    });
+
+    it("puts the chat's tools in the host's panel head, hidden with the chat", async () => {
+      mockPanel.resolveImport();
+      const head = document.createElement("div");
+      document.body.appendChild(head);
+      const host = renderHosted(true, head);
+      await act(async () => {});
+
+      const tools = head.querySelector("[data-agent-sidebar-head]");
+      expect(tools).toBeTruthy();
+      expect(mockPanel.headerHost).toBe(tools);
+      expect(mockPanel.suggestionLayout).toBe("wrap");
+      expect(tools?.classList.contains("opacity-0")).toBe(true);
+
+      await act(async () => mockPanel.onSettledChange?.(true));
+      expect(tools?.classList.contains("opacity-0")).toBe(false);
+      host.remove();
+      head.remove();
+    });
+
+    it("keeps the chat's own header when the host gives it no head", async () => {
+      mockPanel.resolveImport();
+      const host = renderHosted();
+      await act(async () => {});
+
+      expect(mockPanel.headerHost).toBeUndefined();
+      expect(mockPanel.suggestionLayout).toBe("wrap");
+      host.remove();
+    });
+
+    it("leaves its panel keys to the host", async () => {
+      mockPanel.resolveImport();
+      const host = renderHosted();
+      await act(async () => {});
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+
+      await press({ code: "Backslash", key: "\\", ctrlKey: true });
+      await press({ key: "i", metaKey: true, shiftKey: true });
+      expect(
+        host.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeNull();
+
+      await press({ key: "i", metaKey: true });
+      expect(
+        host.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeTruthy();
+      host.remove();
+    });
+
+    it("answers ⌘\\ itself while the host's element isn't on the page", async () => {
+      mockPanel.resolveImport();
+      const host = renderHosted(false);
+      await act(async () => {});
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+
+      await press({ key: "i", metaKey: true, shiftKey: true });
+      expect(
+        host.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeNull();
+
+      await press({ code: "Backslash", key: "\\", ctrlKey: true });
+      expect(
+        host.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeTruthy();
+    });
+  });
+
+  it("leaves the chat in the app's own sidebar as it was", async () => {
+    mockPanel.resolveImport();
+    renderSidebar(true);
+    await act(async () => {});
+
+    expect(container?.querySelector("[data-agent-sidebar-placeholder]")).toBe(
+      null,
+    );
+    expect(mockPanel.headerHost).toBeUndefined();
+    expect(mockPanel.suggestionLayout).toBeUndefined();
+    expect(mockPanel.onSettledChange).toBeUndefined();
+  });
+
   it("pauses screen refresh until the panel is active", () => {
     renderSidebar(false);
 
@@ -2635,6 +2996,47 @@ describe("AgentSidebar panel", () => {
       window.removeEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
       await act(async () => root?.unmount());
       root = undefined;
+      vi.doUnmock("./AgentSidebarPanel.js");
+      errors.mockRestore();
+    }
+  });
+
+  it("shows a host its retry at once when the panel fails to load", async () => {
+    vi.resetModules();
+    vi.doMock("./AgentSidebarPanel.js", () => {
+      throw new Error("Forced panel import failure");
+    });
+    mockPanel.resolveImport();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { AgentSidebar: FailedSidebar } = await import("./AgentSidebar.js");
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    try {
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+      await act(async () =>
+        root?.render(
+          <MemoryRouter>
+            <FailedSidebar defaultOpen panelHost={host}>
+              <div>Content</div>
+            </FailedSidebar>
+          </MemoryRouter>,
+        ),
+      );
+      await act(async () => {});
+
+      expect(host.querySelector('[role="alert"]')).toBeTruthy();
+      expect(host.querySelector("[data-agent-sidebar-placeholder]")).toBeNull();
+      expect(
+        host
+          .querySelector(".agent-sidebar-panel-inner")
+          ?.classList.contains("opacity-0"),
+      ).toBe(false);
+    } finally {
+      await act(async () => root?.unmount());
+      root = undefined;
+      host.remove();
       vi.doUnmock("./AgentSidebarPanel.js");
       errors.mockRestore();
     }

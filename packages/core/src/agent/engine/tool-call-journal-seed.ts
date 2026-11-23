@@ -1,9 +1,14 @@
 import type { ActionChatUIConfig } from "../../action-ui.js";
+import type { WriteReceipt } from "../../action.js";
 import {
   isArtifactReceipt,
   type ArtifactReceipt,
 } from "../../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import {
+  PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
+  PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
+} from "../run-errors.js";
 import {
   AgentRunJournalUnreadableError,
   getCompletedAgentExecutionSteps,
@@ -16,6 +21,7 @@ import {
   type ToolCallJournal,
 } from "../tool-call-journal.js";
 import type { AgentChatEvent, AgentFileMutationProof } from "../types.js";
+import { readWriteReceipt } from "../write-receipts.js";
 
 export interface PriorTurnToolCallSummary {
   name: string;
@@ -43,6 +49,7 @@ export interface PriorTurnToolResultSummary {
   content: string;
   isError: boolean;
   artifacts?: ArtifactReceipt[];
+  receipt?: WriteReceipt;
 }
 
 export type PriorTurnToolCallJournalRead =
@@ -177,6 +184,7 @@ function durableStepToolDone(
   const mcpApp = durableStepMcpApp(outcome.mcpApp);
   const chatUI = durableStepChatUI(outcome.chatUI);
   const fileMutation = durableStepFileMutation(outcome.fileMutation);
+  const receipt = readWriteReceipt({ _receipt: outcome.receipt });
   return {
     type: "tool_done",
     tool: event.tool,
@@ -197,6 +205,16 @@ function durableStepToolDone(
       ? { errorCode: outcome.errorCode }
       : {}),
     completedSideEffect: outcome.completedSideEffect,
+    ...(outcome.hasAgentWarnings === true
+      ? { hasAgentWarnings: true as const }
+      : {}),
+    ...(receipt ? { receipt } : {}),
+    ...(!outcome.isError &&
+    outcome.actionSettled === true &&
+    outcome.settledOnCleanToolStop === true &&
+    outcome.replayTruncated !== true
+      ? { actionSettled: true as const, settledOnCleanToolStop: true as const }
+      : {}),
     ...(outcome.replayed === true ? { replayed: true } : {}),
     argumentsHash: input.argumentsHash,
     ...(artifacts.length > 0 ? { artifacts } : {}),
@@ -205,6 +223,9 @@ function durableStepToolDone(
       ? { chatUI, chatUIResult: outcome.chatUIResult }
       : {}),
     ...(fileMutation ? { fileMutation } : {}),
+    ...(event.omitFromPersistedHistory === true
+      ? { omitFromPersistedHistory: true as const }
+      : {}),
   };
 }
 
@@ -240,7 +261,16 @@ export async function overlayCompletedExecutionStepOutcomes(
       donesById.set(stepId, dones);
     }
   });
-  const candidateIds = [...startsById.keys()];
+  const candidateIds = [...startsById.entries()]
+    .filter(
+      ([stepId, starts]) =>
+        !(
+          starts.every(
+            ({ event }) => event.omitFromPersistedHistory === true,
+          ) && donesById.has(stepId)
+        ),
+    )
+    .map(([stepId]) => stepId);
   if (candidateIds.length === 0) return events;
 
   const rows = await getCompletedAgentExecutionSteps(
@@ -457,20 +487,19 @@ export async function loadPriorTurnToolCallJournal(
     return { status: "unreadable", error };
   }
   const privateStarts = new Map<string, string>();
-  const privatePauses = new Set<string>();
+  const privateFinished = new Set<string>();
   for (const event of priorEvents) {
     if (event.omitFromPersistedHistory !== true) continue;
     if (event.type === "tool_start") {
       if (
         !event.id ||
         privateStarts.has(event.id) ||
-        privatePauses.has(event.id)
+        privateFinished.has(event.id)
       ) {
         return {
           status: "unreadable",
-          code: "private_history_unrecoverable",
-          error:
-            "Private tool history cannot be safely resumed. Start a new turn.",
+          code: PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
+          error: PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
         };
       }
       privateStarts.set(event.id, event.tool);
@@ -478,26 +507,29 @@ export async function loadPriorTurnToolCallJournal(
       if (
         !event.id ||
         privateStarts.get(event.id) !== event.tool ||
-        privatePauses.has(event.id) ||
-        event.approvalPause !== true ||
-        event.completedSideEffect !== false
+        privateFinished.has(event.id) ||
+        event.outcomeUnknown === true ||
+        (event.isError === true &&
+          typeof event.completedSideEffect !== "boolean") ||
+        (event.approvalPause === true && event.completedSideEffect !== false)
       ) {
         return {
           status: "unreadable",
-          code: "private_history_unrecoverable",
-          error:
-            "Private tool history cannot be safely resumed. Start a new turn.",
+          code: PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
+          error: PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
         };
       }
       privateStarts.delete(event.id);
-      privatePauses.add(event.id);
+      if (event.approvalPause !== true) {
+        privateFinished.add(event.id);
+      }
     }
   }
   if (privateStarts.size > 0) {
     return {
       status: "unreadable",
-      code: "private_history_unrecoverable",
-      error: "Private tool history cannot be safely resumed. Start a new turn.",
+      code: PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
+      error: PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
     };
   }
   if (options.recoverCompletedExecutionSteps) {
@@ -552,11 +584,13 @@ export async function loadPriorTurnToolCallJournal(
         matchedStart: call !== undefined,
       });
       const artifacts = event.artifacts?.filter(isArtifactReceipt);
+      const receipt = readWriteReceipt({ _receipt: event.receipt });
       priorToolResults.push({
         name: event.tool,
         input: event.input ?? call?.input,
         content: event.result,
         isError: event.isError === true,
+        ...(receipt ? { receipt } : {}),
         ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
       });
     }

@@ -1,18 +1,6 @@
-import { fail } from "@agent-native/core/action";
+import { currentActionOriginCaller, fail } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
-
-import {
-  FILTER_PARAM_PREFIX,
-  resolveFilterVars,
-} from "../../app/pages/adhoc/sql-dashboard/filter-vars";
-import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
-import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
-import { timeRangeDays } from "../../app/pages/adhoc/sql-dashboard/pivot";
-import type {
-  DashboardFilter,
-  SqlPanel,
-} from "../../app/pages/adhoc/sql-dashboard/types";
-import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
 import {
   clipHead,
   duplicatePanelIdIssue,
@@ -24,13 +12,49 @@ import {
   unknownPanelConfigKeys,
   type ChartPointLimit,
   type ConfigKeyIssue,
-} from "../../shared/panel-render-contract";
+} from "@agent-native/toolkit/dashboard/panel-render-contract";
+import { timeRangeDays } from "@agent-native/toolkit/dashboard/pivot";
+import type {
+  DashboardFilter,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
+import {
+  FILTER_PARAM_PREFIX,
+  resolveFilterVars,
+} from "../../app/pages/adhoc/sql-dashboard/filter-vars";
+import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
+import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
 import { PANEL_RENDERED_PREFIX } from "../../shared/panel-rendered-prefix";
 import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
+import {
+  readTrafficFilterValue,
+  TRAFFIC_FILTER_ID,
+  type TrafficEnvironment,
+} from "../../shared/traffic-environment";
 import { dryRunQuerySchema, type DryRunQueryResult } from "./bigquery";
+import { firstPartyQueriesRunOnBigQuery } from "./bigquery-agent-approval";
+import {
+  outsideAgentIdentity,
+  type OutsideAgentIdentity,
+} from "./bigquery-agent-budget";
+import {
+  createOutsideAgentBigQueryCall,
+  reportOutsideAgentBigQueryCall,
+  runOutsideAgentBigQueryCall,
+  type OutsideAgentBigQueryCall,
+  type OutsideAgentBigQueryCallOptions,
+  type OutsideAgentBigQueryReport,
+} from "./bigquery-agent-calls";
+import {
+  childOutsideAgentBigQueryGate,
+  currentOutsideAgentBigQueryGate,
+  isOutsideAgentCaller,
+  withOutsideAgentBigQueryGate,
+} from "./bigquery-agent-context";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import type { DashboardPanelSource } from "./dashboard-panel-query";
 import {
@@ -38,6 +62,7 @@ import {
   describeError,
   runResolvedPanel,
 } from "./dashboard-panel-runner";
+import { scopedAnalyticsSql } from "./first-party-analytics";
 import {
   describeReportSchedules,
   estimateResolvedPanels,
@@ -64,7 +89,10 @@ export type PanelUnverifiedNote =
   | "missing_credential"
   | "skipped:program"
   | "too_expensive"
-  | "not_executed:over_budget";
+  | "not_executed:over_budget"
+  | "outside_agent_budget"
+  | "outside_agent_approval_required"
+  | "outside_agent_estimate_unavailable";
 
 export interface PanelVerification {
   panelId: string;
@@ -113,9 +141,12 @@ export interface DashboardVerification {
   panels: PanelVerification[];
   budgetMs: number;
   ms: number;
+  bigQueryBudget?: OutsideAgentBigQueryReport;
 }
 
 export interface VerifyOptions {
+  /** Access-checked dashboard identity supplied by the server caller. */
+  dashboardId?: string;
   signal?: AbortSignal;
   /** Execution deadline shared by every panel in one call. */
   budgetMs?: number;
@@ -161,6 +192,12 @@ const NOTE_REASONS: Record<PanelUnverifiedNote, string> = {
     "the dry run is larger than the automatic-verification byte limit, so it was not run",
   "not_executed:over_budget":
     "more panels were affected than the per-save verification cap runs",
+  outside_agent_budget:
+    "the outside agent's daily BigQuery budget did not allow its query, so it was not run",
+  outside_agent_approval_required:
+    "its query would take the outside agent past today's no-ask BigQuery allowance, so it was not run",
+  outside_agent_estimate_unavailable:
+    "BigQuery's dry run gave no usable cost estimate, so the outside agent's query was not run",
 };
 
 const AGENT_CALLERS: ReadonlySet<string> = new Set([
@@ -237,7 +274,7 @@ function resolvedSqlOf(
   );
 }
 
-function renderFingerprint(panel: Record<string, unknown>): string {
+export function renderFingerprint(panel: Record<string, unknown>): string {
   return stableStringify({
     sql: panel.sql,
     source: panel.source,
@@ -405,7 +442,13 @@ function interpolationFailure(
 }
 
 export type ResolvedDashboardPanelQuery =
-  | { panelId: string; title: string; source: string; query: string }
+  | {
+      panelId: string;
+      title: string;
+      source: string;
+      query: string;
+      trafficEnvironment?: TrafficEnvironment;
+    }
   | { panelId: string; title: string; source: string; error: string };
 
 /**
@@ -419,6 +462,12 @@ export function resolveDashboardPanelQueries(
 ): ResolvedDashboardPanelQuery[] {
   const config = normalizeDashboardConfig(rawConfig);
   const vars = resolveVerificationVars(config, filters);
+  // A dashboard from before the traffic filter shows it without storing it, so
+  // a choice made there arrives only as an override.
+  const traffic =
+    vars[TRAFFIC_FILTER_ID] ||
+    filters?.[TRAFFIC_FILTER_ID] ||
+    filters?.[FILTER_PARAM_PREFIX + TRAFFIC_FILTER_ID];
   return panelsOf(config)
     .filter((panel) => typeof panel.id === "string" && hasSqlToRun(panel))
     .map((panel) => {
@@ -428,8 +477,13 @@ export function resolveDashboardPanelQueries(
       try {
         const query = buildPanelQuery(panel as unknown as SqlPanel, vars);
         const failure = interpolationFailure(query, panel.sql, vars);
-        return failure
-          ? { panelId, title, source, error: failure }
+        if (failure) return { panelId, title, source, error: failure };
+        const trafficEnvironment =
+          source === "first-party"
+            ? readTrafficFilterValue(traffic)
+            : undefined;
+        return trafficEnvironment
+          ? { panelId, title, source, query, trafficEnvironment }
           : { panelId, title, source, query };
       } catch (error) {
         return {
@@ -640,6 +694,25 @@ async function verifyOne(
       AbortSignal.timeout(Math.max(1, remainingMs())),
     ]);
 
+  // The run below reads all traffic, but the saved dashboard opens on its
+  // default, which refuses some shapes all traffic allows, such as a rollup
+  // with no start date. Scoping finds that without any production rows.
+  if (source === "first-party") {
+    try {
+      const shownTraffic = readTrafficFilterValue(vars[TRAFFIC_FILTER_ID]);
+      if (shownTraffic) {
+        scopedAnalyticsSql(query, state.ctx, undefined, {
+          trafficEnvironment: shownTraffic,
+        });
+      }
+    } catch (error) {
+      return finish({
+        status: "query-error",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const dryRun =
     source === "bigquery" && opts.dryRun !== false && remainingMs() > 0
       ? await dryRunPanel(query, budgetSignal(), opts.signal)
@@ -677,15 +750,57 @@ async function verifyOne(
     return finish({ status: "unverified", note: "timeout" });
   }
 
-  const data = await runResolvedPanel({
-    source: source as DashboardPanelSource,
-    query,
-    ctx: state.ctx,
-    timeoutMs: remainingMs(),
-    signal: budgetSignal(),
-    forceRefresh: opts.forceRefresh,
-  });
+  // Only a traffic filter the caller names applies. Checking a save against the
+  // dashboard's default would call a panel broken on a database with no
+  // production traffic, such as a local one.
+  let trafficEnvironment: ReturnType<typeof readTrafficFilterValue>;
+  try {
+    trafficEnvironment = readTrafficFilterValue(
+      opts.filters?.[TRAFFIC_FILTER_ID] ??
+        opts.filters?.[FILTER_PARAM_PREFIX + TRAFFIC_FILTER_ID],
+    );
+  } catch (error) {
+    return finish({
+      status: "query-error",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  const callGate = currentOutsideAgentBigQueryGate();
+  const panelGate = callGate ? childOutsideAgentBigQueryGate(callGate) : null;
+  const runPanelQuery = () =>
+    runResolvedPanel({
+      source: source as DashboardPanelSource,
+      query,
+      ctx: state.ctx,
+      timeoutMs: remainingMs(),
+      signal: budgetSignal(),
+      ...(opts.forceRefresh !== undefined
+        ? { forceRefresh: opts.forceRefresh }
+        : {}),
+      usageAttribution: {
+        workload: "panel-verification",
+        panelId,
+        ...(opts.dashboardId ? { dashboardId: opts.dashboardId } : {}),
+      },
+      ...(trafficEnvironment ? { trafficEnvironment } : {}),
+    });
+  const data = panelGate
+    ? await withOutsideAgentBigQueryGate(panelGate, runPanelQuery)
+    : await runPanelQuery();
   if (opts.signal?.aborted) throw cancelled();
+  const budgetRefusal = panelGate?.summary().refusal;
+  if (budgetRefusal) {
+    return finish({
+      status: "unverified",
+      note:
+        budgetRefusal.code === "estimate_unavailable"
+          ? "outside_agent_estimate_unavailable"
+          : budgetRefusal.code === "approval_required"
+            ? "outside_agent_approval_required"
+            : "outside_agent_budget",
+      error: budgetRefusal.message,
+    });
+  }
   if (data.status === "missing-credential") {
     return finish({
       status: "unverified",
@@ -765,6 +880,45 @@ function blocksSave(
   );
 }
 
+function outsideAgentVerificationGate(
+  source: string,
+): OutsideAgentBigQueryCallOptions | null {
+  if (
+    currentOutsideAgentBigQueryGate() ||
+    !isOutsideAgentCaller(currentActionOriginCaller())
+  ) {
+    return null;
+  }
+  const ctx = getCredentialContext();
+  if (!ctx?.userEmail) return null;
+  return {
+    identity: outsideAgentIdentity(ctx.userEmail, ctx.orgId),
+    source,
+    reservation: "dry-run",
+    leaseMs: PANEL_VERIFICATION_BUDGET_MS + 60_000,
+  };
+}
+
+export function withOutsideAgentVerificationBudget(source: string) {
+  return <A, C, R extends object>(
+    run: (
+      args: A,
+      context: C,
+      budget: OutsideAgentBigQueryCall | null,
+    ) => Promise<R>,
+  ) =>
+    (
+      args: A,
+      context: C,
+    ): Promise<R & { bigQueryBudget?: OutsideAgentBigQueryReport }> => {
+      const options = outsideAgentVerificationGate(source);
+      const budget = options ? createOutsideAgentBigQueryCall(options) : null;
+      return reportOutsideAgentBigQueryCall(budget, () =>
+        run(args, context, budget),
+      );
+    };
+}
+
 /**
  * Runs each panel the way the dashboard page does (same variables, same SQL
  * interpolation, same source resolver and result cache) and applies the
@@ -776,6 +930,13 @@ export async function verifyDashboardPanels(
   panelIds: readonly string[],
   opts: VerifyOptions = {},
 ): Promise<DashboardVerification> {
+  const budget = outsideAgentVerificationGate("panel-verification");
+  if (budget) {
+    const { value, report } = await runOutsideAgentBigQueryCall(budget, () =>
+      verifyDashboardPanels(rawConfig, panelIds, opts),
+    );
+    return { ...value, bigQueryBudget: report };
+  }
   const config = normalizeDashboardConfig(rawConfig);
   const startedAt = Date.now();
   const budgetMs = opts.budgetMs ?? PANEL_VERIFICATION_BUDGET_MS;
@@ -1015,6 +1176,7 @@ export interface PanelWriteVerdict {
   nextStep?: string;
   /** What the changed panels cost to refresh; absent when none could be priced. */
   cost?: PanelWriteCost;
+  bigQueryBudget?: OutsideAgentBigQueryReport;
 }
 
 export interface PanelWriteCost {
@@ -1196,7 +1358,9 @@ export function describePanelOutcome(panel: PanelVerification): string {
         ? ""
         : ` (~${formatBytes(panel.estimatedBytes)}, ${formatUsd(usdForBytes(panel.estimatedBytes))} per refresh)`
     }`;
-    return panel.error ? `${why} (${clipHead(panel.error, 200)})` : why;
+    return panel.error && panel.note !== "outside_agent_approval_required"
+      ? `${why} (${clipHead(panel.error, 200)})`
+      : why;
   }
   if (panel.status === "empty") {
     return panel.rowCount
@@ -1222,6 +1386,31 @@ export interface PanelWriteGateOptions {
   dashboardId?: string;
   /** See VerifyOptions: render verification still runs on these panels. */
   serverAuthoredPanelIds?: ReadonlySet<string>;
+  budget?: OutsideAgentBigQueryCall | null;
+}
+
+const ASKING_READS =
+  "a get-onboarding-journey or get-first-party-analytics-health call over MCP asks the person once, on Analytics' review page, when it needs more.";
+
+async function allowanceRaisers(
+  identity: OutsideAgentIdentity | undefined,
+): Promise<string> {
+  const sinkRead = identity ? firstPartyQueriesRunOnBigQuery(identity) : null;
+  // coercion-ok: an unread sink is null, so the reads are named only as asking on BigQuery.
+  const readsAsk = await sinkRead?.catch(() => null);
+  const raisers = [
+    readsAsk === true
+      ? `A dashboard edit can't ask for more, but ${ASKING_READS}`
+      : readsAsk === false
+        ? null
+        : `A dashboard edit can't ask for more; if Analytics' first-party queries run on BigQuery, ${ASKING_READS}`,
+    identity?.orgId
+      ? "An Analytics organization admin can raise the daily allowance."
+      : null,
+  ].filter((raiser) => raiser !== null);
+  return raisers.length > 0
+    ? raisers.join(" ")
+    : "Nothing can raise today's no-ask allowance, which resets at 00:00 UTC.";
 }
 
 /**
@@ -1238,6 +1427,7 @@ export async function verifyPanelWrite(
   const next = pageDashboardConfig(options.next, options.dashboardId);
   const { direct, affected } = touchedPanelIds(base, next);
   const visual = touchedVisualPanels(base, next);
+  const budget = options.budget ?? null;
   if (direct.length + affected.length + visual.length === 0) {
     return {
       verified: true,
@@ -1245,6 +1435,7 @@ export async function verifyPanelWrite(
       verification: null,
       proof: [],
       unverified: [],
+      ...(budget ? { bigQueryBudget: await budget.report() } : {}),
     };
   }
   const visualIds = visual
@@ -1267,19 +1458,23 @@ export async function verifyPanelWrite(
       : stopEstimate.signal,
     costLate.signal,
   );
-  const verification = await verifyDashboardPanels(
-    next,
-    [...direct, ...affected, ...visualIds],
-    {
-      signal: options.signal,
+  const verify = () =>
+    verifyDashboardPanels(next, [...direct, ...affected, ...visualIds], {
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.dashboardId ? { dashboardId: options.dashboardId } : {}),
       base,
-      memo: options.memo,
-      serverAuthoredPanelIds: options.serverAuthoredPanelIds,
-    },
+      ...(options.memo ? { memo: options.memo } : {}),
+      ...(options.serverAuthoredPanelIds
+        ? { serverAuthoredPanelIds: options.serverAuthoredPanelIds }
+        : {}),
+    });
+  const verification = await (
+    budget ? withOutsideAgentBigQueryGate(budget.gate, verify) : verify()
   ).catch((error: unknown) => {
     stopEstimate.abort();
     throw error;
   });
+  const bigQueryBudget = budget ? await budget.report() : undefined;
   const allowEmpty = options.allowEmptyResult === true;
   const directIds = new Set([...direct, ...visualIds]);
   const blockers = verification.panels.filter(
@@ -1290,7 +1485,10 @@ export async function verifyPanelWrite(
     fail(formatVerificationFailure(blockers), {
       errorCode: "dashboard_panel_verification_failed",
       statusCode: 422,
-      details: { verification },
+      details: {
+        verification,
+        ...(bigQueryBudget ? { bigQueryBudget } : {}),
+      },
     });
   }
 
@@ -1301,8 +1499,14 @@ export async function verifyPanelWrite(
   const notRun = attention.filter(
     (panel) => panel.note === "not_executed:over_budget",
   );
+  const needAllowance = attention.filter(
+    (panel) => panel.note === "outside_agent_approval_required",
+  );
   const problems = attention.filter(
-    (panel) => !notRun.includes(panel) && !panel.visualOnly,
+    (panel) =>
+      !notRun.includes(panel) &&
+      !needAllowance.includes(panel) &&
+      !panel.visualOnly,
   );
   // inspect-dashboard-panel refuses a section or extension panel.
   const configProblems = attention.filter((panel) => panel.visualOnly);
@@ -1316,6 +1520,7 @@ export async function verifyPanelWrite(
     verified,
     ...(visual.length > 0 ? { visualOnly: visual } : {}),
     ...(cost ? { cost } : {}),
+    ...(bigQueryBudget ? { bigQueryBudget } : {}),
     verification,
     proof: verification.panels
       .filter((panel) => panel.rowCount !== null)
@@ -1353,6 +1558,14 @@ export async function verifyPanelWrite(
                   `Not run: ${idList(notRun)} were beyond the per-save cap of ${DEFAULT_MAX_EXECUTED} executed panels, so only the verified panels are confirmed. Call inspect-dashboard-panel before claiming the others render.`,
                 ]
               : []),
+            ...(needAllowance.length > 0
+              ? [
+                  `Saved, but not run: ${idList(needAllowance)}, whose BigQuery queries would take you past today's no-ask allowance; inspect-dashboard-panel would stop at the same point. ${await allowanceRaisers(
+                    (budget?.gate ?? currentOutsideAgentBigQueryGate())
+                      ?.identity,
+                  )} Until then, do not claim those panels render.`,
+                ]
+              : []),
           ].join(" "),
         }),
   };
@@ -1373,6 +1586,9 @@ export function verdictFields(
       : {}),
     ...(verdict.nextStep ? { nextStep: verdict.nextStep } : {}),
     ...(verdict.cost ? { cost: verdict.cost } : {}),
+    ...(verdict.bigQueryBudget
+      ? { bigQueryBudget: verdict.bigQueryBudget }
+      : {}),
   };
 }
 

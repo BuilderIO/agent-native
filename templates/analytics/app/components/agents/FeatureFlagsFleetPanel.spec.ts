@@ -2,11 +2,76 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  applyOptimisticFleetMutation,
+  describeVerifiedFleetChange,
   hasFleetApps,
   qualifyFleetMutation,
   recoverFleetMutationFailure,
   reconcileVerifiedFleetMutation,
 } from "./FeatureFlagsFleetPanel";
+
+describe("applyOptimisticFleetMutation", () => {
+  const on = {
+    version: 1 as const,
+    mode: "on" as const,
+    emails: [],
+    orgIds: [],
+    percentage: 0,
+  };
+  const orgOwn = {
+    version: 1 as const,
+    mode: "rules" as const,
+    emails: ["someone@example.test"],
+    orgIds: [],
+    percentage: 0,
+  };
+  const flag = {
+    key: "receiver",
+    defaultValue: false,
+    rules: orgOwn,
+    scopes: {
+      inEffect: "org" as const,
+      global: { state: "unset" as const, canManage: true },
+      org: {
+        orgId: "org-1",
+        state: "set" as const,
+        rules: orgOwn,
+        canManage: true,
+      },
+    },
+  };
+
+  it("leaves the rule in effect alone when a global change meets an org's own rule", () => {
+    expect(
+      applyOptimisticFleetMutation(flag, {
+        key: "receiver",
+        operation: "replace-rules",
+        scope: "global",
+        rules: on,
+      }),
+    ).toEqual({
+      ...flag,
+      scopes: {
+        ...flag.scopes,
+        global: { state: "set", rules: on, canManage: true },
+      },
+    });
+  });
+
+  it("shows an org change as the rule in effect", () => {
+    const next = applyOptimisticFleetMutation(flag, {
+      key: "receiver",
+      operation: "off",
+      scope: "org",
+    });
+
+    expect(next.rules).toMatchObject({ mode: "off", emails: [] });
+    expect(next.scopes).toMatchObject({
+      inEffect: "org",
+      org: { state: "set", rules: { mode: "off" } },
+    });
+  });
+});
 
 describe("hasFleetApps", () => {
   it("keeps a local Analytics entry usable when the peer directory is unavailable", () => {
@@ -95,6 +160,43 @@ describe("reconcileVerifiedFleetMutation", () => {
     });
   });
 
+  it("takes the read-back flag whole, so a stale rule cannot survive", () => {
+    const directory = {
+      apps: [
+        {
+          appId: "content",
+          flags: [
+            {
+              key: "receiver",
+              defaultValue: false,
+              rules: { mode: "on", emails: [], orgIds: [], percentage: 0 },
+            },
+          ],
+        },
+      ],
+    };
+    const readBack = {
+      key: "receiver",
+      defaultValue: false,
+      scopes: {
+        inEffect: "org" as const,
+        global: { state: "unreadable" as const, canManage: true },
+        org: { orgId: "org-1", state: "unreadable" as const, canManage: true },
+      },
+    };
+
+    const [flag] = reconcileVerifiedFleetMutation(directory, "content", {
+      contractVersion: 3,
+      status: "verified",
+      key: "receiver",
+      rules: { version: 1, mode: "off", emails: [], orgIds: [], percentage: 0 },
+      enabledForCurrentUser: null,
+      flag: readBack,
+    }).apps![0]!.flags!;
+
+    expect(flag).toEqual(readBack);
+  });
+
   it("restores optimistic state and refreshes after a failed mutation", () => {
     const client = new QueryClient();
     const invalidate = vi.spyOn(client, "invalidateQueries");
@@ -107,5 +209,109 @@ describe("reconcileVerifiedFleetMutation", () => {
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: ["action", "list-workspace-feature-flags"],
     });
+  });
+});
+
+describe("describeVerifiedFleetChange", () => {
+  const off = {
+    version: 1 as const,
+    mode: "off" as const,
+    emails: [],
+    orgIds: [],
+    percentage: 0,
+  };
+  const verified = {
+    contractVersion: 3 as const,
+    status: "verified" as const,
+    key: "receiver",
+    rules: off,
+    enabledForCurrentUser: false,
+  };
+
+  it("names the app and flag from the directory before the change", () => {
+    const before = {
+      apps: [
+        {
+          appId: "content",
+          appName: "Content",
+          flags: [{ key: "receiver", displayName: "Receiver", rules: off }],
+        },
+      ],
+    };
+    expect(
+      describeVerifiedFleetChange(
+        before,
+        { appId: "content", key: "receiver", operation: "off" },
+        verified,
+        1,
+      ),
+    ).toEqual({
+      appName: "Content",
+      flagName: "Receiver",
+      scope: "org",
+      mode: "off",
+      enabledForCurrentUser: false,
+      verifiedAt: 1,
+    });
+  });
+
+  it("falls back to the ids when the directory had no entry", () => {
+    expect(
+      describeVerifiedFleetChange(
+        { directoryStatus: "unavailable", apps: [] },
+        {
+          appId: "content",
+          key: "receiver",
+          operation: "off",
+          scope: "global",
+        },
+        { ...verified, enabledForCurrentUser: null },
+        1,
+      ),
+    ).toMatchObject({
+      appName: "content",
+      flagName: "receiver",
+      scope: "global",
+      enabledForCurrentUser: null,
+    });
+  });
+
+  it("takes the scope the server verified", () => {
+    expect(
+      describeVerifiedFleetChange(
+        undefined,
+        { appId: "content", key: "receiver", operation: "off" },
+        {
+          ...verified,
+          scope: { kind: "global", orgId: null, orgDomain: null },
+        },
+        1,
+      ).scope,
+    ).toBe("global");
+  });
+
+  it("reads a verified scope without a kind as the organization's", () => {
+    expect(
+      describeVerifiedFleetChange(
+        undefined,
+        { appId: "content", key: "receiver", operation: "off" },
+        { ...verified, scope: { orgId: "org-1", orgDomain: "acme.test" } },
+        1,
+      ).scope,
+    ).toBe("org");
+  });
+
+  it("prefers the name on the read-back flag", () => {
+    expect(
+      describeVerifiedFleetChange(
+        undefined,
+        { appId: "content", key: "receiver", operation: "off" },
+        {
+          ...verified,
+          flag: { key: "receiver", displayName: "Receiver v2", rules: off },
+        },
+        1,
+      ).flagName,
+    ).toBe("Receiver v2");
   });
 });

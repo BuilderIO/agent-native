@@ -90,6 +90,12 @@ function latestPerThread(emails: any[]): any[] {
 }
 
 export default defineAction({
+  searchHints: [
+    "find emails",
+    "emails from a person",
+    "look up a message",
+    "received mail",
+  ],
   description: "Search emails across all views using Gmail search syntax.",
   schema: z.object({
     q: z
@@ -141,6 +147,7 @@ export default defineAction({
       view: "all",
     };
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     if (!args.q) throw new Error("--q is required");
     const view = args.view ?? "all";

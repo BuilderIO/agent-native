@@ -15,6 +15,7 @@ import {
   initTriggerDispatcher,
   parseTriggerFrontmatter,
   refreshEventSubscriptions,
+  setAutomationEventGate,
   stopTriggerQueueWorker,
 } from "./dispatcher.js";
 import {
@@ -145,6 +146,7 @@ const triggerQueueMocks = vi.hoisted(() => {
       });
       return { id, inserted: true };
     }),
+    nextDueAt: vi.fn(async (_appId?: string | null) => null as number | null),
     ready: vi.fn(
       async (
         appId?: string | null,
@@ -373,6 +375,7 @@ vi.mock("./event-queue.js", () => ({
   hasPendingStaleAutomationTriggerEvents: triggerQueueMocks.hasPendingStale,
   getAutomationTriggerSweepCursor: triggerQueueMocks.getSweepCursor,
   listReadyAutomationTriggerIds: triggerQueueMocks.ready,
+  nextAutomationTriggerEventDueAt: triggerQueueMocks.nextDueAt,
   purgeExpiredAutomationTriggerEvents: triggerQueueMocks.purge,
   reserveAutomationTriggerEventPurge: triggerQueueMocks.reservePurge,
   retryAutomationTriggerEvent: triggerQueueMocks.retry,
@@ -1654,6 +1657,24 @@ Respond to the event.`,
 
     expect(triggerQueueMocks.ready).toHaveBeenCalledTimes(readyScans);
     expect(triggerQueueMocks.claim).toHaveBeenCalledOnce();
+  });
+
+  it("tells an idle Netlify app when its next queued trigger event is due", async () => {
+    triggerQueueMocks.nextDueAt.mockResolvedValueOnce(45_000);
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const options = [...registerRecurringSweepHandlerMock.mock.calls]
+      .reverse()
+      .find(([id]) => id === "automation-trigger-queue")?.[2] as
+      | { nextDueAt?: () => Promise<number | null> }
+      | undefined;
+
+    await expect(options?.nextDueAt?.()).resolves.toBe(45_000);
+    expect(triggerQueueMocks.nextDueAt).toHaveBeenCalledWith("mail");
   });
 
   it("stops the event-queue recovery interval on shutdown", async () => {
@@ -3053,6 +3074,85 @@ Respond to the event.`,
     expect(triggerQueueMocks.rows[0]?.failureAttempts).toBe(1);
   });
 
+  it("retries a queued event when its creator's organization cannot be read yet", async () => {
+    const eventName = "test.event.org-read-timeout";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/inbox-alert.md",
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      },
+    ]);
+    dbExecuteMock.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (/org_members/.test(sql)) {
+        throw Object.assign(new Error("statement timeout"), { code: "57014" });
+      }
+      return { rows: [{ "1": 1 }], rowsAffected: 1 };
+    });
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = busEventHandler(eventName);
+
+    await handler(
+      { messageId: "message-1" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "org-read-timeout-event",
+        emittedAt: "2026-09-27T10:00:00.000Z",
+      },
+    );
+
+    await waitForEvent("org-read-timeout-event", "pending");
+    expect(triggerQueueMocks.retry).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.complete).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
+  it("retries a queued event when its creator's organization cannot be read for another reason", async () => {
+    const eventName = "test.event.org-read-denied";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/inbox-alert.md",
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      },
+    ]);
+    dbExecuteMock.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (/org_members/.test(sql)) {
+        throw Object.assign(
+          new Error("permission denied for table org_members"),
+          { code: "42501" },
+        );
+      }
+      return { rows: [{ "1": 1 }], rowsAffected: 1 };
+    });
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = busEventHandler(eventName);
+
+    await handler(
+      { messageId: "message-1" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "org-read-denied-event",
+        emittedAt: "2026-09-27T10:00:00.000Z",
+      },
+    );
+
+    await waitForEvent("org-read-denied-event", "pending");
+    expect(triggerQueueMocks.retry).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.complete).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
   it("propagates failed webhook agent runs to the bounded task retry path", async () => {
     const owner = "alice+triggers@agent-native.test";
     const path = "jobs/webhook-alert.md";
@@ -3707,6 +3807,57 @@ Respond to the event.`,
     expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
+  it("runs an event automation for an owner only while the app's gate allows it", async () => {
+    const owner = "alice+triggers@agent-native.test";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-gated",
+        owner,
+        path: "jobs/gated.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: event.gated
+mode: agentic
+createdBy: ${owner}
+---
+
+Handle the event.`,
+      },
+    ]);
+    const gate = vi.fn().mockResolvedValue(false);
+    setAutomationEventGate(gate);
+    try {
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      const handler = busEventHandler("event.gated");
+      const fire = async (eventId: string) => {
+        await handler(
+          { ok: true },
+          { owner, eventId, emittedAt: "2026-04-30T00:00:00.000Z" },
+        );
+        await waitForEvent(eventId);
+      };
+
+      await fire("event-gated-closed");
+      expect(gate).toHaveBeenCalledWith({
+        automationId: "resource-gated",
+        orgId: undefined,
+        eventOwner: owner,
+      });
+      expect(startRunMock).not.toHaveBeenCalled();
+
+      gate.mockResolvedValue(true);
+      await fire("event-gated-open");
+      expect(startRunMock).toHaveBeenCalledOnce();
+    } finally {
+      setAutomationEventGate(undefined);
+    }
+  });
+
   it("loads prompt resources for the trigger run owner", async () => {
     resourceListAllOwnersMock.mockResolvedValue([
       {
@@ -4209,7 +4360,82 @@ Handle the event.`,
     ).toMatchObject({
       engine: { name: "test-engine" },
       resolvedModel: "automation-model",
+      usageLabel: "automation:condition-deployment-key",
     });
+  });
+
+  it("keeps a conditional event queued while the credential store cannot be read, counting it once", async () => {
+    const { isResolvedEngineUsableForRequest } =
+      await import("../agent/engine/index.js");
+    const { CredentialStoreUnavailableError } =
+      await import("../server/credential-provider.js");
+    const usable = vi.mocked(isResolvedEngineUsableForRequest);
+    usable.mockRejectedValue(new CredentialStoreUnavailableError());
+    const stored = conditionResource(
+      "condition-store-down",
+      "event.condition.store.down",
+    );
+    resourceListAllOwnersMock.mockResolvedValue([stored]);
+    resourceGetByPathMock.mockImplementation(async () => ({ ...stored }));
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { content: string }) => {
+        stored.content = input.content;
+        return { ...stored };
+      },
+    );
+
+    try {
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      const handler = busEventHandler("event.condition.store.down");
+      const event = {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-condition-store-down",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      };
+      const row = () =>
+        triggerQueueMocks.rows.find(
+          (candidate) => candidate.eventId === event.eventId,
+        );
+
+      // Every attempt fails the same way. A runtime failure pauses after 5
+      // counted failures, so counting each retry would pause the automation.
+      for (
+        let attempt = 1;
+        attempt <= MAX_AUTOMATION_TRIGGER_EVENT_FAILURES;
+        attempt += 1
+      ) {
+        await vi.waitFor(async () => {
+          const current = row();
+          if (
+            !current ||
+            (current.status === "pending" && current.failureAttempts < attempt)
+          ) {
+            if (current) current.availableAt = 0;
+            await handler({ ok: true }, event);
+          }
+          expect(row()?.failureAttempts ?? 0).toBeGreaterThanOrEqual(attempt);
+          expect(row()?.status).not.toBe("processing");
+        });
+      }
+
+      expect(triggerQueueMocks.retry).toHaveBeenCalledTimes(
+        MAX_AUTOMATION_TRIGGER_EVENT_FAILURES - 1,
+      );
+      expect(triggerQueueMocks.complete).not.toHaveBeenCalled();
+      expect(row()?.status).toBe("failed");
+      expect(startRunMock).not.toHaveBeenCalled();
+      expect(stored.content).toContain(
+        'lastErrorCode: "credential_store_unavailable"',
+      );
+      expect(stored.content).toContain("consecutiveFailures: 1");
+      expect(stored.content).not.toContain("enabled: false");
+      expect(trackAutomationPausedMock).not.toHaveBeenCalled();
+    } finally {
+      usable.mockImplementation(async () => true);
+    }
   });
 
   it("passes a configured background engine into condition checks", async () => {

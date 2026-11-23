@@ -18,6 +18,10 @@ import { storedDashboardAnnotationScope } from "../server/lib/dashboard-annotati
 import { getAnalysis } from "../server/lib/dashboards-store";
 import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
+import {
+  maskMonitorUrl,
+  UNREADABLE_URL,
+} from "../server/lib/monitor-redaction.js";
 import { openDashboard } from "../server/lib/open-dashboard";
 import { getSessionFrictionDetails } from "../server/lib/session-friction.js";
 import { withSessionsTriage } from "../server/lib/session-replay-triage.js";
@@ -38,6 +42,7 @@ import {
   listStatusPages,
 } from "../server/lib/status-pages.js";
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
+import { SESSION_FILTER_KEYS } from "../shared/agent-url-keys";
 import { isAnalyticsAskPath } from "../shared/ask-route";
 import { isOutputUseApp, UNUSED_OUTPUT_PARAM } from "../shared/output-use";
 import { sessionDateBound } from "../shared/session-date-bounds";
@@ -57,28 +62,11 @@ import {
   readRoutePerformanceRange,
   routePerformanceRangeBounds,
 } from "../shared/session-performance";
+import { readTrafficEnvironment } from "../shared/traffic-environment";
 
-const SESSION_FILTER_KEYS = new Set([
-  "range",
-  "app",
-  "q",
-  "fromDate",
-  "toDate",
-  "from",
-  "to",
-  "sort",
-  "page",
-  "triage",
-  "includeZeroMinuteSessions",
-  "minDurationMs",
-  "hideEmpty",
-  "hideInternal",
-  "visitorType",
-  "emailDomain",
-  "hasErrors",
-  "hasNetworkErrors",
-  "hasRageClicks",
-]);
+const SESSION_FILTER_KEY_SET: ReadonlySet<string> = new Set(
+  SESSION_FILTER_KEYS,
+);
 const REPLAY_RANGES = new Set(["24h", "7d", "30d", "90d", "all"]);
 const SESSION_SORTS = new Set([
   "newest",
@@ -136,6 +124,7 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   readOnly: true,
+  mcpTool: "search",
   run: async () => {
     const [navigation, urlState] = await Promise.all([
       readAppStateForCurrentTab("navigation"),
@@ -204,7 +193,7 @@ export default defineAction({
         if (k.startsWith("f_") && v) activeFilters[k] = v;
         if (
           url.pathname?.startsWith("/sessions") &&
-          SESSION_FILTER_KEYS.has(k) &&
+          SESSION_FILTER_KEY_SET.has(k) &&
           v
         ) {
           activeFilters[k] = v;
@@ -353,6 +342,7 @@ export default defineAction({
               hasNetworkErrors: params.hasNetworkErrors === "true",
               hasRageClicks: params.hasRageClicks === "true",
               emailDomain: params.emailDomain || undefined,
+              environment: readTrafficEnvironment(params.environment),
               visitorType:
                 params.visitorType === "internal" ||
                 params.visitorType === "work" ||
@@ -771,7 +761,7 @@ export default defineAction({
               screen.monitor = {
                 id: monitor.id,
                 name: monitor.name,
-                url: monitor.url,
+                url: maskMonitorUrl(monitor.url) ?? UNREADABLE_URL,
                 method: monitor.method,
                 enabled: monitor.enabled,
                 severity: monitor.severity,
@@ -804,7 +794,7 @@ export default defineAction({
             screen.monitors = monitors.map((monitor) => ({
               id: monitor.id,
               name: monitor.name,
-              url: monitor.url,
+              url: maskMonitorUrl(monitor.url) ?? UNREADABLE_URL,
               enabled: monitor.enabled,
               lastStatus: monitor.lastStatus,
               lastCheckedAt: monitor.lastCheckedAt,

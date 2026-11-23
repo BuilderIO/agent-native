@@ -19,12 +19,15 @@ export default defineAction({
   http: { method: "POST" },
   run: async (args, ctx) => {
     const documentId = resolveDocumentId(args);
-    const owner = await getNotionDocumentOwner(documentId);
+    const owner = await getNotionDocumentOwner(documentId, {
+      requireOwner: true,
+    });
     await flushNotionDocumentEditor(documentId, owner);
     const result = await createAndLinkNotionPage(
       owner,
       documentId,
       args.parentPageIdOrUrl,
+      ctx,
     );
     track(
       "notion_synced",

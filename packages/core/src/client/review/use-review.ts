@@ -26,12 +26,22 @@ export interface ListReviewCommentsParams {
   includeResolved?: boolean;
   includeDeleted?: boolean;
   targetId?: string | null;
+  /** One surface's comments, or `null` for those on no surface. */
+  surfaceId?: string | null;
   newestFirst?: boolean;
   limit?: number;
+  /** The `nextCursor` from the previous page. */
+  cursor?: string;
 }
 
 export interface ListReviewCommentsResult {
   comments: ReviewComment[];
+  /**
+   * Oldest first: the next page's cursor, to pass back as `cursor`, or null on
+   * the last page. A newest-first list isn't paged and leaves it out; its
+   * `summary` still counts every open thread.
+   */
+  nextCursor?: string | null;
   discussion: ReviewDiscussionState;
   reviewStatus: ReviewStatusEntry | null;
   summary: {
@@ -55,8 +65,11 @@ export interface CreateReviewCommentInput {
   resourceType: string;
   resourceId: string;
   targetId?: string | null;
+  surfaceId?: string | null;
   kind?: ReviewCommentKind;
   anchor?: unknown;
+  anchorKind?: string | null;
+  anchorVersion?: number | null;
   body: string;
   authorName?: string | null;
   resolutionTarget?: ReviewResolutionTarget | null;
@@ -198,8 +211,14 @@ export interface UpdateReviewCommentInput {
   resourceId: string;
   commentId: string;
   body?: string;
+  /** The comment's images, in place of the ones it has; [] removes them. */
+  attachments?: Record<string, unknown>[];
   anchor?: unknown;
+  anchorKind?: string | null;
+  anchorVersion?: number | null;
   mentions?: ReviewMention[];
+  /** Refuse the edit if the comment changed since this revision. */
+  expectedRevision?: number;
 }
 
 export interface ConsumeReviewFeedbackInput {
@@ -284,6 +303,8 @@ export interface UpdateResourceSuggestionInput {
   observedRevision: number;
   idempotencyKey: string;
   operations: SuggestionOperation[];
+  /** The revision `operations` were written against, when newer than the suggestion's. */
+  baseRevision?: string;
   summary?: string;
 }
 
@@ -625,11 +646,16 @@ export function markCommentDeleted(
 
 function matchesCommentQuery(
   params: unknown,
-  comment: Pick<ReviewComment, "targetId" | "status">,
+  comment: Pick<ReviewComment, "targetId" | "surfaceId" | "status">,
 ) {
   if (!params || typeof params !== "object") return true;
   const query = params as ListReviewCommentsParams;
   if (query.targetId !== undefined && query.targetId !== comment.targetId)
+    return false;
+  if (
+    query.surfaceId !== undefined &&
+    query.surfaceId !== (comment.surfaceId ?? null)
+  )
     return false;
   if (comment.status === "resolved" && !query.includeResolved) return false;
   if (comment.status === "deleted" && !query.includeDeleted) return false;
@@ -654,11 +680,21 @@ function optimisticComment(
     targetId:
       parent?.targetId ??
       ("targetId" in input ? (input.targetId ?? null) : null),
+    surfaceId:
+      parent?.surfaceId ??
+      ("surfaceId" in input ? (input.surfaceId ?? null) : null),
     kind:
       parent?.kind ?? ("kind" in input ? (input.kind ?? "comment") : "comment"),
     status: "open",
     anchor:
       parent?.anchor ?? ("anchor" in input ? (input.anchor ?? null) : null),
+    anchorKind:
+      parent?.anchorKind ??
+      ("anchorKind" in input ? (input.anchorKind ?? null) : null),
+    anchorVersion:
+      parent?.anchorVersion ??
+      ("anchorVersion" in input ? (input.anchorVersion ?? null) : null),
+    revision: 1,
     body: input.body,
     authorEmail: null,
     authorName: input.authorName ?? null,
@@ -688,6 +724,44 @@ function replaceComment(
   return comments.map((comment) =>
     comment.id === previousId ? replacement : comment,
   );
+}
+
+/**
+ * Adds a new comment to a cached list. Oldest first, it lists last, so a page
+ * with more after it is left alone; the comment shows on the last page.
+ */
+export function addOptimisticComment(
+  data: unknown,
+  params: unknown,
+  comment: ReviewComment,
+): unknown {
+  if (!matchesCommentQuery(params, comment)) return data;
+  if (isReviewCommentsResult(data) && data.nextCursor) return data;
+  return updateComments(data, (comments) =>
+    insertOptimisticComment(comments, comment, params),
+  );
+}
+
+/**
+ * Adds a reply to a cached list that holds its parent. Oldest first, a new
+ * reply lists after every comment there is, so like a new comment it goes
+ * only on the last page.
+ */
+export function addOptimisticReply(
+  data: unknown,
+  params: unknown,
+  parentId: string,
+  reply: (parent: ReviewComment) => ReviewComment,
+): unknown {
+  if (isReviewCommentsResult(data) && data.nextCursor) return data;
+  return updateComments(data, (comments) => {
+    const parent = comments.find((comment) => comment.id === parentId);
+    if (!parent) return comments;
+    const next = reply(parent);
+    return matchesCommentQuery(params, next)
+      ? insertOptimisticComment(comments, next, params)
+      : comments;
+  });
 }
 
 export function insertOptimisticComment(
@@ -874,11 +948,7 @@ export function useCreateReviewComment() {
         action: "list-review-comments",
         resource: input,
         transform: (data, params) =>
-          matchesCommentQuery(params, comment)
-            ? updateComments(data, (comments) =>
-                insertOptimisticComment(comments, comment, params),
-              )
-            : data,
+          addOptimisticComment(data, params, comment),
         onSuccess: (result) => (data) =>
           updateComments(data, (comments) =>
             replaceComment(comments, id, result as ReviewComment),
@@ -897,16 +967,9 @@ export function useReplyReviewComment() {
         action: "list-review-comments",
         resource: input,
         transform: (data, params) =>
-          updateComments(data, (comments) => {
-            const parent = comments.find(
-              (comment) => comment.id === input.commentId,
-            );
-            if (!parent) return comments;
-            const reply = optimisticComment(input, id, parent);
-            return matchesCommentQuery(params, reply)
-              ? insertOptimisticComment(comments, reply, params)
-              : comments;
-          }),
+          addOptimisticReply(data, params, input.commentId, (parent) =>
+            optimisticComment(input, id, parent),
+          ),
         onSuccess: (result) => (data) =>
           updateComments(data, (comments) =>
             replaceComment(comments, id, result as ReviewComment),
@@ -982,6 +1045,14 @@ export function useUpdateReviewComment() {
               ? {
                   ...comment,
                   ...(input.body !== undefined ? { body: input.body } : {}),
+                  ...(input.attachments !== undefined
+                    ? {
+                        metadata: withReviewAttachments(
+                          comment.metadata,
+                          input.attachments,
+                        ),
+                      }
+                    : {}),
                   ...(input.anchor !== undefined
                     ? { anchor: input.anchor }
                     : {}),
@@ -1203,4 +1274,14 @@ export function useUpdateResourceSuggestion() {
       successReplacesOptimistic: true,
     };
   });
+}
+
+/** A comment's metadata with its images swapped, as the server writes it. */
+function withReviewAttachments(
+  metadata: Record<string, unknown> | null,
+  attachments: Record<string, unknown>[],
+): Record<string, unknown> | null {
+  const { attachments: _previous, ...rest } = metadata ?? {};
+  const next = attachments.length ? { ...rest, attachments } : rest;
+  return Object.keys(next).length ? next : null;
 }

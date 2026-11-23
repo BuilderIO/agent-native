@@ -7,7 +7,8 @@ const { getBuilderCreditUsageMock, canViewWorkspaceUsageMock } = vi.hoisted(
   }),
 );
 
-vi.mock("../../action.js", () => ({
+vi.mock("../../action.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../action.js")>()),
   defineAction: (definition: unknown) => definition,
 }));
 
@@ -40,6 +41,27 @@ describe("get-builder-credit-usage action", () => {
       getBuilderCreditUsage.run({}, { caller: "frontend" }),
     ).rejects.toThrow("Not authenticated.");
     expect(canViewWorkspaceUsageMock).not.toHaveBeenCalled();
+    expect(getBuilderCreditUsageMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses where commercial surfaces are hidden, without reading the account", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    try {
+      await expect(
+        getBuilderCreditUsage.run(
+          {},
+          {
+            caller: "frontend",
+            userEmail: "owner@example.com",
+            orgId: "org-1",
+          },
+        ),
+      ).rejects.toMatchObject({ errorCode: "builder_credits_hidden" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
     expect(getBuilderCreditUsageMock).not.toHaveBeenCalled();
   });
 
@@ -95,4 +117,8 @@ describe("get-builder-credit-usage action", () => {
     ).rejects.toThrow("Only organization owners and admins");
     expect(getBuilderCreditUsageMock).not.toHaveBeenCalled();
   });
+});
+
+it("keeps get-builder-credit-usage in the app, off MCP", () => {
+  expect(getBuilderCreditUsage.mcpTool).toBe(false);
 });

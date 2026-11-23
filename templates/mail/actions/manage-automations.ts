@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
@@ -199,6 +199,12 @@ const ruleFields = {
 
 export const createManageEmailRulesAction = (agentTool: boolean) =>
   defineAction({
+    searchHints: [
+      "auto-archive rule",
+      "inbox rule",
+      "automation rule",
+      "filter rule",
+    ],
     description:
       "Create, list, update, or delete inbox rules. For natural-language AI rules, use one sentence and a mode (tag, important, notify, filter, or archive); the rule is saved and recent-mail work is queued before this action returns. Model checks and matching continue in the background. Notify rules mark matches Important and notify the user only for new mail. Star, mark-read, and trash rules keep the legacy automation behavior.",
     agentTool,
@@ -223,6 +229,10 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
           },
         }
       : {}),
+    needsApproval: agentTool
+      ? (args, ctx) => isOutsideAgentCall(ctx) && args.action !== "list"
+      : false,
+    mcpTool: agentTool ? ("search" as const) : false,
     schema: z
       .object({ ...ruleFields, actions: z.unknown().optional() })
       .superRefine((args, ctx) => {

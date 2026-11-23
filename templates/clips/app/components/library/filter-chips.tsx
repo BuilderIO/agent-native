@@ -20,10 +20,8 @@ export function FilterChips({ chips, className }: FilterChipsProps) {
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
       {chips.map((chip) => (
-        <button
+        <div
           key={chip.key}
-          type="button"
-          onClick={chip.onClick}
           className={cn(
             "inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-xs border",
             chip.active
@@ -31,15 +29,22 @@ export function FilterChips({ chips, className }: FilterChipsProps) {
               : "bg-background text-foreground border-border hover:bg-accent",
           )}
         >
-          <span className="truncate max-w-[10rem]">{chip.label}</span>
+          {chip.onClick ? (
+            <button
+              type="button"
+              onClick={chip.onClick}
+              className="truncate max-w-[10rem] text-left"
+            >
+              {chip.label}
+            </button>
+          ) : (
+            <span className="truncate max-w-[10rem]">{chip.label}</span>
+          )}
           {chip.onRemove && (
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => {
-                e.stopPropagation();
-                chip.onRemove?.();
-              }}
+            <button
+              type="button"
+              aria-label={`Remove ${chip.label}`}
+              onClick={chip.onRemove}
               className={cn(
                 "rounded-full hover:opacity-80",
                 chip.active
@@ -48,9 +53,9 @@ export function FilterChips({ chips, className }: FilterChipsProps) {
               )}
             >
               <IconX className="h-3 w-3" />
-            </span>
+            </button>
           )}
-        </button>
+        </div>
       ))}
     </div>
   );

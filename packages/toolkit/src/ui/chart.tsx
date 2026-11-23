@@ -1,6 +1,10 @@
 import * as React from "react";
 import * as RechartsPrimitive from "recharts";
 
+import {
+  formatLocaleNumber,
+  useReaderLocale,
+} from "../app/shared/reader-locale.js";
 import { cn } from "../utils.js";
 
 const THEMES = { light: "", dark: ".dark" } as const;
@@ -134,6 +138,7 @@ const ChartTooltipContent = React.forwardRef<
     ref,
   ) => {
     const { config } = useChart();
+    const readerLocale = useReaderLocale();
 
     const tooltipLabel = React.useMemo(() => {
       if (hideLabel || !payload?.length) {
@@ -242,7 +247,9 @@ const ChartTooltipContent = React.forwardRef<
                       </div>
                       {item.value && (
                         <span className="font-mono font-medium tabular-nums text-foreground">
-                          {item.value.toLocaleString()}
+                          {typeof item.value === "number"
+                            ? formatLocaleNumber(item.value, readerLocale)
+                            : item.value}
                         </span>
                       )}
                     </div>

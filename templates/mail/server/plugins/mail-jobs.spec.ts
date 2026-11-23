@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   getClientFromAccount: vi.fn(),
   startWatch: vi.fn(),
   getDuePendingJobs: vi.fn(),
+  getNextScheduledJobDueAt: vi.fn(),
   markJobCancelled: vi.fn(),
   markJobDone: vi.fn(),
   markJobProcessing: vi.fn(),
@@ -47,11 +48,6 @@ vi.mock("@agent-native/core/db", async (importOriginal) => {
 });
 vi.mock("@agent-native/core/event-bus", () => ({
   registerEvent: mocks.registerEvent,
-}));
-vi.mock("@agent-native/core/settings", () => ({
-  readSetting: mocks.readSetting,
-  writeSetting: mocks.writeSetting,
-  removeSetting: mocks.removeSetting,
 }));
 vi.mock("@agent-native/core/settings", () => ({
   readSetting: mocks.readSetting,
@@ -95,6 +91,7 @@ vi.mock("../lib/inbox-store.js", async (importOriginal) => {
 });
 vi.mock("../lib/jobs.js", () => ({
   getDuePendingJobs: mocks.getDuePendingJobs,
+  getNextScheduledJobDueAt: mocks.getNextScheduledJobDueAt,
   getSnoozeThreadId: mocks.getSnoozeThreadId,
   markJobCancelled: mocks.markJobCancelled,
   markJobDone: mocks.markJobDone,
@@ -178,6 +175,17 @@ describe("Mail background job scheduling", () => {
     expect(sweepHandlers.has("mail-ai-filter-backfills")).toBe(true);
     expect(sweepHandlers.has("mail-background-jobs")).toBe(true);
     expect(mocks.startIntervalJob).not.toHaveBeenCalled();
+  });
+
+  it("tells an idle deploy when the next snooze or send-later is due", async () => {
+    const plugin = await loadMailJobsPlugin();
+    plugin();
+
+    expect(mocks.registerRecurringSweepHandler).toHaveBeenCalledWith(
+      "mail-background-jobs",
+      expect.any(Function),
+      { nextDueAt: mocks.getNextScheduledJobDueAt },
+    );
   });
 
   it("runs every durable step despite failures and reports one aggregate failure", async () => {

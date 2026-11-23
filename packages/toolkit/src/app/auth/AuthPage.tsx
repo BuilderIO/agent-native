@@ -11,9 +11,16 @@ import {
   normalizeOAuthReturnPath,
   shouldRetryAuthSessionProbe,
 } from "@agent-native/core/client/auth/auth-page-helpers";
+import {
+  acceptBuilderSignupAssignment,
+  getBuilderSignupAssignment,
+  type BuilderSignupAssignment,
+} from "@agent-native/core/client/auth/builder-signup";
 import { whenConsentDecided } from "@agent-native/core/client/consent";
+import { startMobileGoogleAuth } from "@agent-native/core/client/mobile-auth";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import { navigateForSession } from "@agent-native/core/client/use-session";
+import { consentBannerMessagesForLocale } from "@agent-native/core/localization/privacy-choice-messages";
 import { normalizeLocaleCode } from "@agent-native/core/localization/shared";
 import { canonicalTrackingEvent } from "@agent-native/core/shared/analytics-events";
 import { getAppStatus } from "@agent-native/core/shared/app-status";
@@ -38,6 +45,7 @@ import { AuthForm } from "@agent-native/toolkit/onboarding";
 import { IconLoader2 } from "@tabler/icons-react";
 import * as React from "react";
 
+import { ConsentBannerPanel } from "../shared/ConsentBanner.js";
 import { WaveBackground } from "../shared/WaveBackground.js";
 
 export type {
@@ -67,6 +75,9 @@ const TAB_STORAGE_KEY = "an.onboarding.tab";
 const PENDING_SIGNUP_EMAIL_STORAGE_KEY = "an.onboarding.pendingSignupEmail";
 const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
 const BUILDER_DESKTOP_RETURN_ORIGIN = "http://127.0.0.1:8080";
+// Re-enable the sign-in button this long after an OAuth exchange starts even
+// if the popup handle never reports closed and a session probe hangs.
+const OAUTH_EXCHANGE_BUSY_BOUND_MS = 30_000;
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
 
@@ -260,13 +271,15 @@ async function requestJson(
   return { response, data, readable };
 }
 
+let builderSignupTelemetry: Record<string, unknown> = {};
+
 function trackAuth(
   app: string,
   name: string,
   properties: Record<string, unknown> = {},
-  email: string,
+  email?: string,
 ): void {
-  if (!isValidEmail(email) || isTestIdentityEmail(email)) return;
+  if (email && (!isValidEmail(email) || isTestIdentityEmail(email))) return;
   if (
     isSyntheticTrafficValue(
       (
@@ -295,7 +308,12 @@ function trackAuth(
         "https://analytics.agent-native.com/track",
       window.location.hostname,
     );
-    const legacyProperties = { app, ...properties };
+    const legacyProperties = {
+      app,
+      hostname: window.location.hostname,
+      ...builderSignupTelemetry,
+      ...properties,
+    };
     const events: Array<{
       name: string;
       properties: Record<string, unknown>;
@@ -451,17 +469,37 @@ function builderPreviewReturnOrigin(): string {
   return "";
 }
 
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "[::1]" ||
+      /^127(?:\.\d{1,3}){3}$/.test(hostname)
+    );
+  } catch {
+    // coercion-ok: an unreadable origin is treated as hosted.
+    return false;
+  }
+}
+
 export function resolveOAuthReturnOrigin(input: {
   previewOrigin: string;
   workspaceGatewayReturnOrigin: string;
   userAgent: string;
+  currentOrigin?: string;
 }): string {
+  const currentOrigin =
+    input.currentOrigin ??
+    (typeof window === "undefined" ? "" : window.location.origin);
+  const desktopGatewayReturn =
+    (isAgentNativeDesktop(input.userAgent) ||
+      isBuilderDesktop(input.userAgent)) &&
+    isLoopbackOrigin(currentOrigin);
   return (
     input.previewOrigin ||
     input.workspaceGatewayReturnOrigin ||
-    (isAgentNativeDesktop(input.userAgent) || isBuilderDesktop(input.userAgent)
-      ? BUILDER_DESKTOP_RETURN_ORIGIN
-      : "")
+    (desktopGatewayReturn ? BUILDER_DESKTOP_RETURN_ORIGIN : "")
   );
 }
 
@@ -469,12 +507,14 @@ export function oauthReturnTarget(
   target: string,
   workspaceGatewayReturnOrigin: string,
   userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
+  currentOrigin = typeof window === "undefined" ? "" : window.location.origin,
 ): string {
   const path = normalizeOAuthReturnPath(target);
   const origin = resolveOAuthReturnOrigin({
     previewOrigin: builderPreviewReturnOrigin(),
     workspaceGatewayReturnOrigin,
     userAgent,
+    currentOrigin,
   });
   return origin ? origin + path : path;
 }
@@ -655,13 +695,66 @@ export function AuthPage(props: AuthPageProps) {
     workspaceGatewayReturnOrigin,
     googleAuthMode,
     builderPreviewLocalDevEnabled,
+    builderSignupEnabled,
   } = props;
+  const [builderSignup, setBuilderSignup] =
+    React.useState<BuilderSignupAssignment | null>(
+      builderSignupEnabled ? null : { status: "disabled" },
+    );
+  const builderSignupRequest =
+    React.useRef<Promise<BuilderSignupAssignment> | null>(null);
+  React.useEffect(() => {
+    if (!builderSignupEnabled) return;
+    builderSignupTelemetry = {};
+    let disposed = false;
+    builderSignupRequest.current ??= getBuilderSignupAssignment();
+    void builderSignupRequest.current.then(
+      (assignment) => {
+        if (disposed) return;
+        setBuilderSignup(assignment);
+      },
+      () => {
+        if (!disposed) {
+          builderSignupTelemetry = {};
+          setBuilderSignup({ status: "unavailable" });
+          trackAuth(trackingApp, "auth.builder_signup_experiment_unavailable", {
+            stage: "assignment",
+          });
+        }
+      },
+    );
+    return () => {
+      disposed = true;
+    };
+  }, [builderSignupEnabled, trackingApp]);
   const [localePreference, setLocalePreference] = React.useState("system");
   const [locale, setLocale] = React.useState(defaultLocale);
   const [browserLocationReady, setBrowserLocationReady] = React.useState(false);
   React.useEffect(() => setBrowserLocationReady(true), []);
   const [localeMenuOpen, setLocaleMenuOpen] = React.useState(false);
   const [view, setView] = React.useState<AuthView>(props.initialView);
+  const builderSignupExposure = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (
+      builderSignup?.status !== "assigned" ||
+      (!["signup", "magicLink", "googleOnly"].includes(view) &&
+        !(view === "login" && showGoogle)) ||
+      builderSignupExposure.current === builderSignup.id
+    )
+      return;
+    builderSignupExposure.current = builderSignup.id;
+    builderSignupTelemetry = {
+      experiment_id:
+        builderSignup.experimentId ?? `${trackingApp}_builder_signup_v1`,
+      experiment_variant: builderSignup.variant,
+      assignment_id: builderSignup.id,
+    };
+    trackAuth(trackingApp, "auth.builder_signup_experiment_exposed", {
+      ...builderSignupTelemetry,
+      exposure_view: view,
+    });
+  }, [builderSignup, showGoogle, trackingApp, view]);
+
   const [messages, setMessages] = React.useState<Record<string, Notice>>({});
   const [submitting, setSubmitting] = React.useState<string | null>(null);
   const [localDevAvailable, setLocalDevAvailable] = React.useState(false);
@@ -700,6 +793,7 @@ export function AuthPage(props: AuthPageProps) {
   const oauthPollInFlight = React.useRef(false);
   const oauthPopupTimer = React.useRef<number | null>(null);
   const oauthPopupGraceTimer = React.useRef<number | null>(null);
+  const oauthBusyBoundTimer = React.useRef<number | null>(null);
   const oauthFlowId = React.useRef<string | null>(null);
   const nativeOAuthFlowId = React.useRef<string | null>(null);
   const nativeOAuthRequestPending = React.useRef(false);
@@ -1048,8 +1142,10 @@ export function AuthPage(props: AuthPageProps) {
         basePath: runtimeAppBasePath,
         homePath,
       }).resumeHref;
+      const landing = new URL(resumeHref, window.location.origin);
       captureAttribution({
-        landingPath: new URL(resumeHref, window.location.origin).pathname,
+        landingPath: landing.pathname,
+        landingSearch: landing.search,
       });
     }
     const identity = normalizeEmail(signupEmail);
@@ -1192,6 +1288,10 @@ export function AuthPage(props: AuthPageProps) {
       window.clearTimeout(oauthPopupGraceTimer.current);
       oauthPopupGraceTimer.current = null;
     }
+    if (oauthBusyBoundTimer.current !== null) {
+      window.clearTimeout(oauthBusyBoundTimer.current);
+      oauthBusyBoundTimer.current = null;
+    }
     oauthPollInFlight.current = false;
   }, []);
 
@@ -1282,6 +1382,26 @@ export function AuthPage(props: AuthPageProps) {
       onAuthenticated?: (email?: string) => void,
     ) => {
       const startedAt = Date.now();
+      // Re-enable the button with a retry notice without stopping the
+      // exchange poll: a closed handle or a slow session probe is not proof
+      // the user gave up, so a late completion still finishes the flow.
+      const clearBusyForRetry = () => {
+        if (flowId !== oauthFlowId.current) return;
+        if (oauthBusyBoundTimer.current !== null) {
+          window.clearTimeout(oauthBusyBoundTimer.current);
+          oauthBusyBoundTimer.current = null;
+        }
+        setGoogleBusy(false);
+        setMagicLinkBusy(false);
+        if (kind === "magic-link") setView("magicLink");
+        setNotice(kind, {
+          kind: "error",
+          text:
+            kind === "magic-link"
+              ? t("magicLinkFailed")
+              : t("googleNeverFinished"),
+        });
+      };
       const check = async () => {
         if (oauthPollInFlight.current) return;
         oauthPollInFlight.current = true;
@@ -1331,19 +1451,11 @@ export function AuthPage(props: AuthPageProps) {
         } finally {
           oauthPollInFlight.current = false;
         }
+        if (flowId !== oauthFlowId.current) return;
         if (Date.now() - startedAt > 5 * 60 * 1000) {
           stopOAuthPolling();
           stopNativeOAuth();
-          setGoogleBusy(false);
-          setMagicLinkBusy(false);
-          if (kind === "magic-link") setView("magicLink");
-          setNotice(kind, {
-            kind: "error",
-            text:
-              kind === "magic-link"
-                ? t("magicLinkFailed")
-                : t("googleNeverFinished"),
-          });
+          clearBusyForRetry();
         }
       };
       stopOAuthPolling();
@@ -1383,14 +1495,20 @@ export function AuthPage(props: AuthPageProps) {
                   finishOAuthExchange(target);
                   return;
                 }
-                setGoogleBusy(false);
+                clearBusyForRetry();
               })
               .catch(() => {
-                if (flowId !== oauthFlowId.current) return;
-                setGoogleBusy(false);
+                clearBusyForRetry();
               });
           }, 5000);
         }, 500);
+        // Independent of `popup.closed` and of the session probe: a fixed
+        // bound keeps a hung exchange from spinning forever. Polling keeps
+        // running so a late finish still completes.
+        oauthBusyBoundTimer.current = window.setTimeout(() => {
+          oauthBusyBoundTimer.current = null;
+          clearBusyForRetry();
+        }, OAUTH_EXCHANGE_BUSY_BOUND_MS);
       }
       window.setTimeout(() => void check(), 500);
     },
@@ -1414,7 +1532,7 @@ export function AuthPage(props: AuthPageProps) {
     if (googleAuthMode === "popup" || googleAuthMode === "redirect") {
       return googleAuthMode;
     }
-    return isAgentNativeDesktop() ? "redirect" : "popup";
+    return isInFrame() && !isAgentNativeDesktop() ? "popup" : "redirect";
   }, [googleAuthMode]);
 
   const googleAuthUrlPath = React.useCallback(
@@ -1428,10 +1546,51 @@ export function AuthPage(props: AuthPageProps) {
     [publicOAuthOrigin, runtimeAppBasePath],
   );
 
+  const prepareBuilderSignup = React.useCallback(
+    async (
+      method: "password" | "magic-link" | "google",
+      email?: string,
+      flowId = createFlowId(),
+    ): Promise<string | undefined> => {
+      if (
+        builderSignup?.status !== "assigned" ||
+        builderSignup.variant !== "automatic" ||
+        (view === "login" && method !== "google")
+      )
+        return undefined;
+      try {
+        await acceptBuilderSignupAssignment(
+          builderSignup.id,
+          flowId,
+          method,
+          email,
+        );
+        return flowId;
+      } catch {
+        trackAuth(
+          trackingApp,
+          "auth.builder_signup_experiment_unavailable",
+          { stage: "acceptance" },
+          email,
+        );
+        return undefined;
+      }
+    },
+    [builderSignup, trackingApp, view],
+  );
+
   const startGoogle = React.useCallback(async () => {
-    if (!showGoogle || googleBusy) return;
+    if (!showGoogle || googleBusy || !builderSignup) return;
     setGoogleBusy(true);
     setNotice("google", null);
+    const flowId = createFlowId();
+    const redirectAfterAcceptance = async (url: string) => {
+      const attemptId = await prepareBuilderSignup("google", undefined, flowId);
+      const targetUrl = new URL(url, window.location.origin);
+      if (attemptId)
+        targetUrl.searchParams.set("builder_signup_attempt", attemptId);
+      window.location.replace(targetUrl.toString());
+    };
     try {
       window.sessionStorage.setItem("__an_signin", "1");
     } catch {
@@ -1447,10 +1606,9 @@ export function AuthPage(props: AuthPageProps) {
       })
     ) {
       const params = new URLSearchParams({ return: target });
-      window.location.replace(`${identityHref}?${params.toString()}`);
+      await redirectAfterAcceptance(`${identityHref}?${params.toString()}`);
       return;
     }
-    const flowId = createFlowId();
     oauthFlowId.current = flowId;
     const flow = resolveGoogleFlow();
     const nativeDesktop = flow === "redirect" && isAgentNativeDesktop();
@@ -1468,12 +1626,52 @@ export function AuthPage(props: AuthPageProps) {
       stopNativeOAuth();
     }
     const authUrl = googleAuthUrlPath();
+    if (typeof window !== "undefined" && window.__agentNativeMobileOAuth) {
+      const attemptId = await prepareBuilderSignup("google", undefined, flowId);
+      const mobileAuthUrl = new URL(authUrl, window.location.origin);
+      if (attemptId) {
+        mobileAuthUrl.searchParams.set("builder_signup_attempt", attemptId);
+      }
+      const mobileAuth = startMobileGoogleAuth(
+        mobileAuthUrl.toString(),
+        oauthTarget,
+      );
+      if (mobileAuth) {
+        stopOAuthPolling();
+        const showRetry = () => {
+          if (flowId !== oauthFlowId.current) return;
+          setGoogleBusy(false);
+          setNotice("google", {
+            kind: "error",
+            text: t("googleNeverFinished"),
+          });
+        };
+        oauthBusyBoundTimer.current = window.setTimeout(
+          showRetry,
+          OAUTH_EXCHANGE_BUSY_BOUND_MS,
+        );
+        try {
+          const result = await mobileAuth;
+          if (flowId !== oauthFlowId.current) return;
+          if (result === "signed-in") finishOAuthExchange(target);
+          else {
+            stopOAuthPolling();
+            showRetry();
+          }
+        } catch {
+          if (flowId !== oauthFlowId.current) return;
+          stopOAuthPolling();
+          showRetry();
+        }
+        return;
+      }
+    }
     if (flow === "redirect" && !nativeDesktop) {
       const params = new URLSearchParams({
         return: oauthTarget,
         redirect: "1",
       });
-      window.location.replace(`${authUrl}?${params.toString()}`);
+      await redirectAfterAcceptance(`${authUrl}?${params.toString()}`);
       return;
     }
     const verifier = createVerifier();
@@ -1507,7 +1705,7 @@ export function AuthPage(props: AuthPageProps) {
             return: oauthTarget,
             redirect: "1",
           });
-          window.location.replace(`${authUrl}?${params.toString()}`);
+          await redirectAfterAcceptance(`${authUrl}?${params.toString()}`);
           return;
         }
         try {
@@ -1528,15 +1726,17 @@ export function AuthPage(props: AuthPageProps) {
           return: oauthTarget,
           redirect: "1",
         });
-        window.location.replace(`${authUrl}?${params.toString()}`);
+        await redirectAfterAcceptance(`${authUrl}?${params.toString()}`);
         return;
       }
     }
     try {
+      const attemptId = await prepareBuilderSignup("google", undefined, flowId);
       const params = new URLSearchParams({
         return: oauthTarget,
         desktop: "1",
         flow_id: flowId,
+        ...(attemptId ? { builder_signup_attempt: attemptId } : {}),
       });
       const { response, data } = await requestJson(
         `${authUrl}?${params.toString()}`,
@@ -1589,6 +1789,8 @@ export function AuthPage(props: AuthPageProps) {
     apiPath,
     googleAuthUrlPath,
     googleBusy,
+    builderSignup,
+    prepareBuilderSignup,
     identityHref,
     identityBootstrapHref,
     googleViaIdentitySso,
@@ -1597,6 +1799,8 @@ export function AuthPage(props: AuthPageProps) {
     setNotice,
     showGoogle,
     startOAuthExchange,
+    finishOAuthExchange,
+    stopOAuthPolling,
     stopNativeOAuth,
     t,
     trackingApp,
@@ -1819,6 +2023,10 @@ export function AuthPage(props: AuthPageProps) {
         email,
       );
       try {
+        const builderSignupAttemptId = await prepareBuilderSignup(
+          "password",
+          email,
+        );
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/register"),
           {
@@ -1826,6 +2034,7 @@ export function AuthPage(props: AuthPageProps) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               email,
+              ...(builderSignupAttemptId ? { builderSignupAttemptId } : {}),
               password: signupPassword,
               callbackURL: identityBootstrapHref(resumeHref()),
             }),
@@ -1888,6 +2097,7 @@ export function AuthPage(props: AuthPageProps) {
       signupEmail,
       signupPassword,
       signupPasswordConfirmation,
+      prepareBuilderSignup,
       t,
       trackingApp,
       view,
@@ -2070,6 +2280,10 @@ export function AuthPage(props: AuthPageProps) {
       );
       const desktop = isAgentNativeDesktop();
       try {
+        const builderSignupAttemptId = await prepareBuilderSignup(
+          "magic-link",
+          email,
+        );
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/magic-link"),
           {
@@ -2077,6 +2291,7 @@ export function AuthPage(props: AuthPageProps) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               email,
+              ...(builderSignupAttemptId ? { builderSignupAttemptId } : {}),
               callbackURL: desktop
                 ? apiPath("/_agent-native/auth/magic-link/desktop-callback")
                 : identityBootstrapHref(resumeHref()),
@@ -2122,6 +2337,7 @@ export function AuthPage(props: AuthPageProps) {
       apiPath,
       identityBootstrapHref,
       magicLinkEmail,
+      prepareBuilderSignup,
       resumeHref,
       setNotice,
       startOAuthExchange,
@@ -2312,6 +2528,34 @@ export function AuthPage(props: AuthPageProps) {
       </button>
     </div>
   ) : null;
+  const builderLegalNote =
+    (view !== "login" || showGoogle) &&
+    builderSignup?.status === "assigned" &&
+    builderSignup.variant === "automatic" ? (
+      <span>
+        {t(
+          view === "login"
+            ? "builderSignupNewAccountDisclosure"
+            : "builderSignupDisclosure",
+        )}{" "}
+        <a
+          href="https://www.builder.io/legal/terms"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {t("legalTerms")}
+        </a>{" "}
+        {t("legalConnector")}{" "}
+        <a
+          href="https://www.builder.io/legal/privacy"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {t("legalPrivacy")}
+        </a>
+        {t("legalSuffix")}
+      </span>
+    ) : null;
   const legalNote = signupLegalNotice ? (
     <p className="legal-note">
       <span data-i18n="legalPrefix">
@@ -2339,7 +2583,10 @@ export function AuthPage(props: AuthPageProps) {
       <span data-i18n="legalSuffix">
         {signupLegalNotice.suffix ?? t("legalSuffix")}
       </span>
+      {builderLegalNote && <> {builderLegalNote}</>}
     </p>
+  ) : builderLegalNote ? (
+    <p className="legal-note">{builderLegalNote}</p>
   ) : null;
   const signupForm = (
     <AuthForm
@@ -2401,11 +2648,12 @@ export function AuthPage(props: AuthPageProps) {
       submitLabel={t("createAccount")}
       submitProps={{
         "data-i18n": "createAccount",
-        disabled: submitting === "signup",
+        disabled: submitting === "signup" || !builderSignup,
       }}
       footer={
         <>
           {legalNote}
+
           {localModeNote}
         </>
       }
@@ -2547,7 +2795,7 @@ export function AuthPage(props: AuthPageProps) {
               className={`btn-google ${view === "magicLink" && isValidEmail(magicLinkEmail) ? "magic-link-secondary" : ""}`}
               id="google-btn"
               type="button"
-              disabled={googleBusy}
+              disabled={googleBusy || !builderSignup}
               aria-busy={googleBusy}
               onClick={() => void startGoogle()}
             >
@@ -2583,7 +2831,7 @@ export function AuthPage(props: AuthPageProps) {
             <button
               type="submit"
               id="organization-sso-submit"
-              disabled={ssoBusy || !isValidEmail(ssoEmail)}
+              disabled={!builderSignup || ssoBusy || !isValidEmail(ssoEmail)}
               data-i18n="ssoButton"
             >
               {ssoBusy ? t("checking") : t("ssoButton")}
@@ -2618,7 +2866,9 @@ export function AuthPage(props: AuthPageProps) {
               type="submit"
               id="magic-link-submit"
               className="magic-link-submit"
-              disabled={magicLinkBusy || !isValidEmail(magicLinkEmail)}
+              disabled={
+                !builderSignup || magicLinkBusy || !isValidEmail(magicLinkEmail)
+              }
               data-i18n="sendMagicLink"
             >
               {magicLinkBusy ? t("sending") : t("sendMagicLink")}
@@ -2701,7 +2951,11 @@ export function AuthPage(props: AuthPageProps) {
             </button>
           </div>
         ) : null}
-        {!googleOnly ? signupForm : null}
+        {!googleOnly ? (
+          signupForm
+        ) : builderLegalNote ? (
+          <p className="legal-note">{builderLegalNote}</p>
+        ) : null}
         <div
           id="verification-step"
           className={`form verification-step ${view === "verification" ? "active" : ""}`}
@@ -2903,6 +3157,9 @@ export function AuthPage(props: AuthPageProps) {
               </button>
             </p>
           ) : null}
+          {view === "login" && showGoogle && builderLegalNote ? (
+            <p className="legal-note">{builderLegalNote}</p>
+          ) : null}
         </form>
         <form
           id="forgot-form"
@@ -3026,12 +3283,16 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   ) : null;
+  const consentBanner = (
+    <ConsentBannerPanel messages={consentBannerMessagesForLocale(locale)} />
+  );
   const marketingSurface = marketingCopy ? (
     <main className="auth-marketing-home" data-agent-native-marketing-home>
       <div className="auth-marketing-shell">
         <div className="split auth-marketing-layout">
           <aside className="form-panel w-full max-w-md justify-self-end">
             {authCard}
+            {consentBanner}
           </aside>
           <section className="marketing-panel">
             <div className="auth-marketing-visual">{marketingContent}</div>
@@ -3040,7 +3301,10 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </main>
   ) : (
-    <div className="auth-centered">{authCard}</div>
+    <div className="auth-centered">
+      {authCard}
+      {consentBanner}
+    </div>
   );
   const localePicker = (
     <div className="locale-picker">
@@ -3114,7 +3378,10 @@ export function AuthPage(props: AuthPageProps) {
       <div className="auth-page-content">
         {localePicker}
         {initialPrompt ? (
-          <div className="auth-centered">{authCard}</div>
+          <div className="auth-centered">
+            {authCard}
+            {consentBanner}
+          </div>
         ) : (
           marketingSurface
         )}

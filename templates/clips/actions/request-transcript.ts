@@ -1,8 +1,15 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { resolveHasBuilderGatewayCredential } from "@agent-native/core/server";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  ForbiddenError,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { and, eq, isNull, or } from "drizzle-orm";
@@ -20,6 +27,7 @@ import {
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
 import {
+  hasImportedTranscript,
   hasTranscriptContent,
   saveTranscriptVersion,
 } from "../server/lib/transcript-versions.js";
@@ -56,6 +64,7 @@ import {
   joinChunkTranscripts,
   transcribeAudioChunks,
 } from "./lib/chunked-transcription.js";
+import { resolveCloudTranscriptionAccess } from "./lib/cloud-transcription-access.js";
 import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
 import { notImportedTranscript } from "./lib/imported-transcript.js";
 import {
@@ -99,7 +108,7 @@ function recordingTrackingSource(
 
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 const SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS =
-  "Auto-detect the spoken language from the audio. Transcribe only words spoken in the audio, in the same language they were spoken. Do not translate. Do not infer language from screen text, filenames, account settings, browser locale, or these instructions. Do not describe screen activity, UI changes, silence, music, or non-speech sounds. Return an empty transcript when there are no spoken words.";
+  "The audio is often a screen recording where the person types or taps without talking. Keyboard keystrokes, clicks and taps are not speech. Examples that must return segments: [] : steady typing, tapping a glass, mouse clicks, fan noise. A single short word like 'Hello' or 'Okay' heard only amid typing or noise is a false detection: return segments: []. Do not describe screen activity, UI changes, silence, music, or non-speech sounds, and do not write labels such as [keyboard typing]. Return an empty transcript when there are no spoken words. Auto-detect the spoken language from the audio. Transcribe only words spoken in the audio, in the same language they were spoken. Do not translate. Do not infer language from screen text, filenames, account settings, browser locale, or these instructions.";
 const RECENT_PENDING_TRANSCRIPT_MS = 2 * 60 * 1000;
 const BUILDER_TRANSCRIPTION_MIN_TIMEOUT_MS = 45_000;
 const BUILDER_TRANSCRIPTION_MAX_TIMEOUT_MS = 65_000;
@@ -883,6 +892,7 @@ async function completeReadyTranscript({
         fullText,
         now: new Date().toISOString(),
         mediaUpdatedAt: mediaUpdatedAt ?? recForTitle?.mediaUpdatedAt,
+        rewritesSegmentsJson: segmentsJson ?? "[]",
       });
       if (kept) return kept;
       segmentsJson = normalizedSegmentsJson;
@@ -1038,6 +1048,12 @@ const requestTranscriptAction = defineAction({
         "Internal — set only by the bounded automatic retry scheduler after a transient failure (ffmpeg timeout, transient provider error). Do not set this when calling request-transcript manually or from the agent; omitting it means the retry budget never applies to this call.",
       ),
   }),
+  needsApproval: async (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    args.regenerate === true &&
+    (await resolveAccess("recording", args.recordingId)) !== null &&
+    (await hasImportedTranscript(args.recordingId)),
+  mcpTool: "search",
   run: async (args, context?: ActionRunContext) => {
     const access = assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),
@@ -1047,7 +1063,7 @@ const requestTranscriptAction = defineAction({
 
     if (context?.caller === "tool" || context?.caller === "frontend") {
       assertTranscribableRecordingMedia(access.resource);
-      const [existingTranscript] = await db
+      const existingRows = await db
         .select({
           status: schema.recordingTranscripts.status,
           updatedAt: schema.recordingTranscripts.updatedAt,
@@ -1056,6 +1072,7 @@ const requestTranscriptAction = defineAction({
         .from(schema.recordingTranscripts)
         .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
         .limit(1);
+      const [existingTranscript] = existingRows;
       if (
         existingTranscript &&
         isRecentlyPendingTranscript(existingTranscript)
@@ -1069,6 +1086,30 @@ const requestTranscriptAction = defineAction({
           skipped: true,
           reason: "already-pending",
         };
+      }
+
+      // Only a regeneration or a clip without a ready transcript needs the
+      // cloud; a ready one still queues for its title and summary work.
+      if (
+        args.regenerate ||
+        !existingRows.some((row) => row.status === "ready")
+      ) {
+        const cloudAccess = await resolveCloudTranscriptionAccess();
+        if (cloudAccess === "unavailable") {
+          fail(transcriptFailureMessage("CLOUD_UNCONFIGURED"), {
+            errorCode: "ai_model_unavailable",
+            statusCode: 409,
+          });
+        }
+        if (cloudAccess === "unknown") {
+          fail(
+            "Couldn't check the Builder connection. Try again in a moment.",
+            {
+              errorCode: "ai_model_lookup_unavailable",
+              statusCode: 503,
+            },
+          );
+        }
       }
 
       await dispatchPostFinalizeJob({
@@ -1161,10 +1202,12 @@ const requestTranscriptAction = defineAction({
       : undefined;
 
     const currentRetryCount = existingNativeTranscript?.retryCount ?? 0;
-    const regeneratingReadyTranscript = Boolean(
-      args.regenerate &&
+    const hasReadyTranscriptText = Boolean(
       existingNativeTranscript?.status === "ready" &&
       existingNativeTranscript.fullText?.trim(),
+    );
+    const regeneratingReadyTranscript = Boolean(
+      args.regenerate && hasReadyTranscriptText,
     );
     const regeneratingFrom: StartedFromTranscript | undefined =
       regeneratingReadyTranscript
@@ -1211,6 +1254,24 @@ const requestTranscriptAction = defineAction({
       }
     }
 
+    // A no-speech result is settled for callers that did not ask to redo it, so
+    // they don't pay for another provider run. A forced request is the user's
+    // Retry on the "No speech detected" panel and still runs.
+    if (
+      !args.force &&
+      !args.regenerate &&
+      existingNativeTranscript?.status === "ready" &&
+      !existingNativeTranscript.fullText?.trim() &&
+      (existingNativeTranscript.segmentsJson ?? "[]").trim() === "[]"
+    ) {
+      return {
+        recordingId: args.recordingId,
+        status: "ready" as const,
+        skipped: true,
+        reason: "no-speech",
+      };
+    }
+
     // Past here the transcript comes from the recording's audio. A ready
     // transcript, such as an imported one on a YouTube clip, was kept above,
     // so the follow-up job import-transcript queues still fills its summary.
@@ -1232,7 +1293,11 @@ const requestTranscriptAction = defineAction({
       };
     }
 
-    if (await resolveHasBuilderGatewayCredential()) {
+    const cloudAccess = await resolveCloudTranscriptionAccess();
+    if (cloudAccess === "unknown") {
+      builderError = "Builder credential lookup is temporarily unavailable.";
+    }
+    if (cloudAccess === "available") {
       if (!regeneratingReadyTranscript) {
         const kept = await writeTranscriptOrKeepImport(db, {
           recordingId: args.recordingId,
@@ -1367,12 +1432,52 @@ const requestTranscriptAction = defineAction({
         }
 
         if (!fullText) {
-          builderError = "Builder transcription returned no speech.";
           await writeTranscriptCleanupState(args.recordingId, {
             status: "builder-transcription-empty",
             provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
-            failureReason: builderError,
+            failureReason: "Builder transcription returned no speech.",
           });
+          // The provider answered; there was nothing to say. A transcript that
+          // already has text, whether regenerated or retried as language
+          // mismatched, is never replaced with an empty one: it falls through
+          // to keep the existing transcript.
+          if (!hasReadyTranscriptText) {
+            const kept = await writeTranscriptOrKeepImport(db, {
+              recordingId: args.recordingId,
+              ownerEmail,
+              status: "ready",
+              failureReason: null,
+              language: normalizedTranscript.language ?? "en",
+              segmentsJson: "[]",
+              fullText: "",
+              now,
+              mediaUpdatedAt,
+            });
+            if (kept) return kept;
+            await writeAppState("refresh-signal", { ts: Date.now() });
+            await clearBuilderCreditsExhausted();
+            track(
+              "recording_completed",
+              {
+                app_name: "clips",
+                template_name: "clips",
+                recording_attempt_id: args.recordingId,
+                output_id: args.recordingId,
+                output_type: "clip",
+                duration_s: Math.round(rec.durationMs / 1000),
+                has_transcript: false,
+                transcription_source: "builder",
+              },
+              recordingTrackingSource(ownerEmail, context),
+            );
+            return {
+              recordingId: args.recordingId,
+              status: "ready" as const,
+              segments: 0,
+              provider: "builder",
+            };
+          }
+          builderError = "Builder transcription returned no speech.";
         }
 
         if (fullText) {
@@ -1517,9 +1622,11 @@ const requestTranscriptAction = defineAction({
     const reason = builderError
       ? "No native transcript was captured, and Builder transcription could not finish. Retry transcription or check Builder connection and recording audio."
       : "No transcript was captured by native speech recognition, and Builder transcription is not configured.";
-    const cloudTransient = builderError
-      ? isTransientTranscriptionError(new Error(builderError))
-      : false;
+    const cloudTransient =
+      cloudAccess === "unknown" ||
+      (builderError
+        ? isTransientTranscriptionError(new Error(builderError))
+        : false);
     const cloudNextRetryCount = currentRetryCount + 1;
     const kept = await writeTranscriptOrKeepImport(db, {
       recordingId: args.recordingId,
@@ -1575,13 +1682,14 @@ async function writeTranscriptOrKeepImport(
     ownerEmail: row.ownerEmail,
     mediaUpdatedAt: row.mediaUpdatedAt,
   });
-  // An import is always ready, so a refused write with nothing to keep means
-  // the row was deleted; carrying on would report work that wasn't saved.
+  // A refused write means an import landed, the rewrite's source changed, or
+  // the row was deleted. Only a ready transcript with text can be kept; without
+  // one, carrying on would report work that wasn't saved.
   if (!kept) {
-    fail(`Transcript row for ${row.recordingId} was removed while saving`, {
-      errorCode: "transcript_removed",
-      statusCode: 409,
-    });
+    fail(
+      `Transcript row for ${row.recordingId} changed or was removed while saving`,
+      { errorCode: "transcript_removed", statusCode: 409 },
+    );
   }
   return kept;
 }
@@ -1606,6 +1714,12 @@ async function upsertTranscriptRow(
      * lands while it runs.
      */
     replaceTranscript?: StartedFromTranscript;
+    /**
+     * The stored segments a reshaping of the same words was built from. Writing
+     * it over anything else would restore what changed since, such as audio the
+     * user just removed.
+     */
+    rewritesSegmentsJson?: string;
   },
 ): Promise<boolean> {
   let expectedMediaUpdatedAt = row.mediaUpdatedAt;
@@ -1703,6 +1817,12 @@ async function upsertTranscriptRow(
       // the same guarded update as any existing row.
       current = await lockCurrent();
       if (!current) return false;
+    }
+    if (
+      row.rewritesSegmentsJson !== undefined &&
+      current.segmentsJson !== row.rewritesSegmentsJson
+    ) {
+      return false;
     }
     const updated = await tx
       .update(t)

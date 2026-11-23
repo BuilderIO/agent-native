@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { deleteCollabState } from "@agent-native/core/collab";
 import { getDbExec } from "@agent-native/core/db";
+import { ensureReviewTables } from "@agent-native/core/review";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   ForbiddenError,
@@ -17,6 +18,8 @@ import {
   resolvePlanAccessContext,
   resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
+import { deletePrivatePlanAssetBytes } from "../server/lib/plan-assets.js";
+import { deleteMirroredPlanComments } from "../server/lib/plan-comment-mirror.js";
 import { nowIso, writeEvent } from "../server/plans.js";
 
 const hardDeleteModeSchema = z.enum(["soft", "restore", "hard"]);
@@ -164,9 +167,13 @@ async function countPlanRows(
 
 async function hardDeletePlanRows(planId: string, ownerEmail: string) {
   const db = getDb();
-  await db
-    .delete(schema.planComments)
-    .where(eq(schema.planComments.planId, planId));
+  await ensureReviewTables();
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(schema.planComments)
+      .where(eq(schema.planComments.planId, planId));
+    await deleteMirroredPlanComments(planId, "all", ownerEmail);
+  });
   // An edition's stories hang off the plan row with no cascade behind them, so
   // skipping this leaves the whole issue as rows nothing can reach.
   await db
@@ -187,6 +194,10 @@ async function hardDeletePlanRows(planId: string, ownerEmail: string) {
   await db
     .delete(schema.planShares)
     .where(eq(schema.planShares.resourceId, planId));
+  const assets = await db
+    .select({ data: schema.planAssets.data })
+    .from(schema.planAssets)
+    .where(eq(schema.planAssets.planId, planId));
   await db
     .delete(schema.planAssets)
     .where(eq(schema.planAssets.planId, planId));
@@ -196,6 +207,8 @@ async function hardDeletePlanRows(planId: string, ownerEmail: string) {
       and(eq(schema.plans.id, planId), eq(schema.plans.ownerEmail, ownerEmail)),
     );
   await deletePlanCollabState(planId);
+  // Last, so a failure above leaves no plan pointing at missing images.
+  await deletePrivatePlanAssetBytes(assets);
 }
 
 export default defineAction({

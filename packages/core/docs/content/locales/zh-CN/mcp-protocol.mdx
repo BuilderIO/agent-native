@@ -242,6 +242,11 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 `ask_app_status`；没有句柄的旧版结果必须重用相同的 `app` 和 `taskId`。切勿为恢复而
 重新提交 `ask_app`，因为提交可能会重复工作。永久性的身份验证、未找到和协议错误仍然是错误。
 
+`taskHandle` 在 `ask_app` 返回它一小时后过期。当 `ask_app_status` 以无效或已
+过期为由拒绝句柄时，请使用 `ask_app` 结果中的 `app` 和 `taskId`、不带
+`taskHandle`，继续轮询同一任务；错误消息也会这样提示。没有句柄时，状态调用会
+通过发现机制重新查找应用，因此只有在应用仍可被发现时才有效。
+
 ## 身份验证 {#authentication}
 
 MCP 端点支持标准远程 MCP OAuth 以及现有的不记名令牌后备：

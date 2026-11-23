@@ -16,8 +16,9 @@ Helper invariants, checked in the same runs:
 - **P1, single writer.** Every committed write to `agent_execution_steps` was
   made by the owner of the current live lease generation. The reset fallback
   is attributed to the successor whose live lease and running run it locks.
-- **P6, no resurrection.** A lease `(owner, generation)` that stopped being
-  live never becomes live again.
+- **P6, no resurrection.** A lease `(owner, generation)` that was revoked,
+  replaced by a claim, or pruned never owns the lease again. A lease that only
+  lapsed is still its owner's: the owner may renew it.
 - **ClaimRespectsLiveOwner.** A claim never supersedes a live lease whose
   owner run is still `running`.
 
@@ -33,8 +34,14 @@ Helper invariants, checked in the same runs:
   request turn IDs that are not reused after their rows are pruned. P8 is
   conditional on this explicit assumption. The F7 finding sets it to `FALSE`,
   matching source admission after pruning and checking the broader P8Strict.
-- Time is modelled only as "a live lease may stop being live at any moment"
-  (expiry, or a revoke with no owner check).
+- Time is modelled only as "a live lease may stop being live at any moment".
+  Expiry (`LeaseLapse`) and a revoke with no owner check (`LeaseRevoke`) are
+  separate: every revoke sets `lease_expires_at` and `updated_at` to now
+  together, so `ownsLapsedTurnLease` can tell them apart from the row alone.
+  While a lease is lapsed and unrevoked and its run is still `running` at its
+  generation, the fence (`Current`) still accepts its owner, and a renewal
+  makes it live again. A claim may still take a lapsed lease, which bumps the
+  generation and fences the old owner out under the same row lock.
 - Workers are adversarial. They keep acting until a database guard rejects
   them; the heartbeat abort and the 3 s abort poll are not relied on.
 - The dispatched marker commits before handler entry. Cancellation can reset
@@ -92,6 +99,20 @@ Helper invariants, checked in the same runs:
   each completed pause's marker in that transaction. Completed runs and their
   leases remain unchanged; cross-turn admission is outside this model.
 
+## Protocol change: a lapsed lease stays its owner's
+
+The worker used to lose its lease 15 s after a stalled renewal or a blocked
+event loop, abort without a terminal event, and leave the reaper to report
+the run as stale. `lockAndAssertCurrentExecutionFences` and
+`renewExecutionLease` now fall back to `ownsLapsedTurnLease` when the live
+check misses. It requires the lease row to still name the run and generation,
+to have expired at least 1 s after its last `updated_at` (a revoke sets both
+to now), and the run row to be `running` at that generation. The model
+gained `lease.revoked`, split `LeaseRevoke` from `LeaseLapse`, widened
+`Current` to the lapsed-unrevoked case, and restated P6 over ownership rather
+than liveness. Claims, the reaper and `ClaimRespectsLiveOwner` still key on a
+live lease, so a lapsed lease can be taken over exactly as before.
+
 ## Coverage review for MCP automation approval
 
 The coverage refresh at `bc6ca396161a` re-read `beginAgentExecutionStep`,
@@ -113,6 +134,22 @@ including `insertTurnAbortMarkers`. Re-reading that helper, `tryClaimRunSlot`
 and `markTurnAborted` confirms that current-turn approval admission and
 completed-pause interruption use the cross-turn scope described above. They
 do not weaken step fencing or move an effect ahead of durable dispatch.
+
+## Coverage review for a Stop that reports the browser's last event
+
+The coverage refresh for the stopped-reply change re-read `updateRunAborted`.
+It now writes what a user's Stop reported about the browser
+(`shownThroughSeq`) into the terminal `done` event it appends with the
+aborted status. Only that event's content changed: the transaction still locks
+the run's leases and fences, moves the run from running to aborted, revokes
+its lease and appends the terminal event in that order, so `StopRun` and the
+existing model remain applicable.
+
+A later refresh re-read it again. A Stop on a run that is already aborted
+still rewrites the terminal event, but now reads the run's last event first,
+inside the same transaction and after the same locks, and keeps the first
+Stop's `shownThroughSeq` in the event it writes. That read adds no lock and no
+write, so the order above and the model's `StopRun` are unchanged.
 
 ## Results after the F2/F3 retention regression update
 

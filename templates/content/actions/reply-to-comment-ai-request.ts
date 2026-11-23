@@ -8,13 +8,14 @@ import {
   commentThreadDigest,
   completeCommentAiAttempt,
   markCommentAiRefreshRequired,
+  readCommentAiText,
   requireCommentAiRequest,
   retainCommentAiAttemptPayload,
   serializeCommentAiRequest,
   updateCommentAiRequest,
   verifyCommentAiAttempt,
 } from "../server/lib/comment-ai.js";
-import { documentRevisionToken } from "./_document-edit-mutation.js";
+import { commentAiChangeResource } from "../server/lib/document-change-resource.js";
 import { addCommentWithGuard, commentIdForIdempotency } from "./add-comment.js";
 
 const payloadSchema = z.object({
@@ -69,8 +70,8 @@ export default defineAction({
             .for("update");
           if (
             !document ||
-            documentRevisionToken(document.bodyRevision, document.content) !==
-              verification.attempt.sourceRevision
+            (await readCommentAiText(tx, document, request.fieldId))
+              .revision !== verification.attempt.sourceRevision
           ) {
             throw new CommentAiOperationError(
               "page_changed",
@@ -133,4 +134,5 @@ export default defineAction({
       throw typed;
     }
   },
+  changeResource: commentAiChangeResource,
 });

@@ -19,8 +19,10 @@ import {
 import { agentErrorDetails } from "../agent/action-error-details.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { extractAgentImagesFromActionResult } from "../agent/tool-result-images.js";
+import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { captureError } from "../server/capture-error.js";
+import { getEmbedSessionOrigin } from "../server/embed-request-origin.js";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -58,11 +60,12 @@ import {
   upstreamStatusText,
   withheldWriteResponse,
   withoutMcpAppEmbedTicket,
+  withServerMintedFullAppEmbedStart,
   withServerMintedMcpAppEmbedStart,
 } from "./build-server.js";
 import { mcpCallAttribution } from "./call-attribution.js";
 import {
-  DATABASE_FAILURE_MESSAGE,
+  databaseFailureMessage,
   describeThrownForLog,
   HIDDEN_EMBED_URL,
   isDatabaseQueryFailure,
@@ -99,6 +102,9 @@ export interface DirectActionCallScope {
   config: MCPConfig;
   actions: Record<string, ActionEntry>;
   advertisedActions: Record<string, ActionEntry>;
+  /** Served actions `tools/list` leaves out (`mcpTool: "search"`): callable
+   *  like listed ones, by name or through `call-tool`. */
+  unlistedActions: Record<string, ActionEntry>;
   /** False for an action whose input schema the request leaves out. */
   isAdvertisable: (name: string) => boolean;
   visibleActions: Record<string, ActionEntry>;
@@ -127,6 +133,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     config,
     actions,
     advertisedActions,
+    unlistedActions,
     isAdvertisable,
     visibleActions,
     fullCatalogRequested,
@@ -138,6 +145,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     inputResponse,
     requestMcpActionApproval,
   } = scope;
+  const servedActions = { ...advertisedActions, ...unlistedActions };
 
   const writeChangeMarker = async (
     entry: ActionEntry,
@@ -153,9 +161,12 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         orgId: getRequestOrgId() ?? undefined,
       });
     } catch (error) {
-      console.warn(
-        `Could not write the action-change marker after an MCP tool call: ${describeThrownForLog(error)}`,
-      );
+      console.warn({
+        event: "action_change_marker_failed",
+        transport: "mcp",
+        action: name,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
     }
   };
   // What a call that ran has done, read when its result is checked; one
@@ -176,7 +187,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     fail: (failure: DirectActionCallFailure) => void,
   ) => {
     const { name, args, request, ctx } = call;
-    const callableActions = fullCatalogRequested ? actions : advertisedActions;
+    const callableActions = fullCatalogRequested ? actions : servedActions;
 
     // A directory profile may project results arbitrarily, so the derived
     // contract is advertised and enforced on app catalogs only. It compiles
@@ -187,7 +198,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       : callableActions[name]?.mcpOutputContract;
 
     const errorText = (err: any) => {
-      if (isDatabaseQueryFailure(err)) return DATABASE_FAILURE_MESSAGE;
+      if (isDatabaseQueryFailure(err)) return databaseFailureMessage(err);
       const projectedError =
         directoryCatalog && config.directoryProfile?.projectResult
           ? config.directoryProfile.projectResult(name, err.message)
@@ -269,11 +280,15 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       args,
       // A tool the request leaves out is unknown here, as it is to tools/list.
       callable: isAdvertisable(name) ? callableActions : {},
-      actionRunContext: mcpCallAttribution({
-        request,
-        envelope: ctx.mcpReq.envelope,
-        oauthClientId: effectiveIdentity?.oauthClientId,
-      }),
+      actionRunContext: {
+        ...mcpCallAttribution({
+          request,
+          envelope: ctx.mcpReq.envelope,
+          oauthClientId: effectiveIdentity?.oauthClientId,
+          userAgent: requestMeta?.clientName,
+        }),
+        signal: ctx.mcpReq.signal,
+      },
       approval: {
         state: () =>
           ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined,
@@ -322,6 +337,13 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     }
 
     if (outcome.status === "threw") {
+      if (
+        name === "tool-search" &&
+        outcome.error instanceof ServicePrincipalRefusedError &&
+        outcome.error.statusCode === 503
+      ) {
+        throw outcome.error;
+      }
       // Once a write entered its handler, in the call or one nested in it,
       // other sessions refresh however the call then failed.
       if (
@@ -429,10 +451,25 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       };
       const projectedRawResult = project(rawResult);
       const projectedResultForClient = project(resultForClient);
+      const appResource = { unresolved: false };
       const mcpAppResourceCandidate =
         requestMeta?.inlineMcpApps &&
         mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
-          ? await resolveMcpAppResourceSafely(config, name, entry, requestMeta)
+          ? await resolveMcpAppResourceSafely(
+              config,
+              name,
+              entry,
+              requestMeta,
+            ).catch((error: unknown) => {
+              if (directoryCatalog) throw error;
+              // The action already ran: report that its app cannot open
+              // rather than fail a call whose change was saved.
+              appResource.unresolved = true;
+              console.warn(
+                `[mcp] ${name} completed, but the server cannot open its app here: ${describeThrownForLog(error)}`,
+              );
+              return null;
+            })
           : null;
       const trustedCredentialIssuedAtMs =
         effectiveIdentity?.mcpCredentialIssuedAtMs;
@@ -480,6 +517,52 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         directoryWidget === undefined;
       const suppressDirectoryWidget =
         directoryCatalog && !hasVerifiedMcpUserIdentity(effectiveIdentity);
+      // Outside the directory catalog, a resource with no scoped widget
+      // mounts the whole app, as the desktop side panel does.
+      const noWidgetOpened =
+        !directoryCatalog &&
+        requiresEmbedSession &&
+        !!mcpAppResourceCandidate &&
+        directoryWidget === undefined &&
+        !mcpResultIsError;
+      // A tool with a declared widget target is scoped to it; when that
+      // widget is unavailable it falls back to a link, never the whole app.
+      const fullAppCandidate =
+        noWidgetOpened &&
+        !Object.hasOwn(config.directoryProfile?.widgetTargets ?? {}, name);
+      // The action already ran, so an origin the allowlist rejects only keeps
+      // its app from opening; it must not turn the call into a failure.
+      let fullAppOrigin: "none" | "valid" | "rejected" = "none";
+      if (noWidgetOpened) {
+        try {
+          fullAppOrigin = getEmbedSessionOrigin() ? "valid" : "none";
+        } catch (error) {
+          fullAppOrigin = "rejected";
+          console.warn(
+            `[mcp] ${name} completed, but the server cannot open its app here: ${describeThrownForLog(error)}`,
+          );
+        }
+      }
+      const fullAppEmbedResult =
+        fullAppCandidate &&
+        fullAppOrigin === "valid" &&
+        hasVerifiedMcpUserIdentity(effectiveIdentity) &&
+        typeof trustedCredentialIssuedAtMs === "number" &&
+        Number.isSafeInteger(trustedCredentialIssuedAtMs)
+          ? await withServerMintedFullAppEmbedStart(
+              projectedRawResult,
+              entry,
+              callArgs(),
+              trustedCredentialIssuedAtMs,
+            ).catch((error: unknown) => {
+              console.warn(
+                `[mcp] ${name} could not mint a full-app session; using a full-app link: ${describeThrownForLog(error)}`,
+              );
+              return undefined;
+            })
+          : undefined;
+      const fullAppEmbed =
+        typeof metadataObject(fullAppEmbedResult).embedStartUrl === "string";
       // The host mounts a widget for this tool from its descriptor, with or
       // without a ticket in the result, so a withheld ticket must be visible.
       if (
@@ -497,9 +580,10 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           }.`,
         );
       }
-      const rawResultForClient =
-        entry.mcpApp?.resource !== undefined &&
-        (!directoryWidget || suppressDirectoryWidget)
+      const rawResultForClient = fullAppEmbed
+        ? fullAppEmbedResult
+        : entry.mcpApp?.resource !== undefined &&
+            (!directoryWidget || suppressDirectoryWidget)
           ? withoutMcpAppEmbedTicket(projectedRawResult)
           : mcpAppResourceCandidate
             ? await withServerMintedMcpAppEmbedStart(
@@ -527,7 +611,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       const mcpAppResource =
         mcpAppResourceCandidate &&
         (!requiresEmbedSession ||
-          (directoryWidget &&
+          ((directoryWidget || fullAppEmbed) &&
             typeof metadataObject(actionResultForClient).embedStartUrl ===
               "string")) &&
         !mcpResultIsError &&
@@ -539,6 +623,14 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         !missingWidgetCapability &&
         !mcpResultIsError &&
         !embedHasContent;
+      // The host mounts this tool's app from its descriptor, so a full-app call
+      // that has no session must say so rather than leave an empty frame.
+      // An `embed: false` result opts out of the frame, not of this signal.
+      const fullAppNotOpened =
+        (appResource.unresolved && !mcpResultIsError) ||
+        (noWidgetOpened && fullAppOrigin !== "none" && !mcpAppResource);
+      const fullAppOptedOut =
+        metadataObject(projectedRawResult).embed === false;
       const mcpAppOpenLinkMeta = mcpAppResource
         ? mcpAppEmbedOpenLinkMeta(
             actionResultForClient,
@@ -671,15 +763,19 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           text:
             embedProducedNothing && isWrite
               ? `${name} completed; its change was saved, but it produced no widget content.`
-              : upstream === "unknown"
-                ? `${upstreamStatusText(name, upstream)} ${text}`
-                : text,
+              : fullAppNotOpened
+                ? `${name} completed${isWrite ? "; its change was saved" : ""}, but ${fullAppOptedOut ? "it opens as a link, not here" : "its app could not open here"}. Use the link to open it. ${text}`
+                : upstream === "unknown"
+                  ? `${upstreamStatusText(name, upstream)} ${text}`
+                  : text,
         },
       ];
       if (block) content.push(block);
       const assembled = {
         content,
-        ...(mcpResultIsError || embedProducedNothing ? { isError: true } : {}),
+        ...(mcpResultIsError || embedProducedNothing || fullAppNotOpened
+          ? { isError: true }
+          : {}),
         ...(structuredContent ? { structuredContent } : {}),
         ...(Object.keys(responseMeta).length > 0
           ? { _meta: responseMeta }

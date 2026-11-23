@@ -16,14 +16,21 @@ import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { SandboxCodeEvaluator } from "../coding-tools/run-code.js";
 import { frameworkMcpTools } from "../mcp/framework-tools.js";
-import { hashDataProgramParams, runDataProgram } from "./execute.js";
+import {
+  hashDataProgramParams,
+  hashOrgSharedDataProgramParams,
+  runDataProgram,
+} from "./execute.js";
 import {
   archiveDataProgram,
   getDataProgram,
-  getLatestRun,
+  getLatestFinishedRun,
+  getLatestFinishedRunOutcome,
+  getLatestSuccessfulRun,
   listDataPrograms,
   upsertDataProgram,
   MIN_REFRESH_TTL_MS,
+  MIN_SCHEDULED_REFRESH_MS,
 } from "./store.js";
 
 const SLUG_RE = /^[a-z0-9][a-z0-9_-]*$/;
@@ -84,6 +91,12 @@ export function createDataProgramActions(
         .optional()
         .describe(`Minimum ${MIN_REFRESH_TTL_MS}ms.`),
       background: z.boolean().optional(),
+      scheduledRefresh: z
+        .boolean()
+        .optional()
+        .describe(
+          `Rerun the program on the server every refreshTtlMs with its defaultParams and the org's own credentials, so the org's shared run stays fresh with no one viewing it. Needs an organization, refreshMode "ttl", a refreshTtlMs of at least ${MIN_SCHEDULED_REFRESH_MS / 60_000} minutes, and not background. Left out, an existing program keeps its setting.`,
+        ),
     }),
     toolCallable: false,
     run: async (args, ctx) => {
@@ -120,6 +133,7 @@ export function createDataProgramActions(
         refreshMode: args.refreshMode,
         refreshTtlMs: args.refreshTtlMs,
         background: args.background,
+        scheduledRefresh: args.scheduledRefresh,
         ownerEmail: userEmail,
         orgId: ctx?.orgId ?? null,
       });
@@ -238,6 +252,7 @@ export function createDataProgramActions(
           refreshMode: p.refreshMode,
           refreshTtlMs: p.refreshTtlMs,
           background: p.background,
+          scheduledRefresh: p.scheduledRefresh,
           archivedAt: p.archivedAt,
           updatedAt: p.updatedAt,
           columns: p.outputColumns ? JSON.parse(p.outputColumns) : [],
@@ -248,7 +263,7 @@ export function createDataProgramActions(
 
   const getDataProgramAction = defineAction({
     description:
-      "Get one data program's metadata, code, and last-run summary. Set includeRows to include the last run's cached rows.",
+      "Get one data program's metadata, code, and last finished run. When that run failed, lastGoodRun is the newest successful one. Set includeRows to include their cached rows.",
     schema: z.object({
       programId: z.string().min(1),
       includeRows: z.boolean().optional(),
@@ -277,7 +292,24 @@ export function createDataProgramActions(
         ctx?.userEmail,
         ctx?.orgId ?? null,
       );
-      const lastRun = await getLatestRun(program.id, hash);
+      // A background program records its next run as soon as it queues it,
+      // so read the newest finished run, plus the newest success when that
+      // run failed, rather than an empty queued row.
+      const lastRun = await getLatestFinishedRun(program.id, hash);
+      const lastGoodRun =
+        lastRun && lastRun.status !== "succeeded"
+          ? await getLatestSuccessfulRun(program.id, hash)
+          : null;
+      const latestShared = program.orgId
+        ? await getLatestFinishedRunOutcome(
+            program.id,
+            hashOrgSharedDataProgramParams(defaultParams, program.orgId),
+          )
+        : null;
+      const orgSharedRun =
+        latestShared && latestShared.startedAt >= Date.parse(program.updatedAt)
+          ? latestShared
+          : null;
 
       return {
         id: program.id,
@@ -292,8 +324,17 @@ export function createDataProgramActions(
         refreshMode: program.refreshMode,
         refreshTtlMs: program.refreshTtlMs,
         background: program.background,
+        scheduledRefresh: program.scheduledRefresh,
         archivedAt: program.archivedAt,
         columns: program.outputColumns ? JSON.parse(program.outputColumns) : [],
+        orgSharedRun: orgSharedRun
+          ? {
+              status: orgSharedRun.status,
+              errorCode: orgSharedRun.errorCode,
+              errorMessage: orgSharedRun.errorMessage,
+              finishedAt: orgSharedRun.finishedAt,
+            }
+          : null,
         lastRun: lastRun
           ? {
               status: lastRun.status,
@@ -307,6 +348,18 @@ export function createDataProgramActions(
                 : {}),
             }
           : null,
+        ...(lastGoodRun
+          ? {
+              lastGoodRun: {
+                rowCount: lastGoodRun.rowCount,
+                truncated: lastGoodRun.truncated,
+                finishedAt: lastGoodRun.finishedAt,
+                ...(args.includeRows && lastGoodRun.rowsJson
+                  ? { rows: JSON.parse(lastGoodRun.rowsJson) }
+                  : {}),
+              },
+            }
+          : {}),
       };
     },
   });

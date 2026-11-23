@@ -180,6 +180,16 @@ description before it can call the tool — a start/update/complete sequence or 
 argument enum in the prompt buys nothing and is charged on every turn. State
 that the capability exists and when it applies; let the description carry how.
 
+## New required steps are guidance until measured
+
+A step, gate, or hold added to a workflow costs every run that follows it, and
+a pile of individually reasonable ones is how workflows get slow. Default to
+guidance or a non-blocking mechanism (a script that reports, grouping work
+before it is handed out, review by sampling). A step that must block needs a
+named number it should move, a measured trial first, and a time limit with an
+owner. Run `node scripts/agent-friction-report.mjs --weeks 2` before adding one
+(see `CLAUDE.md`, Checks).
+
 ## Prefer judgment over rules, and interfaces over examples
 
 Blanket prohibitions were how older models were kept out of worst-case

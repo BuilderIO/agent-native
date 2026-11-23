@@ -407,7 +407,7 @@ function CheckItem({
   children: ReactNode;
 }) {
   return (
-    <DropdownMenuItem onSelect={onSelect} className="gap-3">
+    <DropdownMenuItem onSelect={onSelect}>
       {children}
       <IconCheck className={cn("ms-auto size-4", !checked && "invisible")} />
     </DropdownMenuItem>

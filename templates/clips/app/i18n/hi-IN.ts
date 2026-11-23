@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "रिकॉर्डिंग का संदर्भ दें…",
+    group: "रिकॉर्डिंग",
+    authentication: "संदर्भ जोड़ने के लिए साइन इन करें।",
+    invalid: "भेजने से पहले एक मान्य संदर्भ चुनें।",
+    unavailable: "चुना गया संदर्भ अब उपलब्ध नहीं है। उसे हटाएँ या फिर से चुनें।",
+  },
   meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
   meetingBrowserConfirmation:
     "Clips इस ब्राउज़र में माइक्रोफ़ोन गतिविधि देखता है, लेकिन यह नहीं पहचान सकता कि मीटिंग किस टैब में है।",
@@ -217,7 +224,6 @@ const messages = {
     spaces: "स्पेस",
     meetings: "मीटिंग्स",
     dictate: "डिक्टेट",
-    fromContent: "Content से",
     archive: "आर्काइव",
     trash: "ट्रैश",
     agent: "एजेंट",
@@ -272,10 +278,6 @@ const messages = {
     archive: {
       title: "कोई आर्काइव की गई रिकॉर्डिंग नहीं",
       body: "आर्काइव किए गए Clips यहाँ तब तक रहते हैं जब तक आप उन्हें वापस लाना न चाहें।",
-    },
-    fromContent: {
-      title: "Content से अभी तक कोई अपलोड नहीं",
-      body: "Content पेज पर अपलोड किए गए वीडियो यहाँ Clips के रूप में सहेजे जाते हैं।",
     },
     trash: {
       title: "ट्रैश खाली है",
@@ -599,6 +601,8 @@ const messages = {
     them: "उन्हें",
     me: "मुझे",
     regeneratingNotes: "सारांश पुन: उत्पन्न कर रहे हैं",
+    notesAlreadyGenerating:
+      "सारांश पहले से बनाया जा रहा है। तैयार होने पर यह यहाँ दिखेगा।",
     meetingRemoved: "मीटिंग हटा दी गई",
     couldNotRemoveMeeting: "मीटिंग को हटाया नहीं जा सका",
     couldNotLoadMeeting: "इस मीटिंग को लोड नहीं किया जा सका.",
@@ -624,6 +628,13 @@ const messages = {
     desktopHint:
       "नोट्स शुरू करने के लिए, मेनू बार से Clips Desktop खोलें और Start Meeting Notes चुनें, या रिमाइंडर आने पर Start notes पर क्लिक करें। Clips माइक्रोफ़ोन और सिस्टम ऑडियो कैप्चर करके यहां ट्रांसक्रिप्ट लिखता है।",
     getDesktopApp: "डेस्कटॉप ऐप प्राप्त करें",
+    earlierAudioAdded_one: "आपके शुरू करने से पहले का {{count}} मिनट जोड़ा गया",
+    earlierAudioAdded_other: "आपके शुरू करने से पहले के {{count}} मिनट जोड़े गए",
+    earlierAudioUnreadable: "इस ट्रांसक्रिप्ट में पहले के ऑडियो की जाँच नहीं हो सकी",
+    removeEarlierAudioTitle: "पहले का ऑडियो हटाएँ?",
+    removeEarlierAudioDescription:
+      "इससे यह ट्रांसक्रिप्ट से हट जाएगा और सारांश, एक्शन आइटम और क्लिप का विवरण फिर से बनेंगे, भले ही वह विवरण आपने खुद लिखा हो। जनरेट किया गया शीर्षक भी फिर से बनेगा; आपका चुना हुआ शीर्षक बना रहेगा। सभी अध्याय भी हटा दिए जाएँगे।",
+    couldNotRemoveEarlierAudio: "पहले का ऑडियो नहीं हटाया जा सका",
     generateNotesFailed: "सारांश जनरेट नहीं किया जा सका. पुनः प्रयास करें।",
     attendee_one: "{{count}} सहभागी",
     attendee_other: "{{count}} उपस्थितगण",
@@ -674,6 +685,10 @@ const messages = {
     noMatches: "कोई मेल नहीं।",
     noTranscript: "अभी तक कोई प्रतिलेख नहीं.",
     noTranscriptCaptured: "कोई प्रतिलेख कैप्चर नहीं किया गया.",
+    unreadableDescription:
+      "सहेजा गया प्रतिलेख खराब हो गया है। इसे फिर से बनाने पर क्लिप के ऑडियो से नया प्रतिलेख बनता है।",
+    partialTranscript:
+      "आंशिक प्रतिलेख: रिकॉर्डिंग कट गई थी, इसलिए कुछ हिस्सा गायब हो सकता है।",
     backupFailed:
       "कोई भी भाषण स्थानीय रूप से कैप्चर नहीं किया गया, और बैकअप ट्रांसक्रिप्शन समाप्त नहीं हुआ। पुनः प्रयास करें या माइक्रोफ़ोन और वाक् अनुमतियाँ जाँचें।",
     backupNotSetup:
@@ -753,6 +768,10 @@ const messages = {
     saveThumbnail: "थंबनेल सेव करें",
   },
   shareDialog: {
+    enterPassword: "पासवर्ड दर्ज करें",
+    showPassword: "पासवर्ड दिखाएं",
+    hidePassword: "पासवर्ड छिपाएं",
+    copyPassword: "पासवर्ड कॉपी करें",
     redactionsPendingTitle: "शेयर करने से पहले छिपाए गए हिस्सों को लागू करें",
     redactionsPendingBody:
       "लंबित छिपाए गए हिस्से: {{count}}. शेयर करने से पहले इन्हें एडिटर में लागू करें; वीडियो में अभी भी मूल सामग्री मौजूद है।",
@@ -778,7 +797,7 @@ const messages = {
     openInCodex: "Codex में खोलें",
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
-      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें। यदि आपका टूल इमेज नहीं लौटा सकता या इन लिंक को नहीं खोल सकता, तो बताएं कि यह आपके टूल की सीमा है; यह Clips की त्रुटि नहीं है।",
+      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें। यदि आप फ़्रेम URL को इमेज के रूप में नहीं खोल सकते, तो उपलब्ध होने पर इसी संदर्भ URL की रिकॉर्डिंग ID के साथ Clips का get-recording-frames टूल कॉल करें। यदि उपलब्ध नहीं है, तो उपयोगकर्ता को बताएं कि {{connectUrl}} पर Clips को कनेक्ट करने से आप फ़्रेम देख सकेंगे।",
     agentTokenDescription:
       "यह क्लिप सार्वजनिक नहीं है, इसलिए एजेंटों के लिए अस्थायी रीड-ओनली लिंक। 2 घंटे में समाप्त।",
     agentPublicDescription:
@@ -1131,6 +1150,10 @@ const messages = {
     reconnect: "फिर से कनेक्ट करें",
     connectedAs: "{{account}} के रूप में कनेक्टेड",
     needsReconnect: "{{account}} को फिर से कनेक्ट करना होगा।",
+    calendarsDescription: "Clips उन कैलेंडर की मीटिंग दिखाता है जिन्हें आप चालू करते हैं।",
+    mainCalendar: "मुख्य कैलेंडर",
+    showCalendar: "{{calendar}} की मीटिंग दिखाएँ",
+    calendarsLoadFailed: "इस खाते के कैलेंडर लोड नहीं हो सके।",
     disconnectFailed: "कैलेंडर डिस्कनेक्ट नहीं हो सका।",
     disconnectCalendarDescription:
       "Clips {{account}} से आने वाली मीटिंग सिंक करना बंद कर देगा।",
@@ -1233,6 +1256,43 @@ const messages = {
     startChatAction: "चैट शुरू करें",
     trackInDashboard: "डैशबोर्ड में ट्रैक करें",
     chooseDashboardAction: "डैशबोर्ड चुनें",
+  },
+  libraryFilters: {
+    source: "स्रोत",
+    sourceShort: "स्रोत",
+    sourceClips: "Clips में रिकॉर्ड की गई",
+    sourceContent: "Content पेज से अपलोड की गई",
+    sourceAll: "कहीं से भी",
+    madeBy: "किसने बनाई",
+    madeByPerson: "किसी व्यक्ति ने",
+    madeByAgent: "किसी एजेंट ने",
+    created: "बनाने की तारीख",
+    sharing: "शेयरिंग",
+    sharingPrivate: "निजी",
+    sharingOrg: "संगठन",
+    sharingPublic: "सार्वजनिक",
+    sharingShared: "किसी के साथ शेयर की गई",
+    sharingNotShared: "किसी के साथ शेयर नहीं की गई",
+    length: "अवधि",
+    lengthUnder1m: "1 मिनट से कम",
+    length1To5m: "1 से 5 मिनट",
+    length5To20m: "5 से 20 मिनट",
+    lengthOver20m: "20 मिनट से ज़्यादा",
+    tag: "टैग",
+    tagOne: "टैग",
+    tagOther: "टैग",
+    transcript: "ट्रांसक्रिप्ट",
+    transcriptYes: "ट्रांसक्रिप्ट है",
+    transcriptNo: "कोई ट्रांसक्रिप्ट नहीं",
+    items: "क्लिप",
+    matchCount_one: "{{count}} क्लिप मेल खाती है",
+    matchCount_other: "{{count}} क्लिप मेल खाती हैं",
+    showCount_one: "{{count}} क्लिप दिखाएँ",
+    showCount_other: "{{count}} क्लिप दिखाएँ",
+    emptyTitle: "इन फ़िल्टर से कोई क्लिप मेल नहीं खाती",
+    emptyBody: "और क्लिप देखने के लिए फ़िल्टर बदलें या हटाएँ।",
+    showAll: "कहीं से भी आई क्लिप दिखाएँ",
+    clear: "फ़िल्टर हटाएँ",
   },
   libraryGrid: {
     spaceRoot: "स्पेस रूट",
@@ -1491,6 +1551,7 @@ const messages = {
   transcriptBubbles: {
     listening: "सुन रहा है…",
     noTranscript: "अभी कोई ट्रांसक्रिप्ट नहीं।",
+    unreadable: "यह ट्रांसक्रिप्ट पढ़ी नहीं जा सकी।",
     liveTranscriptDescription: "नोट्स शुरू होने पर लाइव ट्रांसक्रिप्ट यहां दिखाई देगी।",
     me: "मैं",
     them: "वे",
@@ -1972,6 +2033,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "{{count}} मुफ़्त क्लिप बाकी",
     freeClipsLeft_other: "{{count}} मुफ़्त क्लिप बाकी",
+    activateBuilder: "Builder.io सक्रिय करें",
     hostedClipsExhaustedTitle:
       "रिकॉर्डिंग जारी रखने के लिए Builder.io को मुफ़्त में कनेक्ट करें",
     hostedClipsExhaustedDescription:
@@ -2178,6 +2240,12 @@ const messages = {
     flowOriginalTranscript: "मूल ट्रांसक्रिप्ट दिखाएँ",
     flowCleanupSkipped: "टेक्स्ट की सफ़ाई छोड़ी गई; मूल टेक्स्ट रखा गया",
     flowBacktrackSkipped: "टेक्स्ट संपादन छोड़ा गया; पहचाना गया टेक्स्ट रखा गया",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet डाउनलोड नहीं हुआ",
+    flowAppleSpeechParakeetDownloading:
+      "Apple Speech · Parakeet डाउनलोड हो रहा है",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet लोड हो रहा है",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet व्यस्त है",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet लोड नहीं हो सका",
     flowCancelDictation: "डिक्टेशन रद्द करें",
     flowCopying: "ट्रांसक्रिप्ट कॉपी हो रहा है…",
     aiProcessed: "AI द्वारा प्रोसेस किया गया",
@@ -2312,7 +2380,6 @@ const messages = {
     goHome: "होम पर जाएं",
     testMic: "माइक टेस्ट करें",
     archivePageTitle: "आर्काइव · Clips",
-    fromContentPageTitle: "Content से · Clips",
     openContentPage: "पेज खोलें",
     insightsPageTitle: "इनसाइट्स · Clips",
     folderPageTitle: "फ़ोल्डर · Clips",

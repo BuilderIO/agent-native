@@ -55,6 +55,7 @@ import {
   resolveBuiltInAuthMarketingSlugFromName,
   type AuthMarketingContent,
 } from "./auth-marketing.js";
+import { documentBuildIdMetaTag } from "./document-build-id.js";
 import {
   resolveGoogleAuthMode,
   type GoogleAuthMode,
@@ -1112,6 +1113,7 @@ function isAgentNativeHostedHost(host: string | undefined): boolean {
 }
 
 export interface OnboardingHtmlOptions {
+  builderSignupEnabled?: boolean;
   googleOnly?: boolean;
   googleScopes?: string[];
   authMode?: "magic-link" | "password";
@@ -1134,7 +1136,9 @@ export interface OnboardingHtmlOptions {
   requestOrigin?: string;
   signupLegalNotice?: SignupLegalNoticeOptions | false;
   googleAuthMode?: GoogleAuthMode;
-  renderSignInPage?: (props: AuthPageProps) => string;
+  renderSignInPage?: (props: AuthPageProps) => string | undefined;
+  /** Trusted HTML appended to the sign-in document head. */
+  authHeadHtml?: string;
 }
 
 function escapeHtml(value: string): string {
@@ -1175,7 +1179,11 @@ function initialAuthView(
     }
     if (url.searchParams.get("c")) return "login";
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
-    if (pathname.endsWith("/login")) return "login";
+    // A sign-in request is a sign-in request: /sign-in used to fall through to
+    // the signup form, so an existing user who asked to sign in was shown
+    // "Create an account" (QA AUTH-08).
+    if (pathname.endsWith("/sign-in") || pathname.endsWith("/login"))
+      return "login";
     if (pathname.endsWith("/signup")) return "signup";
   } catch (error) {
     // coercion-ok: malformed paths use the public signup state; no session data is inferred.
@@ -1223,9 +1231,13 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }).resumeHref;
   const workspaceRuntime = isWorkspaceRuntime();
   const trackingApp =
-    getAppConfig().app.slug ??
-    getAppConfig().app.template ??
-    getAppConfig().app.id ??
+    getAppConfig().app.slug?.trim() ||
+    getAppConfig().app.template?.trim() ||
+    getAppConfig().app.id?.trim() ||
+    resolveBuiltInAuthMarketingSlug({
+      ...(opts.requestHost ? { requestHost: opts.requestHost } : {}),
+      ...(opts.requestPath ? { requestPath: opts.requestPath } : {}),
+    }) ||
     "";
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
@@ -1425,6 +1437,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     workspaceGatewayReturnOrigin,
     googleAuthMode,
     builderPreviewLocalDevEnabled,
+    builderSignupEnabled: opts.builderSignupEnabled === true,
     environmentBetaHosts: ENVIRONMENT_BETA_HOSTS,
     betaForceQueryParam: BETA_FORCE_QUERY_PARAM,
     betaForceSessionStorageKey: BETA_FORCE_SESSION_STORAGE_KEY,
@@ -1725,7 +1738,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     margin-bottom: 0.875rem;
   }
   input:focus { border-color: rgba(255,255,255,0.3); box-shadow: 0 0 0 1px rgba(255,255,255,0.1); }
-  input::placeholder { color: #555; }
+  /* guard:allow-raw-color - standalone auth page: #555 measured 2.47:1 on the #141414 card; this is 6.6:1 */
+  input::placeholder { color: #9a9997; }
   button[type="submit"], .btn-primary {
     width: 100%;
     margin-top: 0.25rem;
@@ -2020,7 +2034,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     gap: 0.75rem;
     margin: 1.25rem 0;
     font-size: 0.75rem;
-    color: #555;
+    /* guard:allow-raw-color - #555 measured 2.47:1 here; this is 6.6:1 on the card */
+    color: #9a9997;
   }
   .divider::before, .divider::after {
     content: '';
@@ -2127,8 +2142,115 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .auth-centered {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
     width: 100%;
+  }
+  .auth-page [data-agent-native-consent-banner] {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+    max-width: 400px;
+    margin-top: 1rem;
+    padding: 1rem;
+    background: color-mix(in srgb, currentColor 5%, var(--auth-wave-bg));
+    border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+    border-radius: 12px;
+    color: inherit;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-align: start;
+  }
+  .auth-marketing-home .form-panel > [data-agent-native-consent-banner] {
+    width: min(27.5rem, 100%);
+    max-width: 27.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .auth-page [data-agent-native-consent-banner] a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .auth-page [data-agent-native-consent-banner] label {
+    display: inline;
+    margin: 0;
+    color: inherit;
+    font-size: inherit;
+  }
+  .auth-page [data-consent-settings] {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .auth-page [data-consent-settings] > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .auth-page [data-consent-actions] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .auth-page [data-consent-actions] > button {
+    flex: 1 1 0%;
+    min-height: 2rem;
+    padding: 0.375rem 0.75rem;
+    background: transparent;
+    border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+    border-radius: 6px;
+    color: inherit;
+    font: inherit;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .auth-page [data-consent-actions] > button:hover {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+  }
+  .auth-page [data-consent-actions] > [data-consent-manage] {
+    border-color: transparent;
+  }
+  .auth-page [data-agent-native-consent-banner] [role="switch"] {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    width: 2rem;
+    height: 1.15rem;
+    padding: 1px;
+    background: color-mix(in srgb, currentColor 22%, transparent);
+    border: 0;
+    border-radius: 999px;
+    color: inherit;
+    cursor: pointer;
+  }
+  .auth-page [data-agent-native-consent-banner] [role="switch"][aria-checked="true"] {
+    background: currentColor;
+  }
+  .auth-page [data-agent-native-consent-banner] [role="switch"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  .auth-page [data-agent-native-consent-banner] [data-slot="switch-thumb"] {
+    display: block;
+    width: calc(1.15rem - 2px);
+    height: calc(1.15rem - 2px);
+    background: currentColor;
+    border-radius: 999px;
+    transition: transform 150ms;
+  }
+  .auth-page [data-agent-native-consent-banner] [role="switch"][aria-checked="true"] [data-slot="switch-thumb"] {
+    background: var(--auth-wave-bg);
+    transform: translateX(0.85rem);
+  }
+  [dir="rtl"] .auth-page [data-agent-native-consent-banner] [role="switch"][aria-checked="true"] [data-slot="switch-thumb"] {
+    transform: translateX(-0.85rem);
+  }
+  .auth-page [data-agent-native-consent-banner] :is(a, button):focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
   }
   .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow: clip; }
   .auth-marketing-shell { padding: 0; }
@@ -2404,6 +2526,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     bottom: max(1.25rem, env(safe-area-inset-bottom));
     inset-inline-end: max(1.25rem, env(safe-area-inset-right));
   }
+  body.has-marketing .locale-menu {
+    top: auto;
+    bottom: calc(100% + 0.375rem);
+  }
   @media (prefers-color-scheme: light) {
     body.has-marketing {
       --auth-marketing-border: color-mix(in srgb, var(--auth-marketing-foreground) 18%, transparent);
@@ -2460,7 +2586,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       padding: max(1.5rem, env(safe-area-inset-top)) 1.25rem max(1.5rem, env(safe-area-inset-bottom));
       border-inline-start: 0;
     }
-    .auth-marketing-home .marketing-panel { display: none; }
+    .auth-marketing-home .marketing-panel { order: 2; min-height: 0; }
     .auth-marketing-home .card h1 {
       font-size: clamp(1.625rem, 6vw, 2rem);
       line-height: 1.15;
@@ -2486,9 +2612,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
 `;
   const authClientScriptPath = authClientAssetPath(appBasePath);
-  const title = hasMarketing
-    ? `${marketing!.appName} — ${t("pageTitleSignIn")}`
-    : t("pageTitleWelcome");
+  const title =
+    marketing && !simplifiedAuth
+      ? `${marketing.appName} — ${EN_AUTH_COPY.pageTitleSignIn}`
+      : EN_AUTH_COPY.pageTitleWelcome;
   const authPageMarkup = opts.renderSignInPage?.(authPageProps);
   const fallbackTitle = googleOnly
     ? t("pageTitleSignIn")
@@ -2530,7 +2657,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     : hasMarketing
       ? "has-marketing"
       : "";
-  return `<!DOCTYPE html><html lang="${DEFAULT_LOCALE}" dir="ltr"><head><meta charset="UTF-8"/><script data-agent-native-locale-init="">${localeInitScript}</script><script data-agent-native-embedded-init="">${embeddedAuthInitScript}</script><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>${fontLinks}<title>${escapeHtml(title)}</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><link rel="apple-touch-icon" href="${escapeHtml(withAppBasePath("/icon-180.svg", appBasePath))}"/>${marketingMeta}<style>${authDocumentStyles + authPageLayoutStyles}</style><script type="module" src="${escapeHtml(authClientScriptPath)}"></script></head><body${bodyClass ? ` class="${bodyClass}"` : ""}><div id="agent-native-auth-root" class="auth-root"${authPageMarkup === undefined ? ' data-agent-native-auth-fallback="true"' : ""}>${pageMarkup}</div><script type="application/json" id="agent-native-auth-data">${authPageData}</script></body></html>`;
+  return `<!DOCTYPE html><html lang="${DEFAULT_LOCALE}" dir="ltr"><head><meta charset="UTF-8"/>${documentBuildIdMetaTag()}<script data-agent-native-locale-init="">${localeInitScript}</script><script data-agent-native-embedded-init="">${embeddedAuthInitScript}</script><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>${fontLinks}<title>${escapeHtml(title)}</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><link rel="apple-touch-icon" href="${escapeHtml(withAppBasePath("/icon-180.svg", appBasePath))}"/>${marketingMeta}<style>${authDocumentStyles + authPageLayoutStyles}</style>${opts.authHeadHtml ?? ""}<script type="module" src="${escapeHtml(authClientScriptPath)}"></script></head><body${bodyClass ? ` class="${bodyClass}"` : ""}><div id="agent-native-auth-root" class="auth-root"${authPageMarkup === undefined ? ' data-agent-native-auth-fallback="true"' : ""}>${pageMarkup}</div><script type="application/json" id="agent-native-auth-data">${authPageData}</script></body></html>`;
 }
 
 const RESET_PASSWORD_STYLES = `
@@ -2543,7 +2670,8 @@ const RESET_PASSWORD_STYLES = `
   label { display: block; font-size: 0.8125rem; color: #888; margin-bottom: 0.375rem; }
   input { width: 100%; padding: 0.5rem 0.75rem; background: transparent; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; color: #e5e5e5; font-size: 0.875rem; outline: none; margin-bottom: 0.875rem; }
   input:focus { border-color: rgba(255,255,255,0.3); box-shadow: 0 0 0 1px rgba(255,255,255,0.1); }
-  input::placeholder { color: #555; }
+  /* guard:allow-raw-color - standalone auth page: #555 measured 2.47:1 on the #141414 card; this is 6.6:1 */
+  input::placeholder { color: #9a9997; }
   button[type="submit"] { width: 100%; margin-top: 0.25rem; padding: 0.5rem; background: #fff; color: #000; border: none; border-radius: 6px; font-size: 0.875rem; font-weight: 500; cursor: pointer; }
   button[type="submit"]:hover { background: #e5e5e5; }
   button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -2557,7 +2685,9 @@ const RESET_PASSWORD_STYLES = `
 
 export function getResetPasswordHtml(
   requestPath?: string,
-  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string,
+  renderResetPasswordPage?: (
+    props: ResetPasswordPageProps,
+  ) => string | undefined,
 ): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =
@@ -2572,7 +2702,7 @@ export function getResetPasswordHtml(
   const resetMarkup =
     pageMarkup ??
     '<main class="card"><h1>Reset password</h1><p class="subtitle">Reset your password</p></main>';
-  return `<!DOCTYPE html><html lang="en" dir="ltr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><title>Reset password</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><link rel="apple-touch-icon" href="${escapeHtml(withAppBasePath("/icon-180.svg", appBasePath))}"/><style>${RESET_PASSWORD_STYLES}</style><script type="module" src="${escapeHtml(authClientAssetPath(appBasePath))}"></script></head><body><div id="agent-native-auth-root"${pageMarkup === undefined ? ' data-agent-native-auth-fallback="true"' : ""}>${resetMarkup}</div><script type="application/json" id="agent-native-auth-data">${serializeAuthPageData(resetPageProps)}</script></body></html>`;
+  return `<!DOCTYPE html><html lang="en" dir="ltr"><head><meta charset="UTF-8"/>${documentBuildIdMetaTag()}<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><title>Reset password</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><link rel="apple-touch-icon" href="${escapeHtml(withAppBasePath("/icon-180.svg", appBasePath))}"/><style>${RESET_PASSWORD_STYLES}</style><script type="module" src="${escapeHtml(authClientAssetPath(appBasePath))}"></script></head><body><div id="agent-native-auth-root"${pageMarkup === undefined ? ' data-agent-native-auth-fallback="true"' : ""}>${resetMarkup}</div><script type="application/json" id="agent-native-auth-data">${serializeAuthPageData(resetPageProps)}</script></body></html>`;
 }
 
 // Read only by the server-rendered setup page, so it stays out of the auth
@@ -2751,5 +2881,5 @@ export function getDeploySettingsRequiredHtml({
     .join(", ");
   const arrowIcon =
     '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 7l-10 10"/><path d="M8 7l9 0l0 9"/></svg>';
-  return `<!DOCTYPE html><html lang="${escapeHtml(locale)}" dir="${dir}"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex, nofollow"/><title>${escapeHtml(copy.title)}</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><style>${DEPLOY_SETTINGS_STYLES}</style></head><body><main class="card" data-testid="deploy-settings-required"><h1>${escapeHtml(copy.title)}</h1><p class="message">${escapeHtml(before)}${keyList}${escapeHtml(after)}</p><a class="docs-link" href="${escapeHtml(DEPLOY_SETTINGS_DOCS_URL)}" target="_blank" rel="noreferrer">${escapeHtml(copy.docsLink)}${arrowIcon}</a></main></body></html>`;
+  return `<!DOCTYPE html><html lang="${escapeHtml(locale)}" dir="${dir}"><head><meta charset="UTF-8"/>${documentBuildIdMetaTag()}<meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex, nofollow"/><title>${escapeHtml(copy.title)}</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><style>${DEPLOY_SETTINGS_STYLES}</style></head><body><main class="card" data-testid="deploy-settings-required"><h1>${escapeHtml(copy.title)}</h1><p class="message">${escapeHtml(before)}${keyList}${escapeHtml(after)}</p><a class="docs-link" href="${escapeHtml(DEPLOY_SETTINGS_DOCS_URL)}" target="_blank" rel="noreferrer">${escapeHtml(copy.docsLink)}${arrowIcon}</a></main></body></html>`;
 }

@@ -25,7 +25,9 @@ import {
 import * as Y from "yjs";
 
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
+import { serializeRegistryBlockToMdx } from "../../shared/nfm-registry.js";
 import * as nfm from "../../shared/nfm.js";
+import { firstRow } from "../lib/first-row.js";
 
 const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
@@ -944,8 +946,8 @@ describe("writes through a switched page's live copy", () => {
       const lower = statement.toLowerCase();
       const update = /^\s*update "([^"]+)"/.exec(lower);
       if (update) return update[1];
-      if (!/ for update/.test(lower)) return undefined;
-      return (/ for update of "([^"]+)"/.exec(lower) ??
+      if (!/ for (?:update|share)/.test(lower)) return undefined;
+      return (/ for (?:update|share) of "([^"]+)"/.exec(lower) ??
         / from "([^"]+)"/.exec(lower))?.[1];
     };
 
@@ -980,6 +982,8 @@ describe("writes through a switched page's live copy", () => {
     // After the page lock, only writes to rows already locked.
     expect(locks).toEqual([
       "content_databases",
+      "content_databases",
+      "content_databases",
       "content_database_items",
       "documents",
       "documents",
@@ -988,19 +992,89 @@ describe("writes through a switched page's live copy", () => {
     expect(softDeleted).toEqual(["db-a-inline"]);
   });
 
+  it("restores an inline collection a save removed once the body brings its block back", async () => {
+    await switchedPage("returning", "Hello there");
+    await getDb().insert(schema.documents).values({
+      id: "returning-inline",
+      ownerEmail: OWNER,
+      parentId: "returning",
+      title: "Inline",
+      content: "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await getDb().insert(schema.contentDatabases).values({
+      id: "db-returning",
+      ownerEmail: OWNER,
+      documentId: "returning-inline",
+      ownerDocumentId: "returning",
+      ownerBlockId: "returning-block",
+      deletedAt: new Date().toISOString(),
+    });
+    const block = serializeRegistryBlockToMdx("inline-database", {
+      id: "returning-block",
+      data: {
+        databaseId: "db-returning",
+        databaseDocumentId: "returning-inline",
+        ownerBlockId: "returning-block",
+      },
+    });
+    const version = (await collabVersion("returning")) as number;
+
+    await cause.withContentBodyWriteCause({ operation: "test-restore" }, () =>
+      inTransaction((tx) =>
+        persist.persistContentLiveCopy(tx, {
+          docId: "returning",
+          origin: "mutation",
+          previousVersion: version,
+          version: version + 1,
+          text: `Hello there\n\n${block}`,
+          state: new Uint8Array(),
+        }),
+      ),
+    );
+
+    const restored = firstRow(
+      await getDb()
+        .select({ deletedAt: schema.contentDatabases.deletedAt })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, "db-returning")),
+    );
+    expect(restored?.deletedAt).toBeNull();
+  });
+
   it("locks the page in Content's order from an unchanged edit's own persist, and refuses it in Trash", async () => {
     await switchedPage("unchanged", "Hello there");
-    await getDb().insert(schema.contentDatabases).values({
-      id: "db-unchanged-parent",
-      ownerEmail: OWNER,
-      documentId: "elsewhere",
-    });
-    await getDb().insert(schema.contentDatabaseItems).values({
-      id: "unchanged-row",
-      ownerEmail: OWNER,
-      databaseId: "db-unchanged-parent",
-      documentId: "unchanged",
-    });
+    await getDb()
+      .insert(schema.contentDatabases)
+      .values([
+        {
+          id: "db-unchanged-second",
+          ownerEmail: OWNER,
+          documentId: "elsewhere",
+        },
+        {
+          id: "db-unchanged-parent",
+          ownerEmail: OWNER,
+          documentId: "elsewhere",
+        },
+      ]);
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values([
+        {
+          id: "unchanged-row",
+          ownerEmail: OWNER,
+          databaseId: "db-unchanged-parent",
+          documentId: "unchanged",
+        },
+        {
+          id: "unchanged-second-row",
+          ownerEmail: OWNER,
+          databaseId: "db-unchanged-second",
+          documentId: "unchanged",
+        },
+      ]);
     const statements: string[] = [];
     const unchangedEdit = () =>
       cause.withContentBodyWriteCause({ operation: "test-unchanged" }, () =>
@@ -1019,6 +1093,10 @@ describe("writes through a switched page's live copy", () => {
             } as DbExec;
             const locked = await persist.lockLiveCopyPage(spy, "unchanged");
             expect(locked?.page.content).toBe("Hello there");
+            expect([...(locked?.lockedDatabaseIds ?? [])]).toEqual([
+              "db-unchanged-parent",
+              "db-unchanged-second",
+            ]);
           },
         }),
       );
@@ -1028,14 +1106,15 @@ describe("writes through a switched page's live copy", () => {
       liveCopy: "unchanged",
     });
     const locks = statements
-      .filter((sql) => / for update|^\s*update /.test(sql))
+      .filter((sql) => / for (?:update|share)|^\s*update /.test(sql))
       .map(
         (sql) =>
           (/^\s*update "([^"]+)"/.exec(sql) ??
-            / for update of "([^"]+)"/.exec(sql) ??
+            / for (?:update|share) of "([^"]+)"/.exec(sql) ??
             / from "([^"]+)"/.exec(sql))?.[1],
       );
     expect(locks).toEqual([
+      "content_databases",
       "content_databases",
       "content_database_items",
       "documents",
@@ -1050,53 +1129,93 @@ describe("writes through a switched page's live copy", () => {
     });
   });
 
-  it("refuses a body write when the page joined a collection after its memberships were locked", async () => {
-    await switchedPage("joined", "Hello there");
-    await getDb().insert(schema.contentDatabases).values({
-      id: "db-joined-parent",
-      ownerEmail: OWNER,
-      documentId: "elsewhere",
-    });
-    const version = (await collabVersion("joined")) as number;
+  it.each([
+    { change: "join", unchanged: false },
+    { change: "join", unchanged: true },
+    { change: "move", unchanged: false },
+    { change: "move", unchanged: true },
+    { change: "remove", unchanged: false },
+    { change: "remove", unchanged: true },
+  ] as const)(
+    "refuses a late membership $change (unchanged: $unchanged)",
+    async ({ change, unchanged }) => {
+      const id = `scope-${change}-${unchanged}`;
+      const originalCollection = `${id}-a`;
+      const newCollection = `${id}-b`;
+      const itemId = `${id}-row`;
+      await switchedPage(id, "Hello there");
+      await getDb()
+        .insert(schema.contentDatabases)
+        .values([
+          {
+            id: originalCollection,
+            ownerEmail: OWNER,
+            documentId: "elsewhere",
+          },
+          { id: newCollection, ownerEmail: OWNER, documentId: "elsewhere" },
+        ]);
+      if (change !== "join")
+        await getDb().insert(schema.contentDatabaseItems).values({
+          id: itemId,
+          ownerEmail: OWNER,
+          databaseId: originalCollection,
+          documentId: id,
+        });
+      const version = (await collabVersion(id)) as number;
 
-    await expect(
-      cause.withContentBodyWriteCause({ operation: "test-joined" }, () =>
-        inTransaction(async (tx) => {
-          let joined = false;
-          const spy: DbExec = {
-            async execute(input) {
-              const sql = (
-                typeof input === "string" ? input : input.sql
-              ).toLowerCase();
-              // The page joins between the membership lock and the page lock.
-              if (!joined && /from "documents" .* for update/.test(sql)) {
-                joined = true;
-                await execDb
-                  .drizzleOverExec(tx)
-                  .insert(schema.contentDatabaseItems)
-                  .values({
-                    id: "joined-row",
-                    ownerEmail: OWNER,
-                    databaseId: "db-joined-parent",
-                    documentId: "joined",
-                  });
-              }
-              return tx.execute(input);
-            },
-          } as DbExec;
-          await persist.persistContentLiveCopy(spy, {
-            docId: "joined",
-            origin: "mutation",
-            previousVersion: version,
-            version: version + 1,
-            text: "Hello again",
-            state: new Uint8Array(),
-          });
-        }),
-      ),
-    ).rejects.toMatchObject({ errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED" });
-    expect((await page("joined")).content).toBe("Hello there");
-  });
+      await expect(
+        cause.withContentBodyWriteCause({ operation: "test-joined" }, () =>
+          inTransaction(async (tx) => {
+            let changed = false;
+            // raw-sql-ok: this test proxy forwards Drizzle's SQL and bound arguments unchanged; it constructs no SQL.
+            const spy: DbExec = {
+              async execute(input) {
+                const sql = (
+                  typeof input === "string" ? input : input.sql
+                ).toLowerCase();
+                // The topology change overtakes discovery before the page lock.
+                if (!changed && /from "documents" .* for update/.test(sql)) {
+                  changed = true;
+                  const db = execDb.drizzleOverExec(tx);
+                  if (change === "join")
+                    await db.insert(schema.contentDatabaseItems).values({
+                      id: itemId,
+                      ownerEmail: OWNER,
+                      databaseId: newCollection,
+                      documentId: id,
+                    });
+                  else if (change === "move")
+                    await db
+                      .update(schema.contentDatabaseItems)
+                      .set({ databaseId: newCollection })
+                      .where(eq(schema.contentDatabaseItems.id, itemId));
+                  else
+                    await db
+                      .delete(schema.contentDatabaseItems)
+                      .where(eq(schema.contentDatabaseItems.id, itemId));
+                }
+                return tx.execute(input);
+              },
+            } as DbExec;
+            if (unchanged)
+              await persist.persistUnchangedContentBodyEdit(spy, id, {
+                operation: "test-scope",
+              });
+            else
+              await persist.persistContentLiveCopy(spy, {
+                docId: id,
+                origin: "mutation",
+                previousVersion: version,
+                version: version + 1,
+                text: "Hello again",
+                state: new Uint8Array(),
+              });
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED" });
+      expect(await page(id)).toMatchObject({ content: "Hello there" });
+    },
+  );
 });
 
 describe("a page whose write path changes mid-write", () => {
@@ -2479,6 +2598,80 @@ describe("a server rewrite of a switched page's body", () => {
     expect(after.content).toBe(`Intro\n\n![A cat](${IMAGE})`);
     expect(after.liveBodySwitchedAt).toBeNull();
     expect(await collabVersion("alt-text-off")).toBeUndefined();
+  });
+});
+
+describe("the block menu's Move to, on a switched page", () => {
+  async function append(id: string, blocks: string) {
+    return asOwner(() =>
+      writer.appendContentLiveCopyBlocks(id, {
+        cause: { operation: "append-to-document" },
+        blocks,
+      }),
+    );
+  }
+
+  it("adds the blocks after the page's last block, so the page stays switched", async () => {
+    await switchedPage("append", "Keep");
+
+    await expect(append("append", "Moved")).resolves.toBe(true);
+
+    await expect(page("append")).resolves.toMatchObject({
+      content: "Keep\nMoved",
+    });
+    expect(await gateFor("append")).toEqual({ writePath: "live_copy" });
+  });
+
+  it("adds a block again after another move of the same block commits first", async () => {
+    await switchedPage("append-twice", "Keep");
+    const spy = peerCommitsAfterBuild("append-twice", "Keep\nMoved");
+    try {
+      await expect(append("append-twice", "Moved")).resolves.toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+
+    await expect(page("append-twice")).resolves.toMatchObject({
+      content: "Keep\nMoved\nMoved",
+    });
+  });
+
+  it("fills an empty page with the blocks, rather than adding them after its empty paragraph", async () => {
+    await switchedPage("append-empty", "");
+
+    await expect(append("append-empty", "Moved")).resolves.toBe(true);
+
+    await expect(page("append-empty")).resolves.toMatchObject({
+      content: "Moved",
+    });
+  });
+
+  it("refuses a video whose id a commit gave the page after the move read it", async () => {
+    const video = `<video src="https://example.com/a.mp4" id="video-shared01"></video>`;
+    await switchedPage("append-video", "Keep");
+    const spy = peerCommitsAfterBuild("append-video", `Keep\n${video}`);
+    try {
+      await expect(append("append-video", video)).rejects.toMatchObject({
+        errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+        statusCode: 422,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    await expect(page("append-video")).resolves.toMatchObject({
+      content: `Keep\n${video}`,
+    });
+  });
+
+  it("answers false for a page that isn't switched, which takes the legacy path", async () => {
+    await insertPage("append-unswitched", "Keep");
+
+    await expect(append("append-unswitched", "Moved")).resolves.toBe(false);
+
+    await expect(page("append-unswitched")).resolves.toMatchObject({
+      content: "Keep",
+    });
   });
 });
 
@@ -4158,9 +4351,25 @@ describe("a SQL body write to a switched page", () => {
 
   async function cliUpdate(id: string, content: string) {
     const action = (await import("../../actions/update-document.js")).default;
+    const { documentRevisionToken } =
+      await import("../../actions/_document-edit-mutation.js");
+    const base = firstRow(
+      await getDb()
+        .select({
+          content: schema.documents.content,
+          bodyRevision: schema.documents.bodyRevision,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id)),
+    );
+    if (!base) throw new Error(`Page ${id} must exist before a CLI update.`);
     return asOwner(async () =>
       action.run(
-        { id, content } as never,
+        {
+          id,
+          content,
+          baseRevision: documentRevisionToken(base.bodyRevision, base.content),
+        } as never,
         { caller: "cli", userEmail: OWNER } as never,
       ),
     );

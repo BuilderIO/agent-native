@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { focusAgentChat } from "@agent-native/toolkit/app/chat";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -17,13 +18,13 @@ import { useListSelection } from "@/components/shared/selection/use-list-selecti
 import { TaskFieldsSidebar } from "@/components/tasks/fields/TaskFieldsSidebar";
 import { TaskListHeaderRow } from "@/components/tasks/TaskListHeaderRow";
 import { TaskListRow } from "@/components/tasks/TaskListRow";
+import { useTaskSave } from "@/hooks/use-task-save";
 import {
   useBulkDeleteTasks,
   useBulkUpdateTasks,
   useCreateTask,
   useDeleteTask,
   useReorderTasks,
-  useUpdateTask,
   type TaskWithFields,
 } from "@/hooks/use-tasks";
 
@@ -71,7 +72,8 @@ export function TaskList({
 }: TaskListProps) {
   const t = useT();
   const createTask = useCreateTask();
-  const updateTask = useUpdateTask();
+  const taskSave = useTaskSave();
+  const titleEditStartRef = useRef(new Map<string, TaskWithFields>());
   const deleteTask = useDeleteTask();
   const reorderTasks = useReorderTasks();
   const bulkDeleteTasks = useBulkDeleteTasks();
@@ -91,7 +93,7 @@ export function TaskList({
     !includeDone && tasks.length === 0 && (hasTasks || hasCompletedTasks);
   const selection = useListSelection(tasks, "tasksSelection");
   const selectionActive = selection.state.selectionMode;
-  const toolbarBusy = bulkUpdateTasks.isPending || updateTask.isPending;
+  const toolbarBusy = bulkUpdateTasks.isPending || taskSave.isPending;
   const panelTask = activeTaskId
     ? (allTasks.find((task) => task.id === activeTaskId) ?? null)
     : null;
@@ -175,8 +177,8 @@ export function TaskList({
       );
       selection.actions.clearSelection();
       setBulkDeleteOpen(false);
-    } catch {
-      toast.error(t("tasks.bulkDeleteError"));
+    } catch (error) {
+      reportWriteFailure(error, { label: t("tasks.bulkDeleteError") });
     }
   }
 
@@ -250,12 +252,17 @@ export function TaskList({
                       done={item.done}
                       highlighted={activeTaskId === item.id}
                       hideAfterComplete={!includeDone}
-                      onUpdateTitle={(title) =>
-                        updateTask.mutateAsync({ taskId: item.id, title })
+                      onStartTitleEdit={() =>
+                        titleEditStartRef.current.set(item.id, item)
                       }
-                      onUpdateDone={(done) =>
-                        updateTask.mutateAsync({ taskId: item.id, done })
-                      }
+                      onUpdateTitle={(title) => {
+                        const startedFrom = titleEditStartRef.current.get(
+                          item.id,
+                        );
+                        titleEditStartRef.current.delete(item.id);
+                        return taskSave.save(item, { title }, startedFrom);
+                      }}
+                      onUpdateDone={(done) => taskSave.save(item, { done })}
                       onOpenDetails={() => {
                         focusAgentChat();
                         setActiveTaskId(item.id);
@@ -336,8 +343,10 @@ export function TaskList({
 
       <TaskFieldsSidebar
         task={panelTask}
+        onSave={taskSave.save}
         onClose={() => setActiveTaskId(null)}
       />
+      {taskSave.conflictPrompt}
     </div>
   );
 }

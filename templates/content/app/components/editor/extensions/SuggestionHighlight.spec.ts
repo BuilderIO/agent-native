@@ -34,6 +34,10 @@ vi.mock("@shared/nfm", async (importOriginal) => {
 });
 
 import {
+  createCommentHighlightPlugin,
+  setCommentHighlights,
+} from "./CommentHighlight";
+import {
   createSuggestionHighlightPlugin,
   isProvisionalDraftSpec,
   suggestionDecisionHoldsHistory,
@@ -713,7 +717,7 @@ describe("SuggestionHighlight", () => {
     }
   });
 
-  it("keeps deletions quiet at rest and readable on hover, focus, or selection", () => {
+  it("keeps deletions quiet at rest and readable but struck on hover, focus, or selection", () => {
     const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
       encoding: "utf8",
     });
@@ -722,10 +726,12 @@ describe("SuggestionHighlight", () => {
       /\.content-editor \.suggestion-delete\s*\{[^}]*color: hsl\(var\(--muted-foreground\)\);[^}]*text-decoration: line-through;/,
     );
     expect(css).toMatch(
-      /\.content-editor \.suggestion-delete:hover,[\s\S]*?\.content-editor \.suggestion-delete-widget:focus-visible\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
+      /\.content-editor \.suggestion-delete:hover,[\s\S]*?\.content-editor \.suggestion-delete-widget:focus-visible\s*\{[^}]*color: hsl\(var\(--foreground\)\);/,
     );
+    // Selected removed text drops the selection's underline, which marks the
+    // new text, and stays struck so it can't be read as the replacement.
     expect(css).toMatch(
-      /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
+      /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{[^}]*box-shadow: none;[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: line-through;/,
     );
 
     const pointerAndFocusState = css.match(
@@ -734,8 +740,76 @@ describe("SuggestionHighlight", () => {
     const selectedState = css.match(
       /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{([^}]*)\}/,
     )?.[1];
+    expect(pointerAndFocusState).not.toMatch(/text-decoration: none;/);
     expect(`${pointerAndFocusState}\n${selectedState}`).not.toMatch(
       /(?:font-size|line-height|margin|padding|border-width):/,
+    );
+  });
+
+  it("marks the active inserted words over an insertion's resting look", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
+      encoding: "utf8",
+    });
+    const resting = css.match(
+      /\.content-editor \.suggestion-insert\[data-suggestion-widget\],[\s\S]*?\{([^}]*)\}/,
+    )?.[1];
+    const active = css.match(
+      /\.content-editor\s+\.suggestion-insert\.suggestion-inline-widget\.suggestion-highlight--active\[data-suggestion-widget\],[\s\S]*?\{([^}]*)\}/,
+    )?.[1];
+
+    expect(resting).toContain("background: hsl(var(--suggestion) / 0.12);");
+    expect(active).toContain("background: hsl(var(--suggestion) / 0.16);");
+    expect(active).toContain(
+      "box-shadow: inset 0 -2px hsl(var(--suggestion));",
+    );
+    expect(css).not.toMatch(
+      /\.suggestion-insert\.suggestion-highlight--active/,
+    );
+    expect(css).toMatch(
+      /\.content-editor\s+\.suggestion-block-widget\.suggestion-highlight--active\[data-suggestion-widget\]\s*\{\s*box-shadow: inset 3px 0 hsl\(var\(--suggestion\)\);/,
+    );
+    expect(css).toMatch(
+      /\.content-editor\s+\.suggestion-block-widget\.suggestion-highlight--active\[data-suggestion-widget\]:not\(\s*\.suggestion-delete-widget\s*\)\s*\{\s*text-decoration: none;\s*\}/,
+    );
+  });
+
+  it("sets new words apart from the whole words they replace", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
+      encoding: "utf8",
+    });
+    expect(css).toMatch(
+      /\.content-editor\s+\.suggestion-inline-widget\.suggestion-insert--spaced\[data-suggestion-widget\]\s*\{[^}]*margin-inline-start: 0\.3em;/,
+    );
+
+    const text = "Clips keeps the recording you already made. Colour";
+    const insertion = (from: number, to: number, insertedText: string) => {
+      const widget = suggestionHighlightKey
+        .getState(
+          setSpecs(state(text), [
+            {
+              suggestionId: "replace",
+              kind: "replace",
+              from,
+              to,
+              insertedText,
+            },
+          ]),
+        )!
+        .decorations.find()
+        .find((deco) => deco.spec.key?.startsWith("replace:inserted:")) as any;
+      return widget.type.toDOM() as HTMLElement;
+    };
+    // "Clips keeps … made" runs to just before the full stop.
+    expect(
+      insertion(1, 43, "No special recording mode needed").className,
+    ).toContain("suggestion-insert--spaced");
+    // "ou" in "Colour" is part of a word.
+    expect(insertion(48, 50, "o").className).not.toContain(
+      "suggestion-insert--spaced",
+    );
+    // New text that starts with its own space needs no more room.
+    expect(insertion(1, 6, " Clip").className).not.toContain(
+      "suggestion-insert--spaced",
     );
   });
 
@@ -897,6 +971,118 @@ describe("SuggestionHighlight", () => {
       }
     });
 
+    it.each([
+      [
+        "callout",
+        '<callout icon="💡">\n\tFirst line.\n\tNew line.\n</callout>',
+      ],
+      [
+        "toggle",
+        "<details>\n<summary>Title</summary>\n\tFirst line.\n\tNew line.\n</details>",
+      ],
+    ])(
+      "draws a saved last line of a %s inside it, below the line before",
+      (_, source) => {
+        const boxSchema = new Schema({
+          nodes: {
+            doc: { content: "block+" },
+            paragraph: {
+              group: "block",
+              content: "text*",
+              toDOM: () => ["p", 0],
+            },
+            box: {
+              group: "block",
+              content: "block+",
+              toDOM: () => ["aside", 0],
+            },
+            text: {},
+          },
+        });
+        const prose = (text: string) =>
+          boxSchema.node("paragraph", null, boxSchema.text(text));
+        const from = source.indexOf("\tNew line.");
+        const to = source.indexOf("</", from);
+        // The point is the end of the box's first line, as the page places it.
+        const point = 2 + "First line.".length;
+        const { view, mount } = mounted(
+          [
+            boxSchema.node("box", null, [prose("First line.")]),
+            prose("After."),
+          ],
+          [
+            {
+              suggestionId: "last",
+              kind: "add_block",
+              from: point,
+              to: point,
+              insertedText: source.slice(from, to),
+              insertedPresentation: { source, from, to },
+            },
+          ],
+        );
+        try {
+          expect(
+            Array.from(
+              mount.querySelector("aside")!.children,
+              (child) =>
+                `${child.tagName.toLowerCase()}${
+                  child.classList.contains("suggestion-block-widget")
+                    ? ".widget"
+                    : ""
+                } ${child.textContent}`,
+            ),
+          ).toEqual(["p First line.", "div.widget New line."]);
+          expect(mount.textContent).not.toContain("⇥");
+        } finally {
+          view.destroy();
+        }
+      },
+    );
+
+    it("keeps lines inline when text that follows them can't go after them", () => {
+      const boxSchema = new Schema({
+        nodes: {
+          doc: { content: "block+" },
+          paragraph: {
+            group: "block",
+            content: "text*",
+            toDOM: () => ["p", 0],
+          },
+          box: { group: "block", content: "block+", toDOM: () => ["aside", 0] },
+          text: {},
+        },
+      });
+      const prose = (text: string) =>
+        boxSchema.node("paragraph", null, boxSchema.text(text));
+      const source =
+        '<callout icon="💡">\n\tFirst line.\n\tNew line.\n\tXY.\n</callout>';
+      const from = source.indexOf("\tNew line.");
+      const to = source.indexOf("Y.", from);
+      // The "X" that starts the next line would be drawn at the point, before
+      // the new line, if the line went after the block the point ends.
+      const point = 2 + "First line.".length;
+      const { view, mount } = mounted(
+        [boxSchema.node("box", null, [prose("First line."), prose("Y.")])],
+        [
+          {
+            suggestionId: "tail",
+            kind: "add_block",
+            from: point,
+            to: point,
+            insertedText: source.slice(from, to),
+            insertedPresentation: { source, from, to },
+          },
+        ],
+      );
+      try {
+        expect(mount.querySelector(".suggestion-block-widget")).toBeNull();
+        expect(mount.querySelector("aside")!.children).toHaveLength(2);
+      } finally {
+        view.destroy();
+      }
+    });
+
     it("keeps text that splits a line inline with a real line break", () => {
       const source = "Alpha X\nY one.";
       const { view, mount } = mounted(
@@ -972,6 +1158,90 @@ describe("SuggestionHighlight", () => {
         }
       });
 
+      // The spot ProseMirror hands the browser for a caret at this position.
+      // Chrome types before the line break when the widget comes after it.
+      function caretFollowsWidget(view: EditorView, position: number) {
+        const { node, offset } = view.domAtPos(position, -1);
+        const before = node.childNodes[offset - 1];
+        return (
+          before instanceof HTMLElement &&
+          before.classList.contains("suggestion-inline-widget")
+        );
+      }
+
+      it.each<[string, Partial<SuggestionHighlightSpec>]>([
+        ["a new line", { kind: "insert", insertedText: "\n" }],
+        ["an insertion", { kind: "insert", insertedText: "y = 2\n" }],
+        [
+          "an accepted line",
+          { kind: "insert", insertedText: "y = 2\n", settling: true },
+        ],
+        ["a deletion", { kind: "delete", deletedText: "y = 2\n" }],
+      ])(
+        "keeps the caret after %s at the start of a code line",
+        (_label, spec) => {
+          const { view } = mounted(
+            [code("x = 1\nz = 3"), prose("After.")],
+            [
+              {
+                suggestionId: "line-start",
+                from: 7,
+                to: 7,
+                kind: "insert",
+                ...spec,
+              },
+            ],
+          );
+          try {
+            expect(caretFollowsWidget(view, 7)).toBe(true);
+          } finally {
+            view.destroy();
+          }
+        },
+      );
+
+      it("keeps the caret before a widget inside a code line", () => {
+        const { view } = mounted(
+          [code("x = 1\nz = 3"), prose("After.")],
+          [
+            {
+              suggestionId: "mid-line",
+              kind: "insert",
+              from: 8,
+              to: 8,
+              insertedText: "y",
+            },
+          ],
+        );
+        try {
+          expect(caretFollowsWidget(view, 8)).toBe(false);
+        } finally {
+          view.destroy();
+        }
+      });
+
+      it("moves a widget when the line break before it goes away", () => {
+        const { view } = mounted(
+          [code("x = 1\nz = 3"), prose("After.")],
+          [
+            {
+              suggestionId: "line-start",
+              kind: "insert",
+              from: 7,
+              to: 7,
+              insertedText: "y",
+            },
+          ],
+        );
+        try {
+          expect(caretFollowsWidget(view, 7)).toBe(true);
+          view.dispatch(view.state.tr.insertText("-", 6, 7));
+          expect(caretFollowsWidget(view, 7)).toBe(false);
+        } finally {
+          view.destroy();
+        }
+      });
+
       it.each(["```", "~~~", "$$"])(
         "keeps the lines of a new %s block out of block widgets",
         (fence) => {
@@ -1035,6 +1305,25 @@ describe("SuggestionHighlight", () => {
         expect(list.children[1]!.firstElementChild?.getAttribute("role")).toBe(
           "button",
         );
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("spells out where a link on a suggested line points", () => {
+      const flat = [list("bulletList", listItem("One"))];
+      const { view, mount } = mounted(flat, [
+        lineAfter(
+          flat,
+          "One",
+          "- One\n- [Docs](https://docs.test)",
+          "\n- [Docs](https://docs.test)",
+        ),
+      ]);
+      try {
+        expect(
+          mount.querySelector(".suggestion-block-widget")?.textContent,
+        ).toBe("Docs (https://docs.test)");
       } finally {
         view.destroy();
       }
@@ -1359,28 +1648,40 @@ describe("SuggestionHighlight", () => {
     expect(deletion.type.toDOM().textContent).toBe("·⇥");
   });
 
-  it("makes contextual marked newlines visible in widgets", () => {
-    const source = "`Ec<br>ho`";
-    const editorState = setSpecs(state(), [
-      {
-        suggestionId: "context-code-break",
-        kind: "insert",
-        from: 1,
-        to: 1,
-        insertedText: source,
-        insertedPresentation: {
-          source,
-          from: 0,
-          to: source.length,
+  it.each([
+    ["`Ec`<br>`ho`", ["Ec", "ho"], 1],
+    ["`Ec<br>ho`", ["Ec<br>ho"], 0],
+  ])(
+    "shows contextual code %j in widgets as the page reads it",
+    (source, codes, breaks) => {
+      const editorState = setSpecs(state(), [
+        {
+          suggestionId: "context-code-break",
+          kind: "insert",
+          from: 1,
+          to: 1,
+          insertedText: source,
+          insertedPresentation: {
+            source,
+            from: 0,
+            to: source.length,
+          },
         },
-      },
-    ]);
-    const widget = suggestionHighlightKey
-      .getState(editorState)!
-      .decorations.find()[0] as any;
-    const dom = widget.type.toDOM();
-    expect(dom.querySelector("code")?.textContent).toBe("Ec↵ho");
-  });
+      ]);
+      const [widget] =
+        suggestionHighlightKey.getState(editorState)?.decorations.find() ?? [];
+      // A widget draws through its decoration's internal type.
+      const dom = (
+        widget as unknown as { type: { toDOM(): HTMLElement } } | undefined
+      )?.type.toDOM();
+      expect(
+        [...(dom?.querySelectorAll("code") ?? [])].map(
+          (code) => code.textContent,
+        ),
+      ).toEqual(codes);
+      expect(dom?.querySelectorAll("br")).toHaveLength(breaks);
+    },
+  );
 
   it("makes structural indentation visible in a zero-width widget", () => {
     const source = "\tParagraph";
@@ -1497,6 +1798,35 @@ describe("SuggestionHighlight", () => {
     expect(replacement.type.toDOM().className).toContain(
       "suggestion-highlight--active",
     );
+  });
+
+  it("lights up every piece decided together with the active one", () => {
+    const editorState = setSpecs(
+      state("Hello world again"),
+      [
+        { suggestionId: "active", kind: "delete", from: 1, to: 6 },
+        {
+          suggestionId: "same-unit",
+          kind: "delete",
+          from: 7,
+          to: 12,
+          inActiveUnit: true,
+        },
+        { suggestionId: "other", kind: "delete", from: 13, to: 18 },
+      ],
+      "active",
+    );
+    const classes = new Map(
+      (suggestionHighlightKey.getState(editorState) as any).decorations
+        .find()
+        .map((deco: any) => [
+          deco.type.attrs["data-suggestion-id"],
+          deco.type.attrs.class,
+        ]),
+    );
+    expect(classes.get("active")).toContain("suggestion-highlight--active");
+    expect(classes.get("same-unit")).toContain("suggestion-highlight--active");
+    expect(classes.get("other")).not.toContain("suggestion-highlight--active");
   });
 
   it("maps persisted ranges across document transactions and preserves stable ids", () => {
@@ -1930,6 +2260,82 @@ describe("settling suggestions", () => {
     ).toBe("Before after");
   });
 
+  it("keeps the comment highlight of the words it replaces on the new words", () => {
+    const view = new EditorView(document.createElement("div"), {
+      state: EditorState.create({
+        doc: doc("Before after"),
+        plugins: [
+          createCommentHighlightPlugin(),
+          createSuggestionHighlightPlugin(),
+        ],
+      }),
+    });
+    try {
+      setCommentHighlights(view, {
+        specs: [{ threadId: "thread", from: 1, to: 13 }],
+        activeId: "thread",
+      });
+      view.dispatch(
+        view.state.tr.setMeta(suggestionHighlightKey, {
+          specs: [settling],
+          activeId: null,
+        }),
+      );
+      const highlight = view.dom.querySelector(
+        ".suggestion-settling-text .comment-highlight",
+      );
+      expect(highlight?.textContent).toBe("Later");
+      expect(highlight?.className).toBe(
+        "comment-highlight comment-highlight--active",
+      );
+      expect(highlight?.getAttribute("data-comment-thread")).toBe("thread");
+
+      setCommentHighlights(view, { activeId: null, hoveredId: "thread" });
+      expect(
+        view.dom.querySelector(".suggestion-settling-text .comment-highlight")
+          ?.className,
+      ).toBe("comment-highlight comment-highlight--hovered");
+    } finally {
+      view.destroy();
+    }
+  });
+
+  it("draws the open card's thread when several highlight the words it replaces", () => {
+    const view = new EditorView(document.createElement("div"), {
+      state: EditorState.create({
+        doc: doc("Before after"),
+        plugins: [
+          createCommentHighlightPlugin(),
+          createSuggestionHighlightPlugin(),
+        ],
+      }),
+    });
+    try {
+      setCommentHighlights(view, {
+        specs: [
+          { threadId: "first", from: 1, to: 7 },
+          { threadId: "second", from: 1, to: 7 },
+        ],
+        activeId: "second",
+      });
+      view.dispatch(
+        view.state.tr.setMeta(suggestionHighlightKey, {
+          specs: [settling],
+          activeId: null,
+        }),
+      );
+      const highlight = view.dom.querySelector(
+        ".suggestion-settling-text .comment-highlight",
+      );
+      expect(highlight?.getAttribute("data-comment-thread")).toBe("second");
+      expect(highlight?.className).toBe(
+        "comment-highlight comment-highlight--active",
+      );
+    } finally {
+      view.destroy();
+    }
+  });
+
   it("holds undo and redo while a decision saves", () => {
     expect(suggestionDecisionHoldsHistory(state())).toBe(false);
     expect(
@@ -2042,6 +2448,29 @@ describe("drafts while the author types", () => {
     expect(struckText(editorState)).toEqual(["azdy"]);
     expect(specsOf(editorState)).toHaveLength(1);
   });
+
+  it.each([
+    { label: "more line breaks", insert: "\n", at: 3, to: 3, lineBreak: true },
+    { label: "text after it", insert: "x", at: 3, to: 3, lineBreak: false },
+    { label: "text over it", insert: "x", at: 2, to: 3, lineBreak: false },
+  ])(
+    "shows a draft line break's arrow only while it holds no ink: $label",
+    ({ insert, at, to, lineBreak }) => {
+      const editorState = drafting("a\nb", [
+        {
+          suggestionId: "draft-4",
+          kind: "mark",
+          from: 2,
+          to: 3,
+          editableText: true,
+          draft: true,
+          lineBreak: true,
+        },
+      ]);
+      const next = editorState.apply(editorState.tr.insertText(insert, at, to));
+      expect(specsOf(next)).toMatchObject([{ lineBreak }]);
+    },
+  );
 
   it("turns a draft deletion into a replacement when the author types there", () => {
     const deletion: SuggestionHighlightSpec = {

@@ -124,6 +124,8 @@ export interface SettingsShellProps extends SettingsBridgeInput {
   enableSearch?: boolean;
   className?: string;
   navClassName?: string;
+  /** Pinned under the settings nav, such as a Sign out button. */
+  navFooter?: ReactNode;
   contentClassName?: string;
   /** Today's controlled tab id. Changes open the page that answers for it. */
   value?: string;
@@ -136,6 +138,11 @@ export interface SettingsShellProps extends SettingsBridgeInput {
   initialValue?: string;
   /** Called with a page's legacy tab id (or its page id) when the viewer opens it. */
   onValueChange?: (tabId: string) => void;
+  /**
+   * The page a bare `/settings` or an unknown page id redirects to. Without it
+   * an unknown id lands on Profile and a bare `/settings` keeps its URL.
+   */
+  defaultPage?: string;
 }
 
 interface AppSettingsNavigationItemBase {
@@ -150,6 +157,8 @@ export type AppSettingsNavigationItem =
       sub?: string;
       label?: string;
       icon?: SettingsPageIcon;
+      /** A trailing status icon, such as an account that needs attention. */
+      status?: { icon: SettingsPageIcon; label: string };
     })
   | (AppSettingsNavigationItemBase & {
       type: "link";
@@ -388,6 +397,7 @@ function SettingsShellContent({
   enableSearch = true,
   className,
   navClassName,
+  navFooter,
   contentClassName,
   appSettingsPages,
   appNavigationSections,
@@ -396,6 +406,7 @@ function SettingsShellContent({
   value,
   initialValue,
   onValueChange,
+  defaultPage,
   navigator,
   ...bridgeInput
 }: ShellContentProps) {
@@ -535,6 +546,10 @@ function SettingsShellContent({
     () => pages.filter((page) => isSettingsPageVisible(page, context, bridge)),
     [bridge, context, pages],
   );
+  const listedPages = useMemo(
+    () => visiblePages.filter((page) => !page.unlisted),
+    [visiblePages],
+  );
 
   const appAreaIds = useMemo(
     () => bridge.appAreas.map((area) => area.id),
@@ -564,8 +579,9 @@ function SettingsShellContent({
   );
   const activePage =
     visiblePages.find((page) => page.id === resolved.page) ??
+    visiblePages.find((page) => page.id === defaultPage) ??
     visiblePages.find((page) => page.id === DEFAULT_SETTINGS_PAGE_ID) ??
-    visiblePages[0];
+    visiblePages.at(0);
   const routePage = activePage?.id ?? null;
   const routeSub = routePage === resolved.page ? resolved.sub : null;
 
@@ -630,8 +646,9 @@ function SettingsShellContent({
     [go],
   );
 
-  // A page the viewer can't see (or an unknown id) lands on Profile, and a
-  // legacy link is rewritten to its page's own path, keeping the query
+  // A page the viewer can't see (or an unknown id) lands on the default page,
+  // as does a bare /settings when `defaultPage` names one, and a legacy link
+  // is rewritten to its page's own path, keeping the query
   // (`?connected=`, a template's `?section=`). Once per location: a data
   // router commits asynchronously, and asking again before it does would
   // cancel the redirect (and any click) in flight.
@@ -639,7 +656,15 @@ function SettingsShellContent({
   const locationKey = `${location.pathname}${location.search}${location.hash}${location.section ?? ""}`;
   useEffect(() => {
     const visible = resolved.page === activePage?.id;
-    if (!resolved.page || !activePage || (visible && !resolved.legacy)) {
+    const bareToDefault =
+      !resolved.page &&
+      defaultPage !== undefined &&
+      activePage?.id === defaultPage;
+    if (
+      !activePage ||
+      (!resolved.page && !bareToDefault) ||
+      (visible && !resolved.legacy)
+    ) {
       redirectedFromRef.current = null;
       return;
     }
@@ -656,6 +681,7 @@ function SettingsShellContent({
     );
   }, [
     activePage,
+    defaultPage,
     go,
     location.search,
     locationKey,
@@ -794,7 +820,7 @@ function SettingsShellContent({
     const bridgedEntries = bridgedCoreSearchEntries(bridge, pages);
     const coreEntries = getCoreSettingsSearchEntries();
     return buildSettingsSearchIndex(
-      visiblePages.map((page) => ({
+      listedPages.map((page) => ({
         page: { ...page, icon: pageIcon(page) },
         label: pageLabel(page),
         groupLabel: groupLabel(page.group),
@@ -815,11 +841,11 @@ function SettingsShellContent({
     bridge,
     canShowThemeFamily,
     groupLabel,
+    listedPages,
     pageIcon,
     pageLabel,
     pages,
     t,
-    visiblePages,
   ]);
 
   const shellContext = useMemo<SettingsShellContextValue>(
@@ -831,7 +857,7 @@ function SettingsShellContent({
 
   const nav = (
     <SettingsNav
-      pages={visiblePages}
+      pages={listedPages}
       activePageId={routePage}
       groupLabel={groupLabel}
       pageLabel={pageLabel}
@@ -847,10 +873,12 @@ function SettingsShellContent({
       activeSub={routeSub}
       context={context}
       appNavigationSections={appNavigationSections}
+      footer={navFooter}
     />
   );
 
   const Page = activePage?.component;
+  const titledPage = activePage?.unlisted ? undefined : activePage;
   const PrimaryAction = activePage?.primaryAction;
   const subLabel =
     routeSub && activePage
@@ -866,6 +894,10 @@ function SettingsShellContent({
   const pageProps = activePage
     ? { pageId: activePage.id, sub: routeSub, context, bridge }
     : null;
+  // Inside the h1: the page's title and its badge are one heading.
+  const headerBadge = header?.badge ? (
+    <span className="flex shrink-0 items-center">{header.badge}</span>
+  ) : null;
 
   return (
     <SettingsShellProvider value={shellContext}>
@@ -914,6 +946,7 @@ function SettingsShellContent({
                 type="button"
                 onClick={() => setNavOpen(true)}
                 aria-label={t("agentChat.settingsShell.openNav")}
+                data-settings-nav-toggle=""
                 className="-ms-2 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground min-[760px]:hidden"
               >
                 <IconMenu2 className="size-4" aria-hidden="true" />
@@ -922,42 +955,39 @@ function SettingsShellContent({
                 aria-label={t("agentChat.settingsShell.breadcrumbLabel")}
                 className="flex min-w-0 items-center gap-2 text-sm"
               >
-                {activePage && title ? (
+                {titledPage && title ? (
                   <>
                     <a
-                      href={settingsPageHref(activePage.id)}
+                      href={settingsPageHref(titledPage.id)}
                       onClick={(event) => {
                         if (isModifiedClick(event)) return;
                         event.preventDefault();
-                        navigate(activePage.id);
+                        navigate(titledPage.id);
                       }}
                       className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
                     >
-                      {pageLabel(activePage)}
+                      {pageLabel(titledPage)}
                     </a>
                     <IconChevronRight
                       className="size-3.5 shrink-0 text-muted-foreground"
                       aria-hidden="true"
                     />
-                    <span
+                    <h1
                       aria-current="page"
-                      className="truncate font-medium text-foreground"
+                      className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground"
                     >
-                      {title}
-                    </span>
+                      <span className="truncate">{title}</span>
+                      {headerBadge}
+                    </h1>
                   </>
-                ) : activePage ? (
-                  <span
+                ) : titledPage ? (
+                  <h1
                     aria-current="page"
-                    className="truncate font-medium text-foreground"
+                    className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground"
                   >
-                    {pageLabel(activePage)}
-                  </span>
-                ) : null}
-                {activePage && header?.badge ? (
-                  <span className="flex shrink-0 items-center">
-                    {header.badge}
-                  </span>
+                    <span className="truncate">{pageLabel(titledPage)}</span>
+                    {headerBadge}
+                  </h1>
                 ) : null}
               </nav>
               <div className="ms-auto flex shrink-0 items-center gap-2">
@@ -1011,6 +1041,7 @@ interface SettingsNavProps {
   activeSub: string | null;
   context: SettingsPageContext;
   appNavigationSections?: readonly AppSettingsNavigationSection[];
+  footer?: ReactNode;
 }
 
 function SettingsNav({
@@ -1030,6 +1061,7 @@ function SettingsNav({
   activeSub,
   context,
   appNavigationSections,
+  footer,
 }: SettingsNavProps) {
   const t = useT();
   const [query, setQuery] = useState("");
@@ -1129,7 +1161,17 @@ function SettingsNav({
           )}
         />
         <span className="truncate">{item?.label ?? pageLabel(page)}</span>
-        {unreadPageIds.includes(page.id) ? (
+        {item?.status ? (
+          <span
+            role="img"
+            aria-label={item.status.label}
+            title={item.status.label}
+            data-settings-nav-status=""
+            className="ms-auto flex shrink-0 items-center text-destructive"
+          >
+            <item.status.icon className="size-3.5" />
+          </span>
+        ) : unreadPageIds.includes(page.id) ? (
           <span
             role="img"
             aria-label={t("agentChat.settingsShell.unread")}
@@ -1354,6 +1396,7 @@ function SettingsNav({
               ))}
         </nav>
       )}
+      {footer ? <div className="shrink-0 px-2.5 pb-3">{footer}</div> : null}
     </div>
   );
 }

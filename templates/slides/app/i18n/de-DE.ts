@@ -124,6 +124,14 @@ const messages = {
     noAssetsYet: "Noch keine Assets.",
     assetUploadFailed: "Einige Uploads sind fehlgeschlagen",
     assetDeleteFailed: "Asset konnte nicht gelöscht werden",
+    assetLoadFailed: "Assets konnten nicht geladen werden",
+    assetSelectNoChange:
+      "Dieses Bild konnte auf diese Folie nicht angewendet werden",
+    retry: "Erneut versuchen",
+    assetDeleteInUse:
+      "Dieses Asset wird in einer Präsentation verwendet. Entferne es zuerst aus der Präsentation",
+    assetDeleteStorageRemains:
+      "Aus der Bibliothek entfernt, aber die gespeicherte Datei konnte nicht gelöscht werden",
     contentMarkdown: "Inhalt (Markdown)",
     speakerNotes: "Sprechernotizen",
     speakerNotesForSlide: "Sprechernotizen — Folie {{index}} / {{count}}",
@@ -435,6 +443,8 @@ const messages = {
       "Sprechernotizen während der Präsentation anzeigen",
     presenterViewBlocked:
       "Erlaube Pop-ups, um die Referentenansicht zu öffnen.",
+    presenterViewUnsupported:
+      "Die Referentenansicht wird in diesem Browser nicht unterstützt.",
     export: "Exportieren",
     privacyPrivate: "Privat",
     privacyOrg: "Mit der Organisation geteilt",
@@ -489,6 +499,11 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX-Datei konnte nicht erstellt werden.",
     exportFailed: "Export fehlgeschlagen",
+    exportFinishedWithWarnings: "Export mit Warnungen abgeschlossen",
+    imagesDropped:
+      "{{count}} Bild(er) konnten nicht geladen werden und fehlen in der PowerPoint-Datei (Folien {{slides}}).",
+    pdfSidecarSkipped:
+      "Diese PDF wurde ohne ihre bearbeitbare Quelle exportiert. Beim erneuten Import werden die Folien aus dem Seiteninhalt neu erstellt.",
     exporting: "Wird exportiert...",
     exportPptxError: "Beim Export als PPTX ist etwas schiefgelaufen.",
     googleSlidesDownloaded: "Für Google Slides heruntergeladen",
@@ -508,6 +523,9 @@ const messages = {
     exportPdf: "Als PDF exportieren",
     exportPptx: "Als PPTX exportieren",
     connectGoogle: "Google verbinden",
+    disconnectGoogle: "Google trennen",
+    googleDisconnectFailed: "Google Drive konnte nicht getrennt werden.",
+    googleSlidesStatusUnknown: "Status konnte nicht geprüft werden",
     openInGoogleSlides: "In Google Slides öffnen",
     googleSlidesUnavailable: "Nicht verfügbar",
     googleSlidesOpenImporter: "Google Slides-Import öffnen",
@@ -529,6 +547,7 @@ const messages = {
   share: {
     createFailed: "Freigabelink konnte nicht erstellt werden",
     snapshotLinks: "Snapshot-Links",
+    snapshotLinksLoadFailed: "Snapshot-Links konnten nicht geladen werden",
     revokeLink: "Widerrufen",
     revokeFailed: "Freigabelink konnte nicht widerrufen werden",
     title: "Präsentation teilen",
@@ -605,10 +624,7 @@ const messages = {
     reactionFailed: "Diese Reaktion konnte nicht aktualisiert werden.",
     addCommentPlaceholder: "Kommentar hinzufügen...",
     addReaction: "Reaktion hinzufügen",
-    toggleReaction: "Reaktion {{emoji}} umschalten",
-    reactWith: "Mit {{emoji}} reagieren",
     cancel: "Abbrechen",
-    saving: "Speichern...",
     comment: "Kommentar",
     saveReplyFailed: "Diese Antwort konnte nicht gespeichert werden.",
     replyPlaceholder: "Antworten...",
@@ -638,6 +654,40 @@ const messages = {
     goToSlide: "Zur Folie",
     search: "Kommentare durchsuchen",
     searchPlaceholder: "Alle Kommentare durchsuchen...",
+    moreActions: "Weitere Aktionen",
+    moreActionsFor: "Weitere Aktionen für {{author}}",
+    deleteThread: "Thread löschen",
+    reviewer: "Prüfende Person",
+    agentBadge: "Agent",
+    resolved: "Erledigt",
+    addEmoji: "Emoji hinzufügen",
+    mention: "Jemanden erwähnen",
+    noMentions: "Keine Personen gefunden",
+    mentionsFailed: "Personen konnten nicht geladen werden",
+    agents: "Agenten",
+    agentMention: "Agent",
+    agentMentionDescription: "Antwortet in diesem Thread",
+    attachImage: "Bild anhängen",
+    removeImage: "Bild entfernen",
+    imageUploadFailed: "Das Bild konnte nicht hochgeladen werden",
+    reaction: {
+      label_one: "{{emoji}}, {{count}} Reaktion",
+      label_other: "{{emoji}}, {{count}} Reaktionen",
+      labelMine_one: "{{emoji}}, {{count}} Reaktion, inklusive dir",
+      labelMine_other: "{{emoji}}, {{count}} Reaktionen, inklusive dir",
+    },
+    format: {
+      toolbar: "Formatierung",
+      bold: "Fett",
+      italic: "Kursiv",
+      strike: "Durchgestrichen",
+      code: "Als Code formatieren",
+      link: "Verlinken",
+      linkField: "Linkadresse",
+      linkPlaceholder: "Link einfügen",
+      applyLink: "Link übernehmen",
+      removeLink: "Link entfernen",
+    },
   },
   contextToolbar: {
     insert: "Einfügen",
@@ -904,9 +954,6 @@ const messages = {
     newSlideSaveFailed:
       "Die neue Folie konnte nicht gespeichert werden. Bitte versuche es erneut.",
     addSlides: "Folien hinzufügen",
-    addEmptySlide: "Leere Folie hinzufügen",
-    noAi: "ohne KI",
-    duplicateCurrentSlide: "Aktuelle Folie duplizieren",
     promptPlaceholder: "Beschreibe die gewünschten Folien...",
     newSlide: "Neue Folie",
     slidesHeading: "Folien",
@@ -1352,7 +1399,27 @@ const messages = {
     },
     importDeck: "Präsentation importieren",
     context: {
+      googleSlides: {
+        connectionFailed:
+          "Deine Google Drive-Verbindung konnte nicht geprüft werden. Versuche es erneut.",
+        attach: "Anhängen",
+        reading: "Wird gelesen…",
+        authentication: "Melde dich an, um Google Slides anzuhängen.",
+        invalid: "Gib eine gültige URL einer Google Slides-Präsentation ein.",
+        connect: "Verbinde Google Drive, um diese Präsentation zu lesen.",
+        denied:
+          "Diese Präsentation ist nicht verfügbar. Prüfe den Zugriff oder verbinde Google Drive erneut.",
+        failed:
+          "Diese Präsentation konnte nicht gelesen werden. Versuche es erneut.",
+        tooLarge:
+          "Diese Präsentation ist zu groß, um sie als Kontext zu lesen.",
+        truncated:
+          "Referenzauszug gekürzt; der restliche Inhalt wurde nicht einbezogen.",
+      },
       websiteReference: "Website hinzufügen",
+      connectFigma: "Figma verbinden",
+      figmaDisconnected: "Verbinde Figma, um Designs zu durchsuchen.",
+      websiteReferenceMenu: "Website hinzufügen…",
       websiteUrlLabel: "Website-URL",
       websiteUrl: "Website-URL einfügen",
       figmaUrlLabel: "Figma-Link",
@@ -1367,9 +1434,9 @@ const messages = {
       searchPresentations: "Präsentationen suchen…",
       menu: {
         system: "Ein Designsystem verwenden",
-        figma: "Figma hinzufügen",
+        figma: "Figma-Design",
         design: "Ein Design als Referenz verwenden",
-        deck: "Eine Präsentation als Referenz verwenden",
+        deck: "Auf eine Präsentation verweisen…",
         searchDesign: "Design durchsuchen…",
       },
       loadFailed: "Referenz konnte nicht geladen werden. Versuche es erneut.",
@@ -1394,7 +1461,7 @@ const messages = {
         "Design konnte diese Figma-Referenz nicht lesen. Prüfe das gespeicherte Figma-Zugriffstoken in Design und ob das zugehörige Konto die Datei öffnen kann, und versuche es erneut.",
       tooMany: "Wähle bis zu 20 Referenzen.",
       search: "Referenzen suchen",
-      designCategory: "Gestaltung",
+      designCategory: "Designreferenzen",
     },
     quickStart: {
       invalidUrl: "Gib eine gültige HTTP- oder HTTPS-URL ein.",

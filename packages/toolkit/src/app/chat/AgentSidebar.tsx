@@ -73,7 +73,7 @@ import React, {
   lazy,
   Suspense,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 
 import { setComposerReferenceEventTarget } from "../../composer/runtime-adapters.js";
 import { Skeleton } from "../../ui/skeleton.js";
@@ -81,6 +81,7 @@ import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-st
 import type { BuilderConnectTransport } from "../settings/index.js";
 import { LazyChunkErrorBoundary } from "../shared/LazyChunkErrorBoundary.js";
 import { LazyChunkRetryFallback } from "../shared/LazyChunkRetryFallback.js";
+import type { ShareButtonProps } from "../sharing/ShareButton.js";
 import { useRegisterAgentChatSurface } from "./agent-chat-presence.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
@@ -88,6 +89,8 @@ import {
   AGENT_PANEL_OPEN_SETTINGS_EVENT,
   AGENT_PANEL_PREPARE_EVENT,
   AGENT_PANEL_SET_MODE_EVENT,
+  focusAgentChat,
+  focusAgentChatComposer,
   getAgentChatNavigationKey,
   type AgentChatNavigationKey,
   isAgentPanelChatShortcut,
@@ -288,6 +291,8 @@ export interface AgentSidebarProps {
   threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
   emptyStateFooter?: AssistantChatProps["emptyStateFooter"];
   onMessageCountChange?: AssistantChatProps["onMessageCountChange"];
+  /** Receives the chat share menu's agent destinations instead of a native launch. */
+  onAgentShareHandoff?: ShareButtonProps["onAgentShareHandoff"];
   defaultSidebarWidth?: number;
   /** @deprecated Use `defaultSidebarWidth` — this prop is mount-only. */
   sidebarWidth?: number;
@@ -295,7 +300,21 @@ export interface AgentSidebarProps {
   /** Render the open panel over content even above the mobile breakpoint. */
   forceOverlay?: boolean;
   defaultOpen?: boolean;
+  /** Let an app-owned controller handle the sidebar toggle chord. */
+  disableToggleShortcut?: boolean;
   disableChatShortcut?: boolean;
+  /**
+   * Draws the panel inside this element instead of beside the page, for an app
+   * whose own sidebar holds the agent. The app then owns the panel's width,
+   * motion and close button, and the key that toggles the sidebar.
+   */
+  panelHost?: HTMLElement | null;
+  /**
+   * The head of the host's panel. With a `panelHost`, the chat picker, New
+   * chat, Chat history and the options menu render here instead of in a
+   * header of the agent's own.
+   */
+  panelHeadHost?: HTMLElement | null;
   showCollapseButton?: boolean;
   animateMobile?: boolean;
   animateDesktop?: boolean;
@@ -331,17 +350,42 @@ export interface AgentSidebarProps {
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   browserTabId?: string;
+  /**
+   * Query keys the app's agent reads from `__url__`, as exact names and
+   * `prefix*` patterns. Every other query value is redacted before it reaches
+   * the agent; the keys themselves stay visible.
+   */
+  urlQueryKeys?: readonly string[];
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
   agentPageHref?: string;
   suppressFirstRunOnboarding?: boolean;
   thinkingDisplay?: AssistantChatProps["thinkingDisplay"];
   showModelSelector?: AssistantChatProps["showModelSelector"];
+  /** Controls the shared composer's "+" menu; the sidebar keeps it by default. */
+  plusMenuMode?: AssistantChatProps["plusMenuMode"];
   chatOnly?: boolean;
 }
 
 interface HostedHarnessStatus {
   enabled: boolean;
   runtimes: HostedHarnessRuntime[];
+}
+
+const HOSTED_PANEL_PLACEHOLDER_MAX_MS = 3000;
+
+function HostedAgentPanelPlaceholder() {
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 flex flex-col gap-3 p-3"
+      data-agent-sidebar-placeholder=""
+    >
+      <div className="flex flex-1 flex-col items-center justify-end pb-40">
+        <Skeleton className="h-3 w-56" />
+      </div>
+      <Skeleton className="h-28 w-full rounded-xl" />
+    </div>
+  );
 }
 
 export function AgentSidebar({
@@ -375,7 +419,10 @@ export function AgentSidebar({
   position,
   forceOverlay = false,
   defaultOpen,
+  disableToggleShortcut = false,
   disableChatShortcut = false,
+  panelHost,
+  panelHeadHost,
   showCollapseButton = true,
   animateMobile = true,
   animateDesktop = true,
@@ -409,12 +456,15 @@ export function AgentSidebar({
   isolateHistoryByScope = false,
   showScopeBadge,
   browserTabId,
+  urlQueryKeys,
   threadUrlSync,
   agentPageHref,
   suppressFirstRunOnboarding = false,
   thinkingDisplay,
   showModelSelector,
+  plusMenuMode,
   chatOnly = true,
+  onAgentShareHandoff,
 }: AgentSidebarProps) {
   const resolvedBrowserTabId =
     browserTabId ??
@@ -644,9 +694,26 @@ export function AgentSidebar({
     !isPerAppChatHosted &&
     !presentationMode &&
     (!frameCodeMode || !shouldParentFrameOwnAgentPanel());
+  const hostedPanel = ownsPanel && panelHost ? panelHost : null;
+  // A host switches between the agent and its other sections, so the chat
+  // stays mounted behind them once it has opened.
+  const [hostedPanelOpened, setHostedPanelOpened] = useState(false);
+  useEffect(() => {
+    if (!hostedPanel) setHostedPanelOpened(false);
+    else if (open) setHostedPanelOpened(true);
+  }, [hostedPanel, open]);
+  const [hostedPanelSettled, setHostedPanelSettled] = useState(false);
+  const [hostedHead, setHostedHead] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!hostedPanel) setHostedPanelSettled(false);
+  }, [hostedPanel]);
+  const onHostedPanelSettledChange = useCallback((settled: boolean) => {
+    if (settled) setHostedPanelSettled(true);
+  }, []);
   const shouldMountPanel =
     ownsPanel &&
     (open ||
+      hostedPanelOpened ||
       backgroundPanelActive ||
       runningTabIds.size > 0 ||
       hasPendingPanelEvents);
@@ -714,7 +781,7 @@ export function AgentSidebar({
                 return (
                   pending.order < navigation.order &&
                   !isPanelNavigationEvent(pending.event) &&
-                  !submit?.targetTabId
+                  !sendsToOwnTab(submit)
                 );
               }),
             );
@@ -844,7 +911,11 @@ export function AgentSidebar({
               pending.targetId == null &&
               !pending.reference &&
               !isComposerReferenceEvent(pending.event) &&
-              !isPanelNavigationEvent(pending.event)
+              !isPanelNavigationEvent(pending.event) &&
+              !(
+                pending.event instanceof MessageEvent &&
+                sendsToOwnTab(parseSubmitChatMessage(pending.event))
+              )
             )
               pending.targetId = targetId;
           }
@@ -855,7 +926,7 @@ export function AgentSidebar({
               pending.event instanceof MessageEvent
                 ? parseSubmitChatMessage(pending.event)
                 : null;
-            if (submit?.targetTabId) return false;
+            if (sendsToOwnTab(submit)) return false;
             const recipient =
               pending.referenceTargetId ??
               pending.reference?.referenceTargetId ??
@@ -910,6 +981,7 @@ export function AgentSidebar({
     [cancelPendingEvents, drainPendingPanelEvents],
   );
   const onPanelLoadFailed = useCallback(() => {
+    setHostedPanelSettled(true);
     panelLoadFailedRef.current = true;
     panelReadyRef.current = false;
     composerReadyRef.current = false;
@@ -978,10 +1050,12 @@ export function AgentSidebar({
           : !presentationMode && (frameOwned ? frameSidebarOpen : open)),
       source: frameOwned ? "frame" : "app",
       mode: frameOwned ? "code" : "app",
+      hosted: Boolean(hostedPanel),
     });
   }, [
     frameCodeMode,
     frameSidebarOpen,
+    hostedPanel,
     open,
     presentationMode,
     hasFrameSidebarState,
@@ -1125,12 +1199,13 @@ export function AgentSidebar({
             : recipient
           : undefined,
         navigation:
-          submit?.targetTabId || isPanelNavigationEvent(event)
+          sendsToOwnTab(submit) || isPanelNavigationEvent(event)
             ? undefined
             : navigation,
         targetId:
           submit?.targetTabId ??
           (navigation ||
+          sendsToOwnTab(submit) ||
           isPanelNavigationEvent(event) ||
           isComposerReferenceEvent(event)
             ? undefined
@@ -1139,7 +1214,7 @@ export function AgentSidebar({
               : recipient),
         reference:
           !isPanelNavigationEvent(event) &&
-          !submit?.targetTabId &&
+          !sendsToOwnTab(submit) &&
           reference &&
           isComposerReferenceEvent(reference.event)
             ? reference
@@ -1468,14 +1543,26 @@ export function AgentSidebar({
   useEffect(() => {
     if (!enabled) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isAgentSidebarToggleShortcut(e)) {
+      // A host's element that isn't on the page yet, such as one a loading
+      // page's skeleton holds, has no panel to answer ⌘\, so the shell does.
+      if (
+        !disableToggleShortcut &&
+        !panelHost?.isConnected &&
+        isAgentSidebarToggleShortcut(e)
+      ) {
         e.preventDefault();
         window.dispatchEvent(
           new CustomEvent("agent-panel:toggle", { detail: { focus: true } }),
         );
         return;
       }
-      if (!disableChatShortcut && isAgentPanelChatShortcut(e)) {
+      // A Mac reports ⇧⌘I with a lowercase key, and a hosting page's panel
+      // owns that key.
+      if (
+        !disableChatShortcut &&
+        isAgentPanelChatShortcut(e) &&
+        !(panelHost && e.shiftKey)
+      ) {
         e.preventDefault();
         let selectionText = "";
         try {
@@ -1500,7 +1587,7 @@ export function AgentSidebar({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [disableChatShortcut, enabled]);
+  }, [disableToggleShortcut, disableChatShortcut, enabled, panelHost]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -1602,12 +1689,12 @@ export function AgentSidebar({
   }, [persistWidth]);
 
   const isLeft = effectivePosition === "left";
-  const isOverlay = isMobile || forceOverlay;
-  const wideDrawerEnabled = isWideDrawer && !isOverlay;
+  const isOverlay = !hostedPanel && (isMobile || forceOverlay);
+  const wideDrawerEnabled = isWideDrawer && !isOverlay && !hostedPanel;
   const mobileAnimationEnabled =
     !presentationMode && isOverlay && animateMobile;
   const desktopAnimationEnabled =
-    !presentationMode && !isOverlay && effectiveAnimateDesktop;
+    !presentationMode && !isOverlay && !hostedPanel && effectiveAnimateDesktop;
   const sidebarAnimationEnabled =
     mobileAnimationEnabled || desktopAnimationEnabled;
   const [renderAnimatedPanel, setRenderAnimatedPanel] =
@@ -1713,7 +1800,165 @@ export function AgentSidebar({
     };
   }
 
-  const sidebar = shouldRenderPanel ? (
+  const panelBody = (
+    <LazyChunkErrorBoundary
+      fallback={<LazyChunkRetryFallback />}
+      shouldHandleError={isPanelImportError}
+      onError={onPanelLoadFailed}
+    >
+      <Suspense
+        fallback={
+          hostedPanel ? (
+            <HostedAgentPanelPlaceholder />
+          ) : (
+            <div
+              aria-hidden="true"
+              className="flex min-h-0 flex-1 flex-col gap-3 p-3"
+            >
+              <Skeleton className="h-8 w-full" />
+              <div className="flex-1" />
+              <Skeleton className="h-28 w-full rounded-xl" />
+            </div>
+          )
+        }
+      >
+        <AgentSidebarPanel
+          onReadyChange={onPanelReadyChange}
+          onReferenceTargetChange={onReferenceTargetChange}
+          onNavigationChange={onNavigationChange}
+          onTabsClosing={onTabsClosing}
+          emptyStateText={emptyStateText}
+          mcpSuggestionExcludedIntegrationIds={
+            mcpSuggestionExcludedIntegrationIds
+          }
+          suggestions={suggestions}
+          dynamicSuggestions={dynamicSuggestions}
+          suggestionPlacement="context-chips"
+          composerToolbarSlot={composerToolbarSlot}
+          composerSlot={composerSlot}
+          // A host's tab opens the chat without taking focus from the tab.
+          {...(hostedPanel
+            ? {
+                composerAutoFocus: false,
+                headerHost: panelHeadHost ? hostedHead : undefined,
+                suggestionLayout: "wrap" as const,
+                onSettledChange: onHostedPanelSettledChange,
+              }
+            : {})}
+          composerContextProvider={composerContextProvider}
+          onComposerTextChange={onComposerTextChange}
+          imageModelMenu={imageModelMenu}
+          availableAgents={effectiveAvailableAgents}
+          availableModels={availableModels}
+          modelListLoading={modelListLoading}
+          selectedAgent={effectiveSelectedAgent}
+          onAgentChange={effectiveOnAgentChange}
+          hostedHarness={hostedHarnessEnabled}
+          onConnectProvider={onConnectProvider}
+          builderConnectTransport={builderConnectTransport}
+          onConnectLocalRuntime={onConnectLocalRuntime}
+          runtime={runtime}
+          adapterReloadKey={adapterReloadKey}
+          threadFooterSlot={threadFooterSlot}
+          apiUrl={apiUrl}
+          agentChatSurface={agentChatSurface}
+          desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
+          desktopIdentityAuthenticated={desktopIdentityAuthenticated}
+          showTabBar={effectiveShowTabBar}
+          suppressInlineOpenApp={suppressInlineOpenApp}
+          composerPlaceholder={composerPlaceholder}
+          showMissingApiKeySetup={showMissingApiKeySetup}
+          setupCardOwner={setupCardOwner}
+          showGuidedQuestions={showGuidedQuestions}
+          missingApiKeySetupLayout="sidebar"
+          defaultMode={defaultMode}
+          onCollapse={() => setOpenPersisted(false)}
+          showCollapseButton={!hostedPanel && showCollapseButton}
+          onSnapTo75Percent={
+            isOverlay || hostedPanel ? undefined : snapTo75Percent
+          }
+          isWideDrawer={wideDrawerEnabled}
+          onExitWideDrawer={
+            isOverlay || hostedPanel ? undefined : exitWideDrawer
+          }
+          onFullViewRequest={onFullscreenRequest}
+          onOpenSettings={onOpenSettings}
+          onNewCliTab={onNewCliTab}
+          onNewUiTab={onNewUiTab}
+          renderCliTab={renderCliTab}
+          newTabMode={newTabMode}
+          newCliTabLabel={newCliTabLabel}
+          newUiTabLabel={newUiTabLabel}
+          storageKey={storageKey}
+          restoreActiveThread={restoreActiveThread}
+          scope={scope}
+          {...(chatHistory ? { chatHistory } : {})}
+          isolateHistoryByScope={isolateHistoryByScope}
+          showScopeBadge={showScopeBadge}
+          browserTabId={resolvedBrowserTabId}
+          threadUrlSync={threadUrlSync}
+          agentPageHref={agentPageHref}
+          thinkingDisplay={thinkingDisplay}
+          showModelSelector={showModelSelector}
+          plusMenuMode={plusMenuMode}
+          chatOnly={chatOnly}
+          onAgentShareHandoff={onAgentShareHandoff}
+        />
+      </Suspense>
+    </LazyChunkErrorBoundary>
+  );
+
+  const hostedPanelHeld =
+    Boolean(hostedPanel) && shouldRenderPanel && !hostedPanelSettled;
+  const revealHostedPanel = useCallback(() => setHostedPanelSettled(true), []);
+  useEffect(() => {
+    if (!hostedPanelHeld) return;
+    const timer = window.setTimeout(
+      () => setHostedPanelSettled(true),
+      HOSTED_PANEL_PLACEHOLDER_MAX_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [hostedPanelHeld]);
+
+  const sidebar = !shouldRenderPanel ? null : hostedPanel ? (
+    <>
+      {createPortal(
+        <div
+          className="agent-sidebar-panel agent-kit-density relative flex min-h-0 flex-1 flex-col overflow-hidden"
+          data-agent-sidebar-layout="hosted"
+          data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+          aria-busy={hostedPanelHeld || undefined}
+          inert={!panelOpen || undefined}
+          onFocus={hostedPanelHeld ? revealHostedPanel : undefined}
+        >
+          <div
+            ref={panelElementRef}
+            className={cn(
+              "agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col",
+              hostedPanelHeld && "pointer-events-none opacity-0",
+            )}
+          >
+            {panelBody}
+          </div>
+          {hostedPanelHeld ? <HostedAgentPanelPlaceholder /> : null}
+        </div>,
+        hostedPanel,
+      )}
+      {panelHeadHost
+        ? createPortal(
+            <div
+              ref={setHostedHead}
+              className={cn(
+                "flex min-w-0 flex-1 items-center",
+                hostedPanelHeld && "pointer-events-none opacity-0",
+              )}
+              data-agent-sidebar-head=""
+            />,
+            panelHeadHost,
+          )
+        : null}
+    </>
+  ) : (
     <>
       {showResizeHandle && !isLeft && (
         <ResizeHandle
@@ -1766,92 +2011,7 @@ export function AgentSidebar({
           ref={panelElementRef}
           className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col"
         >
-          <LazyChunkErrorBoundary
-            fallback={<LazyChunkRetryFallback />}
-            shouldHandleError={isPanelImportError}
-            onError={onPanelLoadFailed}
-          >
-            <Suspense
-              fallback={
-                <div
-                  aria-hidden="true"
-                  className="flex min-h-0 flex-1 flex-col gap-3 p-3"
-                >
-                  <Skeleton className="h-8 w-full" />
-                  <div className="flex-1" />
-                  <Skeleton className="h-28 w-full rounded-xl" />
-                </div>
-              }
-            >
-              <AgentSidebarPanel
-                onReadyChange={onPanelReadyChange}
-                onReferenceTargetChange={onReferenceTargetChange}
-                onNavigationChange={onNavigationChange}
-                onTabsClosing={onTabsClosing}
-                emptyStateText={emptyStateText}
-                mcpSuggestionExcludedIntegrationIds={
-                  mcpSuggestionExcludedIntegrationIds
-                }
-                suggestions={suggestions}
-                dynamicSuggestions={dynamicSuggestions}
-                suggestionPlacement="context-chips"
-                composerToolbarSlot={composerToolbarSlot}
-                composerSlot={composerSlot}
-                composerContextProvider={composerContextProvider}
-                onComposerTextChange={onComposerTextChange}
-                imageModelMenu={imageModelMenu}
-                availableAgents={effectiveAvailableAgents}
-                availableModels={availableModels}
-                modelListLoading={modelListLoading}
-                selectedAgent={effectiveSelectedAgent}
-                onAgentChange={effectiveOnAgentChange}
-                hostedHarness={hostedHarnessEnabled}
-                onConnectProvider={onConnectProvider}
-                builderConnectTransport={builderConnectTransport}
-                onConnectLocalRuntime={onConnectLocalRuntime}
-                runtime={runtime}
-                adapterReloadKey={adapterReloadKey}
-                threadFooterSlot={threadFooterSlot}
-                apiUrl={apiUrl}
-                agentChatSurface={agentChatSurface}
-                desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
-                desktopIdentityAuthenticated={desktopIdentityAuthenticated}
-                showTabBar={effectiveShowTabBar}
-                suppressInlineOpenApp={suppressInlineOpenApp}
-                composerPlaceholder={composerPlaceholder}
-                showMissingApiKeySetup={showMissingApiKeySetup}
-                setupCardOwner={setupCardOwner}
-                showGuidedQuestions={showGuidedQuestions}
-                missingApiKeySetupLayout="sidebar"
-                defaultMode={defaultMode}
-                onCollapse={() => setOpenPersisted(false)}
-                showCollapseButton={showCollapseButton}
-                onSnapTo75Percent={isOverlay ? undefined : snapTo75Percent}
-                isWideDrawer={isOverlay ? false : isWideDrawer}
-                onExitWideDrawer={isOverlay ? undefined : exitWideDrawer}
-                onFullViewRequest={onFullscreenRequest}
-                onOpenSettings={onOpenSettings}
-                onNewCliTab={onNewCliTab}
-                onNewUiTab={onNewUiTab}
-                renderCliTab={renderCliTab}
-                newTabMode={newTabMode}
-                newCliTabLabel={newCliTabLabel}
-                newUiTabLabel={newUiTabLabel}
-                storageKey={storageKey}
-                restoreActiveThread={restoreActiveThread}
-                scope={scope}
-                chatHistory={chatHistory}
-                isolateHistoryByScope={isolateHistoryByScope}
-                showScopeBadge={showScopeBadge}
-                browserTabId={resolvedBrowserTabId}
-                threadUrlSync={threadUrlSync}
-                agentPageHref={agentPageHref}
-                thinkingDisplay={thinkingDisplay}
-                showModelSelector={showModelSelector}
-                chatOnly={chatOnly}
-              />
-            </Suspense>
-          </LazyChunkErrorBoundary>
+          {panelBody}
         </div>
       </div>
       {showResizeHandle && isLeft && (
@@ -1866,7 +2026,7 @@ export function AgentSidebar({
         />
       )}
     </>
-  ) : null;
+  );
 
   const drawerPlaceholder =
     wideDrawerEnabled && !presentationMode && panelOpen ? (
@@ -1918,7 +2078,12 @@ export function AgentSidebar({
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
         <SettingsReturnPathRecorder />
-        {enabled ? <URLSync browserTabId={resolvedBrowserTabId} /> : null}
+        {enabled ? (
+          <URLSync
+            browserTabId={resolvedBrowserTabId}
+            queryKeys={urlQueryKeys}
+          />
+        ) : null}
         {isResizing ? (
           <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
         ) : null}
@@ -1928,7 +2093,9 @@ export function AgentSidebar({
           className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
           data-agent-sidebar-main-position={effectivePosition}
           data-agent-sidebar-main-state={
-            !isOverlay && !presentationMode && panelOpen ? "open" : "closed"
+            !isOverlay && !hostedPanel && !presentationMode && panelOpen
+              ? "open"
+              : "closed"
           }
           data-agent-sidebar-resizing={isResizing ? "true" : undefined}
         >
@@ -1951,18 +2118,7 @@ export function AgentSidebar({
   );
 }
 
-export function focusAgentChat() {
-  void preloadAgentChatSurface();
-  window.dispatchEvent(
-    new CustomEvent("agent-panel:set-mode", {
-      detail: { mode: "chat" },
-    }),
-  );
-  window.dispatchEvent(
-    new CustomEvent("agent-panel:open", { detail: { focus: true } }),
-  );
-  focusAgentChatComposer();
-}
+export { focusAgentChat } from "./agent-sidebar-events.js";
 
 function isComposerReferenceEvent(event: Event): boolean {
   return (
@@ -1972,37 +2128,19 @@ function isComposerReferenceEvent(event: Event): boolean {
   );
 }
 
+// A send that names its tab, or opens a new one, already knows where it lands.
+// The chat the panel happens to show meanwhile is not its recipient, so a
+// switch away from that chat must not cancel it.
+function sendsToOwnTab(
+  submit: ReturnType<typeof parseSubmitChatMessage>,
+): boolean {
+  return Boolean(submit?.targetTabId || submit?.newTab);
+}
+
 function isPanelNavigationEvent(event: Event): boolean {
   return (
     event.type === "agent-chat:open-thread" || event.type === "agent-task-open"
   );
-}
-
-function focusAgentChatComposer() {
-  const focusComposer = (attempt = 0) => {
-    if (typeof window === "undefined" || typeof document === "undefined")
-      return;
-    const panel = document.querySelector(
-      ".agent-sidebar-panel[data-agent-sidebar-state='open'], " +
-        ".agent-frame-sidebar[data-agent-frame-sidebar-state='open']",
-    );
-    const composer = panel?.querySelector<HTMLElement>(
-      ".ProseMirror, textarea",
-    );
-    if (
-      composer &&
-      composer.getAttribute("contenteditable") !== "false" &&
-      !composer.hasAttribute("disabled")
-    ) {
-      composer.focus();
-      return;
-    }
-    if (attempt < 40) {
-      window.setTimeout(() => focusComposer(attempt + 1), 50);
-    }
-  };
-  // ponytail: retry for 2s so a slow body chunk can still receive shortcut focus.
-  requestAnimationFrame(() => focusComposer());
 }
 
 export function AgentToggleButton({
@@ -2037,6 +2175,7 @@ export function AgentToggleButton({
           type="button"
           aria-label={t("agentPanel.toggleAgent")}
           aria-pressed={open}
+          data-agent-toggle=""
           data-state={open ? "open" : "closed"}
           onClick={() =>
             window.dispatchEvent(

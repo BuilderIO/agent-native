@@ -87,12 +87,17 @@ decision, not an automatic overwrite. Property and view names are labels; their
 stable IDs identify edits. Sparse patches preserve omitted fields, and empty
 lists explicitly clear supported settings.
 
-Ordinary setup supports stored property types, additive options, metadata edits,
-the existing text natural key, table presentation, and list row layouts. It refuses destructive
-type/option changes, source-managed schema edits, and relationship/computed-field
-authoring. Source status is readable, but this surface does not define joins,
-row unions, source bindings, or write-mode changes. Discovery of a source-backed
-row never establishes permission to write its fields.
+Ordinary setup supports stored property types including `blocks`, additive
+options, removing an option nothing uses, metadata edits, the existing text
+natural key, table presentation, and list row layouts. An option `remove` edit
+fails with `OPTION_IN_USE` (its details name the row count and view IDs) while
+any row's value or a saved view's filter still uses the option, by ID or name
+in any case ("is empty" and other filters without a value use none); move those
+rows and change those filters first. It refuses type changes, source-managed
+schema edits, and computed-field authoring. Source status is readable, but this
+surface does not define joins, row unions, source bindings, or write-mode
+changes. Discovery of a source-backed row never establishes permission to write
+its fields.
 
 Read back each changed object separately, then use its Open in Content link.
 Rows retain both membership and Page identity in their links. Trash remains
@@ -125,11 +130,31 @@ sticks to the top while scrolling.
 
 People rarely say "Blocks field". They say tabs, page tabs, document tabs, or
 sections, or name one by its field ("the Notes tab"). Each of those is a Blocks
-field: "add a tab" means adding a `blocks` property with
-`configure-document-property`, "rename the Notes tab" means renaming that
-property, and "what's in my Notes tab" means reading that field. Fields are
-defined on the collection, so adding, renaming, or deleting one changes it on
-every row. Say so before doing it for someone who asked about one page.
+field: "add a tab" means `configure-document-property` with
+`operation: "create"` and `definition: { name, type: "blocks" }`, "rename the
+Notes tab" means an `update` with `patch: { name }` (renaming the page body's
+field keeps it the body), and "what's in my Notes tab" means reading that field.
+Fields are defined on the collection, so adding, renaming, or deleting one
+changes it on every row. Say so before doing it for someone who asked about one
+page.
+
+To fill or move a whole field, read it with `list-content-database-blocks` and
+write it with `set-document-property`, passing that read's `fieldRevision` as
+`expectedBlocksFieldRevision`, or its `baseRevision` for the main field, which
+is the page's body. Read every page first: the list returns 50
+blocks unless you pass `limit` (up to 100), and `page.nextCursor` continues it.
+A field's text is the NFM of its top-level blocks (`parentId: null`) joined
+with newlines; a nested block's NFM is already inside its parent's, so copying
+every listed block duplicates list items and other nested content. A field
+nobody has written reads as one `<empty-block/>` at revision 0. To move text,
+write it to the new field first, then rewrite the old field without it, each
+with its own revision.
+
+`get-content-database` carries every tab's text except the primary Content
+field's: that one is each row's page body, and it reads `null` unless the call
+passes `includePageText: true`. Pages can be long, so such a read returns at
+most 25 rows; page through the rest with `offset`. `null` there means the page
+wasn't read, not that it's empty. For one row, `get-document` returns the body.
 
 Each tab shows the field's name and word count, tabs reorder by dragging, and a
 dot marks a tab that changed since this browser last showed it. People who can
@@ -163,6 +188,13 @@ value must contain exactly one top-level block of the declared kind. Reuse an
 idempotency key only for an exact retry. Unsupported kinds, kind conversion,
 tombstone reuse, cross-parent reorder, schema drift, and stale row or field
 revisions fail explicitly.
+
+To replace a whole Blocks field with `set-document-property`, pass the field
+revision `list-content-database-blocks` returns as
+`expectedBlocksFieldRevision`. The collection's main Blocks field is the
+page's body, so pass the read's `baseRevision` instead; a field revision alone
+is refused there with `BASE_REVISION_REQUIRED`, and a page that changed since
+the read fails with `DOCUMENT_REVISION_CONFLICT`. Read again and retry.
 
 Formula properties store their expression in property options and support
 `{Property name}` substitution plus simple numeric math such as `{MSV} * 2`.
@@ -385,6 +417,34 @@ Use `create-content-database`, `create-inline-content-database`,
 `list-content-database-blocks`, `mutate-content-database-block`,
 `duplicate-document-property`, and `delete-document-property`; do not edit
 property rows or view config via raw SQL when an action can do it.
+
+A page table's block menu offers "Turn into collection". It sends the table's
+text to `create-inline-content-database` as `table`: `properties` names one
+text property per column after the first (from the header row, or "Column N"),
+and each entry of `rows` is one row page's title followed by one plain-text
+cell per property. The editor then puts the new inline collection block where
+the table was, in one step that one undo takes back; undoing it leaves the
+collection unlinked, so the page's next save moves it to Trash.
+
+An inline collection's block menu offers the reverse, "Turn into table". It
+reads, as text, every row its current view's filters and search keep, in the
+view's sort order. The view's layout doesn't narrow them: rows in collapsed
+groups, and a calendar's or timeline's rows outside the dates on screen, are
+included. The table has a "Name" column with each row's title, then one column
+per property the view shows, except `blocks` properties, whose rich content a
+cell can't hold. It puts a plain table where the block was, in one undoable
+step, and the page's next save moves the collection to Trash. A view with more
+than 500 rows or 49 properties stays a collection. An agent does the same
+with `export-document` (format `csv`) or `get-content-database`, then
+`edit-document`.
+
+A save whose body brings back a removed inline collection's block (one block
+with the same block ID, `databaseId` and `databaseDocumentId`) takes that
+collection back out of Trash, if it went there because a save dropped its
+block. A collection deleted on purpose, whose page is in Trash, stays there;
+restore it with `restore-content-database`. If the block still shows
+"Collection unavailable" after the page saves, restore the collection the same
+way.
 
 Read `get-content-database.mutationContract` immediately before a single-row
 mutation. Pass its exact target and schema revision to create, exact item and

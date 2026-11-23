@@ -119,11 +119,11 @@ Copy and update this checklist. Aim for 45 minutes; note the start time
 \`\`\`text
 - [ ] 0 Host classified, source picked
 - [ ] 1 Source read, brief drafted
-- [ ] 2 Design decided; brief, App design, estimate shown; where it runs asked
+- [ ] 2 Design decided; plan and estimate shown; where it runs asked
 - [ ] 3 Real scaffold, onboarding config, local sign-in
 - [ ] 4 Actions, domain surface, sample data, agent moments, agent instructions
 - [ ] 5 Running; screenshots reviewed and refined (two passes by default)
-- [ ] 6 Typecheck, doctor, build; final report with evidence labels
+- [ ] 6 Typecheck, doctor, build; app handed over; final report
 \`\`\`
 
 Resume an unfinished run instead of starting a second app. When the working
@@ -170,15 +170,15 @@ add them to the brief under App design:
 
 Source steps become states of objects (Draft, Checked, Approved), never a
 stepper, numbered tabs, or a wizard. Chrome stays quiet: no eyebrow, subtitle,
-repeated title, or stat strip over visible data. Show the brief with its App
-design in your message (a saved file is not shown), then ask where the app runs
-and wait, unless that question is skipped.
+repeated title, or stat strip over visible data. Show the plan in your
+message (a saved file is not shown) in plain words: the job, what the person
+sees first, how it looks and why that suits the work, and what the agent does
+where. Name the steps (install, scaffold, checks, dev server, headless
+browser) and estimate work time from the source and host, with external setup
+waits apart. Codes, direction names, tokens, and the tie-break stay in the
+brief. Then ask where the app runs and wait, unless that question is skipped.
 
 ### 3. Create the real scaffold
-
-Before the first command, name the steps (install, scaffold, checks, dev server,
-headless browser) and estimate work time from the source and host. Separate
-external setup waits, so delays are expected.
 
 Choose a short slug and never overwrite an app. Run standalone creation from
 its parent directory, noting that the nested app is its own Git repository:
@@ -209,13 +209,15 @@ hand-build the app in another stack, edit a pinned dependency version to force
 an install, or continue in a half-created directory; a workaround the user
 requests is named in the report.
 
-Then save the brief as \`docs/brief.md\`, append the domain surface's design to
-\`DESIGN.md\` (UI direction guide, section 4), and follow
+Then save the brief as \`docs/brief.md\` and run \`app-quality-bar\`. Choose one or
+two interaction patterns and write or update \`DESIGN.md\` as the single required
+design contract, including the chosen and rejected UX options. Register
+\`app.manifest.ts\` with real screens, entities, \`viewPolicy\`, and
+\`suggestableCapabilities\`. Follow
 [the run and deploy guide](references/local-run-and-deploy.md) to set
-\`onboarding.firstRun\` in \`agent-native.json\` (the shared Use Builder.io /
-Custom keys setup; never a second credential form or a hardcoded key) and
-\`AUTH_DISABLED=1\` in the ignored \`.env\` before the first screenshot (loopback
-only, never committed or deployed).
+\`onboarding.firstRun\` in \`agent-native.json\` (the shared setup, never a
+credential form or a hardcoded key) and \`AUTH_DISABLED=1\` in the ignored
+\`.env\` before the first screenshot.
 
 ### 4. Build the surface, actions, and agent moments
 
@@ -261,26 +263,16 @@ section 5).
 
 ### 5. Run, look, and refine
 
-Start the dev server as the run and deploy guide says (detached, log and PID in
-\`.tmp/\`, polled until it answers 200), then follow
-[the review loop](references/review-loop.md):
-
-- Shoot \`/\` (desktop and phone, light and dark, then the main agent control
-  clicked). It must land on the domain route; a sign-in card or a restarting
-  server is not a pass.
-- Score each rubric row with evidence. An automatic fail (a stepper, \`/\` off
-  the domain route, an empty or form-only first viewport, scaffold tokens,
-  clipped text, raw markdown, sideways scroll, console errors) overrides the
-  mean.
-- Fix every finding in one batch, reset what the click changed, and shoot
-  again. Stop when the bar is met: two passes by default; a third only when the
-  second still misses the bar and the pace budget allows.
-- Screenshots stay in the app's \`.tmp/ui-review/out/\`. Installed design skills
-  are optional; the review loop limits them.
+Start the dev server and follow [the review loop](references/review-loop.md).
+Capture the signed-in domain landing screen in light and dark at desktop
+and mobile widths, plus the main agent interaction. Apply the shared
+12-row rubric, automatic fails, and blind review. Fix findings in one batch
+and recapture before marking it ready.
 
 ### 6. Verify, build, and deploy
 
-Exercise the real path, not only the files: \`/\` opens the domain route with
+Run the 60-second Playwright walkthrough in \`app-quality-bar\` and use the
+blind final review gate before marking the app ready. Exercise the real path: \`/\` opens the domain route with
 sample data; every AI-labeled control opens the sidebar with its bounded
 prompt (with a provider, the result lands and persists; without one, the
 object does not stay busy, and say so); actions persist (read the row back);
@@ -290,23 +282,25 @@ Run \`pnpm typecheck\` and \`pnpm agent-native:doctor\` (plain \`pnpm doctor\` i
 pnpm's own command), then stop the dev server, remove \`AUTH_DISABLED\` from
 \`.env\`, and run \`pnpm build\`. Fix a non-zero exit or a doctor finding; the
 "production configuration errors" block printed with exit 0 is the deploy
-checklist, not a defect (run and deploy guide). Deploy only when the user
-asked or the provider is already configured. Leave the dev server running
-(start it again after the build) or stop it as that guide says, and report
-which. Label evidence separately: locally running, locally verified,
-build-ready, deployed, and live-verified are different states.
+checklist, not a defect (run and deploy guide). Deploy only when asked or
+when the provider is already configured. Then hand the app over as that guide
+says: an interactive run on the person's machine restarts it with \`--open\`, a
+headless run stops it.
 
 ## Final report
 
-For a local build, keep it demo-short. The first line is the verdict ("Built X
-in \`<dir>\`; locally verified, not deployed"). Then: the app directory, local
-URL, and server state (PID and stop command); the archetype, the direction, and
-what each control does (agent handoff or local action); absolute paths of the
-final screenshots, rubric scores, and open criteria; the verification, with
-evidence labels, and what the review click left behind; a deployment URL only if
-it is real, and one precise pending step if any; what changed from the brief
-(assumptions, gaps in the source, choices where it was silent); how to change
-the app (ask this agent, in this folder).
+Lead with the app, plainly:
+
+1. Local: "Your app is open at <URL>" after an \`--open\` hand-off; else where
+   it is and how to open it. Hosted: what Dispatch returned (per mode).
+2. How to change it: ask this agent, in this folder (hosted: per mode).
+3. What each control does, what changed from the brief (assumptions, gaps,
+   silent choices), and one precise pending step, if any.
+4. One line on what is built in: workspace integrations, automations, and an MCP server other AI tools can use, in Settings.
+
+Under a short **Details** heading: directory; PID and stop command, if running;
+absolute screenshot paths, rubric scores, and open criteria; verification with evidence
+labels, and what the review click left behind; a deployment URL only if real.
 
 Report what exists, not what was intended. Never claim the app exists without
 a path and a verification result. If the scaffold never completed, a step was
@@ -315,8 +309,7 @@ headline, and the build is not complete.
 
 ## Related skills
 
-\`turn-into-skill\` packages a workflow that needs no UI. Design skills, if
-installed, join in step 5.
+\`turn-into-skill\` packages a workflow that needs no UI.
 `;
 
 export const TURN_INTO_APP_FRESH_PROJECT_REFERENCE_MD = `# Browser hosts and Project sources
@@ -359,10 +352,21 @@ On a browser host the host is an orchestrator, not the build environment:
    as text, or a public URL, and say what was left out. Never attach \`.env\`
    files, keys, tokens, or other credentials; if a knowledge file holds one,
    leave it out of the attachment and say so in the report.
-3. Report what Dispatch actually returned: the branch, the path, and the status.
-   The browser host cannot run or inspect the app, and a returned path can 404
-   until the branch merges and deploys, so the report ends at pending or
-   unverified unless a status or verification action is available to call.
+3. Lead the report with what Dispatch actually returned. Only
+   \`mode: "builder"\` started a build: its Builder link (\`url\`) is where the
+   person can watch the app being built; then give its \`status\`, branch, and
+   path. Any other mode started no Builder build (\`local-agent\` hands it to
+   a local agent; \`builder-managed\` and unavailable or taken results start
+   nothing): quote its \`message\`, with its link if it has one. For
+   \`builder-managed\`, continue from New app in the linked workspace with
+   the same brief and scoped integration requirements. Confirm the registered
+   app and its resolved mount through the preview acceptance checklist before
+   reporting readiness. Then give the rest of the final report in SKILL.md,
+   describing the controls as
+   requested in the brief, not as verified. The browser host cannot run
+   or inspect the app, and a returned path can 404 until the branch merges and
+   deploys, so the report ends at pending or unverified unless a status or
+   verification action is available to call.
 
 Rules on this path:
 
@@ -704,9 +708,10 @@ it, and remove it before the final \`pnpm build\`. A scaffold skill (\`build-an-
 to set \`AUTH_DISABLED\` is about keeping auth on in real use; this skill's
 review loop is the exception for local runs. Without it, only the first
 browser to open the app is signed in automatically; later fresh browsers get
-the "Continue as local dev" card. After the final restart, leave that first
-visit to the person you hand the app to: \`curl\` polls do not use it up, but
-a browser or screenshot you open does.
+the "Continue as local dev" card. That first visit belongs to the person: the
+hand-off (Processes and evidence) opens the app in their own browser, and
+that is the visit. \`curl\` polls do not use it up, but a browser or screenshot
+you open does, so after the final start check the app with \`curl\` only.
 
 A developer can put a provider key such as \`ANTHROPIC_API_KEY\` or
 \`OPENAI_API_KEY\` in the same \`.env\`; once the server restarts, the sidebar skips
@@ -738,8 +743,11 @@ children. Vite restarts the dev server when \`.env\` changes; the framework clos
 the worker's database clients during shutdown so the restarted server can
 reopen the same local database. Wait for that restart, then poll again. After
 editing \`server/plugins/*\` or adding a dependency, poll again, and restart if
-\`/\` does not reflect the change. The scaffold's
-\`pnpm dev\` runs the same server and also opens a browser tab.
+\`/\` does not reflect the change. The scaffold's \`pnpm dev\` runs the same
+server with \`--open\`, which opens a browser tab. Leave \`--open\` off while you
+build, so the person's browser does not pop up on every start; only the
+hand-off adds it. Vite opens a tab when it starts, never on a \`.env\` or
+config restart.
 
 ## Checks and build
 
@@ -795,10 +803,38 @@ deployment.
 
 ## Processes and evidence
 
-- After an interactive invocation (see "When to ask" in SKILL.md for what
-  counts), leave the dev server running and report its URL, PID, and stop
-  command. In a headless or harness run, stop every process you started, by
-  its PID, before exiting.
+- **Hand-off.** After an interactive invocation (see "When to ask" in
+  SKILL.md for what counts), start the server once more after \`pnpm build\`,
+  from the app directory with \`--open\`, and poll it as in Run. First make
+  sure the earlier server's PID has exited and nothing answers on the port,
+  or the poll can pass on that stale server while the new one failed to bind:
+
+  \`\`\`bash
+  (nohup pnpm exec agent-native dev --port <port> --open > .tmp/dev.log 2>&1 & echo $! > .tmp/dev.pid)
+  \`\`\`
+
+  Inside a workspace, too, start it from the app's own directory: at the
+  workspace root, \`agent-native dev\` runs the gateway, which opens its
+  default app (Dispatch) instead. Vite opens \`http://localhost:<port>/\` once,
+  in the person's default browser. That is the first visit: when the
+  database has no accounts yet, the page waits for the server, then signs
+  them in as the local dev account. When it already has one (a resumed app, a
+  shared workspace database), they get the sign-in page instead: "Continue as
+  local dev" for the dev account, otherwise their own sign-in. From then on,
+  check the app with \`curl\` only, never a browser or screenshot of your own.
+
+  If the person is not at this machine (Claude Cowork, an SSH session, a
+  container), leave \`--open\` off. Local dev sign-in answers only requests
+  from this machine, so a LAN address or a container's published port shows a
+  sign-in page the dev account cannot pass. Give a URL through a forwarded
+  port (an SSH \`-L\` tunnel, the editor's port forwarding) or the command
+  that forwards it; if none can reach them, say so, and give the folder and
+  \`pnpm dev\` to run it on their own machine. Report the URL, PID, and stop
+  command.
+
+- In a headless or harness run, stop every process you started, by its PID,
+  before exiting, and open nothing. The report gives the app's folder and
+  says \`pnpm dev\` starts it and opens it.
 - Stopping means processes only: keep \`.tmp/ui-review/out/\` and the app's
   \`data/\`, so the report's paths still exist.
 - Evidence labels are separate states: locally running (the server answers),
@@ -815,8 +851,7 @@ export const TURN_INTO_APP_REVIEW_LOOP_REFERENCE_MD = `# Screenshot review loop
 - Setup
 - The script
 - Procedure
-- Rubric
-- Fixing
+- Shared rubric
 - Host notes
 
 Run this in step 5, inside the app directory, after the dev server answers
@@ -1103,76 +1138,17 @@ Reading the metrics:
 7. Shoot \`p2\` and rescore. Shoot \`p3\` only when \`p2\` still misses the bar (an
    automatic fail, a mean under 4.0, or a criterion under 3), the fixes are
    known, and the 45-minute aim has not passed; it is the last pass. Otherwise
-   stop at two and name the open criteria. Use the script as written; do not
-   grow a separate test harness.
-8. The bar (defaults): mean 4.0 or higher, no criterion below 3, no automatic
-   fail. On the final pass, if the host can spawn a sub-agent and time
-   remains, give it only the PNGs, the rubric, and the brief, have it score
-   blind, and keep the lower score per row.
+   stop at two and name the open criteria. Take these screenshots with the
+   capture script and run the separate interactive verification in app-quality-bar.
+8. Meet the shared visual review gate, including its blind independent
+   review. If no independent reviewer is available, keep the gate pending.
 9. Put the final table, the metrics, and the absolute paths of the final
    pass's screenshots in the final report, and name any open criterion. Never
    report a passed review without screenshots.
 
-## Rubric
+## Shared rubric
 
-| #   | Criterion             | 5 means                                                                                           | 3 means                                                                                  | 1 means                                             |
-| --- | --------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| 1   | First-viewport impact | Domain objects fill most of the view, populated, with one clear verb                              | Domain objects fill about half; the rest is whitespace or chrome                         | Mostly whitespace, a form, or text                  |
-| 2   | Domain fit            | The layout has the shape of the user's real objects                                               | Right objects, generic layout (a list of cards)                                          | A generic card stack                                |
-| 3   | Hierarchy             | The squint shot shows primary, secondary, tertiary                                                | Two levels read; the third is noise                                                      | Everything has equal weight                         |
-| 4   | Chrome discipline     | No repeated titles, subtitles, strips, or helper text                                             | One redundant title, strip, or helper line                                               | Eyebrow, H1, subtitle, nested cards                 |
-| 5   | Sample data           | 12+ varied, believable records with edge cases; numbers agree                                     | Real but thin data (6-10 rows), few edge cases                                           | Empty, lorem, "Item 1"                              |
-| 6   | Typography            | Clear scale, tabular numbers, comfortable measure, formatted long text                            | Scale exists; numbers not tabular or measure too wide                                    | One size, default stack, raw markdown               |
-| 7   | Color and direction   | A named direction in tokens; accent only on action, selection, state                              | Tokens applied; accent also used as decoration                                           | Scaffold grey or mixed accents                      |
-| 8   | Polish                | Concentric radii, shadow rings, 40px targets, hover, press, focus                                 | Some states or radii mismatched                                                          | Default controls, no states                         |
-| 9   | Agent and UI together | The click shows a working state on the object; the result lands in place with Accept, Edit, Retry | Working state on the page, but the result lands elsewhere or without Accept, Edit, Retry | Chat is elsewhere; the UI stays static              |
-| 10  | 390px                 | A purposeful mobile layout, an obvious path to detail, 44px targets                               | Usable, but one clipped control or a 32px target                                         | Overflow, clipped controls, or no way to the detail |
-| 11  | Dark mode             | A designed palette; charts and status legible                                                     | Themed, but one pill, chart, or image is wrong                                           | Broken or unthemed                                  |
-| 12  | Accessibility         | Roles, visible focus, 4.5:1 text, status not by color alone                                       | Roles and focus present; one color-only status or low-contrast text                      | Div buttons, no focus ring                          |
-
-Automatic fails, whatever the mean:
-
-- \`signedOut\` true (the pass does not count: fix sign-in and shoot again);
-- \`stepper\` true, or a stepper or wizard as the shell;
-- \`/\` not opening the domain route (\`landed\` false);
-- an empty first viewport, an empty state as the home, or a form-only first
-  viewport (\`textareasAboveFold\` above 0 with \`visuals\` at 0) on a source that
-  is not A11 or A12; an A11 or A12 home needs a filled sample input beside a
-  populated result, history, or entries list;
-- chrome text over 60 words (\`proseWords\`);
-- \`defaultTokens\` true, or \`neutralPrimary\` true on an unbranded app;
-- \`overflowX\` at 390px; \`clipped\` or \`headerOverlap\` above 0 on any row;
-  \`innerScroll\` at 390px that is not a lane scroller or filter row;
-- \`rawMarkdown\` above 0;
-- a console error from the new route;
-- a hit from either grep in Fixing.
-
-Criterion 9 needs a connected AI provider to show a result landing. Without
-one, judge the working state in the 400 ms shot and the "Connect AI" path in
-the 5 s shot, and say in the final report that the result was not exercised.
-
-## Fixing
-
-Most defects are one of these:
-
-- Delete chrome before restyling: page titles, subtitles, eyebrows, strips,
-  and a heading under the header title that names the view again.
-- Make the domain object bigger and the form smaller; move inputs behind an
-  Add verb or into the agent composer, unless the source is A11 or A12.
-- Replace placeholder rows with sample records that include edge cases.
-- Apply the direction's tokens. If \`defaultTokens\` is true, the block did not
-  load: check that it was appended after the scaffold's and that \`--primary\`
-  changed.
-- Check the working state: the 400 ms shot must show the object busy, and the
-  5 s shot must not show it stuck.
-- Run both commands before every pass; each must print nothing. The first
-  lists raw colors (the scaffold's \`root.tsx\` theme-color hex is excluded),
-  the second forbidden icons:
-
-\`\`\`bash
-grep -rnE '\\b(bg|text|border|ring|fill|stroke|from|to|via|divide)-(white|black|(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)(-[0-9]{2,3})?)\\b|#[0-9a-fA-F]{6}\\b' app --include='*.tsx' --exclude-dir=ui --exclude=root.tsx
-grep -rnE 'Icon(Sparkles|Wand|Magic|Robot)' app --include='*.tsx'
-\`\`\`
+Use the \`app-quality-bar/visual-review.md\` from the scaffold's shared skills.
 
 ## Host notes
 
@@ -1206,10 +1182,11 @@ export const TURN_INTO_APP_SOURCE_BRIEF_REFERENCE_MD = `# Source brief
 - Reading a Claude or ChatGPT Project
 - Reading a spreadsheet
 
-One brief for every source type. Draft it in step 1, add App design in step
-2, then post it once before the first scaffold command and keep going without
-waiting; save that version in the app as \`docs/brief.md\`. A few lines per
-heading; write \`n/a\` where a heading does not apply.
+One brief for every source type. Draft it in step 1 and add App design in
+step 2. It is your working record, not your message: show the person the
+plain-words plan from SKILL.md step 2, and save the brief in the app as
+\`docs/brief.md\` (on the Builder route it goes in the Dispatch prompt). A few
+lines per heading; write \`n/a\` where a heading does not apply.
 
 ## Template
 
@@ -1782,6 +1759,11 @@ take the one whose Domain column names the source's domain. If none or several
 match, number those candidates from 0 in table order and take the one at
 (length of the app slug) mod (number of candidates). Never choose by taste. A
 direction outside the Fits column needs a one-line reason in \`DESIGN.md\`.
+
+The rule is internal: the person never sees this table, the tie-break, or a
+direction's name. Tell them how the app will look and why it suits the work,
+in plain words ("calm and paper-like, with a serif for long drafts, because
+most of the work is reading").
 
 | Direction     | Fits                    | Domain                                             | Type                                | Accent |
 | ------------- | ----------------------- | -------------------------------------------------- | ----------------------------------- | ------ |
@@ -2589,8 +2571,8 @@ body {
 
 export const TURN_INTO_APP_WHERE_IT_RUNS_REFERENCE_MD = `# Where the app runs
 
-On an interactive local host, ask this once, after the brief and App design
-are shown (step 2) and before any install, scaffold, or setup command. The rest
+On an interactive local host, ask this once, after the plain-words plan is
+shown (step 2) and before any install, scaffold, or setup command. The rest
 of the run decides and proceeds; this is its one planned question, because the
 person should choose between setting things up and making an account.
 
@@ -2633,9 +2615,9 @@ pnpm is missing. Otherwise recommend **On your machine**.
 
 Continue with step 3. If Node.js or pnpm is missing, say what to install (the
 installer from nodejs.org; \`corepack enable\` for pnpm, which ships with
-Node.js) and continue once both answer. The final report ends with how to
-change the app: ask this agent, in this folder. On localhost the app's own
-agent can't edit its code.
+Node.js) and continue once both answer. Right after where the app is, the
+final report says how to change it: ask this agent, in this folder. On
+localhost the app's own agent can't edit its code.
 
 ## Hosted with Builder
 
@@ -2677,9 +2659,10 @@ so and offer two ways on:
 2. Build on this machine instead.
 
 Never fall back to a local build without asking, and never claim the app
-exists. The report says what Dispatch returned, as the browser-host guide
-describes, and that changes happen in Builder, where the app's code lives,
-not in this folder.
+exists. The report leads with what Dispatch returned, as the browser-host
+guide describes. After a Builder build it says that changes happen in
+Builder, where the app's code lives, not in this folder; after \`local-agent\`,
+that the local agent in the workspace builds and changes it.
 `;
 
 export const TURN_INTO_APP_OPENAI_YAML = `interface:

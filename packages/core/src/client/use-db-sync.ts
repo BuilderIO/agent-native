@@ -25,6 +25,7 @@ import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
 } from "./embed-auth.js";
+import { registerDbSyncQueryClient } from "./tool-done-refresh.js";
 import {
   bumpChangeVersion,
   bumpActiveLocalChangeVersions,
@@ -74,6 +75,16 @@ const SSE_LEADER_LOCK_PREFIX = "agent-native-sync:";
 const COLLAB_POLL_INTERVAL_MS = 2_500;
 const COLLAB_BOOST_IDLE_CEILING_MS = 3 * 60_000;
 const COLLAB_ACTIVITY_WINDOW_MS = 60_000;
+/**
+ * A poll reads at most 1,000 change rows, other accounts' included, and says
+ * `cursorLimited` when it stopped short of the newest. A visible tab reads the
+ * next page at once instead of waiting its interval, so a burst can't leave
+ * it minutes behind. After this many pages read straight on, past the one
+ * that found the backlog, it waits one interval, so a feed that never empties
+ * doesn't keep it polling back to back.
+ * @internal
+ */
+export const MAX_BACKLOG_PAGES = 20;
 
 // Collab poll boost: a page that knows another person is on the same resource
 // holds a lease, and every transport with no live stream (serverless refuses
@@ -236,7 +247,11 @@ export function acquireCollabPollBoost(): () => void {
   };
 }
 const processedRunToolEvents = new WeakSet<Event>();
+const runToolEventClients = new WeakMap<Event, WeakSet<QueryClient>>();
 const processedRunEndEvents = new WeakSet<Event>();
+const runEndEventClients = new WeakMap<Event, WeakSet<QueryClient>>();
+const processedExplicitRefreshEvents = new WeakSet<Event>();
+const explicitRefreshClients = new WeakMap<Event, WeakSet<QueryClient>>();
 
 class HttpStatusError extends Error {
   status: number;
@@ -246,6 +261,8 @@ class HttpStatusError extends Error {
     this.status = status;
   }
 }
+
+class SyncResyncRequiredError extends Error {}
 
 export type SyncEvent = {
   version?: number;
@@ -259,8 +276,11 @@ export type SyncEvent = {
 
 type PollResponse = {
   version: number;
-  events: SyncEvent[];
+  events?: SyncEvent[];
   cursor?: string;
+  // The server stopped at its row limit: more changes wait past `cursor`.
+  cursorLimited?: boolean;
+  unreadable?: Array<{ type: "access-unavailable" | "unknown-scope" }>;
 };
 
 type SyncCursor = {
@@ -324,6 +344,133 @@ function cursorForEvents(events: readonly SyncEvent[]): SyncCursor | undefined {
   return cursor;
 }
 
+// The invalidations sync has asked of each query client, each with the
+// cursor of the newest event behind it, so a read whose answer names the sync
+// cursor its server read at can be told which came after that read: those
+// asked before anything watched for it included. An event from this tab
+// itself has no cursor, so what it asked counts as after every read.
+type LoggedSyncInvalidation = {
+  after: SyncCursor | "local";
+  filters: SyncInvalidationFilters;
+};
+
+/**
+ * What a logged sync invalidation asked: a key prefix, a predicate the query
+ * itself must pass, both, or neither for every query. A reader with no query
+ * to ask the predicate of takes it as reaching every query.
+ */
+export type SyncInvalidationFilters = {
+  queryKey?: readonly unknown[];
+  predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+};
+
+const SYNC_INVALIDATION_LOG_LIMIT = 200;
+type SyncInvalidationLog = {
+  entries: LoggedSyncInvalidation[];
+  // The newest of the entries no longer kept.
+  dropped?: SyncCursor | "local";
+  // The cursor after which every change reached the log: where the first poll
+  // this client heard started, or past it if events had already moved its
+  // cursor on, since those hide any earlier event the poll brings.
+  coversFrom?: SyncCursor;
+  // Events reached the log before any poll did, so where it starts is unknown.
+  heardBeforePoll?: boolean;
+};
+const syncInvalidationLogs = new WeakMap<object, SyncInvalidationLog>();
+
+function syncInvalidationLog(queryClient: object): SyncInvalidationLog {
+  let log = syncInvalidationLogs.get(queryClient);
+  if (!log) {
+    log = { entries: [] };
+    syncInvalidationLogs.set(queryClient, log);
+  }
+  return log;
+}
+
+function noteSyncLogCoverage(queryClient: object, from: SyncCursor): void {
+  const log = syncInvalidationLog(queryClient);
+  log.coversFrom = log.coversFrom ? maxSyncCursor(log.coversFrom, from) : from;
+}
+
+function isLoggedAfter(
+  after: SyncCursor | "local",
+  readAt: SyncCursor | undefined,
+): boolean {
+  return (
+    after === "local" ||
+    readAt === undefined ||
+    compareSyncCursors(after, readAt) > 0
+  );
+}
+
+function logSyncInvalidations(
+  queryClient: object,
+  events: readonly SyncEvent[],
+  filters: readonly InvalidateFilters[],
+): void {
+  if (filters.length === 0) return;
+  const local = events.some(
+    (event) => !(typeof event.version === "number" && event.version > 0),
+  );
+  const after = local ? "local" : (cursorForEvents(events) ?? "local");
+  const log = syncInvalidationLog(queryClient);
+  for (const requested of filters) {
+    // A predicate decides by the query itself, so it is kept for the reader
+    // to ask of the query it holds.
+    log.entries.push({
+      after,
+      filters: {
+        ...(requested.queryKey ? { queryKey: requested.queryKey } : {}),
+        ...(requested.predicate ? { predicate: requested.predicate } : {}),
+      },
+    });
+  }
+  while (log.entries.length > SYNC_INVALIDATION_LOG_LIMIT) {
+    const dropped = log.entries.shift();
+    if (!dropped) break;
+    if (
+      log.dropped === undefined ||
+      (log.dropped !== "local" &&
+        (dropped.after === "local" ||
+          compareSyncCursors(dropped.after, log.dropped) > 0))
+    ) {
+      log.dropped = dropped.after;
+    }
+  }
+}
+
+/**
+ * The invalidations sync has asked of `queryClient` for changes after
+ * `cursor`, the sync cursor a server read at (as the poll endpoint encodes
+ * it), however long before the caller started watching. With no cursor, all
+ * of them. Undefined when that cannot be told: the cursor is unreadable,
+ * invalidations that may be after it are no longer kept, or changes after it
+ * may never have reached the log (it starts after the cursor, or events came
+ * before any poll and may have hidden earlier ones).
+ */
+export function syncInvalidationsAfter(
+  queryClient: object,
+  cursor?: string,
+): SyncInvalidationFilters[] | undefined {
+  const readAt = cursor === undefined ? undefined : decodeSyncCursor(cursor);
+  if (cursor !== undefined && readAt === undefined) return undefined;
+  const log = syncInvalidationLogs.get(queryClient);
+  if (!log) return [];
+  if (log.dropped !== undefined && isLoggedAfter(log.dropped, readAt)) {
+    return undefined;
+  }
+  if (log.coversFrom === undefined) {
+    if (log.heardBeforePoll) return undefined;
+  } else if (
+    compareSyncCursors(log.coversFrom, readAt ?? INITIAL_SYNC_CURSOR) > 0
+  ) {
+    return undefined;
+  }
+  return log.entries
+    .filter((entry) => isLoggedAfter(entry.after, readAt))
+    .map((entry) => entry.filters);
+}
+
 function isSyncEventAfterCursor(
   event: SyncEvent,
   cursor: SyncCursor,
@@ -343,12 +490,17 @@ type SyncBroadcast =
       cursor?: SyncCursor;
     }
   | { type: "sse-state"; connected: boolean; capabilities: string[] }
+  | { type: "resync" }
+  | { type: "unreadable" }
   | { type: "sse-state-request" };
 
 type EventSubscriber = (
   events: SyncEvent[],
   version: number | undefined,
   cursor?: SyncCursor,
+  // For a poll's answer, the cursor the poll was sent with: the events are
+  // every change after it, up to `cursor`.
+  polledFrom?: SyncCursor,
 ) => void;
 
 function getPollAbortMs(interval: number): number {
@@ -505,7 +657,15 @@ async function fetchPollJson<T>(
       url,
       controller ? { signal: controller.signal } : undefined,
     );
-    if (!res.ok) throw new HttpStatusError(res.status);
+    if (!res.ok) {
+      if (res.status === 409) {
+        const body = (await res.json()) as { error?: unknown };
+        if (body.error === "SYNC_EVENT_READ_UNAVAILABLE") {
+          throw new SyncResyncRequiredError();
+        }
+      }
+      throw new HttpStatusError(res.status);
+    }
     return await res.json();
   } finally {
     if (timeout) clearTimeout(timeout);
@@ -514,6 +674,7 @@ async function fetchPollJson<T>(
 
 interface TransportSubscription {
   onEvents: EventSubscriber;
+  onResync?: () => void;
   pauseWhenHidden: boolean;
   interval: number;
   idleInterval: number;
@@ -542,7 +703,9 @@ class SyncTransport {
   private sseConnected = false;
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
+  private readUnavailable = false;
   private idlePollBackoffIndex = 0;
+  private backlogPages = 0;
   private activeChatIds = new Map<string, number>();
   private idleActivityGeneration = 0;
   // Hosted-gateway state. `mode` starts "hosted" when a binding is present and
@@ -766,6 +929,7 @@ class SyncTransport {
     events: SyncEvent[],
     version: number | undefined,
     cursor: SyncCursor = this.cursorRef,
+    polledFrom?: SyncCursor,
   ): void {
     if (typeof window !== "undefined") {
       for (const event of events) {
@@ -782,8 +946,14 @@ class SyncTransport {
     }
     this.deliveredFirstBatch = true;
     for (const sub of this.subscribers.values()) {
-      sub.onEvents(events, version, cursor);
+      sub.onEvents(events, version, cursor, polledFrom);
     }
+  }
+
+  private resync(): void {
+    this.cursorRef = { ...INITIAL_SYNC_CURSOR };
+    for (const sub of this.subscribers.values()) sub.onResync?.();
+    this.broadcast({ type: "resync" });
   }
 
   private setSseConnected(connected: boolean): void {
@@ -942,6 +1112,11 @@ class SyncTransport {
           this.notifySseState();
         }
         this.reschedule();
+      } else if (frame?.type === "unreadable") {
+        for (const sub of this.subscribers.values()) sub.onResync?.();
+      } else if (frame?.type === "resync") {
+        this.cursorRef = { ...INITIAL_SYNC_CURSOR };
+        for (const sub of this.subscribers.values()) sub.onResync?.();
       }
     };
     this.channel = channel;
@@ -1148,25 +1323,42 @@ class SyncTransport {
     if (!force && this.shouldStayIdle()) return;
     const idleActivityGenerationAtStart = this.idleActivityGeneration;
     this.inFlight = true;
+    let readNextPage = false;
     try {
       if (this.mode === "hosted" && this.gateway && !this.token) {
         const ok = await this.mintToken();
         if (!ok || this.stopped) return;
       }
+      const polledFrom = this.cursorRef;
       const data = await fetchPollJson<PollResponse>(
         this.activePollUrl,
-        this.cursorRef,
+        polledFrom,
         this.effectiveInterval,
         this.mode === "hosted" ? (this.token ?? undefined) : undefined,
       );
       if (this.stopped) return;
       this.consecutiveFailures = 0;
+      this.readUnavailable = false;
       if (this.authFailureUntil > 0) {
         this.authFailureUntil = 0;
         this.connectEvents();
       }
+      if (data.unreadable?.length) {
+        for (const sub of this.subscribers.values()) sub.onResync?.();
+        this.broadcast({ type: "unreadable" });
+      }
       const events = data.events ?? [];
-      if (events.length) {
+      const responseCursor = decodeSyncCursor(data.cursor);
+      this.applyVersion(events, responseCursor ? undefined : data.version);
+      this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
+      // Only a page that moved the cursor: one stopped at an unresolved
+      // access check would come back the same, so it waits the interval.
+      readNextPage =
+        data.cursorLimited === true &&
+        compareSyncCursors(this.cursorRef, polledFrom) > 0;
+      // A page of other accounts' changes comes back empty, but the tab is
+      // behind, not idle.
+      if (events.length || readNextPage) {
         this.idlePollBackoffIndex = 0;
       } else if (
         scheduled &&
@@ -1179,12 +1371,18 @@ class SyncTransport {
           IDLE_POLL_BACKOFF.length - 1,
         );
       }
-      const responseCursor = decodeSyncCursor(data.cursor);
-      this.applyVersion(events, responseCursor ? undefined : data.version);
-      this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
-      this.fan(events, data.version, this.cursorRef);
+      this.fan(events, data.version, this.cursorRef, polledFrom);
     } catch (err) {
+      // A failed page, or a subscriber that threw on it, ends the run: the
+      // retry waits the backed-off interval.
+      readNextPage = false;
       if (this.stopped) return;
+      if (err instanceof SyncResyncRequiredError && !this.readUnavailable) {
+        this.readUnavailable = true;
+        this.resync();
+        readNextPage = true;
+        return;
+      }
       this.consecutiveFailures++;
       if (this.mode === "hosted" && this.gateway) {
         if (isTerminalAuthFailure(err)) {
@@ -1204,7 +1402,19 @@ class SyncTransport {
       if (this.refreshRequested && !this.stopped) {
         this.refreshRequested = false;
         void this.poll(true);
+      } else if (
+        readNextPage &&
+        !isDocumentHidden() &&
+        this.backlogPages < MAX_BACKLOG_PAGES
+      ) {
+        this.backlogPages++;
+        if (this.timer) {
+          clearTimeout(this.timer);
+          this.timer = null;
+        }
+        void this.poll();
       } else {
+        this.backlogPages = 0;
         this.schedulePoll();
       }
     }
@@ -1400,6 +1610,7 @@ export function _resetSyncTransportRegistryForTests(): void {
 
 export interface SubscribeSyncEventsOptions {
   onEvents: (events: SyncEvent[], version: number | undefined) => void;
+  onResync?: () => void;
   onSseStateChange?: (
     connected: boolean,
     capabilities?: readonly string[],
@@ -1424,6 +1635,7 @@ export function subscribeSyncEvents(
   const id = Symbol("subscribeSyncEvents");
   transport.add(id, {
     onEvents: options.onEvents,
+    onResync: options.onResync,
     onSseStateChange: options.onSseStateChange,
     pauseWhenHidden: options.pauseWhenHidden ?? false,
     interval: options.interval ?? 60_000,
@@ -1442,7 +1654,8 @@ export function useDbSync(
   options: {
     queryClient?: QueryClient;
     queryKeys?: string[];
-    realtime?: { reason: string };
+    realtime?: false | { reason: string };
+    resourceType?: string;
     pollUrl?: string;
     sseUrl?: string | false;
     /** @deprecated Use pollUrl instead */
@@ -1459,13 +1672,19 @@ export function useDbSync(
     suppressActionInvalidationFor?: string[];
   } = {},
 ): void {
+  const realtimeOption = options.realtime || undefined;
   const realtimeReason =
-    typeof options.realtime?.reason === "string"
-      ? options.realtime.reason.trim()
+    typeof realtimeOption?.reason === "string"
+      ? realtimeOption.reason.trim()
       : "";
-  if (options.realtime && !realtimeReason) {
+  if (realtimeOption && !realtimeReason) {
     throw new Error("useDbSync realtime opt-in requires a short reason.");
   }
+  const resourceType = options.resourceType;
+  const queryKeysRef = useRef(options.queryKeys);
+  useEffect(() => {
+    queryKeysRef.current = options.queryKeys;
+  }, [options.queryKeys]);
   const {
     queryClient,
     pollUrl = agentNativePath(options.eventsUrl ?? "/_agent-native/poll"),
@@ -1499,15 +1718,15 @@ export function useDbSync(
     const id = Symbol("useDbSync");
     let subscriberVersion = 0;
     let subscriberCursor: SyncCursor = { ...INITIAL_SYNC_CURSOR };
+    let polled = false;
 
     let pendingInvalidateEvents: SyncEvent[] = [];
     let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
-    const pendingTrailingRefreshes: Array<{
-      filters: InvalidateFilters | undefined;
-      completion: Promise<unknown>;
-      predicateIdentity?: (query: Query) => boolean;
-    }> = [];
+    // Each entry names the in-flight queries one batch found busy. A batch built
+    // with a fresh predicate still overlaps the same fetches, so pending work is
+    // deduped by query, never by filter identity.
+    const pendingTrailingRefreshes: Array<{ queries: ReadonlySet<Query> }> = [];
 
     function flushInvalidateBatch() {
       if (invalidateTimer) {
@@ -1521,11 +1740,12 @@ export function useDbSync(
     }
 
     function queueInvalidateBatch(events: SyncEvent[]) {
-      pendingInvalidateEvents.push(...events);
-      if (events.some(isInteractionCriticalSyncEvent)) {
-        flushInvalidateBatch();
-        return;
-      }
+      const immediate = events.filter(isInteractionCriticalSyncEvent);
+      if (immediate.length) invalidateForEvents(immediate);
+      pendingInvalidateEvents.push(
+        ...events.filter((event) => !isInteractionCriticalSyncEvent(event)),
+      );
+      if (!pendingInvalidateEvents.length) return;
       if (invalidateTimer) return;
       invalidateTimer = setTimeout(
         flushInvalidateBatch,
@@ -1569,6 +1789,10 @@ export function useDbSync(
       const ownBrowserSource = getBrowserTabId();
       const relevant = events.filter(
         (event) =>
+          (!resourceType ||
+            event.source === "app-state" ||
+            event.version === 0 ||
+            event.resourceType === resourceType) &&
           !(
             event.source === "action" &&
             event.requestSource === ownBrowserSource
@@ -1604,29 +1828,14 @@ export function useDbSync(
       const invalidating = relevant.filter((e) => e.source !== "awareness");
 
       if (invalidating.length > 0 && queryClient) {
-        const hasPendingTrailingRefresh = (
-          filters: InvalidateFilters | undefined,
-          predicateIdentity?: (query: Query) => boolean,
-        ) =>
-          pendingTrailingRefreshes.some((pending) => {
-            if (pending.filters?.dedupeKey !== filters?.dedupeKey) return false;
-            if (filters?.dedupeKey) return true;
-            const pendingKey = pending.filters?.queryKey;
-            const filterKey = filters?.queryKey;
-            if (pendingKey || filterKey) {
-              if (
-                !pendingKey ||
-                !filterKey ||
-                pendingKey.length !== filterKey.length
-              ) {
-                return false;
-              }
-              return pendingKey.every((key, index) => key === filterKey[index]);
-            }
-            return pending.predicateIdentity === predicateIdentity;
-          });
+        const asked: InvalidateFilters[] = [];
+        const hasPendingTrailingRefresh = (query: Query) =>
+          pendingTrailingRefreshes.some((pending) =>
+            pending.queries.has(query),
+          );
 
         const invalidateWithoutCancel = (requested?: InvalidateFilters) => {
+          asked.push(requested ?? {});
           const callerPredicate = requested?.predicate;
           const normalizedFilters: InvalidateFilters = {
             ...requested,
@@ -1634,29 +1843,43 @@ export function useDbSync(
               !hasTerminalAuthFailure(query) &&
               (callerPredicate?.(query) ?? true),
           };
-          const needsTrailingRefresh =
-            (queryClient.isFetching?.(normalizedFilters) ?? 0) > 0;
+          // The trailing refresh is for the reads that were still in flight and
+          // so may have answered from before this change. The idle reads were
+          // just refetched; refreshing them again is a second request per event.
+          // The query client only calls the predicate on fetching queries, so it
+          // names exactly the busy ones.
+          const busyQueries = new Set<Query>();
+          queryClient.isFetching?.({
+            ...normalizedFilters,
+            predicate: (query: Query) => {
+              const matches = normalizedFilters.predicate?.(query) ?? true;
+              if (matches && !hasPendingTrailingRefresh(query))
+                busyQueries.add(query);
+              return matches;
+            },
+          });
           const completion = queryClient.invalidateQueries(normalizedFilters, {
             cancelRefetch: false,
           });
           if (
             !disposed &&
-            needsTrailingRefresh &&
-            completion instanceof Promise &&
-            !hasPendingTrailingRefresh(normalizedFilters, callerPredicate)
+            busyQueries.size > 0 &&
+            completion instanceof Promise
           ) {
-            const pending = {
-              filters: normalizedFilters,
-              completion,
-              predicateIdentity: callerPredicate,
-            };
+            const pending = { queries: busyQueries };
             pendingTrailingRefreshes.push(pending);
             void completion.then(
               () => {
                 const index = pendingTrailingRefreshes.indexOf(pending);
                 if (index < 0) return;
                 pendingTrailingRefreshes.splice(index, 1);
-                if (!disposed) queryClient.invalidateQueries(normalizedFilters);
+                if (!disposed)
+                  queryClient.invalidateQueries({
+                    ...normalizedFilters,
+                    predicate: (query: Query) =>
+                      busyQueries.has(query) &&
+                      (normalizedFilters.predicate?.(query) ?? true),
+                  });
               },
               () => {
                 const index = pendingTrailingRefreshes.indexOf(pending);
@@ -1783,6 +2006,7 @@ export function useDbSync(
             }
           }
         }
+        logSyncInvalidations(queryClient, invalidating, asked);
       }
 
       for (const evt of events) {
@@ -1794,6 +2018,7 @@ export function useDbSync(
       events: SyncEvent[],
       version: number | undefined,
       cursor: SyncCursor | undefined,
+      polledFrom?: SyncCursor,
     ): void {
       const freshEvents = events.filter((event) => {
         return isSyncEventAfterCursor(
@@ -1802,6 +2027,21 @@ export function useDbSync(
           subscriberVersion,
         );
       });
+      // Where this client's log starts to hold every change: the first poll
+      // brings all after the cursor it was sent with, but an event heard
+      // before it moved this subscriber's cursor on, and the poll's earlier
+      // events are then skipped.
+      if (queryClient && !polled) {
+        if (polledFrom) {
+          polled = true;
+          noteSyncLogCoverage(
+            queryClient,
+            maxSyncCursor(polledFrom, subscriberCursor),
+          );
+        } else if (freshEvents.length > 0) {
+          syncInvalidationLog(queryClient).heardBeforePoll = true;
+        }
+      }
 
       if (freshEvents.length > 0) {
         queueInvalidateBatch(freshEvents);
@@ -1836,17 +2076,22 @@ export function useDbSync(
       completedSideEffect: boolean,
       failed: boolean,
       browserTabId?: string,
+      navigationKeys?: unknown,
     ) => {
       const events: SyncEvent[] = [];
       if (completedSideEffect) {
         events.push({ source: "action", key: tool, version: 0 });
       }
-      if (tool === "navigate" && completedSideEffect) {
-        events.push({
-          source: "app-state",
-          key: browserTabId ? `navigate:${browserTabId}` : "navigate",
-          version: 0,
-        });
+      const targetKey = browserTabId ? `navigate:${browserTabId}` : "navigate";
+      const keys = Array.isArray(navigationKeys)
+        ? navigationKeys.filter(
+            (key) => key === "navigate" || key === targetKey,
+          )
+        : tool === "navigate" && completedSideEffect
+          ? [targetKey]
+          : [];
+      for (const key of new Set(keys)) {
+        events.push({ source: "app-state", key, version: 0 });
       }
       if (["__set_url__", "set-url", "set-search-params"].includes(tool)) {
         events.push({ source: "app-state", key: "__set_url__", version: 0 });
@@ -1860,9 +2105,27 @@ export function useDbSync(
       event: Event,
       events: SyncEvent[],
       processedEvents: WeakSet<Event>,
+      invalidatedClients: WeakMap<Event, WeakSet<QueryClient>>,
     ) => {
       if (events.length === 0) return;
+      const hasCustomFilter = Boolean(
+        actionInvalidatePredicateRef.current ||
+        ignoreSourceRef.current ||
+        suppressActionInvalidationForRef.current?.length,
+      );
       if (processedEvents.has(event)) {
+        if (queryClient) {
+          let clients = invalidatedClients.get(event);
+          if (!clients) {
+            clients = new WeakSet<QueryClient>();
+            invalidatedClients.set(event, clients);
+          }
+          if (hasCustomFilter || !clients.has(queryClient)) {
+            if (!hasCustomFilter) clients.add(queryClient);
+            queueInvalidateBatch(events);
+            return;
+          }
+        }
         for (const syncEvent of events) onEventRef.current?.(syncEvent);
         return;
       }
@@ -1888,6 +2151,14 @@ export function useDbSync(
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       }
+      if (queryClient && !hasCustomFilter) {
+        let clients = invalidatedClients.get(event);
+        if (!clients) {
+          clients = new WeakSet<QueryClient>();
+          invalidatedClients.set(event, clients);
+        }
+        clients.add(queryClient);
+      }
       queueInvalidateBatch(events);
     };
     const handleRunToolDone = (event: Event) => {
@@ -1895,6 +2166,7 @@ export function useDbSync(
         event as CustomEvent<{
           tool?: unknown;
           completedSideEffect?: unknown;
+          navigationKeys?: unknown;
           isError?: unknown;
           tabId?: unknown;
           browserTabId?: unknown;
@@ -1937,6 +2209,7 @@ export function useDbSync(
         completedSideEffect,
         detail.isError === true,
         browserTabId,
+        detail.navigationKeys,
       );
       if (events.length === 0) return;
       if (completedSideEffect) {
@@ -1949,7 +2222,12 @@ export function useDbSync(
         );
         sideEffectToolsByTab.set(tabId, tools);
       }
-      applyRunEvents(event, events, processedRunToolEvents);
+      applyRunEvents(
+        event,
+        events,
+        processedRunToolEvents,
+        runToolEventClients,
+      );
     };
     const handleRunStatus = (event: Event) => {
       const detail = (
@@ -2014,11 +2292,33 @@ export function useDbSync(
           eventsForTool(tool, true, failed, browserTabId),
         ),
         processedRunEndEvents,
+        runEndEventClients,
       );
     };
 
+    const releaseDbSyncClient = queryClient
+      ? registerDbSyncQueryClient(queryClient)
+      : undefined;
     window.addEventListener("agent-native:tool-done", handleRunToolDone);
     window.addEventListener("agentNative.chatRunning", handleRunStatus);
+    const handleExplicitRefresh = (event: Event) => {
+      if (!processedExplicitRefreshEvents.has(event)) {
+        processedExplicitRefreshEvents.add(event);
+        bumpLocalChangeVersion("action");
+        bumpActiveLocalChangeVersions(["action"]);
+      }
+      if (queryClient) {
+        let clients = explicitRefreshClients.get(event);
+        if (!clients) {
+          clients = new WeakSet<QueryClient>();
+          explicitRefreshClients.set(event, clients);
+        }
+        if (clients.has(queryClient)) return;
+        clients.add(queryClient);
+      }
+      queueInvalidateBatch([{ source: "action", version: 0 }]);
+    };
+    window.addEventListener("agentNative:refresh-data", handleExplicitRefresh);
 
     let transport: SyncTransport | undefined;
     if (realtimeReason) {
@@ -2029,6 +2329,25 @@ export function useDbSync(
       );
       transport.add(id, {
         onEvents,
+        onResync: () => {
+          queryClient?.invalidateQueries({
+            predicate: (query) => {
+              if (query.queryKey[0] === "action") {
+                return (
+                  !resourceType ||
+                  actionQueryAffectedByResources(query, new Set([resourceType]))
+                );
+              }
+              return [
+                ...(queryKeysRef.current ?? []),
+                "app-state",
+                "navigate-command",
+                "__set_url__",
+                "show-questions",
+              ].includes(String(query.queryKey[0]));
+            },
+          });
+        },
         pauseWhenHidden,
         interval,
         idleInterval,
@@ -2037,8 +2356,13 @@ export function useDbSync(
     }
 
     return () => {
+      releaseDbSyncClient?.();
       window.removeEventListener("agent-native:tool-done", handleRunToolDone);
       window.removeEventListener("agentNative.chatRunning", handleRunStatus);
+      window.removeEventListener(
+        "agentNative:refresh-data",
+        handleExplicitRefresh,
+      );
       disposed = true;
       if (invalidateTimer) {
         clearTimeout(invalidateTimer);
@@ -2061,6 +2385,7 @@ export function useDbSync(
     fallbackInterval,
     pauseWhenHidden,
     realtimeReason,
+    resourceType,
   ]);
 }
 

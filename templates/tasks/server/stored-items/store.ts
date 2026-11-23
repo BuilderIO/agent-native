@@ -83,6 +83,51 @@ export async function getStoredItem(
   return row ?? null;
 }
 
+export async function lockStoredItem(
+  input: {
+    ownerEmail: string;
+    id: string;
+    promotedToTask: boolean;
+  },
+  db: DbHandle,
+): Promise<StoredItem | null> {
+  const rows = await db
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.id, input.id),
+        eq(tasks.ownerEmail, input.ownerEmail),
+        eq(tasks.promotedToTask, input.promotedToTask),
+      ),
+    )
+    .for("update");
+  return rows.find((row) => row.id === input.id) ?? null;
+}
+
+export async function lockStoredItems(
+  input: {
+    ownerEmail: string;
+    ids: string[];
+    promotedToTask: boolean;
+  },
+  db: DbHandle,
+): Promise<void> {
+  if (input.ids.length === 0) return;
+  await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(
+      and(
+        inArray(tasks.id, input.ids),
+        eq(tasks.ownerEmail, input.ownerEmail),
+        eq(tasks.promotedToTask, input.promotedToTask),
+      ),
+    )
+    .orderBy(asc(tasks.id))
+    .for("update");
+}
+
 export async function hasCompletedStoredItems(
   input: {
     ownerEmail: string;
@@ -156,8 +201,8 @@ export async function updateStoredItems(
     ownerEmail: string;
     ids: string[];
     promotedToTask: boolean;
-    title?: string;
-    done?: boolean;
+    title?: string | undefined;
+    done?: boolean | undefined;
     now?: string;
     notFoundMessage?: string;
   },

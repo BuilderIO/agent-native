@@ -4,7 +4,15 @@ const { PGlite } = createRequire(
   new URL("../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 
@@ -134,7 +142,7 @@ function run(args: {
   });
 }
 
-beforeEach(async () => {
+beforeAll(async () => {
   client = await PGlite.create("memory://");
   db = drizzle(client);
   await client.query(`CREATE TABLE recordings (
@@ -152,7 +160,7 @@ beforeEach(async () => {
     status TEXT NOT NULL DEFAULT 'pending',
     failure_reason TEXT, failure_code TEXT,
     retry_count INTEGER NOT NULL DEFAULT 0,
-    source TEXT, import_id TEXT,
+    source TEXT, import_id TEXT, earlier_audio_removed_at TEXT,
     created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
   )`);
   await client.query(`CREATE TABLE recording_transcript_versions (
@@ -161,6 +169,15 @@ beforeEach(async () => {
     status TEXT NOT NULL, source TEXT, import_id TEXT, reason TEXT NOT NULL,
     replaced_by TEXT, created_at TEXT NOT NULL
   )`);
+});
+
+beforeEach(async () => {
+  const { rows } = await client.query(
+    "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+  );
+  await client.exec(
+    `TRUNCATE ${rows.map((row: { tablename: string }) => `"${row.tablename}"`).join(", ")} CASCADE`,
+  );
   await client.query(
     `INSERT INTO recordings (id, status, duration_ms, title, title_source, description)
      VALUES ('rec_1', 'ready', 10000, 'PR 7419', 'manual', 'Chart fixes')`,
@@ -172,7 +189,7 @@ beforeEach(async () => {
   });
 });
 
-afterEach(async () => {
+afterAll(async () => {
   await client.close();
 });
 

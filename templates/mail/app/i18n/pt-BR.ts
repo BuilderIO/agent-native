@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "Nota para mim",
     },
     inbox: {
-      atLeastCount: "Pelo menos {{count}}",
+      conversationsCount: "Conversas: {{count}}",
+      conversationsAtLeastCount: "Conversas: pelo menos {{count}}",
+      unreadCount: "Conversas não lidas: {{count}}",
+      draftsToReviewCount: "Rascunhos para revisar: {{count}}",
       syncing: "Sincronizando caixa de entrada…",
     },
     sort: {
@@ -158,8 +161,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "Fixar barra lateral",
-      unpinSidebar: "Desafixar barra lateral",
       closeSidebar: "Fechar barra lateral",
       settings: "Configurações",
       aiSettings: "Gerenciar tags e regras",
@@ -177,7 +178,7 @@ const messages = {
       filtersLimitReached: "Você pode salvar até 20 filtros.",
     },
     tabSettings: {
-      splitInbox: "Caixa de entrada dividida",
+      splitInbox: "Dividir a caixa de entrada em abas",
       views: "Visualizações",
       categories: "Categorias",
       rename: "Renomear",
@@ -185,7 +186,7 @@ const messages = {
       savedFilters: "Filtros salvos",
       combinedInbox: "Caixa de entrada combinada",
       allTab: "Aba Todas",
-      help: "A caixa combinada reúne todas as contas; desative-a para separar os e-mails em abas.",
+      help: "Mostra as visualizações, marcadores e filtros salvos que você escolheu como abas separadas da caixa de entrada. Desative para ver todos os e-mails da caixa de entrada em uma só aba.",
       aiSetup: "Configurar tags e regras de IA",
     },
     accounts: {
@@ -213,6 +214,18 @@ const messages = {
       aiAssistPlaceholder: "e.g. make more formal...",
       apply: "Aplicar",
       attachFile: "Anexar arquivo",
+      attachFromContent: "Anexar do Content",
+      searchContentPages: "Pesquisar páginas do Content",
+      contentPagesLoading: "Carregando páginas…",
+      contentPagesFailed: "Não foi possível carregar suas páginas do Content",
+      contentPagesRetry: "Tentar novamente",
+      contentPagesEmpty: "Nenhuma página encontrada",
+      contentFileMarkdown: "Arquivo Markdown",
+      contentFilePdf: "Arquivo PDF",
+      contentPageFormat: "Anexar páginas como",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
+      contentFileCsv: "Arquivo CSV",
       bold: "Negrito",
       cancel: "Cancelar",
       closeAllDrafts: "Fechar todos os rascunhos",
@@ -473,7 +486,31 @@ const messages = {
       scheduledCancelled: "Email agendado cancelado.",
       scheduledCancelFailed: "Falha ao cancelar email agendado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToAttachContentPage: "Falha ao anexar a página do Content",
+      contentPagePdfTextUnsupported:
+        "Esta página tem texto que um PDF ainda não consegue mostrar, como chinês, japonês, coreano, árabe, hebraico ou hindi. Anexe-a como Markdown.",
+      contentPagePdfTooLong:
+        "Esta página é longa ou larga demais para anexar como PDF. Anexe-a como Markdown.",
+      contentPagePdfUnavailable:
+        "O Content não conseguiu criar um PDF desta página. Anexe-a como Markdown.",
+      waitForAttachments: "Aguarde os anexos terminarem e depois envie.",
       failedToUploadImage: "Falha ao enviar imagem",
+      storageBuilderRefused:
+        "O Builder.io recusou a conexão de armazenamento de arquivos do Mail, então o arquivo não foi anexado. Reconecte o Builder.io ou use seu próprio armazenamento e tente novamente.",
+      storageRefused:
+        "Seu bucket de armazenamento recusou este envio, então o arquivo não foi anexado. Verifique o bucket e as chaves dele e tente novamente.",
+      storageNotConfigured:
+        "O armazenamento de arquivos não está configurado, então o arquivo não foi anexado. Conecte o Builder.io ou seu próprio bucket de armazenamento e tente novamente.",
+      openStorageSettings: "Abrir configurações de armazenamento",
+      reconnectBuilderStorage: "Reconectar o Builder.io",
+      useOwnStorage: "Usar seu próprio armazenamento",
+      storageBuilderRefusedAskAdmin:
+        "O Builder.io recusou a conexão de armazenamento de arquivos do Mail, então o arquivo não foi anexado. Reconecte o Builder.io ou peça a um proprietário ou administrador para configurar o armazenamento e tente novamente.",
+      storageRefusedAskAdmin:
+        "O bucket de armazenamento da sua organização recusou este envio, então o arquivo não foi anexado. Peça a um proprietário ou administrador para verificar o bucket e as chaves dele.",
+      storageNotConfiguredAskAdmin:
+        "O armazenamento de arquivos não está configurado, então o arquivo não foi anexado. Conecte sua própria conta do Builder.io ou peça a um proprietário ou administrador para configurar o armazenamento.",
+      connectBuilderStorage: "Conectar o Builder.io",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Mensagem enviada.",
       failedToSaveDraft: "Não foi possível salvar o rascunho.",
@@ -813,6 +850,10 @@ const messages = {
     contacts: {
       noContactSelected: "Nenhum contato selecionado",
     },
+    readingPane: {
+      empty: "Nenhum e-mail selecionado",
+      resizeList: "Redimensionar lista de e-mails",
+    },
   },
   agent: {
     emptyState: "Pergunte qualquer coisa sobre seus emails",
@@ -919,6 +960,12 @@ const messages = {
     gmailFilters: "Filtros do Gmail",
     aliases: "Aliases",
     tracking: "Rastreamento",
+    reading: "Leitura",
+    readingPane: "Painel de leitura",
+    readingPaneSaveFailed:
+      "Não foi possível salvar a configuração do painel de leitura.",
+    readingPaneLoadFailed:
+      "Não foi possível carregar a configuração do painel de leitura.",
     deleteAlias: "Excluir alias",
     editAlias: "Editar alias",
   },
@@ -963,15 +1010,19 @@ const messages = {
     shortcutsList: "Lista de mensagens",
     shortcutsThread: "Conversa",
     shortcutsCompose: "Escrever",
+    askAi: "Perguntar à IA",
     backToCommands: "Voltar aos comandos",
     backToMessageList: "Voltar à lista de mensagens",
     cycleTabs: "Alternar entre abas",
     extendSelection: "Expandir seleção",
+    goToUnread: "Ir para Não lido",
     moveSelection: "Mover seleção",
     nextPreviousConversation: "Conversa seguinte / anterior",
     nextPreviousMessage: "Mensagem seguinte / anterior",
     openMessage: "Abrir mensagem",
+    pageDownUp: "Página abaixo / acima",
     selectAllConversations: "Selecionar todas as conversas",
+    selectConversation: "Selecionar conversa",
     sendAndMarkDone: "Enviar e marcar como concluído",
     toggleMessageExpansion: "Expandir / recolher mensagem",
     toggleReadState: "Alternar estado de leitura",

@@ -52,6 +52,7 @@ import type {
   A2AConnectionRequestMetadata,
   Message as A2AMessage,
 } from "../a2a/types.js";
+import { ActionDefinitionError, isActionDefinitionError } from "../action.js";
 import {
   clientAbortReason,
   EXECUTION_LEASE_LOST_ABORT_REASON,
@@ -69,6 +70,8 @@ import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js"
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_TURN_GRANT_FIELD,
+  AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD,
   AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRunMarkerExpectsBackgroundRuntime,
@@ -76,6 +79,7 @@ import {
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
 } from "../agent/durable-background.js";
+import { verifyDispatchedTurnGrant } from "../agent/durable-turn-grant.js";
 import { listChatGPTSubscriptionModels } from "../agent/engine/chatgpt-subscription-engine.js";
 import { getEngineLlmConnectionSource } from "../agent/engine/credential-owner.js";
 import {
@@ -142,6 +146,7 @@ import {
   getRunById,
   readBackgroundRunClaim,
   retryRunThreadProjection,
+  type UserStopOptions,
 } from "../agent/run-store.js";
 import { buildAssistantTurnFromRunJournal } from "../agent/run-thread-projector.js";
 import {
@@ -175,6 +180,7 @@ import { getAppConfig } from "../app-config/index.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
 import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
+  ChatThreadSourceAppRequiredError,
   InlineAttachmentDataNotPersistableError,
   QueuedSubmissionAdmissionError,
   adoptThreadScopeIfUnscoped,
@@ -182,6 +188,7 @@ import {
   clearQueuedSubmissionInterruptRun,
   createThread,
   forkThread,
+  ForkThreadBoundaryError,
   getThread,
   getQueuedSubmissionReceipt,
   getQueuedSubmissionReceiptStatus,
@@ -195,7 +202,7 @@ import {
   renewQueuedSubmissionClaim,
   resolveRunThreadScope,
   resolveThreadAccess,
-  resolveThreadAccessScope,
+  resolveThreadAppAccessScope,
   listThreads,
   searchThreads,
   renameThread,
@@ -247,6 +254,7 @@ import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
 import { getUserLabEnabled } from "../labs/store.js";
+import { workspaceIntegrationMessagesForUser } from "../localization/workspace-integration-messages.js";
 import {
   mcpToolsToActionEntries,
   mountMcpServersRoutes,
@@ -288,6 +296,7 @@ import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-sess
 import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { track, type TrackingMeta } from "../tracking/registry.js";
 import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
 import {
@@ -313,6 +322,7 @@ import {
   runWithAgentRunContext,
   seedAgentRunOwnerContext,
   seedBackgroundAgentRunOwnerContext,
+  VERIFIED_TURN_GRANT_CONTEXT_KEY,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
 import {
@@ -330,10 +340,10 @@ import {
 import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 import type { CliWrapperFlags } from "./cli-wrapper-flags.js";
+import { isWorkspaceRuntime } from "./derived-secret.js";
 import {
-  actionDefinition,
   discoveredActionMcpAnnotations,
-  filesystemActionEntry,
+  importDevActionEntry,
 } from "./filesystem-action-entry.js";
 import {
   getH3App,
@@ -367,6 +377,9 @@ export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
 const MAX_QUEUED_SUBMISSION_RETRIES = 5;
+// A run can stay active for minutes, so a receipt behind it keeps polling for
+// this long before it is left to the recurring sweep, with a logged error.
+const QUEUED_SUBMISSION_BUSY_RETRY_LIMIT_MS = 10 * 60_000;
 const QUEUED_SUBMISSION_CLAIM_RENEW_INTERVAL_MS = 20_000;
 const QUEUED_SUBMISSION_CLAIM_RENEW_MAX_DURATION_MS = 60_000;
 // Matches AgentKit's MAX_REORDER_QUEUED_MESSAGE_IDS; a queue never nears it.
@@ -1542,6 +1555,40 @@ export function disabledGroupsForA2APrompt(
   return new Set([...disabledGroups, "workspaceApps"]);
 }
 
+/**
+ * The app id this plugin attributes its threads to.
+ *
+ * A template may create the plugin without an `appId` (several do), and then
+ * every thread it writes carries no source. The thread store treats a missing
+ * source as "listable from anywhere", so an app shows chats another app owns —
+ * the class team QA reported as "an app shows only its own agent chats". Route
+ * readiness already resolves the same fallback chain from app config; use it
+ * for provenance and for read scoping too, so an app that omits the option is
+ * still attributed to itself rather than to everyone.
+ */
+export function pluginSourceAppId(
+  options: { appId?: string } | undefined,
+  config: {
+    app?:
+      | {
+          id?: string | undefined;
+          template?: string | undefined;
+          workspaceId?: string | undefined;
+          packageName?: string | undefined;
+        }
+      | undefined;
+  } | null,
+): string | null {
+  const resolved =
+    options?.appId ??
+    config?.app?.id ??
+    config?.app?.template ??
+    config?.app?.workspaceId ??
+    config?.app?.packageName;
+  const trimmed = typeof resolved === "string" ? resolved.trim() : "";
+  return trimmed === "" ? null : trimmed;
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
@@ -1796,7 +1843,8 @@ export function createAgentChatPlugin(
         try {
           const { autoDiscoverActions } = await import("./action-discovery.js");
           templateScriptsAll = await autoDiscoverActions("auto");
-        } catch {
+        } catch (error) {
+          if (isActionDefinitionError(error)) throw error;
           // Filesystem discovery unavailable (serverless bundle) — skip.
         }
       }
@@ -1898,6 +1946,7 @@ export function createAgentChatPlugin(
         // Auto-discover template action files and register as bash-based tools.
         // This ensures templates without a custom agent-chat plugin (e.g., analytics)
         // still have their domain actions available as tools.
+        const definitionErrors: ActionDefinitionError[] = [];
         try {
           const pathMod = await import("path");
           const cwd = process.cwd();
@@ -1914,16 +1963,21 @@ export function createAgentChatPlugin(
               // run function (not a shell wrapper). This makes HTTP endpoints
               // work correctly. Only fall back to shell wrapper if the import
               // fails (e.g., CLI-style scripts that throw at top level).
+              // A definition error is rethrown below, past the catch that
+              // skips unreadable discovery, so it fails the load instead.
               try {
-                const mod = await import(/* @vite-ignore */ filePath);
-                const def = actionDefinition(mod);
-                if (def) {
-                  discoveredActionsAll[name] = filesystemActionEntry(def);
+                const entry = await importDevActionEntry(filePath, name);
+                if (entry) {
+                  discoveredActionsAll[name] = entry;
                   continue;
                 }
-              } catch {
-                // Fall through to shell wrapper for CLI-style scripts
-                // (and .ts files Node can't parse natively).
+              } catch (error) {
+                if (isActionDefinitionError(error)) {
+                  definitionErrors.push(error);
+                  continue;
+                }
+                // Anything else falls through to the shell wrapper, as an
+                // unimportable CLI script does.
               }
 
               // Static-parse the source for `http`, `agentTool: false`,
@@ -2033,6 +2087,11 @@ export function createAgentChatPlugin(
               `[agent-chat] Auto-discovered ${Object.keys(discoveredActionsAll).length} action(s): ${Object.keys(discoveredActionsAll).join(", ")}`,
             );
         } catch {}
+        if (definitionErrors.length > 0) {
+          throw new ActionDefinitionError(
+            definitionErrors.map((error) => error.message).join("\n"),
+          );
+        }
       }
 
       // Agent-facing views of the discovered actions: actions that opted out of
@@ -2207,7 +2266,7 @@ export function createAgentChatPlugin(
                   requireCurrentRunOwner("validate URL allowlist"),
                   { getKeyAllowlist, getResolvedKeyAllowlist },
                 );
-                if (allowlist && !validateUrlAllowlist(url, allowlist)) {
+                if (!validateUrlAllowlist(url, allowlist)) {
                   return false;
                 }
               }
@@ -2473,6 +2532,21 @@ export function createAgentChatPlugin(
           )
         : {};
 
+      const builtinOpenApp =
+        frameworkTools.isEnabled("workspaceApps") &&
+        !Object.hasOwn(templateScriptsAll, "open_app") &&
+        !Object.hasOwn(discoveredActionsAll, "open_app")
+          ? (await import("../mcp/builtin-tools.js")).getBuiltinCrossAppTools({
+              name: options?.appId ?? "Agent",
+              ...(options?.appId === undefined ? {} : { appId: options.appId }),
+              description: "Agent-Native app",
+              actions: {},
+            }).open_app
+          : undefined;
+      const openAppScripts: Record<string, ActionEntry> = builtinOpenApp
+        ? { open_app: builtinOpenApp }
+        : {};
+
       // Registry `generateCorpusToolsPrompt` (below) reads from to decide what
       // it teaches by name — kept as one value so the prompt text and the
       // initial-tool-set expansion just below can never drift apart.
@@ -2504,6 +2578,7 @@ export function createAgentChatPlugin(
       const effectiveInitialToolNames = [
         ...new Set([
           ...templateInitialToolNames,
+          ...Object.keys(openAppScripts),
           ...corpusToolNames,
           // Setup CTAs are recovery actions, but they must be available on the
           // first request so a missing provider renders the card immediately
@@ -2538,6 +2613,7 @@ export function createAgentChatPlugin(
       const allScripts = attachToolSearch(
         canToggle
           ? {
+              ...openAppScripts,
               ...filterPublicAgentActions(templateScripts),
               ...resourceScripts,
               ...docsScripts,
@@ -2562,6 +2638,7 @@ export function createAgentChatPlugin(
               ...devRunCodeTool,
             }
           : {
+              ...openAppScripts,
               ...discoveredActions,
               ...templateScripts,
               ...resourceScripts,
@@ -2726,13 +2803,6 @@ export function createAgentChatPlugin(
           }),
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.
-          // Priority: A2A-JWT verified email (set by the A2A handler in
-          // request-context) > dev session DB (dev only) > Google OAuth
-          // tokeninfo (prod only). Without the JWT-verified-email path,
-          // cross-app A2A calls landed owned by `local@localhost` (dev) or
-          // `dispatch@shared`, which made resources invisible to the actual
-          // signed-in user.
-          //
           // SECURITY: we deliberately do NOT trust `context.metadata.userEmail`
           // as a fallback. The A2A endpoint runs in three modes — JWT-signed
           // (verified email lands in request context), API-key (caller is
@@ -2810,26 +2880,6 @@ export function createAgentChatPlugin(
                   args: [],
                 });
                 if (rows[0]) userEmail = rows[0].email as string;
-              } catch {}
-            }
-          }
-
-          if (!userEmail && !isDev) {
-            const googleToken = context.metadata?.googleToken as string;
-            if (googleToken) {
-              try {
-                const res = await fetch(
-                  `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(googleToken)}`,
-                );
-                if (res.ok) {
-                  const info = (await res.json()) as {
-                    email?: string;
-                    email_verified?: string;
-                  };
-                  if (info.email && info.email_verified === "true") {
-                    userEmail = info.email;
-                  }
-                }
               } catch {}
             }
           }
@@ -3722,6 +3772,10 @@ export function createAgentChatPlugin(
           ...(mcpOptions.builtinCrossAppTools !== undefined
             ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }
             : {}),
+          ...(mcpOptions.taskCandidates
+            ? { taskCandidates: mcpOptions.taskCandidates }
+            : {}),
+          ...(mcpOptions.readOnlyResources ? { readOnlyResources: true } : {}),
           ...(mcpOptions.connectorCatalog
             ? { connectorCatalog: mcpOptions.connectorCatalog }
             : {}),
@@ -4565,7 +4619,13 @@ export function createAgentChatPlugin(
                 thread = await createThread(ownerEmail, {
                   id: threadId,
                   scope: runScope,
-                  source: options?.appId ? { appId: options.appId } : null,
+                  source: (() => {
+                    const sourceAppId = pluginSourceAppId(
+                      options,
+                      getAppConfig(),
+                    );
+                    return sourceAppId ? { appId: sourceAppId } : null;
+                  })(),
                 });
               } catch {
                 thread = await getThread(threadId);
@@ -4583,9 +4643,10 @@ export function createAgentChatPlugin(
                 statusMessage: "Thread not found",
               });
             }
-            if (options?.appId) {
+            const sourceAppId = pluginSourceAppId(options, getAppConfig());
+            if (sourceAppId) {
               await setThreadSourceIfMissing(threadId, ownerEmail, {
-                appId: options.appId,
+                appId: sourceAppId,
               });
             }
             const access = await resolveThreadAccess(
@@ -5043,6 +5104,7 @@ export function createAgentChatPlugin(
       // in lean mode because the framework prompt and default starter surface
       // still promise sibling-app routing.
       const leanActionEntries: Record<string, ActionEntry> = {
+        ...openAppScripts,
         ...templateScripts,
         ...resourceScripts,
         ...skillReadScripts,
@@ -5070,6 +5132,7 @@ export function createAgentChatPlugin(
           : {};
 
       const prodActions = attachToolSearch({
+        ...openAppScripts,
         ...templateScripts,
         ...resourceScripts,
         ...docsScripts,
@@ -5429,7 +5492,7 @@ When the user asks to add a feature, edit a component, fix a bug in the app itse
 
 1. Do NOT use dev shell/filesystem tools, write code inline, list source files, propose patches, or describe file-level implementation steps from this chat.
 2. For host-app source changes in Act mode, call \`connect-builder\` when that tool is available so a separate Builder/cloud agent can do the work. If Builder is unavailable, give a short handoff to the outer dev frame, Agent-Native Desktop, Claude Code, or Codex in the project directory.
-3. If the request is specifically to add or scaffold a new workspace app and no Builder handoff is available, mention \`npx @agent-native/core@latest add-app\` in this workspace directory as the CLI path.
+3. If the request is specifically to add or scaffold a new workspace app and no Builder handoff is available, mention \`pnpm exec agent-native add-app\` in this workspace directory as the CLI path.
 
 Non-code requests are still fine on this surface: read data, navigate the UI, summarize, search, create/update extensions (sandboxed Alpine.js mini-apps stored in SQL), and call template actions. The restriction is specifically about direct edits to the host app's own source files.
 </app-rendered-chat-no-direct-code-edits>`;
@@ -5822,6 +5885,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             : devNative
               ? { ...devScriptRegistry, ...prodActions }
               : {
+                  ...openAppScripts,
                   ...requestScopedDevActions,
                   ...resourceScripts,
                   ...docsScripts,
@@ -6035,9 +6099,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               currentDevMode = !currentDevMode;
             }
             try {
-              await putSetting(AGENT_MODE_SETTING_KEY, {
-                devMode: currentDevMode,
-              });
+              await putSetting(
+                AGENT_MODE_SETTING_KEY,
+                {
+                  devMode: currentDevMode,
+                },
+                { global: true },
+              );
             } catch {
               // Persistence is best-effort — in-memory flag still applies for
               // the lifetime of this process even if the settings write fails.
@@ -6203,7 +6271,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         ) ?? "app";
 
       const resolveModelDefaultsContext = async (event: any) => {
-        const session = await getSession(event).catch(() => null);
+        const session = await getSession(event);
         if (!session?.email) {
           return {
             ok: false as const,
@@ -6926,12 +6994,33 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // a provider that searches `decks` (or any sharable resource)
           // would see every row regardless of ownership.
           const mentionsOwner = await getOwnerFromEvent(event).catch(
-            () => undefined,
+            (error: unknown) => {
+              if (
+                error &&
+                typeof error === "object" &&
+                (("statusCode" in error && error.statusCode === 401) ||
+                  ("status" in error && error.status === 401))
+              )
+                return undefined;
+              throw error;
+            },
+          );
+          const referenceMessages = await workspaceIntegrationMessagesForUser(
+            mentionsOwner ?? "",
           );
           const mentionsOrgId = await resolveResourceOrgId(
             event,
             options?.resolveOrgId,
           );
+          const mentionContext = {
+            ...(mentionsOwner ? { userEmail: mentionsOwner } : {}),
+            ...(mentionsOrgId ? { orgId: mentionsOrgId } : {}),
+            ...((mentionsOrgId === null ||
+              (mentionsOrgId === undefined &&
+                getRequestContext()?.orgScope === "personal")) && {
+              orgScope: "personal" as const,
+            }),
+          };
 
           const query = getQuery(event);
           const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
@@ -6959,6 +7048,67 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             item.label.toLowerCase().includes(q) ||
             (item.description?.toLowerCase().includes(q) ?? false);
 
+          if (query.source !== undefined) {
+            const source = typeof query.source === "string" ? query.source : "";
+            const mentionErrorResponse = (
+              status: number,
+              code: string,
+              message: string,
+            ) =>
+              new Response(
+                JSON.stringify({ error: { code, message, source } }),
+                {
+                  status,
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Cache-Control": "no-cache",
+                  },
+                },
+              );
+            const provider = Object.prototype.hasOwnProperty.call(
+              mentionProviders,
+              source,
+            )
+              ? mentionProviders[source]
+              : undefined;
+            if (!provider)
+              return mentionErrorResponse(
+                404,
+                "mention_source_not_found",
+                referenceMessages.referenceUnknown,
+              );
+            if (!mentionsOwner)
+              return mentionErrorResponse(
+                401,
+                "unauthorized",
+                referenceMessages.referenceSignIn,
+              );
+            let items: Awaited<ReturnType<typeof provider.search>>;
+            try {
+              items = await runWithRequestContext(mentionContext, () =>
+                provider.search(q, event),
+              );
+            } catch {
+              return mentionErrorResponse(
+                503,
+                "mention_source_unavailable",
+                referenceMessages.referenceUnavailable,
+              );
+            }
+            setResponseHeader(event, "Content-Type", "application/x-ndjson");
+            setResponseHeader(event, "Cache-Control", "no-cache");
+            return (
+              JSON.stringify({
+                items: items.slice(0, 50).map((item) => ({
+                  ...item,
+                  source,
+                  section: provider.label,
+                  icon: item.icon || provider.icon || "file",
+                })),
+              }) + "\n"
+            );
+          }
+
           const enc = new TextEncoder();
 
           // Stream NDJSON — each source flushes its batch as soon as it's ready.
@@ -6972,18 +7122,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           const stream = new ReadableStream({
             start(controller) {
-              const inheritedPersonalScope =
-                mentionsOrgId === undefined &&
-                getRequestContext()?.orgScope === "personal";
-              return runWithRequestContext(
-                {
-                  userEmail: mentionsOwner,
-                  orgId: mentionsOrgId ?? undefined,
-                  ...((mentionsOrgId === null || inheritedPersonalScope) && {
-                    orgScope: "personal" as const,
-                  }),
-                },
-                () => mentionsStreamWork(controller),
+              return runWithRequestContext(mentionContext, () =>
+                mentionsStreamWork(controller),
               );
             },
             cancel() {
@@ -7033,6 +7173,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
             };
 
+            const reportSourceFailure = (source: string) => {
+              if (cancelled || mentionsAbort.signal.aborted) return;
+              try {
+                controller.enqueue(
+                  enc.encode(
+                    JSON.stringify({
+                      error: {
+                        code: "mention_source_unavailable",
+                        message: referenceMessages.referenceUnavailable,
+                        source,
+                      },
+                    }) + "\n",
+                  ),
+                );
+              } catch {
+                cancelled = true;
+              }
+            };
+
             // All sources run in parallel; each flushes independently.
             const sources: Promise<void>[] = [];
 
@@ -7071,7 +7230,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       };
                     }),
                   );
-                } catch {}
+                } catch {
+                  reportSourceFailure("resources");
+                }
               })(),
             );
 
@@ -7086,7 +7247,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   }> = [];
                   try {
                     await collectFiles(process.cwd(), "", 0, codebaseFiles);
-                  } catch {}
+                  } catch {
+                    reportSourceFailure("codebase");
+                    return;
+                  }
                   flush(
                     codebaseFiles.map((f) => ({
                       id: `codebase:${f.path}`,
@@ -7131,6 +7295,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       })),
                     );
                   } catch (e) {
+                    reportSourceFailure(key);
                     console.error(
                       `[agent-native] Mention provider "${key}" failed:`,
                       e,
@@ -7141,34 +7306,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             // 4. Custom workspace agents
-            sources.push(
-              (async () => {
-                try {
-                  const owner = await getOwnerFromEvent(event);
-                  const { listAccessibleCustomAgents } =
-                    await import("../resources/agents.js");
-                  const agents = await listAccessibleCustomAgents(owner);
-                  flush(
-                    agents.map((agent) => ({
-                      id: `custom-agent:${agent.id}`,
-                      label: agent.name,
-                      description: agent.description || agent.path,
-                      icon: "agent",
-                      source: "agent:custom",
-                      refType: "custom-agent",
-                      refPath: agent.path,
-                      refId: agent.id,
-                      section: "Agents",
-                    })),
-                  );
-                } catch (e) {
-                  console.error(
-                    "[agent-native] Custom agent discovery failed:",
-                    e,
-                  );
-                }
-              })(),
-            );
+            if (mentionsOwner)
+              sources.push(
+                (async () => {
+                  try {
+                    const owner = await getOwnerFromEvent(event);
+                    const { listAccessibleCustomAgents } =
+                      await import("../resources/agents.js");
+                    const agents = await listAccessibleCustomAgents(owner);
+                    flush(
+                      agents.map((agent) => ({
+                        id: `custom-agent:${agent.id}`,
+                        label: agent.name,
+                        description: agent.description || agent.path,
+                        icon: "agent",
+                        source: "agent:custom",
+                        refType: "custom-agent",
+                        refPath: agent.path,
+                        refId: agent.id,
+                        section: "Agents",
+                      })),
+                    );
+                  } catch (e) {
+                    reportSourceFailure("custom-agents");
+                    console.error(
+                      "[agent-native] Custom agent discovery failed:",
+                      e,
+                    );
+                  }
+                })(),
+              );
 
             // 5. Peer agent discovery (network call — often slowest)
             sources.push(
@@ -7192,6 +7359,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     })),
                   );
                 } catch (e) {
+                  reportSourceFailure("connected-agents");
                   console.error("[agent-native] Agent discovery failed:", e);
                 }
               })(),
@@ -7316,14 +7484,48 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // controls require editor+ access.
           // agent_runs carries no owner column — ownership lives on the
           // chat_threads row via thread_id.
+          const appScope = {
+            sourceAppId: pluginSourceAppId(options, getAppConfig()),
+          };
+          const runAccessContext = orgId ? { orgId } : {};
+          const runRequestContext = { userEmail: owner, ...runAccessContext };
+          const backgroundScope = {
+            ownerEmail: owner,
+            ...runAccessContext,
+            ...appScope,
+          };
           const canViewThread = (threadId: string | null | undefined) =>
-            callerHasThreadAccess(owner, threadId, "viewer", { orgId });
+            callerHasThreadAccess(
+              owner,
+              threadId,
+              "viewer",
+              runAccessContext,
+              appScope,
+            );
           const canViewRun = (runId: string) =>
-            callerHasRunAccess(owner, runId, "viewer", { orgId });
+            callerHasRunAccess(
+              owner,
+              runId,
+              "viewer",
+              runAccessContext,
+              appScope,
+            );
           const canEditRun = (runId: string) =>
-            callerHasRunAccess(owner, runId, "editor", { orgId });
+            callerHasRunAccess(
+              owner,
+              runId,
+              "editor",
+              runAccessContext,
+              appScope,
+            );
           const canEditThread = (threadId: string) =>
-            callerHasThreadAccess(owner, threadId, "editor", { orgId });
+            callerHasThreadAccess(
+              owner,
+              threadId,
+              "editor",
+              runAccessContext,
+              appScope,
+            );
 
           // Route: POST /runs/:id/retry-projection
           // An editor may retry a pending fold after repairing its source.
@@ -7405,6 +7607,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (listMatch && method === "GET") {
             const query = getQuery(event);
             const goalId = query.goalId ? String(query.goalId) : undefined;
+            const limit = Math.min(Math.max(Number(query.limit) || 5, 1), 25);
             const runs = await runWithRequestContext(
               { userEmail: owner, orgId },
               async () => {
@@ -7412,7 +7615,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 if (!goalId || goalId === "agent-team") {
                   const { listAgentTeamBackgroundRuns } =
                     await import("./agent-teams.js");
-                  runs.push(...(await listAgentTeamBackgroundRuns()));
+                  runs.push(
+                    ...(await listAgentTeamBackgroundRuns(backgroundScope)),
+                  );
                 }
                 if (!goalId || goalId === "agent-harness") {
                   const { listAgentHarnessBackgroundRuns } =
@@ -7420,10 +7625,54 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   runs.push(
                     ...(await listAgentHarnessBackgroundRuns({
                       goalId: "agent-harness",
-                      ownerEmail: owner,
-                      orgId,
+                      ...backgroundScope,
                     })),
                   );
+                }
+                // Chat runs too. Without them this list answered "no recent
+                // runs" for anyone whose work happens in a chat thread, which is
+                // every conversation in the product: the background sources above
+                // only see agent-team and harness work. Ownership comes from the
+                // thread join inside the query, so a shared thread's runs stay out
+                // of someone else's list.
+                if (!goalId || goalId === "chat") {
+                  const { listRecentRunsForOwner } =
+                    await import("../agent/run-store.js");
+                  const recent = await listRecentRunsForOwner(
+                    owner,
+                    limit + 1,
+                    appScope,
+                  );
+                  for (const run of recent) {
+                    const status =
+                      run.status === "running"
+                        ? "running"
+                        : run.status === "failed" || run.status === "errored"
+                          ? "errored"
+                          : run.status === "completed" ||
+                              run.status === "cancelled"
+                            ? "completed"
+                            : "unknown";
+                    runs.push({
+                      id: run.id,
+                      kind: "chat",
+                      source: "chat",
+                      sourceLabel: "Chat",
+                      title: run.threadTitle ?? "",
+                      status,
+                      goalId: "chat",
+                      createdAt: new Date(run.startedAt).toISOString(),
+                      updatedAt: new Date(
+                        run.completedAt ??
+                          run.lastProgressAt ??
+                          run.heartbeatAt ??
+                          run.startedAt,
+                      ).toISOString(),
+                      needsInput: false,
+                      needsApproval: false,
+                      sourceRecord: { threadId: run.threadId },
+                    });
+                  }
                 }
                 return runs;
               },
@@ -7443,7 +7692,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await import("./agent-teams.js");
             let result = await runWithRequestContext(
               { userEmail: owner, orgId },
-              () => stopAgentTeamBackgroundRun(runId),
+              () => stopAgentTeamBackgroundRun(runId, "user", backgroundScope),
             );
             if (!result.ok && result.error === "Task not found") {
               const { stopAgentHarnessBackgroundRun } =
@@ -7452,8 +7701,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 { userEmail: owner, orgId },
                 () =>
                   stopAgentHarnessBackgroundRun(runId, {
-                    ownerEmail: owner,
-                    orgId,
+                    ...backgroundScope,
                   }),
               );
             }
@@ -7484,10 +7732,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             let reason = "user";
             let safeBoundary = false;
+            let stop: UserStopOptions = {};
             try {
               const body = await readBody(event);
               reason = clientAbortReason(body?.reason);
               safeBoundary = body?.safeBoundary === true;
+              if (
+                Number.isSafeInteger(body?.shownThroughSeq) &&
+                body.shownThroughSeq >= -1
+              ) {
+                stop = { shownThroughSeq: body.shownThroughSeq };
+              }
             } catch {
               // Empty/invalid body — keep the default user abort reason.
             }
@@ -7499,6 +7754,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 aborted = isUserStop
                   ? await abortRunAndTurnDurably(runId, reason, {
                       safeBoundary: true,
+                      ...stop,
                     })
                   : await abortRunAtSafeBoundaryDurably(runId, reason);
                 if (isUserStop && !aborted) {
@@ -7512,7 +7768,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 // the cross-isolate abort + terminal event to be durable. Returning
                 // early lets Retry collide with the still-running row.
                 if (isUserStop) {
-                  await abortRunAndTurnDurably(runId, reason);
+                  await abortRunAndTurnDurably(runId, reason, stop);
                 } else {
                   await abortRunDurably(runId, reason);
                 }
@@ -7535,13 +7791,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               getAgentTeamBackgroundRun,
               listAgentTeamBackgroundTranscriptEvents,
             } = await import("./agent-teams.js");
-            const run = await runWithRequestContext({ userEmail: owner }, () =>
-              getAgentTeamBackgroundRun(runId),
+            const run = await runWithRequestContext(runRequestContext, () =>
+              getAgentTeamBackgroundRun(runId, backgroundScope),
             );
-            if (run) {
+            if (run && (await canViewThread(run.sourceRecord.threadId))) {
               const events = await runWithRequestContext(
-                { userEmail: owner },
-                () => listAgentTeamBackgroundTranscriptEvents(runId),
+                runRequestContext,
+                () =>
+                  listAgentTeamBackgroundTranscriptEvents(
+                    runId,
+                    backgroundScope,
+                  ),
               );
               return { status: "ok", runId, events };
             }
@@ -7553,8 +7813,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               { userEmail: owner, orgId },
               () =>
                 getAgentHarnessBackgroundRun(runId, {
-                  ownerEmail: owner,
-                  orgId,
+                  ...backgroundScope,
                 }),
             );
             if (!harnessRun) {
@@ -7565,8 +7824,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               { userEmail: owner, orgId },
               () =>
                 listAgentHarnessBackgroundTranscriptEvents(runId, {
-                  ownerEmail: owner,
-                  orgId,
+                  ...backgroundScope,
                 }),
             );
             return { status: "ok", runId, events };
@@ -7943,6 +8201,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   source: "checkpoint",
                   type: "change",
                   key: "*",
+                  visibility: "public",
                 });
               } catch {}
               return { success: true, commitSha: checkpoint.commitSha };
@@ -8009,6 +8268,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       ): ForkThreadSourceSnapshot | null => {
         if (!raw || typeof raw !== "object") return null;
         const r = raw as Record<string, unknown>;
+        if (
+          r.beforeMessageId !== undefined &&
+          (typeof r.beforeMessageId !== "string" ||
+            !r.beforeMessageId.trim() ||
+            r.fromMessageId !== undefined ||
+            typeof r.threadData !== "string" ||
+            !r.threadData.trim())
+        ) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: "Invalid fork message boundary",
+          });
+        }
         if (typeof r.threadData !== "string") return null;
         const messageCount =
           typeof r.messageCount === "number"
@@ -8021,6 +8293,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           messageCount,
           ...(typeof r.fromMessageId === "string"
             ? { fromMessageId: r.fromMessageId }
+            : {}),
+          ...(typeof r.beforeMessageId === "string"
+            ? { beforeMessageId: r.beforeMessageId }
             : {}),
           ...(Object.prototype.hasOwnProperty.call(r, "scope")
             ? { scope: parseScopeFromBody(r.scope) }
@@ -8072,6 +8347,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const isThreadSubroute = (subroute: string) =>
             threadTail[0] === subroute;
           const requestedScope = parseScopeFromQuery(getQuery(event));
+          const localSourceAppId = pluginSourceAppId(options, getAppConfig());
+          const threadMatchesApp = (thread: Pick<ChatThread, "source">) =>
+            options?.threadAccessScope === "aggregate" ||
+            Boolean(
+              localSourceAppId && thread.source?.appId === localSourceAppId,
+            );
           const scopesMatch = (
             left?: ChatThreadScope | null,
             right?: ChatThreadScope | null,
@@ -8082,12 +8363,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const threadMatchesRequestedScope = (
             thread: {
               scope?: ChatThreadScope | null;
+              source: ChatThread["source"];
             },
             incomingScope?: ChatThreadScope | null,
           ) =>
-            !requestedScope ||
-            scopesMatch(thread.scope, requestedScope) ||
-            (!thread.scope && scopesMatch(incomingScope, requestedScope));
+            threadMatchesApp(thread) &&
+            (!requestedScope ||
+              scopesMatch(thread.scope, requestedScope) ||
+              (!thread.scope && scopesMatch(incomingScope, requestedScope)));
 
           const threadNotFound = () => {
             if (
@@ -8267,7 +8550,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               threadTail[2] === "receipt" &&
               threadTail.length === 3
             ) {
-              const thread = await resolveThreadAccessScope(
+              const thread = await resolveThreadAppAccessScope(
                 owner,
                 threadId,
                 "viewer",
@@ -8864,8 +9147,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "Title is required" };
               }
+              if (
+                body.collapseEdits !== undefined &&
+                typeof body.collapseEdits !== "boolean"
+              ) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid collapseEdits filter" };
+              }
               const renamed = await renameThread(threadId, title, {
                 ownerEmail: owner,
+                ...(body.collapseEdits === true
+                  ? { collapseEdits: true, orgId }
+                  : {}),
               });
               if (!renamed) {
                 setResponseStatus(event, 404);
@@ -8890,9 +9183,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "pinned boolean is required" };
               }
+              if (
+                body.collapseEdits !== undefined &&
+                typeof body.collapseEdits !== "boolean"
+              ) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid collapseEdits filter" };
+              }
               const pinned = await setThreadPinned(threadId, body.pinned, {
                 ownerEmail: owner,
                 orgId,
+                ...(body.collapseEdits === true ? { collapseEdits: true } : {}),
               });
               if (!pinned) {
                 setResponseStatus(event, 404);
@@ -8902,7 +9203,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (method === "POST" && isThreadSubroute("hide")) {
-              const thread = await resolveThreadAccessScope(
+              const thread = await resolveThreadAppAccessScope(
                 owner,
                 threadId,
                 "viewer",
@@ -8917,9 +9218,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "hidden boolean is required" };
               }
+              if (
+                body.collapseEdits !== undefined &&
+                typeof body.collapseEdits !== "boolean"
+              ) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid collapseEdits filter" };
+              }
               const hidden = await setThreadHidden(threadId, body.hidden, {
                 ownerEmail: owner,
                 orgId,
+                ...(body.collapseEdits === true ? { collapseEdits: true } : {}),
               });
               if (!hidden) {
                 setResponseStatus(event, 404);
@@ -8944,10 +9253,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "archived boolean is required" };
               }
+              if (
+                body.collapseEdits !== undefined &&
+                typeof body.collapseEdits !== "boolean"
+              ) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid collapseEdits filter" };
+              }
               const archived = await setThreadArchived(
                 threadId,
                 body.archived,
-                { ownerEmail: owner },
+                {
+                  ownerEmail: owner,
+                  ...(body.collapseEdits === true
+                    ? { collapseEdits: true, orgId }
+                    : {}),
+                },
               );
               if (!archived) {
                 setResponseStatus(event, 404);
@@ -8969,6 +9290,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return { error: "Thread not found" };
               }
               const body = await readBody(event);
+              if (
+                body?.forkPurpose !== undefined &&
+                body.forkPurpose !== "edit"
+              ) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid fork purpose" };
+              }
               const sourceSnapshot = parseForkSourceFromBody(body?.source);
               if (sourceSnapshot) {
                 let parsedSource: unknown;
@@ -8991,11 +9319,56 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   };
                 }
               }
-              const forked = await forkThread(threadId, owner, {
-                id: body?.id,
-                source: sourceSnapshot,
-                sourceAccessGranted: true,
-              });
+              let forked;
+              try {
+                // The ALS request boundary installs tracking scope only, so an
+                // ordinary HTTP request has no request org. forkThread compares
+                // the thread's org against getRequestOrgId() before it keeps
+                // edit_root_id; resolve the org from the event the same way the
+                // thread-create route does, or an org-scoped edit fork stores
+                // edit_root_id = NULL and every edit shows as its own row.
+                // Only carry it when it already agrees with the thread, so the
+                // gate's decision is unchanged when they differ.
+                const forkOrgId = await getOrgIdFromEvent(event);
+                const threadOrgId = thread.orgId ?? null;
+                forked = await runWithRequestContext(
+                  {
+                    userEmail: owner,
+                    ...(forkOrgId && threadOrgId === forkOrgId
+                      ? { orgId: forkOrgId }
+                      : {}),
+                  },
+                  () =>
+                    forkThread(threadId, owner, {
+                      id: body?.id,
+                      source: sourceSnapshot,
+                      sourceAccessGranted: true,
+                      ...(options?.threadAccessScope !== "aggregate" &&
+                      localSourceAppId
+                        ? { targetSource: { appId: localSourceAppId } }
+                        : {}),
+                      ...(body?.forkPurpose === "edit"
+                        ? {
+                            forkPurpose: "edit" as const,
+                            trustedAppId: pluginSourceAppId(
+                              options,
+                              getAppConfig(),
+                            ),
+                          }
+                        : {}),
+                    }),
+                );
+              } catch (error) {
+                if (error instanceof ForbiddenError) {
+                  setResponseStatus(event, 403);
+                  return { error: error.message };
+                }
+                if (!(error instanceof ForkThreadBoundaryError)) throw error;
+                throw createError({
+                  statusCode: 400,
+                  statusMessage: "Invalid fork message boundary",
+                });
+              }
               if (!forked) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -9055,7 +9428,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
-              await deleteThread(threadId, owner);
+              const collapseEdits = getQuery(event).collapseEdits;
+              if (
+                collapseEdits !== undefined &&
+                collapseEdits !== "1" &&
+                collapseEdits !== "0"
+              ) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid collapseEdits filter" };
+              }
+              await deleteThread(
+                threadId,
+                owner,
+                collapseEdits === "1"
+                  ? {
+                      collapseEdits: true,
+                      ...(orgId === undefined ? {} : { orgId }),
+                    }
+                  : undefined,
+              );
               return { ok: true };
             }
 
@@ -9080,41 +9471,64 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const q = query.q ? String(query.q).trim() : "";
             const scope = parseScopeFromQuery(query);
             const unscopedOnly = String(query.unscoped ?? "") === "1";
-            const includeExternal = String(query.includeExternal ?? "") === "1";
+            const includeExternal =
+              options?.threadAccessScope === "aggregate" &&
+              String(query.includeExternal ?? "") === "1";
             const includeArchived = String(query.includeArchived ?? "") === "1";
             const includeHidden = String(query.includeHidden ?? "") === "1";
+            if (
+              query.collapseEdits !== undefined &&
+              query.collapseEdits !== "1" &&
+              query.collapseEdits !== "0"
+            ) {
+              setResponseStatus(event, 400);
+              return { error: "Invalid collapseEdits filter" };
+            }
+            const collapseEdits = query.collapseEdits === "1";
             const ownership =
               query.ownership === undefined ? "all" : query.ownership;
             if (!isChatThreadOwnership(ownership)) {
               setResponseStatus(event, 400);
               return { error: "Invalid ownership filter" };
             }
+            // Same resolution as the write side: an app whose plugin omits
+            // appId still lists only its own threads, not every app's.
+            const requestedSourceAppId = pluginSourceAppId(
+              options,
+              getAppConfig(),
+            );
             const offset = requestedOffset;
             // Fetch one extra row so the page can say whether another exists
             // without a count query.
-            const fetched = q
-              ? await searchThreads(owner, q, limit + 1, {
-                  scope: scope ?? undefined,
-                  orgId,
-                  includeExternal,
-                  includeArchived,
-                  includeHidden,
-                  sourceAppId: options?.appId ?? null,
-                  ownership,
-                  offset,
-                })
-              : await listThreads(owner, {
-                  limit: limit + 1,
-                  offset,
-                  scope: scope ?? undefined,
-                  unscopedOnly,
-                  orgId,
-                  includeExternal,
-                  includeArchived,
-                  includeHidden,
-                  sourceAppId: options?.appId ?? null,
-                  ownership,
-                });
+            const readOptions = {
+              ...(scope
+                ? { scope }
+                : { excludeScopeTypes: options?.historyHiddenScopeTypes }),
+              ...(orgId === undefined ? {} : { orgId }),
+              collapseEdits,
+              includeExternal,
+              includeArchived,
+              includeHidden,
+              sourceAppId: requestedSourceAppId,
+              ownership,
+              offset,
+            };
+            const fetched = await (
+              q
+                ? searchThreads(owner, q, limit + 1, readOptions)
+                : listThreads(owner, {
+                    ...readOptions,
+                    limit: limit + 1,
+                    unscopedOnly,
+                  })
+            ).catch((error: unknown) => {
+              if (!(error instanceof ChatThreadSourceAppRequiredError)) {
+                throw error;
+              }
+              setResponseStatus(event, 500);
+              return { error: error.message, code: error.code } as const;
+            });
+            if (!Array.isArray(fetched)) return fetched;
             return {
               threads: fetched.slice(0, limit),
               hasMore: fetched.length > limit,
@@ -9122,6 +9536,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
 
           if (method === "POST") {
+            if (
+              options?.threadAccessScope !== "aggregate" &&
+              !localSourceAppId
+            ) {
+              setResponseStatus(event, 404);
+              return { error: "Thread not found" };
+            }
             const body = await readBody(event);
             const requestedScope = parseScopeFromQuery(getQuery(event));
             const bodyIncludesScope = Boolean(
@@ -9144,6 +9565,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               existing: ChatThread,
             ): Promise<ChatThread | null> => {
               if (
+                !threadMatchesApp(existing) ||
                 (requestedScope &&
                   threadScopeMismatch(existing.scope, requestedScope)) ||
                 (bodyIncludesScope &&
@@ -9197,7 +9619,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 id: body?.id,
                 title: body?.title ?? "",
                 scope: bodyIncludesScope ? bodyScope : requestedScope,
-                source: options?.appId ? { appId: options.appId } : null,
+                source: (() => {
+                  const sourceAppId = pluginSourceAppId(
+                    options,
+                    getAppConfig(),
+                  );
+                  return sourceAppId ? { appId: sourceAppId } : null;
+                })(),
                 orgId: await getOrgIdFromEvent(event),
               });
               return thread;
@@ -9310,7 +9738,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const drainQueuedSubmissionInbox = async (
         drainOptions: {
           threadId?: string;
-          followUpDepth?: number;
+          busySince?: number;
         } = {},
       ) => {
         const result = {
@@ -9332,22 +9760,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           result.deferred += 1;
           deferredThreads.add(threadId);
         };
-        const scheduleFollowUpDrain = (threadId: string) => {
-          const followUpDepth = drainOptions.followUpDepth ?? 0;
-          if (followUpDepth >= 2) return;
+        const deferBusyReceipt = (threadId: string) => {
+          deferReceipt(threadId);
+          const busySince = drainOptions.busySince ?? Date.now();
+          if (Date.now() - busySince >= QUEUED_SUBMISSION_BUSY_RETRY_LIMIT_MS) {
+            console.error(
+              `[agent-chat] queued submission for ${threadId} stayed behind a busy thread for ${QUEUED_SUBMISSION_BUSY_RETRY_LIMIT_MS}ms; leaving it to the recurring sweep`,
+            );
+            return;
+          }
           const waitUntil = getRequestRunContext()?.waitUntil;
           scheduleQueuedSubmissionInboxDrain({
             threadId,
             turnContinues: false,
             ...(waitUntil ? { waitUntil } : {}),
             drain: (input) =>
-              drainQueuedSubmissionInbox({
-                ...input,
-                followUpDepth: followUpDepth + 1,
-              }),
+              drainQueuedSubmissionInbox({ ...input, busySince }),
             onError: (error) => {
               console.error(
-                `[agent-chat] queued-submission release follow-up drain failed for ${threadId}:`,
+                `[agent-chat] busy-thread inbox drain failed for ${threadId}:`,
                 error,
               );
             },
@@ -9385,7 +9816,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             drainOptions.threadId &&
             !(await waitForStableIdle(drainOptions.threadId))
           ) {
-            deferReceipt(receipt.threadId);
+            deferBusyReceipt(receipt.threadId);
             break;
           }
           let claimId: string | undefined;
@@ -9690,8 +10121,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   claimId,
                 });
                 claimId = undefined;
-                deferReceipt(receipt.threadId);
-                scheduleFollowUpDrain(receipt.threadId);
+                deferBusyReceipt(receipt.threadId);
                 continue;
               }
               const recorded = await recordQueuedSubmissionInterruptRun({
@@ -9925,8 +10355,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 claimId,
               });
               claimId = undefined;
-              deferReceipt(receipt.threadId);
-              scheduleFollowUpDrain(receipt.threadId);
+              deferBusyReceipt(receipt.threadId);
               await stream?.cancel().catch(() => {});
               continue;
             }
@@ -10003,6 +10432,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }
         return result;
       };
+
+      options?.onQueuedSubmissionDrainReady?.((threadId) => {
+        const waitUntil = getRequestRunContext()?.waitUntil;
+        scheduleQueuedSubmissionInboxDrain({
+          threadId,
+          turnContinues: false,
+          ...(waitUntil ? { waitUntil } : {}),
+          drain: drainQueuedSubmissionInbox,
+          onError: (error) =>
+            console.error(
+              `[agent-chat] queued submission drain failed for ${threadId}:`,
+              error,
+            ),
+        });
+      });
 
       // A Function URL is a separate origin, so the browser cannot send the
       // Amplify session cookie with the stream request. Mint a short-lived,
@@ -10371,7 +10815,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // This self-dispatch is cookieless (HMAC-only). Restore the verified
             // per-turn initiator captured before dispatch; the shared thread
             // owner is not necessarily the member who submitted this turn.
-            await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
+            await seedBackgroundAgentRunOwnerContext(
+              event,
+              prepared.runId,
+              preparedMarkerRecord?.[
+                AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD
+              ],
+            );
+            if (
+              preparedMarkerRecord?.payloadRef === true &&
+              getAppConfig().agent.interactiveChatTurns
+            ) {
+              const turnGrant = await verifyDispatchedTurnGrant(
+                workerBody[AGENT_CHAT_TURN_GRANT_FIELD],
+                prepared.runId,
+                await import("../agent/run-store.js"),
+              );
+              if (turnGrant)
+                event.context[VERIFIED_TURN_GRANT_CONTEXT_KEY] = turnGrant;
+            }
             const result = await invokeAgentChatHandler(event);
             const responseStatus = getResponseStatus(event);
             if (responseStatus >= 400) {
@@ -10458,11 +10920,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       getH3App(nitroApp).use(
         capabilitiesPath,
         defineEventHandler((event) => {
-          const requestPath = new URL(
-            event.node?.req?.url || event.path || "",
-            "http://localhost",
-          ).pathname;
-          if (requestPath !== capabilitiesPath) {
+          // In a shared workspace every app is mounted under its own base path
+          // (`/calendar/_agent-native/agent-chat/capabilities`), and the
+          // mount machinery rewrites `event.path` to the mount-relative
+          // remainder ("") while the client's path survives only in
+          // `context._mountedPathname` / `req.url`. Decide from those, not from
+          // `event.path`, or every mounted app 404s this route.
+          if (!capabilitiesRouteMatches(event, capabilitiesPath)) {
             setResponseStatus(event, 404);
             return { error: "Not found" };
           }
@@ -10562,6 +11026,75 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           return processPendingAutomationFailureAlerts();
         };
 
+        const recordNetlifyIdleSweep = async (input: {
+          startedAt: number;
+          jobsChecked: boolean;
+          unclaimedBackgroundRuns: { scanned: number };
+          queuedSubmissionDrain: { scanned: number } | null;
+          automationFailureAlerts: { attempted: number } | null;
+          appSweepHandlers: { skipped?: string };
+        }) => {
+          try {
+            if (!isNetlifyRecurringJobsRuntime() || isWorkspaceRuntime()) {
+              return;
+            }
+            const { recordNetlifySweepOutcome } =
+              await import("../jobs/netlify-wake-marker.js");
+            const foundWork =
+              input.unclaimedBackgroundRuns.scanned > 0 ||
+              (input.queuedSubmissionDrain?.scanned ?? 0) > 0 ||
+              (input.automationFailureAlerts?.attempted ?? 0) > 0 ||
+              input.appSweepHandlers.skipped !== undefined;
+            if (foundWork) {
+              await recordNetlifySweepOutcome({
+                startedAt: input.startedAt,
+                busy: true,
+                nextDueAt: null,
+              });
+              return;
+            }
+            const { hasRunningRuns } = await import("../agent/run-store.js");
+            const { nextQueuedSubmissionDueAt } =
+              await import("../chat-threads/store.js");
+            const { nextAutomationFailureAlertDueAt } =
+              await import("../jobs/run-history.js");
+            const { nextRecurringJobWakeAt } =
+              await import("../jobs/scheduler.js");
+            const { nextStaleWorkDueAt } =
+              await import("../jobs/stale-reaper.js");
+            const { nextRecurringSweepHandlerDueAt } =
+              await import("../jobs/sweep-hooks.js");
+            const { nextAgentHarnessRecoveryDueAt } =
+              await import("../agent/harness/store.js");
+            const { nextStaleAgentTeamRunDueAt } =
+              await import("./agent-teams-run-queue.js");
+            const busy = await hasRunningRuns({ fresh: true });
+            const dueTimes = busy
+              ? []
+              : [
+                  input.jobsChecked
+                    ? await nextRecurringJobWakeAt(schedulerDeps)
+                    : null,
+                  input.jobsChecked ? await nextStaleWorkDueAt() : null,
+                  await nextQueuedSubmissionDueAt(),
+                  await nextAutomationFailureAlertDueAt(),
+                  await nextRecurringSweepHandlerDueAt(),
+                  await nextAgentHarnessRecoveryDueAt(),
+                  await nextStaleAgentTeamRunDueAt(),
+                ].filter((dueAt): dueAt is number => dueAt !== null);
+            await recordNetlifySweepOutcome({
+              startedAt: input.startedAt,
+              busy,
+              nextDueAt: dueTimes.length ? Math.min(...dueTimes) : null,
+            });
+          } catch (error) {
+            console.warn(
+              "[recurring-jobs] Idle check failed; the sweep stays on its minute cadence:",
+              error,
+            );
+          }
+        };
+
         // Every platform trigger lands here: Netlify's scheduled function (via
         // the durable background function), Vercel Cron, and the Cloudflare
         // worker's Cron Trigger. Keeping the sweep behind an authenticated,
@@ -10590,6 +11123,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   "Recurring-job sweep reached the synchronous server instead of the durable background worker.",
               };
             }
+            const sweepStartedAt = Date.now();
             // Stale reaping runs FIRST and site-wide, before the open-ended job
             // sweep can spend the platform wall. It is the durable driver the
             // in-process fast sweep below cannot be on serverless: that timer is
@@ -10728,31 +11262,47 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 jobsSkippedReason: "unclaimed-background-sweep-failed",
               };
             }
+            const incompleteSteps = [
+              staleRunReapIncomplete && "staleRunsReaped",
+              agentHarnessFollowUpRecoveryIncomplete &&
+                "expiredAgentHarnessFollowUps",
+              agentHarnessApprovalRecoveryIncomplete &&
+                "expiredAgentHarnessApprovals",
+              appSweepHandlers.failed.length > 0 && "appSweepHandlers",
+              automationFailureAlerts === null && "automationFailureAlerts",
+              (queuedSubmissionDrain === null ||
+                queuedSubmissionDrain.failed > 0) &&
+                "queuedSubmissionDrain",
+              (staleAgentTeamRuns === null || staleAgentTeamRuns.failed > 0) &&
+                "staleAgentTeamRuns",
+            ].filter((step): step is string => typeof step === "string");
+            if (incompleteSteps.length > 0) {
+              console.error("[recurring-jobs] Sweep incomplete:", {
+                incompleteSteps,
+                staleRunsReaped,
+                expiredAgentHarnessFollowUps,
+                expiredAgentHarnessApprovals,
+                staleAgentTeamRuns,
+                queuedSubmissionDrain,
+                automationFailureAlerts,
+                appSweepHandlers,
+              });
+            }
             if (!triggerAvailability.available) {
-              if (
-                staleRunReapIncomplete ||
-                agentHarnessFollowUpRecoveryIncomplete ||
-                agentHarnessApprovalRecoveryIncomplete ||
-                appSweepHandlers.failed.length > 0 ||
-                automationFailureAlerts === null ||
-                queuedSubmissionDrain === null ||
-                queuedSubmissionDrain.failed > 0 ||
-                staleAgentTeamRuns === null ||
-                staleAgentTeamRuns.failed > 0
-              ) {
+              if (incompleteSteps.length > 0) {
                 setResponseStatus(event, 500);
+              } else {
+                await recordNetlifyIdleSweep({
+                  startedAt: sweepStartedAt,
+                  jobsChecked: false,
+                  unclaimedBackgroundRuns,
+                  queuedSubmissionDrain,
+                  automationFailureAlerts,
+                  appSweepHandlers,
+                });
               }
               return {
-                ok:
-                  !staleRunReapIncomplete &&
-                  !agentHarnessFollowUpRecoveryIncomplete &&
-                  !agentHarnessApprovalRecoveryIncomplete &&
-                  appSweepHandlers.failed.length === 0 &&
-                  automationFailureAlerts !== null &&
-                  queuedSubmissionDrain !== null &&
-                  queuedSubmissionDrain.failed === 0 &&
-                  staleAgentTeamRuns !== null &&
-                  staleAgentTeamRuns.failed === 0,
+                ok: incompleteSteps.length === 0,
                 staleRunsReaped,
                 expiredAgentHarnessFollowUps,
                 expiredAgentHarnessApprovals,
@@ -10768,17 +11318,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             try {
               await processRecurringJobs(schedulerDeps);
-              if (
-                staleRunReapIncomplete ||
-                agentHarnessFollowUpRecoveryIncomplete ||
-                agentHarnessApprovalRecoveryIncomplete ||
-                appSweepHandlers.failed.length > 0 ||
-                automationFailureAlerts === null ||
-                queuedSubmissionDrain === null ||
-                queuedSubmissionDrain.failed > 0 ||
-                staleAgentTeamRuns === null ||
-                staleAgentTeamRuns.failed > 0
-              ) {
+              if (incompleteSteps.length > 0) {
                 setResponseStatus(event, 500);
                 return {
                   ok: false,
@@ -10793,6 +11333,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   appSweepHandlers,
                 };
               }
+              await recordNetlifyIdleSweep({
+                startedAt: sweepStartedAt,
+                jobsChecked: true,
+                unclaimedBackgroundRuns,
+                queuedSubmissionDrain,
+                automationFailureAlerts,
+                appSweepHandlers,
+              });
               return {
                 ok: true,
                 staleRunsReaped,
@@ -11001,6 +11549,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await import("../agent/run-store.js");
             const job = startIntervalJob(
               async () => {
+                // Stand down while the database is refusing connects or has just
+                // timed a query out. Every step below opens its own query, so a slow
+                // database turned one tick into six logged timeouts (11/5: ~6 a
+                // minute, all of it from this job, which does not go through
+                // runRecurringSweepHandlers and so missed its stand-down).
+                const { dbConnectGateRemainingMs, dbRecentTimeoutMs } =
+                  await import("../db/client.js");
+                const { DB_TIMEOUT_STANDDOWN_MS } =
+                  await import("../jobs/sweep-hooks.js");
+                if (
+                  dbConnectGateRemainingMs() > 0 ||
+                  dbRecentTimeoutMs() < DB_TIMEOUT_STANDDOWN_MS
+                ) {
+                  console.warn(
+                    "[agent-chat] in-process sweeps standing down: the database is unavailable or timing out",
+                  );
+                  return;
+                }
                 const { reapAllStaleRuns } =
                   await import("../agent/run-store.js");
                 // The unclaimed-background sweep below only matches
@@ -11191,6 +11757,82 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       await lifecycle.drainCleanups();
     });
   };
+}
+
+/**
+ * True when the raw request URL addresses exactly the agent-chat capabilities
+ * endpoint. In a shared workspace each app is mounted under its own base path
+ * (`/calendar/_agent-native/agent-chat/capabilities`); the raw `req.url`
+ * keeps that prefix while h3 matches the mount-relative path, so matching on
+ * the suffix lets one handler serve both the standalone and mounted routes.
+ */
+interface CapabilitiesRouteEvent {
+  context?: Record<string, unknown> | undefined;
+  node?: { req?: { url?: unknown } | undefined } | undefined;
+  path?: unknown;
+}
+
+/**
+ * The request path as the client addressed it, before any mount stripping.
+ *
+ * `createMountedMiddleware` rewrites `event.url.pathname`/`event.path` to the
+ * mount-relative remainder and records the original in
+ * `context._mountedPathname`; `req.url` is also the original when the runtime
+ * supplies a node request. Reading the recorded pathname first keeps the
+ * route decide the same way on a serverless event (no `req`), where
+ * `event.path` alone is the stripped `"/"`.
+ */
+export function capabilitiesRouteRequestPath(
+  event: CapabilitiesRouteEvent,
+): string {
+  const mounted = event.context?._mountedPathname;
+  if (typeof mounted === "string" && mounted) return mounted;
+  const raw = event.node?.req?.url;
+  if (typeof raw === "string" && raw) return raw;
+  return typeof event.path === "string" ? event.path : "";
+}
+
+/**
+ * True when this request is exactly the capabilities route.
+ *
+ * The mount records its own prefix in `context._mountPrefix`; when that is
+ * this route, the request reached the handler through the mount for exactly
+ * this path (sub-paths keep the deeper remainder, which then fails the suffix
+ * check). Otherwise fall back to comparing the pre-strip path suffix, which
+ * also covers a plain h3 mount that never strips anything.
+ */
+export function capabilitiesRouteMatches(
+  event: CapabilitiesRouteEvent,
+  capabilitiesPath: string,
+): boolean {
+  const mountPrefix = event.context?._mountPrefix;
+  if (mountPrefix === capabilitiesPath) return true;
+  // Reaching this handler at all means the mount for `capabilitiesPath`
+  // matched; the mount machinery then rewrites `event.path` to the remainder,
+  // which is "/" (or "") for exactly this route and a real tail for anything
+  // deeper. Without this the handler would have to trust a pre-strip path that
+  // a serverless event may not expose at all. Under an enclosing mount the
+  // remainder is that mount's, so only the original path can decide.
+  const mountRemainder = event.path;
+  if (mountPrefix === undefined && typeof mountRemainder === "string") {
+    const tail = mountRemainder.split("?")[0];
+    if (tail === "" || tail === "/") return true;
+  }
+  return matchesCapabilitiesRoutePath(
+    capabilitiesRouteRequestPath(event),
+    capabilitiesPath,
+  );
+}
+
+export function matchesCapabilitiesRoutePath(
+  requestUrl: string,
+  capabilitiesPath: string,
+): boolean {
+  const requestPath = new URL(requestUrl, "http://localhost").pathname;
+  const index = requestPath.indexOf(capabilitiesPath);
+  if (index === -1) return false;
+  const afterBase = requestPath.slice(index + capabilitiesPath.length);
+  return afterBase === "" || afterBase === "/";
 }
 
 /**

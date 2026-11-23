@@ -1,3 +1,8 @@
+import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
+import {
+  MIN_BILLED_BYTES_PER_QUERY,
+  ON_DEMAND_USD_PER_TIB,
+} from "./bigquery-pricing.js";
 import {
   BigQueryDryRunPreparationError,
   dryRunQuerySchema,
@@ -11,10 +16,10 @@ import {
 } from "./first-party-analytics.js";
 import { assertReadOnlySql } from "./read-only-sql.js";
 
-/** BigQuery on-demand list price, US multi-region. */
-export const ON_DEMAND_USD_PER_TIB = 6.25;
-/** On-demand bills at least 10 MiB for any query that reads data. */
-export const MIN_BILLED_BYTES_PER_QUERY = 10 * 1024 ** 2;
+export {
+  MIN_BILLED_BYTES_PER_QUERY,
+  ON_DEMAND_USD_PER_TIB,
+} from "./bigquery-pricing.js";
 /** Above either, the estimate is flagged as expensive. */
 export const QUERY_COST_THRESHOLDS = { perRunUsd: 1, perMonthUsd: 50 };
 export const DAYS_PER_MONTH = 30;
@@ -183,7 +188,10 @@ export async function estimateFirstPartySql(
   scope: AnalyticsScope,
   runsPerMonth: number | null,
   signal?: AbortSignal,
-  options: { eventsSource?: "raw" } = {},
+  options: {
+    eventsSource?: "raw";
+    trafficEnvironment?: TrafficEnvironment;
+  } = {},
 ): Promise<QueryCostEstimate> {
   let rendered: Awaited<
     ReturnType<typeof renderFirstPartyAnalyticsBigQueryEstimateSql>
@@ -259,6 +267,9 @@ export async function estimateResolvedPanel(
         scope,
         runsPerMonth,
         signal,
+        panel.trafficEnvironment
+          ? { trafficEnvironment: panel.trafficEnvironment }
+          : {},
       )),
     };
   }
