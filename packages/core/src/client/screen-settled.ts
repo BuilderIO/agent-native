@@ -94,9 +94,15 @@ function normalizeRenderedScreen(
   };
 }
 
-function buildModelContextSnapshot(): Record<string, unknown> {
+function buildModelContextSnapshot(
+  includeClearedRenderedScreen = false,
+): Record<string, unknown> {
   return {
-    ...(currentRenderedScreen ? { renderedScreen: currentRenderedScreen } : {}),
+    ...(currentRenderedScreen
+      ? { renderedScreen: currentRenderedScreen }
+      : includeClearedRenderedScreen
+        ? { renderedScreen: null }
+        : {}),
     ...(lastUserInteractedEntity
       ? {
           lastUserInteractedEntity,
@@ -113,9 +119,9 @@ function resolveParentFrameOrigin(): string | undefined {
   return loc?.origin;
 }
 
-function publishModelContextUpdate(): void {
+function publishModelContextUpdate(includeClearedRenderedScreen = false): void {
   if (typeof window === "undefined") return;
-  const snapshot = buildModelContextSnapshot();
+  const snapshot = buildModelContextSnapshot(includeClearedRenderedScreen);
   if (Object.keys(snapshot).length === 0) return;
 
   try {
@@ -169,7 +175,11 @@ export function reportRenderedScreen(
   report: RenderedScreenReport | null,
 ): RenderedScreenReport | null {
   if (report === null) {
+    const hadScreen = currentRenderedScreen !== null;
     currentRenderedScreen = null;
+    if (hadScreen) {
+      publishModelContextUpdate(true);
+    }
     return null;
   }
   const normalized = normalizeRenderedScreen(report);
@@ -268,7 +278,9 @@ export function verifyScreenSettledReceipt(
       reason: "entity-mismatch",
       renderedScreen: rendered,
       expectedEntityId: expected.entityId,
-      actualEntityId: rendered.entityId,
+      ...(rendered.entityId !== undefined
+        ? { actualEntityId: rendered.entityId }
+        : {}),
     };
   }
   if (expected.requiredControls && expected.requiredControls.length > 0) {

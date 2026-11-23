@@ -3488,13 +3488,13 @@ export function createAgentKitProtocolAdapter(
       const app = readString(input.app ?? input.appId ?? input.application);
       const url = readString(input.url ?? input.href);
       if (!app && !url) return;
+      const path = readString(input.path ?? input.targetPath);
+      const view = readString(input.view);
       emitChatFirstOpenAppStart({
         ...(app ? { app } : {}),
-        ...(readString(input.path ?? input.targetPath)
-          ? { path: readString(input.path ?? input.targetPath) }
-          : {}),
+        ...(path ? { path } : {}),
         ...(url ? { url } : {}),
-        ...(readString(input.view) ? { view: readString(input.view) } : {}),
+        ...(view ? { view } : {}),
         ...(input.focus === true ? { focus: true } : {}),
         optimistic: true,
       });

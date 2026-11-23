@@ -76,8 +76,6 @@ describe("SSE open_app optimistic commit on tool_start and streaming args", () =
       {
         app: "decks-2",
         path: "/docs/deck-7",
-        url: undefined,
-        view: undefined,
         turnId: "turn-1",
       },
     ]);
@@ -184,7 +182,6 @@ describe("SSE open_app optimistic commit on tool_start and streaming args", () =
         app: "mail-2",
         path: "/thread/t-1",
         url: "https://workspace.example.test/mail-2/thread/t-1",
-        view: undefined,
         focus: true,
         turnId: "turn-2",
       },

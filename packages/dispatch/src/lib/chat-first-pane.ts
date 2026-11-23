@@ -94,9 +94,9 @@ export interface TurnViewportLock {
   getLockedAppId: () => string | null;
   evaluate: (request: {
     appId: string;
-    focus?: boolean;
-    turnKey?: string;
-    viewportMode?: "foreground" | "background";
+    focus?: boolean | undefined;
+    turnKey?: string | undefined;
+    viewportMode?: "foreground" | "background" | undefined;
   }) => TurnViewportLockEvaluation;
 }
 

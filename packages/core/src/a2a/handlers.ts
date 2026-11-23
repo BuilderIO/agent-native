@@ -48,12 +48,14 @@ import {
 } from "../server/h3-helpers.js";
 import {
   markExplicitPersonalOrgScope,
-  normalizeViewportMode,
   type RequestRunContext,
-  type ViewportMode,
 } from "../server/request-context.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
+import {
+  normalizeViewportMode,
+  type ViewportMode,
+} from "../shared/viewport-mode.js";
 import { track } from "../tracking/registry.js";
 import {
   hasConfiguredA2ASecret,
@@ -300,10 +302,10 @@ function resolveA2AViewportMode(
 }
 
 function buildA2ARunContext(input: {
-  verifiedEmail?: string;
-  identityAssurance?: "user" | "organization" | "org-member";
-  browserTabId?: string;
-  viewportMode?: ViewportMode;
+  verifiedEmail?: string | undefined;
+  identityAssurance?: "user" | "organization" | "org-member" | undefined;
+  browserTabId?: string | undefined;
+  viewportMode?: ViewportMode | undefined;
 }): RequestRunContext | undefined {
   const canTargetUserTab =
     Boolean(input.verifiedEmail) &&

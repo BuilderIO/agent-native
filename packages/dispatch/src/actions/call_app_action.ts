@@ -45,11 +45,12 @@ export default defineAction({
   mcpApp: { structuredContent: true },
   run: async ({ app, action, args, viewportMode }) => {
     noteExternalWrite("app-action");
+    const actionArgs = args ?? {};
     const result = viewportMode
-      ? await callGrantedDispatchMcpAppAction(app, action, args ?? {}, {
+      ? await callGrantedDispatchMcpAppAction(app, action, actionArgs, {
           viewportMode,
         })
-      : await callGrantedDispatchMcpAppAction(app, action, args ?? {});
+      : await callGrantedDispatchMcpAppAction(app, action, actionArgs);
     if (result.isError !== true) return result;
     const text = appActionResultText(result);
     if (result.approvalReview) {

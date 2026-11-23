@@ -19,6 +19,10 @@ import {
   SYNTHETIC_TRAFFIC_HEADER,
   isSyntheticTrafficValue,
 } from "../shared/test-traffic.js";
+import {
+  normalizeViewportMode,
+  type ViewportMode,
+} from "../shared/viewport-mode.js";
 import { ForbiddenError } from "../sharing/errors.js";
 import {
   CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
@@ -30,10 +34,8 @@ import {
   getRequestIdentityAuthenticatedAtMs,
   getRequestIdentitySessionToken,
   hasExplicitPersonalOrgScope,
-  normalizeViewportMode,
   runWithRequestContext,
   type RequestContext,
-  type ViewportMode,
 } from "./request-context.js";
 import {
   getForwardedRequestOrigin,

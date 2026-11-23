@@ -10,8 +10,17 @@ import {
   isStandaloneNavigateAction,
 } from "../action-frame.js";
 import { getAppConfig } from "../app-config/index.js";
-import { getRequestRunContext } from "../server/request-context.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
+import type { ViewportMode } from "../shared/viewport-mode.js";
+
+let viewportModeProbe: (() => ViewportMode | undefined) | undefined;
+
+/** Registers a runtime probe that reports the current request's viewport mode without importing server modules into browser bundles. */
+export function registerViewportModeProbe(
+  probe: () => ViewportMode | undefined,
+): void {
+  viewportModeProbe = probe;
+}
 
 /**
  * The one intent that lets an agent open a view: the user asked to see it.
@@ -309,7 +318,7 @@ export function evaluateAgentNavigationPolicy(
     isSetUrl?: boolean | undefined;
   } = {},
 ): AgentNavigationRefusal | null {
-  if (getRequestRunContext()?.viewportMode === "background") {
+  if (viewportModeProbe?.() === "background") {
     return BACKGROUND_VIEWPORT_REFUSAL;
   }
   const originCaller = currentActionOriginCaller() ?? options.caller;

@@ -1,10 +1,17 @@
 import type { AgentActionScope } from "../agent/types.js";
+import { registerViewportModeProbe } from "../application-state/navigate-write-guard.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
 import { registerBackgroundWorkerProbe } from "../provider-api/interactive-scope.js";
 import type { ContextStatus } from "../shared/context-status.js";
 import type { FirstRunBuilderCreditsV2RequestAssignment } from "../shared/first-run-builder-credits-experiment.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import {
+  normalizeViewportMode,
+  type ViewportMode,
+} from "../shared/viewport-mode.js";
 import type { SignupAttributionContext } from "./attribution.js";
+
+export { normalizeViewportMode, type ViewportMode };
 
 type AsyncLocalStorageLike<T> = {
   getStore(): T | undefined;
@@ -77,19 +84,6 @@ export interface BrowserTabTargetSlot {
   resolve(): Promise<BrowserTabTarget>;
   /** Set once something in the request has asked for the tab. */
   resolved?: BrowserTabTarget;
-}
-
-export type ViewportMode = "foreground" | "background";
-
-export function normalizeViewportMode(
-  value: unknown,
-): ViewportMode | undefined {
-  if (typeof value !== "string") return undefined;
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "foreground" || normalized === "background") {
-    return normalized;
-  }
-  return undefined;
 }
 
 export interface RequestRunContext {
@@ -792,3 +786,4 @@ export function ensureRequestRunContext(): RequestRunContext | undefined {
 registerBackgroundWorkerProbe(
   () => getRequestRunContext()?.isBackgroundWorker === true,
 );
+registerViewportModeProbe(() => getRequestRunContext()?.viewportMode);

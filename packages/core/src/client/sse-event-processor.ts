@@ -1553,11 +1553,11 @@ function readOpenAppString(value: unknown): string | undefined {
 }
 
 function openAppHandoffSignature(detail: {
-  app?: string;
-  path?: string;
-  url?: string;
-  view?: string;
-  focus?: boolean;
+  app?: string | undefined;
+  path?: string | undefined;
+  url?: string | undefined;
+  view?: string | undefined;
+  focus?: boolean | undefined;
 }): string {
   return JSON.stringify([
     detail.app ?? "",
@@ -1652,11 +1652,17 @@ function emitFirstPartyOpenAppHandoff(
     return;
   }
 
+  const app = readOpenAppString(
+    result.app ?? result.appId ?? result.application,
+  );
+  const path = readOpenAppString(result.path ?? result.targetPath);
+  const url = readOpenAppString(result.url ?? result.href);
+  const view = readOpenAppString(result.view);
   const detail = {
-    app: readOpenAppString(result.app ?? result.appId ?? result.application),
-    path: readOpenAppString(result.path ?? result.targetPath),
-    url: readOpenAppString(result.url ?? result.href),
-    view: readOpenAppString(result.view),
+    ...(app ? { app } : {}),
+    ...(path ? { path } : {}),
+    ...(url ? { url } : {}),
+    ...(view ? { view } : {}),
     ...(result.focus === true ? { focus: true } : {}),
     ...(context?.turnId ? { turnId: context.turnId } : {}),
   };
