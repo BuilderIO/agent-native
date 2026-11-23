@@ -24,11 +24,6 @@ function asSentence(reason: string | null) {
   return /[.!?…。！？]$/u.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
-/**
- * Sync now for a Notion source. A failed sync is stored on the source, so the
- * status line and Sources show it alike, and after a reload; both also hold
- * Sync now while either one's sync runs.
- */
 export function useNotionSyncNow(
   source: ContentDatabaseSource,
   documentId: string,

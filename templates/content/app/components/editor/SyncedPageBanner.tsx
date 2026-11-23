@@ -86,8 +86,6 @@ export function SyncedPageBanner({ document }: { document: Document }) {
       source.sourceType === "notion-database" &&
       source.metadata.federation?.role === "secondary",
   );
-  // Notion adds details only to the rows it matched, so the line waits on
-  // this page's row.
   const overlays = useContentDatabaseRowSourceOverlays(
     notionSources.length > 0
       ? (document.databaseMembership?.databaseId ?? null)

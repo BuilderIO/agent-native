@@ -103,7 +103,6 @@ function renderBuilder(
   return { onSyncNow, onRetry, onRetryContent };
 }
 
-// Every row read, and one page's content of three failed to load.
 const CONTENT_FAILED = {
   bodyHydration: {
     total: 3,

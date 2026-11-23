@@ -214,7 +214,6 @@ export default defineAction({
       // Read-only federated secondary; its rows are re-read on demand, nothing
       // to resync against the primary's local snapshot here.
     } else if (source.sourceType === "notion-database") {
-      // One refresh at a time, so an older read never replaces a newer one.
       const claimId = await claimReadOnlySourceRefresh({
         sourceId: source.id,
         now,
@@ -266,7 +265,6 @@ export default defineAction({
             message: error instanceof Error ? error.message : String(error),
             now: new Date().toISOString(),
           }).catch((recordError: unknown) => {
-            // The caller still gets the read's error; the claim's lease runs out.
             console.warn(
               "[notion-source] saving the refresh error failed:",
               recordError instanceof Error

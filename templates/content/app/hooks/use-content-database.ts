@@ -1024,10 +1024,6 @@ export function useContentDatabaseById(
   );
 }
 
-/**
- * The details sources whose rows matched one row page, read for that row
- * alone. Undefined until the read answers, or when it can't be read.
- */
 export function useContentDatabaseRowSourceOverlays(
   databaseId: string | null,
   rowDocumentId: string,

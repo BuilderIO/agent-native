@@ -100,7 +100,6 @@ export function builderProgress(
   if (status === "error" || hydrationFailed) {
     return {
       failed: true as const,
-      // What Retry runs again: reading the rows, or loading their pages' content.
       retry: status === "error" ? ("rows" as const) : ("content" as const),
       detail,
     };
@@ -168,9 +167,7 @@ export function BuilderSourceStatusLine({
   clientError: boolean;
   progressHighWater?: BuilderSourceProgressHighWater | undefined;
   onSyncNow: () => void;
-  /** Reads the rows again after a failed load. */
   onRetry: () => void;
-  /** Loads the pages' content again after it failed. */
   onRetryContent?: (() => void) | undefined;
   retryContentPending?: boolean;
   onOpenSource?: (() => void) | undefined;

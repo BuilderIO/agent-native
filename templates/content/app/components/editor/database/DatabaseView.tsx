@@ -3842,7 +3842,6 @@ function DatabaseTable({
               ["refresh", "hydration", "disconnect"],
             )}
             onRetry={() => {
-              // A failed read with nowhere to continue from starts over.
               if (!continuationKey) {
                 runSourceRefresh(builderSource.id);
                 return;
@@ -9894,7 +9893,6 @@ export function DatabaseSettingsSourcePanel({
     );
   }
 
-  // A model that adds details gets the panel Sources opens for it, with Choose details.
   if (sourceAddsDetails(selectedBuilderSource)) {
     return builderDetailsPanel(selectedBuilderSource);
   }

@@ -285,7 +285,6 @@ export function BuilderSourcePanel({
   const now = useNow();
   const progress = builderProgress(source, false, undefined);
   const problem = builderSourceProblem(source, progress, now);
-  // Page content that failed loads again; anything else reads the rows again.
   const retryContent = progress?.failed && progress.retry === "content";
   const writeMode = builderSourceWriteMode(source);
   return (

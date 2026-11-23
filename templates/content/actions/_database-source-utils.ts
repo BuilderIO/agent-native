@@ -511,16 +511,8 @@ export async function renewBuilderCmsSourceRefreshClaim(args: {
   return false;
 }
 
-/**
- * How long a Notion refresh holds its source. A refresh reads at most a few
- * pages, so an older claim belongs to a request that died.
- */
 export const READ_ONLY_SOURCE_REFRESH_CLAIM_LEASE_MS = 2 * 60 * 1000;
 
-/**
- * Claims a Notion source's refresh, so two can't overlap and let the older
- * read replace the newer one. Returns null while another refresh holds it.
- */
 export async function claimReadOnlySourceRefresh(args: {
   sourceId: string;
   now: string;
@@ -572,7 +564,6 @@ export async function claimReadOnlySourceRefresh(args: {
   return null;
 }
 
-/** The source's metadata without this refresh's claim, or null once another refresh holds it. */
 function withoutReadOnlyRefreshClaim(
   metadataJson: string | null,
   claimId: string,
@@ -584,10 +575,6 @@ function withoutReadOnlyRefreshClaim(
   return metadata;
 }
 
-/**
- * Keeps a failed Notion read on its source, so everyone sees it after a
- * reload until a refresh works. The rows and when they updated stay as they were.
- */
 export async function recordReadOnlySourceRefreshFailure(args: {
   sourceId: string;
   refreshClaimId: string;
@@ -602,7 +589,6 @@ export async function recordReadOnlySourceRefreshFailure(args: {
         current.metadataJson,
         args.refreshClaimId,
       );
-      // A newer refresh holds the source, and its result stands.
       if (!metadata) return { metadataJson: current.metadataJson };
       return {
         metadataJson: JSON.stringify(metadata),
@@ -9215,9 +9201,7 @@ export async function storeSecondarySourceRows(args: {
   sourceTable: string;
   entries: BuilderCmsSourceEntry[];
   now: string;
-  /** For a capped read: rows it didn't reach keep their last snapshot. */
   keepRowsNotRead?: boolean;
-  /** Stores only while this refresh still holds the source. */
   refreshClaimId?: string;
 }) {
   const db = getDb();
@@ -9500,7 +9484,6 @@ export async function updateReadOnlySourceMetadata(args: {
   message: string | null;
   metadata?: Record<string, unknown>;
   syncState?: ContentDatabaseSourceSyncState;
-  /** Releases this refresh's claim, and fails once another refresh holds the source. */
   refreshClaimId?: string;
 }) {
   await mutateContentDatabaseSourceMetadata({
