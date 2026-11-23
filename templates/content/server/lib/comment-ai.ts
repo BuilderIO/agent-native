@@ -1282,6 +1282,7 @@ async function recordConflict(
         terminalSuccess(current.status) ||
         current.status === "cancelled" ||
         current.status === "failed" ||
+        current.status !== request.status ||
         (current.status === "needs-review" &&
           (request.status !== "needs-review" ||
             current.updatedAt !== request.updatedAt ||
