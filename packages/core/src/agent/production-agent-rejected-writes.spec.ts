@@ -24,9 +24,10 @@ vi.mock("./run-store.js", () => ({
   setRunTerminalReason: vi.fn(),
 }));
 
-const { runAgentLoop, AGENT_INTERNAL_CONTINUE_PROMPT } =
+const { runAgentLoop, toolCallCacheKey, AGENT_INTERNAL_CONTINUE_PROMPT } =
   await import("./production-agent.js");
 import { actionArgumentsHash } from "../action-arguments-identity.js";
+import { approvalKeyWithArguments } from "./approval-key.js";
 import {
   ActionInputValidationError,
   defineAction,
@@ -88,6 +89,7 @@ async function runCalls(
   actions: Record<string, ActionEntry>,
   calls: Array<{ name: string; input: Record<string, unknown> }>,
   resumed?: { threadId: string; history?: EngineMessage[] },
+  approveCalls = false,
 ): Promise<AgentChatEvent[]> {
   const events: AgentChatEvent[] = [];
   await runAgentLoop({
@@ -103,6 +105,16 @@ async function runCalls(
       ...(resumed?.history ?? []),
     ],
     actions,
+    ...(approveCalls
+      ? {
+          approvedToolCalls: calls.map(({ name, input }) =>
+            approvalKeyWithArguments(
+              toolCallCacheKey(name, input),
+              actionArgumentsHash(input),
+            ),
+          ),
+        }
+      : {}),
     send: (event) => {
       events.push(event);
     },
@@ -177,10 +189,12 @@ describe("web-request write outcomes", () => {
         new Response("ok", { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const events = await runCalls(actions(), [
-      request(deniedUrl),
-      request(allowedUrl),
-    ]);
+    const events = await runCalls(
+      actions(),
+      [request(deniedUrl), request(allowedUrl)],
+      undefined,
+      true,
+    );
 
     const [rejected, sent] = toolDones(events);
     expect(rejected.outcomeUnknown).toBeUndefined();
@@ -201,10 +215,12 @@ describe("web-request write outcomes", () => {
         new Response(null, { status: 302, headers: { location: deniedUrl } }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const events = await runCalls(actions(), [
-      request(allowedUrl),
-      request("https://1.1.1.1/other"),
-    ]);
+    const events = await runCalls(
+      actions(),
+      [request(allowedUrl), request("https://1.1.1.1/other")],
+      undefined,
+      true,
+    );
 
     const [rejected, guarded] = toolDones(events);
     expect(rejected).toMatchObject({
