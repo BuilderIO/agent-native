@@ -1321,8 +1321,9 @@ export async function beginCommentAiAttempt(request: RequestRow) {
     if (terminalSuccess(locked.status)) {
       return { request: locked, attempt: null, source };
     }
+    let active: CommentAiAttemptRow | undefined;
     if (locked.activeAttemptId) {
-      const [active] = await tx
+      [active] = await tx
         .select()
         .from(schema.commentAiAttempts)
         .where(eq(schema.commentAiAttempts.id, locked.activeAttemptId))
@@ -1373,20 +1374,12 @@ export async function beginCommentAiAttempt(request: RequestRow) {
       }
     }
     if (locked.attemptCount >= MAX_ATTEMPTS) {
-      const exhausted = operationError(
-        "refresh_exhausted",
-        "The Page kept changing while AI worked. Review the retained operation before retrying.",
-      );
-      await tx
-        .update(schema.commentAiRequests)
-        .set({
-          status: "needs-review",
-          errorCode: exhausted.code,
-          error: exhausted.message,
-          updatedAt: now,
-        })
-        .where(eq(schema.commentAiRequests.id, locked.id));
-      return { kind: "exhausted" as const, error: exhausted };
+      return {
+        kind: "review-required" as const,
+        request: locked,
+        attempt: active ?? null,
+        source,
+      };
     }
     if (locked.activeAttemptId) {
       await tx
@@ -1425,7 +1418,6 @@ export async function beginCommentAiAttempt(request: RequestRow) {
       .returning();
     return { request: updated, attempt, source };
   });
-  if ("kind" in outcome) throw outcome.error;
   return outcome;
 }
 
