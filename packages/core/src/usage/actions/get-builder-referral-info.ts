@@ -13,6 +13,7 @@ export default defineAction({
     "Get the connected Builder workspace's referral eligibility, invite link, and aggregate referral credit totals. The invite link is only available for eligible paid Builder workspaces; the workspace is resolved from the connected Builder credentials.",
   http: { method: "GET" },
   schema: z.object({}),
+  mcpTool: false,
   run: async (_input, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     // Referral rewards are a commercial surface; a hiding deployment has none.

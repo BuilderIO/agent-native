@@ -34,6 +34,7 @@ export const intelligenceEvidenceSchema = z.object({
   captureId: z.string(),
   sourceId: z.string(),
   captureTitle: z.string(),
+  capturedAt: z.string().optional(),
   quote: z.string(),
   note: z.string().optional(),
   sourceUrl: z.string().optional(),

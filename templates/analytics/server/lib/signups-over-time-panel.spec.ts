@@ -1,9 +1,10 @@
 import { createRequire } from "node:module";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { buildPanel } from "./first-party-metric-catalog";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -53,12 +54,16 @@ async function seedSignup(
 describe("signups-over-time panel SQL", () => {
   let client: PGliteClient;
 
-  afterEach(async () => {
+  beforeAll(async () => {
+    client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
     await client?.close();
   });
 
   it("fills custom range endpoints and days without signups", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const start = offsetDate(await today(client), -20);
     const end = offsetDate(start, 6);
@@ -93,7 +98,7 @@ describe("signups-over-time panel SQL", () => {
   });
 
   it("returns zero rows for a custom range with no signup events", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const start = offsetDate(await today(client), -20);
     const end = offsetDate(start, 2);
@@ -124,7 +129,7 @@ describe("signups-over-time panel SQL", () => {
   });
 
   it("bounds all-time signup sources to the displayed date spine", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const currentDate = await today(client);
     const firstVisibleDate = offsetDate(currentDate, -3659);

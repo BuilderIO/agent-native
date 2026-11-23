@@ -14,6 +14,7 @@ export default defineAction({
       .optional()
       .describe("Specific connected account to use"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const ids = args.id
       .split(",")

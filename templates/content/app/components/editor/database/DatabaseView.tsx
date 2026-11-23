@@ -380,6 +380,7 @@ import { DatabaseGalleryView } from "./GalleryView";
 import type { GitHubCollectionPlace } from "./github-availability";
 import { GitHubSourcePanel, useGitHubSourcesRow } from "./GitHubSourcePanel";
 import { GitHubSourceStatusLine } from "./GitHubSourceStatusLine";
+import { showInlineCollectionView } from "./inline-collection-views";
 import { DatabaseListRowsSetting } from "./ListItemLayout";
 import { DatabaseListView } from "./ListView";
 import {
@@ -1530,6 +1531,10 @@ function DatabaseTable({
       if (renderMode === "page") onExportContextChange?.(null);
     };
   }, [onExportContextChange, renderMode]);
+  useEffect(() => {
+    if (renderMode !== "inline" || !exportContext) return;
+    return showInlineCollectionView(document.id, exportContext);
+  }, [document.id, exportContext, renderMode]);
   const visibleItems = useMemo(
     () =>
       applyDatabaseView(

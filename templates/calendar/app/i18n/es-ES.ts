@@ -160,6 +160,10 @@ export default {
     googleCalendarSettings: "Ajustes de Google Calendar",
     hideCalendar: "Ocultar calendario",
     myCalendars: "Mis calendarios",
+    calendarDescription: "Descripción",
+    calendarDescriptionPlaceholder: "¿Para qué es este calendario?",
+    calendarDescriptionHint:
+      "Los agentes lo leen para elegir el calendario correcto.",
     feedsGroup: "Suscripciones",
     managePeerAvailability: "Gestionar disponibilidad compartida",
     nextYear: "Año siguiente",
@@ -571,6 +575,15 @@ export default {
     connectZoom: "Conectar Zoom",
     copyBookingLink: "Copiar enlace de reserva",
     copyLink: "Copiar enlace",
+    copySingleUseLink: "Copiar enlace de un solo uso",
+    singleUseLinkCopied:
+      "Enlace de un solo uso copiado. Sirve para una reserva.",
+    singleUseLinkReady: "Enlace de un solo uso listo",
+    singleUseLinkCreateFailed: "No se pudo crear el enlace de un solo uso",
+    singleUseLinkUsed: "Este enlace ya se ha usado",
+    singleUseLinkInvalid: "Este enlace ya no funciona",
+    singleUseLinkAskForNew:
+      "Se creó para una sola reserva. Pide un enlace nuevo a quien te lo envió.",
     createFirstLink: "Crea tu primer enlace",
     createLink: "Crear enlace",
     custom: "Costumbre",

@@ -10,7 +10,10 @@ import {
   readBrainAgentGuidance,
   stableJson,
 } from "../server/lib/brain.js";
-import { intelligenceDistillationInstructions } from "../shared/intelligence-distillation.js";
+import {
+  intelligenceDistillationInstructions,
+  KNOWLEDGE_UPDATE_INSTRUCTIONS,
+} from "../shared/intelligence-distillation.js";
 
 type QueueRow = typeof schema.brainIngestQueue.$inferSelect;
 type CaptureRow = typeof schema.brainRawCaptures.$inferSelect;
@@ -300,7 +303,7 @@ export function buildDistillationMessage(
     "1. Call get-capture with includeRawContent=true for this capture id when exact quote validation is needed.",
     "2. Extract only durable company knowledge with exact source quotes.",
     intelligenceDistillationInstructions(context.capture.id),
-    "3. Call write-knowledge for other supported durable entries.",
+    `3. Call write-knowledge for other supported durable entries. ${KNOWLEDGE_UPDATE_INSTRUCTIONS}`.trim(),
     `4. Call mark-capture-distilled with captureId=${context.capture.id}, queueId=${context.queue.id}, and claimToken=${context.claimToken} when finished, or mark ignored if excluded.`,
   ]
     .filter(Boolean)

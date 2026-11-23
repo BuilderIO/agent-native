@@ -12,6 +12,10 @@ import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
+  mirrorRecordingComments,
+  prepareRecordingCommentMirror,
+} from "../server/lib/recording-comment-mirror.js";
+import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
@@ -345,6 +349,7 @@ export default defineAction({
         videoUrl: recording.videoUrl,
         updatedAt: recording.updatedAt,
       };
+      await prepareRecordingCommentMirror();
       for (let attempt = 1; ; attempt++) {
         const edits = parseEdits(current.editsJson);
         edits.trims = edits.trims.map((trim) => ({
@@ -484,6 +489,7 @@ export default defineAction({
               .where(
                 eq(schema.recordingComments.recordingId, args.recordingId),
               );
+            await mirrorRecordingComments(tx, args.recordingId, "all");
             await tx
               .update(schema.recordingReactions)
               .set({

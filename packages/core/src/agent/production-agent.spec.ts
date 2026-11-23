@@ -18,6 +18,11 @@ import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import {
+  currentActionApproval,
+  currentActionApprovalAskedAt,
+} from "../action-frame.js";
+import {
+  actionCallIntent,
   AgentActionStopError,
   AgentConnectionRequiredError,
   defineAction,
@@ -165,6 +170,7 @@ import {
   executeAgentToolCall,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
+  isSilentAfterKeptDraft,
   runCompletionCallbackWithDatabaseRetry,
   resolveChatEngine,
   shouldChainBackgroundContinuation,
@@ -18242,7 +18248,19 @@ describe("runAgentLoop", () => {
     const long = "x".repeat(300);
     expect(
       permanentPreconditionReason("t", `Error running t: ${long}`)?.length,
-    ).toBeLessThanOrEqual(241);
+    ).toBeLessThanOrEqual(240);
+    expect(
+      permanentPreconditionReason("t", `Error running t: ${"y".repeat(240)}`),
+    ).toBe(`${"y".repeat(239)}…`);
+    expect(
+      permanentPreconditionReason(
+        "t",
+        "Save a shared key that every member of the organization can read, " +
+          "the way a team saves its other provider keys in Settings, e.g. a " +
+          "bot token " +
+          "owned by the organization rather than by any one member ".repeat(3),
+      ),
+    ).toMatch(/e\.g\. a bot token owned .*…$/);
     expect(
       permanentPreconditionReason(
         "mutate-dashboard",
@@ -18451,6 +18469,123 @@ describe("runAgentLoop", () => {
     expect((stop as { error: string }).error).toContain(
       "needs to be fixed outside this chat",
     );
+  });
+
+  it.each([
+    {
+      label:
+        "ends the reason Dispatch cut to 'as the ow….' on Nov 20 on its last whole sentence",
+      thrown:
+        'github credential not configured. Tried: GITHUB_TOKEN. A "GITHUB_TOKEN" ' +
+        "key is saved in this workspace with Personal scope. Personal keys are " +
+        "readable only by their own owner's signed-in sessions, and this run " +
+        "resolves credentials as the owner identity behind the integration, job, " +
+        'or automation — so it needs "GITHUB_TOKEN" saved with Workspace or ' +
+        "Organization scope instead.",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: github " +
+        'credential not configured. Tried: GITHUB_TOKEN. A "GITHUB_TOKEN" ' +
+        "key is saved in this workspace with Personal scope. That needs to " +
+        "be fixed outside this chat",
+    },
+    {
+      label:
+        "ends a long single sentence on a whole word, without a stray period",
+      thrown:
+        "github credential not configured for " +
+        "the repository workspace ".repeat(12).trim(),
+      headline:
+        "I stopped because github-repo-list-files can't run yet: github " +
+        "credential not configured for " +
+        "the repository workspace ".repeat(8).trimEnd() +
+        "… That needs to be fixed outside this chat",
+    },
+    {
+      label: "keeps the longest missing-key error's fix and drops its key list",
+      thrown:
+        "hubspot credential not configured. Ask an organization owner or " +
+        'admin to save "HUBSPOT_PRIVATE_APP_TOKEN" with Workspace or ' +
+        "Organization scope. This workspace has it only as a Personal key, " +
+        "which works only for the member who saved it. Tried: " +
+        "HUBSPOT_PRIVATE_APP_TOKEN, HUBSPOT_ACCESS_TOKEN",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: hubspot " +
+        "credential not configured. Ask an organization owner or admin to " +
+        'save "HUBSPOT_PRIVATE_APP_TOKEN" with Workspace or Organization ' +
+        "scope. This workspace has it only as a Personal key, which works " +
+        "only for the member who saved it. That needs to be fixed outside " +
+        "this chat",
+    },
+    {
+      label:
+        "keeps the fix and drops the cause when the longest key name pushes the cause past the limit",
+      thrown:
+        "bigquery credential not configured. Ask an organization owner or " +
+        'admin to save "GOOGLE_APPLICATION_CREDENTIALS_JSON" with Workspace ' +
+        "or Organization scope. This workspace has it only as a Personal " +
+        "key, which works only for the member who saved it. Tried: " +
+        "BIGQUERY_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS_JSON",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: bigquery " +
+        "credential not configured. Ask an organization owner or admin to " +
+        'save "GOOGLE_APPLICATION_CREDENTIALS_JSON" with Workspace or ' +
+        "Organization scope. That needs to be fixed outside this chat",
+    },
+  ])("$label in the stop headline", async ({ thrown, headline }) => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      throw new Error(thrown);
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `github-${streamCalls}`,
+              name: "github-repo-list-files",
+              input: { repo: "BuilderIO/agent-native" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "github-repo-list-files": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const stop = events.find((e) => e.type === "error") as {
+      error: string;
+      details: string;
+    };
+    expect(stop.error).toContain(headline);
+    expect(stop.error).not.toContain("….");
+    expect(stop.details).toContain(thrown);
   });
 
   function importFileEngine(): AgentEngine {
@@ -22004,6 +22139,41 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("never reports a review-page approval from a dispatcher's audit label alone", async () => {
+    const seen: unknown[] = [];
+    const action = defineAction({
+      description: "Read the warehouse",
+      schema: z.object({}),
+      needsApproval: true,
+      run: async () => {
+        seen.push([currentActionApproval(), currentActionApprovalAskedAt()]);
+        return "read";
+      },
+    });
+    const entry = action as unknown as ActionEntry;
+    const prepared = await actionCallIntent(entry, {});
+    if (!prepared.valid) throw prepared.error;
+
+    const result = await executeAgentToolCall({
+      actions: { "read-warehouse": entry },
+      name: "read-warehouse",
+      callId: "labelled-review",
+      input: {},
+      ownerEmail: "alice@example.com",
+      orgId: "acme",
+      approvedToolCalls: [
+        approvalKeyWithArguments(
+          toolCallCacheKey("read-warehouse", {}),
+          prepared.argumentsHash,
+        ),
+      ],
+      auditOverride: { approval: "mcp-review" },
+    });
+
+    expect(result.status).toBe("completed");
+    expect(seen).toEqual([[undefined, undefined]]);
+  });
+
   it("strips null placeholders beside a chosen false and runs the tool", async () => {
     const optionSchema = z.object({
       label: z.string().min(1),
@@ -22958,6 +23128,439 @@ describe("runAgentLoop", () => {
       },
       { type: "done" },
     ]);
+  });
+
+  describe("a failed guard retry keeps the model's draft", () => {
+    type Turn = string | EngineError | "empty";
+    const keptDraftEngine = (turns: Turn[], calls: { count: number }) => {
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          const turn = turns[Math.min(calls.count, turns.length - 1)];
+          calls.count += 1;
+          if (turn instanceof EngineError) throw turn;
+          if (turn === "empty") {
+            yield { type: "stop", reason: "end_turn" };
+            return;
+          }
+          yield { type: "text-delta", text: turn };
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: turn }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      return engine;
+    };
+    const labelled = (text: string, retryCount: number) =>
+      text === "ok" || retryCount > 0
+        ? null
+        : {
+            retryMessage: "Save the change or say what blocks you.",
+            exhaustedDraftPrefix: "No changes were saved.",
+          };
+    const loopOptions = (engine: AgentEngine, events: AgentChatEvent[]) => ({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user" as const,
+          content: [{ type: "text" as const, text: "go" }],
+        },
+      ],
+      actions: {},
+      send: (event: AgentChatEvent) => events.push(event),
+      signal: new AbortController().signal,
+    });
+    const recordedKeptDraft = (events: AgentChatEvent[]) =>
+      events.filter(
+        (event) =>
+          event.type === "rich_event" &&
+          event.event.namespace === "agent-native.response-guard" &&
+          event.event.name === "draft_kept_after_failure",
+      );
+
+    it("shows the draft and records the error when the retry ends empty", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const outcomes: unknown[] = [];
+
+      await runAgentLoop({
+        ...loopOptions(
+          keptDraftEngine(["I cannot read that file.", "empty"], calls),
+          events,
+        ),
+        onOutcome: (outcome) => outcomes.push(outcome),
+        finalResponseGuard: ({ text, retryCount }) =>
+          labelled(text, retryCount),
+      });
+
+      expect(events.some((event) => event.type === "error")).toBe(false);
+      expect(events).toContainEqual({
+        type: "text",
+        text: "No changes were saved.\n\nI cannot read that file.",
+      });
+      expect(recordedKeptDraft(events)).toEqual([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            data: expect.objectContaining({
+              errorCode: "empty_final_response",
+            }),
+          }),
+        }),
+      ]);
+      expect(events.at(-1)).toEqual({ type: "done" });
+      expect(outcomes).toEqual([
+        expect.objectContaining({
+          state: "failed",
+          code: "empty_final_response",
+        }),
+      ]);
+    });
+
+    it("keeps today's error when the guard sets no prefix", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+
+      await runAgentLoop({
+        ...loopOptions(
+          keptDraftEngine(["I cannot read that file.", "empty"], calls),
+          events,
+        ),
+        finalResponseGuard: ({ retryCount }) =>
+          retryCount === 0 ? { retryMessage: "Try again." } : null,
+      });
+
+      expect(events.at(-1)).toEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "empty_final_response",
+        }),
+      );
+      expect(recordedKeptDraft(events)).toEqual([]);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({
+          text: expect.stringContaining("No changes were saved."),
+        }),
+      );
+    });
+
+    it("shows the kept draft when the retry's text is empty", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const engine = keptDraftEngine(["I cannot read that file."], calls);
+      const stream = engine.stream.bind(engine);
+      engine.stream = async function* (opts) {
+        if (calls.count === 0) {
+          yield* stream(opts);
+          return;
+        }
+        calls.count += 1;
+        yield { type: "text-delta", text: "hmm" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "thinking" as const, text: "reasoning only" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      };
+
+      await runAgentLoop({
+        ...loopOptions(engine, events),
+        finalResponseGuard: ({ text, retryCount }) =>
+          text === "" || retryCount === 0
+            ? {
+                retryMessage: "Save the change or say what blocks you.",
+                fallbackMessage: "Fallback.",
+                exhaustedDraftPrefix: "No changes were saved.",
+              }
+            : null,
+      });
+
+      expect(events).toContainEqual({
+        type: "text",
+        text: "No changes were saved.\n\nI cannot read that file.",
+      });
+      expect(events).not.toContainEqual({ type: "text", text: "Fallback." });
+      expect(events.at(-1)).toEqual({ type: "done" });
+    });
+
+    it("shows the draft and records the error when the retry throws a non-resumable engine error", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const outcomes: unknown[] = [];
+      const rejected = new EngineError("Provider rejected the request", {
+        errorCode: "invalid_request",
+        statusCode: 400,
+        providerRetryable: false,
+      });
+
+      const usage = await runAgentLoopWithMainChatInternalContinuations({
+        ...loopOptions(
+          keptDraftEngine(["I cannot read that file.", rejected], calls),
+          events,
+        ),
+        onOutcome: (outcome) => outcomes.push(outcome),
+        finalResponseGuard: ({ text, retryCount }) =>
+          labelled(text, retryCount),
+      });
+
+      expect(usage).toBeDefined();
+      expect(calls.count).toBe(2);
+      expect(events.some((event) => event.type === "error")).toBe(false);
+      expect(events).toContainEqual({
+        type: "text",
+        text: "No changes were saved.\n\nI cannot read that file.",
+      });
+      expect(recordedKeptDraft(events)).toEqual([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            data: {
+              errorCode: "invalid_request",
+              message: "Provider rejected the request",
+            },
+          }),
+        }),
+      ]);
+      expect(events.at(-1)).toEqual({ type: "done" });
+      expect(outcomes).toEqual([
+        expect.objectContaining({ state: "failed", code: "invalid_request" }),
+      ]);
+    });
+
+    it("still throws a non-resumable engine error when the guard sets no prefix", async () => {
+      const calls = { count: 0 };
+      const rejected = new EngineError("Provider rejected the request", {
+        errorCode: "invalid_request",
+        statusCode: 400,
+        providerRetryable: false,
+      });
+
+      await expect(
+        runAgentLoopWithMainChatInternalContinuations({
+          ...loopOptions(
+            keptDraftEngine(["I cannot read that file.", rejected], calls),
+            [],
+          ),
+          finalResponseGuard: ({ retryCount }) =>
+            retryCount === 0 ? { retryMessage: "Try again." } : null,
+        }),
+      ).rejects.toThrow("Provider rejected the request");
+    });
+
+    it.each([
+      ["invalid_request", { errorCode: "invalid_request" }, true],
+      ["invalid_request_error", { errorCode: "invalid_request_error" }, true],
+      ["credits limit", { errorCode: "credits-limit-daily" }, false],
+      ["missing credentials", { errorCode: "missing_credentials" }, false],
+      ["throttled provider", { statusCode: 429 }, false],
+      ["context overflow", { contextOverflow: true }, false],
+      ["unknown code", { errorCode: "some_new_code" }, false],
+      ["no code", {}, false],
+    ])("treats %s as silent after a kept draft", (_label, init, expected) => {
+      expect(
+        isSilentAfterKeptDraft(new EngineError("provider failed", init)),
+      ).toBe(expected);
+    });
+
+    it("shows the kept draft then rethrows an engine error not known to be silent", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const outcomes: unknown[] = [];
+      const unknown = new EngineError("Something new failed", {
+        errorCode: "some_new_code",
+        providerRetryable: false,
+      });
+
+      await expect(
+        runAgentLoopWithMainChatInternalContinuations({
+          ...loopOptions(
+            keptDraftEngine(["I cannot read that file.", unknown], calls),
+            events,
+          ),
+          onOutcome: (outcome) => outcomes.push(outcome),
+          finalResponseGuard: ({ text, retryCount }) =>
+            labelled(text, retryCount),
+        }),
+      ).rejects.toThrow("Something new failed");
+
+      expect(events).toContainEqual({
+        type: "text",
+        text: "No changes were saved.\n\nI cannot read that file.",
+      });
+      expect(recordedKeptDraft(events)).toEqual([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            data: expect.objectContaining({ errorCode: "some_new_code" }),
+          }),
+        }),
+      ]);
+      expect(events).not.toContainEqual({ type: "done" });
+      expect(outcomes).toEqual([]);
+    });
+
+    it("shows no kept draft for an error the turn continues from", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const recoverable = new EngineError("Request failed", {
+        errorCode: "http_408",
+      });
+
+      await expect(
+        runAgentLoopWithMainChatInternalContinuations({
+          ...loopOptions(
+            keptDraftEngine(["I cannot read that file.", recoverable], calls),
+            events,
+          ),
+          finalResponseGuard: ({ text, retryCount }) =>
+            labelled(text, retryCount),
+        }),
+      ).rejects.toThrow("Request failed");
+
+      expect(events).not.toContainEqual(
+        expect.objectContaining({
+          text: expect.stringContaining("No changes were saved."),
+        }),
+      );
+      expect(recordedKeptDraft(events)).toEqual([]);
+      expect(
+        isRecoverableContinuationError({
+          type: "error",
+          error: "Request failed",
+          errorCode: "http_408",
+        }),
+      ).toBe(true);
+    });
+
+    it("clears all text before the kept draft when the guard asks for it", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const rejected = new EngineError("Provider rejected the request", {
+        errorCode: "invalid_request",
+        statusCode: 400,
+        providerRetryable: false,
+      });
+
+      await runAgentLoopWithMainChatInternalContinuations({
+        ...loopOptions(
+          keptDraftEngine(["I cannot read that file.", rejected], calls),
+          events,
+        ),
+        finalResponseGuard: ({ text, retryCount }) =>
+          text === "ok" || retryCount > 0
+            ? null
+            : {
+                retryMessage: "Save the change or say what blocks you.",
+                exhaustedDraftPrefix: "No changes were saved.",
+                clearAllText: true,
+              },
+      });
+
+      const draftAt = events.findIndex(
+        (event) => event.type === "text" && event.text.startsWith("No changes"),
+      );
+      expect(events[draftAt - 2]).toEqual({ type: "clear", allText: true });
+    });
+
+    it("drops the kept draft once the retry runs tool calls", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const actions = {
+        starter: {
+          ...actionEntry({ description: "Starter tool", readOnly: true }),
+          run: async () => "ran",
+        },
+      };
+      const engine = keptDraftEngine(["I cannot read that file."], calls);
+      engine.stream = async function* () {
+        calls.count += 1;
+        if (calls.count === 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "call-1",
+                name: "starter",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        if (calls.count === 1) {
+          yield { type: "text-delta", text: "I cannot read that file." };
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "text" as const, text: "I cannot read that file." },
+            ],
+          };
+        }
+        yield { type: "stop", reason: "end_turn" };
+      };
+
+      await runAgentLoop({
+        ...loopOptions(engine, events),
+        tools: actionsToEngineTools(actions),
+        actions,
+        finalResponseGuard: ({ text, retryCount }) =>
+          labelled(text, retryCount),
+      });
+
+      expect(events.at(-1)).toEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "empty_final_response",
+        }),
+      );
+      expect(recordedKeptDraft(events)).toEqual([]);
+    });
+
+    it("keeps resuming a resumable engine error instead of showing the draft", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+
+      await runAgentLoopWithMainChatInternalContinuations({
+        ...loopOptions(
+          keptDraftEngine(
+            [
+              "I cannot read that file.",
+              new EngineError("Builder gateway timed out", {
+                errorCode: "builder_gateway_timeout",
+              }),
+              "ok",
+            ],
+            calls,
+          ),
+          events,
+        ),
+        finalResponseGuard: ({ text, retryCount }) =>
+          labelled(text, retryCount),
+      });
+
+      expect(calls.count).toBe(3);
+      expect(events.some((event) => event.type === "error")).toBe(false);
+      expect(recordedKeptDraft(events)).toEqual([]);
+      expect(events).toContainEqual({ type: "text", text: "ok" });
+      expect(events).not.toContainEqual({
+        type: "text",
+        text: "No changes were saved.\n\nI cannot read that file.",
+      });
+    });
   });
 
   it("allows a final-response guard to request additional corrective retries", async () => {

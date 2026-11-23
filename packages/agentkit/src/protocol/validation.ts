@@ -1,4 +1,7 @@
 import {
+  ACTION_SUGGESTION_KINDS,
+  ACTION_SUGGESTION_TRIGGERS,
+  type ActionSuggestion,
   type AgentActivity,
   type AgentAnnotation,
   type AgentAnnotationSnapshot,
@@ -1397,6 +1400,85 @@ export function parseAgentArtifactReference(
   optionalTimestamp(artifact.createdAt, `${path}.createdAt`);
   optionalMetadata(artifact.metadata, `${path}.metadata`);
   return value as AgentArtifactReference;
+}
+
+export function parseActionSuggestion(
+  value: unknown,
+  path = "actionSuggestion",
+): ActionSuggestion {
+  const suggestion = record(value, path);
+  const id = string(suggestion.id, `${path}.id`);
+  const label = string(suggestion.label, `${path}.label`);
+  const rationale = string(suggestion.rationale, `${path}.rationale`);
+  const appId = string(suggestion.appId, `${path}.appId`);
+  const kind = ACTION_SUGGESTION_KINDS.find((item) => item === suggestion.kind);
+  const trigger = ACTION_SUGGESTION_TRIGGERS.find(
+    (item) => item === suggestion.trigger,
+  );
+  if (!kind)
+    throw new AgentProtocolValidationError(`${path}.kind`, "unknown kind");
+  if (!trigger)
+    throw new AgentProtocolValidationError(
+      `${path}.trigger`,
+      "unknown trigger",
+    );
+
+  const execution = record(suggestion.execution, `${path}.execution`);
+  const expectedType =
+    kind === "create-app"
+      ? "create-app"
+      : kind === "customize-app"
+        ? "customize"
+        : "action";
+  if (execution.type !== expectedType) {
+    throw new AgentProtocolValidationError(
+      `${path}.execution.type`,
+      `expected ${expectedType} for ${kind}`,
+    );
+  }
+  const base = { id, label, rationale, appId, kind, trigger };
+  switch (expectedType) {
+    case "create-app":
+      return {
+        ...base,
+        execution: {
+          type: "create-app",
+          domainSpec: string(
+            execution.domainSpec,
+            `${path}.execution.domainSpec`,
+          ),
+        },
+      };
+    case "customize": {
+      const targetAppId = string(
+        execution.targetAppId,
+        `${path}.execution.targetAppId`,
+      );
+      if (targetAppId !== appId) {
+        throw new AgentProtocolValidationError(
+          `${path}.execution.targetAppId`,
+          "expected the suggested app identity",
+        );
+      }
+      return {
+        ...base,
+        execution: {
+          type: "customize",
+          targetAppId,
+          editSpec: string(execution.editSpec, `${path}.execution.editSpec`),
+        },
+      };
+    }
+    case "action":
+      return {
+        ...base,
+        execution: {
+          type: "action",
+          action: string(execution.action, `${path}.execution.action`),
+          params: record(execution.params, `${path}.execution.params`),
+        },
+      };
+  }
 }
 
 export function parseAgentSuggestion(

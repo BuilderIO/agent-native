@@ -63,6 +63,7 @@ export default defineAction({
       .optional()
       .describe("Regenerate even when a current filmstrip already exists."),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();

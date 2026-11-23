@@ -48,6 +48,20 @@ let client: PGlite;
 let db: PgliteDatabase<typeof planSchema>;
 let dbDir: string;
 
+const mirrorMock = vi.hoisted(() => ({
+  comments: vi.fn(async (..._args: unknown[]) => undefined),
+  deleted: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+
+vi.mock("@agent-native/core/review", () => ({
+  ensureReviewTables: vi.fn(async () => undefined),
+}));
+
+vi.mock("../server/lib/plan-comment-mirror.js", () => ({
+  mirrorPlanComments: mirrorMock.comments,
+  deleteMirroredPlanComments: mirrorMock.deleted,
+}));
+
 vi.mock("../server/db/index.js", () => ({
   // eslint-disable-next-line @typescript-eslint/no-use-before-define
   getDb: () => db,

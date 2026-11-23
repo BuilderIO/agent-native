@@ -103,7 +103,10 @@ vi.mock("./first-party-analytics-health.js", async (importOriginal) => ({
   recordFirstPartyAnalyticsQueryPressure: async () => {},
 }));
 
-import { CONTENT_METRICS_MIGRATION_SQL } from "./content-metrics/migration.js";
+import {
+  CONTENT_METRICS_MIGRATION_SQL,
+  CONTENT_SEARCH_QUERIES_MIGRATION_SQL,
+} from "./content-metrics/migration.js";
 import { queryFirstPartyAnalytics } from "./first-party-analytics.js";
 
 const ALICE = { userEmail: "alice@example.test", orgId: "org_a" };
@@ -118,6 +121,7 @@ describe("Content view tables on the first-party source", () => {
     database.client = client;
     await client.exec(`
       ${CONTENT_METRICS_MIGRATION_SQL.join(";\n")};
+      ${CONTENT_SEARCH_QUERIES_MIGRATION_SQL.join(";\n")};
       CREATE TABLE first_party_analytics_cache (
         key text PRIMARY KEY,
         sql text NOT NULL,
@@ -134,6 +138,10 @@ describe("Content view tables on the first-party source", () => {
       INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at) VALUES
         ('run-a', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'scheduled', 'failed', '2026-10-02T07:00:00Z'),
         ('run-b', 'org:org_b', 'carol@example.test', 'org_b', 'builder_blog', 'scheduled', 'succeeded', '2026-10-02T07:00:00Z');
+      INSERT INTO analytics_content_search_queries (id, tenant_key, owner_email, org_id, item_id, week_start, query, clicks, impressions, position_weighted, run_id, collected_at) VALUES
+        ('q-a1', 'org:org_a', 'alice@example.test', 'org_a', 'item-a', '2026-10-05', 'org a query', 3, 100, 800, 'run-q', '2026-10-13'),
+        ('q-a2', 'org:org_a', 'alice@example.test', 'org_a', 'item-a', '2026-10-12', 'org a query', 1, 300, 3600, 'run-q', '2026-10-20'),
+        ('q-b', 'org:org_b', 'carol@example.test', 'org_b', 'item-b', '2026-10-05', 'org b query', 9, 50, 50, 'run-q', '2026-10-13');
     `);
   });
 
@@ -169,6 +177,23 @@ describe("Content view tables on the first-party source", () => {
       { cache: false },
     );
     expect(none.rows).toEqual([]);
+  });
+
+  it("keeps each organization's search queries to itself, with position averaged by impressions", async () => {
+    const result = await queryFirstPartyAnalytics(
+      "SELECT i.title, q.query, SUM(q.impressions) AS impressions, SUM(q.position_weighted) / SUM(q.impressions) AS position FROM analytics_content_search_queries q JOIN analytics_content_items i ON i.id = q.item_id GROUP BY i.title, q.query",
+      ALICE,
+      { cache: false },
+    );
+    expect(result.rows).toEqual([
+      {
+        title: "Org A post",
+        query: "org a query",
+        impressions: 400,
+        position: 11,
+      },
+    ]);
+    expect(bigQuery.query).not.toHaveBeenCalled();
   });
 
   it("refuses a join between content tables and the BigQuery event tables", async () => {

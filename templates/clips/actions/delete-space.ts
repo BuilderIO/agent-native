@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -16,6 +16,8 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Space id"),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const [existing] = await db

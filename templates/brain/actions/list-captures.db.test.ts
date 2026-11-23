@@ -25,10 +25,6 @@ vi.mock("../server/lib/brain.js", () => ({
 vi.mock("../server/lib/search.js", () => ({
   redactSensitiveText: (value: string) => value,
 }));
-vi.mock("../server/lib/search-index-contracts.js", () => ({
-  parseCaptureMetadata: () => null,
-  withheldZoomPassageCount: () => 0,
-}));
 import listCaptures from "./list-captures.js";
 
 const db = new PGlite();
@@ -56,6 +52,34 @@ beforeAll(async () => {
   );
 });
 afterAll(async () => db.close());
+
+it("reports incomplete manual and Granola transcripts and persisted Zoom receipts", async () => {
+  await db.exec(`
+    INSERT INTO brain_sources (id,title,provider,status) VALUES ('zoom-source','Zoom','zoom','active'), ('granola-source','Granola','granola','active');
+    INSERT INTO brain_raw_captures (id,source_id,title,kind,status,sensitivity_disposition,captured_at,metadata_json) VALUES
+      ('manual-partial','source-260','Manual','transcript','queued','allowed','2026-01-01','{"passageQuarantine":{"version":1,"withheldPassages":2}}'),
+      ('zoom-partial','zoom-source','Zoom','transcript','queued','allowed','2026-01-01','{"zoomPassageQuarantine":{"version":1,"withheldPassages":1}}'),
+      ('granola-partial','granola-source','Granola','transcript','queued','allowed','2026-01-01','{"passageQuarantine":{"version":1,"withheldPassages":3}}'),
+      ('manual-unknown','source-260','Manual','transcript','queued','allowed','2026-01-01','{"passageQuarantine":{"version":1,"withheldPassages":"bad"}}');
+    INSERT INTO brain_capture_audiences (capture_id,audience_id) VALUES ('manual-partial','audience'),('zoom-partial','audience'),('granola-partial','audience'),('manual-unknown','audience');
+  `);
+  for (const [id, count] of [
+    ["manual-partial", 2],
+    ["zoom-partial", 1],
+    ["granola-partial", 3],
+    ["manual-unknown", null],
+  ] as const) {
+    const result = await listCaptures.run({
+      captureId: id,
+      status: "queued",
+      limit: 1,
+      includeArchivedSources: false,
+      includePreview: false,
+      previewLength: 220,
+    });
+    expect(result.captures).toMatchObject([{ id, withheldPassages: count }]);
+  }
+});
 
 it("finds a capture whose source falls outside the broad source cap", async () => {
   const result = await listCaptures.run({

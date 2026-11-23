@@ -116,6 +116,11 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
   },
 }));
 
+vi.mock("../lib/calendar-descriptions.js", () => ({
+  accountDescriptionFor: vi.fn(),
+  getAccountDescriptions: vi.fn(async () => ({})),
+}));
+
 vi.mock("../lib/google-calendar.js", () => ({
   disconnect: mocks.disconnect,
   exchangeCode: mocks.exchangeCode,
