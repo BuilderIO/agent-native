@@ -242,6 +242,68 @@ export function validateProductionSiteConcurrency(workflows: {
   return issues;
 }
 
+function validateCleanupPreflight(
+  jobs: Record<string, unknown> | null,
+): string[] {
+  const preflight = asRecord(jobs?.["cleanup-preflight"]);
+  const preflightPermissions = asRecord(preflight?.permissions);
+  const preflightSteps = Array.isArray(preflight?.steps)
+    ? preflight.steps.map(asRecord)
+    : [];
+  const checkStep = preflightSteps.find((step) => step?.id === "check");
+  const checkEnv = asRecord(checkStep?.env);
+  const checkScript = String(asRecord(checkStep?.with)?.script ?? "");
+  const cleanup = asRecord(jobs?.cleanup);
+  const cleanupIf = String(cleanup?.if ?? "");
+  let eligibleSitesJson = "";
+  try {
+    eligibleSitesJson = JSON.stringify(
+      JSON.parse(String(checkEnv?.ELIGIBLE_SITES ?? "null")),
+    );
+  } catch {
+    eligibleSitesJson = "";
+  }
+  const issues: string[] = [];
+  if (
+    !preflight ||
+    preflight["runs-on"] !== "ubuntu-latest" ||
+    !String(preflight.if ?? "").includes("github.event.action == 'closed'") ||
+    !String(preflight.if ?? "").includes(
+      "github.event.pull_request.head.repo.full_name == github.repository",
+    ) ||
+    preflightPermissions?.actions !== "read" ||
+    preflightPermissions.deployments !== "read" ||
+    preflightPermissions.issues !== "read" ||
+    Object.keys(preflightPermissions).some(
+      (permission) =>
+        !["actions", "deployments", "issues"].includes(permission),
+    ) ||
+    asRecord(preflight.outputs)?.has_preview !==
+      "${{ steps.check.outputs.has_preview }}" ||
+    eligibleSitesJson !== JSON.stringify(previewEligibleSiteNames()) ||
+    !checkScript.includes("github.rest.repos.listDeployments") ||
+    !checkScript.includes("github.rest.issues.listComments") ||
+    !checkScript.includes("github.rest.actions.listWorkflowRuns")
+  ) {
+    issues.push(
+      `${pullRequestPath} cleanup-preflight must run with read-only permissions and check deployments, comments, and active preview runs for every eligible site`,
+    );
+  }
+  if (
+    !Array.isArray(cleanup?.needs) ||
+    !cleanup.needs.includes("cleanup-preflight") ||
+    !cleanupIf.includes("!cancelled()") ||
+    !cleanupIf.includes("needs.cleanup-preflight.result != 'cancelled'") ||
+    !cleanupIf.includes("needs.cleanup-preflight.result != 'success'") ||
+    !cleanupIf.includes("needs.cleanup-preflight.outputs.has_preview == 'true'")
+  ) {
+    issues.push(
+      `${pullRequestPath} cleanup must depend on cleanup-preflight and fail open when preflight does not report has_preview == false`,
+    );
+  }
+  return issues;
+}
+
 export function validateNetlifyPrPreviewWorkflow(
   workflow: Record<string, unknown>,
   source: string,
@@ -683,6 +745,7 @@ export function validateNetlifyPrPreviewWorkflow(
       `${pullRequestPath} closed-PR cleanup must use the targeted cleanup script instead of scanning full Netlify deploy history`,
     );
   }
+  issues.push(...validateCleanupPreflight(jobs));
   return issues;
 }
 

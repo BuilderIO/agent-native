@@ -42,10 +42,12 @@ inputs:
   native-canvas-deps:
     description: >-
       `true` installs the cairo/pango build libraries the `canvas` npm module
-      compiles against. Jobs that never load `canvas` can pass `false` and skip
-      the apt-get (~3 min on a slow mirror).
+      compiles against. Defaults to `false` because `canvas` ships prebuilt
+      Linux x64 binaries and CI jobs do not compile `canvas` from source; opt
+      in only for jobs that need the apt-get libraries (~3 min on a slow
+      mirror).
     required: false
-    default: "true"
+    default: "false"
 
 runs:
   using: composite
