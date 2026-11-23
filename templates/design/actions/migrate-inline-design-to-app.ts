@@ -95,7 +95,7 @@ export default defineAction({
     "Migrate an inline Alpine/HTML design to a real React + Tailwind app " +
     "by handing the design's HTML and tokens to the Builder cloud agent. " +
     "Use Builder.io (free tier available) with configured credentials and a branch project ID. " +
-    "When Builder is NOT configured returns a connect CTA — never throws. " +
+    "When Builder is NOT configured returns a connect CTA; a connected workspace with no branch project ID fails with `builder_project_not_configured`. " +
     "Snapshots the current design into design_versions before migrating so " +
     "the inline baseline is always recoverable. " +
     "Returns { branchName, url, status, versionId } on success. " +
@@ -190,10 +190,11 @@ export default defineAction({
 
     const projectId = await resolveBuilderBranchProjectId();
     if (!projectId) {
-      throw new Error(
+      fail(
         "Builder branch project ID is not configured. " +
           "Set DISPATCH_BUILDER_PROJECT_ID, BUILDER_BRANCH_PROJECT_ID, or " +
           "BUILDER_PROJECT_ID and try again.",
+        { errorCode: "builder_project_not_configured", statusCode: 412 },
       );
     }
 

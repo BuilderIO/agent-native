@@ -532,10 +532,12 @@ export function describeWallTime(
  * The text of the in-client approval prompt: the same summary the review page
  * shows, built from the stored arguments, never from the agent's own words.
  * A form shows what fits in a short text and says what it leaves out, with
- * the review page's link when the page shows more.
+ * the review page's link when the page shows more. Both kinds state the
+ * action's `notice`, which the server computed, whole.
  */
 export function mcpApprovalPromptText(input: {
   summary: McpApprovalSummary;
+  notice?: string | undefined;
   priorRun: McpApprovalPriorRun | undefined;
   messages: McpApprovalMessages;
   locale: string;
@@ -554,6 +556,7 @@ export function mcpApprovalPromptText(input: {
       summary.title,
     ),
   ];
+  if (input.notice) lines.push(input.notice);
   if (priorRun) {
     lines.push(
       (priorRun.status === "completed"

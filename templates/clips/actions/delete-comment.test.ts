@@ -19,6 +19,7 @@ const mockGetUserEmail = vi.hoisted(() =>
   vi.fn<() => string | null>(() => "author@example.com"),
 );
 const mockWriteAppState = vi.hoisted(() => vi.fn());
+const mirrorDeletes = vi.hoisted(() => [] as unknown[][]);
 vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
@@ -30,6 +31,13 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
+}));
+
+vi.mock("../server/lib/recording-comment-mirror.js", () => ({
+  prepareRecordingCommentMirror: async () => {},
+  deleteMirroredRecordingComments: async (...args: unknown[]) => {
+    mirrorDeletes.push(args);
+  },
 }));
 
 vi.mock("drizzle-orm", async (importOriginal) => ({
@@ -71,6 +79,7 @@ vi.mock("../server/db/index.js", () => {
   };
 
   const db = {
+    transaction: async (run: (tx: unknown) => unknown) => run(db),
     select: () => ({
       from: () => ({
         where: (condition: unknown) => {
@@ -99,6 +108,7 @@ import action from "./delete-comment";
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mirrorDeletes.length = 0;
   mockAssertAccess.mockResolvedValue({ role: "viewer", resource: {} });
   mockGetUserEmail.mockReturnValue("author@example.com");
   state.rows = [
@@ -164,6 +174,7 @@ describe("delete-comment", () => {
       );
       expect(state.rows).toEqual(original);
       expect(mockWriteAppState).not.toHaveBeenCalled();
+      expect(mirrorDeletes).toEqual([]);
     },
   );
 
@@ -184,6 +195,13 @@ describe("delete-comment", () => {
         "comment-1",
         "comment-1-reply",
         "comment-1-reply-2",
+      ]);
+      expect(mirrorDeletes).toEqual([
+        [
+          "recording-1",
+          ["comment-1", "comment-1-reply", "comment-1-reply-2"],
+          "owner@example.com",
+        ],
       ]);
     },
   );

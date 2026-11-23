@@ -18,7 +18,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { GUARD_EXIT_COULD_NOT_RUN, resolveDiffBase } from "./changed-lines.mjs";
@@ -43,6 +43,72 @@ export function parseShrinkOnlyBaseline(text: string): ShrinkOnlyBaseline {
     }
   }
   return value as ShrinkOnlyBaseline;
+}
+
+export function parseEmptySections(
+  text: string,
+  baseline: ShrinkOnlyBaseline,
+  paths: {
+    emptySectionsPath: string;
+    baselinePath: string;
+    itemNoun?: string;
+  },
+): string[] {
+  const value: unknown = JSON.parse(text);
+  const {
+    emptySectionsPath,
+    baselinePath,
+    itemNoun = "baseline entries",
+  } = paths;
+  if (
+    !Array.isArray(value) ||
+    !value.every((app) => typeof app === "string" && app.trim() === app && app)
+  ) {
+    throw new Error(
+      `${emptySectionsPath} must be a JSON array of app ids with no ${itemNoun}.`,
+    );
+  }
+  const apps = value as string[];
+  for (const [index, app] of apps.entries()) {
+    if (Object.hasOwn(baseline, app)) {
+      throw new Error(
+        `${emptySectionsPath} names "${app}", which already has a section in ${baselinePath}.`,
+      );
+    }
+    if (apps.indexOf(app) !== index) {
+      throw new Error(`${emptySectionsPath} names "${app}" twice.`);
+    }
+  }
+  return apps;
+}
+
+export function readShrinkOnlyBaseline(
+  root: string,
+  paths: {
+    baselinePath: string;
+    emptySectionsPath?: string;
+    itemNoun?: string;
+  },
+): ShrinkOnlyBaseline {
+  const baseline = parseShrinkOnlyBaseline(
+    readFileSync(path.join(root, paths.baselinePath), "utf8"),
+  );
+  if (!paths.emptySectionsPath) return baseline;
+  const emptySectionsFile = path.join(root, paths.emptySectionsPath);
+  if (!existsSync(emptySectionsFile)) return baseline;
+  const apps = parseEmptySections(
+    readFileSync(emptySectionsFile, "utf8"),
+    baseline,
+    {
+      emptySectionsPath: paths.emptySectionsPath,
+      baselinePath: paths.baselinePath,
+      itemNoun: paths.itemNoun,
+    },
+  );
+  return {
+    ...baseline,
+    ...Object.fromEntries(apps.map((app) => [app, [] as string[]])),
+  };
 }
 
 /** "<section>/<action name>" for every entry. */
@@ -110,6 +176,7 @@ export interface ShrinkOnlyBaselineGuard {
   guardName: string;
   baselinePath: string;
   guardPath: string;
+  emptySectionsPath?: string;
   /** What the ids are, as in "OK (12 <noun>, none added since …)". */
   idNoun: string;
   /** Why the path is fixed and what to do instead of moving the file. */
@@ -124,11 +191,25 @@ export function runShrinkOnlyBaselineGuard(
   cwd: string,
   guard: ShrinkOnlyBaselineGuard,
 ): GuardOutcome {
-  const { guardName, baselinePath, guardPath } = guard;
+  const { guardName, baselinePath, guardPath, emptySectionsPath } = guard;
   const couldNotRun = (reason: string, fix = ""): GuardOutcome => ({
     code: GUARD_EXIT_COULD_NOT_RUN,
     message: `${guardName}: ${reason}, so the check did not run.${fix}`,
   });
+
+  if (emptySectionsPath && existsSync(path.join(cwd, emptySectionsPath))) {
+    try {
+      readShrinkOnlyBaseline(cwd, {
+        baselinePath,
+        emptySectionsPath,
+        itemNoun: guard.idNoun,
+      });
+    } catch (error) {
+      return couldNotRun(
+        `could not read ${emptySectionsPath}: ${(error as Error).message}`,
+      );
+    }
+  }
 
   const base = resolveDiffBase(cwd);
   const mergeBase = base

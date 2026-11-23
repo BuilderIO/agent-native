@@ -1,6 +1,17 @@
 import { createRequire } from "node:module";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 function must<T>(value: T | null | undefined, message = "Expected a value"): T {
   if (value === null || value === undefined) throw new Error(message);
@@ -163,8 +174,17 @@ function completedPoll(rows: { f: { v: unknown }[] }[], extra = {}) {
   });
 }
 
-beforeEach(async () => {
+beforeAll(async () => {
   database.client = await PGlite.create("memory://");
+});
+
+afterAll(async () => {
+  await database.client?.close();
+  database.client = null;
+});
+
+beforeEach(async () => {
+  await resetPublicSchema(must(database.client));
   for (const statement of [
     ...BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
     ...BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
@@ -236,9 +256,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  await database.client?.close();
-  database.client = null;
 });
 
 async function admissions() {

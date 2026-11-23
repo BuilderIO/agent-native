@@ -16,6 +16,7 @@ export default defineAction({
     id: z.string().optional().describe("Specific draft ID to view (optional)"),
   }),
   http: false,
+  mcpTool: false,
   run: async (args) => {
     if (args.id) {
       const safeId = sanitizeDraftId(args.id);

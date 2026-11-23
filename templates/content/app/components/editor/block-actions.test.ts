@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { ClipEmbedOrigin } from "@shared/clip-embed-block";
 import { Editor, type JSONContent } from "@tiptap/core";
 import { Plugin, type Transaction } from "@tiptap/pm/state";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,6 +13,7 @@ import {
   turnBlockInto,
   type TurnIntoTarget,
 } from "./block-actions";
+import { clipEmbedBlockContent } from "./clip-embed/clip-embed-content";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
 const text = (value: string) => ({ type: "text", text: value });
@@ -94,12 +96,13 @@ describe("block actions", () => {
     expect(blockCommentRange(doc.child(2), 9)).toBeNull();
   });
 
-  it("lets an ordinary block be duplicated and deleted", () => {
+  it("lets an ordinary block be duplicated, deleted and moved", () => {
     const page = mount([paragraph("Hello"), paragraph("World")]);
 
     expect(blockActionLocks(page.state, 0, page.state.doc.child(0))).toEqual({
       duplicate: null,
       remove: null,
+      move: null,
     });
   });
 
@@ -113,9 +116,13 @@ describe("block actions", () => {
     const locks = () =>
       blockActionLocks(page.state, 0, page.state.doc.child(0));
 
-    expect(locks()).toEqual({ duplicate: null, remove: null });
+    expect(locks()).toEqual({ duplicate: null, remove: null, move: null });
     allows = (tr) => !marked(tr);
-    expect(locks()).toEqual({ duplicate: "page", remove: "page" });
+    expect(locks()).toEqual({
+      duplicate: "page",
+      remove: "page",
+      move: "page",
+    });
   });
 
   it("locks a component from the page's source", () => {
@@ -131,7 +138,68 @@ describe("block actions", () => {
     expect(blockActionLocks(page.state, 7, component)).toEqual({
       duplicate: "source",
       remove: "source",
+      move: "source",
     });
+  });
+
+  it("keeps an inline collection on its page, in a Toggle too", () => {
+    const collection = {
+      type: "registryBlock",
+      attrs: { blockType: "inline-database", blockId: "collection-1" },
+    };
+    const page = mount([
+      paragraph("Hello"),
+      collection,
+      {
+        type: "notionToggle",
+        content: [
+          { type: "notionToggleSummary", content: [text("Plan")] },
+          collection,
+        ],
+      },
+    ]);
+    const { doc } = page.state;
+    const togglePos = doc.child(0).nodeSize + doc.child(1).nodeSize;
+
+    expect(blockActionLocks(page.state, 7, doc.child(1))).toEqual({
+      duplicate: null,
+      remove: null,
+      move: "collection",
+    });
+    expect(blockActionLocks(page.state, togglePos, doc.child(2)).move).toBe(
+      "collection",
+    );
+  });
+
+  it("keeps a Clip uploaded to the page on it, in a Toggle too, and lets a linked Clip move", () => {
+    const clip = (origin: ClipEmbedOrigin) =>
+      clipEmbedBlockContent("rec_1", origin, `clip-${origin}`);
+    const page = mount([
+      paragraph("Hello"),
+      clip("upload"),
+      {
+        type: "notionToggle",
+        content: [
+          { type: "notionToggleSummary", content: [text("Demo")] },
+          clip("upload"),
+        ],
+      },
+      clip("link"),
+    ]);
+    const { doc } = page.state;
+    const at = (index: number) => {
+      let pos = 0;
+      for (let i = 0; i < index; i++) pos += doc.child(i).nodeSize;
+      return blockActionLocks(page.state, pos, doc.child(index));
+    };
+
+    expect(at(1)).toEqual({
+      duplicate: null,
+      remove: null,
+      move: "uploadedClip",
+    });
+    expect(at(2).move).toBe("uploadedClip");
+    expect(at(3).move).toBeNull();
   });
 
   it("locks a block suggestions can't add or remove, only while suggesting", () => {
@@ -143,16 +211,20 @@ describe("block actions", () => {
     const suggesting = mount(content, { suggesting: true });
     expect(
       blockActionLocks(suggesting.state, 7, suggesting.state.doc.child(1)),
-    ).toEqual({ duplicate: "suggesting", remove: "suggesting" });
+    ).toEqual({
+      duplicate: "suggesting",
+      remove: "suggesting",
+      move: "suggesting",
+    });
     expect(
       blockActionLocks(suggesting.state, 0, suggesting.state.doc.child(0)),
-    ).toEqual({ duplicate: null, remove: null });
+    ).toEqual({ duplicate: null, remove: null, move: null });
     suggesting.destroy();
 
     const editing = mount(content);
     expect(
       blockActionLocks(editing.state, 7, editing.state.doc.child(1)),
-    ).toEqual({ duplicate: null, remove: null });
+    ).toEqual({ duplicate: null, remove: null, move: null });
   });
 
   it("quotes only a Toggle's title for a comment on the block", () => {

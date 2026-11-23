@@ -294,7 +294,7 @@ describe("getOnboardingHtml", () => {
     });
 
     expect(html).toContain(
-      ".auth-centered {\n    display: flex;\n    justify-content: center;",
+      ".auth-centered {\n    display: flex;\n    flex-direction: column;\n    align-items: center;",
     );
     expect(html).not.toContain('class="marketing-panel"');
     expect(html).not.toContain("data-agent-native-marketing-home");

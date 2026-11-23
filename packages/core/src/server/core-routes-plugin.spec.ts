@@ -1,3 +1,4 @@
+// oracle-change: Capabilities are published through authorized discovery after removing the standalone route.
 import { createApp, defineEventHandler, type H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

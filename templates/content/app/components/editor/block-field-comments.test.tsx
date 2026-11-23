@@ -306,16 +306,8 @@ describe("comment tabs", () => {
         { operations: [{ targetId: "body" }] },
         { operations: [notesOperation()] },
       ],
-      anchoredSuggestionIds: [
-        "single",
-        "accepted",
-        "member-1",
-        "member-2",
-        "embedded",
-      ],
     });
-    // Two threads, one suggestion, one proposal, one draft.
-    expect(counts.get(null)).toBe(5);
+    expect(counts.get(null)).toBe(6);
     // A thread, a suggestion, and a draft.
     expect(counts.get("notes")).toBe(3);
     expect(counts.has("status")).toBe(false);
@@ -355,7 +347,6 @@ describe("useBlockFieldComments", () => {
       threads,
       suggestions,
       draftSuggestions: [],
-      anchoredSuggestionIds: null,
       selectedThreadId,
       selectedSuggestionId: null,
       focusSuggestionId,

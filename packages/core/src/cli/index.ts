@@ -7,6 +7,8 @@ import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import crossSpawn from "cross-spawn";
+
 import {
   clearAgentNativeNitroPresetMarker,
   resolveAgentNativeNitroPreset,
@@ -232,19 +234,45 @@ function findViteJsEntry(): string | null {
 }
 
 function findTsxBin(): string {
-  const localTsx = path.resolve("node_modules/.bin/tsx");
-  if (fs.existsSync(localTsx)) return localTsx;
-  return "tsx";
+  return findBinUpwards("tsx") ?? "tsx";
 }
 
-function findTypeScriptCompilerBin(): string {
-  const localTsc = path.resolve("node_modules/.bin/tsc");
-  if (fs.existsSync(localTsc)) return localTsc;
+function findTypeScriptCompilerBin(): string | undefined {
+  const names =
+    process.platform === "win32"
+      ? ["tsc.cmd", "tsc", "tsgo.cmd", "tsgo"]
+      : ["tsc", "tsgo"];
+  return findBinUpwards(names);
+}
 
-  const localTsgo = path.resolve("node_modules/.bin/tsgo");
-  if (fs.existsSync(localTsgo)) return localTsgo;
-
-  return "tsc";
+function runTypeScriptCompiler(args: string[]): void {
+  const compiler = findTypeScriptCompilerBin();
+  if (process.platform === "win32" && args.some((arg) => /[\r\n]/.test(arg))) {
+    throw new Error(
+      "Cannot run the TypeScript compiler with a newline in an argument on Windows.",
+    );
+  }
+  run(compiler ?? "tsc", args, {
+    shell: false,
+    spawnProcess: process.platform === "win32" ? crossSpawn.spawn : spawn,
+    onError: (error) => {
+      if (error.code === "ENOENT") {
+        console.error(error.message);
+        console.error(
+          "Could not execute TypeScript compiler; check that TypeScript and its interpreter are installed.",
+        );
+        process.exit(1);
+      }
+      if (error.code === "EACCES") {
+        console.error(error.message);
+        console.error(
+          "Permission denied while executing the TypeScript compiler. Check executable and directory permissions, the compiler location on PATH, and mount options such as noexec.",
+        );
+        process.exit(1);
+      }
+      throw error;
+    },
+  });
 }
 
 function isReactRouterFramework(): boolean {
@@ -375,9 +403,16 @@ function run(
     stdio?: "inherit" | "pipe";
     env?: NodeJS.ProcessEnv;
     shell?: boolean;
+    onError?: (error: NodeJS.ErrnoException) => void;
+    spawnProcess?: typeof spawn;
   },
 ) {
-  const child = spawn(cmd, cmdArgs, cliSpawnOptions(opts));
+  const child = (opts?.spawnProcess ?? spawn)(
+    cmd,
+    cmdArgs,
+    cliSpawnOptions(opts),
+  );
+  if (opts?.onError) child.on("error", opts.onError);
   child.on("exit", (code, signal) => process.exit(childExitCode(code, signal)));
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => {
@@ -746,7 +781,7 @@ switch (command) {
         process.exit((error as { status?: number | null }).status ?? 1);
       }
     }
-    run(findTypeScriptCompilerBin(), ["--noEmit", ...args]);
+    runTypeScriptCompiler(["--noEmit", ...args]);
     break;
   }
 

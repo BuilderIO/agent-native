@@ -8,3 +8,15 @@ export function documentChangeResource(
     ? { resourceType: "document", resourceId: documentId }
     : null;
 }
+
+function documentIdIn(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  if ("documentId" in value && typeof value.documentId === "string") {
+    return value.documentId;
+  }
+  return "request" in value ? documentIdIn(value.request) : undefined;
+}
+
+export function commentAiChangeResource(input: unknown, result: unknown) {
+  return documentChangeResource(documentIdIn(input) ?? documentIdIn(result));
+}

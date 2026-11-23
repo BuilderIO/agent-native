@@ -99,10 +99,9 @@ a ... extension" (or the older phrasings "make a tool" / "create a tool"):**
 
 1. Write the Alpine.js HTML
 2. Call `create-extension` with the HTML as `content`
-3. That's it — no files to create, no schema changes, no actions
+3. Run the [app quality pipeline](references/app-quality.md) inside the host
 
-Extensions have full access to app data via helpers injected into the iframe
-(full signatures in `references/api.md`):
+The iframe exposes these app helpers (see `references/api.md`):
 
 - `appAction(name, params)` — call any app action
 - `agentNative.mcp.listTools(serverId?)` and
@@ -266,6 +265,8 @@ yourself — use `contentFromAttachment` only to avoid regurgitating something
 the user already pasted.
 
 ## Editing an extension
+
+Run the same [quality gates](references/app-quality.md) for workflow changes.
 
 Use the `update-extension` action with exactly `id`, `operation`, and
 `payloadJson`. The payload is encoded as a JSON string so model gateways cannot

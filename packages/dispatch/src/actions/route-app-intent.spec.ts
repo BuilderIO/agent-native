@@ -38,6 +38,90 @@ describe("route-app-intent", () => {
     ]);
   });
 
+  it("recognizes an explicit registered app choice without classifying it", async () => {
+    expect(await run({ text: "Open Mail." })).toMatchObject({
+      status: "ok",
+      app: "mail",
+      confidence: 1,
+      explicit: true,
+      screen: "home",
+    });
+    expect(mocks.decide).not.toHaveBeenCalled();
+  });
+
+  it("keeps explicit installation IDs ahead of competing workspace aliases", async () => {
+    mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+      {
+        id: "fleet-2",
+        name: "Fleet",
+        description: "",
+        source: "builtin",
+      },
+      {
+        id: "workspace/fleet",
+        name: "Fleet",
+        description: "",
+        aliases: ["fleet-2"],
+        source: "workspace",
+      },
+    ]);
+    await expect(run({ text: "Open Fleet-2" })).resolves.toMatchObject({
+      app: "fleet-2",
+      explicit: true,
+    });
+    await expect(run({ text: "Open Fleet" })).resolves.toMatchObject({
+      app: "workspace/fleet",
+      explicit: true,
+    });
+    expect(mocks.decide).not.toHaveBeenCalled();
+  });
+
+  it("includes the active route, selection, and granted installation manifests", async () => {
+    mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+      {
+        id: "workspace/mail",
+        name: "Mail",
+        description: "Email",
+        aliases: ["Inbox"],
+      },
+    ]);
+    mocks.decide.mockResolvedValue({
+      status: "ok",
+      provider: "test",
+      model: "test",
+      answers: {
+        app: { type: "choice", choice: "workspace/mail", confidence: 0.88 },
+      },
+    });
+    await run({
+      text: "Summarize this",
+      openApp: "workspace/mail",
+      openPath: "/threads/2?code=fixture#state=fixture",
+      selection: "Selected message",
+    });
+    expect(mocks.decide.mock.lastCall?.[0].input).toEqual(
+      expect.arrayContaining([
+        {
+          type: "json",
+          value: {
+            connectedWorkspaceApps: [
+              {
+                id: "workspace/mail",
+                name: "Mail",
+                description: "Email",
+                aliases: ["Inbox"],
+              },
+            ],
+          },
+        },
+        {
+          type: "json",
+          value: { openPath: "/threads/2", selection: "Selected message" },
+        },
+      ]),
+    );
+  });
+
   it("opens a saved pointer's object instead of the Tasks default", async () => {
     mocks.listGrantedDispatchMcpApps.mockResolvedValue([
       { id: "tasks", name: "Tasks", description: "To-dos" },
@@ -103,19 +187,103 @@ describe("route-app-intent", () => {
       provider: "jev",
       model: "jev-1",
       cached: false,
-      answers: { app: { type: "choice", name: "app", choice: "mail" } },
+      answers: {
+        app: { type: "choice", name: "app", choice: "mail", confidence: 0.91 },
+      },
     });
 
     const result = await run({ text: "whats on my todo list" });
 
-    expect(result).toMatchObject({ status: "ok", app: "mail" });
+    expect(result).toMatchObject({
+      status: "ok",
+      app: "mail",
+      confidence: 0.91,
+    });
     expect(result).not.toHaveProperty("pointer");
     const parts = mocks.decide.mock.calls[0][0].input;
     expect(parts).toContainEqual({
       type: "json",
       value: { savedPointers: [{ alias: "standup notes", appId: "mail" }] },
     });
-    expect(mocks.decide.mock.calls[0][0].options.cacheKey).toMatch(/\.v2$/);
+    expect(mocks.decide.mock.calls[0][0].options.cacheKey).toMatch(/\.v5$/);
+  });
+
+  it.each(["mail", "tasks"])(
+    "lets classification resolve a cross-app pointer to %s",
+    async (choice) => {
+      mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+        { id: "mail", name: "Mail", description: "Email inbox" },
+        { id: "tasks", name: "Tasks", description: "Pull requests" },
+      ]);
+      mocks.listPointerRows.mockResolvedValue([
+        {
+          id: "p1",
+          owner: "owner@example.com",
+          path: "pointers/github.json",
+          content: JSON.stringify({
+            alias: "GitHub",
+            appId: "tasks",
+            url: "https://example.com/reviews",
+          }),
+        },
+      ]);
+      mocks.decide.mockResolvedValue({
+        status: "ok",
+        provider: "test",
+        model: "test",
+        cached: false,
+        answers: { app: { type: "choice", name: "app", choice } },
+      });
+
+      const result = await run({
+        text:
+          choice === "mail"
+            ? "GitHub notifications from people"
+            : "open my GitHub reviews",
+        openApp: "mail",
+      });
+      expect(result).toMatchObject({ status: "ok", app: choice });
+      expect("pointer" in result && result.pointer === true).toBe(
+        choice === "tasks",
+      );
+      expect("url" in result ? result.url : undefined).toBe(
+        choice === "tasks" ? "https://example.com/reviews" : undefined,
+      );
+      expect(mocks.decide).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("lets the request select another app despite a pointer in the current app", async () => {
+    mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+      { id: "mail", name: "Mail", description: "Email inbox" },
+      { id: "tasks", name: "Tasks", description: "Pull requests" },
+    ]);
+    mocks.listPointerRows.mockResolvedValue([
+      {
+        id: "p1",
+        owner: "owner@example.com",
+        path: "pointers/github.json",
+        content: JSON.stringify({
+          alias: "GitHub",
+          appId: "mail",
+          url: "https://example.com/mail",
+        }),
+      },
+    ]);
+    mocks.decide.mockResolvedValue({
+      status: "ok",
+      provider: "test",
+      model: "test",
+      cached: false,
+      answers: { app: { type: "choice", name: "app", choice: "tasks" } },
+    });
+    const result = await run({
+      text: "show my GitHub pull requests",
+      openApp: "mail",
+    });
+    expect(result).toMatchObject({ status: "ok", app: "tasks" });
+    expect(result).not.toHaveProperty("pointer");
+    expect(mocks.decide).toHaveBeenCalledOnce();
   });
 
   it("is reachable by desktop MCP clients but hidden from the in-app agent", () => {
@@ -156,6 +324,15 @@ describe("route-app-intent", () => {
     ]);
     expect(call.input).toEqual([
       { type: "text", text: "Request: move it to 4pm" },
+      {
+        type: "json",
+        value: {
+          connectedWorkspaceApps: [
+            { id: "calendar", name: "Calendar", description: "" },
+            { id: "mail", name: "Mail", description: "Email inbox" },
+          ],
+        },
+      },
       { type: "text", text: "App currently on screen: calendar" },
       {
         type: "json",

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
@@ -7,6 +7,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { assertCommentAccess } from "../server/lib/comment-access.js";
+import {
+  deleteMirroredRecordingComments,
+  prepareRecordingCommentMirror,
+} from "../server/lib/recording-comment-mirror.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -15,6 +19,8 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Comment ID"),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const db = getDb();
     const [existing] = await db
@@ -69,15 +75,26 @@ export default defineAction({
       frontier = nextIds;
     }
 
-    await db
-      .delete(schema.recordingComments)
-      .where(
-        and(
-          inArray(schema.recordingComments.id, Array.from(deletedIds)),
-          eq(schema.recordingComments.recordingId, existing.recordingId),
-          eq(schema.recordingComments.organizationId, existing.organizationId),
-        ),
+    await prepareRecordingCommentMirror();
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(schema.recordingComments)
+        .where(
+          and(
+            inArray(schema.recordingComments.id, Array.from(deletedIds)),
+            eq(schema.recordingComments.recordingId, existing.recordingId),
+            eq(
+              schema.recordingComments.organizationId,
+              existing.organizationId,
+            ),
+          ),
+        );
+      await deleteMirroredRecordingComments(
+        existing.recordingId,
+        Array.from(deletedIds),
+        userEmail ?? null,
       );
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

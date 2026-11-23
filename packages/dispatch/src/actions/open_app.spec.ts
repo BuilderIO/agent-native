@@ -132,8 +132,11 @@ describe("open_app MCP App metadata", () => {
         { caller } as any,
       );
 
-      const input = mocks.openGrantedDispatchMcpApp.mock.calls[0]?.[0];
+      const [input, options] = mocks.openGrantedDispatchMcpApp.mock.calls[0];
       expect(input.embed).toBe(expected);
+      expect(options).toEqual(
+        caller === "tool" ? { prefetchEmbed: true } : undefined,
+      );
     },
   );
 
