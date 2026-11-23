@@ -3,7 +3,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const jobMocks = vi.hoisted(() => ({
@@ -209,6 +208,14 @@ describe("AgentJobsTab organization automations", () => {
   });
 
   it("opens the accessible automation named by a settings link", async () => {
+    const original = jobMocks.useAutomations.getMockImplementation();
+    if (!original) throw new Error("Missing automation query fixture");
+    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") => {
+      const result = original(scope);
+      return scope === "org"
+        ? { ...result, data: [{ ...result.data[0], id: "row-id" }] }
+        : result;
+    });
     window.history.replaceState(
       null,
       "",
@@ -236,7 +243,7 @@ describe("AgentJobsTab organization automations", () => {
     expect(window.location.hash).toBe("#details");
   });
 
-  it("tracks router-driven query changes and closes the linked dialog", async () => {
+  it("tracks browser history changes between linked automations", async () => {
     const original = jobMocks.useAutomations.getMockImplementation();
     if (!original) throw new Error("Missing automation query fixture");
     jobMocks.useAutomations.mockImplementation((scope: "user" | "org") => {
@@ -257,76 +264,105 @@ describe("AgentJobsTab organization automations", () => {
           }
         : result;
     });
-    function Page() {
-      const navigate = useNavigate();
-      return (
-        <>
-          <button
-            onClick={() => {
-              void navigate("?automationId=event-automation");
-            }}
-          >
-            Open link
-          </button>
-          <button
-            onClick={() => {
-              void navigate("?automationId=second");
-            }}
-          >
-            Open second
-          </button>
-          <button
-            onClick={() => {
-              void navigate("?automationId=private-or-deleted");
-            }}
-          >
-            Open missing
-          </button>
-          <AgentJobsTab />
-        </>
-      );
-    }
-    await act(async () =>
-      root.render(
-        <MemoryRouter initialEntries={["/settings/automations"]}>
-          <Page />
-        </MemoryRouter>,
-      ),
-    );
-    const buttons = [...container.querySelectorAll("button")];
-    await act(async () =>
-      buttons.find((button) => button.textContent === "Open link")?.click(),
-    );
+    await act(async () => root.render(<AgentJobsTab />));
+    const navigate = async (id: string) => {
+      await act(async () => {
+        window.history.pushState(null, "", `?automationId=${id}`);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+    };
+    await navigate("event-automation");
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
       "new lead alert",
     );
-    await act(async () =>
-      buttons.find((button) => button.textContent === "Open second")?.click(),
-    );
+    await navigate("second");
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
       "second automation",
     );
-    await act(async () =>
-      buttons.find((button) => button.textContent === "Open missing")?.click(),
-    );
+    await navigate("private-or-deleted");
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(container.textContent).toContain(
       "agentChat.settingsShell.integrationDetail.notFoundTitle",
     );
-    await act(async () =>
-      buttons.find((button) => button.textContent === "Open link")?.click(),
-    );
+    await navigate("event-automation");
     const close = [...document.querySelectorAll('[role="dialog"] button')].find(
       (button) => button.textContent.includes("Close"),
     ) as HTMLButtonElement | undefined;
     await act(async () => close?.click());
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    await act(async () =>
-      buttons.find((button) => button.textContent === "Open link")?.click(),
-    );
+    await navigate("event-automation");
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
       "new lead alert",
     );
+  });
+
+  it("opens a linked recurring automation by resource ID even when its list row is deduplicated", async () => {
+    const original = jobMocks.useAutomations.getMockImplementation();
+    if (!original) throw new Error("Missing automation query fixture");
+    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") => {
+      const result = original(scope);
+      return scope === "org"
+        ? {
+            ...result,
+            data: [
+              {
+                ...result.data[0],
+                id: "legacy-scheduled",
+                resourceId: "legacy-scheduled",
+                name: "weekly-report",
+                classification: "recurring-job",
+                triggerType: "schedule",
+                body: "Send the weekly report.",
+              },
+            ],
+          }
+        : result;
+    });
+    window.history.replaceState(null, "", "?automationId=legacy-scheduled");
+    await act(async () => root.render(<AgentJobsTab />));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Send the weekly report.",
+    );
+    expect(jobMocks.useAutomationRuns).toHaveBeenCalledWith(
+      { resourceId: "legacy-scheduled" },
+      true,
+    );
+  });
+
+  it("opens and closes ordinary details without changing the URL", async () => {
+    const original = jobMocks.useAutomations.getMockImplementation();
+    if (!original) throw new Error("Missing automation query fixture");
+    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") => {
+      const result = original(scope);
+      return scope === "org"
+        ? {
+            ...result,
+            data: [{ ...result.data[0], lastError: "Run failed" }],
+          }
+        : result;
+    });
+    window.history.replaceState(
+      null,
+      "",
+      "/settings/automations?filter=all#jobs",
+    );
+    await act(async () => root.render(<AgentJobsTab />));
+    const details = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "View details",
+    );
+    expect(details).toBeDefined();
+    await act(async () => details?.click());
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Alert the sales team.",
+    );
+    const close = [...document.querySelectorAll('[role="dialog"] button')].find(
+      (button) => button.textContent.includes("Close"),
+    ) as HTMLButtonElement | undefined;
+    expect(close).toBeDefined();
+    await act(async () => close?.click());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(window.location.search).toBe("?filter=all");
+    expect(window.location.hash).toBe("#jobs");
   });
 
   it("waits for the access-scoped list before opening a linked automation", async () => {
