@@ -151,6 +151,7 @@ function navigate(
     cursor?: string;
     expand?: string[];
     pagesOnly?: boolean | undefined;
+    group?: string;
   },
   limit?: number,
 ) {
@@ -429,6 +430,91 @@ describe("Files navigation of linked local folders", () => {
         activeViewId: "files",
         views: [],
       });
+    }
+  });
+
+  it("lists linked pages flat in a grouped view's groups, with no folder rows", async () => {
+    await getDb()
+      .insert(schema.documentPropertyDefinitions)
+      .values({
+        id: "folders-stage",
+        ownerEmail: OWNER,
+        databaseId: FILES,
+        name: "Stage",
+        type: "select",
+        optionsJson: JSON.stringify({
+          options: [{ id: "stage-draft", name: "Draft", color: "gray" }],
+        }),
+      });
+    for (const documentId of ["readme", "today", "yesterday"]) {
+      await getDb()
+        .insert(schema.documentPropertyValues)
+        .values({
+          id: `folders-stage-${documentId}`,
+          ownerEmail: OWNER,
+          documentId,
+          propertyId: "folders-stage",
+          valueJson: JSON.stringify("stage-draft"),
+        });
+    }
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify({
+          activeViewId: "grouped",
+          views: [
+            {
+              id: "grouped",
+              name: "Table",
+              type: "table",
+              sorts: [],
+              filters: [],
+              filterMode: "and",
+              columnWidths: {},
+              groupByPropertyId: "folders-stage",
+            },
+          ],
+        }),
+      })
+      .where(eq(schema.contentDatabases.id, FILES));
+    try {
+      const root = await navigate(FILES, { parentId: null }, 2);
+      const groupItems = (root.groups ?? []).flatMap(
+        (group) => group.page.items,
+      );
+      expect(groupItems.length).toBeGreaterThan(0);
+      expect(groupItems.filter((item) => item.type === "folder")).toEqual([]);
+      const draft = root.groups?.find(
+        (group) => group.id === "folders-stage:stage-draft",
+      );
+      expect(draft?.count).toBe(3);
+      expect(shown(draft?.page.items ?? [])).toEqual(["readme", "today"]);
+      expect(draft?.page.items[1]?.parentId).toBeNull();
+
+      const nextCursor = draft?.page.pagination.nextCursor;
+      expect(nextCursor).toBeTruthy();
+      const rest = await navigate(
+        FILES,
+        {
+          parentId: null,
+          group: "folders-stage:stage-draft",
+          ...(nextCursor ? { cursor: nextCursor } : {}),
+        },
+        2,
+      );
+      expect(shown(rest.items)).toEqual(["yesterday"]);
+      expect(rest.groups).toBeUndefined();
+    } finally {
+      await getDb()
+        .update(schema.contentDatabases)
+        .set({ viewConfigJson: "{}" })
+        .where(eq(schema.contentDatabases.id, FILES));
+      await getDb()
+        .delete(schema.documentPropertyValues)
+        .where(eq(schema.documentPropertyValues.propertyId, "folders-stage"));
+      await getDb()
+        .delete(schema.documentPropertyDefinitions)
+        .where(eq(schema.documentPropertyDefinitions.id, "folders-stage"));
     }
   });
 
