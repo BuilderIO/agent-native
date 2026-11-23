@@ -194,7 +194,7 @@ describe("describeCredentialScopeGap across organizations", () => {
     // oracle-change: the message was reworded fix-first; one exact match replaces three partial matches on the old wording
     expect(message).toBe(
       "Save it in this organization, or switch your active organization " +
-        'to "Builder.io", where it\'s saved. Credentials aren\'t shared ' +
+        "to \"Builder.io\", where it's saved. Credentials aren't shared " +
         "between organizations.",
     );
   });

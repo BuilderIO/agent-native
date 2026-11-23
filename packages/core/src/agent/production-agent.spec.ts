@@ -18535,7 +18535,7 @@ describe("runAgentLoop", () => {
         "keeps the whole cross-organization explanation with the longest key name and a long organization name",
       thrown:
         "bigquery credential not configured. Save it in this organization, " +
-        "or switch your active organization to \"Builder.io Developer " +
+        'or switch your active organization to "Builder.io Developer ' +
         "Relations and Community Programs\", where it's saved. Credentials " +
         "aren't shared between organizations. Tried: BIGQUERY_PROJECT_ID, " +
         "GOOGLE_APPLICATION_CREDENTIALS_JSON",
