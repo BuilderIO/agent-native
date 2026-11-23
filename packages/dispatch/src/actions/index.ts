@@ -26,6 +26,7 @@ import deleteVaultSecret from "./delete-vault-secret.js";
 import deleteWorkspaceResource from "./delete-workspace-resource.js";
 import denyVaultRequest from "./deny-vault-request.js";
 import ensureDreamJob from "./ensure-dream-job.js";
+import executeActionSuggestion from "./execute-action-suggestion.js";
 import getAgentThreadDebug from "./get-agent-thread-debug.js";
 import getAppCreationSettings from "./get-app-creation-settings.js";
 import getDispatchSettings from "./get-dispatch-settings.js";
@@ -78,6 +79,7 @@ import navigate from "./navigate.js";
 import openApp from "./open_app.js";
 import previewDreamProposal from "./preview-dream-proposal.js";
 import previewWorkspaceResourceChange from "./preview-workspace-resource-change.js";
+import proposeActionSuggestions from "./propose-action-suggestions.js";
 import providerApiCatalog from "./provider-api-catalog.js";
 import providerApiDocs from "./provider-api-docs.js";
 import providerApiRegister from "./provider-api-register.js";
@@ -191,6 +193,8 @@ export const dispatchActions: Record<string, ActionEntry> = {
   navigate: navigate,
   open_app: openApp,
   "apply-dream-proposal": applyDreamProposal,
+  "execute-action-suggestion": executeActionSuggestion,
+  "propose-action-suggestions": proposeActionSuggestions,
   "preview-dream-proposal": previewDreamProposal,
   "preview-workspace-resource-change": previewWorkspaceResourceChange,
   "provider-api-catalog": providerApiCatalog,

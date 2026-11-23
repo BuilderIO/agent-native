@@ -99,7 +99,7 @@ function transcriptMatch(
 
 export default defineAction({
   description:
-    "Search recordings by title, description, transcript text, or comments, including recordings in the caller's Trash. Transcript and comment matches include timestamps for jumping to the matching moment. Public/unlisted recordings are searchable only when owned by or previously viewed by the current user.",
+    "Search recordings by title, description, transcript text, or comments, including recordings in the caller's Trash. Transcript and comment matches include timestamps for jumping to the matching moment. Public/unlisted recordings are searchable only when owned by or previously viewed by the current user. Read-only search: to filter the Library UI to matching clips call navigate with view='library' and search='<query>', or call navigate with view='recording' and recordingId to open a single matching clip.",
   schema: z.object({
     query: z.string().min(1).describe("Search text"),
     limit: z.coerce.number().int().min(1).max(100).default(30),

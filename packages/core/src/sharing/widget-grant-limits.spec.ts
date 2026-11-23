@@ -257,7 +257,7 @@ describe("the share actions under a widget write grant", () => {
 
   beforeEach(async () => {
     sent.length = 0;
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     await pglite.exec(`
       CREATE TABLE widget_limits_documents (
         id TEXT PRIMARY KEY,

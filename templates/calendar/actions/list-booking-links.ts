@@ -27,6 +27,7 @@ function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
 }
 
 export default defineAction({
+  mcpTool: true,
   description: "List all booking links",
   schema: z.object({}),
   http: { method: "GET" },

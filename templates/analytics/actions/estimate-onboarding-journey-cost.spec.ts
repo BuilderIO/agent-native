@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   })),
   estimate: vi.fn(),
   allowance: vi.fn(),
+  onBigQuery: vi.fn(async () => true),
   CostError: class OnboardingJourneyCostError extends Error {
     constructor(readonly code: string) {
       super("The scoped onboarding journey cost estimate is unavailable.");
@@ -59,6 +60,10 @@ vi.mock("../server/lib/onboarding-journey-agent-budget.js", () => ({
   outsideAgentOnboardingEventBytes: mocks.allowance,
 }));
 
+vi.mock("../server/lib/bigquery-agent-approval.js", () => ({
+  firstPartyQueriesRunOnBigQuery: mocks.onBigQuery,
+}));
+
 import { OutsideAgentBigQueryRefusalError } from "../server/lib/bigquery-agent-context.js";
 import action from "./estimate-onboarding-journey-cost.js";
 
@@ -76,6 +81,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getRequestOrgId.mockReturnValue("org-1");
   mocks.getRequestUserEmail.mockReturnValue("caller@example.test");
+  mocks.onBigQuery.mockResolvedValue(true);
 });
 
 describe("estimate-onboarding-journey-cost action", () => {
@@ -250,6 +256,8 @@ describe("an outside agent's estimate", () => {
         { ownerEmail: "caller@example.test", orgId: "org-1" },
         undefined,
         { followUpMode: "session", splitDesignFirstTouch: false },
+        undefined,
+        caller === "mcp" ? "get-onboarding-journey" : undefined,
       );
       expect(must(mocks.estimate.mock.calls[0])[6]).toBe(50_000_000_000);
       expect(result).toEqual({
@@ -281,6 +289,8 @@ describe("an outside agent's estimate", () => {
         experimentId: "first_run_builder_credits",
         splitDesignFirstTouch: false,
       },
+      undefined,
+      "get-onboarding-journey",
     );
     expect(() =>
       action.schema.parse({

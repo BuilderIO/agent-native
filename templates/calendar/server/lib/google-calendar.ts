@@ -1,5 +1,6 @@
 import { getDbExec } from "@agent-native/core/db";
 import {
+  OAuthAccountOwnedByOtherUserError,
   saveOAuthTokens,
   deleteOAuthTokens,
   listOAuthAccounts,
@@ -115,9 +116,16 @@ const CALENDAR_SCOPE_PREFIX = "https://www.googleapis.com/auth/calendar.";
 function hasCalendarScope(tokens: Record<string, unknown>): boolean {
   const scope = tokens.scope;
   if (typeof scope !== "string" || !scope.trim()) return true;
-  return scope
-    .split(/[\s,]+/)
-    .some((value) => value.startsWith(CALENDAR_SCOPE_PREFIX));
+  return grantsCalendarScope(scope);
+}
+
+function grantsCalendarScope(scope: unknown): boolean {
+  return (
+    typeof scope === "string" &&
+    scope
+      .split(/[\s,]+/)
+      .some((value) => value.startsWith(CALENDAR_SCOPE_PREFIX))
+  );
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -553,6 +561,7 @@ export async function getAuthUrl(
   state?: string,
   owner?: string,
   orgId?: string,
+  { selectAccount = false }: { selectAccount?: boolean } = {},
 ): Promise<string> {
   const { clientId, clientSecret } = await getOAuth2Credentials(owner, orgId);
   const uri =
@@ -563,7 +572,7 @@ export async function getAuthUrl(
   return oauth2.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
-    prompt: "consent",
+    prompt: selectAccount ? "consent select_account" : "consent",
     state,
   });
 }
@@ -575,19 +584,95 @@ export async function exchangeCode(
   owner?: string,
   orgId?: string,
 ): Promise<string> {
-  const { clientId, clientSecret } = await getOAuth2Credentials(owner, orgId);
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
   if (!uri) throw new Error("Google OAuth redirect URI is required.");
-  const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
+  const { tokens, email, photoUrl } = await exchangeGoogleCode(
+    code,
+    uri,
+    owner,
+    orgId,
+  );
+  await saveExchangedTokens(tokens, email, photoUrl, owner);
+  return email;
+}
+
+export interface GoogleSignInProfile {
+  email: string;
+  id?: string | undefined;
+  name?: string | undefined;
+  picture?: string | undefined;
+  connectCalendar: () => Promise<boolean>;
+}
+
+export async function exchangeSignInCode(
+  code: string,
+  redirectUri: string,
+  orgId?: string,
+): Promise<GoogleSignInProfile> {
+  const { tokens, userInfo, email, photoUrl } = await exchangeGoogleCode(
+    code,
+    redirectUri,
+    undefined,
+    orgId,
+  );
+  if (userInfo.verified_email !== true) {
+    throw new Error(
+      "Google account email is not verified. Please verify your email with Google and try again.",
+    );
+  }
+  return {
+    email,
+    id: optionalString(userInfo.id),
+    name: optionalString(userInfo.name),
+    picture: photoUrl,
+    async connectCalendar() {
+      if (!grantsCalendarScope(tokens.scope)) return false;
+      try {
+        await saveExchangedTokens(tokens, email, photoUrl);
+        return true;
+      } catch (error) {
+        if (
+          error instanceof OAuthAccountOwnedByOtherUserError ||
+          (error instanceof Error &&
+            error.name === "OAuthAccountOwnedByOtherUserError")
+        ) {
+          return false;
+        }
+        throw error;
+      }
+    },
+  };
+}
+
+async function exchangeGoogleCode(
+  code: string,
+  redirectUri: string,
+  owner?: string,
+  orgId?: string,
+) {
+  const { clientId, clientSecret } = await getOAuth2Credentials(owner, orgId);
+  const oauth2 = createOAuth2Client(clientId, clientSecret, redirectUri);
   const tokens = await oauth2.getToken(code);
 
   const userInfo = await oauth2GetUserInfo(tokens.access_token);
   const email = userInfo.email;
   if (!email) throw new Error("Google returned no email address");
-  const photoUrl = optionalString(userInfo.picture);
+  return {
+    tokens,
+    userInfo,
+    email: email as string,
+    photoUrl: optionalString(userInfo.picture),
+  };
+}
 
+async function saveExchangedTokens(
+  tokens: object,
+  email: string,
+  photoUrl: string | undefined,
+  owner?: string,
+): Promise<void> {
   await saveOAuthTokens(
     "google",
     email,
@@ -596,8 +681,6 @@ export async function exchangeCode(
   );
   invalidateAccountTimezoneCache(email);
   if (owner) invalidateAccountTimezoneCache(owner);
-
-  return email;
 }
 
 async function resolveAccountPhotoUrl(

@@ -73,6 +73,26 @@ booking links only show slots when the owner and every co-host can be checked as
 free. When a booking is confirmed, the app creates the Google Calendar event on
 the owner's connected account and adds co-hosts as invited attendees.
 
+### Single-use links
+
+A single-use link is a one-time URL for an active booking link: the first
+booking made through it uses it up, and the page then tells later visitors to
+ask for a new link. Use one when the user wants to give one person a link that
+stops working once they've booked. It's the booking link's own URL plus a
+`once` code, so it doesn't hide the reusable link.
+
+```bash
+pnpm action create-single-use-link --bookingLinkId <id>
+```
+
+Give the person the returned `url` (`/book/{username}/{slug}?once={token}`).
+`list-single-use-links --bookingLinkId <id>` shows each URL as `available`,
+`used` (with the `bookingId` it made) or `revoked`, and
+`revoke-single-use-link --bookingLinkId <id> --token <token>` turns off one that
+hasn't been used. Cancelling or rescheduling the booking doesn't reopen the
+URL; the guest's manage link still works. Pausing the booking link stops its
+single-use URLs too, and deleting it deletes them.
+
 ### Peer working-hours hard filtering
 
 A co-host gets working-hours-aware scheduling only when the owner has also
@@ -199,6 +219,7 @@ Bookings are the confirmed appointments. They are stored in SQL via Drizzle ORM 
 | "Block off Friday afternoons"     | Update the Friday schedule to end at 12:00                     |
 | "Show my bookings"                | Navigate to `/bookings`                                        |
 | "Show my booking links"           | Navigate to `/booking-links`                                   |
+| "Send Sam a link that works once" | `create-single-use-link`, then give Sam the returned `url`     |
 
 ## Important Notes
 

@@ -20,6 +20,7 @@ import {
 import {
   actionCallIntent,
   ActionContractError,
+  assertNoNulByteActionArgs,
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
@@ -546,6 +547,21 @@ const LLM_CREDENTIAL_TERM_RE =
  * absent: the agent engine's broader `isLlmCredentialError` also matches "LLM
  * response missing required field", a real bug that must stay a captured 500.
  */
+function isPgInvalidNulByteError(error: unknown): boolean {
+  if (
+    isActionContractError(error) ||
+    isAgentActionStopError(error) ||
+    isMarkedExpectedError(error)
+  ) {
+    return false;
+  }
+  const codes = [
+    (error as { code?: unknown } | null | undefined)?.code,
+    (error as { cause?: { code?: unknown } } | null | undefined)?.cause?.code,
+  ];
+  return codes.some((code) => code === "22021" || code === "22P05");
+}
+
 function isLlmProviderMissingError(error: unknown): boolean {
   if (
     isActionContractError(error) ||
@@ -1529,7 +1545,6 @@ function mountActionRoutesInternal(
               callArgs: unknown,
               result: unknown,
             ) => {
-              if (runContext?.caller === "mcp-widget") return;
               const markerLanded = await notifyActionChangeForResponse({
                 actionName: name,
                 ...actionChangeResource(entry, callArgs, result),
@@ -1558,6 +1573,9 @@ function mountActionRoutesInternal(
                   errorCode: "invalid_action_request_body",
                   statusCode: 400,
                 });
+              }
+              if (!entry.schema) {
+                assertNoNulByteActionArgs(params);
               }
               if (directoryWidgetReadAllowed) {
                 const normalizedArgs =
@@ -1827,9 +1845,9 @@ function mountActionRoutesInternal(
                 );
               }
               const msg = err?.message ?? String(err);
-              const isValidationError = msg.startsWith(
-                "Invalid action parameters",
-              );
+              const pgNulByteError = isPgInvalidNulByteError(err);
+              const isValidationError =
+                msg.startsWith("Invalid action parameters") || pgNulByteError;
               const explicitStatus =
                 typeof err?.statusCode === "number"
                   ? err.statusCode
@@ -1940,7 +1958,7 @@ function mountActionRoutesInternal(
                     : undefined;
                 return {
                   error:
-                    privateAction && isValidationError
+                    pgNulByteError || (privateAction && isValidationError)
                       ? "Invalid action parameters"
                       : msg,
                   ...(errorCode === undefined ? {} : { errorCode }),

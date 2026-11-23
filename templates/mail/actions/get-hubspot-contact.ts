@@ -21,6 +21,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ email }) => {
     const ownerEmail = await resolveOwnerEmail();
     const apiKey = await readIntegrationKey("hubspot", {

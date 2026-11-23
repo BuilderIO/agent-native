@@ -4,7 +4,9 @@ import * as React from "react";
 
 import { cn } from "../utils.js";
 import {
-  type FocusReturn,
+  useFocusReturn,
+  FocusReturnScope,
+  useNativeTriggerRef,
   rememberFocusReturn,
   restoreFocusReturn,
 } from "./focus-return.js";
@@ -75,8 +77,8 @@ export function releaseStaleFocus() {
   // itself `data-state="closed"` exactly when focus has been rightly returned to it.
   const stale = (active as HTMLElement).closest(layerSelector("closed"));
   if (!stale) return;
-  // Blur first so the closed subtree stops owning the focus, then hand focus back to
-  // the page so the next press reaches whatever the user aims at.
+  if (restoreFocusReturn(rememberFocusReturn(stale))) return;
+
   (active as HTMLElement).blur();
   if (document.activeElement === active) {
     (active as HTMLElement).blur();
@@ -95,64 +97,6 @@ export function releaseStaleBodyLock() {
   }
   // the focus leak is the same unwinding, one step behind the lock
   releaseStaleFocus();
-}
-
-/**
- * Records the opener when the content mounts and focuses it again on close (see
- * focus-return). A caller's `onCloseAutoFocus` that prevents the default keeps
- * the choice of where focus goes.
- */
-export function useFocusReturn<T extends Element>(
-  forwardedRef: React.ForwardedRef<T>,
-) {
-  const entry = React.useRef<FocusReturn | null>(null);
-  const node = React.useRef<T | null>(null);
-  const attached = React.useRef(forwardedRef);
-  const release = React.useRef<(() => void) | null>(null);
-  // The wrapper below keeps one identity, so React never re-runs it for a new
-  // caller ref: hand the node over to the new ref here, and release the old one.
-  React.useLayoutEffect(() => {
-    if (attached.current === forwardedRef) return;
-    release.current?.();
-    release.current = null;
-    attached.current = forwardedRef;
-    if (node.current) release.current = assignRef(forwardedRef, node.current);
-  });
-  return React.useMemo(
-    () => ({
-      // runs when the content node mounts, before Radix moves focus into it
-      ref(next: T | null) {
-        node.current = next;
-        release.current?.();
-        release.current = next ? assignRef(attached.current, next) : null;
-        if (next) entry.current = rememberFocusReturn(next);
-      },
-      close(event: Event) {
-        const current = entry.current;
-        entry.current = null;
-        if (event.defaultPrevented || !current?.target?.isConnected) return;
-        event.preventDefault();
-        restoreFocusReturn(current);
-      },
-    }),
-    [],
-  );
-}
-
-/** Attaches `value` and returns how to detach it: a React 19 callback ref's own cleanup when it returns one, else a call with null. */
-function assignRef<T>(
-  target: React.ForwardedRef<T>,
-  value: T,
-): (() => void) | null {
-  if (typeof target === "function") {
-    const cleanup = (target as (v: T | null) => void | (() => void))(value);
-    return typeof cleanup === "function" ? cleanup : () => target(null);
-  }
-  if (!target) return null;
-  target.current = value;
-  return () => {
-    target.current = null;
-  };
 }
 
 /**
@@ -184,11 +128,14 @@ export function useDialogCloseCleanup(isOpen: boolean) {
   }, [isOpen]);
 }
 
+const DialogModalContext = React.createContext(true);
+
 function Dialog({
   open,
   defaultOpen,
   onOpenChange,
   children,
+  modal = true,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Root>) {
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(
@@ -199,19 +146,31 @@ function Dialog({
   return (
     <DialogPrimitive.Root
       {...props}
+      modal={modal}
       open={isOpen}
       onOpenChange={(next) => {
         if (open === undefined) setUncontrolledOpen(next);
         onOpenChange?.(next);
       }}
     >
-      {children}
+      <FocusReturnScope>
+        <DialogModalContext.Provider value={modal}>
+          {children}
+        </DialogModalContext.Provider>
+      </FocusReturnScope>
     </DialogPrimitive.Root>
   );
 }
 Dialog.displayName = "Dialog";
 
-const DialogTrigger = DialogPrimitive.Trigger;
+const DialogTrigger = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Trigger>
+>((props, ref) => {
+  const triggerRef = useNativeTriggerRef(ref);
+  return <DialogPrimitive.Trigger {...props} ref={triggerRef} />;
+});
+DialogTrigger.displayName = DialogPrimitive.Trigger.displayName;
 
 const DialogPortal = DialogPrimitive.Portal;
 
@@ -274,11 +233,13 @@ const DialogContent = React.forwardRef<
       overlayClassName,
       overlayStyle,
       onCloseAutoFocus,
+      onFocusOutside,
       ...props
     },
     ref,
   ) => {
     const focusReturn = useFocusReturn(ref);
+    const modal = React.useContext(DialogModalContext);
     return (
       <DialogPortal container={container}>
         <DialogOverlay
@@ -288,6 +249,10 @@ const DialogContent = React.forwardRef<
         />
         <DialogPrimitive.Content
           ref={focusReturn.ref}
+          onFocusOutside={(event) => {
+            onFocusOutside?.(event);
+            focusReturn.focusOutside(event, modal);
+          }}
           onCloseAutoFocus={(event) => {
             onCloseAutoFocus?.(event);
             focusReturn.close(event);
@@ -387,3 +352,5 @@ export {
   DialogTitle,
   DialogDescription,
 };
+
+export { useFocusReturn } from "./focus-return.js";

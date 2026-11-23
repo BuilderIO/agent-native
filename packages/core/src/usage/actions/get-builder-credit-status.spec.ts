@@ -346,3 +346,7 @@ describe("get-builder-credit-status action", () => {
     },
   );
 });
+
+it("keeps get-builder-credit-status in the app, off MCP", () => {
+  expect(getBuilderCreditStatus.mcpTool).toBe(false);
+});

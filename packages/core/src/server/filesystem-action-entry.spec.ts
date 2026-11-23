@@ -146,6 +146,63 @@ describe("filesystemActionEntry", () => {
     ).toBe(action.approvalLabel);
   });
 
+  it("keeps an MCP-only approval, its notice and its proof in the dev scan and a built registry", () => {
+    const action = defineAction({
+      description: "Read the warehouse",
+      schema: z.object({ big: z.boolean() }),
+      readOnly: true,
+      mcpNeedsApproval: (args) => args.big,
+      approvalNotice: () => "Allow up to $5.00 of BigQuery today?",
+      approvalProof: "review-page",
+      run: async () => ({ rows: 1 }),
+    });
+    const registry = loadActionsFromStaticRegistry({
+      read: { default: action },
+    });
+    expect(Object.keys(registry)).toEqual(["read"]);
+
+    for (const entry of [
+      filesystemActionEntry(action),
+      ...Object.values(registry),
+    ]) {
+      expect(entry.mcpNeedsApproval).toBe(action.mcpNeedsApproval);
+      expect(entry.approvalNotice).toBe(action.approvalNotice);
+      expect(entry.approvalProof).toBe("review-page");
+      expect(entry.needsApproval).toBeUndefined();
+    }
+  });
+
+  it("drops an MCP-only approval, notice or proof of the wrong shape from a module that skipped defineAction", () => {
+    const entry = filesystemActionEntry({
+      description: "Read the warehouse",
+      mcpNeedsApproval: true,
+      approvalNotice: "Allow up to $5.00 of BigQuery today?",
+      approvalProof: "client",
+      run: async () => null,
+    } as never);
+
+    expect(entry.mcpNeedsApproval).toBeUndefined();
+    expect(entry.approvalNotice).toBeUndefined();
+    expect(entry.approvalProof).toBeUndefined();
+  });
+
+  it("refuses an approval proof it doesn't know, or a predicate that isn't a function", () => {
+    const base = {
+      description: "Read the warehouse",
+      schema: z.object({}),
+      run: async () => ({}),
+    };
+    expect(() =>
+      defineAction({ ...base, approvalProof: "client" as "review-page" }),
+    ).toThrow(/approvalProof is "review-page" or left out/);
+    expect(() =>
+      defineAction({
+        ...base,
+        mcpNeedsApproval: true as unknown as () => boolean,
+      }),
+    ).toThrow("defineAction: mcpNeedsApproval must be a function.");
+  });
+
   it("keeps the browser-persistence opt-out in the dev scan and a built registry", () => {
     const action = defineAction({
       description: "Reveal an API key",

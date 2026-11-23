@@ -2676,10 +2676,10 @@ return requestFullscreenOnFirstInteraction;`;
         arguments: { path: "/calendar/event/e1" },
       });
       expect(moved.isError).toBe(true);
-      expect(moved.content[0]!.text).toContain("nested frame");
+      expect(moved.content[0]?.text).toContain("nested frame");
       const read = await tools.callViewTool({ name: "read_view" });
       expect(read.isError).toBe(true);
-      expect(read.content[0]!.text).toContain("nested frame");
+      expect(read.content[0]?.text).toContain("nested frame");
       expect(await tools.listViewTools()).toEqual([]);
     });
 
