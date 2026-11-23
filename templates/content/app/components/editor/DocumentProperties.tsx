@@ -4003,7 +4003,6 @@ function DateValueEditor({
           property.sourceWriteback ? "grid gap-2" : "grid grid-cols-2 gap-2"
         }
       >
-        {/* Builder's date field holds one date, so it offers no range. */}
         {property.sourceWriteback ? null : (
           <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
             <input

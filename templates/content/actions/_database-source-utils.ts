@@ -1212,8 +1212,6 @@ function builderSourceFieldComparisonValue(
       values[builderReferenceIdSourceValueKey(field.sourceFieldKey)] ?? value
     );
   }
-  // Builder keeps a date as a timestamp and a link in its canonical form, so a
-  // local value that Builder holds in that form compares as itself.
   if (
     (sourceFieldType === "date" || sourceFieldType === "datetime") &&
     typeof value === "number" &&
@@ -1222,8 +1220,6 @@ function builderSourceFieldComparisonValue(
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     const start = localValue.start.trim();
-    // A date without a time matches any moment of that UTC day; a time
-    // matches the moment the save sends for it.
     const same = /^\d{4}-\d{2}-\d{2}$/.test(start)
       ? date.toISOString().slice(0, 10) === start
       : documentPropertyDateTimestamp(start) === value;
@@ -1239,12 +1235,8 @@ function builderSourceFieldComparisonValue(
 }
 
 function canonicalWebLink(value: unknown) {
-  if (typeof value !== "string") return null;
-  try {
-    return new URL(value).toString();
-  } catch {
-    return null;
-  }
+  if (typeof value !== "string" || !URL.canParse(value)) return null;
+  return new URL(value).toString();
 }
 
 function stringSourceValue(
@@ -4788,10 +4780,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         changeSet.state !== "rejected" &&
         changeSet.state !== "applied",
     );
-    // Any open change for the row carries its staged publish or unpublish.
     if (transitionOnly && openChangeSets.length > 0) continue;
-    // A change an open change already sends stays with that change, so no
-    // field goes to Builder twice; a corrected value still surfaces on its own.
     const pendingFieldChanges = fieldChanges.filter(
       (change) =>
         !openChangeSets.some((changeSet) =>

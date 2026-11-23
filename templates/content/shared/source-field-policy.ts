@@ -60,13 +60,9 @@ export function contentDatabaseSourceFieldSavesEditsToSource(field: {
 }
 
 function isWebLink(value: unknown) {
-  if (typeof value !== "string") return false;
-  try {
-    const { protocol } = new URL(value);
-    return protocol === "https:" || protocol === "http:";
-  } catch {
-    return false;
-  }
+  if (typeof value !== "string" || !URL.canParse(value)) return false;
+  const { protocol } = new URL(value);
+  return protocol === "https:" || protocol === "http:";
 }
 
 export function contentDatabaseSourceWritebackValueError(

@@ -195,7 +195,6 @@ function builderNativeFieldValue(args: {
     args.value === undefined ||
     args.value === "" ||
     (Array.isArray(args.value) && args.value.length === 0);
-  // A field cleared in Content empties the draft's field in Builder.
   if (
     cleared &&
     /\b(date|datetime|file|image|reference|relation)\b/.test(kind)

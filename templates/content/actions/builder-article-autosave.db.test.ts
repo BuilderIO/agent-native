@@ -734,13 +734,12 @@ describe("Builder article autosave", () => {
         ),
       );
 
-      expect(executeWrite).toHaveBeenCalledTimes(expectedWrites);
-      if (expectedWrites) {
-        const [{ request }] = executeWrite.mock.calls[0] as unknown as [
+      const sent = (
+        executeWrite.mock.calls as unknown as [
           { request: { body: { data: Record<string, unknown> } } },
-        ];
-        expect(Object.keys(request.body.data)).toEqual(["date"]);
-      }
+        ][]
+      ).map(([{ request }]) => Object.keys(request.body.data));
+      expect(sent).toEqual(expectedWrites ? [["date"]] : []);
     }
   });
 
