@@ -3436,6 +3436,7 @@ async function reapSingleStaleRun(
       return { reaped: false, outcome: null };
     }
     if (
+      typeof maxStaleMs !== "number" &&
       lease &&
       generationMatches &&
       (await ownsLapsedTurnLease(

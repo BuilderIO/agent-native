@@ -845,6 +845,18 @@ describe("task execution leases", () => {
       status: "running",
     });
     await expect(renewTurnExecutionLease(fence)).resolves.toBeUndefined();
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 second',
+              updated_at = clock_timestamp() - INTERVAL '16 seconds'
+        WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    await expect(reapIfStale(runId, 0)).resolves.toBe(true);
+    await expect(getRunById(runId)).resolves.toMatchObject({
+      status: "errored",
+      errorCode: "stale_run",
+    });
   });
 
   it("still reaps a worker whose lease lapsed long ago or was revoked", async () => {
