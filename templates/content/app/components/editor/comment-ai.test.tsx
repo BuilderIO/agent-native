@@ -1130,8 +1130,6 @@ describe("comment AI controls", () => {
     api.requests = [running];
     await act(async () => root.render(createElement(Probe)));
 
-    // The first try ends, and a Retry restarts the request on a new turn
-    // before this tab checks the first turn again.
     turnStatus["initial-turn-1"] = "completed";
     api.requests = [{ ...running, agentTurnId: "retry-turn-1" }];
     await act(async () => root.render(createElement(Probe)));

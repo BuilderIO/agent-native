@@ -42,7 +42,6 @@ import { resolveCommentBlocksField } from "./comment-blocks-field.js";
 import { documentContentHash } from "./document-revision.js";
 
 const TERMINAL_SUCCESS = ["replied", "suggested", "resolved"] as const;
-/** Statuses a later turn on the request's thread, such as Retry, restarts. */
 const RESTARTABLE = ["needs-review", "failed", "cancelled"] as const;
 const MAX_ATTEMPTS = 2;
 
@@ -1106,9 +1105,6 @@ export async function resolveCommentAiActionSurface(
     details.requestedTurnId !== request.agentTurnId &&
     RESTARTABLE.includes(request.status as (typeof RESTARTABLE)[number])
   ) {
-    // A Retry resumes a stopped request on a new turn of its thread. Bind that
-    // turn, so tabs check the run now working on the request: the ended turn's
-    // finish would otherwise mark the new try Needs review.
     await getDb()
       .update(schema.commentAiRequests)
       .set({
@@ -1284,7 +1280,7 @@ async function runAttemptsSpent(
   request: RequestRow,
 ) {
   if (!request.runId) return request.attemptCount >= MAX_ATTEMPTS;
-  const [row] = await db
+  const rows = await db
     .select({ attempts: sql<number>`count(*)` })
     .from(schema.commentAiAttempts)
     .where(
@@ -1293,7 +1289,7 @@ async function runAttemptsSpent(
         eq(schema.commentAiAttempts.runId, request.runId),
       ),
     );
-  return Number(row?.attempts ?? 0) >= MAX_ATTEMPTS;
+  return rows.some(({ attempts }) => Number(attempts) >= MAX_ATTEMPTS);
 }
 
 async function recordConflict(

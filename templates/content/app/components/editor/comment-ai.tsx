@@ -775,9 +775,6 @@ export function useCommentAiRequests(
     for (const request of serverRequests) {
       const receipt = sessionReceipt(request);
       if (!ACTIVE_STATUSES.has(request.status) || !receipt) continue;
-      // A Retry restarts the request on a new turn. Watch each turn on its
-      // own, and stop once the request has moved past it: the ended turn's
-      // finish says nothing about the new try.
       const monitorKey = `${request.operationId}:${receipt.turnId}`;
       if (monitoredRequestsRef.current.has(monitorKey)) continue;
       monitoredRequestsRef.current.add(monitorKey);

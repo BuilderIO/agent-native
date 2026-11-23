@@ -755,18 +755,22 @@ describe("operation-scoped refresh and commits", () => {
         },
         runId,
       );
-    const endInReview = async (attemptId: string) => {
-      await commentAi.completeCommentAiAttempt(attemptId, "needs-review");
+    const endInReview = async ({
+      attempt,
+    }: {
+      attempt: { id: string } | null;
+    }) => {
+      if (!attempt)
+        throw new Error("The run did not start a reasoning attempt.");
+      await commentAi.completeCommentAiAttempt(attempt.id, "needs-review");
       await getDb()
         .update(schema.commentAiRequests)
         .set({ status: "needs-review" })
         .where(eq(schema.commentAiRequests.id, OP_A));
     };
 
-    const first = await begin();
-    await endInReview(first.attempt!.id);
-    const second = await begin();
-    await endInReview(second.attempt!.id);
+    await endInReview(await begin());
+    await endInReview(await begin());
     await expect(begin()).rejects.toMatchObject({ code: "refresh_exhausted" });
 
     const retried = await begin("run-retry");
