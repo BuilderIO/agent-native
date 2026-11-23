@@ -34,12 +34,9 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip";
-import { useUpdateEvent } from "@/hooks/use-events";
+import { useEventSave } from "@/hooks/use-event-save";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
-import {
-  getCalendarEventRenderKey,
-  withCalendarEventSourceIdentity,
-} from "@/lib/calendar-event-identity";
+import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
 import { getDisplayDateInTimezone } from "@/lib/calendar-timezone";
 import { getEditableEventTitle } from "@/lib/event-form-utils";
 import { isOutOfOfficeEvent } from "@/lib/out-of-office";
@@ -159,7 +156,7 @@ export function EventDetailPanel({
   const onCloseRef = useRef(onClose);
   isEditingTitleRef.current = isEditingTitle;
   onCloseRef.current = onClose;
-  const updateEvent = useUpdateEvent();
+  const updateEvent = useEventSave();
   const [selectedAccountEmail, setSelectedAccountEmail] = useState(
     event?.accountEmail,
   );
@@ -296,15 +293,11 @@ export function EventDetailPanel({
           return;
         }
         updateEvent.mutate(
-          withCalendarEventSourceIdentity(
-            {
-              id: event.id,
-              accountEmail: event.accountEmail,
-              ...updates,
-              ...guestNotification,
-            },
-            event,
-          ),
+          event,
+          {
+            ...updates,
+            ...guestNotification,
+          },
           {
             onError: (error) => {
               lastSavedDescriptionRef.current = prev;
@@ -344,15 +337,11 @@ export function EventDetailPanel({
           return;
         }
         updateEvent.mutate(
-          withCalendarEventSourceIdentity(
-            {
-              id: event.id,
-              accountEmail: event.accountEmail,
-              targetAccountEmail,
-              ...guestNotification,
-            },
-            event,
-          ),
+          event,
+          {
+            targetAccountEmail,
+            ...guestNotification,
+          },
           {
             onSuccess: () => toast.success(t("eventForm.eventUpdated")),
             onError: (error) => {
@@ -377,15 +366,11 @@ export function EventDetailPanel({
       });
       if (!guestNotification) return;
       updateEvent.mutate(
-        withCalendarEventSourceIdentity(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
-          event,
-        ),
+        event,
+        {
+          ...updates,
+          ...guestNotification,
+        },
         {
           onSuccess: () => toast(t("eventForm.googleMeetAdded")),
           onError: (error) =>
@@ -411,15 +396,11 @@ export function EventDetailPanel({
       });
       if (!guestNotification) return;
       updateEvent.mutate(
-        withCalendarEventSourceIdentity(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
-          event,
-        ),
+        event,
+        {
+          ...updates,
+          ...guestNotification,
+        },
         {
           onError: (error) =>
             reportWriteFailure(error, { label: t("eventForm.updateFailed") }),
@@ -436,14 +417,11 @@ export function EventDetailPanel({
       if (!existing.some((attendee) => attendee.email.toLowerCase() === key)) {
         return;
       }
-      const attendees = existing.map((attendee) =>
-        attendee.email.toLowerCase() === key
-          ? {
-              ...attendee,
-              optional: optional ? true : undefined,
-            }
-          : attendee,
-      );
+      const attendees = existing.map((attendee) => {
+        if (attendee.email.toLowerCase() !== key) return attendee;
+        const { optional: _optional, ...rest } = attendee;
+        return optional ? { ...rest, optional: true } : rest;
+      });
       void (async () => {
         const updates = { attendees };
         const guestNotification = await promptGuestNotification({
@@ -453,15 +431,11 @@ export function EventDetailPanel({
         });
         if (!guestNotification) return;
         updateEvent.mutate(
-          withCalendarEventSourceIdentity(
-            {
-              id: event.id,
-              accountEmail: event.accountEmail,
-              ...updates,
-              ...guestNotification,
-            },
-            event,
-          ),
+          event,
+          {
+            ...updates,
+            ...guestNotification,
+          },
           { onError: (error) => reportWriteFailure(error) },
         );
       })();
@@ -472,18 +446,12 @@ export function EventDetailPanel({
   const handleSaveWorkingLocation = useCallback(
     (selection: WorkingLocationSelection) => {
       if (!event) return;
-      updateEvent.mutate(
-        withCalendarEventSourceIdentity(
-          buildWorkingLocationUpdate(event, selection),
-          event,
-        ),
-        {
-          onError: (error) =>
-            reportWriteFailure(error, {
-              label: t("calendarView.failedUpdateEvent"),
-            }),
-        },
-      );
+      updateEvent.mutate(event, buildWorkingLocationUpdate(event, selection), {
+        onError: (error) =>
+          reportWriteFailure(error, {
+            label: t("calendarView.failedUpdateEvent"),
+          }),
+      });
     },
     [event, t, updateEvent],
   );

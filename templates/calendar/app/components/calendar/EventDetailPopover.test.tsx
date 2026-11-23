@@ -58,7 +58,10 @@ vi.mock("@/components/layout/AppLayout", () => ({
 
 vi.mock("@/hooks/use-events", () => ({
   useEvent: () => ({ data: undefined, isLoading: false }),
-  useUpdateEvent: () => ({ mutate: updateEventMutate, isPending: false }),
+}));
+
+vi.mock("@/hooks/use-event-save", () => ({
+  useEventSave: () => ({ mutate: updateEventMutate, isPending: false }),
 }));
 
 vi.mock("@/hooks/use-google-auth", () => ({
@@ -215,8 +218,11 @@ describe("EventDetailPopover characterization", () => {
     calendarContext.setSidebarEvent.mockClear();
     calendarContext.setFocusedEvent.mockClear();
     updateEventMutate.mockImplementation(
-      (_input: unknown, options?: { onSettled?: () => void }) =>
-        options?.onSettled?.(),
+      (
+        _event: unknown,
+        _changes: unknown,
+        options?: { onSettled?: () => void },
+      ) => options?.onSettled?.(),
     );
   });
 
@@ -861,9 +867,8 @@ describe("EventDetailPopover characterization", () => {
       expect.objectContaining({
         id: "event-2",
         accountEmail: "steve@example.com",
-        location: "Room B",
-        sendUpdates: "all",
       }),
+      expect.objectContaining({ location: "Room B", sendUpdates: "all" }),
       expect.objectContaining({ onSettled: expect.any(Function) }),
     );
   });
@@ -917,9 +922,8 @@ describe("EventDetailPopover characterization", () => {
       expect.objectContaining({
         id: "event-3",
         accountEmail: "steve@example.com",
-        location: "Room B",
-        sendUpdates: "none",
       }),
+      expect.objectContaining({ location: "Room B", sendUpdates: "none" }),
       expect.objectContaining({ onSettled: expect.any(Function) }),
     );
   });
@@ -1013,11 +1017,8 @@ describe("EventDetailPopover characterization", () => {
     });
 
     expect(updateEventMutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "event-recurring",
-        removeGoogleMeet: true,
-        scope: "all",
-      }),
+      expect.objectContaining({ id: "event-recurring" }),
+      expect.objectContaining({ removeGoogleMeet: true, scope: "all" }),
       expect.objectContaining({ onSettled: expect.any(Function) }),
     );
   });

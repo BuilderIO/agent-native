@@ -80,14 +80,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useEventSave } from "@/hooks/use-event-save";
 import {
   useEvents,
   useCreateEvent,
-  useUpdateEvent,
   useDeleteEvent,
   useRsvpEvent,
   findEventByCurrentOrReplacedId,
   findVisibleSelectedEvent,
+  type UpdateEventResult,
   prefetchEvents,
   shouldShowEventsSkeleton,
 } from "@/hooks/use-events";
@@ -599,7 +600,7 @@ export default function CalendarView({
       .filter((email) => !coveredByGoogle.has(email.toLowerCase()));
   }, [overlayPeople, enabledGoogleSources]);
   const createEvent = useCreateEvent();
-  const updateEvent = useUpdateEvent();
+  const updateEvent = useEventSave();
   const deleteEvent = useDeleteEvent();
   const rsvpEvent = useRsvpEvent();
   const { promptGuestNotification, guestNotificationDialog } =
@@ -1453,19 +1454,15 @@ export default function CalendarView({
     if (!guestNotification) return;
 
     const undoScope = guestNotification.scope;
-    const undo = () => {
+    const undoFrom = (saved: UpdateEventResult) => () => {
       updateEvent.mutate(
-        withCalendarEventSourceIdentity(
-          {
-            id: eventId,
-            accountEmail: event.accountEmail,
-            start: oldStartISO,
-            end: oldEndISO,
-            sendUpdates: "none",
-            ...updateScopePayload(undoScope),
-          },
-          event,
-        ),
+        { ...event, ...updates, ...saved, id: eventId },
+        {
+          start: oldStartISO,
+          end: oldEndISO,
+          sendUpdates: "none",
+          ...updateScopePayload(undoScope),
+        },
         { onError: (error) => reportWriteFailure(error) },
       );
     };
@@ -1476,17 +1473,14 @@ export default function CalendarView({
     );
 
     updateEvent.mutate(
-      withCalendarEventSourceIdentity(
-        {
-          id: eventId,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        },
-        event,
-      ),
+      event,
       {
-        onSuccess: () => {
+        ...updates,
+        ...guestNotification,
+      },
+      {
+        onSuccess: (saved) => {
+          const undo = undoFrom(saved);
           setUndoAction(undo);
           toast.success(t("calendarView.eventMoved"), {
             id: toastId,
@@ -1550,19 +1544,15 @@ export default function CalendarView({
       if (!guestNotification) return;
 
       const undoScope = guestNotification.scope;
-      const undo = () => {
+      const undoFrom = (saved: UpdateEventResult) => () => {
         updateEvent.mutate(
-          withCalendarEventSourceIdentity(
-            {
-              id: eventId,
-              accountEmail: event.accountEmail,
-              start: oldStartISO,
-              end: oldEndISO,
-              sendUpdates: "none",
-              ...updateScopePayload(undoScope),
-            },
-            event,
-          ),
+          { ...event, ...updates, ...saved, id: eventId },
+          {
+            start: oldStartISO,
+            end: oldEndISO,
+            sendUpdates: "none",
+            ...updateScopePayload(undoScope),
+          },
           { onError: (error) => reportWriteFailure(error) },
         );
       };
@@ -1573,17 +1563,11 @@ export default function CalendarView({
       );
 
       try {
-        await updateEvent.mutateAsync(
-          withCalendarEventSourceIdentity(
-            {
-              id: eventId,
-              accountEmail: event.accountEmail,
-              ...updates,
-              ...guestNotification,
-            },
-            event,
-          ),
-        );
+        const saved = await updateEvent.mutateAsync(event, {
+          ...updates,
+          ...guestNotification,
+        });
+        const undo = undoFrom(saved);
         setUndoAction(undo);
         toast.success(t("calendarView.eventUpdated"), {
           id: toastId,
@@ -1825,15 +1809,11 @@ export default function CalendarView({
         });
         if (!guestNotification) return;
         updateEvent.mutate(
-          withCalendarEventSourceIdentity(
-            {
-              id: event.id,
-              accountEmail: event.accountEmail,
-              ...updates,
-              ...guestNotification,
-            },
-            event,
-          ),
+          event,
+          {
+            ...updates,
+            ...guestNotification,
+          },
           { onError: (error) => reportWriteFailure(error) },
         );
       }
@@ -1860,15 +1840,11 @@ export default function CalendarView({
       });
       if (!guestNotification) return;
       updateEvent.mutate(
-        withCalendarEventSourceIdentity(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
-          event,
-        ),
+        event,
+        {
+          ...updates,
+          ...guestNotification,
+        },
         { onError: (error) => reportWriteFailure(error) },
       );
     },
