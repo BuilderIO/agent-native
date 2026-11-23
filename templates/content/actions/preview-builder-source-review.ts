@@ -12,6 +12,7 @@ import {
   builderReviewDocumentScope,
   builderReviewFirstDocumentIds,
   getContentDatabaseSourceSnapshotForReview,
+  isReviewableBuilderChangeSet,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import {
@@ -78,7 +79,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "With scope all and a batchSize above 0, review the first pages with a saved pending change, or else the first pages whose body changed, without finding unsaved field edits or listing the rest; list them after with batchSize 0",
+        "With scope all and a batchSize above 0, review the first pages whose body changed, without working out field edits from the rows or listing the rest; reviews none when a saved change is pending. List the rest after with batchSize 0",
       ),
   }),
   http: { method: "GET" },
@@ -218,14 +219,7 @@ export default defineAction({
       ? new Set(reviewDocumentIds)
       : null;
     const allReviewableChanges = source.changeSets.filter((changeSet) => {
-      if (
-        changeSet.direction !== "outbound" ||
-        (changeSet.state !== "pending_push" &&
-          changeSet.state !== "staged_revision" &&
-          changeSet.state !== "approved")
-      ) {
-        return false;
-      }
+      if (!isReviewableBuilderChangeSet(changeSet)) return false;
       return (
         !reviewDocumentIdSet ||
         (!!changeSet.documentId &&

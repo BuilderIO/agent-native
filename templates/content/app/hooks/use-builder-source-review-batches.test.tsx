@@ -199,14 +199,10 @@ describe("useBuilderSourceReviewBatches", () => {
 
   it("quick-starts a whole source with no changed pages known, then lists the rest", async () => {
     const quickStart = deferred<PreviewBuilderSourceReviewResponse>();
+    const listing = deferred<PreviewBuilderSourceReviewResponse>();
     callAction.mockImplementation(async (_name: string, params: Request) => {
       if (params.quickStart) return quickStart.promise;
-      if (params.batchSize === 0) {
-        return response([], {
-          documentIds: [],
-          remainingDocumentIds: ["doc-1", "doc-2", "doc-3"],
-        });
-      }
+      if (params.batchSize === 0) return listing.promise;
       const ids = params.documentIds ?? [];
       return response(ids.map((id) => row(`c-${id}`, id)));
     });
@@ -236,6 +232,22 @@ describe("useBuilderSourceReviewBatches", () => {
 
     expect(requests().slice(1)).toEqual([
       expect.objectContaining({ scope: "all", batchSize: 0 }),
+    ]);
+    expect(latest.loadingFirstBatch).toBe(false);
+    expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
+      ["c-doc-1", "c-doc-2"],
+    );
+    expect(latest.progress).toEqual({ kind: "listing", pageCount: 0 });
+
+    listing.resolve(
+      response([], {
+        documentIds: [],
+        remainingDocumentIds: ["doc-1", "doc-2", "doc-3"],
+      }),
+    );
+    await settle();
+
+    expect(requests().slice(2)).toEqual([
       expect.objectContaining({
         scope: "selected",
         documentIds: ["doc-3"],

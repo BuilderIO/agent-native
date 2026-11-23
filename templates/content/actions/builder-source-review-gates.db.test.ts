@@ -650,7 +650,7 @@ describe("Builder source review execution gates", () => {
     expect(both.documentIds).toEqual([laterDocumentId, seeded.rowDocumentId]);
   });
 
-  it("quick-starts a whole source on its saved pending changes before any changed body", async () => {
+  it("leaves a whole source with a saved pending change to its listing instead of quick-starting it", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
     });
@@ -672,10 +672,13 @@ describe("Builder source review execution gates", () => {
       }),
     );
 
-    expect(response.documentIds).toEqual([seeded.rowDocumentId]);
-    expect(response.review?.rows.map((row) => row.changeSetId)).toEqual([
-      seeded.changeSetId,
-    ]);
+    expect(response).toMatchObject({
+      sourceId: seeded.sourceId,
+      review: null,
+      changeSetIds: [],
+      documentIds: [],
+    });
+    expect(response.remainingDocumentIds).toBeUndefined();
   });
 
   it("lists an unchanged body with images only when the current converter has not hydrated it", async () => {

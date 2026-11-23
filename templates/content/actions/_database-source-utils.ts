@@ -5144,7 +5144,7 @@ async function builderReviewSource(
   return source;
 }
 
-function isReviewableBuilderChangeSet(changeSet: {
+export function isReviewableBuilderChangeSet(changeSet: {
   direction: string;
   state: string;
 }) {
@@ -5180,16 +5180,9 @@ export async function builderReviewFirstDocumentIds(
       state: schema.contentDatabaseSourceChangeSets.state,
     })
     .from(schema.contentDatabaseSourceChangeSets)
-    .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id))
-    .orderBy(asc(schema.contentDatabaseSourceChangeSets.createdAt));
-  const reviewable = changeSets.filter(isReviewableBuilderChangeSet);
-  if (reviewable.length > 0) {
-    const documentIds = new Set(
-      reviewable.flatMap((changeSet) =>
-        changeSet.documentId ? [changeSet.documentId] : [],
-      ),
-    );
-    return { ...found, documentIds: [...documentIds].slice(0, limit) };
+    .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id));
+  if (changeSets.some(isReviewableBuilderChangeSet)) {
+    return { ...found, documentIds: [] };
   }
   const rejected = new Set(
     changeSets.flatMap((changeSet) =>
