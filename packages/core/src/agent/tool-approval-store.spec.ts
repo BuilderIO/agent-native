@@ -190,6 +190,27 @@ describe("agent tool approval store", () => {
     ).resolves.toBe("not_applied");
   });
 
+  it("resolves an exact pending approval when the continuation sends a different turn id", async () => {
+    const approvalId = "agent-tool-approval-exact";
+    dbMocks.execute.mockResolvedValueOnce({
+      rows: [{ turn_id: "turn-1" }],
+      rowsAffected: 0,
+    });
+    const { resolveAgentToolApprovalTurnId } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      resolveAgentToolApprovalTurnId({
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+        requestedTurnId: "turn-replayed",
+        approvalKeys: [binding.approvalKey],
+        approvalId,
+      }),
+    ).resolves.toBe("turn-1");
+  });
+
   it("does not guess between pending approvals from different turns", async () => {
     dbMocks.execute.mockResolvedValueOnce({
       rows: [{ turn_id: "turn-1" }, { turn_id: "turn-2" }],

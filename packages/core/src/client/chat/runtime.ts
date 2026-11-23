@@ -9,6 +9,7 @@ import {
 
 import type { ActionChatUIConfig } from "../../action-ui.js";
 import {
+  APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
   AUTO_CONTINUE_OF_RUN_METADATA_KEY,
   CONTINUE_OF_RUN_METADATA_KEY,
 } from "../../agent/auto-continue.js";
@@ -6080,9 +6081,7 @@ export function createAgentNativeChatRuntime(
       if (messageState) messageState.message.approvalPending = false;
       return startTurn({
         ...continuationTurn,
-        prompt:
-          continuation.prompt ??
-          "The approved action has run. Do not repeat it; use its result in your reply.",
+        prompt: continuation.prompt ?? APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
         metadata: {
           ...previousMetadata,
           ...continuationMetadata,
