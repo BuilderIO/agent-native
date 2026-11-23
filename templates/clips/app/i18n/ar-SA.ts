@@ -1407,6 +1407,7 @@ const messages = {
     building: "جارٍ الإنشاء…",
     notSaving: "لا يتم حفظ الخطوات",
     finishFailed: "تعذّر إنهاء الالتقاط",
+    close: "إغلاق",
   },
   notificationsRoute: {
     pageTitle: "الإشعارات · Clips",

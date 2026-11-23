@@ -47,6 +47,8 @@ export function StepToolbar() {
   const paused = status?.paused ?? false;
   const count = status?.stepCount ?? 0;
   const problem = finishError ?? status?.saveError ?? null;
+  const failed = status !== null && !status.active && Boolean(status.saveError);
+  const sessionId = status?.sessionId ?? null;
 
   const togglePause = () => {
     invoke<StepCaptureStatus>("step_capture_set_paused", { paused: !paused })
@@ -62,6 +64,21 @@ export function StepToolbar() {
       setFinishError(error instanceof Error ? error.message : String(error));
       setFinishing(false);
     });
+  };
+
+  const showFiles = () => {
+    if (!sessionId) return;
+    invoke("step_guide_open", { sessionId, path: null }).catch(
+      (error: unknown) => {
+        setFinishError(error instanceof Error ? error.message : String(error));
+      },
+    );
+  };
+
+  const dismiss = () => {
+    invoke("step_capture_dismiss").catch((error: unknown) =>
+      console.error("step capture dismiss failed", error),
+    );
   };
 
   return (
@@ -82,32 +99,57 @@ export function StepToolbar() {
         title={problem ?? undefined}
         className="flex-1 truncate text-[13px] font-medium tabular-nums"
       >
-        {finishError
+        {finishError || failed
           ? t("stepGuide.finishFailed")
           : status?.saveError
             ? t("stepGuide.notSaving")
             : `${paused ? t("stepGuide.paused") : t("stepGuide.recording")} · ${t("stepGuide.stepCount", { count })}`}
       </span>
-      <button
-        type="button"
-        title={paused ? t("stepGuide.resume") : t("stepGuide.pause")}
-        aria-label={paused ? t("stepGuide.resume") : t("stepGuide.pause")}
-        onClick={togglePause}
-        disabled={finishing}
-        // guard:allow-raw-color — theme-invariant capture chrome, like the recording toolbar.
-        className="inline-flex size-7 cursor-pointer items-center justify-center rounded-full text-zinc-200 hover:bg-white/15 disabled:opacity-40 [&_svg]:size-3.5"
-      >
-        {paused ? <IconPlayerPlayFilled /> : <IconPlayerPauseFilled />}
-      </button>
-      <button
-        type="button"
-        onClick={finish}
-        disabled={finishing}
-        // guard:allow-raw-color — theme-invariant capture chrome, like the recording toolbar.
-        className="inline-flex h-7 cursor-pointer items-center rounded-full bg-white px-3 text-[13px] font-semibold text-zinc-900 hover:bg-zinc-200 disabled:opacity-60"
-      >
-        {finishing ? t("stepGuide.building") : t("stepGuide.done")}
-      </button>
+      {failed ? (
+        <>
+          {sessionId ? (
+            <button
+              type="button"
+              onClick={showFiles}
+              // guard:allow-raw-color — theme-invariant capture chrome, like the recording toolbar.
+              className="inline-flex h-7 cursor-pointer items-center rounded-full px-3 text-[13px] font-medium text-zinc-200 hover:bg-white/15"
+            >
+              {t("stepGuide.showFiles")}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={dismiss}
+            // guard:allow-raw-color — theme-invariant capture chrome, like the recording toolbar.
+            className="inline-flex h-7 cursor-pointer items-center rounded-full bg-white px-3 text-[13px] font-semibold text-zinc-900 hover:bg-zinc-200"
+          >
+            {t("stepGuide.close")}
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            title={paused ? t("stepGuide.resume") : t("stepGuide.pause")}
+            aria-label={paused ? t("stepGuide.resume") : t("stepGuide.pause")}
+            onClick={togglePause}
+            disabled={finishing}
+            // guard:allow-raw-color — theme-invariant capture chrome, like the recording toolbar.
+            className="inline-flex size-7 cursor-pointer items-center justify-center rounded-full text-zinc-200 hover:bg-white/15 disabled:opacity-40 [&_svg]:size-3.5"
+          >
+            {paused ? <IconPlayerPlayFilled /> : <IconPlayerPauseFilled />}
+          </button>
+          <button
+            type="button"
+            onClick={finish}
+            disabled={finishing}
+            // guard:allow-raw-color — theme-invariant capture chrome, like the recording toolbar.
+            className="inline-flex h-7 cursor-pointer items-center rounded-full bg-white px-3 text-[13px] font-semibold text-zinc-900 hover:bg-zinc-200 disabled:opacity-60"
+          >
+            {finishing ? t("stepGuide.building") : t("stepGuide.done")}
+          </button>
+        </>
+      )}
     </div>
   );
 }

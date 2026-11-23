@@ -1442,6 +1442,7 @@ const messages = {
     building: "Wird erstellt…",
     notSaving: "Schritte werden nicht gespeichert",
     finishFailed: "Aufnahme konnte nicht abgeschlossen werden",
+    close: "Schließen",
   },
   notificationsRoute: {
     pageTitle: "Benachrichtigungen · Clips",

@@ -1370,6 +1370,7 @@ const messages = {
     building: "बन रही है…",
     notSaving: "चरण सहेजे नहीं जा रहे हैं",
     finishFailed: "कैप्चर पूरा नहीं हो सका",
+    close: "बंद करें",
   },
   notificationsRoute: {
     pageTitle: "सूचनाएं · Clips",

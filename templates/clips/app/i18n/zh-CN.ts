@@ -1320,6 +1320,7 @@ const messages = {
     building: "正在生成…",
     notSaving: "步骤未被保存",
     finishFailed: "无法完成捕获",
+    close: "关闭",
   },
   notificationsRoute: {
     pageTitle: "通知 · Clips",

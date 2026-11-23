@@ -1323,6 +1323,7 @@ const messages = {
     building: "Building…",
     notSaving: "Steps aren't being saved",
     finishFailed: "Couldn't finish the capture",
+    close: "Close",
   },
   notificationsRoute: {
     pageTitle: "Notifications · Clips",

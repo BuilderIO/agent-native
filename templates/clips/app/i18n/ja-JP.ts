@@ -1412,6 +1412,7 @@ const messages = {
     building: "作成中…",
     notSaving: "ステップが保存されていません",
     finishFailed: "キャプチャを完了できませんでした",
+    close: "閉じる",
   },
   notificationsRoute: {
     pageTitle: "通知 · Clips",

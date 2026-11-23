@@ -305,14 +305,19 @@ export function StepGuideEditor({
   const saving = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
-    if (!sessionId) {
-      setStatus({ kind: "error", text: t("stepGuide.noSession") });
-      return;
-    }
+    if (!sessionId) return;
+    let current = true;
     invoke<LoadedGuide>("step_guide_load", { sessionId })
-      .then(setLoaded)
-      .catch((error) => setStatus({ kind: "error", text: errorText(error) }));
-  }, [sessionId, t]);
+      .then((guide) => {
+        if (current) setLoaded(guide);
+      })
+      .catch((error: unknown) => {
+        if (current) setStatus({ kind: "error", text: errorText(error) });
+      });
+    return () => {
+      current = false;
+    };
+  }, [sessionId]);
 
   const flush = useCallback(() => {
     window.clearTimeout(saveTimer.current);
@@ -404,14 +409,19 @@ export function StepGuideEditor({
       await invoke("step_guide_open", { sessionId, path: null });
     });
 
-  if (!loaded && status.kind === "error") {
+  const loadError = !sessionId
+    ? t("stepGuide.noSession")
+    : !loaded && status.kind === "error"
+      ? status.text
+      : null;
+  if (loadError) {
     return (
       <div
         data-tw-surface
         role="alert"
         className="flex h-full items-center justify-center bg-muted text-sm text-muted-foreground"
       >
-        {status.text}
+        {loadError}
       </div>
     );
   }

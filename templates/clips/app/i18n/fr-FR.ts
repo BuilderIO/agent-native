@@ -1443,6 +1443,7 @@ const messages = {
     building: "Création…",
     notSaving: "Les étapes ne sont pas enregistrées",
     finishFailed: "Impossible de terminer la capture",
+    close: "Fermer",
   },
   notificationsRoute: {
     pageTitle: "Alertes · Clips",

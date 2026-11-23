@@ -357,6 +357,22 @@ struct ActiveCapture {
 }
 
 static ACTIVE: Mutex<Option<ActiveCapture>> = Mutex::new(None);
+
+/// The last session whose final save failed, kept so the toolbar can say so
+/// and show its files until the user closes it.
+struct FailedCapture {
+    session_id: String,
+    directory: PathBuf,
+    error: String,
+}
+
+static FAILED: Mutex<Option<FailedCapture>> = Mutex::new(None);
+
+fn set_failed(failed: Option<FailedCapture>) {
+    *FAILED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = failed;
+}
 /// Held while a session is set up or torn down, so a start never overlaps
 /// a stop's cleanup and `ACTIVE` is not locked across main-thread calls.
 static BUSY: AtomicBool = AtomicBool::new(false);
@@ -559,14 +575,21 @@ fn status_of(active: &Option<ActiveCapture>) -> StepCaptureStatus {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone(),
         },
-        None => StepCaptureStatus {
-            active: false,
-            session_id: None,
-            directory: None,
-            step_count: 0,
-            paused: false,
-            save_error: None,
-        },
+        None => {
+            let failed = FAILED
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            StepCaptureStatus {
+                active: false,
+                session_id: failed.as_ref().map(|failed| failed.session_id.clone()),
+                directory: failed
+                    .as_ref()
+                    .map(|failed| failed.directory.display().to_string()),
+                step_count: 0,
+                paused: false,
+                save_error: failed.as_ref().map(|failed| failed.error.clone()),
+            }
+        }
     }
 }
 
@@ -650,6 +673,7 @@ pub async fn step_capture_start(app: AppHandle) -> Result<StepCaptureStatus, Str
     };
 
     PAUSED.store(false, Ordering::SeqCst);
+    set_failed(None);
     *active = Some(ActiveCapture {
         session_id,
         directory,
@@ -680,16 +704,39 @@ pub async fn step_capture_stop(app: AppHandle) -> Result<StepCaptureSession, Str
         eprintln!("[clips-tray] step capture: {error}");
     }
     PAUSED.store(false, Ordering::SeqCst);
+    let _ = capture.sender.send(WorkerMessage::Finish);
+    let (session_id, directory) = (capture.session_id, capture.directory);
+    let worker = capture.worker;
+    let session = tauri::async_runtime::spawn_blocking(move || worker.join())
+        .await
+        .map_err(|error| format!("step capture worker could not be joined: {error}"))
+        .and_then(|joined| joined.map_err(|_| "step capture worker panicked".to_string()))
+        .and_then(|result| result);
+    match &session {
+        Ok(_) => close_toolbar(&app),
+        Err(error) => set_failed(Some(FailedCapture {
+            session_id,
+            directory,
+            error: error.clone(),
+        })),
+    }
+    emit_status(&app);
+    session
+}
+
+fn close_toolbar(app: &AppHandle) {
     if let Some(toolbar) = app.get_webview_window(TOOLBAR_LABEL) {
         let _ = toolbar.close();
     }
-    let _ = capture.sender.send(WorkerMessage::Finish);
-    let session = tauri::async_runtime::spawn_blocking(move || capture.worker.join())
-        .await
-        .map_err(|error| format!("step capture worker could not be joined: {error}"))?
-        .map_err(|_| "step capture worker panicked".to_string());
+}
+
+/// Close the toolbar left open by a capture whose final save failed.
+#[tauri::command]
+pub async fn step_capture_dismiss(app: AppHandle) -> Result<(), String> {
+    set_failed(None);
+    close_toolbar(&app);
     emit_status(&app);
-    session?
+    Ok(())
 }
 
 /// Pause or resume: clicks while paused are not steps.
@@ -965,8 +1012,13 @@ pub async fn step_guide_open(
     let directory = session_directory(&app, &session_id)?;
     match path {
         Some(path) => {
-            let path = PathBuf::from(path);
-            let downloads = app.path().download_dir().ok();
+            let path = std::fs::canonicalize(PathBuf::from(path))
+                .map_err(|_| "only exported guides can be opened".to_string())?;
+            let downloads = app
+                .path()
+                .download_dir()
+                .ok()
+                .and_then(|downloads| std::fs::canonicalize(downloads).ok());
             let allowed = path.extension().is_some_and(|ext| ext == "pdf")
                 && downloads.is_some_and(|downloads| path.starts_with(downloads));
             if !allowed {

@@ -1389,6 +1389,7 @@ const messages = {
     building: "만드는 중…",
     notSaving: "단계가 저장되지 않고 있습니다",
     finishFailed: "캡처를 완료하지 못했습니다",
+    close: "닫기",
   },
   notificationsRoute: {
     pageTitle: "알림 · Clips",

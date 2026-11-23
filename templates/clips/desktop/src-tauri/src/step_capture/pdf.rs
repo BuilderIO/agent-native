@@ -78,7 +78,8 @@ pub fn paginate(
             }
             GuideItem::Note { text, .. } => (text_height(text) + NOTE_PADDING, None, 0.0),
         };
-        if PAGE_TOP + height - ITEM_GAP > PAGE_HEIGHT - PAGE_BOTTOM {
+        let fits_from = |start: f64| start + height - ITEM_GAP <= PAGE_HEIGHT - PAGE_BOTTOM;
+        if !fits_from(PAGE_TOP) {
             return Err(match step_number {
                 Some(step) => format!(
                     "Step {step} is too long to fit on a PDF page. Shorten its text, or move some of it into a note."
@@ -88,8 +89,7 @@ pub fn paginate(
                 ),
             });
         }
-        let page_has_items = !pages.last().is_some_and(Vec::is_empty);
-        if page_has_items && top + height - ITEM_GAP > PAGE_HEIGHT - PAGE_BOTTOM {
+        if !fits_from(top) {
             pages.push(Vec::new());
             top = PAGE_TOP;
         }
@@ -717,6 +717,28 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("Step 1"), "{error}");
+    }
+
+    #[test]
+    fn an_item_too_tall_for_the_first_page_starts_on_the_next() {
+        let mut items = vec![step("a", false)];
+        if let GuideItem::Step { text, .. } = &mut items[0] {
+            *text = "A very long instruction".into();
+        }
+        let pages = paginate(
+            &guide(items),
+            |text| {
+                if text.len() > 20 {
+                    680.0
+                } else {
+                    16.0
+                }
+            },
+        )
+        .unwrap();
+        assert!(pages[0].is_empty());
+        assert_eq!(pages[1][0].top, PAGE_TOP);
+        assert!(pages[1][0].top + pages[1][0].height - ITEM_GAP <= PAGE_HEIGHT - PAGE_BOTTOM);
     }
 
     #[test]

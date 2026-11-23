@@ -16,7 +16,8 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use super::{
-    StepCaptureSession, StepCaptureStep, StepClickType, StepImage, StepTarget, StepWindow,
+    StepCaptureSession, StepCaptureStep, StepClickType, StepDisplay, StepImage, StepTarget,
+    StepWindow,
 };
 
 pub const GUIDE_FILE: &str = "guide.json";
@@ -323,7 +324,11 @@ enum Place {
     Dock,
 }
 
-fn place_of(step: &StepCaptureStep, previous: Option<(Place, &StepCaptureStep)>) -> Place {
+fn place_of(
+    step: &StepCaptureStep,
+    previous: Option<(Place, &StepCaptureStep)>,
+    next: Option<&StepCaptureStep>,
+) -> Place {
     if owner_of(step) == Some("Dock") {
         return Place::Dock;
     }
@@ -331,10 +336,13 @@ fn place_of(step: &StepCaptureStep, previous: Option<(Place, &StepCaptureStep)>)
         return Place::Window;
     };
     let y = step.location.y - display.frame.y;
+    let unknown_target = matches!(step.target, StepTarget::Unavailable { .. });
     // A menu opened from the menu bar lies over whatever window is beneath
     // it, so the click below its title picks an item even when a window was
-    // found under the pointer.
-    if let Some((Place::MenuBar, title)) = previous {
+    // found under the pointer. Without Accessibility nothing confirms the
+    // menu was still open, so such a click stays in its window.
+    let window_found = !matches!(step.window, StepWindow::None);
+    if let Some((Place::MenuBar, title)) = previous.filter(|_| !(unknown_target && window_found)) {
         let x = step.location.x - title.location.x;
         if y > MENU_BAR_HEIGHT
             && y < display.frame.height - DOCK_HEIGHT
@@ -343,7 +351,19 @@ fn place_of(step: &StepCaptureStep, previous: Option<(Place, &StepCaptureStep)>)
             return Place::Menu;
         }
     }
-    if !matches!(step.window, StepWindow::None) {
+    // The Dock is not in the window list, so over a fullscreen app the window
+    // beneath is found instead. A click in the Dock's band that leads into
+    // another app was a Dock icon.
+    if unknown_target
+        && covers_display(&step.window, display)
+        && y >= display.frame.height - DOCK_HEIGHT
+        && next
+            .and_then(owner_of)
+            .is_some_and(|next_owner| Some(next_owner) != owner_of(step))
+    {
+        return Place::Dock;
+    }
+    if window_found {
         return Place::Window;
     }
     if y <= MENU_BAR_HEIGHT {
@@ -354,6 +374,18 @@ fn place_of(step: &StepCaptureStep, previous: Option<(Place, &StepCaptureStep)>)
         Place::Menu
     } else {
         Place::Window
+    }
+}
+
+fn covers_display(window: &StepWindow, display: &StepDisplay) -> bool {
+    match window {
+        StepWindow::Found { frame, .. } => {
+            frame.x <= display.frame.x + 1.0
+                && frame.y <= display.frame.y + 1.0
+                && frame.x + frame.width >= display.frame.x + display.frame.width - 1.0
+                && frame.y + frame.height >= display.frame.y + display.frame.height - 1.0
+        }
+        StepWindow::None => false,
     }
 }
 
@@ -619,7 +651,7 @@ pub fn build_guide(
         let previous = places
             .last()
             .map(|place| (*place, &session.steps[index - 1]));
-        places.push(place_of(step, previous));
+        places.push(place_of(step, previous, session.steps.get(index + 1)));
     }
     let images = session
         .steps
@@ -926,6 +958,59 @@ mod tests {
             panic!("no image");
         };
         assert_eq!((image.crop.x, image.crop.y), (0.0, 0.0));
+    }
+
+    #[test]
+    fn without_accessibility_a_window_click_after_a_menu_title_stays_in_the_window() {
+        let unavailable = || StepTarget::Unavailable {
+            reason: StepTargetUnavailableReason::NotTrusted,
+            code: None,
+        };
+        let at = |target: StepTarget, window: StepWindow, x: f64, y: f64| {
+            let mut step = step(target, window);
+            step.location = StepPoint { x, y };
+            step
+        };
+        let finder = window("Finder", display().frame);
+        let title = at(unavailable(), StepWindow::None, 261.0, 15.0);
+        let click = at(unavailable(), finder.clone(), 450.0, 395.0);
+        assert_eq!(
+            place_of(&click, Some((Place::MenuBar, &title)), None),
+            Place::Window
+        );
+        let labeled_row = at(labeled("AXStaticText", "Utilities"), finder, 450.0, 395.0);
+        assert_eq!(
+            place_of(&labeled_row, Some((Place::MenuBar, &title)), None),
+            Place::Menu
+        );
+    }
+
+    #[test]
+    fn a_dock_click_over_a_fullscreen_app_is_in_the_dock_when_it_opens_another_app() {
+        let unavailable = || StepTarget::Unavailable {
+            reason: StepTargetUnavailableReason::NotTrusted,
+            code: None,
+        };
+        let mut dock_click = step(unavailable(), window("Keynote", display().frame));
+        dock_click.location.y = 960.0;
+        let safari = step(unavailable(), window("Safari", display().frame));
+        let keynote = step(unavailable(), window("Keynote", display().frame));
+        assert_eq!(place_of(&dock_click, None, Some(&safari)), Place::Dock);
+        assert_eq!(place_of(&dock_click, None, Some(&keynote)), Place::Window);
+        assert_eq!(place_of(&dock_click, None, None), Place::Window);
+
+        let small = window(
+            "Keynote",
+            StepRect {
+                x: 100.0,
+                y: 100.0,
+                width: 800.0,
+                height: 870.0,
+            },
+        );
+        let mut over_small = step(unavailable(), small);
+        over_small.location.y = 960.0;
+        assert_eq!(place_of(&over_small, None, Some(&safari)), Place::Window);
     }
 
     /// Rebuilds a recorded session's guide with screenshot labels:

@@ -384,6 +384,7 @@ pub fn run() {
             step_capture::step_capture_status,
             step_capture::step_capture_set_paused,
             step_capture::step_capture_finish,
+            step_capture::step_capture_dismiss,
             step_capture::step_guide_load,
             step_capture::step_guide_save,
             step_capture::step_guide_export_pdf,

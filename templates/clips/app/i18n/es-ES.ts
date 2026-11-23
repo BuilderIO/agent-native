@@ -1441,6 +1441,7 @@ const messages = {
     building: "Creando…",
     notSaving: "Los pasos no se están guardando",
     finishFailed: "No se pudo terminar la captura",
+    close: "Cerrar",
   },
   notificationsRoute: {
     pageTitle: "Notificaciones · Clips",

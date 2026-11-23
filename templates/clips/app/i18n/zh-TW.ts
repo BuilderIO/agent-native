@@ -1322,6 +1322,7 @@ const messages = {
     building: "正在產生…",
     notSaving: "步驟未儲存",
     finishFailed: "無法完成擷取",
+    close: "關閉",
   },
   notificationsRoute: {
     pageTitle: "通知 · Clips",
