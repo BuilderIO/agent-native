@@ -1373,20 +1373,10 @@ export async function beginCommentAiAttempt(request: RequestRow) {
       }
     }
     if (locked.attemptCount >= MAX_ATTEMPTS) {
-      const exhausted = operationError(
+      throw operationError(
         "refresh_exhausted",
-        "The Page kept changing while AI worked. Review the retained operation before retrying.",
+        "The AI operation reached its attempt limit. Review the retained operation before retrying.",
       );
-      await tx
-        .update(schema.commentAiRequests)
-        .set({
-          status: "needs-review",
-          errorCode: exhausted.code,
-          error: exhausted.message,
-          updatedAt: now,
-        })
-        .where(eq(schema.commentAiRequests.id, locked.id));
-      throw exhausted;
     }
     if (locked.activeAttemptId) {
       await tx
