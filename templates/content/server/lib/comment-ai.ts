@@ -1311,7 +1311,7 @@ export async function beginCommentAiAttempt(request: RequestRow) {
   const threadDigest = currentThreadDigest(request, source.comments);
   const now = new Date().toISOString();
 
-  return getDb().transaction(async (tx) => {
+  const outcome = await getDb().transaction(async (tx) => {
     const [locked] = await tx
       .select()
       .from(schema.commentAiRequests)
@@ -1386,7 +1386,7 @@ export async function beginCommentAiAttempt(request: RequestRow) {
           updatedAt: now,
         })
         .where(eq(schema.commentAiRequests.id, locked.id));
-      throw exhausted;
+      return { kind: "exhausted" as const, error: exhausted };
     }
     if (locked.activeAttemptId) {
       await tx
@@ -1425,6 +1425,8 @@ export async function beginCommentAiAttempt(request: RequestRow) {
       .returning();
     return { request: updated, attempt, source };
   });
+  if ("kind" in outcome) throw outcome.error;
+  return outcome;
 }
 
 export async function verifyCommentAiAttempt(
