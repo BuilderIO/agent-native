@@ -24,6 +24,7 @@ import type {
   ContentDatabaseItem,
   ContentDatabasePersonalViewResponse,
   ContentDatabaseSourceFieldMapping,
+  ContentDatabaseSourceOverlay,
   CreateInlineDatabaseRequest,
   CreateInlineDatabaseResponse,
   DocumentPropertyType,
@@ -41,6 +42,7 @@ import type {
   ExecuteBuilderSourceExecutionRequest,
   MoveDatabaseItemRequest,
   PrepareBuilderSourceExecutionRequest,
+  PreviewBuilderSourceReviewResponse,
   PrepareBuilderSourceReviewRequest,
   PrepareBuilderSourceReviewResponse,
   ProcessBuilderBodyHydrationRequest,
@@ -63,7 +65,11 @@ import { contentDatabaseViewsShowPageText } from "@shared/database-item-layout";
 import { OPENING_DATABASE_ROW_LIMIT } from "@shared/database-open-table-query";
 import { hydrateContentDatabaseResponse } from "@shared/database-row-properties";
 import type { Query, QueryClient } from "@tanstack/react-query";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutationState,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useMemo } from "react";
 
 import { documentQueryFilter } from "../lib/document-query";
@@ -1018,6 +1024,30 @@ export function useContentDatabaseById(
       meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
+}
+
+export function useContentDatabaseRowSourceOverlays(
+  databaseId: string | null,
+  rowDocumentId: string,
+):
+  | { state: "pending" }
+  | { state: "unreadable"; retry: () => void }
+  | { state: "read"; overlays: ContentDatabaseSourceOverlay[] } {
+  const read = useActionQuery<ContentDatabaseItemsPageResponse>(
+    "query-content-database-items",
+    databaseId ? { databaseId, rowDocumentId, limit: 1 } : undefined,
+    { enabled: !!databaseId, retry: false },
+  );
+  if (read.data && !isContentDatabaseUnavailable(read.data)) {
+    const row = read.data.items.find(
+      (item) => item.document.id === rowDocumentId,
+    );
+    return { state: "read", overlays: row?.sourceOverlays ?? [] };
+  }
+  if (read.data || read.isError) {
+    return { state: "unreadable", retry: () => void read.refetch() };
+  }
+  return { state: "pending" };
 }
 
 /**
@@ -2041,12 +2071,25 @@ export function useSuggestSourceJoinKey(args: {
   );
 }
 
+const SOURCE_REFRESH_MUTATION_KEY = ["content", "source-refresh"];
+
+export function githubSyncNowMutationOptions(sourceId: string) {
+  return {
+    mutationKey: [...SOURCE_REFRESH_MUTATION_KEY, "sync-github-folder"],
+    meta: { sourceId },
+  };
+}
+
 export function useRefreshContentDatabaseSource(documentId: string) {
   const queryClient = useQueryClient();
   return useActionMutation<
     ContentDatabaseSourceStatusResponse,
     RefreshContentDatabaseSourceRequest
   >("refresh-content-database-source", {
+    mutationKey: [
+      ...SOURCE_REFRESH_MUTATION_KEY,
+      "refresh-content-database-source",
+    ],
     skipActionQueryInvalidation: true,
     // A GitHub refresh that fails stores the problem on the source first, so
     // the status line rereads after a failure too.
@@ -2055,6 +2098,30 @@ export function useRefreshContentDatabaseSource(documentId: string) {
     },
   });
 }
+
+export function useContentDatabaseSourceRefreshing(sourceId: string | null) {
+  const refreshing = useMutationState({
+    filters: {
+      mutationKey: SOURCE_REFRESH_MUTATION_KEY,
+      status: "pending",
+    },
+    select: (mutation) =>
+      mutation.options.meta?.sourceId ??
+      (mutation.state.variables as RefreshContentDatabaseSourceRequest)
+        .sourceId,
+  });
+  return sourceId !== null && refreshing.includes(sourceId);
+}
+
+const rowPageSourcesQueryFilter = {
+  queryKey: ["action", "get-content-database"],
+  predicate: (query: Query) => {
+    const params = query.queryKey[2] as
+      | { databaseId?: unknown; limit?: unknown }
+      | undefined;
+    return params?.databaseId !== undefined && params.limit === 0;
+  },
+};
 
 /**
  * A source-connection write changes the collection's rows, source status, and
@@ -2066,6 +2133,7 @@ function contentDatabaseSourceTargets(
   return [
     contentDatabaseQueryKey(documentId),
     contentDatabaseConstrainedQueryFilter(documentId),
+    rowPageSourcesQueryFilter,
     ["action", "get-content-database-source", { documentId }],
     ["action", "preview-builder-source-review", { documentId }],
     ["action", "list-document-properties"],
@@ -2221,6 +2289,33 @@ export function usePrepareBuilderSourceReview(documentId: string) {
   >("prepare-builder-source-review", {
     invalidates: contentDatabaseSourceTargets(documentId),
   });
+}
+
+export function usePreviewBuilderSourceReview(args: {
+  documentId: string;
+  sourceId: string | null;
+  scope: "selected" | "all";
+  documentIds?: string[];
+  enabled: boolean;
+}) {
+  return useActionQuery<PreviewBuilderSourceReviewResponse>(
+    "preview-builder-source-review",
+    args.enabled && args.sourceId
+      ? {
+          documentId: args.documentId,
+          sourceId: args.sourceId,
+          scope: args.scope,
+          documentIds: args.documentIds,
+        }
+      : undefined,
+    {
+      enabled: args.enabled && !!args.sourceId,
+      retry: false,
+      staleTime: 0,
+      gcTime: 0,
+      refetchOnWindowFocus: false,
+    },
+  );
 }
 
 export function useStageBuilderSourceBulkUpdate(documentId: string) {
