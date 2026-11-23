@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { ResourceSuggestion } from "@agent-native/core/review";
-import { suggestionDiffParts } from "@shared/suggestion-diff";
+import { mostlyRewritten, suggestionDiffParts } from "@shared/suggestion-diff";
 import { WORD_CHARACTER } from "@shared/suggestion-placement";
 import {
   clipSuggestionPresentation,
@@ -328,10 +328,13 @@ function operationChange(
     };
     const markedRemoved = pieces("delete", removedContext);
     const markedInserted = pieces("insert", insertedContext);
+    const rewritten =
+      (changedStretches(markedRemoved) > 1 ||
+        changedStretches(markedInserted) > 1) &&
+      mostlyRewritten(removedText, insertedText);
     const piecewise =
       !!marked &&
-      changedStretches(markedRemoved) < 2 &&
-      changedStretches(markedInserted) < 2 &&
+      !rewritten &&
       (!markdown ||
         (readsInPieces(markedRemoved) && readsInPieces(markedInserted)));
     let removed = piecewise ? markedRemoved : said(removedText, removedContext);
