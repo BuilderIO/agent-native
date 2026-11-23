@@ -2401,15 +2401,18 @@ export async function tryClaimRunSlot(
           .filter(Boolean),
       ),
     ];
-    const abortPlaceholders = abortTurnIds.map(() => "?").join(", ");
-    const abortMarker = await tx.execute({
-      sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id IN (${abortPlaceholders}) AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
-      args: [threadId, ...abortTurnIds],
-    });
-    if (abortMarker.rows.length > 0) {
-      return {
-        result: { claimed: false, activeRunId: null, turnAborted: true },
-      } as const;
+    // One static statement per candidate turn id, each id bound as a value;
+    // the SQL text stays free of interpolated placeholder lists.
+    for (const abortTurnId of abortTurnIds) {
+      const abortMarker = await tx.execute({
+        sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
+        args: [threadId, abortTurnId],
+      });
+      if (abortMarker.rows.length > 0) {
+        return {
+          result: { claimed: false, activeRunId: null, turnAborted: true },
+        } as const;
+      }
     }
     if (options?.turnInitiator) {
       await bindTurnInitiator(
