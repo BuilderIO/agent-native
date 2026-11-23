@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { EditorContentAndComponents } from "../domains/use-editor-content-and-components";
 import type { EditorCore } from "../domains/use-editor-core";
+import type { EditorFilesAndSaving } from "../domains/use-editor-files-and-saving";
 import type { EditorHistory } from "../domains/use-editor-history";
 import { renderRightRail } from "./right-rail";
 
@@ -25,6 +26,11 @@ function railArgs(overrides: {
   interactFloatingBar?: ReactElement | null;
 }): RailArgs {
   return {
+    id: "design-test",
+    canEditDesign: true,
+    editorFilesAndSaving: {
+      handleTokensApplied: vi.fn(),
+    } as unknown as EditorFilesAndSaving,
     editorCore: {
       t: (key: string) => key,
       mode: "edit",

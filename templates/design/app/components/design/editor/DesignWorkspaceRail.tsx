@@ -25,6 +25,7 @@ export const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>(
 );
 
 export function DesignWorkspaceRail({
+  photoshopTheme = false,
   showAccountMenu,
   activePanel,
   disabledPanels,
@@ -33,6 +34,7 @@ export function DesignWorkspaceRail({
   projectMenu,
   onPanelChange,
 }: {
+  photoshopTheme?: boolean;
   showAccountMenu?: boolean;
   activePanel: DesignLeftPanel | null;
   disabledPanels?: ReadonlySet<DesignLeftPanel>;
@@ -89,13 +91,18 @@ export function DesignWorkspaceRail({
       ) : null}
       <div className="flex min-h-0 w-full flex-col items-center overflow-y-auto overscroll-contain py-[calc(var(--design-baseline-unit)*1.5)]">
         {items.map((item) => {
-          const active = item.panel === activePanel;
+          const active =
+            item.panel === activePanel ||
+            (photoshopTheme &&
+              item.panel === "file" &&
+              activePanel === "tokens");
           const disabled = disabledPanels?.has(item.panel) ?? false;
           return (
             <Tooltip key={item.panel}>
               <TooltipTrigger asChild>
                 <button
                   type="button"
+                  data-design-panel-tab={item.panel}
                   aria-label={item.label}
                   aria-disabled={disabled || undefined}
                   aria-current={active ? "page" : undefined}
@@ -105,7 +112,9 @@ export function DesignWorkspaceRail({
                       event.preventDefault();
                       return;
                     }
-                    onPanelChange(active ? null : item.panel);
+                    onPanelChange(
+                      item.panel === activePanel ? null : item.panel,
+                    );
                   }}
                   className={cn(
                     "design-workspace-rail-item group flex w-full cursor-pointer flex-col items-center gap-0.5 p-1 text-[11px] leading-4 text-foreground outline-none",

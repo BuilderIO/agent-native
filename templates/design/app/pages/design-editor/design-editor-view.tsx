@@ -42,6 +42,7 @@ import {
   IconLink,
   IconMessageCircle,
 } from "@tabler/icons-react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { BreakpointDeviceControl } from "@/components/design/BreakpointBar";
@@ -386,6 +387,7 @@ export function renderDesignEditorView({
     activeScreenBaseWidthPx,
     activeScreenSnapshotOnly,
     activeOverviewScreen,
+    exportCanvasFrameGeometryById,
     activeCanvasSourceType,
     handleBreakpointBarRemove,
   } = editorActiveScreenAndGeometry;
@@ -1051,7 +1053,7 @@ export function renderDesignEditorView({
                     appId: "design",
                     resourceType: "design",
                     resourceId: id ?? "",
-                    title: design?.title ?? "Untitled design",
+                    title: design?.title ?? t("home.untitledDesign"),
                     updatedAt: design?.updatedAt ?? undefined,
                     preview: { kind: "document", label: "Design project" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
                   }}
@@ -1348,7 +1350,9 @@ export function renderDesignEditorView({
     ) : null;
 
   const shareSegmentClassName =
-    "!border-primary !bg-primary !text-primary-foreground shadow-none hover:!border-primary/90 hover:!bg-primary/90 hover:!text-primary-foreground focus-visible:ring-ring [&_svg]:!text-primary-foreground";
+    !hostOwnsChrome && !minimalUi
+      ? "!border-[var(--design-editor-control-border)] !bg-[var(--design-editor-panel-raised-bg)] !text-foreground shadow-none hover:!bg-accent"
+      : "!border-primary !bg-primary !text-primary-foreground shadow-none hover:!border-primary/90 hover:!bg-primary/90 hover:!text-primary-foreground focus-visible:ring-ring [&_svg]:!text-primary-foreground";
   const firstOutputActionsAvailable =
     !hostEmbeddedEditor &&
     !uiHidden &&
@@ -1657,13 +1661,18 @@ export function renderDesignEditorView({
     minimalUi,
   });
   const chromeInsetLeft = leftSidebarVisible
-    ? hostOwnsChrome || minimalUi
-      ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
-      : 42
+    ? (hostOwnsChrome || minimalUi ? DESIGN_CHROME_RAIL_WIDTH_PX : 34) +
+      (activeLeftPanel ? leftContentWidth : 0)
     : 0;
   const selectedRouteScreen = overviewScreens.find(
     (screen) => screen.id === selectedScreenGeometry?.id,
   );
+  const statusScreenId = activeOverviewScreen?.id ?? activeFile?.id;
+  const statusScreenGeometry =
+    selectedScreenGeometry ??
+    (statusScreenId
+      ? exportCanvasFrameGeometryById[statusScreenId]
+      : undefined);
   const alignDisabledReasonKey = alignAvailability.canAlign
     ? null
     : layoutMoveRefusalMessageKey(alignAvailability.blocker);
@@ -2243,25 +2252,17 @@ export function renderDesignEditorView({
           />
         </div>
       )}
-      {!hostOwnsChrome && !minimalUi && (
-        <div className="photoshop-menu-bar">
-          {projectMenu}
-          <span aria-hidden="true">Edit</span>
-          <span aria-hidden="true">Image</span>
-          <span aria-hidden="true">Layer</span>
-          <span aria-hidden="true">Type</span>
-          <span aria-hidden="true">Select</span>
-          <span aria-hidden="true">Filter</span>
-          <span aria-hidden="true">View</span>
-          <span aria-hidden="true">Window</span>
-          <span aria-hidden="true">Help</span>
-          <div className="photoshop-document-title">{projectTitleControl}</div>
-        </div>
-      )}
       {/* ── Render: main canvas area ── */}
       <div
         className="flex-1 flex overflow-hidden relative"
-        style={topBarVisible ? { paddingTop: TOP_BAR_HEIGHT_PX } : undefined}
+        style={
+          topBarVisible
+            ? {
+                paddingTop:
+                  hostOwnsChrome || minimalUi ? TOP_BAR_HEIGHT_PX : 88,
+              }
+            : undefined
+        }
       >
         {/* ── Render: top bar (canvas + inspector columns) ── */}
         {topBarVisible ? (
@@ -2283,7 +2284,7 @@ export function renderDesignEditorView({
               ) : null)
             }
             zoomControl={
-              topBarControlsVisible
+              topBarControlsVisible && (hostOwnsChrome || minimalUi)
                 ? (interactTopBarSlots?.zoomControl ??
                   (!responsiveInteractActive
                     ? renderZoomControl("topbar")
@@ -2298,6 +2299,13 @@ export function renderDesignEditorView({
             }
             inspectorWidth={rightSidebarVisible ? rightSidebarWidth : undefined}
           />
+        ) : null}
+        {topBarVisible && !hostOwnsChrome && !minimalUi ? (
+          <div data-photoshop-options-bar>
+            {topBarControlsVisible && !responsiveInteractActive
+              ? renderZoomControl("topbar")
+              : null}
+          </div>
         ) : null}
         {renderLeftSidebar({
           editorCore,
@@ -2318,7 +2326,7 @@ export function renderDesignEditorView({
           editorSourceAndSync,
           id,
           canApplyPendingVisualEditsWithAgent,
-          projectMenu: hostOwnsChrome || minimalUi ? projectMenu : null,
+          projectMenu,
           projectTitleControl,
           minimalUiToggle,
           leftContentWidth,
@@ -2435,9 +2443,51 @@ export function renderDesignEditorView({
           })
         )}
 
+        {topBarVisible && !hostOwnsChrome && !minimalUi ? (
+          <>
+            <div
+              data-photoshop-doc-tabs
+              style={{
+                top: TOP_BAR_HEIGHT_PX,
+                left: chromeInsetLeft,
+                right: rightSidebarVisible ? rightSidebarWidth : 0,
+              }}
+            >
+              <div data-photoshop-doc-tab>
+                <span className="truncate">
+                  {`${design?.title ?? t("home.untitledDesign")} @ ${Math.round(zoom)}%`}
+                </span>
+                <Link
+                  to="/home"
+                  aria-label={t("designEditor.fileMenu.allDesigns")}
+                  title={t("designEditor.fileMenu.allDesigns")}
+                >
+                  <IconX className="size-3" stroke={1.75} />
+                </Link>
+              </div>
+            </div>
+            <div
+              data-photoshop-status-bar
+              style={{
+                left: chromeInsetLeft,
+                right: rightSidebarVisible ? rightSidebarWidth : 0,
+              }}
+            >
+              <span>{`${Math.round(zoom)}%`}</span>
+              {statusScreenGeometry?.width !== undefined &&
+              statusScreenGeometry.height !== undefined ? (
+                <span>{`${Math.round(statusScreenGeometry.width)} px × ${Math.round(statusScreenGeometry.height)} px`}</span>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+
         {/* ── Render: right rail ── */}
         {renderRightRail({
           editorCore,
+          editorFilesAndSaving,
+          id,
+          canEditDesign,
           editorHistory,
           editorContentAndComponents,
           projectTitleControl,
@@ -2447,10 +2497,6 @@ export function renderDesignEditorView({
           topBarVisible,
           interactFloatingBar,
           rightSidebarVisible,
-          dockWidth:
-            !hostOwnsChrome && !minimalUi && activeLeftPanel
-              ? leftContentWidth + DESIGN_CHROME_RAIL_WIDTH_PX
-              : rightSidebarWidth,
           editPanelProps,
           floatingTweaksPanel,
         })}

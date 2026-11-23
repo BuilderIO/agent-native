@@ -10,11 +10,6 @@ import {
   IconHandStop,
   IconHexagon,
   IconLine,
-  IconMarquee,
-  IconLasso,
-  IconCrop,
-  IconEraser,
-  IconZoomIn,
   IconMessage,
   IconOval,
   IconPhotoVideo,
@@ -489,7 +484,7 @@ export function DesignBottomToolbar({
       data-design-bottom-toolbar
       data-design-toolbar-mode={mode === "interact" ? "interact" : "design"}
       /* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */
-      className="photoshop-tool-rail fixed bottom-4 left-1/2 z-[70] flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-xl overscroll-x-contain bg-[var(--design-editor-dock-bg)] p-2 text-white shadow-[0_4px_8px_rgba(0,0,0,0.18)] md:max-w-[calc(100%-2rem)] md:overflow-visible"
+      className="fixed bottom-4 left-1/2 z-[70] flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-xl overscroll-x-contain bg-[var(--design-editor-dock-bg)] p-2 text-white shadow-[0_4px_8px_rgba(0,0,0,0.18)] md:max-w-[calc(100%-2rem)] md:overflow-visible"
     >
       <input
         ref={mediaInputRef}
@@ -505,13 +500,6 @@ export function DesignBottomToolbar({
           if (files.length > 0) onMediaFiles(files);
         }}
       />
-      <div className="photoshop-tool-ornaments" aria-hidden="true">
-        <IconMarquee />
-        <IconLasso />
-        <IconCrop />
-        <IconEraser />
-        <IconZoomIn />
-      </div>
       {groups.map((group) => (
         <DesignToolbarTool
           key={group.id}
@@ -525,10 +513,6 @@ export function DesignBottomToolbar({
           primaryShortcut={group.primaryShortcut}
         />
       ))}
-      <div className="photoshop-color-swatches" aria-hidden="true">
-        <span />
-        <span />
-      </div>
       <FileStorageSetupPopover
         open={
           storageSetupOpen && (fileStorageMissing || fileStorageUnavailable)

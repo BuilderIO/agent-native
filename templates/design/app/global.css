@@ -925,169 +925,685 @@
   box-shadow: 0 12px 28px rgb(0 0 0 / 0.34);
 }
 
-/* Compact dark editor chrome for the staged customization demo. */
+/* Dark flat panel skin for the editor: same features and layout, compact
+   neutral-grey chrome, small square controls, blue selection accents. */
 .photoshop-theme {
-  --background: 0 0% 17%;
-  --foreground: 0 0% 86%;
-  --card: 0 0% 20%;
-  --card-foreground: 0 0% 86%;
-  --popover: 0 0% 20%;
-  --popover-foreground: 0 0% 90%;
+  --background: 0 0% 16%;
+  --foreground: 0 0% 84%;
+  --card: 0 0% 16%;
+  --card-foreground: 0 0% 84%;
+  --popover: 0 0% 12%;
+  --popover-foreground: 0 0% 84%;
   --secondary: 0 0% 20%;
-  --secondary-foreground: 0 0% 86%;
-  --muted: 0 0% 20%;
-  --muted-foreground: 0 0% 65%;
-  --accent: 0 0% 25%;
-  --accent-foreground: 0 0% 96%;
-  --border: 0 0% 23%;
-  --input: 0 0% 23%;
-  --radius: 0.2rem;
-  --design-editor-dock-bg: hsl(0 0% 17%);
-  --design-editor-panel-bg: hsl(0 0% 17%);
-  --design-editor-panel-raised-bg: hsl(0 0% 20%);
-  --design-editor-panel-divider-color: hsl(0 0% 23%);
-  --design-editor-control-bg: hsl(0 0% 20%);
-  --design-editor-control-border: hsl(0 0% 23%);
-  --design-editor-canvas-bg: hsl(0 0% 15%);
-  --design-editor-skeleton-canvas-bg: hsl(0 0% 15%);
-  --design-editor-active-row-color: hsl(0 0% 25%);
-  color: hsl(var(--foreground));
-  font-size: 12px;
+  --muted: 0 0% 24%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 26%;
+  --border: 0 0% 28%;
+  --input: 0 0% 24%;
+  --radius: 0.125rem;
+  --design-editor-dock-bg: #282828;
+  --design-editor-panel-bg: #323232;
+  --design-editor-panel-raised-bg: #323232;
+  --design-editor-control-bg: #1e1e1e;
+  --design-editor-control-border: #444;
+  --design-editor-panel-divider-color: #1e1e1e;
+  --design-editor-canvas-bg: #1f1f1f;
+  --design-editor-accent-color: #1473e6;
+  --design-editor-accent-hover-color: #0d66d0;
+  --design-editor-active-row-color: #4a4a4a;
+  --design-editor-selection-color: #4a4a4a;
+  --design-editor-layer-hover-color: #3d3d3d;
+  --design-row-height: 24px;
+  --design-section-height: 24px;
+  --design-control-height: 22px;
+  font-size: 11px;
+  color: #d6d6d6;
 }
-
-.photoshop-theme .photoshop-menu-bar,
-.photoshop-theme .photoshop-tool-options {
-  background: var(--design-editor-panel-bg);
-  border-bottom: 1px solid var(--design-editor-panel-divider-color);
-  color: hsl(var(--foreground));
+.photoshop-theme .rounded-xl,
+.photoshop-theme .rounded-lg,
+.photoshop-theme .rounded-md {
+  border-radius: 2px;
+}
+.photoshop-theme input,
+.photoshop-theme textarea,
+.photoshop-theme select,
+.photoshop-theme [role="combobox"] {
+  border-radius: 2px;
+  background-color: #1e1e1e;
+  border-color: #444;
   font-size: 11px;
 }
+.photoshop-theme input[type="checkbox"],
+.photoshop-theme [role="checkbox"],
+.photoshop-theme [role="switch"] {
+  border-radius: 2px;
+}
 
-.photoshop-theme .photoshop-tool-rail {
-  background: var(--design-editor-panel-bg);
-  border-right: 1px solid var(--design-editor-panel-divider-color);
+/* Context options bar: the existing top bar, flat and compact. */
+.photoshop-theme [data-design-top-bar] {
+  left: 0;
+  height: 36px;
+  padding: 0 8px;
+  background: #323232;
+  border-bottom: 1px solid #1e1e1e;
+}
+.photoshop-theme [data-design-top-bar] button {
+  font-size: 11px;
+  border-radius: 2px;
+}
+
+/* Tool rail: the existing tools in one slim left column. */
+.photoshop-theme [data-design-bottom-toolbar] {
+  left: 0;
+  top: 36px;
+  bottom: 0;
+  transform: none;
+  translate: none;
+  max-width: none;
+  width: 40px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  padding: 6px 0;
+  border-radius: 0;
+  border-right: 1px solid #1e1e1e;
+  background: #282828;
+  box-shadow: none;
+  overflow: visible;
+}
+.photoshop-theme [data-design-bottom-toolbar] > .mx-1 {
+  width: 24px;
+  height: 1px;
+  margin: 4px 0;
+}
+.photoshop-theme [data-design-bottom-toolbar] > div:last-child {
+  flex-direction: column;
+  background: transparent;
+  padding: 0;
+}
+.photoshop-theme [data-design-toolbar-group] {
+  position: relative;
+  height: 30px;
+  width: 30px;
+}
+.photoshop-theme [data-design-toolbar-group] button {
+  border-radius: 2px;
+  width: 30px;
+  height: 30px;
+}
+.photoshop-theme [data-design-toolbar-group] button[aria-pressed="true"] {
+  background: #474747;
+  color: #fff;
+}
+.photoshop-theme
+  [data-design-toolbar-group]
+  > button:last-child:not(:first-child) {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+}
+.photoshop-theme
+  [data-design-toolbar-group]
+  > button:last-child:not(:first-child)
+  svg {
+  width: 8px;
+  height: 8px;
+  transform: rotate(-45deg);
+}
+
+/* Docked panels: left shell sits beside the tool rail, flat grey panels. */
+.photoshop-theme [data-design-chrome-region="left-shell"] {
+  left: 40px;
+  top: 36px;
+  border-right: 1px solid #1e1e1e;
+}
+.photoshop-theme [data-design-chrome-region="right-panel"] {
+  top: 36px !important;
+  border-left: 1px solid #1e1e1e;
   border-radius: 0;
   box-shadow: none;
 }
-
-.photoshop-theme .photoshop-menu-bar {
-  display: flex;
-  height: 30px;
-  flex: none;
-  align-items: center;
-  gap: 14px;
-  padding: 0 10px;
+.photoshop-theme [data-design-inspector-header],
+.photoshop-theme [data-design-inspector-section-header] {
+  background: #323232;
+  min-height: 28px;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+.photoshop-theme [data-design-inspector-section] {
+  border-color: #1e1e1e;
+}
+.photoshop-theme [data-design-inspector-section-header] {
+  text-transform: none;
+}
+.photoshop-theme .agentkit-chat {
+  background: #282828;
+  color: #d6d6d6;
+  --background: 0 0% 16%;
 }
 
-.photoshop-theme .photoshop-menu-bar > button {
-  height: 24px;
-  margin-left: -8px;
+/* Portaled menus, popovers and dialogs live outside the editor root. */
+body:has(.photoshop-theme) [data-radix-popper-content-wrapper],
+body:has(.photoshop-theme) [role="dialog"],
+body:has(.photoshop-theme) [role="menu"] {
+  --background: 0 0% 16%;
+  --foreground: 0 0% 84%;
+  --popover: 0 0% 12%;
+  --popover-foreground: 0 0% 84%;
+  --card: 0 0% 16%;
+  --muted: 0 0% 24%;
+  --muted-foreground: 0 0% 60%;
+  --secondary: 0 0% 20%;
+  --accent: 0 0% 26%;
+  --accent-foreground: 0 0% 90%;
+  --border: 0 0% 28%;
+  --input: 0 0% 24%;
+  --radius: 0.125rem;
+  color: #d6d6d6;
   font-size: 11px;
 }
-
-.photoshop-theme .photoshop-document-title {
-  margin-left: auto;
-  min-width: 160px;
-  max-width: 240px;
-  padding-left: 8px;
+body:has(.photoshop-theme) [data-radix-popper-content-wrapper] > *,
+body:has(.photoshop-theme) [role="menu"],
+body:has(.photoshop-theme) [role="dialog"] {
+  background-color: #1e1e1e;
+  border-color: #474747;
+  color: #d6d6d6;
+  border-radius: 2px;
+}
+body:has(.photoshop-theme) [role="menuitem"],
+body:has(.photoshop-theme) [role="menuitemcheckbox"],
+body:has(.photoshop-theme) [role="menuitemradio"] {
+  border-radius: 0;
+  color: #d6d6d6;
+}
+body:has(.photoshop-theme) [role="menuitem"][data-highlighted],
+body:has(.photoshop-theme) [role="menuitemcheckbox"][data-highlighted],
+body:has(.photoshop-theme) [role="menuitemradio"][data-highlighted] {
+  background-color: #2d7cf6;
+  color: #fff;
+}
+body:has(.photoshop-theme) [role="separator"] {
+  background-color: #474747;
 }
 
-.photoshop-theme .photoshop-panel-tabs {
-  display: flex;
-  flex: none;
-  gap: 16px;
-  align-items: center;
+/* ── Photoshop pass 2: chrome grays, tab-strip docks, doc tab, status bar ── */
+.photoshop-theme {
+  --background: 0 0% 20%;
+  --card: 0 0% 20%;
+  --secondary: 0 0% 16%;
+  --border: 0 0% 12%;
+  --input: 0 0% 27%;
+  --ring: 213 84% 49%;
+  --primary: 213 84% 49%;
+  --primary-foreground: 0 0% 100%;
+  background: #1f1f1f;
+}
+.photoshop-theme :is(button, a, span, div, label, input) {
+  letter-spacing: 0;
+}
+.photoshop-theme :is(.text-sm, .text-xs, .text-\[13px\], .text-\[12px\]) {
+  font-size: 11px;
+  line-height: 16px;
+}
+.photoshop-theme .text-muted-foreground {
+  color: #9a9a9a;
+}
+.photoshop-theme :is(input, textarea, [role="combobox"]):focus,
+.photoshop-theme :is(input, textarea):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px #1473e6;
+  border-color: #1473e6;
+}
+
+/* Options bar: thin 32px strip with flat buttons. */
+.photoshop-theme [data-design-top-bar] {
   height: 32px;
-  border-bottom: 1px solid var(--design-editor-panel-divider-color);
-  padding: 0 12px;
-  color: hsl(var(--muted-foreground));
+  background: #282828;
+  border-bottom: 1px solid #1a1a1a;
+  box-shadow: inset 0 1px 0 #3a3a3a;
+}
+.photoshop-theme
+  [data-design-top-bar]
+  :is(button, [role="tab"], [role="radio"]) {
+  height: 22px;
+  min-height: 22px;
   font-size: 11px;
+  border-radius: 2px;
+}
+.photoshop-theme [data-design-top-bar] [data-state="active"],
+.photoshop-theme [data-design-top-bar] [aria-pressed="true"],
+.photoshop-theme [data-design-top-bar] [aria-checked="true"] {
+  background: #4a4a4a;
+  color: #fff;
+  box-shadow: none;
+}
+.photoshop-theme [data-design-top-bar] .bg-primary,
+.photoshop-theme [data-design-top-bar] button[class*="bg-foreground"] {
+  background: #3d3d3d;
+  color: #e6e6e6;
+  border: 1px solid #1e1e1e;
 }
 
-.photoshop-theme .photoshop-panel-tab-active {
-  color: hsl(var(--foreground));
+/* Tool rail: 34px column, 16px icons, pressed active tool. */
+.photoshop-theme [data-design-bottom-toolbar] {
+  width: 34px;
+  top: 64px;
+  background: #282828;
+  border-right: 1px solid #1a1a1a;
+}
+.photoshop-theme [data-design-toolbar-group],
+.photoshop-theme [data-design-toolbar-group] button {
+  width: 26px;
+  height: 26px;
+}
+.photoshop-theme [data-design-bottom-toolbar] button svg {
+  width: 16px;
+  height: 16px;
+}
+.photoshop-theme [data-design-toolbar-group] button[aria-pressed="true"] {
+  background: #1a1a1a;
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.6),
+    0 0 0 1px #444;
+  color: #fff;
+}
+.photoshop-theme
+  [data-design-toolbar-group]
+  > button:last-child:not(:first-child) {
+  width: 6px;
+  height: 6px;
+  right: 1px;
+  bottom: 1px;
+}
+.photoshop-theme
+  [data-design-toolbar-group]
+  > button:last-child:not(:first-child)
+  svg {
+  width: 6px;
+  height: 6px;
+}
+
+/* Left dock: workspace rail becomes a Photoshop tab strip on top. */
+.photoshop-theme [data-design-chrome-region="left-shell"] {
+  left: 34px;
+  top: 64px;
+  flex-direction: column;
+  background: #323232;
+  border-right: 1px solid #1a1a1a;
+}
+.photoshop-theme [data-design-chrome-region="workspace-rail"] {
+  width: 100%;
+  min-width: 34px;
+  height: 26px;
+  flex-direction: row;
+  align-items: stretch;
+  background: #282828;
+  border-right: 0;
+  border-bottom: 1px solid #1a1a1a;
+}
+.photoshop-theme
+  [data-design-chrome-region="workspace-rail"]
+  > div:first-child:has(> *:not(.design-workspace-rail-item)) {
+  order: 3;
+  height: 25px;
+  width: 26px;
+  border: 0;
+  margin-left: auto;
+}
+.photoshop-theme
+  [data-design-chrome-region="workspace-rail"]
+  > div:first-child:has(> *:not(.design-workspace-rail-item))
+  :is(button, a) {
+  width: 22px;
+  height: 22px;
+}
+.photoshop-theme
+  [data-design-chrome-region="workspace-rail"]
+  > div:first-child:has(> *:not(.design-workspace-rail-item))
+  svg {
+  width: 14px;
+  height: 14px;
+}
+.photoshop-theme
+  [data-design-chrome-region="workspace-rail"]
+  > div:has(> .design-workspace-rail-item) {
+  flex-direction: row;
+  align-items: stretch;
+  width: auto;
+  padding: 0;
+  overflow: hidden;
+  order: 1;
+}
+.photoshop-theme .design-workspace-rail-item {
+  width: auto;
+  flex-direction: row;
+  padding: 0 10px;
   font-size: 11px;
+  color: #9a9a9a;
+  background: #282828;
+  border-right: 1px solid #1a1a1a;
+}
+.photoshop-theme .design-workspace-rail-item > span:first-child {
+  display: none;
+}
+.photoshop-theme .design-workspace-rail-item > span:last-child {
+  width: auto;
+  padding: 0;
+  overflow: visible;
+}
+.photoshop-theme .design-workspace-rail-item:hover {
+  color: #d6d6d6;
+}
+.photoshop-theme .design-workspace-rail-item[aria-current="page"] {
+  background: #323232;
+  color: #e6e6e6;
+  box-shadow: inset 0 1px 0 #4a4a4a;
+  margin-bottom: -1px;
+}
+.photoshop-theme [data-design-chrome-region="workspace-rail"] > .flex-1 {
+  order: 2;
+  flex: 1;
+}
+.photoshop-theme [data-design-chrome-region="workspace-rail"] > div:last-child {
+  order: 4;
+  flex-direction: row;
+  width: auto;
+  padding: 0 4px;
+  gap: 2px;
+}
+.photoshop-theme
+  [data-design-chrome-region="workspace-rail"]
+  > div:last-child
+  :is(button, [role="button"]) {
+  width: 22px;
+  height: 22px;
+  border-radius: 2px;
+}
+.photoshop-theme
+  [data-design-chrome-region="workspace-rail"]
+  > div:last-child
+  :is(img, [class*="size-"]) {
+  max-width: 18px;
+  max-height: 18px;
+}
+.photoshop-theme [data-design-chrome-region="left-shell"] > div:last-child {
+  background: #323232;
+  border-right: 0;
+}
+
+/* Panel section headers read as tab strips. */
+.photoshop-theme [data-design-inspector-header],
+.photoshop-theme [data-design-inspector-section-header] {
+  background: #282828;
+  min-height: 24px;
+  color: #d6d6d6;
   font-weight: 600;
+  border-bottom: 1px solid #1a1a1a;
+}
+.photoshop-theme [data-design-inspector-section] {
+  border-color: #1a1a1a;
+  background: #323232;
+}
+.photoshop-theme [data-design-chrome-region="right-panel"] {
+  top: 64px !important;
+  background: #323232;
+  border-left: 1px solid #1a1a1a;
 }
 
-@media (min-width: 768px) {
-  .photoshop-theme [data-design-chrome-region="left-shell"] {
-    left: auto;
-    right: 0;
-    top: 55%;
-    bottom: 0;
-    flex-direction: row-reverse;
-    border-top: 1px solid var(--design-editor-panel-divider-color);
-  }
-
-  .photoshop-theme [data-design-chrome-region="right-panel"] {
-    bottom: 45% !important;
-    height: auto !important;
-  }
-
-  .photoshop-theme [data-design-top-bar] {
-    left: 42px;
-  }
-
-  .photoshop-theme .photoshop-tool-rail {
-    position: absolute;
-    top: 48px;
-    bottom: 0;
-    left: 0;
-    width: 42px;
-    max-width: none;
-    transform: none;
-    translate: none;
-    flex-direction: column;
-    justify-content: flex-start;
-    gap: 2px;
-    overflow: visible;
-    padding: 6px 2px;
-  }
-
-  .photoshop-theme .photoshop-tool-ornaments {
-    display: contents;
-  }
-
-  .photoshop-theme .photoshop-tool-ornaments svg {
-    width: 17px;
-    height: 17px;
-    margin: 8px auto;
-    color: hsl(var(--muted-foreground));
-  }
-
-  .photoshop-theme .photoshop-color-swatches {
-    position: relative;
-    width: 32px;
-    height: 34px;
-    flex: none;
-    margin-top: auto;
-  }
-
-  .photoshop-theme .photoshop-color-swatches span {
-    position: absolute;
-    width: 19px;
-    height: 19px;
-    border: 1px solid hsl(var(--muted-foreground));
-    background: hsl(var(--foreground));
-  }
-
-  .photoshop-theme .photoshop-color-swatches span:first-child {
-    z-index: 1;
-    top: 2px;
-    left: 2px;
-    background: hsl(var(--background));
-  }
-
-  .photoshop-theme .photoshop-color-swatches span:last-child {
-    right: 2px;
-    bottom: 2px;
-  }
+/* Selection: lighter grey rows, thin blue line, never blue fill. */
+.photoshop-theme [aria-selected="true"],
+.photoshop-theme [data-selected="true"],
+.photoshop-theme [data-state="selected"] {
+  background-color: #4a4a4a !important;
+  color: #fff;
+  box-shadow: inset 0 0 0 1px #1473e6;
 }
 
-@media (max-width: 767px) {
-  .photoshop-theme .photoshop-tool-ornaments,
-  .photoshop-theme .photoshop-color-swatches {
-    display: none;
-  }
+/* Document tab above the canvas and status bar below it. */
+.photoshop-theme [data-photoshop-doc-tabs] {
+  position: absolute;
+  z-index: 40;
+  height: 24px;
+  display: flex;
+  align-items: flex-end;
+  background: #282828;
+  border-bottom: 1px solid #1a1a1a;
+  pointer-events: none;
+}
+.photoshop-theme [data-photoshop-doc-tab] {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 24px;
+  max-width: 360px;
+  padding: 0 8px 0 12px;
+  background: #323232;
+  color: #e6e6e6;
+  font-size: 11px;
+  border-right: 1px solid #1a1a1a;
+  box-shadow: inset 0 1px 0 #4a4a4a;
+  margin-bottom: -1px;
+}
+.photoshop-theme [data-photoshop-doc-tab] a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  color: #9a9a9a;
+}
+.photoshop-theme [data-photoshop-doc-tab] a:hover {
+  background: #4a4a4a;
+  color: #fff;
+}
+.photoshop-theme [data-photoshop-status-bar] {
+  position: absolute;
+  z-index: 40;
+  bottom: 0;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 10px;
+  background: #282828;
+  border-top: 1px solid #1a1a1a;
+  color: #9a9a9a;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.photoshop-theme [data-photoshop-status-bar] > span:first-child {
+  color: #d6d6d6;
+  padding-right: 12px;
+  border-right: 1px solid #444;
+}
+
+/* Portaled menus, popovers and dialogs. */
+body:has(.photoshop-theme) [data-radix-popper-content-wrapper] > *,
+body:has(.photoshop-theme) [role="menu"],
+body:has(.photoshop-theme) [role="dialog"] {
+  background-color: #262626;
+  border: 1px solid #1a1a1a;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+}
+body:has(.photoshop-theme) [role="menuitem"],
+body:has(.photoshop-theme) [role="menuitemcheckbox"],
+body:has(.photoshop-theme) [role="menuitemradio"] {
+  font-size: 11px;
+  min-height: 22px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+body:has(.photoshop-theme) [role="menuitem"][data-highlighted],
+body:has(.photoshop-theme) [role="menuitemcheckbox"][data-highlighted],
+body:has(.photoshop-theme) [role="menuitemradio"][data-highlighted] {
+  background-color: #4a4a4a;
+}
+body:has(.photoshop-theme) [role="separator"] {
+  background-color: #3a3a3a;
+}
+.photoshop-theme [data-photoshop-doc-tabs] {
+  top: 64px !important;
+}
+
+/* Screens / Layers section headers: tab-strip panels, active tab lighter. */
+.photoshop-theme [data-layers-panel-header] {
+  height: 24px;
+  min-height: 24px;
+  padding: 0 4px 0 0;
+  background: #282828;
+  border-top: 1px solid #1a1a1a;
+  border-bottom: 1px solid #1a1a1a;
+  align-items: stretch;
+}
+.photoshop-theme [data-layers-panel-header] > h2 {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: #323232;
+  border-right: 1px solid #1a1a1a;
+  box-shadow: inset 0 1px 0 #4a4a4a;
+  margin-bottom: -1px;
+  font-weight: 400;
+  color: #e6e6e6;
+}
+.photoshop-theme [data-layers-panel-header] > div {
+  align-self: center;
+}
+.photoshop-theme [data-design-chrome-region="right-panel"] input,
+.photoshop-theme [data-design-chrome-region="right-panel"] [role="combobox"],
+.photoshop-theme
+  [data-design-chrome-region="right-panel"]
+  button[aria-haspopup] {
+  background-color: #1e1e1e;
+}
+.photoshop-theme [data-design-chrome-region="right-panel"] :is(.h-8, .h-7) {
+  height: 22px;
+}
+.photoshop-theme [data-layers-panel-header="layers"] > div:first-child {
+  display: flex;
+  align-items: stretch;
+}
+.photoshop-theme [data-layers-panel-header="layers"] > div:first-child > h2 {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: #323232;
+  border-right: 1px solid #1a1a1a;
+  box-shadow: inset 0 1px 0 #4a4a4a;
+  margin-bottom: -1px;
+  font-weight: 400;
+  color: #e6e6e6;
+}
+/* Inspector header: the selection's panel tab. */
+.photoshop-theme [data-design-inspector-header] {
+  padding-left: 0;
+  font-weight: 400;
+}
+.photoshop-theme [data-design-inspector-header] > div {
+  min-height: 26px;
+  align-items: stretch;
+}
+.photoshop-theme
+  [data-design-inspector-header]
+  :is(.design-sidebar-section-title, .design-sidebar-context-title) {
+  align-self: stretch;
+  width: max-content;
+  max-width: 100%;
+  padding: 0 12px;
+  height: 100%;
+  min-height: 26px;
+  background: #323232;
+  border-right: 1px solid #1a1a1a;
+  box-shadow: inset 0 1px 0 #4a4a4a;
+  margin-bottom: -1px;
+  color: #e6e6e6;
+}
+.photoshop-theme [data-design-inspector-header] > div > :last-child {
+  align-self: center;
+}
+.photoshop-theme [data-design-inspector-section-header] {
+  background: #323232;
+  border-bottom: 0;
+  border-top: 1px solid #1a1a1a;
+}
+.photoshop-theme
+  [data-design-inspector-section-header]
+  .design-sidebar-section-title {
+  font-weight: 600;
+  color: #d6d6d6;
+}
+
+.photoshop-theme [data-photoshop-options-bar] {
+  position: absolute;
+  z-index: 65;
+  inset: 32px 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+  padding: 0 12px;
+  background: #323232;
+  border-bottom: 1px solid #1e1e1e;
+}
+.photoshop-theme [data-photoshop-options-bar] button {
+  height: 22px;
+  min-height: 22px;
+  background: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 2px;
+  font-size: 11px;
+}
+.photoshop-theme [data-photoshop-panel-tabs] {
+  display: flex;
+  flex-shrink: 0;
+  height: 26px;
+  background: #282828;
+  border-bottom: 1px solid #1e1e1e;
+}
+.photoshop-theme [data-photoshop-panel-tabs] button {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 0;
+  border-right: 1px solid #1e1e1e;
+  color: #9a9a9a;
+  font-size: 11px;
+  font-weight: 400;
+}
+.photoshop-theme [data-photoshop-panel-tabs] button[aria-pressed="true"] {
+  background: #323232;
+  color: #d6d6d6;
+  box-shadow: inset 0 1px 0 #4a4a4a;
+  margin-bottom: -1px;
+}
+.photoshop-theme [data-design-panel-tab="tokens"] {
+  display: none;
+}
+.photoshop-theme [data-design-chrome-region="left-header"] {
+  height: 32px;
+  min-height: 32px;
+}
+.photoshop-theme [data-design-chrome-region="left-header"] a {
+  display: none;
+}
+.photoshop-theme [data-design-top-bar] button.bg-primary {
+  background: #3d3d3d !important;
+  color: #d6d6d6 !important;
+}
+
+.photoshop-theme [data-screen-section] {
+  min-height: 144px;
+}
+
+.photoshop-theme [data-design-inspector-section] button[aria-pressed="true"] {
+  background-color: #4a4a4a;
+  color: #d6d6d6;
 }

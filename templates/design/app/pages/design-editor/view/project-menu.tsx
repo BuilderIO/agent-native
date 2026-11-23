@@ -1,6 +1,7 @@
 import { useTheme } from "next-themes";
 import { Link } from "react-router";
 
+import { AgentNativeMenuMark } from "@/components/design/editor/AgentNativeMenuMark";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -114,11 +115,11 @@ export function renderProjectMenu({
         <Button
           ref={projectMenuTriggerRef}
           variant="ghost"
-          size="sm"
-          className="shrink-0 cursor-pointer px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          size="icon-sm"
+          className="shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-[calc(var(--spacing)*5.5)]"
           aria-label={t("designEditor.more")}
         >
-          {t("designEditor.appMenu.file")}
+          <AgentNativeMenuMark className="size-[calc(var(--spacing)*5.5)] text-foreground dark:text-white" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -136,9 +137,6 @@ export function renderProjectMenu({
           </DropdownMenuItem>
         ))}
         {getDesignHostMenuItems().length > 0 ? <DropdownMenuSeparator /> : null}
-        <DropdownMenuItem asChild>
-          <Link to="/home">{t("designEditor.fileMenu.allDesigns")}</Link>
-        </DropdownMenuItem>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             {t("designEditor.appMenu.file")}

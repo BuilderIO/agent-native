@@ -1,16 +1,23 @@
 import type { ReactElement } from "react";
 
 import { AgentNativeMenuMark } from "@/components/design/editor/AgentNativeMenuMark";
+import { ReadOnlyEditorPanel } from "@/components/design/editor/ReadOnlyEditorPanel";
 import { EditPanel } from "@/components/design/EditPanel";
+import { TokensPanel } from "@/components/design/TokensPanel";
+import { Button } from "@/components/ui/button";
 
 import type { EditorContentAndComponents } from "../domains/use-editor-content-and-components";
 import type { EditorCore } from "../domains/use-editor-core";
+import type { EditorFilesAndSaving } from "../domains/use-editor-files-and-saving";
 import type { EditorHistory } from "../domains/use-editor-history";
 import { rightInspectorPanelClassName } from "../minimal-inspector";
 import { TOP_BAR_HEIGHT_PX } from "../top-bar";
 
 export function renderRightRail({
   editorCore,
+  editorFilesAndSaving,
+  id,
+  canEditDesign,
   editorHistory,
   editorContentAndComponents,
   projectTitleControl,
@@ -20,11 +27,13 @@ export function renderRightRail({
   topBarVisible,
   interactFloatingBar,
   rightSidebarVisible,
-  dockWidth,
   editPanelProps,
   floatingTweaksPanel,
 }: {
   editorCore: EditorCore;
+  editorFilesAndSaving: EditorFilesAndSaving;
+  id: string;
+  canEditDesign: boolean;
   editorHistory: EditorHistory;
   editorContentAndComponents: EditorContentAndComponents;
   projectTitleControl: ReactElement;
@@ -34,15 +43,16 @@ export function renderRightRail({
   topBarVisible: boolean;
   interactFloatingBar: ReactElement | null;
   rightSidebarVisible: boolean;
-  dockWidth?: number;
   editPanelProps: Omit<
     import("react").ComponentProps<typeof EditPanel>,
     "width"
   >;
   floatingTweaksPanel: ReactElement | null;
 }) {
-  const { t, mode, hostOwnsChrome } = editorCore;
+  const { t, mode, hostOwnsChrome, shellMode } = editorCore;
   const {
+    activeLeftPanel,
+    setActiveLeftPanel,
     rightSidebarContentRef,
     minimalUi,
     rightSidebarWidth,
@@ -60,12 +70,12 @@ export function renderRightRail({
           style={
             topBarVisible && !minimalUi
               ? {
-                  width: dockWidth ?? rightSidebarWidth,
+                  width: rightSidebarWidth,
                   top: TOP_BAR_HEIGHT_PX,
                   bottom: 0,
                   height: "auto",
                 }
-              : { width: dockWidth ?? rightSidebarWidth }
+              : { width: rightSidebarWidth }
           }
         >
           <div
@@ -85,20 +95,47 @@ export function renderRightRail({
               {localPreviewRow}
             </div>
           ) : null}
-          <div className="photoshop-panel-tabs">
-            <span className="photoshop-panel-tab-active">
-              {t("editPanel.properties")}
-            </span>
-            <span aria-hidden="true">
-              {t("editPanel.labels.imageAdjustments")}
-            </span>
-          </div>
           {mode === "edit" ? (
-            <div className="min-h-0 flex-1">
-              <EditPanel
-                {...editPanelProps}
-                width={dockWidth ?? rightSidebarWidth}
-              />
+            <div className="flex min-h-0 flex-1 flex-col">
+              {!hostOwnsChrome && !minimalUi ? (
+                <div data-photoshop-panel-tabs>
+                  <Button
+                    variant="ghost"
+                    aria-pressed={activeLeftPanel !== "tokens"}
+                    onClick={() => {
+                      if (activeLeftPanel === "tokens")
+                        setActiveLeftPanel("file");
+                    }}
+                  >
+                    {t("editPanel.properties")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    aria-pressed={activeLeftPanel === "tokens"}
+                    onClick={() => setActiveLeftPanel("tokens")}
+                  >
+                    {t("designEditor.leftRail.tokens")}
+                  </Button>
+                </div>
+              ) : null}
+              {activeLeftPanel === "tokens" && !hostOwnsChrome && !minimalUi ? (
+                id && canEditDesign && !shellMode ? (
+                  <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                    <TokensPanel
+                      designId={id}
+                      onTokensApplied={editorFilesAndSaving.handleTokensApplied}
+                    />
+                  </div>
+                ) : (
+                  <ReadOnlyEditorPanel
+                    title={t("designEditor.leftRail.tokens")}
+                  />
+                )
+              ) : (
+                <div className="min-h-0 flex-1">
+                  <EditPanel {...editPanelProps} width={rightSidebarWidth} />
+                </div>
+              )}
             </div>
           ) : (
             <div className="min-h-0 flex-1" />

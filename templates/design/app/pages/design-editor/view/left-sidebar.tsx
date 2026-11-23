@@ -1,6 +1,7 @@
 import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 import { IconClipboard } from "@tabler/icons-react";
 import { memo, type ReactElement } from "react";
+import { Link } from "react-router";
 
 import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
 import {
@@ -90,7 +91,7 @@ export function renderLeftSidebar({
   editorSourceAndSync: EditorSourceAndSync;
   id: string;
   canApplyPendingVisualEditsWithAgent: boolean;
-  projectMenu: ReactElement | null;
+  projectMenu: ReactElement;
   projectTitleControl: ReactElement;
   minimalUiToggle: ReactElement | null;
   leftContentWidth: number;
@@ -113,6 +114,7 @@ export function renderLeftSidebar({
     shellMode,
   } = editorCore;
   const {
+    minimalUi,
     activeLeftPanel,
     setActiveLeftPanel,
     collapseLeftPanel,
@@ -125,7 +127,6 @@ export function renderLeftSidebar({
     setMotionDockOpenAnimated,
   } = editorHistory;
   const { canEditDesign, browserTabId, pinMode } = editorGenerationAndAccess;
-  const { handleTokensApplied } = editorFilesAndSaving;
   const { handleLayerLeave } = editorCanvasAndScreens;
   const {
     initialGenerationChromeLimited,
@@ -182,6 +183,7 @@ export function renderLeftSidebar({
           className="absolute inset-y-0 left-0 z-[70] flex min-h-0 bg-[var(--design-editor-panel-bg)]"
         >
           <DesignWorkspaceRail
+            photoshopTheme={!hostOwnsChrome && !minimalUi}
             showAccountMenu={!hostEmbeddedEditor && isSignedIn}
             activePanel={activeLeftPanel}
             motionOpen={motionDockOpen}
@@ -217,17 +219,26 @@ export function renderLeftSidebar({
             <div
               className={cn(
                 "min-h-0 flex-1 flex-col overflow-hidden",
-                activeLeftPanel === "file" ? "flex" : "hidden",
+                activeLeftPanel === "file" ||
+                  (!hostOwnsChrome &&
+                    !minimalUi &&
+                    activeLeftPanel === "tokens")
+                  ? "flex"
+                  : "hidden",
               )}
             >
               <LeftPanelHeader>
-                {hostEmbeddedEditor ? (
-                  projectTitleControl
-                ) : (
-                  <span className="photoshop-panel-tab-active">
-                    {t("designEditor.leftRail.layers")}
-                  </span>
-                )}
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  {projectTitleControl}
+                  {hostEmbeddedEditor ? null : (
+                    <Link
+                      to="/home"
+                      className="-mx-1 self-start rounded px-1 text-xs leading-4 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                    >
+                      {t("designEditor.fileMenu.allDesigns")}
+                    </Link>
+                  )}
+                </div>
                 {minimalUiToggle}
               </LeftPanelHeader>
               <div className="min-h-0 flex-1">
@@ -365,28 +376,34 @@ export function renderLeftSidebar({
                 )}
               </div>
             ) : null}
-            <div
-              className={cn(
-                "min-h-0 flex-1 flex-col overflow-hidden",
-                activeLeftPanel === "tokens" ? "flex" : "hidden",
-              )}
-            >
-              {id && canEditDesign && !shellMode ? (
-                <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                  <TokensPanel
-                    designId={id}
-                    onTokensApplied={handleTokensApplied}
-                  />
+            {hostOwnsChrome || minimalUi ? (
+              <>
+                <div
+                  className={cn(
+                    "min-h-0 flex-1 flex-col overflow-hidden",
+                    activeLeftPanel === "tokens" ? "flex" : "hidden",
+                  )}
+                >
+                  {id && canEditDesign && !shellMode ? (
+                    <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                      <TokensPanel
+                        designId={id}
+                        onTokensApplied={
+                          editorFilesAndSaving.handleTokensApplied
+                        }
+                      />
+                    </div>
+                  ) : (
+                    <ReadOnlyEditorPanel
+                      title={"Tokens require editor access" /* i18n-ignore */}
+                      description={
+                        "Ask an owner for edit access before importing, creating, or applying tokens." /* i18n-ignore */
+                      }
+                    />
+                  )}
                 </div>
-              ) : (
-                <ReadOnlyEditorPanel
-                  title={"Tokens require editor access" /* i18n-ignore */}
-                  description={
-                    "Ask an owner for edit access before importing, creating, or applying tokens." /* i18n-ignore */
-                  }
-                />
-              )}
-            </div>
+              </>
+            ) : null}
             <div
               className={cn(
                 "min-h-0 flex-1 flex-col overflow-hidden",
