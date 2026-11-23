@@ -664,7 +664,7 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
-  it("empties a date, image or reference cleared in Content", () => {
+  it("empties a date, image, reference or option cleared in Content", () => {
     const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
       builderModelFields: [
         { name: "title", type: "string", required: true },
@@ -676,6 +676,13 @@ describe("Builder CMS write adapter plan", () => {
           model: "blog-author",
           required: false,
         },
+        {
+          name: "topic",
+          type: "string",
+          enum: ["Testing", "Web Development"],
+          required: false,
+        },
+        { name: "tags", type: "tags", required: false },
       ],
     });
     const cleared = (name: string) => ({
@@ -697,6 +704,8 @@ describe("Builder CMS write adapter plan", () => {
           cleared("date"),
           cleared("thumbnail"),
           cleared("author"),
+          cleared("topic"),
+          cleared("tags"),
         ],
       },
       pushModeConfirmation: "draft",
@@ -707,7 +716,13 @@ describe("Builder CMS write adapter plan", () => {
       payload: {
         request: {
           body: {
-            data: { date: null, thumbnail: null, author: null },
+            data: {
+              date: null,
+              thumbnail: null,
+              author: null,
+              topic: null,
+              tags: [],
+            },
           },
         },
         safety: { blockers: [] },

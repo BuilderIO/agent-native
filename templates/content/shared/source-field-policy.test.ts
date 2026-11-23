@@ -80,8 +80,20 @@ describe("Content source field write policy", () => {
       sourceTable: "agent-native-blog-article-test",
     };
     expect(contentDatabaseSourceFieldSavesEditsToSource(author)).toBe(true);
+    expect(
+      contentDatabaseSourceFieldSavesEditsToSource({
+        ...author,
+        sourceMetadataJson: JSON.stringify({ federation: { role: "primary" } }),
+      }),
+    ).toBe(true);
 
     for (const field of [
+      {
+        ...author,
+        sourceMetadataJson: JSON.stringify({
+          federation: { role: "secondary" },
+        }),
+      },
       { ...author, sourceTable: "blog-article" },
       { ...author, sourceType: "notion-database" },
       { ...author, readOnly: 1 },

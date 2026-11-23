@@ -274,6 +274,7 @@ function builderNativeFieldValue(args: {
   const choices = builderOptionLabels(field);
   const isList = /\b(list|array|tags?|multi[-_\s]?select)\b/.test(kind);
   if (isList || choices.length > 0) {
+    if (cleared) return { value: isList ? [] : null };
     const values = Array.isArray(args.value) ? args.value : [args.value];
     const labels = values.map((value) => {
       if (typeof value !== "string") return null;

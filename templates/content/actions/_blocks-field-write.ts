@@ -34,6 +34,7 @@ export async function assertPropertyWritableByRowMutation(
       sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
       sourceType: schema.contentDatabaseSources.sourceType,
       sourceTable: schema.contentDatabaseSources.sourceTable,
+      sourceMetadataJson: schema.contentDatabaseSources.metadataJson,
     })
     .from(schema.contentDatabaseSourceFields)
     .innerJoin(

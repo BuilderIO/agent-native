@@ -46,10 +46,12 @@ export function contentDatabaseSourceFieldSavesEditsToSource(field: {
   sourceFieldKey?: unknown;
   sourceType?: unknown;
   sourceTable?: unknown;
+  sourceMetadataJson?: unknown;
 }) {
   return (
     field.sourceType === "builder-cms" &&
     field.sourceTable === BUILDER_CMS_SAFE_WRITE_MODEL &&
+    !sourceIsFederationSecondary(field.sourceMetadataJson) &&
     field.mappingType === "property" &&
     typeof field.sourceFieldKey === "string" &&
     field.sourceFieldKey.startsWith("data.") &&
@@ -57,6 +59,22 @@ export function contentDatabaseSourceFieldSavesEditsToSource(field: {
     parseContentDatabaseSourceWriteOwner(field.writeOwner) === "source" &&
     !parseContentDatabaseSourceFieldReadOnly(field.readOnly)
   );
+}
+
+function sourceIsFederationSecondary(metadataJson: unknown) {
+  if (typeof metadataJson !== "string" || !metadataJson.trim()) return false;
+  try {
+    const metadata: unknown = JSON.parse(metadataJson);
+    return (
+      typeof metadata === "object" &&
+      metadata !== null &&
+      (metadata as { federation?: { role?: unknown } }).federation?.role ===
+        "secondary"
+    );
+    // coercion-ok: metadata that doesn't parse names no federation role, as the table query reads it
+  } catch {
+    return false;
+  }
 }
 
 function isWebLink(value: unknown) {

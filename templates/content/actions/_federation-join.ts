@@ -137,6 +137,7 @@ export function applyFederatedOverlayValues(
         ...field,
         sourceType: source.sourceType,
         sourceTable: source.sourceTable,
+        sourceMetadataJson: JSON.stringify(source.metadata),
       })),
     ),
   );
