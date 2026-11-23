@@ -8,6 +8,7 @@ import {
   GIT_DIFF_MAX_BUFFER,
   isDocsPath,
   isInstructionPath,
+  isWorkspaceE2ePath,
   normalizeChangedPath,
 } from "./ci-change-scope.ts";
 import { pnpmCommand } from "./lib/pnpm-command.ts";
@@ -276,7 +277,7 @@ export function catalogContractCoreSpecs(
     const normalized = normalizeChangedPath(path);
     return (
       /^(?:templates|packages)\//u.test(normalized) &&
-      !/^(?:templates|packages)\/[^/]+\/e2e\//u.test(normalized) &&
+      !isWorkspaceE2ePath(normalized) &&
       !isDocsPath(normalized) &&
       !TEST_FILE_RE.test(normalized) &&
       !/\.d\.[cm]?ts$/u.test(normalized) &&

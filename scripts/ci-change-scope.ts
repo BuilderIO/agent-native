@@ -980,6 +980,12 @@ export function normalizeChangedPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\/+/, "");
 }
 
+export function isWorkspaceE2ePath(path: string): boolean {
+  return /^(?:templates|packages)\/[^/]+\/e2e\//u.test(
+    normalizeChangedPath(path),
+  );
+}
+
 export function runtimeSourceChangesInTestTitledPr(
   title: string,
   paths: readonly string[],
@@ -2440,6 +2446,9 @@ function buildChecks(
   }
 
   const workspaceChanged = changedPaths.some(isWorkspacePath);
+  const fastTestsChanged = changedPaths.some(
+    (path) => isWorkspacePath(path) && !isWorkspaceE2ePath(path),
+  );
   const instructionsChanged = changedPaths.some(isInstructionPath);
   const guardScriptsChanged = changedPaths.some(isGuardScopedScriptPath);
   const readmeChanged = changedPaths.some(isReadmePath);
@@ -2500,7 +2509,7 @@ function buildChecks(
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
     typecheck: workspaceChanged,
-    fast_tests: workspaceChanged || instructionsChanged,
+    fast_tests: fastTestsChanged || instructionsChanged,
     content:
       contentChanged ||
       schedulingChanged ||

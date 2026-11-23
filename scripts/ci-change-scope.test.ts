@@ -147,6 +147,38 @@ test("normalizes paths from git output", () => {
   );
 });
 
+test("keeps workspace end-to-end harness changes on their own checks", () => {
+  for (const path of [
+    "templates/analytics-2/e2e/thread-layout.ts",
+    "templates/mail/e2e/daily/fixtures.ts",
+    "packages/core/e2e/harness.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, false, path);
+    assert.equal(scope.checks.fast_tests, false, path);
+    assert.equal(scope.checks.lint, true, path);
+    assert.equal(scope.checks.typecheck, true, path);
+    assert.equal(scope.checks.build, true, path);
+    for (const production of [
+      "templates/mail/actions/send-email.ts",
+      "templates/mail/actions/e2e/inspect-catalog.ts",
+      "packages/core/src/mcp/server.ts",
+    ]) {
+      assert.equal(
+        classifyChangedPaths([path, production]).checks.fast_tests,
+        true,
+        production,
+      );
+    }
+  }
+  assert.equal(
+    classifyChangedPaths([
+      "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+    ]).checks.pre_auth_session_replay_e2e,
+    true,
+  );
+});
+
 test("rejects runtime changes hidden under a test-only PR title", () => {
   assert.deepEqual(
     runtimeSourceChangesInTestTitledPr(
