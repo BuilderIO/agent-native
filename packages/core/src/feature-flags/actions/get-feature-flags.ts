@@ -45,7 +45,9 @@ export default defineAction({
                 await readFeatureFlagRuleLayers(key, scope),
               ),
             );
-          } catch {
+          } catch (error) {
+            if (isTransientDatabaseError(error, { source: "database" }))
+              throw error;
             // coercion-ok: this flag's own read also failed; it evaluates
             // off below, the same false-on-error outcome evaluateFeatureFlag
             // gives any other caller.

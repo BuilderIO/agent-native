@@ -262,7 +262,7 @@ describe("useFeatureFlagState", () => {
         </QueryClientProvider>,
       ),
     );
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    await vi.waitFor(() => expect(results.at(-1)?.flag).toBe(true));
     expect(results.at(-1)).toEqual({
       flag: true,
       state: { status: "ready", enabled: true },
@@ -271,15 +271,15 @@ describe("useFeatureFlagState", () => {
       retiredState: { status: "ready", enabled: true },
     });
 
-    const refresh = async () => {
+    const refresh = async (expected: boolean) => {
       await act(async () => {
         await client.invalidateQueries({
           queryKey: ["action", "get-feature-flags"],
         });
-        await new Promise((resolve) => setTimeout(resolve, 20));
       });
+      await vi.waitFor(() => expect(results.at(-1)?.flag).toBe(expected));
     };
-    await refresh();
+    await refresh(false);
     expect(
       client.getQueryData(["action", "get-feature-flags", undefined]),
     ).toEqual({
@@ -297,7 +297,7 @@ describe("useFeatureFlagState", () => {
       enabled: true,
     });
 
-    await refresh();
+    await refresh(true);
     expect(results.at(-1)).toEqual({
       flag: true,
       state: { status: "ready", enabled: true },

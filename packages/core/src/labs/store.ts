@@ -1,3 +1,4 @@
+import { isTransientDatabaseError } from "../db/errors.js";
 import {
   defaultFeatureFlagRules,
   evaluateFeatureFlagRules,
@@ -164,7 +165,9 @@ async function resolveStoredLabStates(
       legacyKeys.map(async (key) => {
         try {
           return [key, await getLegacyRules(key, evaluationScope)] as const;
-        } catch {
+        } catch (error) {
+          if (isTransientDatabaseError(error, { source: "database" }))
+            throw error;
           return [key, null] as const;
         }
       }),

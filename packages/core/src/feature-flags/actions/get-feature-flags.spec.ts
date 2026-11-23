@@ -7,6 +7,7 @@ vi.mock("../../action.js", () => ({
 const globalSettings = new Map<string, Record<string, unknown>>();
 const orgSettings = new Map<string, Record<string, unknown>>();
 const failingGlobalKeys = new Set<string>();
+const transientReadErrors = new Map<string, Error>();
 const ORG_KEY_RE = /^o:([^:]+):(.+)$/;
 const getSettingsRawMock = vi.fn(async (keys: readonly string[]) => {
   const failing = keys.find((key) => failingGlobalKeys.has(key));
@@ -22,6 +23,8 @@ const getSettingsRawMock = vi.fn(async (keys: readonly string[]) => {
   );
 });
 const getSettingMock = vi.fn(async (key: string) => {
+  const transientError = transientReadErrors.get(key);
+  if (transientError) throw transientError;
   if (failingGlobalKeys.has(key)) throw new Error(`corrupt setting: ${key}`);
   const match = ORG_KEY_RE.exec(key);
   return match
@@ -55,6 +58,7 @@ beforeEach(() => {
   globalSettings.clear();
   orgSettings.clear();
   failingGlobalKeys.clear();
+  transientReadErrors.clear();
   getSettingsRawMock.mockClear();
   getSettingMock.mockClear();
   captureErrorMock.mockClear();
@@ -154,6 +158,31 @@ describe("get-feature-flags action", () => {
       expect(captureErrorMock).not.toHaveBeenCalled();
     },
   );
+
+  it("propagates a transient failure during per-flag fallback", async () => {
+    registry.registerFeatureFlags([{ key: "flag-a" }]);
+    const error = Object.assign(new Error("Database unavailable"), {
+      code: "CONNECT_TIMEOUT",
+    });
+    getSettingsRawMock
+      .mockRejectedValueOnce(new Error("invalid batch"))
+      .mockRejectedValueOnce(error);
+
+    await expect(action.run({}, {})).rejects.toBe(error);
+  });
+
+  it("propagates a transient failure while loading migrated lab rules", async () => {
+    registry.registerFeatureFlags([{ key: "capture" }]);
+    labsRegistry.registerLabs([
+      { key: "clips.resilient", legacyFlagKeys: ["capture"] },
+    ]);
+    const error = Object.assign(new Error("Database unavailable"), {
+      code: "CONNECT_TIMEOUT",
+    });
+    transientReadErrors.set("feature-flag:capture", error);
+
+    await expect(action.run({}, { userEmail: "a@b.com" })).rejects.toBe(error);
+  });
 
   it("returns an empty object when no flags are registered", async () => {
     await expect(
