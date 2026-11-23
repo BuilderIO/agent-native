@@ -311,7 +311,10 @@ describe("Notion source status line", () => {
     );
     expect(button("Retry").disabled).toBe(true);
     await click(button("Details"));
-    expect(button("Sync now").disabled).toBe(true);
+    const syncNow = Array.from(document.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent.includes("Sync now"),
+    );
+    expect(syncNow?.disabled).toBe(true);
   });
 
   it("holds Unlink… while Sources refreshes the same source", async () => {

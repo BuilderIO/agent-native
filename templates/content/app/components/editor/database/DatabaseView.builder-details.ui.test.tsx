@@ -126,8 +126,8 @@ describe("An attached Builder model in Sources", () => {
       { kind: "model", sourceId: "source-authors", sourceName: "Authors" },
     ]);
     const choose = queryButton("Choose details");
-    expect(choose).not.toBe(null);
-    await click(choose!);
+    if (!choose) throw new Error('No "Choose details" button');
+    await click(choose);
     expect(onNavPush).toHaveBeenCalledWith({
       kind: "fieldPicker",
       sourceId: "source-authors",

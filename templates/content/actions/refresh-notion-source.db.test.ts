@@ -87,7 +87,7 @@ async function cachedRows() {
 }
 
 async function sourceRow() {
-  const [row] = await getDb()
+  const [row = null] = await getDb()
     .select()
     .from(schema.contentDatabaseSources)
     .where(eq(schema.contentDatabaseSources.id, SOURCE_ID));

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -222,13 +222,21 @@ export default defineAction({
       if (claimId) {
         try {
           const adapter = getContentDatabaseSourceAdapter("notion-database");
-          const read = await adapter!.read({
+          if (!adapter) {
+            fail("Notion sources can't be read here.", {
+              errorCode: "source_adapter_missing",
+              statusCode: 500,
+            });
+          }
+          const read = await adapter.read({
             sourceTable: source.sourceTable,
             limit: 500,
             offset: 0,
             fullRefresh: args.fullRefresh === true,
           });
           const capped = read.metadata?.hasMore === true;
+          const sampleEntry: (typeof read.entries)[number] | undefined =
+            read.entries[0];
           await storeSecondarySourceRows({
             sourceId: source.id,
             ownerEmail: database.ownerEmail,
@@ -244,7 +252,7 @@ export default defineAction({
             ownerEmail: database.ownerEmail,
             sourceType: "notion-database",
             modelFields: read.fields,
-            sampleEntry: read.entries[0],
+            ...(sampleEntry ? { sampleEntry } : {}),
             now,
           });
           await updateReadOnlySourceMetadata({

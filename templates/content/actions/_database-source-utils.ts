@@ -519,12 +519,17 @@ export async function claimReadOnlySourceRefresh(args: {
 }): Promise<string | null> {
   const db = getDb();
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const [current] = await db
+    const [current = null] = await db
       .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
       .from(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.id, args.sourceId))
       .limit(1);
-    if (!current) throw new Error("Content database source not found.");
+    if (!current) {
+      fail("Content database source not found.", {
+        errorCode: "source_not_found",
+        statusCode: 404,
+      });
+    }
     const metadata =
       parseObject<SourceMetadataRecord>(current.metadataJson) ?? {};
     const claimedAt = metadata.readOnlyRefreshClaimedAt
@@ -9210,7 +9215,7 @@ export async function storeSecondarySourceRows(args: {
   );
   await db.transaction(async (tx) => {
     if (args.refreshClaimId) {
-      const [claimed] = await tx
+      const [claimed = null] = await tx
         .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
         .from(schema.contentDatabaseSources)
         .where(eq(schema.contentDatabaseSources.id, args.sourceId))
@@ -9219,7 +9224,10 @@ export async function storeSecondarySourceRows(args: {
         !claimed ||
         !withoutReadOnlyRefreshClaim(claimed.metadataJson, args.refreshClaimId)
       ) {
-        throw new Error("Source refresh claim was lost before completion.");
+        fail("Source refresh claim was lost before completion.", {
+          errorCode: "source_refresh_claim_lost",
+          statusCode: 409,
+        });
       }
     }
     if (args.keepRowsNotRead && sourceRowIds.length === 0) return;
@@ -9494,7 +9502,10 @@ export async function updateReadOnlySourceMetadata(args: {
         ? withoutReadOnlyRefreshClaim(current.metadataJson, args.refreshClaimId)
         : (parseObject<Record<string, unknown>>(current.metadataJson) ?? {});
       if (!currentMetadata) {
-        throw new Error("Source refresh claim was lost before completion.");
+        fail("Source refresh claim was lost before completion.", {
+          errorCode: "source_refresh_claim_lost",
+          statusCode: 409,
+        });
       }
       return {
         syncState: args.syncState ?? (args.message ? "refreshing" : "linked"),
