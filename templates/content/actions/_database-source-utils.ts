@@ -273,6 +273,8 @@ type SourceMetadataRecord = {
   builderContinuationClaimId?: string;
   builderContinuationClaimOffset?: number;
   builderContinuationClaimedAt?: string;
+  readOnlyRefreshClaimId?: string;
+  readOnlyRefreshClaimedAt?: string;
   allowDraftWrites?: boolean;
   allowPublishWrites?: boolean;
   allowedWriteModes?: ContentDatabaseSourcePushMode[];
@@ -507,6 +509,111 @@ export async function renewBuilderCmsSourceRefreshClaim(args: {
     if (renewed.length > 0) return true;
   }
   return false;
+}
+
+/**
+ * How long a Notion refresh holds its source. A refresh reads at most a few
+ * pages, so an older claim belongs to a request that died.
+ */
+export const READ_ONLY_SOURCE_REFRESH_CLAIM_LEASE_MS = 2 * 60 * 1000;
+
+/**
+ * Claims a Notion source's refresh, so two can't overlap and let the older
+ * read replace the newer one. Returns null while another refresh holds it.
+ */
+export async function claimReadOnlySourceRefresh(args: {
+  sourceId: string;
+  now: string;
+}): Promise<string | null> {
+  const db = getDb();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const [current] = await db
+      .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+      .limit(1);
+    if (!current) throw new Error("Content database source not found.");
+    const metadata =
+      parseObject<SourceMetadataRecord>(current.metadataJson) ?? {};
+    const claimedAt = metadata.readOnlyRefreshClaimedAt
+      ? Date.parse(metadata.readOnlyRefreshClaimedAt)
+      : Number.NaN;
+    if (
+      metadata.readOnlyRefreshClaimId &&
+      Number.isFinite(claimedAt) &&
+      Date.parse(args.now) - claimedAt < READ_ONLY_SOURCE_REFRESH_CLAIM_LEASE_MS
+    ) {
+      return null;
+    }
+    const claimId = nanoid();
+    const claimed = await db
+      .update(schema.contentDatabaseSources)
+      .set({
+        metadataJson: JSON.stringify({
+          ...metadata,
+          readOnlyRefreshClaimId: claimId,
+          readOnlyRefreshClaimedAt: args.now,
+        }),
+      })
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.id, args.sourceId),
+          current.metadataJson === null
+            ? isNull(schema.contentDatabaseSources.metadataJson)
+            : eq(
+                schema.contentDatabaseSources.metadataJson,
+                current.metadataJson,
+              ),
+        ),
+      )
+      .returning({ id: schema.contentDatabaseSources.id });
+    if (claimed.length > 0) return claimId;
+  }
+  return null;
+}
+
+/** The source's metadata without this refresh's claim, or null once another refresh holds it. */
+function withoutReadOnlyRefreshClaim(
+  metadataJson: string | null,
+  claimId: string,
+): SourceMetadataRecord | null {
+  const metadata = parseObject<SourceMetadataRecord>(metadataJson) ?? {};
+  if (metadata.readOnlyRefreshClaimId !== claimId) return null;
+  delete metadata.readOnlyRefreshClaimId;
+  delete metadata.readOnlyRefreshClaimedAt;
+  return metadata;
+}
+
+/**
+ * Keeps a failed Notion read on its source, so everyone sees it after a
+ * reload until a refresh works. The rows and when they updated stay as they were.
+ */
+export async function recordReadOnlySourceRefreshFailure(args: {
+  sourceId: string;
+  refreshClaimId: string;
+  message: string;
+  now: string;
+}) {
+  await mutateContentDatabaseSourceMetadata({
+    sourceId: args.sourceId,
+    now: args.now,
+    buildPatch: (current) => {
+      const metadata = withoutReadOnlyRefreshClaim(
+        current.metadataJson,
+        args.refreshClaimId,
+      );
+      // A newer refresh holds the source, and its result stands.
+      if (!metadata) return { metadataJson: current.metadataJson };
+      return {
+        metadataJson: JSON.stringify(metadata),
+        syncState: "error",
+        freshness: "stale",
+        lastError: args.message,
+      };
+    },
+    failureMessage:
+      "Source metadata changed repeatedly while saving the error.",
+  });
 }
 
 function parseArray<T>(value: string | null | undefined): T[] {
@@ -9108,16 +9215,41 @@ export async function storeSecondarySourceRows(args: {
   sourceTable: string;
   entries: BuilderCmsSourceEntry[];
   now: string;
+  /** For a capped read: rows it didn't reach keep their last snapshot. */
+  keepRowsNotRead?: boolean;
+  /** Stores only while this refresh still holds the source. */
+  refreshClaimId?: string;
 }) {
   const db = getDb();
+  const sourceRowIds = args.entries.map(
+    (entry, index) => entry.id || `${args.sourceType}-${index + 1}`,
+  );
   await db.transaction(async (tx) => {
+    if (args.refreshClaimId) {
+      const [claimed] = await tx
+        .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+        .from(schema.contentDatabaseSources)
+        .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+        .for("update");
+      if (
+        !claimed ||
+        !withoutReadOnlyRefreshClaim(claimed.metadataJson, args.refreshClaimId)
+      ) {
+        throw new Error("Source refresh claim was lost before completion.");
+      }
+    }
+    if (args.keepRowsNotRead && sourceRowIds.length === 0) return;
+    const replaced = args.keepRowsNotRead
+      ? and(
+          eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+          inArray(schema.contentDatabaseSourceRows.sourceRowId, sourceRowIds),
+        )
+      : eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId);
     const oldRows = await tx
       .select({ documentId: schema.contentDatabaseSourceRows.documentId })
       .from(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
-    await tx
-      .delete(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
+      .where(replaced);
+    await tx.delete(schema.contentDatabaseSourceRows).where(replaced);
     const [source = null] = await tx
       .select({ databaseId: schema.contentDatabaseSources.databaseId })
       .from(schema.contentDatabaseSources)
@@ -9368,22 +9500,32 @@ export async function updateReadOnlySourceMetadata(args: {
   message: string | null;
   metadata?: Record<string, unknown>;
   syncState?: ContentDatabaseSourceSyncState;
+  /** Releases this refresh's claim, and fails once another refresh holds the source. */
+  refreshClaimId?: string;
 }) {
   await mutateContentDatabaseSourceMetadata({
     sourceId: args.sourceId,
     now: args.now,
-    buildPatch: (current) => ({
-      syncState: args.syncState ?? (args.message ? "refreshing" : "linked"),
-      freshness: args.message ? "stale" : "fresh",
-      capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
-      metadataJson: JSON.stringify({
-        ...(parseObject<Record<string, unknown>>(current.metadataJson) ?? {}),
-        ...(args.metadata ?? {}),
-      }),
-      lastRefreshedAt: args.now,
-      lastSourceUpdatedAt: args.fetchedAt,
-      lastError: null,
-    }),
+    buildPatch: (current) => {
+      const currentMetadata = args.refreshClaimId
+        ? withoutReadOnlyRefreshClaim(current.metadataJson, args.refreshClaimId)
+        : (parseObject<Record<string, unknown>>(current.metadataJson) ?? {});
+      if (!currentMetadata) {
+        throw new Error("Source refresh claim was lost before completion.");
+      }
+      return {
+        syncState: args.syncState ?? (args.message ? "refreshing" : "linked"),
+        freshness: args.message ? "stale" : "fresh",
+        capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
+        metadataJson: JSON.stringify({
+          ...currentMetadata,
+          ...(args.metadata ?? {}),
+        }),
+        lastRefreshedAt: args.now,
+        lastSourceUpdatedAt: args.fetchedAt,
+        lastError: null,
+      };
+    },
     failureMessage:
       "Source metadata changed repeatedly while saving read state.",
   });

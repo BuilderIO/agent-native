@@ -1163,7 +1163,7 @@ describe("content database source actions", () => {
           ...snapshot,
         } as ContentDatabaseSource,
         githubSummary: null,
-        skippedOverlappingBuilderRefresh: false,
+        skippedOverlappingRefresh: false,
         notionStoppedAt,
       });
 

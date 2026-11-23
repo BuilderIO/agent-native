@@ -11,9 +11,11 @@ import type {
 import { getContentDatabaseSourceAdapter } from "./_content-database-source-adapters.js";
 import {
   claimBuilderCmsSourceRefresh,
+  claimReadOnlySourceRefresh,
   getContentDatabaseSourceSnapshot,
   getContentDatabaseSourceSnapshotById,
   getExistingSourceForWrite,
+  recordReadOnlySourceRefreshFailure,
   releaseBuilderCmsSourceRefreshClaim,
   resyncBuilderCmsSourceSnapshot,
   resyncMockSourceSnapshot,
@@ -38,13 +40,13 @@ import { serializeDatabase } from "./_property-utils.js";
 export function sourceRefreshSummary(args: {
   snapshot: ContentDatabaseSource | null;
   githubSummary: string | null;
-  skippedOverlappingBuilderRefresh: boolean;
+  skippedOverlappingRefresh: boolean;
   notionStoppedAt: number | null;
 }): string {
   const { snapshot } = args;
   if (args.githubSummary) return args.githubSummary;
   if (!snapshot) return "Source metadata refreshed.";
-  if (args.skippedOverlappingBuilderRefresh) {
+  if (args.skippedOverlappingRefresh) {
     return `${snapshot.sourceName} already advanced or has another refresh in progress; the current snapshot was preserved.`;
   }
   if (snapshot.sourceType === "notion-database") {
@@ -117,7 +119,7 @@ export default defineAction({
     }
 
     const now = new Date().toISOString();
-    let skippedOverlappingBuilderRefresh = false;
+    let skippedOverlappingRefresh = false;
     let githubSummary: string | null = null;
     let githubChanged = false;
     let notionStoppedAt: number | null = null;
@@ -191,7 +193,7 @@ export default defineAction({
         source,
         expectedOffset: args.expectedBuilderContinuationOffset,
       });
-      skippedOverlappingBuilderRefresh = !claimedSource;
+      skippedOverlappingRefresh = !claimedSource;
       if (claimedSource) {
         await resyncBuilderCmsSourceSnapshot({
           database,
@@ -212,40 +214,68 @@ export default defineAction({
       // Read-only federated secondary; its rows are re-read on demand, nothing
       // to resync against the primary's local snapshot here.
     } else if (source.sourceType === "notion-database") {
-      const adapter = getContentDatabaseSourceAdapter("notion-database");
-      const read = await adapter!.read({
-        sourceTable: source.sourceTable,
-        limit: 500,
-        offset: 0,
-        fullRefresh: args.fullRefresh === true,
-      });
-      await storeSecondarySourceRows({
+      // One refresh at a time, so an older read never replaces a newer one.
+      const claimId = await claimReadOnlySourceRefresh({
         sourceId: source.id,
-        ownerEmail: database.ownerEmail,
-        sourceType: "notion-database",
-        sourceTable: source.sourceTable,
-        entries: read.entries,
         now,
       });
-      await seedSecondarySourceFields({
-        sourceId: source.id,
-        ownerEmail: database.ownerEmail,
-        sourceType: "notion-database",
-        modelFields: read.fields,
-        sampleEntry: read.entries[0],
-        now,
-      });
-      await updateReadOnlySourceMetadata({
-        sourceId: source.id,
-        sourceType: "notion-database",
-        sourceTable: source.sourceTable,
-        fetchedAt: read.fetchedAt,
-        now,
-        message: read.message,
-        metadata: read.metadata,
-      });
-      if (read.metadata?.hasMore === true) {
-        notionStoppedAt = read.entries.length;
+      skippedOverlappingRefresh = !claimId;
+      if (claimId) {
+        try {
+          const adapter = getContentDatabaseSourceAdapter("notion-database");
+          const read = await adapter!.read({
+            sourceTable: source.sourceTable,
+            limit: 500,
+            offset: 0,
+            fullRefresh: args.fullRefresh === true,
+          });
+          const capped = read.metadata?.hasMore === true;
+          await storeSecondarySourceRows({
+            sourceId: source.id,
+            ownerEmail: database.ownerEmail,
+            sourceType: "notion-database",
+            sourceTable: source.sourceTable,
+            entries: read.entries,
+            now,
+            keepRowsNotRead: capped,
+            refreshClaimId: claimId,
+          });
+          await seedSecondarySourceFields({
+            sourceId: source.id,
+            ownerEmail: database.ownerEmail,
+            sourceType: "notion-database",
+            modelFields: read.fields,
+            sampleEntry: read.entries[0],
+            now,
+          });
+          await updateReadOnlySourceMetadata({
+            sourceId: source.id,
+            sourceType: "notion-database",
+            sourceTable: source.sourceTable,
+            fetchedAt: read.fetchedAt,
+            now,
+            message: read.message,
+            metadata: read.metadata,
+            refreshClaimId: claimId,
+          });
+          if (capped) notionStoppedAt = read.entries.length;
+        } catch (error) {
+          await recordReadOnlySourceRefreshFailure({
+            sourceId: source.id,
+            refreshClaimId: claimId,
+            message: error instanceof Error ? error.message : String(error),
+            now: new Date().toISOString(),
+          }).catch((recordError: unknown) => {
+            // The caller still gets the read's error; the claim's lease runs out.
+            console.warn(
+              "[notion-source] saving the refresh error failed:",
+              recordError instanceof Error
+                ? recordError.message
+                : String(recordError),
+            );
+          });
+          throw error;
+        }
       }
     } else {
       throw new Error(`Unsupported source type "${source.sourceType}".`);
@@ -260,7 +290,7 @@ export default defineAction({
       summary: sourceRefreshSummary({
         snapshot,
         githubSummary,
-        skippedOverlappingBuilderRefresh,
+        skippedOverlappingRefresh,
         notionStoppedAt,
       }),
       source: snapshot,
