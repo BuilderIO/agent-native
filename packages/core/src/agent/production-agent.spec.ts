@@ -18551,20 +18551,20 @@ describe("runAgentLoop", () => {
     },
     {
       label:
-        "keeps both cross-organization fixes when an organization name of any length runs past the limit",
+        "keeps both cross-organization fixes and the opening words of an organization name too long for the headline",
       thrown:
         "bigquery credential not configured. Save it in this organization, " +
         'or switch your active organization to "The Builder.io Developer ' +
         "Relations, Community Programs and Open Source Partnerships Working " +
-        "Group for the Americas and Europe\", where it's saved. Credentials " +
-        "aren't shared between organizations. Tried: " +
-        "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+        "Group for the Americas, Europe, the Middle East, Africa and the " +
+        "Asia-Pacific Region\", where it's saved. Credentials aren't shared " +
+        "between organizations. Tried: GOOGLE_APPLICATION_CREDENTIALS_JSON",
       headline:
         "I stopped because github-repo-list-files can't run yet: bigquery " +
         "credential not configured. Save it in this organization, or " +
         'switch your active organization to "The Builder.io Developer ' +
         "Relations, Community Programs and Open Source Partnerships Working " +
-        'Group for the Americas and Europe", where… That needs to be fixed ' +
+        "Group for the Americas, Europe, the Middle… That needs to be fixed " +
         "outside this chat",
     },
     {
