@@ -676,7 +676,7 @@ const messages = {
       instructionsTitle: "Instructions",
       instructionCount: "{{count}} instruction(s)",
       instructionPlaceholder:
-        "ex. Les objets comme « question pour vous, Steve » ne sont pas souhaités",
+        "ex. Les objets comme « petite question pour vous » ne sont pas souhaités",
       addInstruction: "Ajouter",
       noInstructions: "Aucune instruction pour le moment.",
       instructionExample:
@@ -952,6 +952,7 @@ const messages = {
     sendAndMarkDone: "Envoyer et marquer comme terminé",
     autocompleteSaveFailed:
       "Impossible d’enregistrer le réglage de saisie automatique.",
+    signaturePlaceholder: "Cordialement,\nVotre nom",
     writingStylePlaceholder:
       "Court, précis, chaleureux. Évitez le remplissage formel.",
     saveDraftingSettings: "Enregistrer les paramètres de rédaction",

@@ -676,7 +676,7 @@ const messages = {
       instructionsTitle: "Anweisungen",
       instructionCount: "{{count}} Anweisung(en)",
       instructionPlaceholder:
-        "z. B. Betreffzeilen wie „question for you, Steve“ sind unerwünscht",
+        "z. B. Betreffzeilen wie „quick question for you“ sind unerwünscht",
       addInstruction: "Hinzufügen",
       noInstructions: "Noch keine Anweisungen.",
       instructionExample:
@@ -954,6 +954,7 @@ const messages = {
     sendAndMarkDone: "Senden und als erledigt markieren",
     autocompleteSaveFailed:
       "Die Autovervollständigungseinstellung konnte nicht gespeichert werden.",
+    signaturePlaceholder: "Viele Grüße\nDein Name",
     writingStylePlaceholder:
       "Kurz, konkret, warm. Vermeide formelle Füllwörter.",
     saveDraftingSettings: "Entwurfseinstellungen speichern",
