@@ -149,6 +149,7 @@ objc2-av-foundation = { version = "0.3.2", default-features = false, features = 
   "AVCaptureInput",
   "AVCaptureOutputBase",
   "AVCaptureSession",
+  "AVCaptureVideoDataOutput",
   "AVMediaFormat",
 ] }
 objc2-core-media = { version = "0.3.2", default-features = false, features = [
@@ -157,6 +158,7 @@ objc2-core-media = { version = "0.3.2", default-features = false, features = [
   "CMBlockBuffer",
   "CMFormatDescription",
   "CMSampleBuffer",
+  "CMSync",
   "CMTime",
   "objc2-core-audio-types",
 ] }

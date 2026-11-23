@@ -507,6 +507,15 @@ OpenAI's `text-embedding-3-small`.
   organization. Other owners' pages carry on, since members of one
   organization can use different credentials; owners sharing credentials
   each meet the limit with one refused call.
+  Indexing treats a 401 or 403 as a refusal of the credentials themselves,
+  which each of those pages would meet, so they wait an hour the same way
+  instead of each being retried every few minutes. The pages in the refused
+  call wait two hours with an attempt counted, so they are then retried one
+  at a time, after the others: if a refusal were about one page's content,
+  the others would still be indexed, and that page retried every two hours.
+  With a `documentBudget`, the hour holds indexing with those credentials on
+  every server, so each retry of such a page would also hold the others back
+  for an hour.
   Pages embedded before time runs out are completed; changes left stay
   claimed until their lease expires, so an outage can't hold claims past
   their lease. An app adds the consumer with

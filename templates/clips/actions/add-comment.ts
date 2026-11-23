@@ -50,6 +50,7 @@ export default defineAction({
       .describe("Organization members mentioned in the comment"),
     idempotencyKey: commentIdempotencyKeySchema,
   }),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const saved = await saveRecordingComment(args, ctx?.requestHeaders);
     return {

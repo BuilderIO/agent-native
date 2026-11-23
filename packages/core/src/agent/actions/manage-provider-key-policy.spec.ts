@@ -299,3 +299,8 @@ describe("manage-provider-key-policy", () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 });
+
+it("keeps manage-provider-key-policy in the app, off MCP", async () => {
+  const { default: action } = await import("./manage-provider-key-policy.js");
+  expect(action.mcpTool).toBe(false);
+});

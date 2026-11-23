@@ -15,6 +15,7 @@ export default defineAction({
     id: z.string().min(1).describe("Folder id"),
     name: z.string().min(1).describe("New folder name"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();

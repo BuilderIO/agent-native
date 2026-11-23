@@ -1,6 +1,6 @@
 import { ActionContractError } from "@agent-native/core";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import type { InlineDatabaseData } from "../shared/inline-database-block.js";
@@ -62,8 +62,16 @@ export async function assertContentDatabaseLifecycleAccess(
 }
 
 type InlineDatabaseBlockSet =
-  | { ok: true; ownerBlockIds: Set<string> }
+  | { ok: true; ownerBlockIds: Set<string>; inlineDatabaseKeys: Set<string> }
   | { ok: false };
+
+function inlineDatabaseKey(
+  ownerBlockId: string,
+  databaseId: string,
+  databaseDocumentId: string,
+) {
+  return JSON.stringify([ownerBlockId, databaseId, databaseDocumentId]);
+}
 
 function walkNodes(node: PMNode | undefined, visit: (node: PMNode) => void) {
   if (!node) return;
@@ -92,6 +100,7 @@ export async function collectInlineDatabaseOwnerBlockIds(
   }
 
   const ownerBlockIds = new Set<string>();
+  const inlineDatabaseKeys = new Set<string>();
   const inlineBlocks: PMNode[] = [];
   walkNodes(doc, (node) => {
     if (
@@ -115,6 +124,16 @@ export async function collectInlineDatabaseOwnerBlockIds(
       if (!parsed || parsed.type !== "inline-database") return { ok: false };
       if (!isInlineDatabaseData(parsed.data)) return { ok: false };
       if (parsed.data.ownerBlockId) ownerBlockIds.add(parsed.data.ownerBlockId);
+      const { databaseId, databaseDocumentId } = parsed.data;
+      if (databaseId && databaseDocumentId) {
+        for (const id of [blockId, parsed.data.ownerBlockId]) {
+          if (id) {
+            inlineDatabaseKeys.add(
+              inlineDatabaseKey(id, databaseId, databaseDocumentId),
+            );
+          }
+        }
+      }
     } catch {
       return { ok: false };
     }
@@ -124,7 +143,7 @@ export async function collectInlineDatabaseOwnerBlockIds(
     return { ok: false };
   }
 
-  return { ok: true, ownerBlockIds };
+  return { ok: true, ownerBlockIds, inlineDatabaseKeys };
 }
 
 export async function reconcileInlineDatabasesForDocumentWithDb(args: {
@@ -150,7 +169,10 @@ export async function reconcileInlineDatabasesForDocumentWithDb(args: {
       and(
         eq(schema.contentDatabases.ownerDocumentId, args.documentId),
         eq(schema.documents.parentId, args.documentId),
-        isNull(schema.contentDatabases.deletedAt),
+        or(
+          isNull(schema.contentDatabases.deletedAt),
+          isNull(schema.documents.trashedAt),
+        ),
         ...(args.ownerEmail
           ? [
               eq(schema.contentDatabases.ownerEmail, args.ownerEmail),
@@ -160,18 +182,42 @@ export async function reconcileInlineDatabasesForDocumentWithDb(args: {
       ),
     );
 
-  const missing = candidates
-    .map((row) => row.database)
+  const owned = candidates.flatMap(({ database }) =>
+    database.ownerBlockId
+      ? [
+          {
+            database,
+            blockPresent: parsed.ownerBlockIds.has(database.ownerBlockId),
+            blockNamesIt: parsed.inlineDatabaseKeys.has(
+              inlineDatabaseKey(
+                database.ownerBlockId,
+                database.id,
+                database.documentId,
+              ),
+            ),
+          },
+        ]
+      : [],
+  );
+  const missing = owned
     .filter(
-      (database) =>
-        database.ownerBlockId &&
-        !parsed.ownerBlockIds.has(database.ownerBlockId),
-    );
+      ({ database, blockPresent }) => !database.deletedAt && !blockPresent,
+    )
+    .map(({ database }) => database);
+  const returned = owned
+    .filter(
+      ({ database, blockNamesIt }) => !!database.deletedAt && blockNamesIt,
+    )
+    .map(({ database }) => database);
 
-  if (missing.length === 0) return [];
+  if (missing.length === 0 && returned.length === 0) return [];
   // Created after the caller locked its collections. Locking it now, after the
   // page, deadlocks against a Trash of the page, which locks it first.
-  if (missing.some((database) => !args.lockedDatabaseIds.has(database.id))) {
+  if (
+    [...missing, ...returned].some(
+      (database) => !args.lockedDatabaseIds.has(database.id),
+    )
+  ) {
     throw new ActionContractError(
       "An inline collection was added to the document while it saved. Read the document again and retry.",
       { errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED", statusCode: 409 },
@@ -180,10 +226,23 @@ export async function reconcileInlineDatabasesForDocumentWithDb(args: {
 
   const now = args.now ?? new Date().toISOString();
   const ids = missing.map((database) => database.id);
-  await args.db
-    .update(schema.contentDatabases)
-    .set({ deletedAt: now, updatedAt: now })
-    .where(inArray(schema.contentDatabases.id, ids));
+  if (ids.length > 0) {
+    await args.db
+      .update(schema.contentDatabases)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(inArray(schema.contentDatabases.id, ids));
+  }
+  if (returned.length > 0) {
+    await args.db
+      .update(schema.contentDatabases)
+      .set({ deletedAt: null, updatedAt: now })
+      .where(
+        inArray(
+          schema.contentDatabases.id,
+          returned.map((database) => database.id),
+        ),
+      );
+  }
 
   return ids;
 }

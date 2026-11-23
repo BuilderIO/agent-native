@@ -174,13 +174,14 @@ export default defineAction({
       app = await pickAppForIntent(intent, ctx);
     }
     const normalized = { ...normalizedArgs, app };
-    // An MCP host shows the app from the session the target app mints, so
-    // ask for one unless the caller opted out.
-    const result = await openGrantedDispatchMcpApp(
-      normalized.embed == null && ctx?.caller === "mcp"
-        ? { ...normalized, embed: true }
-        : normalized,
-    );
+    const result =
+      ctx?.caller === "tool"
+        ? await openGrantedDispatchMcpApp(normalized, { prefetchEmbed: true })
+        : await openGrantedDispatchMcpApp(
+            normalized.embed == null && ctx?.caller === "mcp"
+              ? { ...normalized, embed: true }
+              : normalized,
+          );
     const targetApp = normalizeTrackingDimension(result.app) ?? result.app;
     if (targetApp !== "dispatch") {
       track(

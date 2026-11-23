@@ -11,6 +11,7 @@ import {
   pinnedFilterValue,
   type FilterField,
   type FilterGroup,
+  type FilterItem,
   type FilterMode,
   type FilterRule,
   type FilterState,
@@ -80,20 +81,25 @@ export function filterStateToParams(
     ]);
   }
   if (state.mode === "or") params.push([names.match, "any"]);
-  let groupNumber = 0;
-  for (const item of state.items) {
-    const rules = completeFilterRules(item, fields);
-    if (rules.length === 0) continue;
-    if (item.kind === "rule") {
-      params.push([names.rule, encodeRule(item)]);
-      continue;
+  const pushItems = (items: readonly FilterItem[], group: string | null) => {
+    let groupNumber = 0;
+    for (const item of items) {
+      if (completeFilterRules(item, fields).length === 0) continue;
+      if (item.kind === "rule") {
+        params.push([
+          names.rule,
+          group === null ? encodeRule(item) : `${group}/${encodeRule(item)}`,
+        ]);
+        continue;
+      }
+      groupNumber += 1;
+      const number =
+        group === null ? `${groupNumber}` : `${group}.${groupNumber}`;
+      params.push([names.group, `${number}:${modeParam(item.mode)}`]);
+      pushItems(item.rules, number);
     }
-    groupNumber += 1;
-    params.push([names.group, `${groupNumber}:${modeParam(item.mode)}`]);
-    for (const rule of rules) {
-      params.push([names.rule, `${groupNumber}/${encodeRule(rule)}`]);
-    }
-  }
+  };
+  pushItems(state.items, null);
   return params;
 }
 
@@ -162,25 +168,48 @@ export function readFilterParams(
     if (value.length > 0) state.pinned[field.id] = value;
   }
   if (params.get(names.match) === "any") state.mode = "or";
+  const members: (
+    | { kind: "group"; number: string; parent: string | null }
+    | { kind: "rule"; group: string | null; rule: FilterRule }
+  )[] = [];
   for (const [key, raw] of params) {
     if (key === names.group) {
       const [number = "", mode = ""] = raw.split(":");
       if (!number || groups.has(number)) continue;
       if (mode !== "all" && mode !== "any") continue;
-      const group = createFilterGroup([], mode === "all" ? "and" : "or");
-      groups.set(number, group);
-      state.items.push(group);
+      const parts = number.split(".");
+      const top = parts.at(0) ?? "";
+      const nested = parts.at(1);
+      if (!top || nested === "" || parts.length > 2) continue;
+      groups.set(number, createFilterGroup([], mode === "all" ? "and" : "or"));
+      members.push({
+        kind: "group",
+        number,
+        parent: nested === undefined ? null : top,
+      });
     } else if (key === names.rule) {
       const decoded = decodeRule(raw, fields);
-      if (!decoded) continue;
-      const group = decoded.group === null ? null : groups.get(decoded.group);
-      if (group) group.rules.push(decoded.rule);
-      else if (decoded.group === null) state.items.push(decoded.rule);
+      if (decoded) members.push({ kind: "rule", ...decoded });
     }
   }
-  state.items = state.items.filter(
-    (item) => item.kind === "rule" || item.rules.length > 0,
-  );
+  for (const member of members) {
+    if (member.kind === "rule") {
+      if (member.group === null) state.items.push(member.rule);
+      else groups.get(member.group)?.rules.push(member.rule);
+      continue;
+    }
+    const group = groups.get(member.number);
+    if (!group) continue;
+    if (member.parent === null) state.items.push(group);
+    else groups.get(member.parent)?.rules.push(group);
+  }
+  const dropEmpty = (items: readonly FilterItem[]): FilterItem[] =>
+    items.flatMap((item): FilterItem[] => {
+      if (item.kind === "rule") return [item];
+      const rules = dropEmpty(item.rules);
+      return rules.length > 0 ? [{ ...item, rules }] : [];
+    });
+  state.items = dropEmpty(state.items);
   return state;
 }
 

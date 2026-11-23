@@ -5,6 +5,8 @@ import {
   type BackgroundAgentSessionHandle,
   type BackgroundAgentSessionStatus,
 } from "@agent-native/core/client/agent-chat";
+import { callAction } from "@agent-native/core/client/hooks";
+import { nfmToDoc, type PMNode } from "@shared/nfm";
 import { QUIET_ALT_TEXT_SCOPE_TYPE } from "@shared/quiet-agent-runs";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -20,6 +22,8 @@ export interface QuietAltTextRequest {
   message: string;
   instructions: string;
   imageDataUrl: string | null;
+  imageUrl: string;
+  imageOccurrence: number;
   altAtStart: string;
 }
 
@@ -39,6 +43,26 @@ const STOPPED: ReadonlySet<BackgroundAgentSessionStatus> = new Set([
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function savedImageAlt(
+  content: string,
+  imageUrl: string,
+  imageOccurrence: number,
+): string | null {
+  let seen = 0;
+  const find = (nodes: readonly PMNode[] | undefined): string | null => {
+    for (const node of nodes ?? []) {
+      if (node.type === "image" && node.attrs?.src === imageUrl) {
+        if (seen === imageOccurrence) return String(node.attrs.alt ?? "");
+        seen += 1;
+      }
+      const nested = find(node.content);
+      if (nested !== null) return nested;
+    }
+    return null;
+  };
+  return find(nfmToDoc(content).content);
 }
 
 function imageAttachment(dataUrl: string) {
@@ -76,12 +100,35 @@ export function useQuietAltText({ currentAlt }: { currentAlt: string }) {
     setState(next);
   }, []);
 
-  const altLanded = useCallback(async (altAtStart: string) => {
+  const altLanded = useCallback(async (request: QuietAltTextRequest) => {
+    const { altAtStart } = request;
+    if (currentAltRef.current !== altAtStart) return true;
+    window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
     const deadline = Date.now() + ALT_LANDING_WAIT_MS;
     for (;;) {
       if (currentAltRef.current !== altAtStart) return true;
-      if (Date.now() >= deadline) return false;
+      if (Date.now() >= deadline) break;
       await wait(ALT_LANDING_POLL_MS);
+    }
+    try {
+      const saved = await callAction<{ content?: string | null }>(
+        "get-document",
+        { id: request.documentId },
+        { method: "GET" },
+      );
+      const savedAlt = savedImageAlt(
+        saved.content ?? "",
+        request.imageUrl,
+        request.imageOccurrence,
+      );
+      return (
+        savedAlt !== null &&
+        savedAlt.trim() !== "" &&
+        savedAlt.trim() !== altAtStart.trim()
+      );
+    } catch {
+      // coercion-ok: an unreadable page can't confirm the save, so the line reports a failure.
+      return false;
     }
   }, []);
 
@@ -89,7 +136,7 @@ export function useQuietAltText({ currentAlt }: { currentAlt: string }) {
     async (
       token: number,
       handle: BackgroundAgentSessionHandle,
-      altAtStart: string,
+      request: QuietAltTextRequest,
     ) => {
       const isCurrent = () =>
         mountedRef.current && runTokenRef.current === token;
@@ -115,7 +162,7 @@ export function useQuietAltText({ currentAlt }: { currentAlt: string }) {
         }
         if (!isCurrent()) return;
         if (status && FINISHED.has(status)) {
-          const landed = await altLanded(altAtStart);
+          const landed = await altLanded(request);
           settle(
             token,
             landed
@@ -185,7 +232,7 @@ export function useQuietAltText({ currentAlt }: { currentAlt: string }) {
           return;
         }
       }
-      await follow(token, handle, request.altAtStart);
+      await follow(token, handle, request);
     },
     [follow, settle],
   );

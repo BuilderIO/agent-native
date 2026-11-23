@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { matchDispatchAppCandidates } from "../lib/dispatch-app-identity.js";
 import { listGrantedDispatchMcpApps } from "../server/lib/mcp-gateway.js";
 import { listPointers, matchPointer } from "../server/lib/pointers-store.js";
 
@@ -14,12 +15,16 @@ const QUESTION = "app";
 const NONE = "none";
 // Bump when the question or choice wording changes so cached answers to the
 // old wording are not replayed.
-const CACHE_KEY = "dispatch.route-app-intent.v3";
+const CACHE_KEY = "dispatch.route-app-intent.v5";
 
 type RouteAppIntentResult =
   | {
       status: "ok";
       app: string;
+      confidence: number;
+      explicit?: true;
+      screen?: "home";
+      params?: Record<string, string>;
       provider: string;
       model: string;
       cached: boolean;
@@ -55,6 +60,8 @@ export default defineAction({
       .max(200)
       .optional()
       .describe("Id of the app currently on screen, if any."),
+    openPath: z.string().max(2000).optional(),
+    selection: z.string().max(4000).optional(),
     previousTurn: z
       .union([z.string().max(4000), z.record(z.string(), z.unknown())])
       .optional()
@@ -66,6 +73,10 @@ export default defineAction({
     z.object({
       status: z.literal("ok"),
       app: z.string(),
+      confidence: z.number().min(0).max(1),
+      explicit: z.literal(true).optional(),
+      screen: z.literal("home").optional(),
+      params: z.record(z.string(), z.string()).optional(),
       provider: z.string(),
       model: z.string(),
       cached: z.boolean(),
@@ -88,6 +99,8 @@ export default defineAction({
   run: async ({
     text,
     openApp,
+    openPath,
+    selection,
     previousTurn,
   }): Promise<RouteAppIntentResult> => {
     const ownerEmail = getRequestUserEmail();
@@ -118,16 +131,40 @@ export default defineAction({
       return { status: "failed", reason: "no_granted_apps" };
     }
 
+    const explicitName = /^(?:open|show|switch to|go to)\s+(.+?)[.!]?$/i
+      .exec(text)?.[1]
+      ?.trim()
+      .toLowerCase();
+    if (explicitName) {
+      const candidates = matchDispatchAppCandidates(apps, explicitName);
+      const explicitApp = candidates.length === 1 ? candidates[0] : null;
+      if (explicitApp) {
+        return {
+          status: "ok",
+          app: explicitApp.id,
+          confidence: 1,
+          explicit: true,
+          screen: "home",
+          provider: "registration",
+          model: "exact-app-match",
+          cached: false,
+          latencyMs: 0,
+        };
+      }
+    }
+
     const hit = matchPointer(text, grantedPointers);
     if (hit && !openApp) {
       return {
         status: "ok",
         app: hit.appId,
+        confidence: 1,
         provider: "pointer",
         model: "alias-match",
         cached: false,
         latencyMs: 0,
         pointer: true,
+        ...(explicitName === hit.alias.toLowerCase() ? { explicit: true } : {}),
         ...(hit.objectId ? { objectId: hit.objectId } : {}),
         ...(hit.url ? { url: hit.url } : {}),
       };
@@ -136,8 +173,25 @@ export default defineAction({
     const input: DecisionInputPart[] = [
       { type: "text", text: `Request: ${text}` },
     ];
+    input.push({
+      type: "json",
+      value: {
+        connectedWorkspaceApps: apps.map(
+          ({ id, name, description, aliases }) => ({
+            id,
+            name,
+            description,
+            ...(aliases?.length ? { aliases } : {}),
+          }),
+        ),
+      },
+    });
     if (openApp) {
       input.push({ type: "text", text: `App currently on screen: ${openApp}` });
+    }
+    const routePath = openPath?.split(/[?#]/, 1)[0];
+    if (routePath !== undefined || selection !== undefined) {
+      input.push({ type: "json", value: { openPath: routePath, selection } });
     }
     if (grantedPointers.length > 0) {
       input.push({
@@ -206,6 +260,12 @@ export default defineAction({
     return {
       status: "ok",
       app,
+      confidence:
+        answer?.type === "choice" &&
+        typeof answer.confidence === "number" &&
+        Number.isFinite(answer.confidence)
+          ? Math.max(0, Math.min(1, answer.confidence))
+          : 0,
       provider: result.provider,
       model: result.model,
       cached: result.cached === true,

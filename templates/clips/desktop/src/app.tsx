@@ -4368,6 +4368,7 @@ export function App({
           mode,
           source,
           cameraId,
+          cameraLabel: cameraLabel || undefined,
           micId: selectedMicId || undefined,
           micLabel: selectedMicLabel || micLabel || undefined,
           authToken: loadDesktopAuthToken(serverUrl),

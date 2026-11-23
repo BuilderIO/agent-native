@@ -228,6 +228,18 @@ When the org-only run isn't shareable, the viewer's own run follows at once, in 
 
 Keep keys in settings: a key written into a program's code goes out with every viewer's own run anyway, so sharing doesn't change who can see what it returns.
 
+### Keeping the shared run fresh on a schedule {#scheduled-refresh}
+
+Save a program with `scheduledRefresh: true` and the server reruns it with its `defaultParams` every `refreshTtlMs`, so the org's shared run is ready before anyone opens the panel. The framework's recurring sweep runs it, the same once-a-minute server job that drives automations, so it needs no open browser and no model call.
+
+- **It's the org-shared run, made ahead of time.** The scheduled run follows every rule above: org credentials only, reads only, nothing that belongs to one person, and a viewer gets it only if their own run would read the same credentials. A scheduled run that isn't shareable is saved as a refusal and tried again a day later. It's never followed by a run with someone's own key, since nobody is waiting for it.
+- **It runs as the program's owner, checked each time.** Before each run the owner is checked the way automations check theirs. If they've left the org or no longer exist, nothing runs and the run is recorded as failed with `schedule_owner_invalid`, then checked again after `refreshTtlMs`; if the check itself fails, the run is recorded as failed with `schedule_owner_unverified` and the owner is checked again after five minutes.
+- **It refreshes a little early.** A run is due three minutes before it would go stale, which covers the sweep's interval and a run's 120-second limit, so viewers keep reading the shared run instead of running the program themselves. A refresh that fails is tried again five minutes later, and one starts only with at least 25 seconds of the sweep left, a panel view's own time limit. A scheduled run gets only what's left of the sweep's 90 seconds, so one that runs out of time is recorded as `schedule_timed_out` and tried again after `refreshTtlMs`, without stopping viewers' own shared runs.
+- **It covers one set of params.** A panel reads the scheduled run when its descriptor's `params` match the program's `defaultParams` (or both are empty). A panel with other params keeps its usual cache.
+- **It needs an org, `refreshMode: "ttl"`, a `refreshTtlMs` of at least 15 minutes, and a foreground program.** Saving `scheduledRefresh: true` without them fails; background programs don't share runs yet. A later save that leaves `scheduledRefresh` out keeps the setting, `false` turns it off, and archiving the program stops it.
+
+`get-data-program` returns `scheduledRefresh` and an `orgSharedRun` summary (status, error and finish time, with no rows or row count), so you can see whether the schedule is keeping up.
+
 ## Security model {#security}
 
 <Callout id="doc-block-dp-security" tone="success">

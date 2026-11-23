@@ -19,6 +19,7 @@ import {
   ensureApprovalTable,
   findRecentMcpApprovalRun,
   getMcpApprovalForOwner,
+  getMcpApprovalNotice,
   isMcpApprovalInOtherOrganization,
   pruneMcpApprovalGrants,
   recordMcpApprovalRun,
@@ -92,6 +93,7 @@ function newGrant(
     argumentsJson: storedApprovalArguments({ title: "Team sync" }),
     oauthClientId: undefined,
     retrySafe: false,
+    createdAt: Date.now(),
     ...overrides,
   };
 }
@@ -168,6 +170,57 @@ describe("creating a grant", () => {
     });
     expect(String(row.call_arguments)).not.toContain("sk-live");
     expect(Number(row.created_at)).toBeGreaterThan(0);
+    expect(row.approval_notice).toBeNull();
+  });
+
+  it("stores the action's notice and reads it back for the owner and the identical call", async () => {
+    const notice =
+      "This call can bill up to $0.28.\nThe approval expires at 00:00 UTC.";
+    const grant = await created({ approvalNotice: notice });
+
+    expect((await storedRow(grant.nonce)).approval_notice).toBe(notice);
+    expect(
+      (await getMcpApprovalForOwner(grant.nonce, reader(OWNER, ORG)))
+        ?.approvalNotice,
+    ).toBe(notice);
+    expect(await approve(grant)).toBe(true);
+    expect(
+      (await consumeReviewedMcpApprovalGrant(callOf(grant)))?.approvalNotice,
+    ).toBe(notice);
+  });
+
+  it("records the time the server asked, which it dated the notice from, as the grant's creation", async () => {
+    const askedAt = Date.now() - 1_500;
+    const grant = await created({ createdAt: askedAt });
+
+    expect(Number((await storedRow(grant.nonce)).created_at)).toBe(askedAt);
+    expect(await approve(grant)).toBe(true);
+    expect(
+      (await consumeReviewedMcpApprovalGrant(callOf(grant)))?.createdAt,
+    ).toBe(askedAt);
+  });
+
+  it("gives the identical call its grant's notice, and nobody else's", async () => {
+    const notice = "The approval expires at 00:00 UTC.";
+    const grant = await created({ approvalNotice: notice });
+    const plain = await created();
+
+    expect(await getMcpApprovalNotice(grant)).toBe(notice);
+    expect(await getMcpApprovalNotice(plain)).toBeNull();
+    expect(
+      await getMcpApprovalNotice({ ...grant, callerKey: "caller-2" }),
+    ).toBeNull();
+    expect(
+      await getMcpApprovalNotice({ ...grant, argumentsHash: "other" }),
+    ).toBeNull();
+  });
+
+  it("reads a grant made without a notice as having none", async () => {
+    const grant = await created();
+    expect(
+      (await getMcpApprovalForOwner(grant.nonce, reader(OWNER, ORG)))
+        ?.approvalNotice,
+    ).toBeNull();
   });
 });
 

@@ -110,6 +110,7 @@ export interface SSEEvent {
   suggestions?: AgentSuggestion[];
   event?: AgentChatRichEventEnvelope;
   tool?: string;
+  navigationKeys?: string[];
   /** Server-assigned call identifier emitted on tool_start / tool_done events. */
   id?: string;
   /** Stable transport identity, preserved when a durable turn is replayed. */
@@ -2003,6 +2004,7 @@ export function processEvent(
             result: ev.result,
             isError: ev.isError === true,
             completedSideEffect: ev.completedSideEffect === true,
+            navigationKeys: ev.navigationKeys,
             tabId,
             browserTabId: getBrowserTabId(),
             runId: context?.runId,

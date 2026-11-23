@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const session = vi.hoisted(() => ({
   start: vi.fn(),
   open: vi.fn(),
+  callAction: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -16,9 +17,14 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     (error as { code?: string } | null)?.code === "AI_SETUP_REQUIRED",
 }));
 
+vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: session.callAction,
+}));
+
 import { QUIET_ALT_TEXT_SCOPE_TYPE } from "@shared/quiet-agent-runs";
 
 import {
+  savedImageAlt,
   useQuietAltText,
   type QuietAltTextRequest,
 } from "./use-quiet-alt-text";
@@ -63,6 +69,8 @@ const request: QuietAltTextRequest = {
   message: "Generate alt text for this image.",
   instructions: "Call set-image-alt-text.",
   imageDataUrl: "data:image/png;base64,AAAA",
+  imageUrl: "https://cdn.example.com/signups.png",
+  imageOccurrence: 0,
   altAtStart: "",
 };
 
@@ -92,6 +100,10 @@ describe("quiet alt text runs", () => {
     vi.useFakeTimers();
     session.start.mockReset();
     session.open.mockReset();
+    session.callAction.mockReset();
+    session.callAction.mockResolvedValue({
+      content: "![](https://cdn.example.com/signups.png)",
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -232,6 +244,81 @@ describe("quiet alt text runs", () => {
     expect(hook.state).toEqual({ phase: "done", threadId: "thread-1" });
   });
 
+  it("reports alt text the page saved before the open editor receives it", async () => {
+    const { handle, accepted, completion } = fakeHandle();
+    session.start.mockReturnValue(handle);
+    session.callAction.mockResolvedValue({
+      content:
+        "Intro\n\n![A bar chart of monthly signups](https://cdn.example.com/signups.png)\n",
+    });
+    const refreshed = vi.fn();
+    window.addEventListener("agentNative:refresh-data", refreshed);
+    render("");
+
+    let run!: Promise<void>;
+    act(() => {
+      run = hook.start(request);
+    });
+    accepted.resolve(handle);
+    completion.resolve();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+      await run;
+    });
+    expect(refreshed).toHaveBeenCalledTimes(1);
+    expect(session.callAction).toHaveBeenCalledWith(
+      "get-document",
+      { id: "doc-1" },
+      { method: "GET" },
+    );
+    expect(hook.state).toEqual({ phase: "done", threadId: "thread-1" });
+    window.removeEventListener("agentNative:refresh-data", refreshed);
+  });
+
+  it("asks for the saved page and reports done once the editor shows the alt text", async () => {
+    const { handle, accepted, completion } = fakeHandle();
+    session.start.mockReturnValue(handle);
+    const refreshed = vi.fn();
+    window.addEventListener("agentNative:refresh-data", refreshed);
+    render("");
+
+    let run!: Promise<void>;
+    act(() => {
+      run = hook.start(request);
+    });
+    accepted.resolve(handle);
+    completion.resolve();
+    await flush();
+    expect(refreshed).toHaveBeenCalledTimes(1);
+    render("A bar chart of monthly signups");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+      await run;
+    });
+    expect(hook.state).toEqual({ phase: "done", threadId: "thread-1" });
+    expect(session.callAction).not.toHaveBeenCalled();
+    window.removeEventListener("agentNative:refresh-data", refreshed);
+  });
+
+  it("calls a run a failure when the saved page can't be read", async () => {
+    const { handle, accepted, completion } = fakeHandle();
+    session.start.mockReturnValue(handle);
+    session.callAction.mockRejectedValue(new Error("offline"));
+    render("");
+
+    let run!: Promise<void>;
+    act(() => {
+      run = hook.start(request);
+    });
+    accepted.resolve(handle);
+    completion.resolve();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+      await run;
+    });
+    expect(hook.state).toMatchObject({ phase: "failed", reason: "error" });
+  });
+
   it("calls a finished run that wrote nothing a failure", async () => {
     const { handle, accepted, completion } = fakeHandle();
     session.start.mockReturnValue(handle);
@@ -280,5 +367,29 @@ describe("quiet alt text runs", () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
     expect(hook.state).toEqual({ phase: "kept" });
+  });
+});
+
+describe("savedImageAlt", () => {
+  const url = "https://cdn.example.com/signups.png";
+
+  it("reads the alt text of the image at that occurrence, nested blocks included", () => {
+    const content = [
+      `![First](${url})`,
+      "",
+      "<details>",
+      "<summary>More charts</summary>",
+      "![Other image](https://cdn.example.com/other.png)",
+      `![Second](${url})`,
+      "</details>",
+      "",
+    ].join("\n");
+    expect(savedImageAlt(content, url, 0)).toBe("First");
+    expect(savedImageAlt(content, url, 1)).toBe("Second");
+  });
+
+  it("is null when the page has no such image", () => {
+    expect(savedImageAlt(`![First](${url})`, url, 1)).toBeNull();
+    expect(savedImageAlt("No images here.", url, 0)).toBeNull();
   });
 });

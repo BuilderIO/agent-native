@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { appCapabilityManifestSchema } from "../manifest/index.js";
 import { a2aConfig } from "./a2a.js";
 import { accessConfig } from "./access.js";
 import { agentConfig } from "./agent.js";
@@ -77,6 +78,7 @@ export const nativeManifestSchema = z.strictObject({
 export type NativeManifest = z.infer<typeof nativeManifestSchema>;
 
 export const appConfigSchema = z.object({
+  manifest: appCapabilityManifestSchema.optional(),
   a2a: a2aConfig.prefault({}),
   access: accessConfig.prefault({}),
   agent: agentConfig.prefault({}),

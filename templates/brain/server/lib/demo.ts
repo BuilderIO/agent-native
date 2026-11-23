@@ -6,7 +6,9 @@ import { getDb, schema } from "../db/index.js";
 import {
   createCapture,
   createSource,
+  firstRow,
   getAccessibleCapture,
+  knowledgeRevision,
   nowIso,
   parseJson,
   sanitizeEvidenceCitationUrls,
@@ -652,7 +654,7 @@ async function ensureDemoCapture(sourceId: string, spec: DemoCaptureSpec) {
 }
 
 async function findKnowledgeByTitle(title: string) {
-  const [knowledge] = await getDb()
+  const rows = await getDb()
     .select()
     .from(schema.brainKnowledge)
     .where(
@@ -663,14 +665,19 @@ async function findKnowledgeByTitle(title: string) {
       ),
     )
     .limit(1);
-  return knowledge ?? null;
+  return firstRow(rows) ?? null;
 }
 
 async function upsertDemoKnowledge(input: WriteKnowledgeInput) {
   const existing = await findKnowledgeByTitle(input.title);
   const result = await writeKnowledgeRecord({
     ...input,
-    knowledgeId: existing?.id,
+    ...(existing
+      ? {
+          knowledgeId: existing.id,
+          expectedRevision: knowledgeRevision(existing),
+        }
+      : {}),
     publishTier: input.publishTier ?? "company",
   });
   return result.knowledge;
@@ -789,6 +796,7 @@ export async function seedBrainDemoData(
     ],
     confidence: 96,
     supersedesId: oldFreemium.id,
+    supersedesRevision: oldFreemium.revision,
     publishCanonical: options.publishCanonical ?? true,
   });
 
@@ -1155,6 +1163,7 @@ export async function seedBrainRetrievalEvalData(
     ],
     confidence: 95,
     supersedesId: oldConnectorMarketplace.id,
+    supersedesRevision: oldConnectorMarketplace.revision,
     publishCanonical: options.publishCanonical ?? false,
   });
 

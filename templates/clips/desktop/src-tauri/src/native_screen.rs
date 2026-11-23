@@ -149,9 +149,10 @@ mod custom_capture;
 pub(crate) use custom_capture::extract_mono_audio;
 #[cfg(target_os = "macos")]
 use custom_capture::{
-    prepare_clip_sink, start_custom_screencapturekit_backend_at, start_screen_capture,
+    prepare_clip_sink, start_audio_capture, start_camera_capture,
+    start_custom_screencapturekit_backend_at, start_screen_capture, AudioCapture, CameraCapture,
     ClosedSegmentFile, CustomCaptureResume, CustomScreenCaptureWriter, PreparedClipSink,
-    ScreenCapture, SegmentFence,
+    RichAudioTaps, ScreenCapture, SegmentFence,
 };
 #[cfg(target_os = "macos")]
 mod live_upload;
@@ -162,6 +163,10 @@ use live_upload::{
     attach_live_uploader_to_session, cancel_clip_live_upload, finalize_clip_live_upload,
     start_clip_live_uploader, LiveUpload,
 };
+#[cfg(target_os = "macos")]
+mod audio_track;
+#[cfg(target_os = "macos")]
+mod camera_track;
 #[cfg(target_os = "macos")]
 mod input_track;
 #[cfg(target_os = "macos")]
@@ -3022,6 +3027,7 @@ pub async fn native_fullscreen_recording_begin(
     has_camera: Option<bool>,
     include_camera_overlay: bool,
     rich_tracks: Option<bool>,
+    camera_label: Option<String>,
 ) -> Result<NativeFullscreenStartInfo, String> {
     #[cfg(not(target_os = "macos"))]
     {
@@ -3038,6 +3044,7 @@ pub async fn native_fullscreen_recording_begin(
             has_camera,
             include_camera_overlay,
             rich_tracks,
+            camera_label,
         );
         return Err("Native full-screen recording is currently macOS-only.".into());
     }
@@ -3168,6 +3175,7 @@ pub async fn native_fullscreen_recording_begin(
                         auth_token.as_deref(),
                         cookie.as_deref(),
                         has_camera.unwrap_or(false),
+                        camera_label.as_deref(),
                     );
                 }
                 persist_active_recording_intent(
@@ -3274,6 +3282,7 @@ pub async fn native_fullscreen_recording_begin(
                 auth_token.as_deref(),
                 cookie.as_deref(),
                 has_camera.unwrap_or(false),
+                camera_label.as_deref(),
             );
         }
         persist_active_recording_intent(

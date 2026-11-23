@@ -6,10 +6,11 @@ import type {
 
 export const BUILDER_REVIEW_FIRST_BATCH_SIZE = 5;
 export const BUILDER_REVIEW_TEXT_BATCH_SIZE = 20;
-export const BUILDER_REVIEW_BLOCKS_BATCH_SIZE = 10;
+export const BUILDER_REVIEW_BLOCKS_BATCH_SIZE = 5;
 export const BUILDER_REVIEW_CONCURRENT_BATCHES = 3;
+export const BUILDER_REVIEW_CONCURRENT_BLOCKS_BATCHES = 1;
 export const BUILDER_REVIEW_ROW_LIMIT = 100;
-export const BUILDER_REVIEW_CHECK_BATCH_SIZE = 10;
+export const BUILDER_REVIEW_CHECK_BATCH_SIZE = 3;
 
 const RESULT_STATUS_ORDER: Array<
   ContentDatabaseSourceReviewPayload["result"]["status"]

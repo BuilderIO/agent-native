@@ -2,6 +2,7 @@ import {
   BigQueryAgentBudgetUnavailableError,
   budgetRefusalFor,
   readBigQueryAgentBudget,
+  type BigQueryAgentBudgetSnapshot,
   type BigQueryAgentReconciler,
   type OutsideAgentIdentity,
 } from "./bigquery-agent-budget.js";
@@ -12,6 +13,18 @@ import {
   ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
 } from "./onboarding-journey.js";
+
+export interface OutsideAgentOnboardingCall {
+  followUpMode: "session" | "person";
+  experimentId?: string | undefined;
+  splitDesignFirstTouch?: boolean | undefined;
+}
+
+export interface OutsideAgentOnboardingBytes {
+  requested: number;
+  applied: number;
+  refusal: OutsideAgentBigQueryRefusalError | null;
+}
 
 async function requestReconciler(
   signal: AbortSignal | undefined,
@@ -29,23 +42,86 @@ async function requestReconciler(
   }
 }
 
-export async function outsideAgentOnboardingEventBytes(
-  identity: OutsideAgentIdentity,
+export function onboardingFollowUpBytes(
+  call: OutsideAgentOnboardingCall,
+): number {
+  const followUpQueries =
+    call.experimentId || call.splitDesignFirstTouch
+      ? 0
+      : call.followUpMode === "person"
+        ? 2
+        : 1;
+  return followUpQueries * ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED;
+}
+
+export function smallestOutsideAgentOnboardingCall(
+  call: OutsideAgentOnboardingCall,
+): number {
+  return ONBOARDING_EVENTS_MAX_BYTES_BILLED + onboardingFollowUpBytes(call);
+}
+
+export function planOutsideAgentOnboardingBytes(
+  budget: BigQueryAgentBudgetSnapshot,
   requestedBytes: number | undefined,
-  call: {
-    followUpMode: "session" | "person";
-    experimentId?: string | undefined;
-    splitDesignFirstTouch?: boolean | undefined;
-  },
-  signal?: AbortSignal,
-): Promise<{
-  requested: number;
-  applied: number;
-  refusal: OutsideAgentBigQueryRefusalError | null;
-}> {
+  call: OutsideAgentOnboardingCall,
+  askVia?: string,
+): OutsideAgentOnboardingBytes {
   const requested =
     requestedBytes ??
     ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED;
+  const followUpBytes = onboardingFollowUpBytes(call);
+  const available = Math.min(
+    budget.person.remainingBytes,
+    budget.org.remainingBytes,
+  );
+  const pages = Math.floor(
+    (available - followUpBytes) / ONBOARDING_EVENTS_MAX_BYTES_BILLED,
+  );
+  const smallestCall = smallestOutsideAgentOnboardingCall(call);
+  return {
+    requested,
+    applied: Math.min(
+      requested,
+      Math.max(1, pages) * ONBOARDING_EVENTS_MAX_BYTES_BILLED,
+    ),
+    refusal:
+      pages >= 1
+        ? null
+        : new OutsideAgentBigQueryRefusalError({
+            ...(budgetRefusalFor(budget, smallestCall) ?? {
+              code: "budget_exhausted",
+              scope: "person",
+            }),
+            reservedBytes: smallestCall,
+            budget,
+            askVia: askVia ?? null,
+          }),
+  };
+}
+
+export function approvedOutsideAgentOnboardingBound(
+  budget: BigQueryAgentBudgetSnapshot,
+  requestedBytes: number | undefined,
+  call: OutsideAgentOnboardingCall,
+): number {
+  const unspent: BigQueryAgentBudgetSnapshot = {
+    ...budget,
+    person: { ...budget.person, remainingBytes: budget.person.ceilingBytes },
+    org: { ...budget.org, remainingBytes: budget.org.limitBytes },
+  };
+  const plan = planOutsideAgentOnboardingBytes(unspent, requestedBytes, call);
+  return plan.refusal
+    ? smallestOutsideAgentOnboardingCall(call)
+    : plan.applied + onboardingFollowUpBytes(call);
+}
+
+export async function outsideAgentOnboardingEventBytes(
+  identity: OutsideAgentIdentity,
+  requestedBytes: number | undefined,
+  call: OutsideAgentOnboardingCall,
+  signal?: AbortSignal,
+  askVia?: string,
+): Promise<OutsideAgentOnboardingBytes> {
   let budget;
   let reconciled = false;
   try {
@@ -63,42 +139,21 @@ export async function outsideAgentOnboardingEventBytes(
     }
     throw error;
   }
-  const followUpQueries =
-    call.experimentId || call.splitDesignFirstTouch
-      ? 0
-      : call.followUpMode === "person"
-        ? 2
-        : 1;
-  const followUpBytes = followUpQueries * ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED;
-  const available = Math.min(
-    budget.person.remainingBytes,
-    budget.org.remainingBytes,
+  const plan = planOutsideAgentOnboardingBytes(
+    budget,
+    requestedBytes,
+    call,
+    askVia,
   );
-  const pages = Math.floor(
-    (available - followUpBytes) / ONBOARDING_EVENTS_MAX_BYTES_BILLED,
-  );
-  const smallestCall = ONBOARDING_EVENTS_MAX_BYTES_BILLED + followUpBytes;
   const mayCountFinishedJobs =
     !reconciled &&
     (budget.person.reservedBytes > 0 || budget.org.reservedBytes > 0);
-  return {
-    requested,
-    applied: Math.min(
-      requested,
-      Math.max(1, pages) * ONBOARDING_EVENTS_MAX_BYTES_BILLED,
-    ),
-    refusal:
-      pages >= 1
-        ? null
-        : mayCountFinishedJobs
-          ? new OutsideAgentBigQueryRefusalError({ code: "budget_unavailable" })
-          : new OutsideAgentBigQueryRefusalError({
-              ...(budgetRefusalFor(budget, smallestCall) ?? {
-                code: "budget_exhausted",
-                scope: "person",
-              }),
-              reservedBytes: smallestCall,
-              budget,
-            }),
-  };
+  return plan.refusal && mayCountFinishedJobs
+    ? {
+        ...plan,
+        refusal: new OutsideAgentBigQueryRefusalError({
+          code: "budget_unavailable",
+        }),
+      }
+    : plan;
 }

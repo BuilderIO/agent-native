@@ -113,7 +113,7 @@ const {
 } = await import("./run-store.js");
 
 beforeAll(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await ensureRunTables();
 });
 

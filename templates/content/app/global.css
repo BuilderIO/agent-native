@@ -3163,6 +3163,14 @@ button.discussion-subject-quote:hover {
   .suggestion-block-widget.suggestion-highlight--active[data-suggestion-widget] {
   box-shadow: inset 3px 0 hsl(var(--suggestion));
 }
+/* Its new text isn't underlined like active inserted words; removed lines
+   stay struck through. */
+.content-editor
+  .suggestion-block-widget.suggestion-highlight--active[data-suggestion-widget]:not(
+    .suggestion-delete-widget
+  ) {
+  text-decoration: none;
+}
 .content-editor .suggestion-block-widget[data-suggestion-widget] > * {
   color: inherit;
 }
@@ -3182,6 +3190,13 @@ button.discussion-subject-quote:hover {
   text-decoration: underline;
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
+}
+.content-editor
+  .suggestion-insert.suggestion-inline-widget.suggestion-highlight--active[data-suggestion-widget],
+.content-editor
+  .suggestion-add-block.suggestion-inline-widget.suggestion-highlight--active[data-suggestion-widget] {
+  background: hsl(var(--suggestion) / 0.16);
+  box-shadow: inset 0 -2px hsl(var(--suggestion));
 }
 
 .content-editor .suggestion-delete.suggestion-highlight--active,
