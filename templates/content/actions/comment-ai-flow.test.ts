@@ -724,7 +724,7 @@ describe("comment AI dedicated action boundaries", () => {
       name: "edits that change nothing",
       edits: [{ find: "Bed one.", replace: "Bed one." }],
       errorCode: "edits_unchanged",
-      message: "No edit changes the text",
+      message: "The edits together leave the text unchanged",
     },
   ])(
     "refuses $name with nothing saved, so a corrected call succeeds",
@@ -732,7 +732,7 @@ describe("comment AI dedicated action boundaries", () => {
       state.request.intent = "suggest";
       state.source.document.content = "Bed one. Water. Bed two. Water.";
 
-      const error = await run(createSuggestion as any, {
+      const error = await run(createSuggestion as never, {
         summary: "Mulch the beds",
         edits,
       }).catch((thrown: unknown) => thrown);
@@ -747,7 +747,7 @@ describe("comment AI dedicated action boundaries", () => {
       expect(state.request.status).toBe("running");
       expect(mocks.createSuggestion).not.toHaveBeenCalled();
 
-      const result = await run(createSuggestion as any, {
+      const result = await run(createSuggestion as never, {
         summary: "Mulch bed two",
         edits: [{ find: "Bed two. Water.", replace: "Bed two. Mulch." }],
       });
@@ -788,7 +788,7 @@ describe("comment AI dedicated action boundaries", () => {
     state.request.intent = "apply-resolve";
     state.source.document.content = "Bed one. Water. Bed two. Water.";
 
-    const error = await run(applyRequest as any, {
+    const error = await run(applyRequest as never, {
       summary: "Mulched the beds",
       edits: [{ find: "Water.", replace: "Mulch." }],
     }).catch((thrown: unknown) => thrown);
@@ -800,12 +800,30 @@ describe("comment AI dedicated action boundaries", () => {
     expect(mocks.editDocument).not.toHaveBeenCalled();
   });
 
+  it("refuses apply edits that together leave the Page unchanged, before the edit is keyed", async () => {
+    state.request.intent = "apply-resolve";
+    state.source.document.content = "Alpha Beta";
+
+    const error = await run(applyRequest as never, {
+      summary: "Reworded",
+      edits: [
+        { find: "Alpha ", replace: "Alpha B" },
+        { find: "Beta", replace: "eta" },
+      ],
+    }).catch((thrown: unknown) => thrown);
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(error).toMatchObject({ errorCode: "edits_unchanged" });
+    expect(state.retainedPayload).toBeUndefined();
+    expect(mocks.editDocument).not.toHaveBeenCalled();
+  });
+
   it("keeps a find a later Page change removed as a typed review conflict", async () => {
     state.request.intent = "suggest";
     state.sourceRevisionMatches = false;
 
     await expect(
-      run(createSuggestion as any, {
+      run(createSuggestion as never, {
         summary: "Clarify this",
         edits: [{ find: "Gone text", replace: "New text" }],
       }),

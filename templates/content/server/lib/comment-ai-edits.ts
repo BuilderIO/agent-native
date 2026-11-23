@@ -45,9 +45,9 @@ export function assertCommentAiEditsResolve(
       "finds_overlap",
     );
   }
-  if (edits.every((edit) => edit.find === edit.replace)) {
+  if (resolved.content === content) {
     return commentAiEditErrors.noWrite(
-      `No edit changes the text: each replace equals its find. ${retry}`,
+      `The edits together leave the text unchanged. ${retry}`,
       "edits_unchanged",
     );
   }
