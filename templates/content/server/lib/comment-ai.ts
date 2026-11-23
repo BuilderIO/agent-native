@@ -1276,8 +1276,9 @@ async function recordConflict(
         .from(schema.commentAiRequests)
         .where(eq(schema.commentAiRequests.id, request.id))
         .for("update");
-      if (rows.length === 0) throw new Error("Comment AI operation not found");
-      [current] = rows;
+      const locked = rows.at(0);
+      if (!locked) throw new Error("Comment AI operation not found");
+      current = locked;
       if (
         terminalSuccess(current.status) ||
         current.status === "cancelled" ||
