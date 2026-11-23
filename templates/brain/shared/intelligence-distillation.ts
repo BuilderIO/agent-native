@@ -1,8 +1,0 @@
-export function intelligenceDistillationInstructions(captureId: string) {
-  return (
-    `For meeting transcripts and other allowed source text, extract supported decisions, action items and customer feature requests with write-intelligence. ` +
-    `First call list-intelligence with captureId=${captureId} to find previous extractions. Update a matching record using its id and expectedRevision instead of creating a duplicate; if hasMore is true, report incomplete coverage rather than assuming the list is complete. ` +
-    `Use exact evidence quotes from this capture, with typed people/project/customer entities whose names occur in the quotes. A supplied owner must occur in an evidence quote; ownershipConfidence is explicit only when the quote establishes ownership, otherwise ambiguous. Set dueDate only when its YYYY-MM-DD value appears literally in an evidence quote. Retain relative deadline wording in the body with dueDate unset. ` +
-    `Keep unknown owners and dates empty, distinguish planned decisions from completed work, and never verify records automatically. Preserve the source audience and the configured publish tier; restricted evidence cannot become broadly shared context. `
-  );
-}
