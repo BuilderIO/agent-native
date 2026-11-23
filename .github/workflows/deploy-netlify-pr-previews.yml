@@ -434,6 +434,7 @@ jobs:
             }
 
             const activeStatuses = ['in_progress', 'queued', 'waiting'];
+            const recentSince = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString().slice(0, 19) + 'Z';
             const activeRuns = await Promise.all(
               activeStatuses.map(async (status) => {
                 const { data } = await github.rest.actions.listWorkflowRuns({
@@ -442,6 +443,7 @@ jobs:
                   workflow_id: 'deploy-netlify-pr-previews.yml',
                   event: 'issue_comment',
                   status,
+                  created: `>=${recentSince}`,
                   per_page: 1,
                 });
                 return data.total_count ?? data.workflow_runs.length;
