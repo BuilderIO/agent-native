@@ -276,6 +276,14 @@ that changes text on both sides of a cell or frame edge, adds or removes
 table rows or cells or a column, or changes a callout's icon, a toggle's
 title, or an image, fails with `suggestion_structure_unsupported`.
 
+When an edit answers a comment, as when the user asks you to address a page's
+open comments, pass that comment's `id` from `list-comments` as `commentId`, so
+its suggestion card links to the comment. Make a separate call for each comment.
+The comment must be open and on the page body: a resolved one fails with
+`SUGGESTION_COMMENT_RESOLVED`, one in another Blocks field tab with
+`SUGGESTION_COMMENT_NOT_ON_BODY`, and an id not on the page with
+`SUGGESTION_COMMENT_NOT_FOUND`.
+
 Use `suggest-document-edit` for every suggested body edit. The generic
 `create-resource-suggestion` action remains for advanced proposals that build
 typed Page-body operations by hand: `resourceType: "document"`, adapter kind
