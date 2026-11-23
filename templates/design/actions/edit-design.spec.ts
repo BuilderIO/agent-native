@@ -157,6 +157,14 @@ describe("edit-design action schema", () => {
     ).toThrow(/matched .* places/);
   });
 
+  it("words a stable-id boundary rejection so the review agent reads it as ambiguous", () => {
+    const content = '<p data-agent-native-node-id="live" class="old">Hi</p>';
+    const search = ' data-agent-native-node-id="stale" class="old"';
+    expect(() =>
+      applySearchReplaceEdits(content, [{ search, replace: ' class="new"' }]),
+    ).toThrow(/matched .* places/);
+  });
+
   it("rejects a whitespace-only stable-id fallback match", () => {
     const content =
       '<main><p data-agent-native-node-id="live"  class="item">Hi</p><aside>Keep</aside></main>';

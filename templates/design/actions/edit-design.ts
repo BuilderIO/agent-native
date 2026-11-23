@@ -130,7 +130,7 @@ function findUniqueStableIdAgnosticSpan(
     searchProjection.indexMap[strippedSearch.length - 1] !== search.length - 1
   ) {
     throw new ApplyEditConflictError(
-      `Edit ${editIndex + 1}: search text has an ambiguous stable-ID boundary. Read the current file (get-design-snapshot) and include the complete element in the search.`,
+      `Edit ${editIndex + 1}: "search" matched at a stable-ID boundary that could belong to several places. Read the current file (get-design-snapshot) and include the complete element in the search.`,
       "ambiguous",
     );
   }

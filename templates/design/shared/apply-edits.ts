@@ -46,10 +46,13 @@ export function findWhitespaceFlexibleMatches(
   const pattern = escapeRegExp(search).replace(/\s+/g, "\\s+");
   const boundary = /^\s/.test(search) ? "(?<!\\s)" : "";
   const re = new RegExp(`${boundary}(?=(${pattern}))`, "g");
-  return Array.from(content.matchAll(re), (match) => ({
-    start: match.index,
-    end: match.index + match[1].length,
-  }));
+  const matches: { start: number; end: number }[] = [];
+  for (const match of content.matchAll(re)) {
+    const matched = match[1];
+    if (match.index === undefined || matched === undefined) continue;
+    matches.push({ start: match.index, end: match.index + matched.length });
+  }
+  return matches;
 }
 
 export function applyOneEdit(
@@ -80,9 +83,9 @@ export function applyOneEdit(
       "ambiguous",
     );
   }
-  if (flexible === 1) {
-    const { start, end } = matches[0];
-    return `${content.slice(0, start)}${replace}${content.slice(end)}`;
+  const only = matches[0];
+  if (flexible === 1 && only) {
+    return `${content.slice(0, only.start)}${replace}${content.slice(only.end)}`;
   }
 
   throw new ApplyEditConflictError(
