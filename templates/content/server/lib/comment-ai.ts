@@ -1268,26 +1268,31 @@ async function recordConflict(
   options?: { recordRun?: boolean },
 ) {
   const now = new Date().toISOString();
-  const recorded = await getDb().transaction(async (tx) => {
-    const rows = await tx
-      .select()
-      .from(schema.commentAiRequests)
-      .where(eq(schema.commentAiRequests.id, request.id))
-      .for("update");
-    if (rows.length === 0) throw new Error("Comment AI operation not found");
-    const [locked] = rows;
-    if (
-      options?.recordRun &&
-      (terminalSuccess(locked.status) ||
-        locked.status === "cancelled" ||
-        locked.status === "failed" ||
-        (locked.status === "needs-review" &&
-          request.status !== "needs-review") ||
-        locked.runId !== request.runId ||
-        locked.attemptCount !== request.attemptCount ||
-        locked.activeAttemptId !== request.activeAttemptId)
-    ) {
-      return false;
+  const result = await getDb().transaction(async (tx) => {
+    let current = request;
+    if (!attempt) {
+      const rows = await tx
+        .select()
+        .from(schema.commentAiRequests)
+        .where(eq(schema.commentAiRequests.id, request.id))
+        .for("update");
+      if (rows.length === 0) throw new Error("Comment AI operation not found");
+      [current] = rows;
+      if (
+        terminalSuccess(current.status) ||
+        current.status === "cancelled" ||
+        current.status === "failed" ||
+        (current.status === "needs-review" &&
+          (request.status !== "needs-review" ||
+            current.updatedAt !== request.updatedAt ||
+            current.errorCode !== request.errorCode ||
+            current.error !== request.error)) ||
+        current.runId !== request.runId ||
+        current.attemptCount !== request.attemptCount ||
+        current.activeAttemptId !== request.activeAttemptId
+      ) {
+        return { recorded: false, request: current };
+      }
     }
     if (attempt) {
       await tx
@@ -1303,16 +1308,18 @@ async function recordConflict(
     await tx
       .update(schema.commentAiRequests)
       .set({
-        ...(options?.recordRun ? commentAiRunBookkeeping(locked) : {}),
+        ...(options?.recordRun ? commentAiRunBookkeeping(current) : {}),
         status: "needs-review",
         errorCode: error.code,
         error: error.message,
         updatedAt: now,
       })
-      .where(eq(schema.commentAiRequests.id, locked.id));
-    return true;
+      .where(eq(schema.commentAiRequests.id, current.id));
+    return { recorded: true, request: current };
   });
-  if (recorded) await writeAppState("refresh-signal", { ts: Date.now() });
+  if (result.recorded)
+    await writeAppState("refresh-signal", { ts: Date.now() });
+  return result;
 }
 
 export async function beginCommentAiAttempt(
@@ -1338,7 +1345,10 @@ export async function beginCommentAiAttempt(
               ? error.message
               : "Comment context could not be read",
           );
-    await recordConflict(request, null, typed, options);
+    const conflict = await recordConflict(request, null, typed, options);
+    if (!conflict.recorded && terminalSuccess(conflict.request.status)) {
+      return { request: conflict.request, attempt: null, source: null };
+    }
     throw typed;
   }
 

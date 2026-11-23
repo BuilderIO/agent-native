@@ -12,13 +12,14 @@ import { registerLabs } from "@agent-native/core/labs/registry";
 import { createThread, runWithRequestContext } from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-comment-ai-concurrency-${process.pid}-${Date.now()}.pglite`,
 );
+const POSTGRES_URL = process.env.CONTENT_COMMENT_AI_POSTGRES_URL;
 const OWNER = "comment-ai-owner@example.com";
 const OTHER_USER = "comment-ai-collaborator@example.com";
 const DOCUMENT_ID = "comment-ai-page";
@@ -122,7 +123,15 @@ async function bindTurn(operationId: string) {
 
 beforeAll(async () => {
   registerLabs([CREATIVE_CONTEXT_LIBRARY_LAB]);
-  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  if (
+    POSTGRES_URL &&
+    !new URL(POSTGRES_URL).pathname.toLowerCase().includes("test")
+  ) {
+    throw new Error(
+      "CONTENT_COMMENT_AI_POSTGRES_URL must name an isolated test database.",
+    );
+  }
+  process.env.DATABASE_URL = POSTGRES_URL ?? `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -545,6 +554,87 @@ describe("comment AI durable action binding", () => {
 });
 
 describe("operation-scoped refresh and commits", () => {
+  it.runIf(Boolean(POSTGRES_URL))(
+    "does not deadlock an attempt conflict against an attempt-first writer",
+    async () => {
+      const started = await asUser(() =>
+        commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+      );
+      const begun = await runOperation(
+        OP_A,
+        started.agentThreadId,
+        async () => {
+          const request = await commentAi.requireCommentAiRequest("reply");
+          return commentAi.beginCommentAiAttempt(request);
+        },
+      );
+      if (!begun.attempt) throw new Error("Expected a reasoning attempt");
+      const attemptId = begun.attempt.id;
+      await getDb()
+        .update(schema.documentComments)
+        .set({ content: "Changed feedback" })
+        .where(eq(schema.documentComments.id, ROOT_A));
+
+      let release = () => {};
+      let announce = (_pid: number) => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const acquired = new Promise<number>((resolve) => {
+        announce = resolve;
+      });
+      const holder = getDb().transaction(async (tx) => {
+        await tx
+          .update(schema.commentAiAttempts)
+          .set({ status: "reasoning" })
+          .where(eq(schema.commentAiAttempts.id, attemptId));
+        const result = await tx.execute(
+          sql`SELECT pg_backend_pid()::int AS pid`,
+        );
+        const rows = Array.isArray(result) ? result : result.rows;
+        announce(Number(rows[0].pid));
+        await held;
+        await tx
+          .update(schema.commentAiRequests)
+          .set({ status: "refreshing" })
+          .where(eq(schema.commentAiRequests.id, OP_A));
+      });
+      const holderPid = await acquired;
+      const conflict = runOperation(OP_A, started.agentThreadId, () =>
+        commentAi.verifyCommentAiAttempt(begun.request, attemptId),
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      try {
+        await expect
+          .poll(async () => {
+            const result = await getDb()
+              .execute(sql`SELECT pid FROM pg_stat_activity
+            WHERE datname = current_database() AND ${holderPid} = ANY(pg_blocking_pids(pid))`);
+            const rows = Array.isArray(result) ? result : result.rows;
+            return rows.length > 0;
+          })
+          .toBe(true);
+      } finally {
+        release();
+      }
+      await holder;
+      expect(await conflict).toMatchObject({ code: "root_comment_changed" });
+      expect(
+        await asUser(() => commentAi.loadCommentAiRequest(OP_A)),
+      ).toMatchObject({
+        status: "needs-review",
+        errorCode: "root_comment_changed",
+      });
+      expect(
+        await commentAi.getCommentAiAttempt(begun.request, attemptId),
+      ).toMatchObject({
+        status: "needs-review",
+        errorCode: "root_comment_changed",
+      });
+    },
+  );
   it.each(["existing", "missing"] as const)(
     "reports exhausted context without changing %s run metadata",
     async (metadata) => {
@@ -761,6 +851,56 @@ describe("operation-scoped refresh and commits", () => {
                   attemptCount: 1,
                   activeAttemptId: `${OP_A}:attempt:1`,
                 },
+        )
+        .where(eq(schema.commentAiRequests.id, OP_A));
+      const before = await asUser(() => commentAi.loadCommentAiRequest(OP_A));
+      const result = await runOperation(OP_A, started.agentThreadId, () =>
+        commentAi.beginCommentAiAttempt(stale, { recordRun: true }),
+      ).then(
+        (value) => ({ kind: "completed", value }),
+        (error: unknown) => ({ kind: "failed", error }),
+      );
+      expect(result).toMatchObject(
+        change === "replied"
+          ? { kind: "completed", value: { request: before, attempt: null } }
+          : { kind: "failed", error: { code: "root_comment_changed" } },
+      );
+      expect(await asUser(() => commentAi.loadCommentAiRequest(OP_A))).toEqual(
+        before,
+      );
+    },
+  );
+
+  it.each(["new-error", "new-timestamp"] as const)(
+    "preserves a newer needs-review conflict with the same run and attempt (%s)",
+    async (change) => {
+      const started = await asUser(() =>
+        commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+      );
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set({
+          status: "needs-review",
+          errorCode: "operation_failed",
+          error: "Earlier review",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        })
+        .where(eq(schema.commentAiRequests.id, OP_A));
+      const stale = await runOperation(OP_A, started.agentThreadId, () =>
+        commentAi.requireCommentAiRequest(undefined, {
+          deferBookkeeping: true,
+        }),
+      );
+      await getDb()
+        .update(schema.documentComments)
+        .set({ content: "Changed feedback" })
+        .where(eq(schema.documentComments.id, ROOT_A));
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set(
+          change === "new-error"
+            ? { errorCode: "run_unavailable", error: "Newer review" }
+            : { updatedAt: "2026-01-01T00:00:01.000Z" },
         )
         .where(eq(schema.commentAiRequests.id, OP_A));
       const before = await asUser(() => commentAi.loadCommentAiRequest(OP_A));
