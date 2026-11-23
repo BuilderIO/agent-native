@@ -705,6 +705,63 @@ describe("operation-scoped refresh and commits", () => {
     },
   );
 
+  it("records the executing run when the request changes before attempt locking", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+    );
+    let snapshotRead!: () => void;
+    let continueAttempt!: () => void;
+    const snapshotReady = new Promise<void>((resolve) => {
+      snapshotRead = resolve;
+    });
+    const continueAfterUpdate = new Promise<void>((resolve) => {
+      continueAttempt = resolve;
+    });
+    const attempt = runOperation(
+      OP_A,
+      started.agentThreadId,
+      async () => {
+        const request = await commentAi.requireCommentAiRequest(undefined, {
+          deferBookkeeping: true,
+        });
+        snapshotRead();
+        await continueAfterUpdate;
+        return commentAi.beginCommentAiAttempt(request, { recordRun: true });
+      },
+      { runId: "executing-run", model: "example/executing-model" },
+    );
+    await snapshotReady;
+    try {
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set({
+          runId: "intervening-run",
+          model: "example/intervening-model",
+          status: "refreshing",
+        })
+        .where(eq(schema.commentAiRequests.id, OP_A));
+    } finally {
+      continueAttempt();
+    }
+    const result = await attempt;
+    expect(result.request).toMatchObject({
+      runId: "executing-run",
+      model: "example/executing-model",
+      attemptCount: 1,
+    });
+    expect(result.attempt).toMatchObject({
+      runId: "executing-run",
+      model: "example/executing-model",
+    });
+    expect(
+      await asUser(() => commentAi.loadCommentAiRequest(OP_A)),
+    ).toMatchObject({
+      runId: "executing-run",
+      model: "example/executing-model",
+      activeAttemptId: result.attempt?.id,
+    });
+  });
+
   it("records the current run and model when an existing attempt resumes", async () => {
     const started = await asUser(() =>
       commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),

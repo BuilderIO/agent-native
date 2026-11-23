@@ -1218,18 +1218,9 @@ export async function requireCommentAiRequest(
   const [updated] = await getDb()
     .update(schema.commentAiRequests)
     .set(commentAiRunBookkeeping(request))
-    .where(
-      and(
-        eq(schema.commentAiRequests.id, request.id),
-        eq(schema.commentAiRequests.updatedAt, request.updatedAt),
-        eq(schema.commentAiRequests.status, request.status),
-        sql`${schema.commentAiRequests.runId} IS NOT DISTINCT FROM ${request.runId}`,
-        sql`${schema.commentAiRequests.model} IS NOT DISTINCT FROM ${request.model}`,
-        sql`${schema.commentAiRequests.engine} IS NOT DISTINCT FROM ${request.engine}`,
-      ),
-    )
+    .where(eq(schema.commentAiRequests.id, request.id))
     .returning();
-  return updated ?? (await loadCommentAiRequest(request.id));
+  return updated ?? request;
 }
 
 function commentAiRunBookkeeping(request: RequestRow) {
@@ -1342,15 +1333,7 @@ export async function beginCommentAiAttempt(
     if (terminalSuccess(locked.status)) {
       return { request: locked, attempt: null, source };
     }
-    // Do not overwrite a run or lifecycle transition committed since the read.
-    if (
-      options?.recordRun &&
-      locked.updatedAt === request.updatedAt &&
-      locked.status === request.status &&
-      locked.runId === request.runId &&
-      locked.model === request.model &&
-      locked.engine === request.engine
-    ) {
+    if (options?.recordRun) {
       [locked] = await tx
         .update(schema.commentAiRequests)
         .set(commentAiRunBookkeeping(locked))
