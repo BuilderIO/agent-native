@@ -1205,6 +1205,28 @@ async function executeJob(
 ): Promise<JobExecutionResult> {
   const jobName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
 
+  if (
+    options.manual &&
+    !options.resume &&
+    isPausedByFramework(meta) &&
+    meta.pausedReason === "write_tool_outcome_unknown"
+  ) {
+    const error =
+      "The automation is paused because a previous write may have applied. Review the earlier write and explicitly resume the automation before running it again.";
+    if (options.historyId) {
+      await finishAutomationRun(
+        options.historyId,
+        "skipped",
+        error,
+        undefined,
+        {
+          requirePersisted: true,
+        },
+      );
+    }
+    return { status: "skipped", error };
+  }
+
   const jobContext: RecurringJobContext = {
     name: jobName,
     meta,

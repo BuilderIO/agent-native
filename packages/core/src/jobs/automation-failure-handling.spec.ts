@@ -213,7 +213,10 @@ vi.mock("./scheduler-health.js", async (importOriginal) => ({
   recordAutomationSchedulerHealth: vi.fn(async () => undefined),
 }));
 
-const { processRecurringJobs, runJobNow } = await import("./scheduler.js");
+const { processRecurringJobs, runJobNow, runQueuedAutomation } =
+  await import("./scheduler.js");
+const { getAutomationRun, startAutomationRun } =
+  await import("./run-history.js");
 const { ensureRunTables, getRunTurnRef, getCurrentTurnRunEventsForThread } =
   await import("../agent/run-store.js");
 const { registerErrorCaptureProvider } =
@@ -749,7 +752,7 @@ describe("scheduled automations that cannot run", () => {
     expect(resumed.pausedReason).toBeUndefined();
   });
 
-  it("keeps an unknown-write pause after an unrelated successful manual run", async () => {
+  it("blocks a manual run until an unknown-write pause is explicitly resumed", async () => {
     putJob("alice@agent-native.test", "safety-paused", [
       'schedule: "*/15 * * * *"',
       "enabled: false",
@@ -762,88 +765,67 @@ describe("scheduled automations that cannot run", () => {
       "consecutiveFailures: 1",
     ]);
 
+    const before = readJob("alice@agent-native.test", "safety-paused");
+    expect(
+      await runJobNow("alice@agent-native.test", "safety-paused", deps),
+    ).toMatchObject({
+      status: "skipped",
+      error: expect.stringContaining("resume"),
+    });
+    expect(readJob("alice@agent-native.test", "safety-paused")).toEqual(before);
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(await historyOf("safety-paused")).toHaveLength(0);
+
+    const row = resourceStore.rows.get(
+      "alice@agent-native.test:jobs/safety-paused.md",
+    );
+    if (!row) throw new Error("Missing automation");
+    row.content = row.content.replace("enabled: false", "enabled: true");
     expect(
       await runJobNow("alice@agent-native.test", "safety-paused", deps),
     ).toMatchObject({ status: "success" });
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
     expect(readJob("alice@agent-native.test", "safety-paused")).toMatchObject({
-      enabled: false,
-      lastStatus: "paused",
-      pausedReason: "write_tool_outcome_unknown",
-      lastErrorCode: "write_tool_outcome_unknown",
-      lastError: "Check the earlier write.",
+      enabled: true,
+      lastStatus: "success",
     });
-    await tickAt(START + 7 * 60 * MINUTE);
-    expect(await historyOf("safety-paused")).toHaveLength(1);
   });
 
-  it.each(["ordinary", "unknown"] as const)(
-    "preserves the original safety pause after a failed manual run (%s)",
-    async (failure) => {
-      putJob("alice@agent-native.test", "safety-paused-failure", [
-        'schedule: "*/15 * * * *"',
-        "enabled: false",
-        "createdBy: alice@agent-native.test",
-        'appId: "calendar"',
-        `nextRun: "${new Date(START - MINUTE).toISOString()}"`,
-        'pausedReason: "write_tool_outcome_unknown"',
-        'pausedAt: "2026-09-30T23:00:00.000Z"',
-        'lastErrorCode: "write_tool_outcome_unknown"',
-        'lastError: "Check the earlier write."',
-        "consecutiveFailures: 1",
-      ]);
-      runAgentLoopMock.mockImplementation(async ({ send }) => {
-        if (failure === "unknown") {
-          send({
-            type: "tool_done",
-            tool: "send-notification",
-            outcomeUnknown: true,
-            result: "Another uncertain write",
-          });
-        }
-        send({ type: "error", error: "Gateway failed", errorCode: "http_502" });
-        throw new EngineError("Gateway failed", { errorCode: "http_502" });
-      });
+  it("settles a queued run when the automation is safety-paused after enqueue", async () => {
+    const owner = "alice@agent-native.test";
+    const row = putJob(owner, "queued-safety-pause", [
+      'schedule: "*/15 * * * *"',
+      "enabled: true",
+      `createdBy: ${owner}`,
+      'appId: "calendar"',
+    ]);
+    const historyId = await startAutomationRun({
+      owner,
+      automation: "queued-safety-pause",
+      path: row.path,
+      appId: "calendar",
+      dispatchPending: true,
+    });
+    row.content = row.content.replace(
+      "enabled: true",
+      'enabled: false\nlastStatus: paused\npausedReason: write_tool_outcome_unknown\nlastErrorCode: write_tool_outcome_unknown\nlastError: "Check the earlier write."',
+    );
+    const before = { ...row };
 
-      const latestRun = await runJobNow(
-        "alice@agent-native.test",
-        "safety-paused-failure",
-        deps,
-      );
-      expect(latestRun).toMatchObject({ status: "error" });
-      expect(
-        readJob("alice@agent-native.test", "safety-paused-failure"),
-      ).toMatchObject({
-        enabled: false,
-        lastStatus: "paused",
-        pausedReason: "write_tool_outcome_unknown",
-        pausedAt: "2026-09-30T23:00:00.000Z",
-        lastErrorCode: "write_tool_outcome_unknown",
-        lastError: "Check the earlier write.",
-        consecutiveFailures: 1,
-      });
-      expect(await historyOf("safety-paused-failure")).toMatchObject([
-        {
-          status: "error",
-          error_code:
-            failure === "unknown" ? "write_tool_outcome_unknown" : "http_502",
-        },
-      ]);
-      await tickAt(START + 7 * 60 * MINUTE);
-      expect(await historyOf("safety-paused-failure")).toHaveLength(1);
-      const row = resourceStore.rows.get(
-        "alice@agent-native.test:jobs/safety-paused-failure.md",
-      );
-      if (!row) throw new Error("Missing automation");
-      row.content = row.content.replace("enabled: false", "enabled: true");
-      await tickAt(START + 7 * 60 * MINUTE + MINUTE);
-      const resumed = readJob(
-        "alice@agent-native.test",
-        "safety-paused-failure",
-      );
-      expect(resumed.enabled).toBe(true);
-      expect(resumed.pausedReason).toBeUndefined();
-    },
-  );
+    const result = await runQueuedAutomation(historyId, deps);
+    expect(result.error).toContain("resume");
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(createThreadMock).not.toHaveBeenCalled();
+    expect(resourceStore.rows.get(`${owner}:${row.path}`)).toEqual(before);
+    expect(await getAutomationRun(historyId)).toMatchObject({
+      status: "skipped",
+      error: expect.stringContaining("resume"),
+      finishedAt: expect.any(Number),
+    });
+    expect(await runQueuedAutomation(historyId, deps)).toEqual({
+      skipped: true,
+    });
+  });
 
   it.each([false, true])(
     "pauses when an unknown write precedes a terminal run error (isError: %s)",

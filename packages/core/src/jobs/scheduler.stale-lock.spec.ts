@@ -1481,7 +1481,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
     },
   );
 
-  it("keeps an unknown-write pause after a manual failure", async () => {
+  it("does not start a manual run under an unknown-write pause", async () => {
     const resource = {
       id: "manual-resource",
       owner: "owner@example.com",
@@ -1494,33 +1494,16 @@ describe("stale automation run-lock recovery across trigger types", () => {
     resourcePutMock.mockImplementation(async (_owner, _path, content) => {
       resource.content = content;
     });
-    const start = vi
-      .spyOn(runHistory, "startAutomationRun")
-      .mockImplementation(async (_input, options) => {
-        await options?.afterInsert?.(
-          { execute: dbExecuteMock },
-          "manual-history",
-        );
-        await options?.afterCommit?.();
-        return "manual-history";
-      });
-    const finish = vi
-      .spyOn(runHistory, "finishAutomationRun")
-      .mockResolvedValue(undefined);
-    runAgentLoopMock.mockRejectedValueOnce(new Error("Manual failure"));
-    try {
-      await runJobNow(resource.owner, "manual", recoveryDeps);
-      expect(
-        parseJobResource(resourcePutMock.mock.calls.at(-1)?.[2] ?? "").meta,
-      ).toMatchObject({
-        enabled: false,
-        lastStatus: "paused",
-        pausedReason: "write_tool_outcome_unknown",
-      });
-    } finally {
-      start.mockRestore();
-      finish.mockRestore();
-    }
+    const content = resource.content;
+    expect(
+      await runJobNow(resource.owner, "manual", recoveryDeps),
+    ).toMatchObject({
+      status: "skipped",
+      error: expect.stringContaining("resume"),
+    });
+    expect(resource.content).toBe(content);
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
   it("persists manual firing policy before starting its worker", async () => {
