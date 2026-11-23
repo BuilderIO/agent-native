@@ -384,8 +384,6 @@ export const EmailListItem = memo(function EmailListItem({
     }, THREAD_PREFETCH_INTENT_MS);
   }, [cancelPrefetch, onPrefetch, thread]);
 
-  // Tab or a click that lands on the row itself makes it the current row, so
-  // the row highlight and keyboard focus never point at two different rows.
   const handleRowFocus = useCallback(
     (e: React.FocusEvent) => {
       if (thread && e.target === e.currentTarget) onFocusRow?.(thread);

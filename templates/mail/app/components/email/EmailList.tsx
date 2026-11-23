@@ -1340,13 +1340,6 @@ export function EmailList({
     [navigate, onNavigateThread, searchParams, threadId, view],
   );
 
-  // While J and K drive the list, the row under a resting pointer would look
-  // like a second current row, so hover stays quiet until the pointer moves.
-  // The keys are watched here rather than in moveFocus because the open
-  // email handles them while it is shown beside the list. A move is a change
-  // of position: the list scrolling under a still pointer is not one.
-  // The open thread the current row was last synced to, and the one just
-  // closed, which the first J or K steps past instead of reopening.
   const syncedThreadIdRef = useRef<string | null>(null);
   const closedThreadIdRef = useRef<string | null>(null);
 
@@ -1383,11 +1376,8 @@ export function EmailList({
         );
       }
       const base = current === -1 ? 0 : current;
-      const baseEmail = threads[base]?.latestMessage;
-      // With the reading pane empty, the first J or K opens the current row
-      // (the top row on a fresh list) instead of skipping past it. After you
-      // close an email they step on from it, and drafts, which never open in
-      // the pane, step on as before.
+      const baseEmail = (threads[base] as ThreadSummary | undefined)
+        ?.latestMessage;
       const opensCurrent =
         readingPane &&
         !threadId &&
@@ -2122,9 +2112,6 @@ export function EmailList({
     }
   }, [threads, focusedId, setFocusedId]);
 
-  // Opening a thread, by click, link or the agent, makes it the current row,
-  // so J and K continue from the thread on screen. Synced once per thread so a
-  // list refresh never pulls the current row back.
   useEffect(() => {
     if (!threadId) {
       if (syncedThreadIdRef.current) {
