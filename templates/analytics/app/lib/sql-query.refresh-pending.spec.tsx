@@ -94,11 +94,17 @@ describe("useSqlQuery with a data program refresh still running", () => {
           <Probe refreshToken={refreshToken} />
         </QueryClientProvider>,
       );
-      await vi.advanceTimersByTimeAsync(5);
     });
   const advance = (ms: number) =>
     act(async () => {
       await vi.advanceTimersByTimeAsync(ms);
+    });
+  const settle = (calls: number) =>
+    act(async () => {
+      await vi.waitFor(() => {
+        expect(mocks.callAction).toHaveBeenCalledTimes(calls);
+        expect(queryClient.isFetching()).toBe(0);
+      });
     });
   const shown = (name: string) =>
     container.querySelector(`[data-${name}]`)?.textContent;
@@ -108,6 +114,7 @@ describe("useSqlQuery with a data program refresh still running", () => {
   it("reads again until the queued run's rows arrive, then confirms the refresh", async () => {
     answers.push(OLD);
     await render(0);
+    await settle(1);
     expect(shown("rows")).toBe("old");
 
     answers.push(
@@ -116,16 +123,19 @@ describe("useSqlQuery with a data program refresh still running", () => {
       NEW,
     );
     await render(1);
+    await settle(2);
     expect(forced()).toEqual([false, true]);
     expect(shown("rows")).toBe("old");
     expect(shown("completed")).toBe("undefined");
 
     await advance(REFRESH_PENDING_POLL_MS);
+    await settle(3);
     expect(forced()).toEqual([false, true, false]);
     expect(shown("rows")).toBe("old");
     expect(shown("completed")).toBe("undefined");
 
     await advance(REFRESH_PENDING_POLL_MS);
+    await settle(4);
     expect(forced()).toEqual([false, true, false, false]);
     expect(shown("rows")).toBe("new");
     expect(shown("completed")).toBe("1");
@@ -137,12 +147,15 @@ describe("useSqlQuery with a data program refresh still running", () => {
   it("stops reading without confirming when the queued run leaves only the old rows", async () => {
     answers.push(OLD);
     await render(0);
+    await settle(1);
 
     answers.push({ ...OLD, refreshPending: true }, OLD);
     await render(1);
+    await settle(2);
     expect(shown("completed")).toBe("undefined");
 
     await advance(REFRESH_PENDING_POLL_MS);
+    await settle(3);
     expect(forced()).toEqual([false, true, false]);
     expect(shown("rows")).toBe("old");
     expect(shown("completed")).toBe("undefined");
@@ -154,6 +167,7 @@ describe("useSqlQuery with a data program refresh still running", () => {
   it("doesn't read again when no run is pending", async () => {
     answers.push(OLD);
     await render(0);
+    await settle(1);
 
     await advance(REFRESH_PENDING_POLL_MS * 4);
     expect(mocks.callAction).toHaveBeenCalledTimes(1);

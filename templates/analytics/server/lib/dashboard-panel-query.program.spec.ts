@@ -227,7 +227,7 @@ describe("dashboard-panel-query: program source", () => {
 
     it.each([
       { stale: true, refreshPending: true },
-      { stale: false, refreshPending: undefined },
+      { stale: false, refreshPending: false },
     ])(
       "says a newer run is pending when the program's rows are stale: $stale",
       async ({ stale, refreshPending }) => {
@@ -248,13 +248,15 @@ describe("dashboard-panel-query: program source", () => {
           ctx,
         });
 
-        expect(result.refreshPending).toBe(refreshPending);
+        expect("refreshPending" in result && result.refreshPending).toBe(
+          refreshPending,
+        );
       },
     );
 
     it.each([
       { code: "background_pending", refreshPending: true },
-      { code: "timeout", refreshPending: undefined },
+      { code: "timeout", refreshPending: false },
     ])(
       "says a newer run is pending over the last good rows only for $code",
       async ({ code, refreshPending }) => {
@@ -275,7 +277,9 @@ describe("dashboard-panel-query: program source", () => {
           ctx,
         });
 
-        expect(result.refreshPending).toBe(refreshPending);
+        expect("refreshPending" in result && result.refreshPending).toBe(
+          refreshPending,
+        );
       },
     );
 
