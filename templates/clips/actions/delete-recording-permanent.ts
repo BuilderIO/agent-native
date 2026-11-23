@@ -10,6 +10,10 @@ import {
   refreshAfterBatch,
   requestedRecordingIds,
 } from "../server/lib/recording-batch.js";
+import {
+  deleteMirroredRecordingComments,
+  prepareRecordingCommentMirror,
+} from "../server/lib/recording-comment-mirror.js";
 import { mediaCleanupSummary } from "../server/lib/recording-media-cleanup-worker.js";
 import { recordingMediaUrls } from "../server/lib/recording-media-cleanup.js";
 import { captureRecordingMediaCleanup } from "../server/lib/recording-media-lifecycle.js";
@@ -165,6 +169,7 @@ async function deleteOne(
         ],
       })
     : {};
+  await prepareRecordingCommentMirror();
   // False when another call deleted it first, while this one waited.
   const deletedHere = await db.transaction(async (tx) => {
     const locked = await tx
@@ -227,6 +232,7 @@ async function deleteOne(
     await tx
       .delete(schema.recordingComments)
       .where(eq(schema.recordingComments.recordingId, id));
+    await deleteMirroredRecordingComments(id, "all", ownerEmail);
     await tx
       .delete(schema.recordingReactions)
       .where(eq(schema.recordingReactions.recordingId, id));

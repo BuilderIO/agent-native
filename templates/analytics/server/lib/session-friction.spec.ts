@@ -9,7 +9,15 @@ import {
 } from "@agent-native/core/shared/analytics-events";
 import { and, asc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -59,6 +67,7 @@ import {
   sessionFrictionSortOrder,
   type StoredReplayChunk,
 } from "./session-friction";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 /** Migration DDL comes straight from db.ts so the tests track it. */
 function migrationSql(name: string): string[] {
@@ -605,18 +614,22 @@ describe("session friction on Postgres", () => {
   /** What each recording stores, by recording id and chunk sequence. */
   const storedChunks = new Map<string, Map<number, string | null>>();
 
+  beforeAll(async () => {
+    client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
   beforeEach(async () => {
     storedChunks.clear();
     __resetSessionEventIndexForTests();
     __resetSessionFrictionForTests();
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createBaseTables(client);
     db = drizzle(client, { schema });
     getDbMock.mockReturnValue(db);
-  });
-
-  afterEach(async () => {
-    await client.close();
   });
 
   async function index(rows: SessionEventIndexInputRow[], receivedAt: string) {

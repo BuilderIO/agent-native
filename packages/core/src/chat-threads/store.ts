@@ -1875,6 +1875,11 @@ export interface ListThreadsOptions {
   scope?: { type: string; id: string };
   /** When true, returns only threads with no scope (general chats). */
   unscopedOnly?: boolean;
+  /**
+   * Scope types to leave out when `scope` is not given, such as the chats a
+   * quiet background run makes. Asking for one of those scopes still lists it.
+   */
+  excludeScopeTypes?: readonly string[];
   orgId?: string | null;
   /**
    * Include archived threads in the results. Defaults to false: archived
@@ -2038,6 +2043,8 @@ export async function listThreads(
     args.push(opts.scope.type, opts.scope.id);
   } else if (opts.unscopedOnly) {
     filters.push(`scope_type IS NULL`);
+  } else {
+    pushExcludedScopeTypes(filters, args, opts.excludeScopeTypes);
   }
   if (opts.collapseEdits) {
     filters.push(
@@ -2057,6 +2064,19 @@ export async function listThreads(
     .filter((r): r is ChatThreadListRow => r !== null);
 }
 
+function pushExcludedScopeTypes(
+  filters: string[],
+  args: (string | number)[],
+  scopeTypes: readonly string[] | undefined,
+): void {
+  const types = [...new Set(scopeTypes ?? [])].filter(Boolean);
+  if (types.length === 0) return;
+  filters.push(
+    `(scope_type IS NULL OR scope_type NOT IN (${types.map(() => "?").join(", ")}))`,
+  );
+  args.push(...types);
+}
+
 function escapeLike(s: string): string {
   return s.replace(/[!%_]/g, (match) => `!${match}`);
 }
@@ -2067,6 +2087,7 @@ export async function searchThreads(
   limit = 50,
   options: {
     scope?: { type: string; id: string };
+    excludeScopeTypes?: readonly string[];
     orgId?: string | null;
     collapseEdits?: boolean;
     /** See `ListThreadsOptions.includeArchived` — defaults to false. */
@@ -2135,6 +2156,8 @@ export async function searchThreads(
   if (options.scope) {
     filters.push(`scope_type = ? AND scope_id = ?`);
     args.push(options.scope.type, options.scope.id);
+  } else {
+    pushExcludedScopeTypes(filters, args, options.excludeScopeTypes);
   }
   if (options.collapseEdits) {
     filters.push(

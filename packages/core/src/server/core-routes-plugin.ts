@@ -391,7 +391,10 @@ import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { mountUiActionCapabilityRoute } from "./ui-action-capability.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
-import { createWorkspaceProviderOAuthHandler } from "./workspace-provider-oauth.js";
+import {
+  createWorkspaceProviderOAuthHandler,
+  WORKSPACE_PROVIDER_OAUTH_PROVIDERS,
+} from "./workspace-provider-oauth.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -4019,23 +4022,7 @@ export function createCoreRoutesPlugin(
         // Audit module not available — skip
       }
 
-      for (const provider of [
-        "figma",
-        "gmail",
-        "google_calendar",
-        "google_docs",
-        "google_drive",
-        "bigquery",
-        "google_sheets",
-        "google_slides",
-        "github",
-        "hubspot",
-        "salesforce",
-        "jira",
-        "sentry",
-        "notion",
-        "sigma",
-      ] as const) {
+      for (const provider of WORKSPACE_PROVIDER_OAUTH_PROVIDERS) {
         getH3App(nitroApp).use(
           `${P}/connections/oauth/${provider}/start`,
           createWorkspaceProviderOAuthHandler(provider, "start"),

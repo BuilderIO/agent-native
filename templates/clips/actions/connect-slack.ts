@@ -15,6 +15,7 @@ export default defineAction({
       .describe("Same-origin path to return to after Slack connects."),
   }),
   http: { method: "GET" },
+  mcpTool: false,
   run: async (args) => {
     if (!process.env.SLACK_CLIENT_ID || !process.env.SLACK_CLIENT_SECRET) {
       throw new Error(

@@ -203,6 +203,7 @@ export class LocalChildProcessAdapter implements SandboxAdapter {
           stderr: `${stderr}\n[sandbox] output exceeded the ${MAX_STREAM_BYTES}-byte-per-stream safety limit; process was terminated.`,
           exitCode,
           timedOut: false,
+          ...(stdoutBytes > MAX_STREAM_BYTES ? { stdoutTruncated: true } : {}),
         };
       }
 

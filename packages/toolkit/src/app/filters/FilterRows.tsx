@@ -27,7 +27,9 @@ import {
   FilterRuleEditor,
 } from "./FilterEditors.js";
 import {
+  addFilterGroup,
   addFilterRule,
+  createFilterGroup,
   createFilterRule,
   filterOperatorTakesValue,
   findFilterField,
@@ -59,6 +61,8 @@ export interface FilterControlProps {
   state: FilterState;
   onChange: (next: FilterState) => void;
   counts?: FilterCounts | undefined;
+  /** Lets a group hold groups of its own, one level down, as Content's saved views do. */
+  nestedGroups?: boolean | undefined;
 }
 
 export const FILTER_POPOVER_CLASS =
@@ -515,10 +519,22 @@ export function FilterGroupBlock({
   state,
   onChange,
   counts,
+  nestedGroups,
+  nested = false,
   text,
-}: FilterControlProps & { group: FilterGroup; text: FilterText }) {
+}: FilterControlProps & {
+  group: FilterGroup;
+  nested?: boolean;
+  text: FilterText;
+}) {
+  const canAddGroup = nestedGroups === true && !nested;
   return (
-    <div className="flex min-w-0 flex-col gap-1.5 rounded-md border bg-muted/30 p-2">
+    <div
+      className={cn(
+        "flex min-w-0 flex-col gap-1.5 rounded-md border p-2",
+        nested ? "bg-background" : "bg-muted/30",
+      )}
+    >
       <div className="flex min-w-0 items-center gap-1 text-sm text-muted-foreground">
         <FilterModeSentence
           sentence="agentChat.filters.groupSentence"
@@ -537,33 +553,70 @@ export function FilterGroupBlock({
           <IconX />
         </Button>
       </div>
-      {group.rules.map((rule) => (
-        <FilterRuleRow
-          key={rule.id}
-          rule={rule}
+      {group.rules.map((member) =>
+        member.kind === "rule" ? (
+          <FilterRuleRow
+            key={member.id}
+            rule={member}
+            fields={fields}
+            state={state}
+            onChange={onChange}
+            counts={counts}
+            text={text}
+          />
+        ) : (
+          <FilterGroupBlock
+            key={member.id}
+            group={member}
+            fields={fields}
+            state={state}
+            onChange={onChange}
+            counts={counts}
+            nested
+            text={text}
+          />
+        ),
+      )}
+      <div className="flex flex-wrap items-center gap-1">
+        <FilterAddPopover
           fields={fields}
-          state={state}
-          onChange={onChange}
           counts={counts}
           text={text}
-        />
-      ))}
-      <FilterAddPopover
-        fields={fields}
-        counts={counts}
-        text={text}
-        onAdd={(rule) => onChange(addFilterRule(state, rule, group.id))}
-      >
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 self-start text-muted-foreground"
+          onAdd={(rule) => onChange(addFilterRule(state, rule, group.id))}
         >
-          <IconPlus />
-          {text.t("agentChat.filters.addRule")}
-        </Button>
-      </FilterAddPopover>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+          >
+            <IconPlus />
+            {text.t("agentChat.filters.addRule")}
+          </Button>
+        </FilterAddPopover>
+        {canAddGroup ? (
+          <FilterAddPopover
+            fields={fields}
+            counts={counts}
+            text={text}
+            onAdd={(rule) =>
+              onChange(
+                addFilterGroup(state, createFilterGroup([rule]), group.id),
+              )
+            }
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+            >
+              <IconPlus />
+              {text.t("agentChat.filters.addGroup")}
+            </Button>
+          </FilterAddPopover>
+        ) : null}
+      </div>
     </div>
   );
 }

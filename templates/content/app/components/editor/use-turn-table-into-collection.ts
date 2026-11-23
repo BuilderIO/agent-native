@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { useCallback } from "react";
@@ -15,29 +14,14 @@ import {
   waitForEditorUpdateFrame,
 } from "./SlashCommandMenu";
 import {
+  findInlineCollection,
   followTable,
-  replaceTableAsOneUndoStep,
+  replaceBlockAsOneUndoStep,
   seedFitsCollection,
   tableCollectionSeed,
   tableFitsCollection,
 } from "./table-collection";
 import type { TableAt } from "./table-commands";
-
-function findInlineCollection(editor: Editor, ownerBlockId: string) {
-  let found: { node: ProseMirrorNode; pos: number } | null = null;
-  editor.state.doc.descendants((node, pos) => {
-    if (found) return false;
-    if (
-      node.type.name === "registryBlock" &&
-      node.attrs.blockType === "inline-database" &&
-      node.attrs.blockId === ownerBlockId
-    ) {
-      found = { node, pos };
-    }
-    return !found;
-  });
-  return found as { node: ProseMirrorNode; pos: number } | null;
-}
 
 export function useTurnTableIntoCollection({
   editor,
@@ -92,7 +76,7 @@ export function useTurnTableIntoCollection({
         const block = editor.schema.nodeFromJSON(
           inlineDatabaseBlockContent(result.block),
         );
-        replaceTableAsOneUndoStep(
+        replaceBlockAsOneUndoStep(
           editor.view,
           current,
           block,
@@ -107,7 +91,10 @@ export function useTurnTableIntoCollection({
         toast.success(t("editor.turnedIntoCollection"), { id: toastId });
       } catch (error) {
         if (replaced) {
-          const collection = findInlineCollection(editor, ownerBlockId);
+          const collection = findInlineCollection(
+            editor.state.doc,
+            ownerBlockId,
+          );
           if (collection) {
             editor.view.dispatch(
               editor.state.tr

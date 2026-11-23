@@ -1414,13 +1414,23 @@ export interface ContentDatabaseNavigationPageResponse {
    * their own pages.
    */
   branchesTruncated?: boolean;
+  groups?: ContentDatabaseNavigationGroup[];
+  locatedGroupIds?: string[];
 }
 
 /** One Files navigation page on its own, without expanded folders. */
 export type ContentDatabaseNavigationPage = Omit<
   ContentDatabaseNavigationPageResponse,
-  "branches" | "branchesTruncated"
+  "branches" | "branchesTruncated" | "groups" | "locatedGroupIds"
 >;
+
+export interface ContentDatabaseNavigationGroup {
+  id: string;
+  label: string;
+  unset: boolean;
+  count: number;
+  page: ContentDatabaseNavigationPage;
+}
 
 export interface BuilderActionTiming {
   name: string;
@@ -2081,6 +2091,7 @@ export interface PreviewBuilderSourceReviewResponse {
   documentIds?: string[];
   remainingDocumentIds?: string[];
   blocksCheckDocumentIds?: string[];
+  timings?: BuilderActionTiming[];
 }
 
 export interface PrepareBuilderSourceReviewResponse {

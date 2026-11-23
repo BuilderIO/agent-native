@@ -185,7 +185,7 @@ beforeEach(async () => {
   nextId = 1;
   readDefaultAgentEngineSettingMock.mockReset();
   readDefaultAgentEngineSettingMock.mockResolvedValue(null);
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,

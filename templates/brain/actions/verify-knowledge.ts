@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { EXPECTED_REVISION_DESCRIPTION } from "@agent-native/core/save-conflict/server";
 import { z } from "zod";
 
 import { verifyKnowledge } from "../server/lib/intelligence.js";
@@ -21,7 +22,7 @@ export default defineAction({
       .string()
       .min(1)
       .describe(
-        "The current knowledge revision from list-intelligence; changes require renewed review.",
+        `${EXPECTED_REVISION_DESCRIPTION} Read it from list-intelligence; changes require renewed review.`,
       ),
     knowledgeId: z
       .string()
@@ -41,6 +42,11 @@ export default defineAction({
         "Optional verification reminder interval in days (7, 14, 30, 90, 180, or 365) when verifying.",
       ),
   }),
-  outputSchema: z.object({ verification: verificationSchema }),
+  outputSchema: z.object({
+    verification: verificationSchema,
+    revision: z
+      .string()
+      .describe("The record's new revision, for the next write to it."),
+  }),
   run: verifyKnowledge,
 });

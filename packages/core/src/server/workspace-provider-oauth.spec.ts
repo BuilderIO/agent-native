@@ -262,6 +262,55 @@ describe("workspace provider OAuth", () => {
     },
   );
 
+  it.each(["zoom", "slack"] as const)(
+    "sends the mounted callback to %s when the workspace relay is enabled",
+    async (provider) => {
+      const email = "requester@example.test";
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+      vi.stubEnv("APP_BASE_PATH", "/brain-2");
+      resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+      callbackMocks.getSession.mockResolvedValue({ email });
+      callbackMocks.getOrgContext.mockResolvedValue({
+        orgId: "org-1",
+        email,
+        role: "member",
+      });
+      const url = new URL(
+        `https://labs.example.test/brain-2/_agent-native/connections/oauth/${provider}/start?appId=brain-2&scope=user`,
+      );
+      const event = {
+        url,
+        path: url.pathname,
+        context: { _mountedPathname: url.pathname },
+        req: new Request(url, {
+          headers: { host: url.host, "x-forwarded-proto": "https" },
+        }),
+        res: { status: 200, headers: new Headers() },
+      } as never;
+
+      const response = (await handleWorkspaceProviderOAuthStart(
+        event,
+        provider,
+      )) as Response;
+
+      expect(response.status).toBe(302);
+      const location = response.headers.get("location");
+      expect(location).toBeTruthy();
+      if (!location) throw new Error("Missing authorization redirect");
+      const authorizeUrl = new URL(location);
+      expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(
+        `https://labs.example.test/brain-2/_agent-native/connections/oauth/${provider}/callback`,
+      );
+      const state = authorizeUrl.searchParams.get("state");
+      expect(state).toBeTruthy();
+      if (!state) throw new Error("Missing OAuth state");
+      expect(decodeOAuthState(state).redirectUri).toBe(
+        `https://labs.example.test/brain-2/_agent-native/connections/oauth/${provider}/callback`,
+      );
+    },
+  );
+
   it("keeps the return URL in the encrypted OAuth flow cookie", async () => {
     const email = "requester@example.com";
     const returnUrl = "/dispatch/chat/thread-1?private=value#selected";
