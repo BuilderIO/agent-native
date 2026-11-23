@@ -460,13 +460,23 @@ function abandonUiCapabilityMint(): void {
   uiCapabilityRequest = undefined;
 }
 
+class UiCapabilityIdentityError extends Error {
+  constructor() {
+    super("The signed-in session changed while waiting for the UI capability.");
+    this.name = "UiCapabilityIdentityError";
+  }
+}
+
 function waitForUiCapabilityMint(
   request: Promise<void>,
   signal?: AbortSignal,
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const onAbort = () => reject(signal?.reason);
-    if (signal?.aborted) return onAbort();
+    const onAbort = () => {
+      signal?.removeEventListener("abort", onAbort);
+      reject(signal?.reason);
+    };
+    if (signal?.aborted) return reject(signal.reason);
     signal?.addEventListener("abort", onAbort, { once: true });
     void request
       .then(
@@ -486,9 +496,13 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
   // A pending mint was sent with the cookies of the session that started it.
   // Another identity waiting on it would act under that session's capability.
   if (uiCapabilityRequest && uiCapabilityRequestIdentity !== identity) {
-    return waitForUiCapabilityMint(uiCapabilityRequest, signal).then(() =>
-      ensureUiActionCapability(signal),
-    );
+    const scope = currentSessionScope();
+    return waitForUiCapabilityMint(uiCapabilityRequest, signal).then(() => {
+      if (currentSessionScope() !== scope) {
+        throw new UiCapabilityIdentityError();
+      }
+      return ensureUiActionCapability(signal);
+    });
   }
   if (!uiCapabilityRequest) {
     uiCapabilityRequestIdentity = identity;
@@ -613,6 +627,7 @@ function presentUiCapability(
   signal: AbortSignal | undefined,
 ): Promise<void> | undefined {
   const identity = currentSessionIdentity();
+  const scope = currentSessionScope();
   const headers = new Headers(options?.headers);
   const interactiveRead =
     method === "GET" && headers.get("x-agent-native-interactive") === "1";
@@ -639,7 +654,10 @@ function presentUiCapability(
   // The request leaves only after the mint, using the browser’s current
   // cookies. Never send it under an identity that changed while waiting.
   return pending.then(() => {
-    if (currentSessionIdentity() !== identity) {
+    if (
+      currentSessionIdentity() !== identity ||
+      currentSessionScope() !== scope
+    ) {
       throw new Error(
         "The signed-in user changed before this action was sent.",
       );
