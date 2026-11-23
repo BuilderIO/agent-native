@@ -4695,6 +4695,25 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("names a single required key alone when there's nothing to explain", async () => {
+    resolveCredential.mockResolvedValue(null);
+    describeCredentialScopeGap.mockResolvedValue(null);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["apollo"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "apollo", path: "/v1/auth/health" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error?.message).toBe("APOLLO_API_KEY not configured");
+  });
+
   it("gives no shared-key advice when the selected connection lacks the key", async () => {
     describeCredentialScopeGap.mockResolvedValue("SAVE A SHARED KEY");
     resolveWorkspaceConnectionForApp.mockResolvedValue({
