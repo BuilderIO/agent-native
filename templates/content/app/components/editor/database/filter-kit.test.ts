@@ -170,7 +170,7 @@ describe("contentFiltersToKitState", () => {
       properties,
       fields,
     );
-    const rule = state.items.at(0);
+    const [rule] = state.items;
     expect(rule?.kind === "rule" ? rule.value : null).toEqual([
       "opt-done",
       "opt-active",
