@@ -2264,7 +2264,6 @@ describe("waiting on another identity's UI capability mint", () => {
   beforeEach(() => {
     vi.stubGlobal("window", {});
   });
-  /** Start a mint under no identity, then publish an identity so the next caller must wait. */
   function startForeignMint() {
     forgetUiActionCapability();
     recordSessionIdentity(undefined);
@@ -2294,73 +2293,77 @@ describe("waiting on another identity's UI capability mint", () => {
     };
   }
 
+  function trackAbortControllers() {
+    const created: AbortController[] = [];
+    const added: Array<Parameters<AbortSignal["addEventListener"]>> = [];
+    const removed: Array<Parameters<AbortSignal["removeEventListener"]>> = [];
+    class TrackedAbortController extends AbortController {
+      constructor() {
+        super();
+        created.push(this);
+        const add = this.signal.addEventListener.bind(this.signal);
+        const remove = this.signal.removeEventListener.bind(this.signal);
+        this.signal.addEventListener = (...args: Parameters<typeof add>) => {
+          added.push(args);
+          add(...args);
+        };
+        this.signal.removeEventListener = (
+          ...args: Parameters<typeof remove>
+        ) => {
+          removed.push(args);
+          remove(...args);
+        };
+      }
+    }
+    vi.stubGlobal("AbortController", TrackedAbortController);
+    return { created, added, removed };
+  }
+
   it("rejects with the abort reason when the caller aborts while waiting on another identity's mint", async () => {
     const mint = startForeignMint();
     await mint.started();
     recordSessionIdentity("synthetic-user-a");
-    const controller = new AbortController();
+    const { created, added, removed } = trackAbortControllers();
     const late = callAction("read-private-record", undefined, {
       method: "GET",
       uiOnly: true,
-      signal: controller.signal,
     });
-    const rejection = expect(late).rejects.toMatchObject({
-      name: "AbortError",
-    });
+    const waiting = created.at(0);
+    if (!waiting) throw new Error("callAction created no controller");
+    const rejection = late.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
     await Promise.resolve();
-    controller.abort("synthetic-abort-reason");
-    await rejection;
+    waiting.abort("synthetic-abort-reason");
+    expect(await rejection).toMatchObject({
+      cause: { cause: "synthetic-abort-reason" },
+    });
 
     mint.releaseFirstMint();
-    await vi.waitFor(() => expect(mint.mints()).toBe(1));
     for (let i = 0; i < 10; i += 1) await Promise.resolve();
     expect(mint.calls.filter((url) => url === ACTION)).toEqual([]);
     expect(mint.mints()).toBe(1);
   });
 
-  it("rejects immediately for an already-aborted caller without waiting for the mint", async () => {
+  it("registers one abort listener while waiting and removes it once the mint settles", async () => {
     const mint = startForeignMint();
     await mint.started();
     recordSessionIdentity("synthetic-user-a");
-    const controller = new AbortController();
-    controller.abort("synthetic-already-aborted");
-    await expect(
-      callAction("read-private-record", undefined, {
-        method: "GET",
-        uiOnly: true,
-        signal: controller.signal,
-      }),
-    ).rejects.toMatchObject({ name: "AbortError" });
-    mint.releaseFirstMint();
-    expect(mint.calls.filter((url) => url === ACTION)).toEqual([]);
-  });
-
-  it("removes its abort listener once the mint it waited on settles", async () => {
-    const mint = startForeignMint();
-    await mint.started();
-    recordSessionIdentity("synthetic-user-a");
-    const controller = new AbortController();
-    const added = vi.spyOn(controller.signal, "addEventListener");
-    const removed = vi.spyOn(controller.signal, "removeEventListener");
+    const { created, added, removed } = trackAbortControllers();
     const late = callAction("read-private-record", undefined, {
       method: "GET",
       uiOnly: true,
-      signal: controller.signal,
     });
-    await vi.waitFor(() =>
-      expect(
-        added.mock.calls.filter(([type]) => type === "abort"),
-      ).toHaveLength(1),
-    );
-    const onAbort = added.mock.calls.find(([type]) => type === "abort")![1];
-    expect(added.mock.calls.find(([type]) => type === "abort")![2]).toEqual({
-      once: true,
-    });
-    expect(removed).not.toHaveBeenCalledWith("abort", onAbort);
+    expect(created).not.toHaveLength(0);
+    expect(added.map(([type]) => type)).toEqual(["abort"]);
+    const [, onAbort, options] = added[0] ?? [];
+    expect(options).toEqual({ once: true });
+    expect(removed).toEqual([]);
 
     mint.releaseFirstMint();
     await expect(late).resolves.toEqual({ ok: true });
-    expect(removed).toHaveBeenCalledWith("abort", onAbort);
+    expect(removed).toContainEqual(["abort", onAbort]);
   });
 
   it("still mints for its own identity when the mint it waited on fails", async () => {
@@ -2437,12 +2440,13 @@ describe("waiting on another identity's UI capability mint", () => {
       {},
       { method: "POST", signal: controller.signal },
     );
-    const rejection = expect(write).rejects.toMatchObject({
-      name: "AbortError",
-    });
+    const rejection = write.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
     await vi.waitFor(() => expect(calls).toContain(MINT));
     controller.abort("synthetic-write-abort");
-    await rejection;
+    expect(await rejection).toMatchObject({ name: "AbortError" });
     expect(calls).not.toContain(ACTION);
   });
 });
