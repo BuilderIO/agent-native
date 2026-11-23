@@ -246,7 +246,7 @@ describe("events for resource types this app never registered", () => {
                 return {
                   rows: [
                     {
-                      id: recordedEvent.id,
+                      id: recordedEvent.cursorId,
                       version: recordedEvent.version,
                       event_json: JSON.stringify(recordedEvent),
                       resource_type: "doc",
@@ -276,7 +276,7 @@ describe("events for resource types this app never registered", () => {
       >;
       vi.mocked(recordUnreadableSyncEvent).mockClear();
       const result = await state.getCombinedChangesSinceForUser(
-        0,
+        1,
         "a@x.test",
         "o",
         true,
@@ -284,6 +284,51 @@ describe("events for resource types this app never registered", () => {
       expect(result.unreadable).toEqual([{ type: "access-unavailable" }]);
       expect(recordUnreadableSyncEvent).toHaveBeenCalledTimes(1);
       expect(recordUnreadableSyncEvent).toHaveBeenCalledWith("threw");
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("does not count a corrupt durable copy when memory delivers the event", async () => {
+    vi.mocked(recordUnreadableSyncEvent).mockClear();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let recordedEvent: { cursorId?: string; version: number } | undefined;
+      const state = new AppSyncState({
+        getDb: () =>
+          ({
+            execute: async (query: { sql?: string }) => {
+              if (query.sql?.includes("FROM sync_events") && recordedEvent) {
+                return {
+                  rows: [
+                    {
+                      id: recordedEvent.cursorId,
+                      version: recordedEvent.version,
+                      event_json: "{bad",
+                    },
+                  ],
+                  rowsAffected: 0,
+                };
+              }
+              return { rows: [], rowsAffected: 0 };
+            },
+          }) as never,
+      });
+      state.recordChange({
+        source: "action",
+        type: "change",
+        visibility: "public",
+      });
+      recordedEvent = state.getChangesSince(0).events[0]!;
+      const result = await state.getCombinedChangesSinceForUser(
+        1,
+        "a@x.test",
+        "o",
+        true,
+      );
+      expect(result.events).toHaveLength(1);
+      expect(result.unreadable).toBeUndefined();
+      expect(recordUnreadableSyncEvent).not.toHaveBeenCalled();
     } finally {
       errors.mockRestore();
     }

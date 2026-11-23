@@ -2247,7 +2247,6 @@ export class AppSyncState {
     ]) {
       unreadableByKey.set(`${entry.cursor.version}\0${entry.cursor.id}`, entry);
     }
-    const unreadable = Array.from(unreadableByKey.values());
     const sources = [
       { result: memory, read: memoryRead },
       { result: durable, read: durableRead },
@@ -2272,6 +2271,15 @@ export class AppSyncState {
     const events = Array.from(byIdentity.values()).sort((a, b) =>
       compareSyncCursors(cursorForEvent(a), cursorForEvent(b)),
     );
+    const deliveredCursors = new Set(
+      events.map((event) => {
+        const cursor = cursorForEvent(event);
+        return `${cursor.version}\0${cursor.id}`;
+      }),
+    );
+    const unreadable = Array.from(unreadableByKey.entries())
+      .filter(([key]) => !deliveredCursors.has(key))
+      .map(([, entry]) => entry);
     if (cursor) {
       const limitedCursors = [memory, durable]
         .filter((result) => result.cursorLimited)
