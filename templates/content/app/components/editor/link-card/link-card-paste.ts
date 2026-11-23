@@ -15,8 +15,8 @@ import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { yUndoPluginKey } from "@tiptap/y-tiptap";
 
-import { findPastedLink } from "../source-link-paste";
 import { createContentBlockId } from "../extensions/registryBlocks";
+import { findPastedLink } from "../source-link-paste";
 
 export interface LinkCardPasteContext {
   canEdit: boolean;
@@ -36,7 +36,6 @@ export function linkCardFromPaste(
   const item = linkSummaryItemFromUrl(link, appUrls);
   const url = parseLinkSummaryUrl(link);
   if (!item || !url) return null;
-  // A link to one Design screen is DesignScreenPaste's: it pins a picture.
   if (
     item.app === "design" &&
     parseDesignScreenLink(link, appUrls.design ?? [])?.kind === "screen"
