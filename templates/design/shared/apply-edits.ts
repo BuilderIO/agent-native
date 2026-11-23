@@ -48,8 +48,8 @@ export function findWhitespaceFlexibleMatches(
   const re = new RegExp(`${boundary}(?=(${pattern}))`, "g");
   const matches: { start: number; end: number }[] = [];
   for (const match of content.matchAll(re)) {
-    const matched = match[1];
-    if (match.index === undefined || matched === undefined) continue;
+    const matched = match.at(1);
+    if (matched === undefined) continue;
     matches.push({ start: match.index, end: match.index + matched.length });
   }
   return matches;
@@ -83,7 +83,7 @@ export function applyOneEdit(
       "ambiguous",
     );
   }
-  const only = matches[0];
+  const only = matches.at(0);
   if (flexible === 1 && only) {
     return `${content.slice(0, only.start)}${replace}${content.slice(only.end)}`;
   }
