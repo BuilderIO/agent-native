@@ -19,7 +19,9 @@ import {
   renewTaskExecutionLease,
   TURN_EXECUTION_LEASE_MS,
 } from "../agent/run-store.js";
+import { normalizeBrowserTabId } from "../application-state/script-helpers.js";
 import { uploadFile } from "../file-upload/registry.js";
+import { createBrowserTabTargetSlot } from "../mcp/browser-tab-target.js";
 import {
   MCP_CHAT_TURN_FIELD,
   admitMcpChatTurn,
@@ -34,13 +36,22 @@ import {
 } from "../org/service-principal-guard.js";
 import { runWithProviderInteractiveScope } from "../provider-api/interactive-scope.js";
 import { findWorkspaceDispatchAgent } from "../server/agent-discovery.js";
+import {
+  readBrowserTabIdHeader,
+  readViewportModeHeader,
+} from "../server/agent-run-context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getOrigin, isConfiguredAppOrigin } from "../server/google-oauth.js";
 import {
   DEFAULT_UPLOAD_MAX_FILE_BYTES,
   isAllowedUploadMimeType,
 } from "../server/h3-helpers.js";
-import { markExplicitPersonalOrgScope } from "../server/request-context.js";
+import {
+  markExplicitPersonalOrgScope,
+  normalizeViewportMode,
+  type RequestRunContext,
+  type ViewportMode,
+} from "../server/request-context.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
 import { track } from "../tracking/registry.js";
@@ -255,6 +266,58 @@ function requestOriginForContext(
     return metadataOrigin;
   }
   return receiverOrigin;
+}
+
+function eventContextRecord(
+  event: H3Event | undefined,
+): Record<string, unknown> | undefined {
+  if (!event) return undefined;
+  return (event as { context?: Record<string, unknown> }).context;
+}
+
+function resolveA2ABrowserTabId(
+  metadata: Record<string, unknown> | undefined,
+  event: H3Event | undefined,
+): string | undefined {
+  const fromContext = normalizeBrowserTabId(
+    eventContextRecord(event)?.__a2aBrowserTabId,
+  );
+  if (fromContext) return fromContext;
+  const fromHeader = event ? readBrowserTabIdHeader(event) : undefined;
+  if (fromHeader) return fromHeader;
+  return normalizeBrowserTabId(metadata?.browserTabId) ?? undefined;
+}
+
+function resolveA2AViewportMode(
+  metadata: Record<string, unknown> | undefined,
+  event: H3Event | undefined,
+): ViewportMode | undefined {
+  return (
+    normalizeViewportMode(eventContextRecord(event)?.__a2aViewportMode) ??
+    (event ? readViewportModeHeader(event) : undefined) ??
+    normalizeViewportMode(metadata?.viewportMode)
+  );
+}
+
+function buildA2ARunContext(input: {
+  verifiedEmail?: string;
+  identityAssurance?: "user" | "organization" | "org-member";
+  browserTabId?: string;
+  viewportMode?: ViewportMode;
+}): RequestRunContext | undefined {
+  const canTargetUserTab =
+    Boolean(input.verifiedEmail) &&
+    input.identityAssurance !== "organization" &&
+    !parseServiceIdentityEmail(input.verifiedEmail);
+  const browserTabTarget =
+    canTargetUserTab && input.browserTabId
+      ? createBrowserTabTargetSlot(input.browserTabId)
+      : undefined;
+  if (!browserTabTarget && !input.viewportMode) return undefined;
+  return {
+    ...(browserTabTarget ? { browserTabTarget } : {}),
+    ...(input.viewportMode ? { viewportMode: input.viewportMode } : {}),
+  };
 }
 
 function trustedA2AMetadata(
@@ -492,6 +555,9 @@ async function processClaimedA2ATask(
   }
   const requestOrigin =
     requestOriginFromMetadata(processorMeta) ?? requestOriginFromEvent(event);
+  const browserTabId =
+    normalizeBrowserTabId(processorMeta.browserTabId) ?? undefined;
+  const viewportMode = normalizeViewportMode(processorMeta.viewportMode);
   const contextId =
     (processorMeta.contextId as string | null | undefined) ?? undefined;
   const callerMetadata =
@@ -521,6 +587,12 @@ async function processClaimedA2ATask(
   try {
     const { runWithRequestContext } =
       await import("../server/request-context.js");
+    const run = buildA2ARunContext({
+      verifiedEmail,
+      identityAssurance,
+      browserTabId,
+      viewportMode,
+    });
     await runWithRequestContext(
       {
         userEmail: verifiedEmail,
@@ -533,6 +605,7 @@ async function processClaimedA2ATask(
             ? { orgScope: "personal" as const }
             : {}),
         ...(requestOrigin ? { requestOrigin } : {}),
+        ...(run ? { run } : {}),
       },
       () =>
         runHandlerAndPersist(
@@ -811,6 +884,14 @@ async function withA2ARequestContext<T>(
       ? rawIdentityAssurance
       : undefined;
   const requestOrigin = requestOriginForContext(metadata, event);
+  const browserTabId = resolveA2ABrowserTabId(metadata, event);
+  const viewportMode = resolveA2AViewportMode(metadata, event);
+  const run = buildA2ARunContext({
+    verifiedEmail,
+    identityAssurance,
+    browserTabId,
+    viewportMode,
+  });
   if (event?.context && verifiedEmail && !verifiedOrgId) {
     markExplicitPersonalOrgScope(event);
   }
@@ -825,6 +906,7 @@ async function withA2ARequestContext<T>(
           ? { orgScope: "personal" as const }
           : {}),
       ...(requestOrigin ? { requestOrigin } : {}),
+      ...(run ? { run } : {}),
     },
     fn,
   ) as Promise<T>;
@@ -1172,6 +1254,8 @@ async function handleSend(
     const orgDomainHint =
       (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
     const requestOrigin = requestOriginForContext(metadata, event);
+    const browserTabId = resolveA2ABrowserTabId(metadata, event);
+    const viewportMode = resolveA2AViewportMode(metadata, event);
     const safeMetadata = trustedA2AMetadata(metadata, event);
 
     const taskMetadata: Record<string, unknown> = {
@@ -1186,6 +1270,8 @@ async function handleSend(
           ? { verifiedOrgId: event.context.__a2aVerifiedOrgId }
           : {}),
         ...(requestOrigin ? { requestOrigin } : {}),
+        ...(browserTabId ? { browserTabId } : {}),
+        ...(viewportMode ? { viewportMode } : {}),
         contextId: contextId ?? null,
         callerMetadata: safeMetadata ?? null,
         sourceContext: sourceContext ?? null,

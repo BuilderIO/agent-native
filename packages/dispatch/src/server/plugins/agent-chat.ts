@@ -19,6 +19,8 @@ const INITIAL_TOOL_NAMES = [
   "list-workspace-apps",
   "update-workspace-app-metadata",
   "list-connected-agents",
+  "list_app_actions",
+  "call_app_action",
   "ask_app",
   "open_app",
   "list-workspace-resources",
@@ -106,7 +108,7 @@ export default createAgentChatPlugin({
 
 Default posture:
 - Treat Slack and Telegram as shared entrypoints into the workspace.
-- Heavily delegate domain work to specialized agents through A2A when another app owns the job.
+- Prefer direct call_app_action (checking list_app_actions first when action names or inputs are unknown) for single-app reads, lookups, navigation, and simple mutations so standard turns finish in one LLM hop. Reserve ask_app for multi-step specialist sub-workflows that genuinely need the target app's own agent reasoning. Pass viewportMode: "background" on secondary cross-app lookups so they cannot hijack the visible foreground pane.
 - Keep durable memory and operating instructions in resources rather than ephemeral chat.
 - Prefer replying in the current external thread unless the user explicitly asks you to send to a saved destination.
 

@@ -64,6 +64,7 @@ import { isPersistableAttachmentUrl } from "../../shared/attachments.js";
 import { parseBase64DataUrl } from "../../shared/data-url.js";
 import {
   emitChatFirstOpenApp,
+  emitChatFirstOpenAppStart,
   emitChatFirstOpenBrowser,
 } from "../chat-first-state.js";
 import { toolDisplayName } from "../tool-display.js";
@@ -3479,6 +3480,26 @@ export function createAgentKitProtocolAdapter(
   function dispatchChatFirstOpenFromRuntimeEvent(
     event: AgentChatRuntimeEvent,
   ): void {
+    const readString = (value: unknown) =>
+      typeof value === "string" && value.trim() ? value.trim() : undefined;
+    if (event.type === "tool-start" && event.toolCall.name === "open_app") {
+      const input = asRecord(event.toolCall.input);
+      if (!input) return;
+      const app = readString(input.app ?? input.appId ?? input.application);
+      const url = readString(input.url ?? input.href);
+      if (!app && !url) return;
+      emitChatFirstOpenAppStart({
+        ...(app ? { app } : {}),
+        ...(readString(input.path ?? input.targetPath)
+          ? { path: readString(input.path ?? input.targetPath) }
+          : {}),
+        ...(url ? { url } : {}),
+        ...(readString(input.view) ? { view: readString(input.view) } : {}),
+        ...(input.focus === true ? { focus: true } : {}),
+        optimistic: true,
+      });
+      return;
+    }
     if (
       event.type !== "tool-done" ||
       event.status !== "completed" ||
@@ -3500,8 +3521,6 @@ export function createAgentKitProtocolAdapter(
       );
       return;
     }
-    const readString = (value: unknown) =>
-      typeof value === "string" && value.trim() ? value : undefined;
     const delivery =
       event.toolName === "open_browser"
         ? emitChatFirstOpenBrowser({
@@ -3513,6 +3532,7 @@ export function createAgentKitProtocolAdapter(
             path: readString(result.path ?? result.targetPath),
             url: readString(result.url ?? result.href),
             view: readString(result.view),
+            ...(result.focus === true ? { focus: true } : {}),
           });
     if (!delivery.delivered) {
       console.warn(

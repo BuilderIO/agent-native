@@ -162,18 +162,22 @@ vi.mock("@agent-native/core/mcp-client", () => ({
 import { runWithRequestContext } from "@agent-native/core/server";
 
 import {
+  appHomeBaseUrl,
   callGrantedDispatchMcpAppAction,
+  clearGrantedAppManifestCache,
   createGrantedDispatchMcpEmbedSession,
   createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat,
   createWorkspaceSsoEmbedSession,
   createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
   askGrantedDispatchMcpApp,
   getGrantedDispatchMcpAppTask,
+  joinAppBaseUrlAndPath,
   listDispatchMcpApps,
   listGrantedDispatchMcpAppActions,
   listGrantedDispatchMcpApps,
   listGrantedDispatchMcpAppOrigins,
   openGrantedDispatchMcpApp,
+  registerGrantedAppManifest,
   resolveGrantedDispatchMcpApp,
   setDispatchAppActionHeaderProvider,
 } from "./mcp-gateway.js";
@@ -4696,4 +4700,205 @@ it("withholds first-party MCP claims for granted document embeds to unregistered
     undefined,
     expect.not.objectContaining({ extraClaims: expect.anything() }),
   );
+});
+
+describe("A2A tab/viewport propagation, double-prefix prevention, and manifest v2 open_app validation", () => {
+  afterEach(() => {
+    clearGrantedAppManifestCache();
+  });
+
+  it("forwards childBrowserTabId and foreground viewportMode on ask_app when the target app is bound in the pane", async () => {
+    mocks.resolveChildBrowserTab.mockResolvedValueOnce(
+      "a1b2c3d4-5678-4abc-9def-1234567890ab",
+    );
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-tab-1",
+      status: {
+        state: "completed",
+        message: { role: "agent", parts: [{ type: "text", text: "opened" }] },
+        timestamp: "2026-11-23T00:00:00Z",
+      },
+    });
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () => askGrantedDispatchMcpApp("analytics", "switch to revenue"),
+    );
+
+    expect(mocks.a2aConstructor).toHaveBeenCalledWith(
+      analyticsAgent.url,
+      undefined,
+      expect.objectContaining({
+        transportHeaders: {
+          "x-agent-native-browser-tab": "a1b2c3d4-5678-4abc-9def-1234567890ab",
+          "x-agent-native-viewport-mode": "foreground",
+        },
+      }),
+    );
+    expect(mocks.a2aSend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          browserTabId: "a1b2c3d4-5678-4abc-9def-1234567890ab",
+          viewportMode: "foreground",
+        }),
+      }),
+    );
+  });
+
+  it("forwards viewportMode=background on ask_app without binding the foreground child tab", async () => {
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-bg-1",
+      status: {
+        state: "completed",
+        message: { role: "agent", parts: [{ type: "text", text: "found" }] },
+        timestamp: "2026-11-23T00:00:00Z",
+      },
+    });
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        askGrantedDispatchMcpApp("analytics", "look up metric", {
+          viewportMode: "background",
+        }),
+    );
+
+    expect(mocks.resolveChildBrowserTab).not.toHaveBeenCalled();
+    expect(mocks.a2aConstructor).toHaveBeenCalledWith(
+      analyticsAgent.url,
+      undefined,
+      expect.objectContaining({
+        transportHeaders: {
+          "x-agent-native-viewport-mode": "background",
+        },
+      }),
+    );
+    expect(mocks.a2aSend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          viewportMode: "background",
+        }),
+      }),
+    );
+  });
+
+  it("prevents /<app>/<app> double base-path prefixing in appHomeBaseUrl, joinAppBaseUrlAndPath, and open_app", async () => {
+    expect(
+      appHomeBaseUrl({
+        url: "https://workspace.example.test/decks-2/decks-2",
+      }),
+    ).toBe("https://workspace.example.test/decks-2");
+    expect(
+      joinAppBaseUrlAndPath(
+        "https://workspace.example.test/decks-2",
+        "/decks-2",
+      ),
+    ).toBe("https://workspace.example.test/decks-2/");
+    expect(
+      joinAppBaseUrlAndPath(
+        "https://workspace.example.test/decks-2",
+        "/decks-2/docs/deck-1?slide=2",
+      ),
+    ).toBe("https://workspace.example.test/decks-2/docs/deck-1?slide=2");
+
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "decks-2",
+        name: "Decks",
+        description: "Slide decks",
+        url: "https://workspace.example.test/decks-2",
+        color: "#222222",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "decks-2",
+        name: "Decks",
+        path: "/decks-2",
+        url: "https://workspace.example.test/decks-2",
+      },
+    ]);
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "decks-2",
+          path: "/decks-2/docs/q4",
+          focus: true,
+        }),
+    );
+
+    expect(result.url).toBe("https://workspace.example.test/decks-2/docs/q4");
+    expect(result.focus).toBe(true);
+  });
+
+  it("validates open_app routes and expands { screen, params } against a v2 manifest", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "decks-2",
+        name: "Decks",
+        description: "Slide decks",
+        url: "https://workspace.example.test/decks-2",
+        color: "#222222",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "decks-2",
+        name: "Decks",
+        path: "/decks-2",
+        url: "https://workspace.example.test/decks-2",
+      },
+    ]);
+    registerGrantedAppManifest("decks-2", {
+      version: 2,
+      screens: {
+        home: { route: "/", action: "navigate" },
+        deck: { route: "/docs/:deckId", action: "navigate" },
+      },
+      supportsViewOverlay: true,
+    });
+
+    const validPath = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "decks-2",
+          path: "/docs/deck-42",
+        }),
+    );
+    expect(validPath.url).toBe(
+      "https://workspace.example.test/decks-2/docs/deck-42",
+    );
+
+    const byScreen = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "decks-2",
+          screen: "deck",
+          params: { deckId: "deck-42", slide: 3 },
+        }),
+    );
+    expect(byScreen.path).toBe("/docs/deck-42");
+    expect(byScreen.url).toBe(
+      "https://workspace.example.test/decks-2/docs/deck-42?slide=3",
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "owner@example.test", orgId: "org-1" },
+        () =>
+          openGrantedDispatchMcpApp({
+            app: "decks-2",
+            path: "/totally/invalid",
+          }),
+      ),
+    ).rejects.toThrow(
+      /Invalid route "\/totally\/invalid" for app "decks-2".*deck \(\/docs\/:deckId\)/,
+    );
+  });
 });

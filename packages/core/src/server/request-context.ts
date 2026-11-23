@@ -79,19 +79,36 @@ export interface BrowserTabTargetSlot {
   resolved?: BrowserTabTarget;
 }
 
+export type ViewportMode = "foreground" | "background";
+
+export function normalizeViewportMode(
+  value: unknown,
+): ViewportMode | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "foreground" || normalized === "background") {
+    return normalized;
+  }
+  return undefined;
+}
+
 export interface RequestRunContext {
   waitUntil?: (promise: Promise<unknown>) => void;
   requestOrigin?: string;
   /** The browser tab the request came from. */
   browserTabId?: string;
   /**
-   * For an MCP tool call by a signed-in user, which came from no tab: the tab
-   * whose tab-scoped app state (navigation, navigate commands, selection) the
-   * call reads and writes. Unlike `browserTabId`, it doesn't make the call
-   * that tab's own, so the tab still sees the call's changes as someone
-   * else's.
+   * For an MCP or A2A call from no tab: the tab whose tab-scoped app state
+   * (navigation, navigate commands, selection) the call reads and writes.
+   * Unlike `browserTabId`, it doesn't make the call that tab's own, so the tab
+   * still sees the call's changes as someone else's.
    */
   browserTabTarget?: BrowserTabTargetSlot;
+  /**
+   * Whether a cross-app request is acting on the visible foreground viewport
+   * or running a background lookup that must not hijack foreground navigation.
+   */
+  viewportMode?: ViewportMode;
   chatScope?: {
     type: string;
     id: string;

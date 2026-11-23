@@ -10,6 +10,7 @@ import {
   isStandaloneNavigateAction,
 } from "../action-frame.js";
 import { getAppConfig } from "../app-config/index.js";
+import { getRequestRunContext } from "../server/request-context.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 
 /**
@@ -23,7 +24,8 @@ export type NavigationIntent = typeof NAVIGATION_OPEN_INTENT;
 export type AgentNavigationKeptReason =
   | "detail-requires-open-intent"
   | "write-keeps-view"
-  | "navigation-mode-keep";
+  | "navigation-mode-keep"
+  | "background-viewport-locked";
 
 export type AgentNavigationRefusalReason =
   | "read-only-action"
@@ -115,7 +117,9 @@ export function buildAgentNavigationKeptResult(
   const detailClause =
     reason === "write-keeps-view"
       ? "after agent writes"
-      : "instead of opening the item";
+      : reason === "background-viewport-locked"
+        ? "during a background viewport request"
+        : "instead of opening the item";
   return {
     kept: true,
     navigated: false,
@@ -260,6 +264,12 @@ export function navigationKeyForCommandKey(key: string): string | null {
   return null;
 }
 
+const BACKGROUND_VIEWPORT_REFUSAL: AgentNavigationRefusal = {
+  reason: "background-viewport-locked",
+  message:
+    "Refused: background viewport requests cannot navigate the foreground app view.",
+};
+
 const READ_ONLY_REFUSAL: AgentNavigationRefusal = {
   reason: "read-only-action",
   message:
@@ -299,6 +309,9 @@ export function evaluateAgentNavigationPolicy(
     isSetUrl?: boolean | undefined;
   } = {},
 ): AgentNavigationRefusal | null {
+  if (getRequestRunContext()?.viewportMode === "background") {
+    return BACKGROUND_VIEWPORT_REFUSAL;
+  }
   const originCaller = currentActionOriginCaller() ?? options.caller;
   const mode =
     options.intent ??

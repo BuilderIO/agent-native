@@ -30,8 +30,10 @@ import {
   getRequestIdentityAuthenticatedAtMs,
   getRequestIdentitySessionToken,
   hasExplicitPersonalOrgScope,
+  normalizeViewportMode,
   runWithRequestContext,
   type RequestContext,
+  type ViewportMode,
 } from "./request-context.js";
 import {
   getForwardedRequestOrigin,
@@ -184,12 +186,22 @@ function readDurableBrowserSessionId(event: H3Event): string | undefined {
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
+export const VIEWPORT_MODE_HEADER = "x-agent-native-viewport-mode";
+
 export function readBrowserTabIdHeader(event: H3Event): string | undefined {
   const raw = readHeaderValue(event, "x-agent-native-browser-tab");
   const value = Array.isArray(raw) ? raw[0] : raw;
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
+}
+
+export function readViewportModeHeader(
+  event: H3Event,
+): ViewportMode | undefined {
+  const raw = readHeaderValue(event, VIEWPORT_MODE_HEADER);
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return normalizeViewportMode(value);
 }
 
 export function readAnalyticsClientPlatformHeader(

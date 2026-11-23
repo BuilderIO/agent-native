@@ -25,6 +25,12 @@ export default defineAction({
       .record(z.string(), z.unknown())
       .optional()
       .describe("Action input matching its schema."),
+    viewportMode: z
+      .enum(["foreground", "background"])
+      .optional()
+      .describe(
+        'Set to "background" for secondary lookups that must not hijack the visible foreground pane.',
+      ),
   }),
   mcpOutputSchema: true,
   outputErrorStrategy: "strict",
@@ -37,13 +43,13 @@ export default defineAction({
     content: z.array(z.unknown()),
   }),
   mcpApp: { structuredContent: true },
-  run: async ({ app, action, args }) => {
+  run: async ({ app, action, args, viewportMode }) => {
     noteExternalWrite("app-action");
-    const result = await callGrantedDispatchMcpAppAction(
-      app,
-      action,
-      args ?? {},
-    );
+    const result = viewportMode
+      ? await callGrantedDispatchMcpAppAction(app, action, args ?? {}, {
+          viewportMode,
+        })
+      : await callGrantedDispatchMcpAppAction(app, action, args ?? {});
     if (result.isError !== true) return result;
     const text = appActionResultText(result);
     if (result.approvalReview) {
