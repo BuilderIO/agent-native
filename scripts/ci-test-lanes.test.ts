@@ -104,7 +104,22 @@ test("falls back to all core tests for fixture, config, and instruction changes"
   );
 });
 
-test("runs the catalog contract specs for any workspace source change", () => {
+test("runs the catalog contract specs for any workspace source change", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "standalone-e2e-catalog-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const runners = [
+    "templates/analytics-2/e2e/thread-layout.ts",
+    "templates/mail/e2e/daily/run.ts",
+    "packages/core/e2e/run.ts",
+  ];
+  for (const runner of runners) {
+    mkdirSync(join(root, runner, ".."), { recursive: true });
+    writeFileSync(join(root, runner), "console.log(process.argv.slice(2));");
+  }
+  writeFileSync(
+    join(root, "templates/mail/e2e/helper.ts"),
+    "export const args = process.argv.slice(2);",
+  );
   const specs = [
     "src/mcp/advertised-tool-annotations.spec.ts",
     "src/mcp/agent-mcp-parity.spec.ts",
@@ -113,6 +128,9 @@ test("runs the catalog contract specs for any workspace source change", () => {
   ];
   for (const changed of [
     "templates/mail/actions/send-email.ts",
+    "templates/mail/actions/e2e/inspect-catalog.ts",
+    "templates/mail/e2e/helper.ts",
+    "templates/mail/e2e/unreadable.ts",
     "templates/forms/server/plugins/agent-chat.ts",
     "templates/content/server/lib/chatgpt-directory-tools.ts",
     "templates/slides/shared/api.ts",
@@ -132,10 +150,11 @@ test("runs the catalog contract specs for any workspace source change", () => {
     // A package no list could have named in advance.
     "packages/made-up-package/src/lib/register-tools.ts",
   ]) {
-    assert.deepEqual(catalogContractCoreSpecs([changed]), specs, changed);
+    assert.deepEqual(catalogContractCoreSpecs([changed], root), specs, changed);
   }
   for (const unrelated of [
     "templates/mail/actions/send-email.test.ts",
+    ...runners,
     "templates/mail/app/routes/inbox.spec.tsx",
     "packages/creative-context/src/actions/x.spec.ts",
     "packages/core/src/server/agent-chat-plugin.lifecycle.spec.ts",
@@ -150,7 +169,11 @@ test("runs the catalog contract specs for any workspace source change", () => {
     "docs/guide.md",
     "community-templates/demo/actions/do-thing.ts",
   ]) {
-    assert.deepEqual(catalogContractCoreSpecs([unrelated]), [], unrelated);
+    assert.deepEqual(
+      catalogContractCoreSpecs([unrelated], root),
+      [],
+      unrelated,
+    );
   }
   assert.deepEqual(
     catalogContractCoreSpecs([

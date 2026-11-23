@@ -8,6 +8,7 @@ import {
   GIT_DIFF_MAX_BUFFER,
   isDocsPath,
   isInstructionPath,
+  isStandaloneE2eRunner,
   normalizeChangedPath,
 } from "./ci-change-scope.ts";
 import { pnpmCommand } from "./lib/pnpm-command.ts";
@@ -271,11 +272,13 @@ const NON_CODE_ASSET_RE =
 
 export function catalogContractCoreSpecs(
   paths: readonly string[],
+  repositoryRoot = ROOT,
 ): readonly string[] {
   return paths.some((path) => {
     const normalized = normalizeChangedPath(path);
     return (
       /^(?:templates|packages)\//u.test(normalized) &&
+      !isStandaloneE2eRunner(normalized, repositoryRoot) &&
       !isDocsPath(normalized) &&
       !TEST_FILE_RE.test(normalized) &&
       !/\.d\.[cm]?ts$/u.test(normalized) &&
