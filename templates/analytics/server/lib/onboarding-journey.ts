@@ -2541,8 +2541,7 @@ export async function getOnboardingJourney(
     read.rows.filter((row) => row.journeyKind === "standalone_setup"),
   );
   // Both follow-ups share what is left of the budget, so they run side by
-  // side; a failure in one cancels the other. The clock reads fractions of a
-  // millisecond, and a query's timeout must be a whole number of them.
+  // side; a failure in one cancels the other.
   const followupTimeoutMs = Math.min(
     ONBOARDING_QUERY_TIMEOUT_MS,
     Math.max(1_000, Math.floor(budgetEndsAt - performance.now())),

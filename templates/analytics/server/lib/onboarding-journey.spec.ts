@@ -2492,9 +2492,6 @@ describe("getOnboardingJourney", () => {
   });
 
   it("gives the follow-ups a whole number of milliseconds when the clock reads fractions", async () => {
-    // A first-party query refuses a timeout that isn't a whole number of
-    // milliseconds, which failed every follow-up the event read left 1 to 20
-    // seconds for.
     let clockMs = 0.4;
     const clock = vi
       .spyOn(performance, "now")
