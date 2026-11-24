@@ -1248,3 +1248,15 @@ it("writes no rows or status column for a source disconnected while the refresh 
     }
   }
 });
+
+it("tells every reader of the collection when a refresh rewrites its rows", async () => {
+  const { runWithRequestContext } = await import("@agent-native/core/server");
+  const refreshSource = (await import("./refresh-content-database-source.js"))
+    .default;
+  const refreshed = await runWithRequestContext({ userEmail: OWNER }, () =>
+    refreshSource.run({ databaseId: DATABASE_ID, sourceId: SOURCE_ID }),
+  );
+  expect(
+    refreshSource.changeResource?.({ databaseId: DATABASE_ID }, refreshed),
+  ).toEqual({ resourceType: "document", resourceId: DATABASE_DOCUMENT_ID });
+});

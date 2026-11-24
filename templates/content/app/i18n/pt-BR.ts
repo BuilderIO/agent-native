@@ -107,31 +107,98 @@ const database = {
   githubDetailFolder: "Pasta",
   githubDetailBranch: "Branch",
   githubDetailVersion: "Versão",
-  githubDetailUpdated: "Última atualização",
-  githubCheckForUpdates: "Verificar atualizações",
+  sourceDetailUpdated: "Última atualização",
   githubOpenFolder: "Abrir no GitHub",
-  githubUnlinkFolder: "Desvincular pasta…",
   githubUnlinkTitle: "Desvincular esta pasta do GitHub?",
   githubUnlinkBodyOne:
     "A página continua aqui e vira uma página normal que você pode editar. As mudanças no GitHub não vão mais chegar. Para vincular esta pasta de novo depois, você vai usar uma nova coleção.",
   githubUnlinkBody:
     "As {{count}} páginas continuam aqui e viram páginas normais que você pode editar. As mudanças no GitHub não vão mais chegar. Para vincular esta pasta de novo depois, você vai usar uma nova coleção.",
-  githubUnlink: "Desvincular",
-  githubUnlinking: "Desvinculando…",
-  githubUnlinkedToast:
-    "Pasta desvinculada. Suas páginas foram mantidas e agora você pode editá-las.",
-  githubUnlinkFailed: "Não foi possível desvincular a pasta",
+  sourceUnlinkConfirm: "Desvincular",
+  sourceUnlinking: "Desvinculando…",
+  sourceUnlinkedToast:
+    "Desvinculado. Suas páginas foram mantidas e agora você pode editá-las.",
+  sourceSyncNow: "Sincronizar agora",
+  sourceUnlink: "Desvincular…",
+  sourceUnlinkFailed: "Não foi possível desvincular",
+  sourceFromBuilderModel: "Do modelo {{name}} no Builder",
+  sourceDetailsFromBuilderModel: "Detalhes do modelo {{name}} no Builder",
+  sourceDetailsFromNotionDatabase:
+    "Detalhes do banco de dados {{name}} no Notion",
+  sourceDetailModel: "Modelo",
+  sourceDetailDatabase: "Banco de dados",
+  sourceUnlinkBuilderTitle: "Desvincular este modelo do Builder?",
+  sourceUnlinkBuilderBodyOne:
+    "A página continua aqui e vira uma página normal que você pode editar. As mudanças no Builder não vão mais chegar.",
+  sourceUnlinkBuilderBody:
+    "As {{count}} páginas continuam aqui e viram páginas normais que você pode editar. As mudanças no Builder não vão mais chegar.",
+  sourceUnlinkNotionTitle: "Desvincular este banco de dados do Notion?",
+  sourceUnlinkNotionBodyOne:
+    "A página continua aqui e você ainda pode editá-la. Os detalhes do Notion não vão mais chegar.",
+  sourceUnlinkNotionBody:
+    "As {{count}} páginas continuam aqui e você ainda pode editá-las. Os detalhes do Notion não vão mais chegar.",
+  sourceProblemNotion: "Não foi possível atualizar a partir do Notion.",
+  sourceProblemBuilder: "Não foi possível atualizar do Builder.",
+  sourceShowingDetailsAsOf: "Mostrando os detalhes como estavam {{time}}.",
+  notionSyncedToast: "Atualizado a partir do Notion.",
   githubFromFolder: "Da pasta {{folder}} no GitHub",
   githubFromRepo: "De {{repo}} no GitHub",
-  githubUpdatedAgo: "Última atualização: {{time}}",
-  githubJustNow: "agora mesmo",
-  githubNotUpdatedYet: "Ainda sem atualização",
+  sourceUpdatedAgo: "Última atualização: {{time}}",
+  sourceJustNow: "agora mesmo",
+  sourceNotUpdatedYet: "Ainda sem atualização",
   githubEditOnGitHub: "Editar no GitHub",
-  githubDetails: "Detalhes",
+  sourceDetails: "Detalhes",
   githubNotShownOne: "1 arquivo não exibido",
   githubNotShown: "{{count}} arquivos não exibidos",
   githubNotShownHeading: "Não exibidos",
-  githubShowingAsOf: "Mostrando as páginas como estavam {{time}}.",
+  sourceShowingPagesAsOf: "Mostrando as páginas como estavam {{time}}.",
+  sourcePanelFromGitHubFolder:
+    "As páginas vêm da pasta {{folder}} em {{repo}}.",
+  sourcePanelFromGitHubRepo: "As páginas vêm de {{repo}}.",
+  sourcePanelFromBuilderModel: "As páginas vêm do modelo {{name}}.",
+  sourcePanelDetailsFromBuilderModel:
+    "Os detalhes vêm do modelo {{name}} e são adicionados às páginas correspondentes aqui.",
+  sourcePanelDetailsFromNotionDatabase:
+    "Os detalhes vêm do banco de dados {{name}} e são adicionados às páginas correspondentes aqui.",
+  sourceUpToDate: "Atualizado · verificado {{time}}",
+  sourceNoDetailsChosen: "Nenhum detalhe escolhido ainda.",
+  sourceLoadingPageContent:
+    "Carregando o conteúdo das páginas: {{done}} de {{total}}",
+  sourceEditingGitHub:
+    "Você não pode editar estas páginas aqui. Edite no GitHub.",
+  sourceEditingNotion:
+    "Você não pode editar aqui os detalhes do Notion. Edite no Notion.",
+  sourceEditingBuilderDetails:
+    "Você não pode editar aqui os detalhes do Builder. Edite no Builder.",
+  sourceEditingBuilderReadOnly:
+    "As edições feitas aqui não são enviadas ao Builder.",
+  sourceEditingBuilderStageOnly:
+    "As edições feitas aqui são salvas no Builder para revisão, sem publicar.",
+  sourceEditingBuilderPublish:
+    "As edições feitas aqui mudam o site no ar depois da revisão.",
+  sourceNoChangesWaiting: "Nenhuma mudança esperando",
+  sourcePagesChangedOne: "1 página alterada",
+  sourcePagesChanged: "{{count}} páginas alteradas",
+  sourceChangesCheckFailed: "Não foi possível verificar se há mudanças.",
+  sourceReviewAndSend: "Revisar e enviar",
+  sourceMore: "Mais",
+  sourceBuilderEditsHeading: "O que acontece com minhas edições",
+  sourceBuilderEditsDontSend: "Não enviar",
+  sourceBuilderEditsSaveForReview: "Salvar no Builder para revisão",
+  sourceBuilderEditsPublish: "Publicar no site no ar",
+  sourceBuilderPublishConfirmTitle: "Publicar as edições no site no ar?",
+  sourceBuilderPublishConfirmBody:
+    "As edições que você enviar daqui depois da revisão vão mudar o site no ar na hora.",
+  sourceMatchedOn: "As páginas são combinadas por {{field}}.",
+  sourceMatchedOnIgnoringCase:
+    "As páginas são combinadas por {{field}}, ignorando maiúsculas.",
+  sourceMatchedOnCustom:
+    "As páginas são combinadas por {{field}} com uma regra própria.",
+  sourceUnlinkKeepsPages:
+    "As páginas continuam aqui e passam a ser suas para editar.",
+  sourceUnlinkKeepsDetailPages:
+    "As páginas continuam aqui e você ainda pode editá-las.",
+  sourceChooseDetails: "Escolher detalhes",
   githubSyncingProgress: "Trazendo mudanças: {{done}} de {{total}} arquivos",
   githubPicturesWaiting:
     "Algumas imagens só vão aparecer quando um administrador do espaço de trabalho configurar o armazenamento de arquivos.",
@@ -365,7 +432,6 @@ const database = {
   addProperty: "Adicionar propriedade",
   back: "Voltar",
   builderSpace: "Espaço do Builder",
-  connectNotionFirst: "Conecte o Notion primeiro",
   connected: "Conectado",
   builderBulkUpdateNotStaged: "Atualização em massa do Builder não preparada",
   builderBulkUpdateStaged: "Atualização em massa do Builder preparada",
@@ -373,8 +439,6 @@ const database = {
   builderWriteModeWasNotChanged: "O modo de escrita do Builder não mudou",
   closeDatabaseSettings: "Fechar configurações da coleção",
   closeSearch: "Fechar busca",
-  databaseRowsAndLocalPropertiesWereKeptIntact:
-    "As linhas do banco e propriedades locais foram mantidas.",
   failedToAttachSource: "Falha ao anexar fonte",
   failedToCreateRow: "Falha ao criar linha",
   pageCreatedCollectionRefreshFailed:
@@ -459,8 +523,6 @@ const database = {
   searchProperties: "Buscar propriedades",
   somethingWentWrong: "Algo deu errado",
   sort: "Ordenar",
-  sourceDisconnected: "Fonte desconectada",
-  sourceWasNotDisconnected: "A fonte não foi desconectada",
   sources: "Fontes",
   table: "Tabela",
   tryAgain: "Tente novamente.",
@@ -657,6 +719,18 @@ const editor = {
   githubSourceReadOnly:
     "Somente visualização. Esta página acompanha um arquivo no GitHub e é atualizada após cada push.",
   githubSourceOpenFile: "Abrir no GitHub",
+  syncedPageBuilder: "Esta página vem do modelo {{name}} no Builder.",
+  syncedPageBuilderReadOnly:
+    "As edições feitas aqui não são enviadas ao Builder.",
+  syncedPageBuilderStageOnly:
+    "As edições feitas aqui podem ser salvas no Builder depois de revisadas, mas nunca publicadas.",
+  syncedPageBuilderPublish:
+    "As edições feitas aqui podem ser publicadas no Builder depois de revisadas.",
+  syncedPageNotion:
+    "Alguns detalhes desta página vêm do banco de dados {{name}} no Notion e aqui são somente para visualização.",
+  syncedPageSourceUnreadable:
+    "Não foi possível verificar de onde vem esta página.",
+  syncedPageCheckAgain: "Tentar novamente",
   textColor: "Cor do texto",
   resizeColumns: "Redimensionar colunas",
   backgroundColor: "Cor de fundo",
@@ -1749,8 +1823,6 @@ const overrides = {
     builderRowsLoadingBackground:
       "O Builder ainda está carregando linhas em segundo plano.",
     attachingReadOnly: "Anexando · somente leitura",
-    builderRowsLoadingHitSnag:
-      "O carregamento de linhas do Builder encontrou um problema.",
     opening: "Abrindo...",
   },
   localFiles: localFiles,
