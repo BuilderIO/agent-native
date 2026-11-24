@@ -1823,8 +1823,6 @@ export default {
       redoSkippedConcurrentEdit:
         "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
       saveConflict: "यह पेज कहीं और बदला गया। आपका पिछला बदलाव सहेजा नहीं गया।",
-      versionHistoryUnavailable:
-        "इस डिज़ाइन के लिए वर्शन हिस्ट्री उपलब्ध नहीं है। आपका संपादन फिर भी सहेजा गया।",
       removeAutoLayoutFailed: "ऑटो लेआउट हटाया नहीं जा सका",
       autoLayoutScreensUnsupported: "ऑटो लेआउट जोड़ना पेज पर लागू नहीं होता",
       booleanSubtractUnsupported:
