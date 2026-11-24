@@ -14,13 +14,13 @@ const navigation: ScreenModel = {
   rows: [
     {
       id: "sidebar.main",
-      part: "navigation-menu.list",
+      part: "sidebar.section",
       kind: "section",
       label: "Main",
       rows: [
         {
           id: "sidebar.nav.inbox",
-          part: "navigation-menu.link",
+          part: "sidebar.item",
           kind: "destination",
           label: "Inbox",
           state: { selected: true, badge: { kind: "count", value: 19 } },
@@ -35,7 +35,8 @@ const navigation: ScreenModel = {
 - `id`: dotted, lowercase, two or more segments, unique in the model. It is
   the join key between a source rendering and every part set that draws the
   model, so keep it stable when the UI changes; tests depend on it.
-- `part`: a catalog part or `part.sub-part`.
+- `part`: a model part or `part.sub-part` from `MODEL_PARTS` (below), never
+  a catalog component such as `navigation-menu.link`.
 - `label`: the accessible name both part sets must expose, exactly.
 - `kind`, `state`, `effect`, `badge`: what the row is, how it currently is, and
   what it does. No layout, no styling.
@@ -70,6 +71,24 @@ that slug alike stay apart.
 
 `validateModel` lists every issue; `ModelSurface` throws on an invalid model.
 
+## The vocabulary
+
+`MODEL_PARTS` is version 1 of the parts a row can name, shared by every app
+and part set: shell and navigation (`app-shell`, `sidebar`, `page-header`,
+`toolbar`, `filter-bar`, `tabs`, `search`, `command-palette`,
+`shortcuts-panel`, `settings`), overlays and controls (`menu`, `popover`,
+`picker`, `select`, `date-picker`, `dialog`, `toast`, `tooltip`, `banner`,
+`form`, `file-upload`, `empty-state`, `skeleton`), content (`list`, `card`,
+`table`, `data-grid`, `board`, `timeline`, `calendar-view`, `chart`,
+`inspector`, `property-list`, `activity-feed`, `rich-text-editor`), agent
+(`chat-thread`, `composer`, `agent-panel`) and primitives (`button`, `input`,
+`checkbox`, `switch`, `badge`, `avatar`, `kbd`).
+
+It is separate from the component catalog: catalog components are what a
+part set builds its markup from, and a model never names one. Version 1 is
+frozen. A sub-part arrives with the part set that first draws it, and any
+change updates the snapshot in `model/parts.spec.ts`, so it is reviewed.
+
 ## Drawing it
 
 ```tsx
@@ -94,8 +113,20 @@ in, whose rows it cannot know). A `ModelSurface` nested in a slot or region
 whose row does not host its rows throws `UndeclaredNestedSurfaceError`.
 
 Rows render through the design system's part set (`defineDesignSystem({ parts
-})`), falling back to toolkit's own parts. An unregistered part, an effect
-nobody handles, or an unfilled slot throws; none of them degrades silently.
+})`), or toolkit's own when the app names none. A part set draws every part
+its screens use: a part it leaves out throws `MissingPartError` even when
+toolkit draws it, so a look never borrows another look's markup by accident.
+To reuse toolkit's parts, spread them in on purpose:
+
+```ts
+const parts = definePartSet({
+  name: "app",
+  parts: { ...AGENT_NATIVE_PART_SET.parts, "sidebar.item": SidebarItem },
+});
+```
+
+An effect nobody handles or an unfilled slot throws too; none of them
+degrades silently.
 
 ## Writing a part
 

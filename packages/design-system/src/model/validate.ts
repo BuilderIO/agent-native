@@ -1,4 +1,4 @@
-import { PARTS, type PartDefinition } from "../catalog/parts.js";
+import { MODEL_PARTS, type ModelPart, modelPartRefs } from "./parts.js";
 import type { ModelRow, RowEffect, ScreenModel } from "./types.js";
 
 const ROW_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+$/;
@@ -38,25 +38,16 @@ export function flattenModel(model: ScreenModel): FlatRow[] {
   return rows;
 }
 
-function partNames(parts: readonly PartDefinition[]): Set<string> {
-  const names = new Set<string>();
-  for (const part of parts) {
-    names.add(part.name);
-    for (const sub of part.subParts) names.add(`${part.name}.${sub}`);
-  }
-  return names;
-}
-
 /**
  * Every structural problem in a model. An empty list means both part sets can
  * draw it and the equivalence check can join their rows.
  */
 export function validateModel(
   model: ScreenModel,
-  parts: readonly PartDefinition[] = PARTS,
+  parts: readonly ModelPart[] = MODEL_PARTS,
 ): ModelIssue[] {
   const issues: ModelIssue[] = [];
-  const known = partNames(parts);
+  const known = modelPartRefs(parts);
   const flat = flattenModel(model);
   const ids = new Set<string>();
   const anchors = new Set<string>();
@@ -125,7 +116,7 @@ export class InvalidModelError extends Error {
 /** The model itself, or an InvalidModelError listing every issue. */
 export function assertValidModel<Model extends ScreenModel>(
   model: Model,
-  parts: readonly PartDefinition[] = PARTS,
+  parts: readonly ModelPart[] = MODEL_PARTS,
 ): Model {
   const issues = validateModel(model, parts);
   if (issues.length > 0) throw new InvalidModelError(model.id, issues);

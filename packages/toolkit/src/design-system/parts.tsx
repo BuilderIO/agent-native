@@ -29,8 +29,9 @@ export interface PartProps {
 export type PartComponent = ComponentType<PartProps>;
 
 /**
- * Markup for catalog parts, keyed by part reference (`settings.row`). The
- * app's design system names one; parts it leaves out fall back to toolkit's.
+ * Markup for model parts, keyed by part reference (`settings.row`). A part
+ * set draws every part its screens use; one that reuses toolkit's parts
+ * spreads `AGENT_NATIVE_PART_SET.parts` into its own.
  */
 export interface PartSet {
   name: string;
@@ -57,9 +58,7 @@ export class MissingPartError extends Error {
     readonly part: string,
     readonly partSet: string,
   ) {
-    super(
-      `No component draws part "${part}" in the ${partSet} part set or toolkit's own parts`,
-    );
+    super(`No component draws part "${part}" in the ${partSet} part set`);
     this.name = "MissingPartError";
   }
 }
@@ -103,14 +102,9 @@ export class UndeclaredNestedSurfaceError extends Error {
 }
 
 export function usePart(part: string): PartComponent {
-  const partSet = useDesignSystem()?.parts;
-  const component = partSet?.parts[part] ?? AGENT_NATIVE_PART_SET.parts[part];
-  if (!component) {
-    throw new MissingPartError(
-      part,
-      partSet?.name ?? AGENT_NATIVE_PART_SET.name,
-    );
-  }
+  const partSet = useDesignSystem()?.parts ?? AGENT_NATIVE_PART_SET;
+  const component = partSet.parts[part];
+  if (!component) throw new MissingPartError(part, partSet.name);
   return component;
 }
 

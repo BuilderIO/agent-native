@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
-import type { ScreenModel } from "@agent-native/design-system/model";
+import {
+  modelPartRefs,
+  type ScreenModel,
+} from "@agent-native/design-system/model";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DesignSystemContext } from "./context.js";
 import { checkPartSetEquivalence } from "./parts-testing.js";
 import {
+  AGENT_NATIVE_PART_SET,
   definePartSet,
   MissingEffectError,
   MissingPartError,
@@ -25,13 +29,13 @@ const model: ScreenModel = {
   rows: [
     {
       id: "sidebar.main",
-      part: "navigation-menu.list",
+      part: "sidebar.section",
       kind: "section",
       label: "Main",
       rows: [
         {
           id: "sidebar.nav.inbox",
-          part: "navigation-menu.link",
+          part: "sidebar.item",
           kind: "destination",
           label: "Inbox",
           state: { selected: true, badge: { kind: "count", value: 19 } },
@@ -39,7 +43,7 @@ const model: ScreenModel = {
         },
         {
           id: "sidebar.create.issue",
-          part: "navigation-menu.link",
+          part: "sidebar.item",
           kind: "action",
           label: "New issue",
           effect: { kind: "action", effectId: "create-issue" },
@@ -52,12 +56,12 @@ const model: ScreenModel = {
 const ours = definePartSet({
   name: "ours",
   parts: {
-    "navigation-menu.list": ({ row, children }: PartProps) => (
+    "sidebar.section": ({ row, children }: PartProps) => (
       <nav {...rowAttributes(row)} aria-label={row.label}>
         {children}
       </nav>
     ),
-    "navigation-menu.link": function Item({ row }: PartProps) {
+    "sidebar.item": function Item({ row }: PartProps) {
       const run = useRowEffect(row);
       return row.kind === "destination" ? (
         <a
@@ -83,12 +87,12 @@ const ours = definePartSet({
 const target = definePartSet({
   name: "target",
   parts: {
-    "navigation-menu.list": ({ row, children }: PartProps) => (
+    "sidebar.section": ({ row, children }: PartProps) => (
       <div {...rowAttributes(row)} role="listbox" aria-label={row.label}>
         {children}
       </div>
     ),
-    "navigation-menu.link": ({ row }: PartProps) => (
+    "sidebar.item": ({ row }: PartProps) => (
       <div
         {...rowAttributes(row)}
         role="option"
@@ -110,7 +114,7 @@ describe("part sets", () => {
     const inbox = screen.getByRole("link", { name: "Inbox" });
     expect(inbox.dataset.rowId).toBe("sidebar.nav.inbox");
     expect(inbox.getAttribute("aria-current")).toBe("page");
-    expect(inbox.closest("nav")?.dataset.part).toBe("navigation-menu.list");
+    expect(inbox.closest("nav")?.dataset.part).toBe("sidebar.section");
   });
 
   it("runs effects through the model runtime", () => {
@@ -169,12 +173,45 @@ describe("part sets", () => {
     ).toThrow(MissingPartError);
   });
 
+  it("throws for a part the app's part set leaves out, even one toolkit draws", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const save: ScreenModel = {
+      id: "form",
+      rows: [{ id: "form.save", part: "button", label: "Save" }],
+    };
+    expect(() =>
+      render(
+        <DesignSystemContext.Provider value={{ definition: { parts: ours } }}>
+          <ModelSurface model={save} />
+        </DesignSystemContext.Provider>,
+      ),
+    ).toThrow(new MissingPartError("button", "ours"));
+    cleanup();
+    const reusing = definePartSet({
+      name: "reusing",
+      parts: { ...AGENT_NATIVE_PART_SET.parts, ...ours.parts },
+    });
+    render(
+      <DesignSystemContext.Provider value={{ definition: { parts: reusing } }}>
+        <ModelSurface model={save} />
+      </DesignSystemContext.Provider>,
+    );
+    expect(screen.getByRole("button", { name: "Save" })).not.toBeNull();
+  });
+
+  it("draws only parts the model vocabulary names", () => {
+    const refs = modelPartRefs();
+    expect(
+      Object.keys(AGENT_NATIVE_PART_SET.parts).filter((ref) => !refs.has(ref)),
+    ).toEqual([]);
+  });
+
   it("refuses an invalid model with every issue listed", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const invalid: ScreenModel = {
       id: "bad",
       rows: [
-        { id: "Bad", part: "navigation-menu.link", label: "x" },
+        { id: "Bad", part: "sidebar.item", label: "x" },
         { id: "bad.b", part: "nope", label: "y" },
       ],
     };
@@ -239,7 +276,7 @@ describe("checkPartSetEquivalence", () => {
       name: "stateless",
       parts: {
         ...target.parts,
-        "navigation-menu.link": ({ row }: PartProps) => (
+        "sidebar.item": ({ row }: PartProps) => (
           <div {...rowAttributes(row)} role="option">
             {row.label}
           </div>
@@ -265,7 +302,7 @@ describe("checkPartSetEquivalence", () => {
       name: "anonymous",
       parts: {
         ...target.parts,
-        "navigation-menu.link": ({ row }: PartProps) => (
+        "sidebar.item": ({ row }: PartProps) => (
           <div role="option">{row.label}</div>
         ),
       },

@@ -1,7 +1,7 @@
 /** Dotted, lowercase, at least two segments: `sidebar.nav.inbox`. */
 export type RowId = string;
 
-/** A catalog part, or a part and sub-part: `settings`, `settings.row`. */
+/** A model part, or a part and sub-part: `settings`, `settings.row`. */
 export type PartRef = string;
 
 export type RowKind =

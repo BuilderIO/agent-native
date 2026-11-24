@@ -17,13 +17,13 @@ const navigation: ScreenModel = {
   rows: [
     {
       id: "sidebar.main",
-      part: "navigation-menu.list",
+      part: "sidebar.section",
       kind: "section",
       label: "Main",
       rows: [
         {
           id: "sidebar.nav.inbox",
-          part: "navigation-menu.link",
+          part: "sidebar.item",
           kind: "destination",
           label: "Inbox",
           icon: { kind: "symbol", key: "inbox" },
@@ -32,7 +32,7 @@ const navigation: ScreenModel = {
         },
         {
           id: "sidebar.create.issue",
-          part: "navigation-menu.link",
+          part: "sidebar.item",
           kind: "action",
           label: "New issue",
           effect: { kind: "action", effectId: "create-issue" },
@@ -56,18 +56,18 @@ describe("validateModel", () => {
     const broken: ScreenModel = {
       id: "broken",
       rows: [
-        { id: "Inbox", part: "navigation-menu.link", label: "Inbox" },
+        { id: "Inbox", part: "sidebar.item", label: "Inbox" },
         { id: "broken.a", part: "sidebar.widget", label: " " },
-        { id: "broken.a", part: "navigation-menu.link", label: "Twice" },
+        { id: "broken.a", part: "sidebar.item", label: "Twice" },
         {
           id: "broken.empty",
-          part: "navigation-menu.list",
+          part: "sidebar.section",
           kind: "section",
           label: "Empty",
         },
         {
           id: "broken.opens",
-          part: "menu.item",
+          part: "sidebar.item",
           label: "Open",
           effect: { kind: "open", target: "broken.nowhere" },
         },
@@ -180,7 +180,7 @@ describe("rowAttributes", () => {
     if (!inbox) throw new Error("fixture row missing");
     expect(rowAttributes(inbox)).toEqual({
       "data-row-id": "sidebar.nav.inbox",
-      "data-part": "navigation-menu.link",
+      "data-part": "sidebar.item",
       "data-row-kind": "destination",
       "data-row-effect": "navigate:/inbox",
       "data-row-badge": "count:19",

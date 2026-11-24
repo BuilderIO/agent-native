@@ -5,7 +5,7 @@ import type { DesignSystemComponents } from "./types.js";
 export interface DesignSystemDefinition {
   name?: string;
   components?: Partial<DesignSystemComponents>;
-  /** Markup for model-drawn parts; omitted parts use toolkit's own. */
+  /** Markup for model-drawn parts; without one, toolkit's own draw them. */
   parts?: PartSet;
   theme?: DesignSystemTheme;
 }
