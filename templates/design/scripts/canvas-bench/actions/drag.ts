@@ -1,9 +1,3 @@
-// Drags one whole screen ~500px sideways by its title bar and drags it back.
-// The sampled window runs from after mouse.down through mouse.up plus a fixed
-// DROP_WINDOW_MS, so the cost of committing the drop is included and reported
-// separately as dropFrames. The saved position is polled after each leg: the
-// drag out must persist about the dragged distance and the drag back the
-// original again. A design that is left moved is restored if a check fails.
 import {
   LONG_FRAME_MS,
   SETTLE_AFTER_LEG_MS,
@@ -44,15 +38,13 @@ type Leg = {
   dropLongFrames: number[];
 };
 
-// Nearest-to-centre screen whose title bar and horizontal extent are in the
-// clear area (screens are taller than the viewport, so their bottoms are not) and whose title bar is what the pointer would really hit.
 const pickScreen = (
   ctx: ActionContext,
   frameId?: string,
 ): Promise<Pick | null> =>
   ctx.page.evaluate(
     ({ frameId, margin }) => {
-      const clear = (window as any).__bench.clearArea();
+      const clear = window.__bench?.clearArea();
       if (!clear) return null;
       const cx = (clear.left + clear.right) / 2;
       const cy = (clear.top + clear.bottom) / 2;
@@ -60,7 +52,8 @@ const pickScreen = (
       for (const shell of document.querySelectorAll<HTMLElement>(
         "[data-screen-shell][data-frame-id]",
       )) {
-        const id = shell.getAttribute("data-frame-id")!;
+        const id = shell.getAttribute("data-frame-id");
+        if (!id) continue;
         if (frameId && id !== frameId) continue;
         const content = shell
           .querySelector("[data-screen-content]")
@@ -142,8 +135,6 @@ const readContentLeft = (ctx: ActionContext, frameId: string) =>
     frameId,
   );
 
-// Records, for every mousemove, the delay until the next frame in which the
-// shell's inline style changed. Reads only the style string, which forces no layout.
 const installLatencyProbe = (ctx: ActionContext, frameId: string) =>
   ctx.page.evaluate((frameId) => {
     const shell = document.querySelector<HTMLElement>(
@@ -154,7 +145,7 @@ const installLatencyProbe = (ctx: ActionContext, frameId: string) =>
       latencies: [] as number[],
       on: true,
     };
-    (window as any).__dragProbe = probe;
+    window.__dragProbe = probe;
     let last = shell?.getAttribute("style") ?? "";
     window.addEventListener(
       "mousemove",
@@ -179,9 +170,10 @@ const installLatencyProbe = (ctx: ActionContext, frameId: string) =>
 
 const collectLatencies = (ctx: ActionContext) =>
   ctx.page.evaluate(() => {
-    const probe = (window as any).__dragProbe;
+    const probe = window.__dragProbe;
+    if (!probe) return null;
     probe.on = false;
-    return probe.latencies as number[];
+    return probe.latencies;
   });
 
 async function dragLeg(
@@ -205,12 +197,12 @@ async function dragLeg(
     await page.waitForTimeout(DRAG_STEP_INTERVAL_MS);
   }
   const moved = await ctx.sampler.stop();
-  // Second window opens before mouse.up so the drop commit is inside it.
   await ctx.sampler.start();
   await page.mouse.up();
   await page.waitForTimeout(DROP_WINDOW_MS);
   const drop = await ctx.sampler.stop();
   const latencies = await collectLatencies(ctx);
+  if (!latencies) ctx.fail(`${label}: latency probe was not installed`);
   await page.waitForTimeout(SETTLE_AFTER_LEG_MS);
   const after = await readContentLeft(ctx, pick.frameId);
   if (after === null) ctx.fail(`${label}: screen vanished after the drag`);
@@ -243,8 +235,6 @@ async function readPersistedPosition(
   return { x: frame.x, y: frame.y };
 }
 
-// Polls the saved position until `accept` holds, so a leg that never saved
-// fails instead of passing on a stale value.
 async function waitForPersisted(
   ctx: ActionContext,
   frameId: string,
@@ -259,8 +249,6 @@ async function waitForPersisted(
   return { position, accepted: accept(position) };
 }
 
-// Puts the saved position back so a failed run does not leave a real design
-// moved. Waits first so a save still in flight cannot land after the restore.
 async function restorePersisted(
   ctx: ActionContext,
   frameId: string,
@@ -309,8 +297,6 @@ async function restorePersisted(
   }
 }
 
-// What a failed run needs to put the design back: set once the first drag
-// starts, since nothing before it can move the screen.
 type Restore = { frameId: string; original: Point } | null;
 
 async function runDrag(
@@ -354,9 +340,6 @@ async function runDrag(
     const originalLeft = pick.content.left;
     const originalTop = pick.content.top;
 
-    // Drag toward whichever side has room for the whole distance.
-    // Measured from the screen's edges, with no margin: the moved screen only has to stay
-    // whole in the clear area, which is all pickScreen needs to grab it again.
     const roomRight = clear.right - (pick.content.left + pick.content.width);
     const roomLeft = pick.content.left - clear.left;
     const direction = roomRight >= DRAG_DISTANCE_PX ? 1 : -1;
@@ -397,7 +380,6 @@ async function runDrag(
       );
     }
 
-    // The out leg must have been saved: about the dragged distance in world px.
     const expectedWorldDx = movedPx / camera.scale;
     const savedOut = await waitForPersisted(ctx, pick.frameId, (position) => {
       const dx = position.x - originalPersisted.x;
@@ -415,7 +397,6 @@ async function runDrag(
       );
     }
 
-    // Grab the title bar where it is now and drag back by what actually moved.
     const moved = await pickScreen(ctx, pick.frameId);
     if (!moved) {
       ctx.fail(`run ${run}: the dragged screen is no longer grabbable in view`);
@@ -441,7 +422,6 @@ async function runDrag(
     const end = await ctx.checkpoint("end");
     if (!end.visible) ctx.fail(`run ${run}: end shows no screens`);
 
-    // The saved position must be the original again, or later runs see a moved screen.
     const persistedError = (position: Point) =>
       Math.hypot(
         position.x - originalPersisted.x,
@@ -493,7 +473,6 @@ async function runDrag(
           : null,
         latencySamples: latencies.length,
         dropWindowMs: DROP_WINDOW_MS,
-        // Drop-window rAF intervals of both legs, so compare can rank the commit cost.
         drop: {
           frameCount: dropIntervals.length,
           frameP95Ms: sortedDrop.length ? percentile(sortedDrop, 0.95) : null,
@@ -516,15 +495,16 @@ async function runDrag(
 
 const action: CanvasBenchAction = {
   name: "drag",
+  mutatesDesign: true,
   async run(ctx: ActionContext) {
-    let restore: Restore = null;
+    const pending: { restore: Restore } = { restore: null };
     try {
       return await runDrag(ctx, (value) => {
-        restore = value;
+        pending.restore = value;
       });
     } catch (error) {
-      if (!restore) throw error;
-      const { frameId, original } = restore as NonNullable<Restore>;
+      if (!pending.restore) throw error;
+      const { frameId, original } = pending.restore;
       const outcome = await restorePersisted(ctx, frameId, original);
       const message = error instanceof Error ? error.message : String(error);
       if (error instanceof SanityFailure) {

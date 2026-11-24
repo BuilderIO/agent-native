@@ -1,8 +1,3 @@
-// Zooms from the opening zoom (about 10%) to about 100% with Ctrl+wheel,
-// centered on the visible canvas, then back out. Only the wheel ticks of each
-// leg are sampled; settles, calibration and screenshots are not. The zoom per
-// wheel tick depends on the display refresh rate, so ticksPerLeg differs across
-// machines.
 import {
   MAX_WHEEL_TICKS_PER_LEG,
   SETTLE_AFTER_LEG_MS,
@@ -28,8 +23,6 @@ type Leg = {
   timeline: { tMs: number; live: number; static: number }[];
 };
 
-// The transform can be briefly absent while the canvas re-renders, so retry
-// before treating a missing camera as a failure.
 async function readScale(ctx: ActionContext, when: string): Promise<number> {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const camera = await readCamera(ctx.page);
@@ -42,8 +35,6 @@ async function readScale(ctx: ActionContext, when: string): Promise<number> {
 const countLive = (ctx: ActionContext) =>
   ctx.page.locator(LIVE_IFRAMES).count();
 
-// Page-side tracker: counts iframes on a timer inside the page, so the sampled
-// window has no Node round trips beyond the wheel events themselves.
 const startTracker = (ctx: ActionContext) =>
   ctx.page.evaluate(
     ({ live, previews }) => {
@@ -59,20 +50,19 @@ const startTracker = (ctx: ActionContext) =>
           static: document.querySelectorAll(previews).length,
         });
       }, 50);
-      (window as any).__zoomTracker = tracker;
+      window.__zoomTracker = tracker;
     },
     { live: LIVE_IFRAMES, previews: STATIC_PREVIEWS },
   );
 
 const stopTracker = (ctx: ActionContext) =>
   ctx.page.evaluate(() => {
-    const tracker = (window as any).__zoomTracker;
+    const tracker = window.__zoomTracker;
+    if (!tracker) return null;
     window.clearInterval(tracker.timer);
-    return tracker.samples as { tMs: number; live: number; static: number }[];
+    return tracker.samples;
   });
 
-// Sampling covers the first wheel event through two animation frames after the
-// last one; the loop does only wheel plus wait.
 async function wheelZoom(
   ctx: ActionContext,
   direction: Leg["direction"],
@@ -92,6 +82,7 @@ async function wheelZoom(
     }
     const sampled = await ctx.sampler.stop();
     const timeline = await stopTracker(ctx);
+    if (!timeline) ctx.fail("zoom tracker was not installed");
     await page.waitForTimeout(SETTLE_AFTER_LEG_MS);
     return { direction, ...sampled, timeline };
   } finally {
@@ -105,9 +96,6 @@ const action: CanvasBenchAction = {
     const { page, run } = ctx;
     const clear = await ctx.clearArea();
     if (!clear) ctx.fail(`run ${run}: no canvas surface found`);
-    // Anchor on the visible part of the screen nearest the canvas centre:
-    // zooming about a gutter would end on empty canvas and the peak would show
-    // no screens, and a tall screen's own centre can lie outside the view.
     const centre = {
       x: (clear.left + clear.right) / 2,
       y: (clear.top + clear.bottom) / 2,
@@ -143,7 +131,6 @@ const action: CanvasBenchAction = {
     }
 
     let logPerTick = 0;
-    // Wheel zoom is exponential in the delta, so measure ln(scale) per tick.
     await page.mouse.move(at.x, at.y);
     await page.keyboard.down("Control");
     try {

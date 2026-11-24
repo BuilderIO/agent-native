@@ -1,9 +1,3 @@
-// Zooms to about 100% at the board's top-left corner, then pans horizontally
-// across the board's columns and back. Each column is about one screen wide at
-// this zoom, so screens enter and leave the view while they are live editors.
-// Zooming and settling happen before sampling starts. The canvas treats deltaX
-// as a horizontal pan (shift+wheel maps deltaY to it), so deltaX is sent
-// directly.
 import {
   MAX_WHEEL_TICKS_PER_LEG,
   WHEEL_DELTA_Y,
@@ -22,15 +16,11 @@ const LIVE_POLL_MS = 50;
 const CORNER_MARGIN_PX = 40;
 const CORNER_TOLERANCE_PX = 60;
 
-// Ctrl+wheel zooms the canvas around the cursor (a -120 delta is one mouse
-// notch, 1.1^1.2 per tick), so the anchor stays under the mouse.
 async function zoomIn(ctx: ActionContext, boardLeft: number) {
   const { page, run } = ctx;
   const extent = await ctx.readBoardExtent();
   if (!extent) ctx.fail(`run ${run}: no board found before zooming`);
   const { clear } = extent;
-  // The board's top-left stays under the cursor, so zooming keeps the first
-  // column's title and headings in view instead of its grey filler.
   const anchorX = Math.min(
     Math.max(boardLeft + 4, clear.left + 20),
     clear.right - 20,
@@ -68,10 +58,6 @@ async function zoomIn(ctx: ActionContext, boardLeft: number) {
   return after.scale;
 }
 
-// The board is far taller than the view at the opening camera, so bring its
-// top-left corner into view before zooming; the zoom then keeps it under the
-// cursor. A proportional controller, because wheel delta to camera px is not
-// assumed.
 async function alignBoardCorner(ctx: ActionContext) {
   const { page, run } = ctx;
   for (let step = 0; step < 60; step += 1) {
@@ -90,8 +76,6 @@ async function alignBoardCorner(ctx: ActionContext) {
     const ticksX = Math.min(100, Math.ceil(Math.abs(gapX) / 300));
     const signY = Math.sign(gapY);
     const signX = Math.sign(gapX);
-    // A positive delta moves the camera forward (down or right), so a corner
-    // above or left of its target (negative gap) needs a negative delta.
     for (let tick = 0; tick < Math.max(ticksY, ticksX); tick += 1) {
       await page.mouse.wheel(
         tick < ticksX && Math.abs(gapX) >= CORNER_TOLERANCE_PX
@@ -108,7 +92,6 @@ async function alignBoardCorner(ctx: ActionContext) {
   ctx.fail(`run ${run}: could not bring the board corner into view`);
 }
 
-// Viewport-pixel left and right edges of every screen shell.
 const readBoardColumns = (ctx: ActionContext) =>
   ctx.page.evaluate(() => {
     const rects = [
@@ -142,43 +125,38 @@ const action: CanvasBenchAction = {
         if (!zoomed) ctx.fail(`run ${run}: no screens found after zooming`);
         boardRightPx = zoomed.right;
       },
-      // The wheel moves about WHEEL_DELTA_Y camera px per tick at this zoom.
       travelPx: (extent) =>
         Math.min(
           boardRightPx - extent.clear.right,
           MAX_WHEEL_TICKS_PER_LEG * WHEEL_DELTA_Y,
         ),
-      // A page-side timer tracks live iframes without a round trip per tick;
-      // it is started and read outside the sampled window.
       beforeLeg: () =>
         page.evaluate((pollMs) => {
-          const w = window as any;
-          w.__liveMax = 0;
-          w.__liveIds = new Set<string>();
+          const peak = { max: 0, ids: new Set<string>(), timer: 0 };
           const poll = () => {
             const live = document.querySelectorAll(
               "iframe[data-design-preview-iframe]",
             );
-            w.__liveMax = Math.max(w.__liveMax, live.length);
+            peak.max = Math.max(peak.max, live.length);
             live.forEach((iframe) => {
               const id = iframe
                 .closest("[data-screen-shell][data-frame-id]")
                 ?.getAttribute("data-frame-id");
-              if (id) w.__liveIds.add(id);
+              if (id) peak.ids.add(id);
             });
           };
           poll();
-          w.__liveTimer = window.setInterval(poll, pollMs);
+          peak.timer = window.setInterval(poll, pollMs);
+          window.__livePeak = peak;
         }, LIVE_POLL_MS),
       async afterLeg() {
         const peak = await page.evaluate(() => {
-          const w = window as any;
-          window.clearInterval(w.__liveTimer);
-          return {
-            max: w.__liveMax as number,
-            ids: [...w.__liveIds] as string[],
-          };
+          const live = window.__livePeak;
+          if (!live) return null;
+          window.clearInterval(live.timer);
+          return { max: live.max, ids: [...live.ids] };
         });
+        if (!peak) ctx.fail(`run ${run}: live-iframe poller was not installed`);
         liveIframesMax = Math.max(liveIframesMax, peak.max);
         for (const id of peak.ids) liveFrameIds.add(id);
       },

@@ -1,7 +1,3 @@
-// Runs canvas actions (see ./actions, one file per action) against a seeded
-// stress board in Chromium and reports frame intervals and long animation
-// frames per run and action. There are no budgets: exit 0 when the measurement
-// completed, 2 when a step did not take effect.
 import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -16,6 +12,7 @@ import { parseArgs, promisify } from "node:util";
 
 import { chromium, type Page } from "@playwright/test";
 
+import { pnpmCommand } from "../../../../scripts/lib/pnpm-command.ts";
 import {
   CHECKPOINT_LOAD_WAIT_MS,
   CONSTANTS,
@@ -32,6 +29,7 @@ import {
   parseAsn,
   parseFrontApp,
   percentile,
+  required,
   readBoardExtent,
   readCamera,
   readClearArea,
@@ -51,24 +49,23 @@ import {
 } from "./lib.ts";
 
 let seededDesignId: string | undefined;
-let importedScreenCount = 0;
-let seededScreens = 0;
 async function deleteSeededDesign() {
   if (!seededDesignId) return;
   const id = seededDesignId;
   seededDesignId = undefined;
   await postAction("delete-design", { id });
 }
-// A throw outside a measured step means nothing was measured.
-process.on("uncaughtException", async (error) => {
-  console.error(error);
+const exitAfterCleanup = async () => {
   await deleteSeededDesign().catch(() => {});
   process.exit(2);
+};
+process.on("uncaughtException", (error) => {
+  console.error(error);
+  void exitAfterCleanup();
 });
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, async () => {
-    await deleteSeededDesign().catch(() => {});
-    process.exit(2);
+  process.on(signal, () => {
+    void exitAfterCleanup();
   });
 }
 
@@ -90,12 +87,13 @@ const { values } = parseArgs({
     "break-input": { type: "boolean", default: false },
   },
 });
-const baseUrl = values["base-url"]?.replace(/\/$/, "");
-if (!baseUrl) {
+const rawBaseUrl = values["base-url"]?.replace(/\/$/, "");
+if (!rawBaseUrl) {
   throw new Error(
     "--base-url is required; point it at a production build started with AUTH_DISABLED=1",
   );
 }
+const baseUrl: string = rawBaseUrl;
 if (values.source !== undefined && values.copies !== undefined) {
   throw new Error("--source and --copies cannot be combined");
 }
@@ -110,8 +108,8 @@ if (
     "--keep-design and --reuse-design cannot be combined with --design",
   );
 }
-const keepDesign = values["keep-design"]!;
-const reuseDesign = values["reuse-design"]!;
+const keepDesign = values["keep-design"];
+const reuseDesign = values["reuse-design"];
 const SCREENSHOT_MODES = ["on-failure", "always", "never"] as const;
 if (!SCREENSHOT_MODES.includes(values.screenshots as ScreenshotMode)) {
   throw new Error(
@@ -127,7 +125,6 @@ if (!Number.isInteger(copies) || copies < 1) {
 if (!Number.isInteger(runs) || runs < 1) {
   throw new Error(`--runs must be a positive integer, got ${values.runs}`);
 }
-// Test-only flags that prove the actions measure what they claim.
 function parseInjectJank(
   value: string | undefined,
 ): { busyMs: number; everyMs: number } | null {
@@ -143,7 +140,7 @@ function parseInjectJank(
   return { busyMs, everyMs };
 }
 const injectedJank = parseInjectJank(values["inject-jank"]);
-const breakInput = values["break-input"]!;
+const breakInput = values["break-input"];
 const actionNames = [
   ...new Set(
     (values.action ?? ["pan"])
@@ -160,10 +157,8 @@ const outDir = (
 ).replace(/\/$/, "");
 const startedAt = new Date().toISOString();
 const runDir = `${outDir}/${startedAt.replace(/[:.]/g, "-")}`;
-const video = values.video!;
+const video = values.video;
 
-// Actions load by file name, so adding one never needs a registry edit. This
-// runs before seeding so a typo fails fast without touching the app.
 async function loadAction(name: string): Promise<CanvasBenchAction> {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
     throw new SanityFailure(`invalid action name "${name}"`);
@@ -194,9 +189,14 @@ try {
   console.error(error instanceof Error ? error.message : error);
   process.exit(2);
 }
+const mutating = actions.filter((action) => action.mutatesDesign);
+if (values.design !== undefined && mutating.length) {
+  console.error(
+    `${mutating.map((action) => action.name).join(", ")} saves changes to the design, so it runs only on a seeded or --source board, never on --design`,
+  );
+  process.exit(2);
+}
 
-// The hash of the file's bytes is the identity compare uses, because exports
-// may carry no id and a title is not unique.
 function readSourceDesign(): {
   id: string | null;
   title: string;
@@ -219,28 +219,26 @@ const sourceDesign = readSourceDesign();
 
 const SEEDED_DESIGN_LINE = /^design (\S+) /m;
 
-// The seed prints the design id before creating files, so a seed that throws
-// partway still names what it left behind. Delete that design and say whether
-// the delete landed.
 async function seedDesign(url: string): Promise<string> {
   let output: string;
   try {
-    output = execFileSync(
-      "pnpm",
-      [
-        "exec",
-        "tsx",
-        "e2e/fixtures/seed-perf-stress-design.ts",
-        "--base-url",
-        url,
-        ...(values.source !== undefined
-          ? ["--source", values.source]
-          : ["--copies", String(copies)]),
-        "--title",
-        "Canvas bench",
-      ],
-      { cwd: designRoot, encoding: "utf8" },
-    );
+    const pnpm = pnpmCommand([
+      "exec",
+      "tsx",
+      "e2e/fixtures/seed-perf-stress-design.ts",
+      "--base-url",
+      url,
+      ...(values.source !== undefined
+        ? ["--source", values.source]
+        : ["--copies", String(copies)]),
+      "--title",
+      "Canvas bench",
+    ]);
+    output = execFileSync(pnpm.command, pnpm.args, {
+      cwd: designRoot,
+      encoding: "utf8",
+      shell: pnpm.shell,
+    });
   } catch (error) {
     const stdout = String((error as { stdout?: unknown }).stdout ?? "");
     const id = SEEDED_DESIGN_LINE.exec(stdout)?.[1];
@@ -263,10 +261,6 @@ async function seedDesign(url: string): Promise<string> {
   const id = SEEDED_DESIGN_LINE.exec(output)?.[1];
   if (!id) throw new Error(`seeding printed no design id:\n${output}`);
   seededDesignId = id;
-  const imported = /^(\d+) screens, /m.exec(output)?.[1];
-  if (imported) seededScreens = Number(imported);
-  if (values.source !== undefined && imported)
-    importedScreenCount = Number(imported);
   return id;
 }
 
@@ -276,8 +270,6 @@ async function postAction(name: string, input: unknown): Promise<unknown> {
     headers: {
       "Content-Type": "application/json",
       "X-Agent-Native-CSRF": "1",
-      // Calls come minutes apart; a pooled socket the server closed meanwhile
-      // fails with ECONNRESET.
       Connection: "close",
     },
     body: JSON.stringify(input),
@@ -293,8 +285,6 @@ async function postAction(name: string, input: unknown): Promise<unknown> {
 let designId: string;
 const invocationStartedAt = Date.now();
 const seedStartedAt = Date.now();
-// A kept design is found again through this file, keyed by what was seeded and
-// where, so a design from another server or another board is never reused.
 const designCachePath = fileURLToPath(
   new URL("../../../../.tmp/canvas-bench/design-cache.json", import.meta.url),
 );
@@ -321,7 +311,6 @@ function writeDesignCache(
   renameSync(`${designCachePath}.tmp`, designCachePath);
 }
 
-// Hash of where every screen sits, so a design another run moved is noticed.
 async function readDesignState(
   id: string,
 ): Promise<{ screens: number; canvasFramesHash: string } | null> {
@@ -363,26 +352,23 @@ let designReused = false;
 let designCheckMs = 0;
 const designReseeds: string[] = [];
 async function seedAndMaybeKeep() {
-  const id = await seedDesign(baseUrl!);
+  const id = await seedDesign(baseUrl);
   if (!keepDesign) return id;
   const state = await readDesignState(id);
   if (!state) throw new Error(`seeded design ${id} cannot be read back`);
   writeDesignCache((cache) => {
     cache[designCacheKey] = {
       designId: id,
-      screens: seededScreens || state.screens,
+      screens: state.screens,
       canvasFramesHash: state.canvasFramesHash,
       createdAt: new Date().toISOString(),
     };
   });
-  // Kept on purpose: the cache now owns it.
   seededDesignId = undefined;
   return id;
 }
-// A cached design is reused only while it exists with the screen count and
-// positions recorded when it was seeded; anything else is seeded fresh.
 async function findReusableDesign(): Promise<string | null> {
-  const cached = readDesignCache()[designCacheKey];
+  const cached = readDesignCache()[designCacheKey] as CachedDesign | undefined;
   if (!cached) return null;
   const state = await readDesignState(cached.designId);
   const problem = !state
@@ -392,10 +378,7 @@ async function findReusableDesign(): Promise<string | null> {
       : state.canvasFramesHash !== cached.canvasFramesHash
         ? "screen positions drifted"
         : null;
-  if (!problem) {
-    if (sourceDesign) importedScreenCount = cached.screens;
-    return cached.designId;
-  }
+  if (!problem) return cached.designId;
   console.warn(`cached design ${cached.designId} ${problem}; seeding fresh`);
   if (state) {
     await postAction("delete-design", { id: cached.designId });
@@ -419,21 +402,24 @@ if (!values.design) {
 } else {
   designId = values.design;
 }
+const readScreenCount = async (id: string) => {
+  const state = await readDesignState(id);
+  if (!state) throw new Error(`design ${id} not found at ${baseUrl}`);
+  return state.screens;
+};
+let screenCount = await readScreenCount(designId);
 const seedMs = Date.now() - seedStartedAt;
 
-// Runs only for --inject-jank and --break-input, in the top page after the
-// harness init script. Both act only while __bench.sampling is true.
 const testHooksScript = (hooks: {
   jank: { busyMs: number; everyMs: number } | null;
   breakInput: boolean;
 }) => {
   const isTop = window.top === window;
-  // Editor and preview iframes sit under the cursor and forward their wheel
-  // events to the canvas, so input is swallowed in every same-origin frame.
   const sampling = () => {
     try {
-      return !!(window.top as any)?.__bench?.sampling;
+      return !!window.top?.__bench?.sampling;
     } catch {
+      // coercion-ok: a cross-origin top window is not the sampling frame
       return false;
     }
   };
@@ -470,8 +456,6 @@ const testHooksScript = (hooks: {
 };
 
 const initScript = () => {
-  // Playwright runs init scripts in every frame. Preview and editor iframes
-  // must not run their own sampler: it would load the page being measured.
   if (window.top !== window) return;
   const w = window as unknown as {
     __bench: {
@@ -487,8 +471,6 @@ const initScript = () => {
     frames: [],
     sampling: false,
     focus: { lostFocus: false, hidden: false, blurs: 0 },
-    // The side panels and top bar overlay the canvas surface; probe outward
-    // from its center until a point belongs to something other than the canvas.
     clearArea: () => {
       const surface = document.querySelector(
         "[data-multi-screen-canvas-surface]",
@@ -533,8 +515,6 @@ const initScript = () => {
   }).observe({ type: "long-animation-frame", buffered: false });
 
   w.__bench.focus = { lostFocus: false, hidden: false, blurs: 0 };
-  // A live editor iframe taking focus blurs this window while the document
-  // still hasFocus(), so a blur alone proves nothing; check after it settles.
   addEventListener("blur", () => {
     if (!w.__bench.sampling) return;
     w.__bench.focus.blurs += 1;
@@ -542,7 +522,6 @@ const initScript = () => {
       if (!document.hasFocus()) w.__bench.focus.lostFocus = true;
     }, 0);
   });
-  // rAF does not run in a hidden page, so the tick below cannot see it hide.
   document.addEventListener("visibilitychange", () => {
     if (w.__bench.sampling && document.visibilityState !== "visible") {
       w.__bench.focus.hidden = true;
@@ -562,8 +541,6 @@ const initScript = () => {
   };
   requestAnimationFrame(tick);
 
-  // A document is loaded once its load event fires, or an editor says its
-  // chrome is drawn, which happens before its load event waits on images.
   document.addEventListener(
     "load",
     (event) => {
@@ -596,7 +573,6 @@ async function waitForReady(page: Page) {
         last.visible > 0 &&
         last.loaded === last.visible;
     } catch (error) {
-      // The route can still navigate while it boots; the poll is bounded by giveUpAt.
       if (!String(error).includes("Execution context was destroyed"))
         throw error;
     }
@@ -611,30 +587,37 @@ async function waitForReady(page: Page) {
   );
 }
 
-// Idle rAF cadence is the display refresh floor the action numbers sit on.
+const IDLE_PROBE_GRACE_MS = 2000;
 const measureIdleFrameMs = async (page: Page): Promise<number> => {
   const intervals = await page.evaluate(
-    (duration) =>
-      new Promise<number[]>((resolve) => {
+    ({ duration, graceMs }) =>
+      new Promise<number[] | null>((resolve) => {
         const intervals: number[] = [];
         let last: number | undefined;
         const begin = performance.now();
+        const timeout = setTimeout(() => resolve(null), duration + graceMs);
         const tick = (now: number) => {
           if (last !== undefined) intervals.push(now - last);
           last = now;
-          if (now - begin >= duration) resolve(intervals);
-          else requestAnimationFrame(tick);
+          if (now - begin >= duration) {
+            clearTimeout(timeout);
+            resolve(intervals);
+          } else requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
       }),
-    IDLE_SAMPLE_MS,
+    { duration: IDLE_SAMPLE_MS, graceMs: IDLE_PROBE_GRACE_MS },
   );
+  if (!intervals?.length) {
+    throw new SanityFailure(
+      `idle probe got no animation frames within ${IDLE_SAMPLE_MS + IDLE_PROBE_GRACE_MS}ms (window hidden or minimized?)`,
+    );
+  }
   return median(intervals);
 };
 
 type PageFocus = { lostFocus: boolean; hidden: boolean };
 type FocusState = PageFocus & {
-  /** "unavailable": the OS check did not run, see osFocusReason. */
   osFocusCheck: "checked" | "unavailable";
   osFocusReason: string | null;
   osFrontmostOther: boolean;
@@ -642,28 +625,33 @@ type FocusState = PageFocus & {
   osPolls: number;
 };
 
-// Blur events alone do not count: see the blur listener in initScript.
-const readFocus = (page: Page): Promise<PageFocus> =>
-  page.evaluate(() => {
-    const f = (window as any).__bench.focus;
-    return { lostFocus: f.lostFocus as boolean, hidden: f.hidden as boolean };
-  });
+const readFocus = async (page: Page): Promise<PageFocus> =>
+  required(
+    await page.evaluate(() => {
+      const f = window.__bench?.focus;
+      return f ? { lostFocus: f.lostFocus, hidden: f.hidden } : null;
+    }),
+    "harness focus state",
+  );
 
 const SAMPLER_STOP_TIMEOUT_MS = 2000;
 const sampler = (page: Page) => ({
   async start() {
-    await page.evaluate(() => {
-      const bench = (window as any).__bench;
+    const armed = await page.evaluate(() => {
+      const bench = window.__bench;
+      if (!bench) return false;
       bench.frames = [];
       bench.longFrames = [];
       bench.sampling = true;
+      return true;
     });
+    if (!armed)
+      throw new SanityFailure("harness __bench sampler is not active");
   },
-  stop(): Promise<Sampled> {
-    return page.evaluate(async (waitMs) => {
-      const bench = (window as any).__bench;
-      // rAF never fires in a hidden page, so the wait is bounded and a timeout
-      // means the page was hidden.
+  async stop(): Promise<Sampled> {
+    const sampled = await page.evaluate(async (waitMs) => {
+      const bench = window.__bench;
+      if (!bench) return null;
       const frames = (async () => {
         for (let i = 0; i < 2; i += 1) {
           await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -678,15 +666,14 @@ const sampler = (page: Page) => ({
       if (!document.hasFocus()) bench.focus.lostFocus = true;
       bench.sampling = false;
       return {
-        frames: bench.frames as number[],
-        longFrames: bench.longFrames as number[],
+        frames: bench.frames,
+        longFrames: bench.longFrames,
       };
     }, SAMPLER_STOP_TIMEOUT_MS);
+    return required(sampled, "harness __bench sampler");
   },
 });
 
-// Playwright emulates focus per page, so the in-page guard cannot see the user
-// switching to another app. On macOS, ask the window server who is in front.
 const OS_FOCUS_POLL_MS = 250;
 const execFileAsync = promisify(execFile);
 type OsFocusSetup =
@@ -753,7 +740,7 @@ function osFocusMonitor(setup: OsFocusSetup) {
     start() {
       if (!setup.enabled || timer) return;
       void poll();
-      timer = setInterval(poll, OS_FOCUS_POLL_MS);
+      timer = setInterval(() => void poll(), OS_FOCUS_POLL_MS);
     },
     async stop() {
       if (!timer) return;
@@ -772,8 +759,6 @@ function osFocusMonitor(setup: OsFocusSetup) {
   };
 }
 
-// Wall time per phase, so a slow invocation says where the time went. Sampled
-// is the part of the action the frame numbers come from; the rest is overhead.
 type ActionTimings = {
   contextNavigationMs: number;
   waitReadyMs: number | null;
@@ -819,15 +804,21 @@ const fmtMs = (value: number | null) => (value === null ? "n/a" : `${value}ms`);
 const fmt = (value: number | null) =>
   value === null ? "n/a" : String(round(value));
 
+class DesignUnavailable extends Error {}
 let designChecks = 0;
-// The first check is the lookup that found the design; every later (run,
-// action) pair re-verifies it, because an action may have left it moved.
 async function ensureDesignIntact() {
   if (!designReused || designChecks++ === 0) return;
   const checkStartedAt = Date.now();
   if (!(await findReusableDesign())) {
     designReused = false;
-    designId = await seedAndMaybeKeep();
+    try {
+      designId = await seedAndMaybeKeep();
+      screenCount = await readScreenCount(designId);
+    } catch (error) {
+      throw new DesignUnavailable(
+        `the reused design changed and reseeding failed, so no design is left to measure: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
   designCheckMs += Date.now() - checkStartedAt;
 }
@@ -873,21 +864,13 @@ async function measureAction(
     };
     let sampledStartedAt = 0;
     const waitReady = async () => {
-      const ready = await waitForReady(page);
-      if (!screenCount && importedScreenCount) {
-        screenCount = importedScreenCount;
-      } else if (!screenCount) {
-        screenCount = await page
-          .locator("[data-screen-shell][data-frame-id]")
-          .count();
-      }
-      return ready;
+      return await waitForReady(page);
     };
-    const fail = (message: string): never => {
+    function fail(message: string): never {
       throw new SanityFailure(`${label}: ${message}`);
-    };
+    }
     let pageFocus: PageFocus = { lostFocus: false, hidden: false };
-    let pageFocusRead = false;
+    const focusRead = { done: false };
     const osFocus = osFocusMonitor(osFocusSetup);
     const ctx: ActionContext = {
       page,
@@ -896,10 +879,10 @@ async function measureAction(
       run,
       actionName: name,
       options: {
-        baseUrl: baseUrl!,
+        baseUrl,
         copies,
         runs,
-        headless: values.headless!,
+        headless: values.headless,
         screenshots: screenshotMode,
         video,
       },
@@ -918,15 +901,12 @@ async function measureAction(
           const sampled = await sampler(page).stop();
           await osFocus.stop();
           pageFocus = await readFocus(page);
-          pageFocusRead = true;
+          focusRead.done = true;
           timings.sampledMs += Date.now() - sampledStartedAt;
           return sampled;
         },
       },
       async checkpoint(checkpointLabel) {
-        // A static preview mounted by the last move loads 300-600ms later, so a
-        // fixed settle races it. Wait for the visible screens to load; a screen
-        // still blank after the bound is recorded as blank.
         const checkpointStartedAt = Date.now();
         const giveUpAt = checkpointStartedAt + CHECKPOINT_LOAD_WAIT_MS;
         let state = await readVisibleScreens(page);
@@ -976,8 +956,8 @@ async function measureAction(
       const area = await ctx.clearArea();
       if (!area) fail("no canvas area to aim the wheel at");
       await page.mouse.move(
-        (area!.left + area!.right) / 2,
-        (area!.top + area!.bottom) / 2,
+        (area.left + area.right) / 2,
+        (area.top + area.bottom) / 2,
       );
 
       const idleProbeStartedAt = Date.now();
@@ -989,14 +969,12 @@ async function measureAction(
       );
     }
 
-    // An action that owns navigation samples inside the page, never through
-    // ctx.sampler, so the OS check covers its whole run.
     if (action.ownsNavigation) osFocus.start();
     const actionStartedAt = Date.now();
     const { frames, longFrames, extra } = await action.run(ctx);
     timings.actionMs = Date.now() - actionStartedAt;
     await osFocus.stop();
-    if (!pageFocusRead) pageFocus = await readFocus(page);
+    if (!focusRead.done) pageFocus = await readFocus(page);
     const os = osFocus.summary();
     const focus: FocusState = {
       ...pageFocus,
@@ -1016,7 +994,7 @@ async function measureAction(
       frameIntervalsMs: frames,
       frameP50Ms: frames.length ? percentile(sorted, 0.5) : null,
       frameP95Ms: frames.length ? percentile(sorted, 0.95) : null,
-      frameWorstMs: frames.length ? sorted[sorted.length - 1]! : null,
+      frameWorstMs: frames.length ? percentile(sorted, 1) : null,
       framesOver50Ms: frames.filter((ms) => ms > LONG_FRAME_MS).length,
       longAnimationFrames: longFrames,
       longAnimationFrameCount: longFrames.length,
@@ -1114,18 +1092,16 @@ const results: RunResult[] = [];
 const failures: ActionFailure[] = [];
 const videoResults = new Map<string, string | null>();
 const closeMs = new Map<string, number>();
-let screenCount = 0;
 let failure: unknown;
 try {
   mkdirSync(runDir, { recursive: true });
   for (let run = 1; run <= runs; run += 1) {
     const result: RunResult = { run, actions: {} };
-    // Each (run, action) pair gets its own cold context so actions do not warm
-    // each other.
     for (const action of actions) {
       try {
         result.actions[action.name] = await measureAction(action, run);
       } catch (error) {
+        if (error instanceof DesignUnavailable) throw error;
         const message = error instanceof Error ? error.message : String(error);
         console.error(`run ${run} [${action.name}] FAILED: ${message}`);
         failures.push({
@@ -1144,12 +1120,21 @@ try {
 
 const cleanupStartedAt = Date.now();
 await browser.close();
-await deleteSeededDesign();
-const cleanupMs = Date.now() - cleanupStartedAt;
-if (failure) {
-  console.error("canvas bench could not measure:", failure);
-  process.exit(2);
+let cleanupError: string | null = null;
+const seededIdAtCleanup = seededDesignId;
+try {
+  await deleteSeededDesign();
+} catch (error) {
+  cleanupError = `seeded design ${seededIdAtCleanup} was NOT deleted, delete it manually: ${error instanceof Error ? error.message : String(error)}`;
+  console.error(cleanupError);
 }
+const cleanupMs = Date.now() - cleanupStartedAt;
+const aborted = failure
+  ? failure instanceof Error
+    ? failure.message
+    : String(failure)
+  : null;
+if (failure) console.error("canvas bench could not measure:", failure);
 for (const result of results) {
   for (const [name, entry] of Object.entries(result.actions)) {
     entry.video = videoResults.get(`${result.run}:${name}`) ?? null;
@@ -1186,6 +1171,7 @@ for (const action of actions) {
   );
 }
 const numbersInvalidReasons: string[] = [];
+if (aborted) numbersInvalidReasons.push(`run aborted: ${aborted}`);
 const focusWarnings: string[] = [];
 if (video)
   numbersInvalidReasons.push("--video debug run distorts frame timing");
@@ -1254,6 +1240,8 @@ writeFileSync(
       designReseeds,
       screenshots: screenshotMode,
       failures,
+      aborted,
+      cleanupError,
       numbersValid: numbersInvalidReasons.length === 0,
       numbersInvalidReasons,
       focusWarnings,
@@ -1285,6 +1273,7 @@ if (numbersInvalidReasons.length) {
   );
 }
 console.log(`wrote ${outPath}`);
+if (aborted || cleanupError) process.exit(2);
 if (failures.length) {
   console.error(`${failures.length} action run(s) failed:`);
   for (const f of failures) {

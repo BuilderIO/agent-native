@@ -137,19 +137,18 @@ Then check the result before using it:
    range, otherwise `no measurable change`. It exits 2, with the reason, when
    either result is invalid or the runs are not comparable (different
    copies, viewport, refresh rate, design or source file).
-3. A `Correctness regression` line means visible screens were not loaded at a
-   checkpoint in the change. Treat it as a regression even if frames got
-   faster.
+3. If it refuses because visible screens did not load in the change, treat
+   that as a regression even if frames got faster. If they did not load in
+   the baseline, remeasure the baseline.
 
 ## 4. Measure a real design or find why it janks
 
 - Import an exported design with `--source <export.json>` (shape
   `{ title, projectType, data, files }`), or measure one already on the server
   with `--design <id>`. Keep exports under the repo root `.tmp/`, never in
-  committed fixtures. `--design` does not check the id first, and a wrong id
-  waits out the ready timeout in every action; confirm it with
-  `GET <base-url>/_agent-native/actions/get-design?id=<id>&includeFileContent=false`
-  (404 means wrong id).
+  committed fixtures. `--design` exits 2 at once when the id is not found.
+  It refuses `drag`, which saves to the design; to measure drag on a real
+  design, export it and import it with `--source`.
 - Remote images and fonts load over the network during the run, so repeat
   runs of such a design vary more; say so when quoting them.
 - To test a cause, make variant exports that change one thing (smaller images,

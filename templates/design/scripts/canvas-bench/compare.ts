@@ -1,14 +1,3 @@
-// Compares two canvas-bench results (baseline vs change) and prints a Markdown
-// table per action. A metric only counts as better or worse when the change's
-// median falls outside the baseline's run-to-run range and the baseline's
-// median falls outside the change's range; anything else is noise.
-//
-//   pnpm perf:canvas-bench:compare <baseline> <change>
-//
-// Each argument is a canvas-bench.json or the folder holding it. Exits 2 when
-// either file is invalid, the two runs are not comparable, or the change has a
-// checkpoint with screens that never loaded, so a verdict is never printed for
-// numbers that do not support one.
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -30,15 +19,12 @@ const HIGHER_IS_BETTER = new Set([
 ]);
 const LOWER_IS_BETTER =
   /(Ms|Mb|Count)$|^(longTasks|inputToFrameMs.*|returnedErrorPx|persistedErrorWorldPx)$/;
-// Inputs and fixed settings of an action, not outcomes.
 const NEUTRAL = new Set([
   "durationMs",
   "dropWindowMs",
   "wheelElapsedMs",
   "idleFrameMsExpected",
   "visibleScreenCount",
-  // Iframe counts and camera drift describe what the canvas mounted or did,
-  // not whether it got faster or slower, so a difference reads "changed".
   "liveIframesAtEnd",
   "liveIframesAtStart",
   "liveIframesAtPeak",
@@ -48,7 +34,6 @@ const NEUTRAL = new Set([
   "cameraMovedPx",
   "drop.frameCount",
 ]);
-// Numeric extras nested one level down that are compared as `<key>.<name>`.
 const FLATTENED_EXTRAS = ["drop"];
 
 type ActionEntry = Record<string, unknown> & {
@@ -103,16 +88,15 @@ const load = (arg: string): { path: string; bench: Bench } => {
 };
 
 const extraValue = (entry: ActionEntry, metric: string): unknown => {
-  const [head, tail] = metric.split(".");
   const extra = entry.extra ?? {};
-  if (tail === undefined) return extra[metric];
-  const nested = extra[head!];
+  const dot = metric.indexOf(".");
+  if (dot === -1) return extra[metric];
+  const nested = extra[metric.slice(0, dot)];
   return nested && typeof nested === "object"
-    ? (nested as Record<string, unknown>)[tail]
+    ? (nested as Record<string, unknown>)[metric.slice(dot + 1)]
     : undefined;
 };
 
-// Numeric metric keys of an action's extra, including flattened nested ones.
 const extraKeys = (bench: Bench, action: string): string[] =>
   bench.runs.flatMap(({ actions }) =>
     Object.entries(actions[action]?.extra ?? {}).flatMap(([key, value]) => {
@@ -132,7 +116,7 @@ const extraKeys = (bench: Bench, action: string): string[] =>
 
 const series = (bench: Bench, action: string, metric: string): number[] =>
   bench.runs.flatMap(({ actions }) => {
-    const entry = actions[action];
+    const entry = actions[action] as ActionEntry | undefined;
     if (!entry) return [];
     const value = metric in entry ? entry[metric] : extraValue(entry, metric);
     return typeof value === "number" && Number.isFinite(value) ? [value] : [];
@@ -161,6 +145,9 @@ const verdict = (metric: string, base: number[], change: number[]): string => {
   return (changeMedian - baseMedian) * dir > 0 ? "better" : "worse";
 };
 
+const medianOrNull = (values: number[]) =>
+  values.length ? median(values) : null;
+
 const fmtRange = (values: number[]) =>
   values.length
     ? `${round(median(values))} (${round(Math.min(...values))}–${round(Math.max(...values))})`
@@ -169,8 +156,6 @@ const fmtRange = (values: number[]) =>
 const actionNames = (bench: Bench) =>
   new Set(bench.runs.flatMap(({ actions }) => Object.keys(actions)));
 
-// What the two results measured: a design that already existed (--design), an
-// imported export (--source) or the generated board (copies).
 const subject = (bench: Bench): "design" | "source" | "seeded" =>
   bench.source ? "source" : bench.copies === null ? "design" : "seeded";
 
@@ -211,24 +196,24 @@ const assertComparable = (base: Bench, change: Bench) => {
   }
   for (const name of actionNames(base)) {
     if (!actionNames(change).has(name)) continue;
-    const baseHz = median(series(base, name, "idleHz"));
-    const changeHz = median(series(change, name, "idleHz"));
+    const baseHz = medianOrNull(series(base, name, "idleHz"));
+    const changeHz = medianOrNull(series(change, name, "idleHz"));
     if (
-      Number.isFinite(baseHz) &&
-      Number.isFinite(changeHz) &&
+      baseHz !== null &&
+      changeHz !== null &&
       Math.abs(baseHz - changeHz) / baseHz > IDLE_HZ_TOLERANCE
     ) {
       problems.push(
         `[${name}] idle refresh ${round(baseHz)} Hz vs ${round(changeHz)} Hz (different display or power state)`,
       );
     }
-    // The same action sampled a different number of visible screens, so the
-    // two are different workloads even on the same board.
-    const baseCount = median(series(base, name, "visibleScreenCount"));
-    const changeCount = median(series(change, name, "visibleScreenCount"));
+    const baseCount = medianOrNull(series(base, name, "visibleScreenCount"));
+    const changeCount = medianOrNull(
+      series(change, name, "visibleScreenCount"),
+    );
     if (
-      Number.isFinite(baseCount) &&
-      Number.isFinite(changeCount) &&
+      baseCount !== null &&
+      changeCount !== null &&
       baseCount !== changeCount
     ) {
       problems.push(
@@ -251,15 +236,13 @@ const blankCheckpoints = (bench: Bench, action: string) =>
       ),
   );
 
-// Screens that never drew make the frame numbers look better for the wrong
-// reason, so a blank checkpoint in the change invalidates the comparison.
-const assertNoBlankScreens = (change: Bench) => {
-  const blanks = [...actionNames(change)].flatMap((name) =>
-    blankCheckpoints(change, name).map((line) => `[${name}] ${line}`),
+const assertNoBlankScreens = (label: string, bench: Bench) => {
+  const blanks = [...actionNames(bench)].flatMap((name) =>
+    blankCheckpoints(bench, name).map((line) => `[${name}] ${line}`),
   );
   if (blanks.length) {
     throw new NotComparable(
-      `correctness regression in change, verdicts would be invalid: ${blanks.join("; ")}`,
+      `visible screens did not load in the ${label}, verdicts would be invalid: ${blanks.join("; ")}`,
     );
   }
 };
@@ -274,7 +257,8 @@ try {
   const base = load(baseArg);
   const change = load(changeArg);
   assertComparable(base.bench, change.bench);
-  assertNoBlankScreens(change.bench);
+  assertNoBlankScreens("baseline", base.bench);
+  assertNoBlankScreens("change", change.bench);
 
   console.log(`Baseline: ${base.path} (${base.bench.runs.length} runs)`);
   console.log(`Change:   ${change.path} (${change.bench.runs.length} runs)`);

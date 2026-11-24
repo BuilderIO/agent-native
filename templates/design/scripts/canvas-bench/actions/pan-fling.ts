@@ -1,8 +1,3 @@
-// The pan action with no gap between wheel ticks and the largest per-event
-// delta the canvas accepts: MultiScreenCanvas clamps each wheel pan delta to
-// MAX_WHEEL_PAN_DELTA (240), so a 480 delta would move no more than 240. Events
-// go out as fast as Playwright dispatches them (~17 ms each), so each frame can
-// absorb several deltas.
 import { round, type ActionContext, type CanvasBenchAction } from "../lib.ts";
 import { runPan } from "./pan.ts";
 

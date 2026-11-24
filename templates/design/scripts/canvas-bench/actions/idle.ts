@@ -1,5 +1,3 @@
-// Parks the mouse off the board content and does nothing for IDLE_WINDOW_MS
-// while frames and LoAFs are sampled: the cost of an open, untouched board.
 import {
   median,
   readCamera,
@@ -14,16 +12,9 @@ const MAX_CAMERA_DRIFT_PX = 1;
 const countLiveIframes = (ctx: ActionContext) =>
   ctx.page.locator("iframe[data-design-preview-iframe]").count();
 
-// A point inside the clear area that no screen shell covers, so no hover state
-// fires. Falls back to the clear area's corner when screens fill it.
 const findNeutralPoint = (ctx: ActionContext) =>
   ctx.page.evaluate(() => {
-    const clear = (window as any).__bench.clearArea() as {
-      left: number;
-      top: number;
-      right: number;
-      bottom: number;
-    } | null;
+    const clear = window.__bench?.clearArea();
     if (!clear) return null;
     const rects = [...document.querySelectorAll("[data-screen-shell]")].map(
       (shell) => shell.getBoundingClientRect(),
@@ -67,7 +58,7 @@ const action: CanvasBenchAction = {
 
     await page.evaluate(() => {
       const busy = { longTaskMs: 0, longTasks: 0 };
-      (window as any).__idleBusy = busy;
+      window.__idleBusy = busy;
       const observer = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
           busy.longTaskMs += entry.duration;
@@ -75,7 +66,7 @@ const action: CanvasBenchAction = {
         }
       });
       observer.observe({ type: "longtask", buffered: false });
-      (window as any).__idleBusyObserver = observer;
+      window.__idleBusyObserver = observer;
     });
     const startedAt = Date.now();
     await ctx.sampler.start();
@@ -83,12 +74,10 @@ const action: CanvasBenchAction = {
     const sampled = await ctx.sampler.stop();
     const durationMs = Date.now() - startedAt;
     const busy = await page.evaluate(() => {
-      (window as any).__idleBusyObserver?.disconnect();
-      return (window as any).__idleBusy as {
-        longTaskMs: number;
-        longTasks: number;
-      };
+      window.__idleBusyObserver?.disconnect();
+      return window.__idleBusy ?? null;
     });
+    if (!busy) ctx.fail(`run ${run}: idle long-task probe was not installed`);
 
     const cameraAfter = await readCamera(page);
     if (!cameraAfter)

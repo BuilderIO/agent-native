@@ -1,6 +1,3 @@
-// Pans the board vertically with the wheel to its bottom and back. Only the
-// wheel ticks are sampled, not the settle time between legs. runPan is shared
-// with the pan-fling and pan-zoomed variants.
 import {
   MAX_WHEEL_TICKS_PER_LEG,
   MIN_CAMERA_TRAVEL_PX,
@@ -15,8 +12,6 @@ import {
   type CanvasBenchAction,
 } from "../lib.ts";
 
-// Each leg must cover most of what its calibrated ticks promise, and the back
-// leg must end near the start, or the sampled gesture was not the one described.
 const MIN_LEG_TRAVEL_FRACTION = 0.8;
 const RETURN_TOLERANCE_FRACTION = 0.1;
 
@@ -31,20 +26,11 @@ export type Leg = {
 
 export type PanOptions = {
   tickIntervalMs: number;
-  /** Wheel axis; defaults to "y". "x" sends deltaX and measures camera x. */
   axis?: "x" | "y";
-  /** Wheel delta per tick; defaults to WHEEL_DELTA_Y. The canvas clamps it. */
   wheelDelta?: number;
-  /** Runs before the board is measured (e.g. zooming); not sampled. */
   prepare?(ctx: ActionContext): Promise<void>;
-  /** Travel per leg in camera px; defaults to the distance to the board bottom. */
   travelPx?(extent: BoardExtent, viewportSpanPx: number): number;
-  /**
-   * Fail when the visible screens are identical after the forward leg.
-   * Defaults to true; off when a leg can stay inside one screen.
-   */
   screensMustChange?: boolean;
-  /** Runs right before each leg's sampler starts and right after it stops. */
   beforeLeg?(ctx: ActionContext): Promise<void>;
   afterLeg?(ctx: ActionContext): Promise<void>;
 };
@@ -73,9 +59,6 @@ async function wheelLeg(
   }
 }
 
-// The default vertical 120-delta pan at the default spacing uses the harness
-// calibration so the default action stays identical; other axes, deltas and
-// spacings measure themselves, with the spacing they will run at.
 async function calibratePxPerTick(ctx: ActionContext, options: PanOptions) {
   const horizontal = options.axis === "x";
   const delta = options.wheelDelta ?? WHEEL_DELTA_Y;
@@ -119,8 +102,6 @@ async function calibratePxPerTick(ctx: ActionContext, options: PanOptions) {
   return pxPerTick;
 }
 
-// Sampling covers the first wheel event through two animation frames after the
-// last one, so the final delta's frame is counted; settles are not sampled.
 async function pan(
   ctx: ActionContext,
   direction: Leg["direction"],

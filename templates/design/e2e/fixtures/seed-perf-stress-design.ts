@@ -24,7 +24,6 @@ if (!Number.isInteger(copies) || copies < 1) {
   throw new Error(`--copies must be a positive integer, got ${values.copies}`);
 }
 
-// Mirrors `dataOperations` `.max(500)` in actions/update-design.ts.
 const MAX_DATA_OPERATIONS = 500;
 const SCREEN_WIDTH = 1440;
 const COLUMN_GAP = 240;
@@ -1658,9 +1657,6 @@ function countElements(html: string): number {
   return html.match(/<[a-zA-Z][^>]*>/g)?.length ?? 0;
 }
 
-// Replaces old file ids that are exact string values or object keys. Walking
-// the parsed data, not the serialized JSON, keeps an id that happens to be a
-// substring of other text from being rewritten.
 function remapFileIds(value: unknown, ids: Map<string, string>): unknown {
   if (typeof value === "string") return ids.get(value) ?? value;
   if (Array.isArray(value)) return value.map((item) => remapFileIds(item, ids));
@@ -1675,7 +1671,6 @@ function remapFileIds(value: unknown, ids: Map<string, string>): unknown {
   return value;
 }
 
-// Old ids that survive as an exact value or key, or inside any string.
 function findOldFileIds(value: unknown, ids: Map<string, string>): string[] {
   const found = new Set<string>();
   const visit = (node: unknown) => {
@@ -1695,9 +1690,6 @@ function findOldFileIds(value: unknown, ids: Map<string, string>): string[] {
   return [...found];
 }
 
-// Recreates a design exported as JSON ({ title, projectType, data, files })
-// the way the design-editor-repro copy script does: every file, then the
-// design data with old file ids rewritten to the new ones.
 async function importSource(path: string): Promise<void> {
   const source = JSON.parse(readFileSync(path, "utf8")) as {
     title?: string;

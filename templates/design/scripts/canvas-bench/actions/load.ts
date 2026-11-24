@@ -1,14 +1,7 @@
-// Cold page load: milestones are timed inside the page against navigation
-// start (performance.now()), not Node wall clock. Frames and long animation
-// frames are sampled from navigation until every visible screen first loaded.
-// The page is probed on a coarse timer, never per frame, so the measurement
-// does not pay for its own hit tests; milestones can be up to POLL_MS late.
-// allVisibleReadyMs is stamped when every visible screen was loaded and stayed
-// loaded for READY_STABLE_MS with the same visible set, at the start of that
-// hold; the reported frames end there too.
 import {
   READY_STABLE_MS,
   type ClearArea,
+  type Milestones,
   type ActionContext,
   type CanvasBenchAction,
 } from "../lib.ts";
@@ -16,21 +9,9 @@ import {
 const LOAD_TIMEOUT_MS = 60_000;
 const POLL_MS = 100;
 
-type Milestones = {
-  canvasMountedMs: number | null;
-  firstScreenDrawnMs: number | null;
-  allVisibleReadyMs: number | null;
-  visibleScreenCount: number;
-  frames: number[];
-  longFrames: number[];
-};
-
-// Runs on every document of the page, so it only arms in the top frame. It is
-// added after the harness init script, which owns window.__bench.
 const loadWatcher = (config: { pollMs: number; stableMs: number }) => {
   if (window.top !== window) return;
-  const w = window as any;
-  const bench = w.__bench;
+  const bench = window.__bench;
   if (!bench) return;
   const state: Milestones & { done: boolean } = {
     canvasMountedMs: null,
@@ -41,7 +22,7 @@ const loadWatcher = (config: { pollMs: number; stableMs: number }) => {
     longFrames: [],
     done: false,
   };
-  w.__loadBench = state;
+  window.__loadBench = state;
   bench.frames = [];
   bench.longFrames = [];
   bench.sampling = true;
@@ -55,9 +36,6 @@ const loadWatcher = (config: { pollMs: number; stableMs: number }) => {
   });
   observer.observe(document, { childList: true, subtree: true });
 
-  // The clear area costs hundreds of hit tests, so it is cached. A cached area
-  // stays valid while its four inner edge points still hit the canvas and the
-  // points just outside them do not (unless the edge is the surface bound).
   const STEP = 4;
   let cached: ClearArea | null = null;
   const surfaceHits = (x: number, y: number) => {
@@ -85,7 +63,7 @@ const loadWatcher = (config: { pollMs: number; stableMs: number }) => {
   };
   const clearArea = () => {
     if (cached && stillValid(cached)) return cached;
-    cached = bench.clearArea() as ClearArea | null;
+    cached = bench.clearArea();
     return cached;
   };
 
@@ -107,8 +85,10 @@ const loadWatcher = (config: { pollMs: number; stableMs: number }) => {
       ) {
         continue;
       }
-      ids.push(shell.getAttribute("data-frame-id")!);
-      const frames = content!.querySelectorAll(
+      const frameId = shell.getAttribute("data-frame-id");
+      if (!content || !frameId) continue;
+      ids.push(frameId);
+      const frames = content.querySelectorAll(
         "iframe[data-design-preview-iframe], iframe[data-screen-static-preview]",
       );
       if ([...frames].some((f) => f.hasAttribute("data-bench-loaded"))) {
@@ -126,7 +106,6 @@ const loadWatcher = (config: { pollMs: number; stableMs: number }) => {
     longFrameCount: number;
   } | null = null;
   const poll = () => {
-    // Nothing to measure until the canvas surface exists.
     if (state.canvasMountedMs !== null) {
       const now = performance.now();
       const clear = clearArea();
@@ -153,7 +132,6 @@ const loadWatcher = (config: { pollMs: number; stableMs: number }) => {
           bench.sampling = false;
           state.allVisibleReadyMs = stable.since;
           state.visibleScreenCount = stable.visible;
-          // Two frames of grace so the frame that observed ready is counted.
           state.frames = bench.frames.slice(0, stable.frameCount + 2);
           state.longFrames = bench.longFrames.slice(0, stable.longFrameCount);
           state.done = true;
@@ -179,28 +157,22 @@ const action: CanvasBenchAction = {
     });
     await page.goto(ctx.designUrl, { waitUntil: "domcontentloaded" });
 
-    const armed = await page
-      .evaluate(
-        () => !!(window as any).__bench && !!(window as any).__loadBench,
-      )
-      .catch(() => false);
+    const armed = await page.evaluate(
+      () => !!window.__bench && !!window.__loadBench,
+    );
     if (!armed) {
       ctx.fail("load watcher or harness __bench sampler is not active");
     }
 
     try {
-      await page.waitForFunction(
-        () => (window as any).__loadBench?.done,
-        null,
-        {
-          timeout: LOAD_TIMEOUT_MS,
-          polling: 100,
-        },
-      );
+      await page.waitForFunction(() => window.__loadBench?.done, null, {
+        timeout: LOAD_TIMEOUT_MS,
+        polling: 100,
+      });
     } catch {
       const partial = await page
         .evaluate(() => {
-          const s = (window as any).__loadBench;
+          const s = window.__loadBench;
           return s
             ? {
                 canvasMountedMs: s.canvasMountedMs,
@@ -208,27 +180,34 @@ const action: CanvasBenchAction = {
               }
             : null;
         })
-        .catch(() => null);
+        .catch((error: unknown) => ({
+          unreadable: error instanceof Error ? error.message : String(error),
+        }));
       ctx.fail(
         `ready not reached within ${LOAD_TIMEOUT_MS / 1000}s ${JSON.stringify(partial)}`,
       );
     }
 
     const result = await page.evaluate(() => {
-      const s = (window as any).__loadBench as Milestones;
-      const nav = performance.getEntriesByType(
-        "navigation",
-      )[0] as PerformanceNavigationTiming;
-      const memory = (performance as any).memory as
-        | { usedJSHeapSize: number }
+      const s = window.__loadBench;
+      const nav = performance.getEntriesByType("navigation")[0] as
+        | PerformanceEntry
         | undefined;
+      const memory = (
+        performance as Performance & {
+          memory?: { usedJSHeapSize: number };
+        }
+      ).memory;
+      if (!s || !nav) return null;
       return {
         ...s,
-        domContentLoadedMs: nav.domContentLoadedEventStart,
+        domContentLoadedMs: (nav as PerformanceNavigationTiming)
+          .domContentLoadedEventStart,
         heapUsedBytes: memory?.usedJSHeapSize ?? null,
       };
     });
 
+    if (!result) ctx.fail("load milestones or navigation timing unavailable");
     if (!result.visibleScreenCount) ctx.fail("zero visible screens at ready");
     if (
       result.canvasMountedMs === null ||
@@ -248,11 +227,11 @@ const action: CanvasBenchAction = {
       longFrames: result.longFrames,
       extra: {
         domContentLoadedMs: r(result.domContentLoadedMs),
-        canvasMountedMs: r(result.canvasMountedMs!),
-        firstScreenDrawnMs: r(result.firstScreenDrawnMs!),
-        allVisibleReadyMs: r(result.allVisibleReadyMs!),
+        canvasMountedMs: r(result.canvasMountedMs),
+        firstScreenDrawnMs: r(result.firstScreenDrawnMs),
+        allVisibleReadyMs: r(result.allVisibleReadyMs),
         visibleScreenCount: result.visibleScreenCount,
-        heapUsedMb: r(result.heapUsedBytes! / 1024 / 1024),
+        heapUsedMb: r(result.heapUsedBytes / 1024 / 1024),
       },
     };
   },

@@ -1,6 +1,3 @@
-// Shared by the harness (canvas-bench.ts) and every action in ./actions. This
-// module has no side effects, so actions can import it freely; never import
-// canvas-bench.ts from an action, it runs the whole benchmark on load.
 import type { Page } from "@playwright/test";
 
 export const VIEWPORT = { width: 1280, height: 720 };
@@ -28,8 +25,6 @@ export const CONSTANTS = {
   MIN_CAMERA_TRAVEL_PX,
 };
 
-// A step did not take effect, so nothing was measured for that action: it is
-// recorded as a failure and the invocation exits 2.
 export class SanityFailure extends Error {
   constructor(message: string) {
     super(message);
@@ -43,6 +38,53 @@ export type ClearArea = {
   right: number;
   bottom: number;
 };
+export type BenchHook = {
+  longFrames: number[];
+  frames: number[];
+  sampling: boolean;
+  focus: { lostFocus: boolean; hidden: boolean; blurs: number };
+  clearArea: () => ClearArea | null;
+};
+export type Milestones = {
+  canvasMountedMs: number | null;
+  firstScreenDrawnMs: number | null;
+  allVisibleReadyMs: number | null;
+  visibleScreenCount: number;
+  frames: number[];
+  longFrames: number[];
+};
+export type LatencyProbe = {
+  pending: number[];
+  latencies: number[];
+  on: boolean;
+};
+export type ZoomSample = { tMs: number; live: number; static: number };
+export type ZoomTracker = { samples: ZoomSample[]; timer: number };
+export type IdleBusy = { longTaskMs: number; longTasks: number };
+export type LivePeak = {
+  max: number;
+  ids: Set<string>;
+  timer: number;
+};
+
+declare global {
+  interface Window {
+    __bench?: BenchHook;
+    __loadBench?: Milestones & { done: boolean };
+    __dragProbe?: LatencyProbe;
+    __zoomTracker?: ZoomTracker;
+    __idleBusy?: IdleBusy;
+    __idleBusyObserver?: PerformanceObserver;
+    __livePeak?: LivePeak;
+  }
+}
+
+export function required<T>(value: T | null | undefined, what: string): T {
+  if (value === null || value === undefined) {
+    throw new SanityFailure(`${what} is missing`);
+  }
+  return value;
+}
 export type Camera = { x: number; y: number; scale: number };
 export type VisibleScreens = {
   visible: number;
@@ -62,11 +104,8 @@ export type ScreenshotMode = "on-failure" | "always" | "never";
 export type Sampled = { frames: number[]; longFrames: number[] };
 
 export type ActionResult = {
-  /** rAF intervals (ms) sampled while the action drove the canvas. */
   frames: number[];
-  /** Long Animation Frame durations (ms) from the same window. */
   longFrames: number[];
-  /** Action-specific metrics. Top-level numbers also feed the console lines. */
   extra: Record<string, unknown>;
 };
 
@@ -74,10 +113,8 @@ export type ActionContext = {
   page: Page;
   designId: string;
   designUrl: string;
-  /** 1-based run number. */
   run: number;
   actionName: string;
-  /** Harness pre-action idle rAF median (ms); null for ownsNavigation actions. */
   idleFrameMs: number | null;
   options: {
     baseUrl: string;
@@ -88,29 +125,19 @@ export type ActionContext = {
     video: boolean;
   };
   constants: typeof CONSTANTS;
-  /** Viewport-pixel rects of the board and the unobscured canvas area. */
   readBoardExtent(): Promise<BoardExtent | null>;
   clearArea(): Promise<ClearArea | null>;
-  /** Wheel-calibrates camera pixels per tick (scrolls 5 ticks forward and back). */
   measurePxPerTick(): Promise<number>;
-  /** Samples rAF intervals and LoAFs between start() and stop(). */
   sampler: { start(): Promise<void>; stop(): Promise<Sampled> };
-  /** Records visible screens and, per --screenshots, run-<n>-<action>-<label>.png. */
   checkpoint(label: string): Promise<VisibleScreens>;
-  /** Waits until every visible screen loaded and held for READY_STABLE_MS. */
   waitReady(): Promise<VisibleScreens>;
-  /** Throws a SanityFailure: the harness records the failure for this run and action, goes on, and exits 2 at the end. */
   fail(message: string): never;
 };
 
 export type CanvasBenchAction = {
-  /** Must equal the file name: actions/<name>.ts. */
   name: string;
-  /**
-   * true: the harness hands over a fresh page and neither navigates, waits for
-   * readiness, nor measures idle frames (for cold-load actions).
-   */
   ownsNavigation?: boolean;
+  mutatesDesign?: boolean;
   run(ctx: ActionContext): Promise<ActionResult>;
 };
 
@@ -125,23 +152,22 @@ export const readCamera = (target: Page): Promise<Camera | null> =>
   });
 
 export const readClearArea = (target: Page): Promise<ClearArea | null> =>
-  target.evaluate(
-    () => (window as any).__bench.clearArea() as ClearArea | null,
-  );
+  target.evaluate(() => window.__bench?.clearArea() ?? null);
 
-// Visible screens are those whose content box intersects the unobscured canvas area; each
-// must hold at least one iframe (live editor or static preview) that loaded.
 export const readVisibleScreens = (target: Page): Promise<VisibleScreens> =>
   target.evaluate(() => {
-    const clear = (window as any).__bench.clearArea() as ClearArea | null;
+    const clear = window.__bench?.clearArea() ?? null;
     const screens: VisibleScreens["screens"] = [];
     if (!clear) return { visible: 0, loaded: 0, screens };
     for (const shell of document.querySelectorAll(
       "[data-screen-shell][data-frame-id]",
     )) {
       const content = shell.querySelector("[data-screen-content]");
+      const frameId = shell.getAttribute("data-frame-id");
       const rect = content?.getBoundingClientRect();
       if (
+        !content ||
+        !frameId ||
         !rect ||
         rect.width <= 24 ||
         rect.right <= clear.left ||
@@ -152,7 +178,7 @@ export const readVisibleScreens = (target: Page): Promise<VisibleScreens> =>
         continue;
       }
       const frames = [
-        ...content!.querySelectorAll(
+        ...content.querySelectorAll(
           "iframe[data-design-preview-iframe], iframe[data-screen-static-preview]",
         ),
       ];
@@ -161,7 +187,7 @@ export const readVisibleScreens = (target: Page): Promise<VisibleScreens> =>
         "input[data-frame-title-input]",
       );
       screens.push({
-        frameId: shell.getAttribute("data-frame-id")!,
+        frameId,
         name: (title?.textContent || titleInput?.value || "").trim() || null,
         loaded: frames.some((frame) => frame.hasAttribute("data-bench-loaded")),
       });
@@ -173,10 +199,9 @@ export const readVisibleScreens = (target: Page): Promise<VisibleScreens> =>
     };
   });
 
-// Rects are in viewport pixels; `clear` excludes the panels overlaying the canvas.
 export const readBoardExtent = (target: Page): Promise<BoardExtent | null> =>
   target.evaluate(() => {
-    const clear = (window as any).__bench.clearArea() as ClearArea | null;
+    const clear = window.__bench?.clearArea() ?? null;
     const shells = [
       ...document.querySelectorAll("[data-screen-shell][data-frame-id]"),
     ];
@@ -196,8 +221,6 @@ export async function wheelTicks(page: Page, ticks: number, sign: number) {
   }
 }
 
-// One tick forward and back, so the leg length comes from the measured ratio
-// instead of an assumed 1:1 between wheel delta and camera pixels.
 export async function measurePxPerTick(page: Page): Promise<number> {
   const before = await readCamera(page);
   if (!before)
@@ -221,18 +244,19 @@ export async function measurePxPerTick(page: Page): Promise<number> {
 }
 
 export const percentile = (sorted: number[], p: number) =>
-  sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)]!;
+  required(
+    sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)],
+    "percentile sample",
+  );
 export const median = (numbers: number[]) => {
   const sorted = [...numbers].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2
-    ? sorted[mid]!
-    : (sorted[mid - 1]! + sorted[mid]!) / 2;
+  const at = (index: number) => required(sorted[index], "median sample");
+  return sorted.length % 2 ? at(mid) : (at(mid - 1) + at(mid)) / 2;
 };
 export const round = (value: number) => Math.round(value * 10) / 10;
 
 export type FrontApp = { pid: number; name: string };
-/** One poll of the frontmost app; null when lsappinfo output was unreadable. */
 export type FrontSample = FrontApp | null;
 export type OsFocusSummary =
   | {
@@ -244,14 +268,14 @@ export type OsFocusSummary =
     }
   | { check: "unavailable"; reason: string };
 
-// lsappinfo prints `"key"="value"` for strings and `"key"=123` for numbers.
 export function parseLsappinfoValue(output: string, key: string) {
   const match = new RegExp(`"${key}"\\s*=\\s*(.+)`).exec(output);
   if (!match) return null;
-  return match[1]!.trim().replace(/^"(.*)"$/, "$1");
+  return required(match[1], "lsappinfo value")
+    .trim()
+    .replace(/^"(.*)"$/, "$1");
 }
 
-// `lsappinfo front` prints e.g. `ASN:0x0-0x10010:`.
 export const parseAsn = (output: string) =>
   /^ASN:[0-9a-fx-]+:?$/i.test(output.trim()) ? output.trim() : null;
 
@@ -264,24 +288,19 @@ export function parseFrontApp(
   return name && Number.isInteger(pid) && pid > 0 ? { pid, name } : null;
 }
 
-// Playwright spawns the browser as a child of this process with
-// --remote-debugging-pipe; helper processes carry --type=. Input is
-// `ps -A -o pid=,ppid=,command=`. Ambiguity returns null, never a guess.
 export function findBrowserPid(psOutput: string, parentPid: number) {
   const pids: number[] = [];
   for (const line of psOutput.split("\n")) {
     const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
     if (!match || Number(match[2]) !== parentPid) continue;
-    const command = match[3]!;
+    const command = required(match[3], "ps command");
     if (command.includes("--type=")) continue;
     if (!command.includes("--remote-debugging-pipe")) continue;
     pids.push(Number(match[1]));
   }
-  return pids.length === 1 ? pids[0]! : null;
+  return pids.length === 1 ? required(pids[0], "browser pid") : null;
 }
 
-// Matches by PID, so a browser renamed or running next to another Chromium is
-// still told apart. A poll that could not be read is counted, not assumed fine.
 export function summarizeOsFocus(
   samples: FrontSample[],
   browserPid: number,
