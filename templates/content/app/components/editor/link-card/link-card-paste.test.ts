@@ -124,6 +124,20 @@ describe("linkCardFromPaste", () => {
     }
   });
 
+  it("leaves a link that carries a token or key as the plain link it is", () => {
+    for (const link of [
+      `${CLIPS}?agent_access=fake`,
+      `${CLIPS}?t=90&agent_access=fake`,
+      `${SLIDES}#token=fake`,
+      `${CLIPS}?t=${"x".repeat(64)}`,
+    ]) {
+      expect(linkCardFromPaste(link, context.appUrls)).toBeNull();
+    }
+    expect(linkCardFromPaste(`${CLIPS}?t=90`, context.appUrls)?.url).toBe(
+      `${CLIPS}?t=90`,
+    );
+  });
+
   it("leaves a link to one Design screen to the pinned screen paste", () => {
     expect(
       linkCardFromPaste(`${DESIGN}?screen=pay`, context.appUrls),
@@ -156,6 +170,18 @@ describe("pasting a Design, Slides or Clips link", () => {
       expect(raw).not.toMatch(/title=/);
     },
   );
+
+  it("keeps a Clips agent link alone on its line as a plain link", async () => {
+    const link = `${CLIPS}?agent_access=fake`;
+    const target = open("Intro");
+    newLine(target);
+    paste(target, link);
+    settle();
+    expect(blocks(target)).toEqual([
+      { type: "paragraph", text: "Intro" },
+      { type: "paragraph", text: link },
+    ]);
+  });
 
   it("keeps a link pasted inside a sentence as a link", async () => {
     const target = open("See the design here: ");

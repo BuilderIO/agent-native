@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  LINK_SUMMARY_PARAM_CHARS,
   linkSummaryItemFromPath,
   linkSummaryItemFromUrl,
   linkSummaryResultSchema,
@@ -88,6 +89,49 @@ describe("parseLinkSummaryUrl", () => {
     expect(
       parseLinkSummaryUrl(`https://a.example.com/${"x".repeat(2048)}`),
     ).toBeNull();
+  });
+});
+
+describe("a link that may let its holder in", () => {
+  const clip = "https://clips.example.com/share/c1";
+
+  it.each([
+    "?agent_access=fake",
+    "?t=90&agent_access=fake",
+    "?token=fake",
+    "?accessToken=fake",
+    "?X-Amz-Signature=fake",
+    "?sig=fake",
+    "?password=fake",
+    "?api-key=fake",
+    "?code=fake",
+    "?session=fake",
+    "?ticket=fake",
+    "?content_grant=fake",
+    "#access_token=fake",
+    "#/view?token=fake",
+    `?t=${"x".repeat(LINK_SUMMARY_PARAM_CHARS + 1)}`,
+    `?${"x".repeat(LINK_SUMMARY_PARAM_CHARS + 1)}`,
+    `#${"x".repeat(LINK_SUMMARY_PARAM_CHARS + 1)}`,
+  ])("is no link to summarize: %s", (suffix) => {
+    expect(parseLinkSummaryUrl(`${clip}${suffix}`)).toBeNull();
+    expect(
+      linkSummaryItemFromUrl(`${clip}${suffix}`, {
+        clips: ["https://clips.example.com"],
+      }),
+    ).toBeNull();
+  });
+
+  it.each([
+    "?t=1m30s&panel=comments",
+    "?screen=pay&zoom=80&selection=node_1&editorView=single&tool=move",
+    "?slide=4&mode=view&presenter=1",
+    "?design=launch",
+    "#top",
+  ])("keeps the view settings these apps put in a link: %s", (suffix) => {
+    expect(parseLinkSummaryUrl(`${clip}${suffix}`)?.href).toBe(
+      `${clip}${suffix}`,
+    );
   });
 });
 

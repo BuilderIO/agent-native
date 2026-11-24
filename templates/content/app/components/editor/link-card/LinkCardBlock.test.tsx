@@ -1,7 +1,11 @@
 // @vitest-environment happy-dom
 
 import type { BlockRenderContext } from "@agent-native/core/blocks/server";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  focusManager,
+} from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,7 +15,10 @@ import { linkCardBlock } from "./LinkCardBlock";
 const hooks = vi.hoisted(() => ({
   callAction: vi.fn(),
   session: {
-    session: { email: "reader@example.test" } as { email: string } | null,
+    session: { email: "reader@example.test" } as {
+      email: string;
+      orgId?: string;
+    } | null,
     status: "authenticated",
   },
 }));
@@ -31,10 +38,10 @@ const SLIDES = "https://slides.example.test/deck/q3";
 
 let container: HTMLDivElement;
 let root: Root;
+let client: QueryClient;
 
 async function render(items: Array<{ app: string; url: string }>) {
   const Read = linkCardBlock.Read;
-  const client = new QueryClient();
   await act(async () => {
     root.render(
       <QueryClientProvider client={client}>
@@ -56,6 +63,35 @@ async function render(items: Array<{ app: string; url: string }>) {
   });
 }
 
+function answer(title: string, answeredFor: Record<string, unknown> = {}) {
+  return {
+    reader: "reader@example.test",
+    readerOrg: null,
+    ...answeredFor,
+    summaries: [
+      {
+        status: "available",
+        app: "design",
+        kind: "design",
+        title,
+        url: DESIGN,
+      },
+    ],
+  };
+}
+
+async function returnToTab() {
+  const asked = hooks.callAction.mock.calls.length;
+  await act(async () => {
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await vi.waitFor(() => {
+      expect(hooks.callAction.mock.calls.length).toBe(asked + 1);
+      expect(client.isFetching()).toBe(0);
+    });
+  });
+}
+
 function cards() {
   return [...container.querySelectorAll<HTMLElement>("[data-link-card]")];
 }
@@ -72,6 +108,7 @@ beforeEach(() => {
     session: { email: "reader@example.test" },
     status: "authenticated",
   };
+  client = new QueryClient();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -80,6 +117,9 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  client.clear();
+  focusManager.setFocused(undefined);
+  vi.useRealTimers();
 });
 
 describe("link card", () => {
@@ -134,6 +174,86 @@ describe("link card", () => {
     await render([{ app: "design", url: DESIGN }]);
     expect(card(0).dataset.linkCardState).toBe("untitled");
     expect(container.textContent).not.toContain("launch page");
+  });
+
+  it("drops a title answered for this reader in another organization", async () => {
+    hooks.session = {
+      session: { email: "reader@example.test", orgId: "org_1" },
+      status: "authenticated",
+    };
+    hooks.callAction.mockResolvedValue(
+      answer("Org two's launch page", { readerOrg: "org_2" }),
+    );
+    await render([{ app: "design", url: DESIGN }]);
+    expect(card(0).dataset.linkCardState).toBe("untitled");
+    expect(container.textContent).not.toContain("launch page");
+  });
+
+  it("shows the title answered for this reader in their organization", async () => {
+    hooks.session = {
+      session: { email: "reader@example.test", orgId: "org_1" },
+      status: "authenticated",
+    };
+    hooks.callAction.mockResolvedValue(
+      answer("Launch page", { readerOrg: "org_1" }),
+    );
+    await render([{ app: "design", url: DESIGN }]);
+    expect(card(0).textContent).toContain("Launch page");
+  });
+
+  it.each([
+    [
+      "no longer opens the item",
+      () =>
+        hooks.callAction.mockResolvedValue({
+          ...answer(""),
+          summaries: [{ status: "unavailable" }],
+        }),
+    ],
+    [
+      "can't be checked",
+      () => hooks.callAction.mockRejectedValue(new Error("Request failed")),
+    ],
+  ])(
+    "takes the title away when the reader comes back and %s",
+    async (_why, change) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      hooks.callAction.mockResolvedValue(answer("Launch page"));
+      await render([{ app: "design", url: DESIGN }]);
+      expect(card(0).textContent).toContain("Launch page");
+      change();
+      vi.setSystemTime(Date.now() + 61_000);
+      await returnToTab();
+      await vi.waitFor(() =>
+        expect(card(0).dataset.linkCardState).toBe("untitled"),
+      );
+      expect(container.textContent).not.toContain("Launch page");
+    },
+  );
+
+  it("forgets a title a minute after its card is gone", async () => {
+    hooks.callAction.mockResolvedValue(answer("Launch page"));
+    await render([{ app: "design", url: DESIGN }]);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    act(() => root.render(null));
+    vi.advanceTimersByTime(59_000);
+    expect(client.getQueryCache().getAll()).toHaveLength(1);
+    vi.advanceTimersByTime(1_000);
+    expect(client.getQueryCache().getAll()).toHaveLength(0);
+  });
+
+  it("shows no query or hash, where a link could carry a token", async () => {
+    hooks.callAction.mockRejectedValue(new Error("Request failed"));
+    await render([
+      { app: "slides", url: `${SLIDES}?slide=4#top` },
+      { app: "clips", url: "https://clips.example.test/share/c1?token=fake" },
+      { app: "clips", url: "not a link ?token=fake" },
+    ]);
+    expect(card(0).textContent).toBe("Slidesslides.example.test/deck/q3");
+    expect(card(0).getAttribute("href")).toBe(`${SLIDES}?slide=4#top`);
+    expect(card(1).textContent).toBe("clips.example.test/share/c1");
+    expect(container.textContent).not.toContain("fake");
+    expect(container.querySelectorAll("a")).toHaveLength(1);
   });
 
   it("shows the untitled card when the owning app doesn't answer", async () => {

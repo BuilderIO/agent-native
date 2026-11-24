@@ -51,6 +51,21 @@ describe("link card source", () => {
   });
 });
 
+describe("a card's link", () => {
+  it.each([
+    "https://clips.example.test/share/rec_1?agent_access=fake",
+    "https://clips.example.test/share/rec_1?t=90&token=fake",
+    "https://clips.example.test/share/rec_1#access_token=fake",
+    "https://user:fake@design.example.test/design/launch_1",
+    "https://design.example.test/design/launch 1",
+    "https://design.example.test/design/\nlaunch_1",
+  ])("is refused when it carries a credential or a space: %s", async (url) => {
+    const raw = linkCardBlockRaw("link-card-1", { app: "clips", url });
+    expect(linkCardDataFromRaw(raw)).toBeNull();
+    expect(linkCardsAsPlainLinks(raw)).toBe(raw);
+  });
+});
+
 describe("link cards outside the editor", () => {
   const body = [
     "Intro",
@@ -98,6 +113,49 @@ describe("link cards outside the editor", () => {
     ).toBeNull();
   });
 
+  it("reads a card written over several lines, at any tab indent", () => {
+    const tag = [
+      "<LinkCard",
+      '  id="link-card-6"',
+      '  app="design"',
+      `  url="${PLAIN}"`,
+      "/>",
+    ];
+    const link = `[${PLAIN}](${PLAIN})`;
+    expect(
+      linkCardsAsPlainLinks(["Intro", ...tag, "", "After"].join("\n")),
+    ).toBe(["Intro", link, "", "After"].join("\n"));
+    expect(
+      linkCardsAsPlainLinks(tag.map((line) => `\t\t${line}`).join("\n")),
+    ).toBe(`\t\t${link}`);
+    expect(linkCardsAsPlainLinks(`${tag.join("\r\n")}\r\nAfter`)).toBe(
+      `${link}\nAfter`,
+    );
+    const doc = nfmToDoc(tag.join("\n"));
+    expect(linkCardDataFromRaw(doc.content[0]?.attrs?.__raw)).toEqual({
+      app: "design",
+      url: PLAIN,
+    });
+  });
+
+  it("leaves an unfinished tag as written, and what follows it", () => {
+    const body = ["<LinkCard", '  app="design"', "", "# After", PLAIN].join(
+      "\n",
+    );
+    expect(linkCardsAsPlainLinks(body)).toBe(body);
+    expect(linkCardsAsPlainLinks(`${body}\n`)).toBe(`${body}\n`);
+  });
+
+  it("leaves a tag indented with spaces as written, as the page does", () => {
+    const card = linkCardBlockRaw("link-card-7", { app: "design", url: PLAIN });
+    for (const line of [`    ${card}`, ` ${card}`, `\t ${card}`]) {
+      expect(linkCardsAsPlainLinks(line)).toBe(line);
+      expect(
+        nfmToDoc(line).content.some((node) => node.type === "registryBlock"),
+      ).toBe(false);
+    }
+  });
+
   it("leaves a tag in a sentence, inline code, or any fence as written", () => {
     const card = linkCardBlockRaw("link-card-4", { app: "design", url: PLAIN });
     const untouched = [
@@ -133,6 +191,22 @@ describe("link cards outside the editor", () => {
     }).content;
     expect(html).toContain(`<a href="${PLAIN}">${PLAIN}</a>`);
   });
+
+  it.each(["?filters[]=active", "?at=(1)", "?q=a\\b"])(
+    "keeps a link with %s clickable in HTML exports",
+    (suffix) => {
+      const url = `${PLAIN}${suffix}`;
+      const html = buildDocumentExport({
+        id: "doc_1",
+        title: "Launch",
+        content: linkCardBlockRaw("link-card-8", { app: "design", url }),
+        format: "html",
+      }).content;
+      const href = /<a href="([^"]+)">https[^<]+<\/a>/.exec(html)?.[1] ?? "";
+      expect(decodeURIComponent(href)).toBe(url);
+      expect(html).not.toContain("](");
+    },
+  );
 
   it("keeps the underscores in a card's link in HTML exports", () => {
     const url = "https://design.example.test/design/launch_1_b";

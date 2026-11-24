@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   reader: undefined as string | undefined,
+  readerOrg: undefined as string | undefined,
   invoke: vi.fn(),
   laneTargets: {} as Record<string, string>,
 }));
@@ -14,6 +15,7 @@ vi.mock("../../../packages/core/src/a2a/caller-auth.js", () => ({
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mocks.reader,
+  getRequestOrgId: () => mocks.readerOrg,
 }));
 vi.mock("../../../packages/core/src/a2a/invoke.js", () => ({
   invokeAgentAction: mocks.invoke,
@@ -82,6 +84,7 @@ beforeEach(() => {
   mocks.invoke.mockReset();
   mocks.laneTargets = {};
   mocks.reader = "alice@example.test";
+  mocks.readerOrg = "org_1";
   vi.spyOn(console, "warn").mockImplementation(() => {});
   owningApp();
 });
@@ -92,6 +95,7 @@ describe("read-link-summaries", () => {
       links: [DESIGN, OTHER, SLIDES, DESIGN_BETA, CLIPS],
     });
     expect(result.reader).toBe("alice@example.test");
+    expect(result.readerOrg).toBe("org_1");
     expect(result.summaries).toEqual([
       {
         status: "available",
@@ -149,6 +153,17 @@ describe("read-link-summaries", () => {
     );
   });
 
+  it("sends no app a link that carries a credential", async () => {
+    const result = await readLinkSummaries.run({
+      links: [`${CLIPS}?agent_access=fake`, `${DESIGN}#token=fake`],
+    });
+    expect(result.summaries).toEqual([
+      { status: "unavailable" },
+      { status: "unavailable" },
+    ]);
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
   it("gives a reader who can't open an item no trace of its title", async () => {
     mocks.reader = "bob@example.test";
     const result = await readLinkSummaries.run({
@@ -166,8 +181,10 @@ describe("read-link-summaries", () => {
 
   it("makes no call for a signed-out reader", async () => {
     mocks.reader = undefined;
+    mocks.readerOrg = undefined;
     const result = await readLinkSummaries.run({ links: [DESIGN, CLIPS] });
     expect(result.reader).toBeNull();
+    expect(result.readerOrg).toBeNull();
     expect(result.summaries).toEqual([
       { status: "unavailable" },
       { status: "unavailable" },
@@ -193,6 +210,7 @@ describe("read-link-summaries", () => {
       await vi.advanceTimersByTimeAsync(5000);
       await expect(pending).resolves.toEqual({
         reader: "alice@example.test",
+        readerOrg: "org_1",
         summaries: [{ status: "unavailable" }],
       });
     } finally {

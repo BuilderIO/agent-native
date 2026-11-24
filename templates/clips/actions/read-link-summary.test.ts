@@ -169,16 +169,28 @@ describe("read-link-summary (Clips)", () => {
     await seed("trashed", { trashedAt: now });
     await seed("expired", { expiresAt: "2026-11-01T00:00:00.000Z" });
     await seed("locked", { password: "fake-password-digest" });
-    const links = [share("trashed"), share("expired"), share("locked")];
-    expect((await action.run({ links })).summaries).toEqual([
-      { status: "unavailable" },
-      { status: "unavailable" },
-      { status: "unavailable" },
-    ]);
+    const ids = ["trashed", "expired", "locked"];
+    expect(
+      (await action.run({ links: [...ids.map(share), ...ids.map(direct)] }))
+        .summaries,
+    ).toEqual([...ids, ...ids].map(() => ({ status: "unavailable" })));
     mocks.role = "owner";
-    expect((await action.run({ links })).summaries).toEqual([
-      available(share("trashed"), "trashed"),
-      available(share("expired"), "expired"),
+    expect((await action.run({ links: ids.map(direct) })).summaries).toEqual(
+      ids.map((id) => available(direct(id), id)),
+    );
+  });
+
+  it("answers a /share/ link to a trashed or expired Clip for no one, as its page does, even its owner", async () => {
+    await seed("trashed", { trashedAt: now });
+    await seed("expired", { expiresAt: "2026-11-01T00:00:00.000Z" });
+    await seed("locked", { password: "fake-password-digest" });
+    mocks.role = "owner";
+    expect(
+      (await action.run({ links: ["trashed", "expired", "locked"].map(share) }))
+        .summaries,
+    ).toEqual([
+      { status: "unavailable" },
+      { status: "unavailable" },
       available(share("locked"), "locked"),
     ]);
   });

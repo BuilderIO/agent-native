@@ -1,6 +1,9 @@
 import { readPeerLinkSummaries } from "@agent-native/core/a2a";
 import { defineAction } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import {
   LINK_SUMMARY_APPS,
   LINK_SUMMARY_MAX_LINKS,
@@ -29,6 +32,7 @@ export default defineAction({
   }),
   outputSchema: z.object({
     reader: z.string().nullable(),
+    readerOrg: z.string().nullable(),
     summaries: z.array(linkSummarySchema),
   }),
   http: { method: "POST" },
@@ -73,6 +77,6 @@ export default defineAction({
       }
     }
     await Promise.all(requests);
-    return { reader, summaries };
+    return { reader, readerOrg: getRequestOrgId() ?? null, summaries };
   },
 });

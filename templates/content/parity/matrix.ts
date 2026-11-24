@@ -569,7 +569,7 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "The page body stores a LinkCard tag naming only the owning app and the link, never the title. Markdown, HTML and PDF exports carry the plain link.",
     uiImplementation:
-      "Pasting a link alone on a line reads where the apps live through get-link-card-origins and swaps the line for the card as its own undo step. Each card asks read-link-summaries, which asks the owning app's read-link-summary as the signed-in reader and returns the title only when that reader can open the item; signed-out readers make no call. Agents write the same LinkCard tag with edit-document.",
+      "Pasting a link alone on a line reads where the apps live through get-link-card-origins and swaps the line for the card as its own undo step; a link that carries a token or key stays a plain link. Each card asks read-link-summaries, which asks the owning app's read-link-summary as the signed-in reader and returns the title only when that reader can open the item; signed-out readers make no call. Agents write the same LinkCard tag with edit-document.",
     status: "action-backed",
     actions: ["get-link-card-origins", "read-link-summaries"],
     exception:

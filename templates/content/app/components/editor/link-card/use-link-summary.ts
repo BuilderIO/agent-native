@@ -28,8 +28,17 @@ function readerKey(reader: LinkSummaryReader): string {
   return `${reader.email}\n${reader.orgId ?? ""}`;
 }
 
-function sameEmail(answeredAs: string | null | undefined, email: string) {
-  return answeredAs?.trim().toLowerCase() === email.trim().toLowerCase();
+type LinkSummariesAnswer = {
+  reader?: string | null;
+  readerOrg?: string | null;
+  summaries: LinkSummary[];
+};
+
+function answeredFor(answer: LinkSummariesAnswer, reader: LinkSummaryReader) {
+  return (
+    answer.reader?.trim().toLowerCase() === reader.email.trim().toLowerCase() &&
+    (answer.readerOrg ?? null) === reader.orgId
+  );
 }
 
 async function askChunk(
@@ -40,11 +49,8 @@ async function askChunk(
   try {
     const result = (await callAction("read-link-summaries", {
       links: chunk,
-    })) as {
-      reader?: string | null;
-      summaries: LinkSummary[];
-    };
-    if (!sameEmail(result.reader, reader.email)) {
+    })) as LinkSummariesAnswer;
+    if (!answeredFor(result, reader)) {
       throw new Error("Link summaries were answered for another reader");
     }
     const answers = result.summaries[Symbol.iterator]();
@@ -109,14 +115,15 @@ export function useLinkSummary(link: string): LinkSummaryState {
         : Promise.reject(new Error("No signed-in reader")),
     enabled: reader !== null,
     staleTime: SUMMARY_STALE_MS,
+    gcTime: SUMMARY_STALE_MS,
     retry: false,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
   });
   if (reader === null) {
     return status === "loading" ? { state: "loading" } : { state: "untitled" };
   }
   if (query.isPending) return { state: "loading" };
-  if (query.data?.status === "available") {
+  if (!query.isError && query.data.status === "available") {
     return { state: "available", title: query.data.title };
   }
   return { state: "untitled" };

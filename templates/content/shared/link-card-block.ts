@@ -25,8 +25,8 @@ export const linkCardSchema = z.object({
   url: z
     .string()
     .refine(
-      (value) => value === value.trim() && parseLinkSummaryUrl(value) !== null,
-      "A link card holds one http(s) link.",
+      (value) => !/\s/.test(value) && parseLinkSummaryUrl(value) !== null,
+      "A link card holds one http(s) link that carries no token or key.",
     ),
 }) as unknown as z.ZodType<LinkCardData>;
 
@@ -50,7 +50,7 @@ export const linkCardBlockConfig: BlockSpec<LinkCardData> =
     placement: ["block"],
     label: "Link card",
     description:
-      'A link to a Design, Slides deck, or Clips recording shown as a card with the item\'s title for readers who can open it. Stores only the app ("design", "slides", or "clips") and the link; never write a title into it.',
+      'A link to a Design, Slides deck, or Clips recording shown as a card with the item\'s title for readers who can open it. Stores only the app ("design", "slides", or "clips") and the link; never write a title into it. Keep a link that carries a token or key as a plain link.',
   });
 
 export function readLinkCardData(data: unknown): LinkCardData | null {
@@ -83,14 +83,19 @@ function expressionString(expression: string): string | null {
   }
 }
 
-function rawAttrs(tag: string): Map<string, string | null> | null {
-  const open = `<${LINK_CARD_TAG}`;
-  if (!tag.startsWith(open)) return null;
+const RAW_OPEN = `<${LINK_CARD_TAG}`;
+const RAW_CLOSE = /\s*\/>[^\S\n]*(?=\n|$)/y;
+
+function readCardTag(
+  text: string,
+  start: number,
+): { data: LinkCardData | null; end: number } | null {
+  if (!text.startsWith(RAW_OPEN, start)) return null;
   const attrs = new Map<string, string | null>();
-  let at = open.length;
+  let at = start + RAW_OPEN.length;
   for (;;) {
     RAW_ATTR.lastIndex = at;
-    const match = RAW_ATTR.exec(tag);
+    const match = RAW_ATTR.exec(text);
     if (!match) break;
     at = RAW_ATTR.lastIndex;
     const groups: Array<string | undefined> = [...match];
@@ -107,48 +112,65 @@ function rawAttrs(tag: string): Map<string, string | null> | null {
             : null,
     );
   }
-  return /^\s*\/>$/.test(tag.slice(at)) ? attrs : null;
+  RAW_CLOSE.lastIndex = at;
+  if (!RAW_CLOSE.test(text)) return null;
+  const app = attrs.get("app");
+  const url = attrs.get("url");
+  return {
+    data:
+      isLinkSummaryApp(app) && typeof url === "string"
+        ? readLinkCardData({ app, url })
+        : null,
+    end: RAW_CLOSE.lastIndex,
+  };
 }
 
 export function linkCardDataFromRaw(raw: unknown): LinkCardData | null {
   if (typeof raw !== "string") return null;
-  const attrs = rawAttrs(raw.trim());
-  const app = attrs?.get("app");
-  const url = attrs?.get("url");
-  if (!isLinkSummaryApp(app) || typeof url !== "string") return null;
-  return readLinkCardData({ app, url });
+  const text = raw.trim();
+  const tag = readCardTag(text, 0);
+  return tag?.end === text.length ? tag.data : null;
+}
+
+function percentEncoded(text: string, characters: RegExp): string {
+  return text.replace(
+    characters,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 }
 
 export function linkCardMarkdownLink(url: string): string {
-  const label = url.replace(/[[\]\\]/g, (char) => `\\${char}`);
-  const href = url.replace(/\(/g, "%28").replace(/\)/g, "%29");
+  const label = percentEncoded(url, /[[\]\\]/g);
+  const href = percentEncoded(url, /[()]/g);
   return `[${label}](${href})`;
 }
 
 const FENCE_OPEN = /^\s*(`{3,}|~{3,})/;
 
 export function linkCardsAsPlainLinks(markdown: string): string {
-  if (!markdown.includes(`<${LINK_CARD_TAG}`)) return markdown;
+  if (!markdown.includes(RAW_OPEN)) return markdown;
+  const out: string[] = [];
   let fence: string | null = null;
-  return markdown
-    .split("\n")
-    .map((line) => {
-      if (fence !== null) {
-        const close = /^\s*(`{3,}|~{3,})\s*$/.exec(line)?.[1];
-        if (close && close[0] === fence[0] && close.length >= fence.length) {
-          fence = null;
-        }
-        return line;
+  for (let start = 0; start <= markdown.length; ) {
+    const newline = markdown.indexOf("\n", start);
+    let end = newline < 0 ? markdown.length : newline;
+    let line = markdown.slice(start, end);
+    if (fence !== null) {
+      const close = /^\s*(`{3,}|~{3,})\s*$/.exec(line)?.[1];
+      if (close && close[0] === fence[0] && close.length >= fence.length) {
+        fence = null;
       }
-      const open = FENCE_OPEN.exec(line)?.[1];
-      if (open) {
-        fence = open;
-        return line;
+    } else {
+      fence = FENCE_OPEN.exec(line)?.[1] ?? null;
+      const indent = /^\t*/.exec(line)?.[0] ?? "";
+      const card = readCardTag(markdown, start + indent.length);
+      if (card?.data) {
+        line = `${indent}${linkCardMarkdownLink(card.data.url)}`;
+        end = card.end;
       }
-      const card = linkCardDataFromRaw(line);
-      if (!card) return line;
-      const indent = /^\s*/.exec(line)?.[0] ?? "";
-      return `${indent}${linkCardMarkdownLink(card.url)}`;
-    })
-    .join("\n");
+    }
+    out.push(line);
+    start = end + 1;
+  }
+  return out.join("\n");
 }

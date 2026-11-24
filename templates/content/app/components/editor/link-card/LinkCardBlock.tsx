@@ -34,9 +34,9 @@ const APP_ICONS = {
 } as const;
 
 export function linkCardDisplayUrl(url: string): string {
-  if (!URL.canParse(url)) return url;
-  const parsed = new URL(url);
-  return `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}${parsed.search}`;
+  if (!URL.canParse(url)) return "";
+  const { host, pathname } = new URL(url);
+  return host && `${host}${pathname === "/" ? "" : pathname}`;
 }
 
 export function LinkCardView({ data }: { data: LinkCardData }) {
@@ -86,7 +86,9 @@ function UnreadableLinkCard({ data }: { data: unknown }) {
       className="my-1 flex items-center gap-3 rounded-lg border border-border px-3 py-2.5 text-sm text-muted-foreground"
     >
       <IconLink className="size-4 shrink-0" aria-hidden />
-      <span className="truncate">{url}</span>
+      <span className="truncate">
+        {linkCardDisplayUrl(url) || linkCardBlockConfig.label}
+      </span>
     </div>
   );
 }

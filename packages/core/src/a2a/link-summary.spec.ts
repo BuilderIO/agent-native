@@ -4,7 +4,11 @@ const mocks = vi.hoisted(() => ({ auth: vi.fn(), invoke: vi.fn() }));
 vi.mock("./caller-auth.js", () => ({ resolveA2ACallerAuth: mocks.auth }));
 vi.mock("./invoke.js", () => ({ invokeAgentAction: mocks.invoke }));
 
-import { answerLinkSummaries, readPeerLinkSummaries } from "./link-summary.js";
+import {
+  LINK_SUMMARY_READ_CONCURRENCY,
+  answerLinkSummaries,
+  readPeerLinkSummaries,
+} from "./link-summary.js";
 
 const DESIGN = "https://design.example.com/design/d1";
 const OTHER = "https://design.example.com/design/d2";
@@ -244,6 +248,44 @@ describe("answerLinkSummaries", () => {
       { status: "unavailable" },
     ]);
     expect(readTitle).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads a few items at a time and still answers in order", async () => {
+    let reading = 0;
+    let most = 0;
+    const ids = Array.from({ length: 20 }, (_, index) => `d${index}`);
+    const result = await answerLinkSummaries({
+      app: "design",
+      links: ids.map((id) => `https://design.example.com/design/${id}`),
+      basePath: "",
+      readTitle: async ({ id }) => {
+        reading += 1;
+        most = Math.max(most, reading);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        reading -= 1;
+        return `Title ${id}`;
+      },
+    });
+    expect(most).toBe(LINK_SUMMARY_READ_CONCURRENCY);
+    expect(result.summaries).toEqual(
+      ids.map((id) => ({
+        ...available,
+        title: `Title ${id}`,
+        url: `https://design.example.com/design/${id}`,
+      })),
+    );
+  });
+
+  it("reads nothing for a link that carries a credential", async () => {
+    const readTitle = vi.fn(async () => "Launch page");
+    const result = await answerLinkSummaries({
+      app: "design",
+      links: [`${DESIGN}?agent_access=fake`],
+      basePath: "",
+      readTitle,
+    });
+    expect(result.summaries).toEqual([{ status: "unavailable" }]);
+    expect(readTitle).not.toHaveBeenCalled();
   });
 
   it("reads links below the app's own mount path", async () => {

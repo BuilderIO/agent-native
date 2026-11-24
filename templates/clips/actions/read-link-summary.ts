@@ -60,6 +60,13 @@ export default defineAction({
           return null;
         }
         if (
+          route === "share" &&
+          (recording.trashedAt !== null ||
+            isRecordingExpired(recording.expiresAt))
+        ) {
+          return null;
+        }
+        if (
           route === "r" &&
           !canOpenDirectRecordingPage({
             role: access.role,

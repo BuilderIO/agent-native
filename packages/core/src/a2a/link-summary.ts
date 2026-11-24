@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from "../resources/actions/map-with-concurrency.js";
 import {
   LINK_SUMMARY_KINDS,
   LINK_SUMMARY_TITLE_CHARS,
@@ -17,6 +18,9 @@ export const READ_LINK_SUMMARY_ACTION = "read-link-summary";
 
 /** A card waits this long for the owning app before it shows no title. */
 export const LINK_SUMMARY_TIMEOUT_MS = 5000;
+
+/** How many of a request's items the owning app reads at a time. */
+export const LINK_SUMMARY_READ_CONCURRENCY = 4;
 
 function unavailable(count: number): LinkSummary[] {
   return Array.from({ length: count }, () => UNAVAILABLE_LINK_SUMMARY);
@@ -122,8 +126,10 @@ export async function answerLinkSummaries(options: {
   readTitle: (item: LinkSummaryItem) => Promise<string | null>;
 }): Promise<{ summaries: LinkSummary[] }> {
   const { app, basePath, readTitle } = options;
-  const summaries = await Promise.all(
-    options.links.map(async (link): Promise<LinkSummary> => {
+  const summaries = await mapWithConcurrency(
+    options.links,
+    LINK_SUMMARY_READ_CONCURRENCY,
+    async (link): Promise<LinkSummary> => {
       const url = parseLinkSummaryUrl(link);
       const path = url ? pathBelowAppBase(url, basePath) : null;
       const item = path === null ? null : linkSummaryItemFromPath(app, path);
@@ -149,7 +155,7 @@ export async function answerLinkSummaries(options: {
           .slice(0, LINK_SUMMARY_TITLE_CHARS),
         url: link,
       };
-    }),
+    },
   );
   return { summaries };
 }

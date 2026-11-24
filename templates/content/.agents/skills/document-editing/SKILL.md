@@ -610,8 +610,9 @@ owning app for the item's title as that reader, so someone who can't open the
 item sees the app's name and the link, and Markdown, HTML and PDF exports
 carry the plain link. When people paste such a link alone on a line of a page
 they can edit, Content makes the card for them; a link to one Design screen
-becomes a pinned picture instead (see Design screens). To add one, write the
-tag with `edit-document` as its own block; never put a title in it.
+becomes a pinned picture instead (see Design screens), and a link that carries
+a token or key, such as a Clips agent link, stays a plain link. To add a card,
+write the tag with `edit-document` as its own block; never put a title in it.
 
 ### Design screens
 
