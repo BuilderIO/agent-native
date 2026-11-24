@@ -7,6 +7,7 @@ import { columnFillOutput } from "./_column-fill-output.js";
 export default defineAction({
   description:
     "Stop a column fill: rows already running finish, and rows that haven't started are skipped.",
+  mcpTool: false,
   schema: z.object({
     fillId: z.string().min(1).describe("Column fill ID"),
   }),

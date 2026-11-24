@@ -9,6 +9,7 @@ export default defineAction({
     "List the current user's latest column fill for each column of a collection, with each cell's progress.",
   readOnly: true,
   http: { method: "GET" },
+  mcpTool: false,
   schema: z.object({
     databaseId: z.string().min(1).describe("Collection ID"),
   }),

@@ -12,6 +12,7 @@ export default defineAction({
   description:
     "Fill one collection column with AI: start a quiet agent run for each listed row whose cell is empty (or every listed row when rewrite is true), five at a time. Each run reads its row's page and writes only that row's cell.",
   toolCallable: false,
+  mcpTool: false,
   schema: z.object({
     databaseId: z.string().min(1).describe("Collection ID"),
     propertyId: z.string().min(1).describe("Column (property) ID to fill"),

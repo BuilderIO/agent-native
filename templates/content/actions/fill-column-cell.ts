@@ -8,6 +8,7 @@ import { columnFillCellStatusOutput } from "./_column-fill-output.js";
 export default defineAction({
   description:
     "Save the value for one cell of a column fill (Fill with AI). Only for runs started by a column fill, which give the fillId and documentId. Send value null with a short reason when the page has nothing to base a value on.",
+  mcpTool: false,
   schema: z.object({
     fillId: z.string().min(1).describe("Column fill ID from the run's task"),
     documentId: z.string().min(1).describe("Row page ID from the run's task"),
