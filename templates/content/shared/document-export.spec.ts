@@ -431,6 +431,23 @@ describe("document export", () => {
     expect(exportPayload.content).not.toContain('href="javascript:');
   });
 
+  it("keeps the emphasis characters of an address as its own", () => {
+    const { content } = buildDocumentExport({
+      id: "doc_123",
+      title: "Links",
+      content:
+        "[a](https://example.com/_a_b_c?d=*e*) and ![f](https://example.com/_f_.png), _not_ [g](https://example.com/g_h)",
+      format: "html",
+    });
+    const decoded = content.replace(/&#(\d+);/g, (_entity, code: string) =>
+      String.fromCharCode(Number(code)),
+    );
+
+    expect(decoded).toContain(
+      '<a href="https://example.com/_a_b_c?d=*e*">a</a> and <img src="https://example.com/_f_.png" alt="f" />, <em>not</em> <a href="https://example.com/g_h">g</a>',
+    );
+  });
+
   it("strips unsafe link targets from HTML exports", () => {
     const exportPayload = buildDocumentExport({
       id: "doc_123",

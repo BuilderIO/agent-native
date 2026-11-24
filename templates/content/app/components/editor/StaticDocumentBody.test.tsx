@@ -91,6 +91,13 @@ const BODY = [
   "```mermaid",
   "```",
   "",
+  "```html interactive",
+  "<title>Tap counter</title>",
+  "```",
+  "",
+  "```html interactive",
+  "```",
+  "",
   "```ts",
   "const plain = true;",
   "```",
@@ -103,6 +110,10 @@ const BODY = [
 const LABELS = {
   imageBroken: "editor.media.imageBroken",
   mermaidSource: "editor.mermaid.source",
+  interactiveHtmlUntitled: "editor.interactiveHtml.untitled",
+  interactiveHtmlRunHint: "editor.interactiveHtml.runHint",
+  interactiveHtmlRun: "editor.interactiveHtml.run",
+  runsInteractiveHtml: false,
 };
 
 const IMAGE_BODY = [

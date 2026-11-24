@@ -169,6 +169,10 @@ import {
 } from "./_database-membership-lock.js";
 import { ensureFilesSystemPropertyDefinitions } from "./_files-system-properties.js";
 import {
+  keepInteractiveHtmlBlocks,
+  withPublishedInteractiveHtmlLinks,
+} from "./_interactive-html-blocks.js";
+import {
   createAppendPositionAllocator,
   databaseItemsPositionScope,
   documentsPositionScope,
@@ -2884,6 +2888,19 @@ async function processBuilderBodyHydrationJob(
       .where(eq(schema.documents.id, row.documentId));
     const documentContent = document?.content;
     const currentContent = documentContent ?? "";
+    const keptContent = await keepInteractiveHtmlBlocks({
+      db: tx as unknown as ReturnType<typeof getDb>,
+      documentId: row.documentId,
+      local: currentContent,
+      incoming: nextContent,
+    });
+    if (keptContent !== nextContent) {
+      nextContent = keptContent;
+      nextValues = {
+        ...nextValues,
+        [BUILDER_CMS_BODY_CONTENT_KEY]: keptContent,
+      };
+    }
     const shouldWriteBody =
       currentContent === "" ||
       isEffectivelyEmptyDocumentContent(currentContent) ||
@@ -4287,7 +4304,10 @@ async function convertBuilderBodyCached(
 }
 
 export async function builderBodyChangeForLocalContent(args: {
-  row: Pick<ContentDatabaseSourceRecordRowDb, "sourceValuesJson">;
+  row: Pick<
+    ContentDatabaseSourceRecordRowDb,
+    "documentId" | "sourceValuesJson"
+  >;
   localContent: string | null | undefined;
   usesCurrentHydrationCodec?: boolean;
   /**
@@ -4411,6 +4431,10 @@ export async function builderBodyChangeForLocalContent(args: {
     sidecars = {};
   }
 
+  const builderContent = await withPublishedInteractiveHtmlLinks(
+    args.row.documentId,
+    localContent,
+  );
   try {
     const canMergeReadableBaseline =
       !!losslessContent &&
@@ -4418,7 +4442,7 @@ export async function builderBodyChangeForLocalContent(args: {
       (args.usesCurrentHydrationCodec || !usesCurrentMediaConverter);
     const proposed = await convertBuilderBodyCached(
       {
-        localContent,
+        localContent: builderContent,
         losslessContent: canMergeReadableBaseline ? losslessContent : null,
         sidecars,
         mergeReadableBaseline: canMergeReadableBaseline,
@@ -4426,13 +4450,13 @@ export async function builderBodyChangeForLocalContent(args: {
       async () =>
         canMergeReadableBaseline
           ? builderReadableBodyToBuilderBlocks({
-              localContent,
+              localContent: builderContent,
               losslessContent,
               sidecars,
             })
           : {
               blocks: await builderMdxBodyToBuilderBlocks(
-                normalizeUnsourcedBuilderCreateMdx(localContent),
+                normalizeUnsourcedBuilderCreateMdx(builderContent),
                 sidecars,
               ),
               warnings: [] as string[],
@@ -4500,6 +4524,7 @@ function normalizeUnsourcedBuilderCreateMdx(content: string) {
 }
 
 export async function builderBodyChangeForUnsourcedLocalCreate(args: {
+  documentId: string;
   localContent: string | null | undefined;
   comparison?: "text" | "blocks";
   onNeedsBlocks?: () => void;
@@ -4525,7 +4550,9 @@ export async function builderBodyChangeForUnsourcedLocalCreate(args: {
 
   try {
     const blocks = await builderMdxBodyToBuilderBlocks(
-      normalizeUnsourcedBuilderCreateMdx(localContent),
+      normalizeUnsourcedBuilderCreateMdx(
+        await withPublishedInteractiveHtmlLinks(args.documentId, localContent),
+      ),
       {},
     );
     return {
@@ -4559,6 +4586,7 @@ export async function builderBodyChangeForUnsourcedLocalCreate(args: {
 }
 
 export async function builderBodyChangeForSourceSnapshotDocument(args: {
+  documentId: string;
   row?: {
     documentId: string;
     sourceRowId: string;
@@ -4578,6 +4606,7 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
     const identity = builderCmsSourceRowIdentityState({ row: args.row });
     if (identity.isSyntheticFixture) {
       return builderBodyChangeForUnsourcedLocalCreate({
+        documentId: args.documentId,
         localContent: args.localContent,
         comparison: args.comparison,
         onNeedsBlocks: args.onNeedsBlocks,
@@ -4597,6 +4626,7 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
   }
   if (!args.allowUnsourcedCreate) return null;
   return builderBodyChangeForUnsourcedLocalCreate({
+    documentId: args.documentId,
     localContent: args.localContent,
     comparison: args.comparison,
     onNeedsBlocks: args.onNeedsBlocks,
@@ -5966,6 +5996,7 @@ async function loadSourceSnapshot(
           !otherSourceDocumentIds.has(documentId) &&
           !taggedSourceByDocumentId.has(documentId);
         bodyChange = await builderBodyChangeForSourceSnapshotDocument({
+          documentId,
           row,
           isHydrated: hydratedDocumentIds.has(documentId),
           bodyHydrationVersion:

@@ -4,10 +4,12 @@ import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { firstRow } from "../server/lib/first-row.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { contentDatabaseSourceFieldsAllowLocalWrite } from "../shared/source-field-policy.js";
 import { persistBlocksFieldIdentity } from "./_blocks-field-identity.js";
+import type { CallProvenance } from "./_document-agent-lock.js";
 import { nanoid } from "./_property-utils.js";
 
 export async function assertPropertyWritableByRowMutation(
@@ -80,6 +82,7 @@ export async function writeStoredBlocksField(
     content: string;
     expectedRevision: number | undefined;
     now: string;
+    ctx: CallProvenance | undefined;
   },
 ): Promise<void> {
   const previousContent = await readStoredBlocksField(
@@ -88,6 +91,7 @@ export async function writeStoredBlocksField(
     args.propertyId,
   );
   assertNoNewlySharedVideoIds(previousContent, args.content);
+  assertInteractiveHtmlBlocks(args.ctx, previousContent, args.content);
   await db
     .insert(schema.documentBlockFieldContents)
     .values({

@@ -1,5 +1,5 @@
 import { ActionContractError } from "@agent-native/core/action";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
   ContentDatabaseItem,
@@ -70,6 +70,12 @@ import {
   sortBuilderBodyHydrationQueueForProcessing,
 } from "./_database-source-utils";
 import { serializeBodyHydration } from "./_database-utils";
+import { interactiveHtmlUrl } from "./_interactive-html-blocks";
+
+vi.mock("./_body-block-fields", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./_body-block-fields")>()),
+  bodyBlocksPropertyIds: async () => [],
+}));
 
 describe("Builder body hydration failure evidence", () => {
   it.each([
@@ -1334,6 +1340,7 @@ describe("database source helpers", () => {
   it("does not report hydrated Builder bodies as edits when the local content still matches the baseline", async () => {
     const change = await builderBodyChangeForLocalContent({
       row: {
+        documentId: "doc-1",
         sourceValuesJson: JSON.stringify({
           [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "builder-hash",
           [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable Builder body\n",
@@ -1349,6 +1356,7 @@ describe("database source helpers", () => {
     const localContent = "![Current](https://cdn.example.com/current.png)";
     const change = await builderBodyChangeForLocalContent({
       row: {
+        documentId: "doc-1",
         sourceValuesJson: JSON.stringify({
           [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "builder-hash",
           [BUILDER_CMS_BODY_CONTENT_KEY]: localContent,
@@ -1407,7 +1415,10 @@ describe("database source helpers", () => {
             ""),
     );
     const change = await builderBodyChangeForLocalContent({
-      row: { sourceValuesJson: JSON.stringify(entry.sourceValues) },
+      row: {
+        documentId: "doc-1",
+        sourceValuesJson: JSON.stringify(entry.sourceValues),
+      },
       localContent: currentContent.replace(
         "Use {curly} braces.",
         "Use {curly} braces. violet canary",
@@ -1458,7 +1469,10 @@ describe("database source helpers", () => {
     });
 
     const change = await builderBodyChangeForLocalContent({
-      row: { sourceValuesJson: JSON.stringify(staleRemote.sourceValues) },
+      row: {
+        documentId: "doc-1",
+        sourceValuesJson: JSON.stringify(staleRemote.sourceValues),
+      },
       localContent,
     });
     const generatedBlocks = JSON.parse(
@@ -1532,6 +1546,7 @@ describe("database source helpers", () => {
     await expect(
       builderBodyChangeForLocalContent({
         row: {
+          documentId: "doc-1",
           sourceValuesJson: JSON.stringify(reconciledRemote.sourceValues),
         },
         localContent,
@@ -1595,7 +1610,10 @@ describe("database source helpers", () => {
     expect(entry.sourceValues[BUILDER_CMS_BODY_SIDECARS_KEY]).toBeTruthy();
 
     const change = await builderBodyChangeForLocalContent({
-      row: { sourceValuesJson: JSON.stringify(entry.sourceValues) },
+      row: {
+        documentId: "doc-1",
+        sourceValuesJson: JSON.stringify(entry.sourceValues),
+      },
       localContent: content,
     });
 
@@ -1605,6 +1623,7 @@ describe("database source helpers", () => {
   it("reports a real user body edit after Builder body hydration", async () => {
     const change = await builderBodyChangeForLocalContent({
       row: {
+        documentId: "doc-1",
         sourceValuesJson: JSON.stringify({
           [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "builder-hash",
           [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable Builder body",
@@ -1622,6 +1641,7 @@ describe("database source helpers", () => {
   it("does not report a local Builder body edit without a full body baseline", async () => {
     const change = await builderBodyChangeForLocalContent({
       row: {
+        documentId: "doc-1",
         sourceValuesJson: JSON.stringify({
           [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "builder-hash",
         }),
@@ -1635,6 +1655,7 @@ describe("database source helpers", () => {
   it("proposes a Content body over a known-empty Builder body, not over an unread one", async () => {
     const bodyChange = (sourceValues: Record<string, unknown>) =>
       builderBodyChangeForSourceSnapshotDocument({
+        documentId: "doc-empty",
         row: {
           documentId: "doc-empty",
           sourceRowId: "entry-empty",
@@ -1662,6 +1683,7 @@ describe("database source helpers", () => {
 
   it("proposes an emptied Content body over Builder's live body", async () => {
     const bodyChange = await builderBodyChangeForSourceSnapshotDocument({
+      documentId: "doc-cleared",
       row: {
         documentId: "doc-cleared",
         sourceRowId: "entry-cleared",
@@ -1692,6 +1714,7 @@ describe("database source helpers", () => {
       bodyEmpty: boolean;
     }) =>
       builderBodyChangeForSourceSnapshotDocument({
+        documentId: "doc-cleared",
         row: {
           documentId: "doc-cleared",
           sourceRowId: "entry-cleared",
@@ -1733,6 +1756,7 @@ describe("database source helpers", () => {
     ].join("\n");
 
     const bodyChange = await builderBodyChangeForUnsourcedLocalCreate({
+      documentId: "doc-1",
       localContent,
     });
     const blocks = JSON.parse(
@@ -1804,9 +1828,38 @@ describe("database source helpers", () => {
     });
   });
 
+  it("sends Builder a link in place of an interactive block it can't run", async () => {
+    const localContent =
+      "Intro\n```html interactive\n<title>Tap counter</title>\n<button>0</button>\n```";
+    const url = interactiveHtmlUrl("doc-1");
+
+    const created = await builderBodyChangeForUnsourcedLocalCreate({
+      documentId: "doc-1",
+      localContent,
+    });
+    const edited = await builderBodyChangeForLocalContent({
+      row: {
+        documentId: "doc-1",
+        sourceValuesJson: JSON.stringify({
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "builder-hash",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "Intro",
+        }),
+      },
+      localContent,
+    });
+
+    for (const change of [created, edited]) {
+      expect(change?.proposedContent).toBe(localContent);
+      expect(change?.proposedBlocksJson).toContain("Open “Tap counter”");
+      expect(change?.proposedBlocksJson).toContain(url);
+      expect(change?.proposedBlocksJson).not.toContain("button>");
+    }
+  });
+
   it("treats a synthetic Builder fixture row body as create-draft content before hydration", async () => {
     const documentId = "doc-fixture-create";
     const bodyChange = await builderBodyChangeForSourceSnapshotDocument({
+      documentId,
       row: {
         documentId,
         sourceRowId: `builder-${documentId}`,
@@ -1829,6 +1882,7 @@ describe("database source helpers", () => {
 
   it("keeps an unhydrated imported Builder row body fail-closed", async () => {
     const bodyChange = await builderBodyChangeForSourceSnapshotDocument({
+      documentId: "doc-imported",
       row: {
         documentId: "doc-imported",
         sourceRowId: "real-builder-entry-id",

@@ -172,6 +172,13 @@ function restoreTokenSources(
   );
 }
 
+function exportUrlAttribute(value: string, kind: "link" | "image"): string {
+  return safeExportUrl(value, kind).replace(
+    /[*_~]/g,
+    (mark) => `&#${mark.charCodeAt(0)};`,
+  );
+}
+
 function inlineMarkdownSegmentToHtml(
   text: string,
   tokens: InlineExportToken[],
@@ -180,11 +187,11 @@ function inlineMarkdownSegmentToHtml(
     .replace(
       /!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g,
       (_m, alt, src) => {
-        return `<img src="${safeExportUrl(src, "image")}" alt="${restoreTokenSources(alt, tokens)}" />`;
+        return `<img src="${exportUrlAttribute(src, "image")}" alt="${restoreTokenSources(alt, tokens)}" />`;
       },
     )
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, href) => {
-      return `<a href="${safeExportUrl(href, "link")}">${label}</a>`;
+      return `<a href="${exportUrlAttribute(href, "link")}">${label}</a>`;
     })
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/__([^_]+)__/g, "<strong>$1</strong>")

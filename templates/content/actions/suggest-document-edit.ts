@@ -15,6 +15,10 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import {
+  assertInteractiveHtmlBlocks,
+  savePiecesOfCheckedEdit,
+} from "../server/lib/interactive-html-blocks.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import {
   createWithSavedUnits,
@@ -578,6 +582,7 @@ export default defineAction({
       ? resolveOnStoredForm(content, edit)
       : resolveDocumentTextEdits(content, [edit]);
     if (!resolved.ok) rejectedFind(resolved.error);
+    assertInteractiveHtmlBlocks(ctx, content, resolved.content);
     const range = resolved.ranges[0]!;
 
     // Where the stored form respells text beside the agent's change, the
@@ -616,38 +621,40 @@ export default defineAction({
       idempotencyKey: creationKey,
       ctx: suggestionContext,
       create: (labels) =>
-        createResourceSuggestionProposal.run(
-          {
-            resourceType: "document",
-            resourceId: id,
-            adapterKind: "content.document-markdown",
-            baseRevision:
-              args.baseRevision ||
-              documentRevisionToken(existing.bodyRevision, content),
-            summary,
-            proposalId: args.proposalId,
-            idempotencyKey: creationKey,
-            suggestions: operations.map((operation, index) => {
-              const unit =
-                operations.length > 1
-                  ? { reviewUnit: labels[index] }
-                  : undefined;
-              return {
-                summary: markdownSuggestionOperationSummary(operation),
-                operations: [{ ...operation, ordinal: 0 }],
-                metadata:
-                  index === 0
-                    ? {
-                        sourceFind: args.find,
-                        sourceReplace: args.replace ?? "",
-                        sourceProposalId: args.proposalId ?? null,
-                        ...unit,
-                      }
-                    : unit,
-              };
-            }),
-          },
-          suggestionContext,
+        savePiecesOfCheckedEdit(() =>
+          createResourceSuggestionProposal.run(
+            {
+              resourceType: "document",
+              resourceId: id,
+              adapterKind: "content.document-markdown",
+              baseRevision:
+                args.baseRevision ||
+                documentRevisionToken(existing.bodyRevision, content),
+              summary,
+              proposalId: args.proposalId,
+              idempotencyKey: creationKey,
+              suggestions: operations.map((operation, index) => {
+                const unit =
+                  operations.length > 1
+                    ? { reviewUnit: labels[index] }
+                    : undefined;
+                return {
+                  summary: markdownSuggestionOperationSummary(operation),
+                  operations: [{ ...operation, ordinal: 0 }],
+                  metadata:
+                    index === 0
+                      ? {
+                          sourceFind: args.find,
+                          sourceReplace: args.replace ?? "",
+                          sourceProposalId: args.proposalId ?? null,
+                          ...unit,
+                        }
+                      : unit,
+                };
+              }),
+            },
+            suggestionContext,
+          ),
         ),
     });
     const first = grouped.suggestions[0]!;

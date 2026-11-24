@@ -4,9 +4,10 @@ import { getDb, schema } from "../server/db/index.js";
 
 export async function bodyBlocksPropertyIds(
   documentId: string,
+  db: ReturnType<typeof getDb> = getDb(),
 ): Promise<string[]> {
   // guard:allow-unscoped — reads which collections' primary fields a page the caller may read backs.
-  const rows = await getDb()
+  const rows = await db
     .select({
       propertyId: schema.contentDatabases.primaryBlocksPropertyId,
       systemRole: schema.contentDatabases.systemRole,

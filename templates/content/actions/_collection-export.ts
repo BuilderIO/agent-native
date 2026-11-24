@@ -44,6 +44,8 @@ import {
   parseDatabaseViewConfig,
 } from "./_property-utils.js";
 
+export const PRIMARY_BODY_FIELD_ID = "primary-body";
+
 export interface CollectionExportRequest {
   scope:
     | { kind: "all_members" }
@@ -894,7 +896,7 @@ export async function buildCollectionExportProjection(
     ...(includePrimaryBody
       ? [
           {
-            id: "primary-body",
+            id: PRIMARY_BODY_FIELD_ID,
             name: primaryBlocks?.definition.name ?? "Content",
           },
         ]
@@ -922,7 +924,7 @@ export async function buildCollectionExportProjection(
       ),
       bodyValues: new Map([
         ...(includePrimaryBody
-          ? [["primary-body", item.document.content] as const]
+          ? [[PRIMARY_BODY_FIELD_ID, item.document.content] as const]
           : []),
         ...selectedBlocks.map(
           (property) =>

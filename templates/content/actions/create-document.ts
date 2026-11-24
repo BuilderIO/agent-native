@@ -48,6 +48,7 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import {
   syncPrivateBodyReferences,
   syncPrivateIconReference,
@@ -62,7 +63,10 @@ import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
-import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
+import {
+  NFM_CONTAINER_SYNTAX,
+  NFM_INTERACTIVE_HTML_SYNTAX,
+} from "./_nfm-syntax.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
@@ -446,7 +450,7 @@ export default defineAction({
       .describe(
         "Initial Markdown body; omit to create an empty document. Plain Markdown, no admonition/callout " +
           'shorthand like "> [!TIP]" — use a <callout icon="💡"> block. ' +
-          NFM_CONTAINER_SYNTAX,
+          `${NFM_CONTAINER_SYNTAX} ${NFM_INTERACTIVE_HTML_SYNTAX}`,
       ),
     preserveLeadingTitleHeading: z
       .boolean()
@@ -516,6 +520,7 @@ export default defineAction({
         content = content.slice(h1Match[0].length).trimStart();
       }
     }
+    assertInteractiveHtmlBlocks(ctx, null, content);
 
     let parentId = args.parentId || null;
     const icon = args.icon

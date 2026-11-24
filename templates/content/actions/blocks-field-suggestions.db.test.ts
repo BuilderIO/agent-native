@@ -187,6 +187,7 @@ async function suggest(
   baseRevision: string,
   operations: Array<ReturnType<typeof tabEdit>>,
   key: string,
+  caller: typeof ctx.caller | "tool" = ctx.caller,
 ) {
   return as(() =>
     createProposal.run(
@@ -202,7 +203,7 @@ async function suggest(
           operations: [operation],
         })),
       },
-      ctx,
+      { ...ctx, caller },
     ),
   );
 }
@@ -224,6 +225,36 @@ async function accept(id: string) {
 }
 
 describe("suggestions on a Blocks field tab", () => {
+  it("refuses an agent's interactive HTML that could not work, as in the page's body", async () => {
+    const notes =
+      '```html interactive\n<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>\n```';
+    const seeded = await seedRow("interactive", "The body.", notes);
+    const { content, revision } = await fieldState(
+      seeded.row,
+      seeded.databaseId,
+      seeded.notesId,
+    );
+    const suggestBy = (caller: "tool" | "frontend") =>
+      suggest(
+        seeded.row,
+        blocksFieldSuggestionRevision(seeded.notesId, revision),
+        [
+          tabEdit(
+            seeded.notesId,
+            content,
+            content.replace("cdn.jsdelivr.net/npm", "unpkg.com"),
+          ),
+        ],
+        `interactive-${caller}`,
+        caller,
+      );
+
+    await expect(suggestBy("tool")).rejects.toMatchObject({
+      errorCode: "INTERACTIVE_HTML_BLOCK_REFUSED",
+    });
+    expect((await suggestBy("frontend")).suggestions).toHaveLength(1);
+  });
+
   it("accepting one changes only its field, at the field's next revision (CMT-2)", async () => {
     const seeded = await seedRow(
       "accept",
