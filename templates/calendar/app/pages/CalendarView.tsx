@@ -709,13 +709,30 @@ export default function CalendarView({
     to,
     overlayEmails,
     enabledGoogleCalendarSourceKeys,
-    Boolean(googleCalendars.data) &&
-      (!sourceLoadError || googleCalendars.hasPartialData),
+    (Boolean(googleCalendars.data) &&
+      (!sourceLoadError || googleCalendars.hasPartialData)) ||
+      (!googleCalendars.data && Boolean(sourceLoadError)),
+    !googleCalendars.data && Boolean(sourceLoadError),
   );
-  const isLoading = eventsAreLoading || googleCalendars.isLoading;
+  const isLoading =
+    eventsAreLoading || (googleCalendars.isLoading && !sourceLoadError);
   const eventsLoadError = (sourceLoadError ??
     eventsError ??
     eventsFailureReason) as (Error & { code?: string }) | null;
+  const googleAuthorizationRequired = [
+    sourceLoadError,
+    eventsError,
+    eventsFailureReason,
+  ].some((error) => {
+    const failure = error as {
+      code?: string;
+      details?: { authRequired?: boolean };
+    } | null;
+    return (
+      failure?.code === "calendar_auth_required" ||
+      failure?.details?.authRequired === true
+    );
+  });
   const rawEvents = useMemo(() => {
     if (!Array.isArray(rawEventsData)) return [];
     const rangeStart = Date.parse(from);
@@ -2013,6 +2030,7 @@ export default function CalendarView({
           <CalendarEventsStatus
             error={eventsLoadError}
             retrying={isFetching || googleCalendars.isFetching}
+            authRequired={googleAuthorizationRequired}
             onRetry={() => {
               if (sourceLoadError) void googleCalendars.refetch();
               else void refetchEvents();

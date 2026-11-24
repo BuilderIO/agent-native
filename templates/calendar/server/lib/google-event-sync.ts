@@ -24,7 +24,7 @@ type SyncRequest = {
 
 const snapshots = new Map<string, SyncSnapshot>();
 const pending = new Map<string, Promise<ProviderEvent[]>>();
-const MAX_SNAPSHOTS = 20;
+const MAX_SNAPSHOTS = 64;
 const MAX_AGE_MS = 30 * 60 * 1000;
 
 type BatchItem = {

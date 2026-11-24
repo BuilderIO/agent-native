@@ -6,7 +6,7 @@ export function calendarReadFailure(
   const authRequired = errors.some(
     (error) =>
       error.code === "AUTH_REQUIRED" ||
-      /invalid_grant|refresh token revoked|no refresh token available/i.test(
+      /invalid_grant|refresh token revoked|no refresh token available|no usable oauth tokens/i.test(
         error.error,
       ),
   );
@@ -20,7 +20,14 @@ export function calendarReadFailure(
     ),
     {
       expected: true,
-      ...(details ? { details } : {}),
+      ...(details || (rateLimited && authRequired)
+        ? {
+            details: {
+              ...details,
+              ...(rateLimited && authRequired ? { authRequired: true } : {}),
+            },
+          }
+        : {}),
       errorCode: rateLimited
         ? "calendar_rate_limited"
         : authRequired

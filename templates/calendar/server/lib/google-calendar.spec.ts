@@ -153,6 +153,7 @@ import {
   rsvpEvent,
   updateEvent,
 } from "./google-calendar";
+import { listSyncedGoogleEvents } from "./google-event-sync.js";
 
 describe("calendar Google auth status", () => {
   beforeEach(() => {
@@ -586,6 +587,33 @@ describe("calendar event listing", () => {
         },
       },
     ]);
+  });
+
+  it("retains sync cursors for a multi-calendar three-window working set", async () => {
+    calendarListEventsMock.mockResolvedValue({
+      items: [],
+      nextSyncToken: "fixture-cursor",
+    });
+    const base = {
+      owner: "cache-capacity@example.test",
+      orgId: "capacity",
+      account: "capacity@example.test",
+      accessToken: "capacity-token",
+      timeMin: "2028-01-01T00:00:00.000Z",
+      timeMax: "2028-02-01T00:00:00.000Z",
+      eventTypes: ["default"],
+      maxResults: 2500,
+    };
+    for (let i = 0; i < 21; i++)
+      await listSyncedGoogleEvents({ ...base, calendarId: `calendar-${i}` });
+    await listSyncedGoogleEvents({ ...base, calendarId: "calendar-0" });
+    expect(
+      calendarListEventsMock.mock.calls[
+        calendarListEventsMock.mock.calls.length - 1
+      ]?.[2],
+    ).toMatchObject({
+      syncToken: "fixture-cursor",
+    });
   });
 
   it("batches selected calendar reads for the same account", async () => {

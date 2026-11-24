@@ -122,8 +122,10 @@ function buildEventsParams(
   to?: string,
   overlayEmails?: string[],
   calendarSourceKeys?: string[],
+  independentOnly = false,
 ): Record<string, string | string[]> {
   const params: Record<string, string | string[]> = { incremental: "true" };
+  if (independentOnly) params.sources = ["bookings", "ics", "overlays"];
   if (from) params.from = from;
   if (to) params.to = to;
   if (overlayEmails && overlayEmails.length > 0) {
@@ -323,6 +325,7 @@ export function useEvents(
   overlayEmails?: string[],
   calendarSourceKeys?: string[],
   enabled = true,
+  independentOnly = false,
 ) {
   const queryClient = useQueryClient();
   const window = eventWindow(from, to);
@@ -350,6 +353,7 @@ export function useEvents(
     window.to,
     primaryOverlayEmails,
     calendarSourceKeys,
+    independentOnly,
   );
   const demo = isSharedCalendarDemo();
   const live = useActionQuery<CalendarEvent[]>("list-events", params, {
@@ -408,12 +412,14 @@ export function useEvents(
         : undefined,
       primaryOverlayEmails,
       calendarSourceKeys,
+      independentOnly,
     );
   const previousParams = adjacentParams(-1);
   const nextParams = adjacentParams(1);
   const canPrefetch =
     !demo &&
     enabled &&
+    !independentOnly &&
     Boolean(window.from && window.to) &&
     live.isSuccess &&
     !live.isFetching &&

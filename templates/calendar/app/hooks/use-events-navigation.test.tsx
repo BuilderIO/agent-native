@@ -424,3 +424,62 @@ it("reads successfully discovered sources while another account is throttled", a
   await vi.waitFor(() => expect(container?.textContent).toContain("Event 0"));
   expect(container.textContent).toContain("rate limited");
 });
+
+it("shows a reconnect action and the rate notice for a mixed authorization and quota failure", async () => {
+  container = document.createElement("div");
+  document.body.append(container);
+  const activeRoot = createRoot(container);
+  root = activeRoot;
+  const error = Object.assign(new Error("Rate limited"), {
+    code: "calendar_rate_limited",
+    details: { authRequired: true },
+  });
+  await act(async () =>
+    activeRoot.render(<CalendarEventsStatus error={error} />),
+  );
+  expect(container.textContent).toContain("rate limited");
+  expect(container.textContent).toContain("Reconnect Google Calendar");
+});
+
+it("loads independent sources when Google calendar discovery fails completely", async () => {
+  const requestedSources: string[][] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      requestedSources.push(url.searchParams.getAll("sources[]"));
+      return new Response(JSON.stringify([fixture[0]]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }),
+  );
+  const activeClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  client = activeClient;
+  container = document.createElement("div");
+  document.body.append(container);
+  const activeRoot = createRoot(container);
+  root = activeRoot;
+  function Calendar() {
+    const events = useEvents(
+      new Date(start).toISOString(),
+      new Date(start + week).toISOString(),
+      undefined,
+      undefined,
+      true,
+      true,
+    );
+    return <div>{events.data?.[0]?.title}</div>;
+  }
+  await act(async () =>
+    activeRoot.render(
+      <QueryClientProvider client={activeClient}>
+        <Calendar />
+      </QueryClientProvider>,
+    ),
+  );
+  await vi.waitFor(() => expect(container?.textContent).toContain("Event 0"));
+  expect(requestedSources[0]).toEqual(["bookings", "ics", "overlays"]);
+});
