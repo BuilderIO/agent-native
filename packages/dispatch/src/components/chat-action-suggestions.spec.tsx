@@ -246,7 +246,7 @@ it("surfaces an actionable approval review instead of a success receipt", async 
 });
 
 it.each([
-  [automation, JSON.stringify(automation.execution.params, null, 2)],
+  [automation, "daily"],
   [build, build.execution.domainSpec],
   [
     {
@@ -282,7 +282,12 @@ it.each([
     await act(async () => chip(suggestion.label)?.click());
     expect(mocks.mutate).not.toHaveBeenCalled();
     const dialog = document.querySelector('[role="dialog"]');
-    expect(dialog?.querySelector("pre")?.textContent).toBe(payload);
+    expect(dialog?.textContent).toContain(payload);
+    expect(dialog?.querySelector("pre")).toBeNull();
+    if (suggestion.execution.type === "action") {
+      expect(dialog?.textContent).toContain("Cadence");
+      expect(dialog?.textContent).not.toContain("{\n");
+    }
     const run = [...(dialog?.querySelectorAll("button") ?? [])].find(
       (button) => button.textContent === "Run action",
     );
@@ -290,3 +295,33 @@ it.each([
     expect(mocks.mutate).toHaveBeenCalledExactlyOnceWith({ suggestion });
   },
 );
+
+it("offers the existing app after confirmation", async () => {
+  const thread = doneThread();
+  thread.tools.turn = {
+    id: "turn",
+    name: "propose-action-suggestions",
+    runId: "run",
+    status: "completed",
+    output: { suggestions: [build] },
+  };
+  mocks.useThread.mockReturnValue(thread);
+  mocks.mutate.mockResolvedValue({
+    suggestionId: build.id,
+    status: "accepted",
+    outcome: "action-completed",
+    url: "https://equipment.example.test/",
+  });
+  await render();
+  await act(async () => chip(build.label)?.click());
+  const run = [...document.querySelectorAll('[role="dialog"] button')].find(
+    (button) => button.textContent === "Run action",
+  );
+  await act(async () =>
+    run?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+  );
+  expect(mocks.mutate).toHaveBeenCalledExactlyOnceWith({ suggestion: build });
+  expect(
+    container.querySelector('[role="status"] a')?.getAttribute("href"),
+  ).toBe("https://equipment.example.test/");
+});

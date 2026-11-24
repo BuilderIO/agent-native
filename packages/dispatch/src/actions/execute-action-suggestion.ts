@@ -11,7 +11,10 @@ import {
   canOfferActionSuggestion,
   resolveCustomizationTarget,
 } from "../server/lib/action-suggestions.js";
-import { startWorkspaceAppCreation } from "../server/lib/app-creation-store.js";
+import {
+  listWorkspaceApps,
+  startWorkspaceAppCreation,
+} from "../server/lib/app-creation-store.js";
 import callAppAction from "./call_app_action.js";
 
 const receiptSchema = z.discriminatedUnion("outcome", [
@@ -19,6 +22,7 @@ const receiptSchema = z.discriminatedUnion("outcome", [
     suggestionId: z.string(),
     status: z.literal("accepted"),
     outcome: z.literal("action-completed"),
+    url: z.string().url().optional(),
   }),
   z.object({
     suggestionId: z.string(),
@@ -117,7 +121,35 @@ export default defineAction({
           outcome: "local-app-creation",
           prompt: result.prompt,
         };
-      case "app-id-taken":
+      case "app-id-taken": {
+        if (result.conflict !== "registered") return unavailable();
+        const app = (await listWorkspaceApps()).find(
+          (item) =>
+            item.id === result.appId &&
+            !item.archived &&
+            !item.isDispatch &&
+            item.status === "ready" &&
+            item.url,
+        );
+        if (!app?.url || !URL.canParse(app.url)) return unavailable();
+        const url = new URL(app.url);
+        if (
+          url.username ||
+          url.password ||
+          (url.protocol !== "https:" &&
+            !(
+              url.protocol === "http:" &&
+              ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+            ))
+        )
+          return unavailable();
+        return {
+          suggestionId,
+          status: "accepted",
+          outcome: "action-completed",
+          url: app.url,
+        };
+      }
       case "builder-unavailable":
       case "coming-soon":
         return unavailable();

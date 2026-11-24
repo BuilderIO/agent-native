@@ -15,6 +15,7 @@ export default {
       reviewActionSuggestionTitle: "مراجعة الإجراء المقترح",
       cancelActionSuggestion: "إلغاء",
       runActionSuggestion: "تنفيذ الإجراء",
+      openExistingApp: "فتح التطبيق",
       openInBuilder: "فتح في Builder",
       actionSuggestionAccepted: "تم قبول الاقتراح.",
       actionSuggestionContinueInCode: "تابع في Code.",

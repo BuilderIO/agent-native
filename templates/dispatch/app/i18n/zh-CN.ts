@@ -15,6 +15,7 @@ export default {
       reviewActionSuggestionTitle: "查看建议的操作",
       cancelActionSuggestion: "取消",
       runActionSuggestion: "运行操作",
+      openExistingApp: "打开应用",
       openInBuilder: "在 Builder 中打开",
       actionSuggestionAccepted: "已接受建议。",
       actionSuggestionContinueInCode: "在 Code 中继续。",

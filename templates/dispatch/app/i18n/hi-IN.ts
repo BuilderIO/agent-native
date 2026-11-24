@@ -15,6 +15,7 @@ export default {
       reviewActionSuggestionTitle: "सुझाई गई कार्रवाई की समीक्षा करें",
       cancelActionSuggestion: "रद्द करें",
       runActionSuggestion: "कार्रवाई करें",
+      openExistingApp: "ऐप खोलें",
       openInBuilder: "Builder में खोलें",
       actionSuggestionAccepted: "सुझाव स्वीकार किया गया।",
       actionSuggestionContinueInCode: "Code में जारी रखें।",

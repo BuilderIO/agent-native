@@ -15,6 +15,7 @@ export default {
       reviewActionSuggestionTitle: "Review suggested action",
       cancelActionSuggestion: "Cancel",
       runActionSuggestion: "Run action",
+      openExistingApp: "Open app",
       openInBuilder: "Open in Builder",
       actionSuggestionAccepted: "Suggestion accepted.",
       actionSuggestionContinueInCode: "Continue in Code.",

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getSettings: vi.fn(),
   isLocal: vi.fn(),
   startCreation: vi.fn(),
+  listWorkspaceApps: vi.fn(),
   resolveApp: vi.fn(),
   listActions: vi.fn(),
   callAction: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock("../server/lib/app-creation-store.js", () => ({
   getAppCreationSettings: mocks.getSettings,
   isLocalAppCreationRuntime: mocks.isLocal,
   startWorkspaceAppCreation: mocks.startCreation,
+  listWorkspaceApps: mocks.listWorkspaceApps,
 }));
 vi.mock("../server/lib/mcp-gateway.js", () => ({
   resolveGrantedDispatchMcpApp: mocks.resolveApp,
@@ -242,4 +244,37 @@ it("requires a safe nested selection in a mixed schema", async () => {
   ).resolves.toMatchObject({
     status: "accepted",
   });
+});
+
+it("returns an accessible existing app when creation reports its id is registered", async () => {
+  mocks.startCreation.mockResolvedValue({
+    mode: "app-id-taken",
+    appId: "equipment",
+    conflict: "registered",
+  });
+  mocks.listWorkspaceApps.mockResolvedValue([
+    {
+      id: "equipment",
+      url: "https://equipment.example.test/",
+      status: "ready",
+    },
+  ]);
+  expect(await execute.run({ suggestion: build }, browser)).toEqual({
+    suggestionId: build.id,
+    status: "accepted",
+    outcome: "action-completed",
+    url: "https://equipment.example.test/",
+  });
+});
+
+it("does not expose a conflicting app outside the visible workspace", async () => {
+  mocks.startCreation.mockResolvedValue({
+    mode: "app-id-taken",
+    appId: "equipment",
+    conflict: "registered",
+  });
+  mocks.listWorkspaceApps.mockResolvedValue([]);
+  await expect(
+    execute.run({ suggestion: build }, browser),
+  ).rejects.toMatchObject({ errorCode: "action_suggestion_unavailable" });
 });
