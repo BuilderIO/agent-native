@@ -27,10 +27,15 @@ vi.mock("../chat-threads/store.js", () => ({
 }));
 
 const enqueueAgentTeamRunMock = vi.hoisted(() => vi.fn(async () => {}));
+const getDispatchStateMock = vi.hoisted(() => vi.fn(async () => null));
 vi.mock("./agent-teams-run-queue.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("./agent-teams-run-queue.js")>();
-  return { ...actual, enqueueAgentTeamRun: enqueueAgentTeamRunMock };
+  return {
+    ...actual,
+    enqueueAgentTeamRun: enqueueAgentTeamRunMock,
+    getAgentTeamRunDispatchState: getDispatchStateMock,
+  };
 });
 
 vi.mock("./self-dispatch.js", () => ({
@@ -71,6 +76,7 @@ describe("spawnTask from app code", () => {
     appState.clear();
     createThreadMock.mockClear();
     enqueueAgentTeamRunMock.mockClear();
+    getDispatchStateMock.mockClear();
     startProgressRunMock.mockClear();
     runContext.allowedActionNames = undefined;
   });
@@ -105,8 +111,8 @@ describe("spawnTask from app code", () => {
     expect(startProgressRunMock).not.toHaveBeenCalled();
   });
 
-  it("keeps quiet tasks out of the background run list", async () => {
-    const { spawnTask, listAgentTeamBackgroundRuns } =
+  it("keeps quiet tasks out of the task and background run lists", async () => {
+    const { spawnTask, listTasks, listAgentTeamBackgroundRuns } =
       await import("./agent-teams.js");
 
     const quiet = await spawnTask({
@@ -125,6 +131,10 @@ describe("spawnTask from app code", () => {
     const taskIds = runs.map((run) => run.sourceRecord.id);
     expect(taskIds).toContain(visible.taskId);
     expect(taskIds).not.toContain(quiet.taskId);
+    const tasks = await listTasks({ ownerEmail: OWNER });
+    expect(tasks.map((task) => task.taskId)).toEqual([visible.taskId]);
+    expect(getDispatchStateMock).toHaveBeenCalledWith(visible.taskId);
+    expect(getDispatchStateMock).not.toHaveBeenCalledWith(quiet.taskId);
     expect(startProgressRunMock).toHaveBeenCalledTimes(1);
   });
 

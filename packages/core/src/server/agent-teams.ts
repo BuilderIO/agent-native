@@ -3159,6 +3159,7 @@ export async function listTasks(
   const tasks: AgentTask[] = [];
   for (const entry of entries) {
     const task = entry.value as unknown as AgentTask;
+    if (task.quiet) continue;
     if (await taskMatchesOwnerScope(task, ownerScope)) tasks.push(task);
   }
   const reconciled = await Promise.all(tasks.map(reconcileTaskForRead));
@@ -3172,9 +3173,7 @@ export async function listTasks(
 export async function listAgentTeamBackgroundRuns(
   scope?: AgentTeamOwnerScope,
 ): Promise<AgentTeamBackgroundRun[]> {
-  return (await listTasks(scope))
-    .filter((task) => !task.quiet)
-    .map(toAgentTaskBackgroundRun);
+  return (await listTasks(scope)).map(toAgentTaskBackgroundRun);
 }
 
 export async function getAgentTeamBackgroundRun(
