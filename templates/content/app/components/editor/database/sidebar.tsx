@@ -122,7 +122,10 @@ export interface ContentFilesSidebarRenderReorder {
  * A page on the open page's path. The Files tree draws it before its own
  * page of rows loads, so it carries whether it has children.
  */
-export type ActivePathDocument = Document & { hasChildren?: boolean };
+export type ActivePathDocument = Document & {
+  hasChildren?: boolean;
+  canMove?: boolean;
+};
 
 function activePathItem(
   document: ActivePathDocument,
@@ -149,6 +152,7 @@ function activePathItem(
     spaceId: null,
     sourceKind: document.source?.kind ?? null,
     isFavorite: document.isFavorite,
+    ...(document.canMove === false ? { canMove: false } : {}),
     canEdit: document.canEdit !== false,
     canManage: document.canManage === true,
     createdAt: document.createdAt,
@@ -461,7 +465,11 @@ function PagedContentFilesBranch({
           hasChildren={hasChildren}
           isCollection={navigationItem.type === "database"}
           canMove={
-            props.parentId === null || !isLocalSourceDirectoryId(props.parentId)
+            navigationItem.canMove !== false &&
+            (navigationItem.parentId === null ||
+              !isLocalSourceDirectoryId(navigationItem.parentId)) &&
+            (props.parentId === null ||
+              !isLocalSourceDirectoryId(props.parentId))
           }
           expanded={expanded}
           onToggleExpanded={(open) =>
