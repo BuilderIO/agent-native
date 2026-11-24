@@ -796,7 +796,7 @@ export default defineAction({
     }
 
     const guestNotification =
-      guestNotificationMessage && eventForNotification && !result.alreadyApplied
+      guestNotificationMessage && eventForNotification
         ? await sendEventGuestNotificationNote({
             event: {
               ...eventForNotification,

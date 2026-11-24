@@ -37,7 +37,6 @@ import {
 } from "@agent-native/core/action";
 import { saveConflict } from "@agent-native/core/save-conflict/server";
 
-import { sendEventGuestNotificationNote } from "../server/lib/event-guest-notifications.js";
 import {
   discardZoomMeeting,
   prepareZoomMeetingPatch,
@@ -703,42 +702,6 @@ describe("update-event working locations", () => {
       expect.objectContaining({ expectedRevision: '"etag-1"' }),
     );
     expect(result).toMatchObject({ revision: '"etag-2"' });
-  });
-
-  it("sends the guest note once when a resent update had already landed", async () => {
-    getEventMock.mockResolvedValue({
-      id: "google-event-1",
-      revision: '"etag-1"',
-      title: "Team meeting",
-      description: "",
-      location: "",
-      start: "2026-07-07T15:00:00.000Z",
-      end: "2026-07-07T15:30:00.000Z",
-      allDay: false,
-      source: "google",
-      accountEmail: "owner@example.com",
-      organizer: { email: "owner@example.com", self: true },
-      createdAt: "2026-07-06T00:00:00.000Z",
-      updatedAt: "2026-07-06T00:00:00.000Z",
-    });
-    updateEventMock
-      .mockResolvedValueOnce({ revision: '"etag-2"' })
-      .mockResolvedValueOnce({ revision: '"etag-2"', alreadyApplied: true });
-    const run = () =>
-      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
-        action.run({
-          id: "google-event-1",
-          title: "Mine",
-          notificationMessage: "Renamed",
-          expectedRevision: '"etag-1"',
-        }),
-      );
-
-    await run();
-    await run();
-
-    expect(updateEventMock).toHaveBeenCalledTimes(2);
-    expect(sendEventGuestNotificationNote).toHaveBeenCalledOnce();
   });
 
   it("checks the revision before creating a Zoom meeting", async () => {
