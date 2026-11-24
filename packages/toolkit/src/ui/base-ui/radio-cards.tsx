@@ -42,7 +42,8 @@ const RadioCards = React.forwardRef<HTMLDivElement, RadioCardsProps>(
 );
 RadioCards.displayName = "RadioCards";
 
-export type RadioCardsItemProps = Omit<BaseRadio.Root.Props, "color">;
+export interface RadioCardsItemProps
+  extends Omit<BaseRadio.Root.Props, "color">, RadioCardsOwnProps {}
 
 /**
  * One card in the set: a radio holding its own content, so the whole card is
@@ -51,15 +52,15 @@ export type RadioCardsItemProps = Omit<BaseRadio.Root.Props, "color">;
  * @import import { RadioCardsItem } from "@agent-native/toolkit/ui/base-ui/radio-cards";
  */
 const RadioCardsItem = React.forwardRef<HTMLElement, RadioCardsItemProps>(
-  ({ className, ...props }, ref) => {
-    const [attributes] = splitProps(
+  (props, ref) => {
+    const [attributes, { className, ...rest }] = splitProps(
       radioCardsProps,
-      radioCardsItemProps.useGroupProps({}),
+      radioCardsItemProps.useGroupProps(props),
     );
     return (
       <BaseRadio.Root
         ref={ref}
-        {...props}
+        {...rest}
         {...attributes}
         className={partClassName("radio-cards-item", className)}
       />

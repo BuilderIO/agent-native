@@ -542,10 +542,12 @@ async function interactRoundTrip(page: Page, screenId: string) {
   ).toHaveCount(0);
   await shell.locator("[data-frame-title]").first().dblclick();
   await page
-    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
     .click();
   await expect(shell).toHaveAttribute("data-screen-interact-mode", "true");
-  await page.locator('[data-design-top-bar] [data-design-mode="edit"]').click();
+  await page
+    .locator('[data-design-bottom-toolbar] button[aria-label="Edit"]')
+    .click();
   await expect(shell).toHaveAttribute("data-screen-interact-mode", "false");
 }
 

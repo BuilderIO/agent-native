@@ -48,6 +48,11 @@ import { toast } from "sonner";
 
 import type { ComposePaletteCommands } from "@/components/email/ComposeModal";
 import { DraftConflictPrompt } from "@/components/email/DraftConflictPrompt";
+import {
+  LabelPicker,
+  useApplyLabel,
+  type LabelChoice,
+} from "@/components/email/LabelPicker";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
@@ -275,6 +280,14 @@ export interface LabelTreeRow {
   displayName: string;
 }
 
+export function sidebarLabelTabs<
+  T extends { pinnedId?: string; filterId?: string },
+>(tabs: readonly T[]): T[] {
+  return tabs.filter(
+    (tab) => tab.pinnedId !== undefined || tab.filterId !== undefined,
+  );
+}
+
 export function labelTreeRows(labels: readonly Label[]): LabelTreeRow[] {
   return [...labels]
     .sort((a, b) =>
@@ -315,6 +328,26 @@ export function reorderById<T>(
   return next;
 }
 
+export function isInboxSyncing(
+  metadata:
+    | {
+        syncing?: boolean;
+        accounts: readonly { state: string; backfillPending?: boolean }[];
+      }
+    | undefined,
+  read: { freshness: string } | undefined,
+): boolean {
+  if ((read?.freshness ?? "live") !== "live") return false;
+  return (
+    metadata?.syncing === true ||
+    (metadata?.accounts.some(
+      (account) =>
+        account.state === "ready" && account.backfillPending === true,
+    ) ??
+      false)
+  );
+}
+
 interface AppLayoutProps {
   children: React.ReactNode;
 }
@@ -326,6 +359,10 @@ const collapsibleViews = [
   { id: "drafts", labelKey: "mail.views.drafts" },
   { id: "archive", labelKey: "mail.views.archive" },
   { id: "trash", labelKey: "mail.views.trash" },
+];
+const headerOnlyViews = [
+  { id: "snoozed", labelKey: "mail.views.snoozed" },
+  { id: "scheduled", labelKey: "mail.views.scheduled" },
 ];
 const filteredView = {
   id: AI_FILTER_LABEL,
@@ -695,12 +732,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     ? (resolvedInboxTab ?? inboxThreads.data?.tabs[0]?.id)
     : (inboxThreads.data?.activeTabId ?? resolvedInboxTab);
   const inboxIsFetching = inboxThreads.isFetching;
-  const inboxSyncing =
-    inboxMetadata?.syncing === true ||
-    inboxMetadata?.accounts.some(
-      (account) =>
-        account.state === "ready" && account.backfillPending === true,
-    );
+  const inboxSyncing = isInboxSyncing(inboxMetadata, inboxThreads.data?.read);
   const needsReauthAccount = inboxMetadata?.accounts.find(
     (account) => account.state === "needs_reauth",
   );
@@ -829,7 +861,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const sidebarLabels = useMemo<MailSidebarLabel[]>(
     () =>
-      dataTabs.map((tab) => ({
+      sidebarLabelTabs(dataTabs).map((tab) => ({
         id: tab.id,
         href: tab.href,
         label: tab.label,
@@ -843,13 +875,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
 
   // Is current view one of the hidden ones? If so force-show it
-  const currentHiddenView = hiddenViews.find(
-    (v) =>
-      v.id === view ||
-      (v.id === AI_FILTER_LABEL &&
-        view === "all" &&
-        activeLabel === AI_FILTER_LABEL),
-  );
+  const currentHiddenView =
+    hiddenViews.find(
+      (v) =>
+        v.id === view ||
+        (v.id === AI_FILTER_LABEL &&
+          view === "all" &&
+          activeLabel === AI_FILTER_LABEL),
+    ) ?? headerOnlyViews.find((v) => v.id === view);
   const currentInHidden = currentHiddenView !== undefined;
 
   const userLabels = useMemo(() => {
@@ -1058,6 +1091,17 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       { onSuccess: () => toast(t("mail.toasts.threadMuted")) },
     );
   }, [threadId, targetEmail, muteThread, dismissEmail, t]);
+
+  const applyLabel = useApplyLabel();
+  const [newLabelOpen, setNewLabelOpen] = useState(false);
+  const createSidebarLabel = useCallback(
+    async (choice: LabelChoice) => {
+      const label = await applyLabel("create", choice, []);
+      if (label && !pinnedLabels.includes(label.id))
+        updateSettings.mutate({ pinnedLabels: [...pinnedLabels, label.id] });
+    },
+    [applyLabel, pinnedLabels, updateSettings],
+  );
 
   const togglePinned = useCallback(
     (id: string) => {
@@ -1438,6 +1482,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           labels={sidebarLabels}
           inboxUnreadCount={inboxSidebarUnreadCount}
           queuedDraftCount={queuedDrafts.count}
+          onNewLabel={() => setNewLabelOpen(true)}
           mobileOpen={mobileSidebarOpen}
           onMobileOpenChange={setMobileSidebarOpen}
           className="row-span-2"
@@ -1660,20 +1705,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             </div>
           </>
 
-          {inboxSyncing && (
-            <span
-              className="flex shrink-0 items-center text-muted-foreground"
-              role="status"
-              aria-label={t("mail.inbox.syncing")}
-              title={t("mail.inbox.syncing")}
-            >
-              <IconRefresh
-                aria-hidden="true"
-                className="h-3 w-3 animate-spin"
-              />
-            </span>
-          )}
-
           {headerActions && (
             <div className="flex shrink-0 items-center gap-1">
               {headerActions}
@@ -1722,10 +1753,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             />
           )}
 
-          {/* Manual refresh — auto-poll backs off on error, but users
-                  still want a button to force a fresh fetch on demand. The
-                  spin animation only fires on user click, never on background
-                  poll-driven fetches. */}
+          <span className="sr-only" role="status">
+            {inboxSyncing ? t("mail.inbox.syncing") : ""}
+          </span>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -1753,12 +1783,16 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 <IconRefresh
                   className={cn(
                     "h-4 w-4",
-                    isManuallyRefreshing && "animate-spin",
+                    (isManuallyRefreshing || inboxSyncing) && "animate-spin",
                   )}
                 />
               </button>
             </TooltipTrigger>
-            <TooltipContent>{t("mail.toolbar.refreshInbox")}</TooltipContent>
+            <TooltipContent>
+              {inboxSyncing
+                ? t("mail.inbox.syncing")
+                : t("mail.toolbar.refreshInbox")}
+            </TooltipContent>
           </Tooltip>
 
           {/* Compose — prominent outline button */}
@@ -2053,6 +2087,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           </Suspense>
         );
       })()}
+      <LabelPicker
+        request={newLabelOpen ? { action: "create" } : null}
+        labels={labels}
+        onClose={() => setNewLabelOpen(false)}
+        onPick={(choice) => void createSidebarLabel(choice)}
+      />
       <CommandPalette
         open={paletteOpen}
         onOpenChange={handlePaletteOpenChange}

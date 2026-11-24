@@ -301,6 +301,42 @@ describe("SqlChart freshness", () => {
       expect(container.textContent).toContain("42");
     });
 
+    it.each([
+      {
+        state: "a run is pending",
+        error: false,
+        placeholder: false,
+        updating: true,
+      },
+      {
+        state: "the read after it fails",
+        error: true,
+        placeholder: false,
+        updating: false,
+      },
+      {
+        state: "it belongs to the previous filters",
+        error: false,
+        placeholder: true,
+        updating: false,
+      },
+    ])(
+      "shows a pending data program result as updating only while $state",
+      async ({ error, placeholder, updating }) => {
+        mocks.query.data = {
+          rows: [{ value: 42 }],
+          refreshPending: true,
+        } as never;
+        mocks.query.error = error ? new Error("query failed") : null;
+        mocks.query.isPlaceholderData = placeholder;
+        await render();
+        expect(
+          container.querySelector("[data-dashboard-report-updating]") !== null,
+        ).toBe(updating);
+        expect(container.querySelector('[role="alert"]') !== null).toBe(error);
+      },
+    );
+
     it("keeps the previous filters label rather than the age while paused offscreen", async () => {
       mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };
       mocks.query.isPlaceholderData = true;

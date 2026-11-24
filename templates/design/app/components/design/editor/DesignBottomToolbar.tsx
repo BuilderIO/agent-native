@@ -155,6 +155,7 @@ export function DesignBottomToolbar({
   canComment,
   onModeChange,
   showModeTabs,
+  zoomControl,
 }: {
   mode: EditorMode;
   activeTool: DesignTool;
@@ -175,14 +176,8 @@ export function DesignBottomToolbar({
   /** Comments need a signed-in commenter; a widget's write ticket does not cover them. */
   canComment: boolean;
   onModeChange: (mode: EditorMode) => void;
-  /**
-   * The Interact / Design switch lives in the editor top bar, and in
-   * Interact's own floating bar where that bar is absent. Shells with neither
-   * (minimal UI, embedded chrome, the visual-edit route, hidden UI) still render
-   * this toolbar, so it carries the switch there. In Interact no tool applies,
-   * so the switch is all it shows.
-   */
   showModeTabs: boolean;
+  zoomControl?: ReactNode;
 }) {
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
@@ -440,7 +435,7 @@ export function DesignBottomToolbar({
       onClick: () => onModeChange("interact"),
     },
   ];
-  if (groups.length === 0 && !showModeTabs) return null;
+  if (groups.length === 0 && !showModeTabs && !zoomControl) return null;
   return (
     <div
       data-design-bottom-toolbar
@@ -508,6 +503,15 @@ export function DesignBottomToolbar({
             ))}
           </div>
         </>
+      ) : null}
+
+      {zoomControl ? (
+        <div
+          data-design-toolbar-zoom
+          className="dark ms-1 flex shrink-0 items-center text-foreground"
+        >
+          {zoomControl}
+        </div>
       ) : null}
     </div>
   );

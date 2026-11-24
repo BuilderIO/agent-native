@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "path";
 
-import { isConnectionError } from "./errors.js";
+import { isConnectionError, isRetryableConnectionError } from "./errors.js";
 export { isConnectionError, isTransientDatabaseError } from "./errors.js";
 
 import { withoutWriteObservation } from "../action-frame.js";
@@ -1249,7 +1249,7 @@ export async function retryOnConnectionError<T>(
     } catch (e) {
       last = e;
       if (
-        !isConnectionError(e) ||
+        !isRetryableConnectionError(e) ||
         attempt === maxAttempts - 1 ||
         !hasRetryBudgetFor(startedAt)
       ) {

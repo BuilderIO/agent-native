@@ -44,8 +44,12 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "property generation bookkeeping written only by a database trigger; holds no content",
   "content:content_private_media_references":
     "page-to-image links; the private image route checks the page's access before using one",
+  "content:content_analytics_chart_citations":
+    "page-to-dashboard links; list-analytics-chart-citations checks each page's access and saved body before returning it",
   "content:content_webhook_deliveries":
     "webhook delivery outbox sent by the Content webhook sweep; list-content-webhooks shows delivery status to admins",
+  "content:content_column_fill_cells":
+    "each row's progress in a column fill; the fill actions read and change it only through the fill, which they check belongs to the caller",
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
   "analytics:first_party_analytics_cache":
     "internal query cache, accessed through scoped analytics queries",
@@ -121,6 +125,9 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "plan:plan_reports": "moderation reports scoped through plans/action",
   "plan:plan_sections": "child rows scoped through plans",
   "design:design_files": "child rows scoped through designs",
+  "design:design_contents": "checkpoint content rows scoped through designs",
+  "design:design_version_files":
+    "checkpoint manifest rows scoped through designs",
   "design:design_access_requests":
     "access-request rows scoped through the design access action",
   "design:design_template_files": "child rows scoped through design templates",

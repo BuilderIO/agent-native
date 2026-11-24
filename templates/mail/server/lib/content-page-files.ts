@@ -3,6 +3,9 @@ import {
   resolveA2ACallerAuth,
 } from "@agent-native/core/a2a";
 import { fail } from "@agent-native/core/action";
+import { getAppConfig } from "@agent-native/core/server";
+import { getBuiltinAgents } from "@agent-native/core/server/agent-discovery";
+import { resolveLaneEndpoint } from "@agent-native/core/shared/environment-lanes";
 import { z } from "zod";
 
 export const CONTENT_FILE_FORMATS = ["markdown", "csv", "pdf"] as const;
@@ -90,6 +93,22 @@ const CONTENT_ERRORS: Record<string, { message: string; statusCode: number }> =
     },
   };
 
+function hostnameOf(url: string | undefined): string | undefined {
+  if (!url || !URL.canParse(url)) return undefined;
+  return new URL(url).hostname;
+}
+
+function contentTarget(): string {
+  const content = getBuiltinAgents("mail").find((app) => app.id === "content");
+  if (!content?.url || !URL.canParse(content.url)) return "content";
+  const builtinUrl = content.url.replace(/\/+$/, "");
+  const laneUrl = resolveLaneEndpoint(
+    builtinUrl,
+    hostnameOf(getAppConfig().app.url),
+  ).replace(/\/+$/, "");
+  return laneUrl === builtinUrl ? "content" : laneUrl;
+}
+
 function contentErrorCode(output: string) {
   return /\(errorCode: ([a-z0-9_]+)\)/.exec(output)?.[1];
 }
@@ -105,7 +124,7 @@ async function readDocumentFile(input: Record<string, unknown>) {
   let response;
   try {
     response = await invokeAgentAction({
-      target: "content",
+      target: contentTarget(),
       selfAppId: "mail",
       action: "read-document-file",
       input,

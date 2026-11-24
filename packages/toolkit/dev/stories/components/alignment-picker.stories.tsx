@@ -1,20 +1,23 @@
 import { alignmentPickerProps, COLORS } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import * as React from "react";
+import { expect, within } from "storybook/test";
 
 import {
   AlignmentPicker,
   type AlignmentPickerProps,
   type AlignmentValue,
 } from "../../../src/ui/base-ui/alignment-picker.js";
+import { ThemeProvider } from "../../../src/ui/base-ui/theme-provider.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./alignment-picker.docs.md?raw";
 
 const controls = propControls(alignmentPickerProps);
 
 const meta = {
   title: "Components/Alignment Picker",
   component: AlignmentPicker,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: {
     ...controls.args,
     "aria-label": "Alignment",
@@ -132,4 +135,40 @@ export const States: Story = {
       <Labelled {...args} disabled label="Disabled" />
     </div>
   ),
+};
+
+export const RightToLeft: Story = {
+  render: (args) => (
+    <ThemeProvider dir="rtl">
+      <AlignmentPicker
+        {...args}
+        defaultValue={{ justify: "start", align: "start" }}
+      />
+    </ThemeProvider>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const group = within(canvas.getByRole("radiogroup", { name: "Alignment" }));
+    const first = group.getByRole("radio", { name: "Top right" });
+    await expect(first).toBeChecked();
+    first.focus();
+    await userEvent.keyboard("{Control>}{Alt>}{ArrowLeft}{/Alt}{/Control}");
+    await expect(first).toHaveFocus();
+    await userEvent.keyboard("{ArrowLeft}");
+    const middle = group.getByRole("radio", { name: "Top center" });
+    await expect(middle).toHaveFocus();
+    await expect(middle.getBoundingClientRect().x).toBeLessThan(
+      first.getBoundingClientRect().x,
+    );
+    await userEvent.keyboard("{Enter}");
+    const row = group.getByRole("radio", { name: "Top" });
+    const bounds = row.getBoundingClientRect();
+    await userEvent.pointer([
+      {
+        target: row,
+        coords: { x: bounds.right - 2, y: bounds.top + bounds.height / 2 },
+        keys: "[MouseLeft][MouseLeft]",
+      },
+    ]);
+    await expect(group.getByRole("radio", { name: "Top right" })).toBeChecked();
+  },
 };

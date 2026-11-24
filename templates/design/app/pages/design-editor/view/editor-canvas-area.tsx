@@ -1,4 +1,5 @@
 import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
+import type { ReactNode } from "react";
 
 import { CanvasContextMenu } from "@/components/design/CanvasContextMenu";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
@@ -67,6 +68,7 @@ export function renderEditorCanvasArea({
   leftChromeOverlayInset,
   rightSidebarVisible,
   chromeInsetLeft,
+  readOnlyZoomControl,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
@@ -95,6 +97,7 @@ export function renderEditorCanvasArea({
   leftChromeOverlayInset: string | undefined;
   rightSidebarVisible: boolean;
   chromeInsetLeft: number;
+  readOnlyZoomControl: ReactNode;
 }) {
   const {
     activeFileId,
@@ -117,6 +120,7 @@ export function renderEditorCanvasArea({
     setHasSystemClipboardImages,
     hasSystemClipboardImages,
     minimalUi,
+    floatingTopChromeHeight,
   } = editorHistory;
   const {
     canEditDesign,
@@ -592,8 +596,13 @@ export function renderEditorCanvasArea({
         <div
           className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
           style={
-            responsiveInteractActive && leftChromeOverlayInset
-              ? { paddingLeft: leftChromeOverlayInset }
+            responsiveInteractActive
+              ? {
+                  paddingLeft: leftChromeOverlayInset,
+                  paddingTop: floatingTopChromeHeight || undefined,
+                  background:
+                    canvasBackground || "var(--design-editor-canvas-bg)",
+                }
               : undefined
           }
         >
@@ -639,6 +648,7 @@ export function renderEditorCanvasArea({
                 designAccessRole === "commenter") && (
                 <ReadOnlyDesignBanner
                   pinMode={pinMode}
+                  zoomControl={readOnlyZoomControl}
                   onCommentPin={
                     !hostOwnsChrome && canCommentDesign
                       ? handlePinToolToggle

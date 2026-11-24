@@ -625,6 +625,55 @@ CREATE INDEX IF NOT EXISTS design_motion_bridge_receipt_challenges_chain_idx
     name: "design-visual-edit-pending-publisher-session",
     sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS publisher_session_hash TEXT`,
   },
+  {
+    version: 52,
+    name: "design-history-content-manifests",
+    sql: `ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_hash TEXT;
+      CREATE OR REPLACE FUNCTION design_files_set_content_hash()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF TG_OP = 'INSERT'
+          OR NEW.content IS DISTINCT FROM OLD.content
+          OR NEW.content_hash IS DISTINCT FROM OLD.content_hash THEN
+          NEW.content_hash := encode(sha256(convert_to(NEW.content, 'UTF8')), 'hex');
+        END IF;
+        RETURN NEW;
+      END;
+      $$;
+      DO $$
+      BEGIN
+        CREATE TRIGGER design_files_content_hash
+          BEFORE INSERT OR UPDATE ON design_files
+          FOR EACH ROW
+          EXECUTE FUNCTION design_files_set_content_hash();
+      EXCEPTION WHEN duplicate_object THEN
+        NULL;
+      END;
+      $$;
+      CREATE TABLE IF NOT EXISTS design_contents (
+        design_id TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (now()::text),
+        PRIMARY KEY (design_id, hash)
+      );
+      CREATE TABLE IF NOT EXISTS design_version_files (
+        version_id TEXT NOT NULL,
+        design_id TEXT NOT NULL,
+        entry_kind TEXT NOT NULL,
+        file_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        file_type TEXT NOT NULL,
+        file_created_at TEXT,
+        content_hash TEXT NOT NULL,
+        source TEXT NOT NULL,
+        PRIMARY KEY (version_id, entry_kind, file_id)
+      );
+      CREATE INDEX IF NOT EXISTS design_version_files_design_hash_idx
+        ON design_version_files (design_id, content_hash)`,
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =

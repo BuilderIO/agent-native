@@ -1,0 +1,140 @@
+@layer components {
+  .constraint-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .constraint-axes {
+    display: grid;
+    flex: 1 1 8rem;
+    min-inline-size: 0;
+    gap: var(--space-1);
+  }
+  .constraint-pins {
+    position: relative;
+    width: calc(3 * var(--control-height-3));
+    aspect-ratio: 1;
+    flex: none;
+  }
+  .constraint-preview {
+    position: relative;
+    display: inline-block;
+    width: var(--control-height-3);
+    aspect-ratio: 1;
+    vertical-align: middle;
+    color: var(--fg-muted);
+    box-shadow: inset 0 0 0 1px var(--line-subtle);
+    border-radius: var(--shape-control);
+  }
+  .constraint-pins > .constraint-preview {
+    width: 100%;
+    background: var(--surface-sunken);
+  }
+  .constraint-frame {
+    position: absolute;
+    inset: 32% 28%;
+    border: 1px solid currentColor;
+    border-radius: var(--radius-1);
+    background: var(--surface-raised);
+  }
+  .constraint-mark,
+  .constraint-preview::before,
+  .constraint-preview::after {
+    position: absolute;
+    z-index: 1;
+    pointer-events: none;
+  }
+  .constraint-mark:is([data-edge="left"], [data-edge="right"]) {
+    top: 50%;
+    width: 20%;
+    border-top: var(--_pin-width, 1px) var(--_pin-style, solid) currentColor;
+  }
+  .constraint-mark[data-edge="left"] {
+    left: 6%;
+  }
+  .constraint-mark[data-edge="right"] {
+    right: 6%;
+  }
+  .constraint-mark:is([data-edge="top"], [data-edge="bottom"]) {
+    left: 50%;
+    height: 23%;
+    border-left: var(--_pin-width, 1px) var(--_pin-style, solid) currentColor;
+  }
+  .constraint-mark[data-edge="top"] {
+    top: 6%;
+  }
+  .constraint-mark[data-edge="bottom"] {
+    bottom: 6%;
+  }
+  .constraint-mark[data-mode="pinned"],
+  .constraint-mark[data-mode="scale"] {
+    color: var(--line-focus);
+    --_pin-width: 2px;
+  }
+  .constraint-mark[data-mode="scale"] {
+    --_pin-style: dashed;
+  }
+  .constraint-mark[data-mode="mixed"] {
+    opacity: 0.5;
+  }
+  .constraint-preview[data-horizontal="center"]::before {
+    content: "";
+    inset: 50% 10% auto;
+    border-top: 2px solid var(--line-focus);
+  }
+  .constraint-preview[data-vertical="center"]::after {
+    content: "";
+    inset: 10% auto 10% 50%;
+    border-left: 2px solid var(--line-focus);
+  }
+  .constraint-pin {
+    position: absolute;
+    width: calc(100% / 3);
+    height: calc(100% / 3);
+    padding: 0;
+    border: 0;
+    border-radius: var(--shape-control);
+    background: transparent;
+    cursor: pointer;
+  }
+  .constraint-pin[data-edge="left"] {
+    left: 0;
+    top: calc(100% / 3);
+  }
+  .constraint-pin[data-edge="right"] {
+    right: 0;
+    top: calc(100% / 3);
+  }
+  .constraint-pin[data-edge="top"] {
+    top: 0;
+    left: calc(100% / 3);
+  }
+  .constraint-pin[data-edge="bottom"] {
+    bottom: 0;
+    left: calc(100% / 3);
+  }
+  .constraint-pin:hover:not(:disabled) {
+    background: var(--fill-hover);
+  }
+  .constraint-pin:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: calc(-1 * var(--focus-ring-width));
+  }
+  .constraint-pin:disabled {
+    cursor: default;
+  }
+  .constraint-pins:has(:disabled) {
+    color: var(--fg-disabled);
+    opacity: 0.5;
+  }
+  @media (forced-colors: active) {
+    .constraint-preview {
+      outline: 1px solid CanvasText;
+    }
+    .constraint-mark[data-mode="pinned"],
+    .constraint-mark[data-mode="scale"] {
+      color: Highlight;
+    }
+  }
+}

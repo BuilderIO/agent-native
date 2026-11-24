@@ -20,6 +20,7 @@ import {
   CLIP_EMBED_BLOCK_TYPE,
   clipEmbedRecordingIdFromRaw,
 } from "@shared/clip-embed-block";
+import { linkCardDataFromRaw } from "@shared/link-card-block";
 import { nfmToDoc, type PMNode } from "@shared/nfm";
 import { registryBlockSpecByType } from "@shared/nfm-registry";
 import {
@@ -41,6 +42,10 @@ import { data, useLoaderData } from "react-router";
 import { publicContentBlockRegistry } from "@/blocks/publicBlockRegistry";
 import { ContentErrorBoundaryBody } from "@/components/ContentErrorBoundary";
 import { clipShareUrl } from "@/components/editor/clip-embed/use-clips-links";
+import {
+  LINK_CARD_APP_NAMES,
+  linkCardDisplayUrl,
+} from "@/components/editor/link-card/LinkCardBlock";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 import { PublicReader } from "@/components/public-reader/PublicReader";
 import { messagesByLocale } from "@/i18n-data";
@@ -325,6 +330,24 @@ function RegistryBlockFallback({
       ? clipEmbedRecordingIdFromRaw(node.attrs?.__raw)
       : null;
   const name = title ?? registryBlockSpecByType(blockType)?.label ?? blockType;
+  const linkCard = linkCardDataFromRaw(node.attrs?.__raw);
+  if (linkCard) {
+    return (
+      <a
+        href={linkCard.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-4 block rounded-lg border border-border px-3 py-2.5 no-underline"
+      >
+        <span className="block text-sm font-medium text-foreground">
+          {LINK_CARD_APP_NAMES[linkCard.app]}
+        </span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {linkCardDisplayUrl(linkCard.url)}
+        </span>
+      </a>
+    );
+  }
   return (
     <div className="mt-4 rounded-md border border-border px-3 py-2 text-base leading-7 text-muted-foreground">
       {recordingId && clipsAppUrl ? (

@@ -54,6 +54,7 @@ function argsFor({
       content: "<!doctype html><html><body>Welcome</body></html>",
     } as Args["activeFile"],
     activeLeftPanel: null,
+    commentsPanelShown: false,
     activeTool: "move" as Args["activeTool"],
     design: null,
     designDataJson: {},
@@ -123,6 +124,13 @@ describe("runPublishAgentSelectionContext Interact state", () => {
   it("publishes null outside Interact so a stale default is not read as a choice", () => {
     runPublishAgentSelectionContext(argsFor({ mode: "edit" as Args["mode"] }));
     expect(publishedSelection().interact).toBeNull();
+  });
+
+  it("publishes the comments panel only while it is shown", () => {
+    runPublishAgentSelectionContext(argsFor({ commentsPanelShown: true }));
+    expect(publishedSelection().rightPanel).toBe("comments");
+    runPublishAgentSelectionContext(argsFor({ commentsPanelShown: false }));
+    expect(publishedSelection().rightPanel).toBe("inspector");
   });
 
   it("publishes a Custom device with the screen's own size", () => {

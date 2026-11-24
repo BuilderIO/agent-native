@@ -5,6 +5,7 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
+import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
@@ -521,10 +522,12 @@ export async function applyMigration(
     appliedUpdatedAt: string;
   }> = [];
   const versionRows: Array<typeof schema.documentVersions.$inferInsert> = [];
+  const priorBodies = new Map<string, string>();
   for (const row of plan.rows) {
     const persisted = snapshot.rows.find(
       (candidate: any) => candidate.item.id === row.itemId,
     )!;
+    priorBodies.set(row.documentId, persisted.document.content ?? "");
     const versionId = deterministicId(
       "migration_version",
       receiptId,
@@ -587,6 +590,11 @@ export async function applyMigration(
       documentId: row.documentId,
       after: row.content,
       userEmail: documentAttributionActor(),
+    });
+    await syncAnalyticsChartCitations(tx, {
+      documentId: row.documentId,
+      before: priorBodies.get(row.documentId),
+      after: row.content,
     });
   }
   const definitionRows = plan.propertyDefinitions.map((definition, index) => ({

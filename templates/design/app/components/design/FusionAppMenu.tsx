@@ -3,11 +3,10 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
+import { PlayIcon } from "@radix-ui/react-icons";
 import {
-  IconChevronDown,
   IconCloudUpload,
   IconExternalLink,
-  IconPlayerPlay,
   IconRocket,
   IconWand,
   IconWorld,
@@ -167,20 +166,19 @@ export function FusionAppMenu({
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              size="sm"
-              className="relative h-[var(--design-row-height)] cursor-pointer gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-foreground hover:bg-accent hover:text-foreground"
+              size="icon-xs"
+              className="design-focus-ring relative shrink-0 cursor-pointer text-foreground hover:bg-accent hover:text-foreground [&_svg]:size-[var(--design-icon-size)]"
               aria-label={"Preview or publish app" /* i18n-ignore */}
             >
               {busy ? (
-                <Spinner className="size-5" />
+                <Spinner className="design-ui-icon" />
               ) : (
-                <IconPlayerPlay className="size-5" />
+                <PlayIcon className="design-ui-icon" aria-hidden="true" />
               )}
-              <IconChevronDown className="size-3 opacity-70" />
               {pendingCount > 0 ? (
                 <span
                   aria-hidden="true"
-                  className="absolute right-1 top-1 size-1.5 rounded-full bg-primary"
+                  className="absolute end-0.5 top-0.5 size-1.5 rounded-full bg-primary"
                 />
               ) : null}
             </Button>

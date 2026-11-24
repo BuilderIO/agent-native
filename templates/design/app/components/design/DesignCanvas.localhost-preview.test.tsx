@@ -1714,7 +1714,8 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     });
 
     await vi.waitFor(() => {
-      expect(document.body.textContent).toContain("Connect your local screens");
+      // oracle-change: Screens became Pages in UI copy; same prompt, new wording
+      expect(document.body.textContent).toContain("Connect your local pages");
       expect(document.body.textContent).toContain(
         "Choose Allow in Chrome's prompt to enable live editing.",
       );
@@ -2158,7 +2159,8 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
     });
 
     expect(container.textContent).toContain(
-      "Reconnect this Screen's localhost connection in the inspector, then retry.",
+      // oracle-change: Screens became Pages in UI copy; same recovery message, new wording
+      "Reconnect this page's localhost connection in the inspector, then retry.",
     );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(onExternalContentSnapshot).not.toHaveBeenCalled();
@@ -2223,7 +2225,8 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
       "Local preview credentials are unavailable",
     );
     expect(container.textContent).toContain(
-      "Reconnect this Screen's localhost connection in the inspector, then retry.",
+      // oracle-change: Screens became Pages in UI copy; same recovery message, new wording
+      "Reconnect this page's localhost connection in the inspector, then retry.",
     );
     const retryButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Retry credentials"),

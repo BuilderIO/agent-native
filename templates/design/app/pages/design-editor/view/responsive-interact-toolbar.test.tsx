@@ -7,10 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import {
-  renderInteractFloatingBar,
-  renderInteractTopBarSlots,
-} from "./responsive-interact-toolbar";
+import { renderInteractFloatingBar } from "./responsive-interact-toolbar";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -71,101 +68,9 @@ function makeArgs() {
 
 type Args = ReturnType<typeof makeArgs>;
 const asArgs = (args: Args) =>
-  args as unknown as Parameters<typeof renderInteractTopBarSlots>[0];
+  args as unknown as Parameters<typeof renderInteractFloatingBar>[0];
 
-describe("renderInteractTopBarSlots", () => {
-  it("fills the leading, centre and zoom slots from the editor's state", async () => {
-    const args = makeArgs();
-    const slots = renderInteractTopBarSlots(asArgs(args));
-    const host = await mount(
-      <>
-        <div data-slot="leading">{slots.leading}</div>
-        <div data-slot="center">{slots.center}</div>
-        <div data-slot="zoom">{slots.zoomControl}</div>
-      </>,
-    );
-    const within = (slot: string) =>
-      host.querySelector<HTMLElement>(`[data-slot=${slot}]`)!;
-
-    expect(
-      within("leading").querySelector("[data-design-interact-device]")
-        ?.textContent,
-    ).toContain('MacBook Air 13"');
-    expect(
-      within("leading").querySelector("[data-design-interact-theme]"),
-    ).not.toBeNull();
-    expect(
-      within("center").querySelector("[data-design-interact-route]")
-        ?.textContent,
-    ).toBe("Home");
-    expect(within("zoom").textContent).toBe("67%");
-  });
-
-  it("leaves the theme picker out, not disabled, when the screen cannot take a theme", async () => {
-    const args = makeArgs();
-    args.editorModes.interactPreviewTheme = {
-      scheme: null,
-      displayMode: "light",
-      pickerVisible: false,
-      darkAvailable: false,
-    };
-    const slots = renderInteractTopBarSlots(asArgs(args));
-    const host = await mount(
-      <>
-        <div data-slot="leading">{slots.leading}</div>
-        <div data-slot="center">{slots.center}</div>
-        <div data-slot="zoom">{slots.zoomControl}</div>
-      </>,
-    );
-    expect(host.querySelector("[data-design-interact-theme]")).toBeNull();
-    expect(
-      host.querySelector("[data-design-interact-theme-unavailable]"),
-    ).toBeNull();
-    // Everything else on the bar stays where it was.
-    expect(host.querySelector("[data-design-interact-device]")).not.toBeNull();
-    expect(host.querySelector("[data-design-interact-route]")).not.toBeNull();
-    expect(host.querySelector("[data-design-interact-zoom]")).not.toBeNull();
-  });
-
-  it("has no Exit: the mode switch beside it is the way out", async () => {
-    const slots = renderInteractTopBarSlots(asArgs(makeArgs()));
-    const host = await mount(
-      <>
-        {slots.leading}
-        {slots.center}
-        {slots.zoomControl}
-      </>,
-    );
-    expect(
-      host.querySelector(
-        "button[aria-label='designEditor.responsiveInteract.exit']",
-      ),
-    ).toBeNull();
-  });
-
-  it("wires back, forward and reload to the editor's handlers", async () => {
-    const args = makeArgs();
-    const slots = renderInteractTopBarSlots(asArgs(args));
-    const host = await mount(<>{slots.center}</>);
-    const press = async (label: string) => {
-      await act(async () => {
-        host
-          .querySelector(
-            `button[aria-label='designEditor.responsiveInteract.${label}']`,
-          )
-          ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      });
-    };
-    await press("back");
-    await press("forward");
-    await press("reload");
-    expect(args.editorModes.handleInteractScreenBack).toHaveBeenCalledTimes(1);
-    // Forward is disabled while there is no forward entry.
-    expect(args.editorModes.handleInteractScreenForward).not.toHaveBeenCalled();
-    expect(args.editorModes.handleScreenReload).toHaveBeenCalledTimes(1);
-  });
-});
-
+// oracle-change: the docked top bar is gone, so renderInteractTopBarSlots and its slot tests are deleted; the back, forward and reload wiring test now runs on the floating bar, the only surface left
 describe("renderInteractFloatingBar", () => {
   it("leaves the theme picker out when the screen cannot take a theme", async () => {
     const args = makeArgs();
@@ -197,5 +102,25 @@ describe("renderInteractFloatingBar", () => {
     expect(args.editorModes.handleExitResponsiveInteract).toHaveBeenCalledTimes(
       1,
     );
+  });
+
+  it("wires back, forward and reload to the editor's handlers", async () => {
+    const args = makeArgs();
+    const host = await mount(renderInteractFloatingBar(asArgs(args)));
+    const press = async (label: string) => {
+      await act(async () => {
+        host
+          .querySelector(
+            `button[aria-label='designEditor.responsiveInteract.${label}']`,
+          )
+          ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    };
+    await press("back");
+    await press("forward");
+    await press("reload");
+    expect(args.editorModes.handleInteractScreenBack).toHaveBeenCalledTimes(1);
+    expect(args.editorModes.handleInteractScreenForward).not.toHaveBeenCalled();
+    expect(args.editorModes.handleScreenReload).toHaveBeenCalledTimes(1);
   });
 });

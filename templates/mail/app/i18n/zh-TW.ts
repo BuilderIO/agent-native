@@ -182,9 +182,19 @@ const messages = {
       markRead: "標為已讀",
       markUnread: "標為未讀",
       moveTo: "行動到",
+      labelAs: "加上標籤",
+      newLabel: "新增標籤…",
       moveToTrash: "移到垃圾桶",
       star: "加上星號",
       unstar: "移除星號",
+    },
+    labels: {
+      labelAsPlaceholder: "加上標籤…",
+      moveToPlaceholder: "移至…",
+      newLabelPlaceholder: "新標籤名稱",
+      create: "建立標籤「{{name}}」",
+      empty: "還沒有標籤。輸入名稱即可建立。",
+      alreadyExists: "「{{name}}」已存在。",
     },
     compose: {
       addImage: "新增圖片",
@@ -434,6 +444,7 @@ const messages = {
       tryDifferentKeywords: "試試其他關鍵詞",
       nothingHere: "這裡還沒有內容",
       loadingMore: "正在載入更多...",
+      loadOlder: "載入較早的對話",
       openAllMailForOlder: "開啟全部郵件查看較早的郵件",
     },
     toasts: {
@@ -450,6 +461,13 @@ const messages = {
         "已移動 {{total}} 個工作階段中的 {{succeeded}} 個；{{failed}} 個失敗。",
       moveSucceeded: "已移至「{{label}}」。",
       moveManySucceeded: "已將 {{count}} 個對話移至「{{label}}」。",
+      labelSucceeded: "已加上標籤「{{label}}」。",
+      labelManySucceeded: "已為 {{count}} 個對話加上標籤「{{label}}」。",
+      labelPartialFailed:
+        "已為 {{total}} 個對話中的 {{succeeded}} 個加上標籤，{{failed}} 個失敗。",
+      labelFailed: "無法加上標籤。",
+      labelCreated: "已建立標籤「{{label}}」。",
+      createLabelFailed: "無法建立標籤。",
       trashed: "已移到垃圾桶。",
       trashedMany: "已將 {{count}} 個工作階段移到垃圾桶。",
       scheduledSent: "定時郵件已傳送。",
@@ -518,6 +536,7 @@ const messages = {
       tryAgain: "重試",
       rateLimitTitle: "觸發 Gmail 速率限制",
       loadTitle: "無法載入郵件",
+      staleSaved: "無法重新整理郵件。正在顯示已儲存的對話。",
       rateLimitDescription: "最近對 Google 的請求過多。稍等片刻後會重試。",
       failedToConnect: "連線失敗。請重試。",
       failedToParseJson: "解析 JSON 失敗",
@@ -615,7 +634,7 @@ const messages = {
       instructionsTitle: "指示",
       instructionCount: "{{count}} 個指示",
       instructionPlaceholder:
-        "例如：主旨包含「question for you, Steve」的郵件不需要",
+        "例如：主旨包含「quick question for you」的郵件不需要",
       addInstruction: "新增",
       noInstructions: "尚無指示。",
       instructionExample: "試試「所有政治競選郵件都不需要」。",
@@ -660,13 +679,13 @@ const messages = {
       skipInboxRuleHelp:
         "以自然語言撰寫指示。符合條件的郵件會封存並略過收件匣。",
       spamRuleHelp:
-        "以自然語言撰寫指示。Jev 會為符合條件的郵件新增 agent-native-filtered 標籤並封存。這不是 Gmail 垃圾郵件。",
+        "以自然語言撰寫指示。Mail 會為符合條件的郵件新增 agent-native-filtered 標籤並封存。這不是 Gmail 垃圾郵件。",
       filteredMode: "已篩選",
       manageSettings: "管理",
-      askJev: "詢問 Jev",
+      askJev: "詢問 Mail 的代理",
       askJevPrompt:
         "幫我調整這條 Mail 規則：{{condition}}。先詢問我想變更什麼，再更新規則。",
-      composerPlaceholder: "請 Jev 幫你整理收件匣…",
+      composerPlaceholder: "請 Mail 的代理幫你整理收件匣…",
       chatSuggestionFilter: "篩選類似這樣的郵件",
       chatSuggestionPriority: "優先處理來自…的郵件",
       chatSuggestionArchive: "自動封存機器人通知",
@@ -796,7 +815,8 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "可以問我任何關於郵件的問題",
+    emptyState:
+      "我是 Mail 的代理。可以問我郵件相關的問題，也可以請我幫你整理郵件。",
     suggestionSummarize: "總結我的未讀郵件",
     suggestionReplies: "今天哪些郵件需要我回覆？",
     suggestionWidget: "為我的收件箱建立自訂小元件",
@@ -859,6 +879,7 @@ const messages = {
     autocomplete: "自動完成",
     sendAndMarkDone: "傳送並標記為已完成",
     autocompleteSaveFailed: "無法儲存自動完成設定。",
+    signaturePlaceholder: "祝好，\n你的名字",
     writingStylePlaceholder: "簡短、具體、溫暖。避免正式套話。",
     saveDraftingSettings: "儲存草稿設定",
     reset: "重設",

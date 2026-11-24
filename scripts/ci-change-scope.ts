@@ -785,6 +785,7 @@ const CORE_INTEGRATION_PATH_PREFIXES = [
 ] as const;
 
 const CORE_INTEGRATION_RUNTIME_FILES = new Set([
+  "packages/core/src/client/route-chunk-recovery.ts",
   "packages/core/src/client/session-replay-iframe.e2e-host.tsx",
   "packages/core/src/extensions/session-replay-iframe.ts",
   "packages/core/src/mcp/script-ledger.ts",
@@ -795,7 +796,10 @@ const CORE_INTEGRATION_RUNTIME_FILES = new Set([
   "packages/core/src/server/embedded.ts",
   "packages/core/src/server/framework-request-handler.ts",
   "packages/core/src/server/request-context.ts",
+  "packages/core/src/server/ssr-handler.ts",
   "packages/core/src/session-replay-iframe-protocol.ts",
+  "packages/core/src/shared/cache-control.ts",
+  "packages/core/src/shared/route-chunk-recovery-bootstrap.ts",
   "templates/analytics/scripts/journey-capture-iframe-audit.ts",
   "templates/design/app/components/templates/TemplatePreview.tsx",
   "templates/design/shared/design-template-presets/social-story.ts",
@@ -807,6 +811,7 @@ const CORE_INTEGRATION_TEST_FILES = new Set([
   "packages/core/src/agent/engine/translate-ai-sdk.integration.spec.ts",
   "packages/core/src/agent/run-loop-with-resume.integration.spec.ts",
   "packages/core/src/agent/run-store.fencing.postgres.integration.spec.ts",
+  "packages/core/src/client/route-chunk-recovery.e2e.spec.ts",
   "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
   "packages/core/src/mcp/script-receipt-fence.postgres.integration.spec.ts",
   "packages/core/src/scripts/db/migrate-encrypt-credentials.e2e.spec.ts",

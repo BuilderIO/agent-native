@@ -238,7 +238,8 @@ async function assertAddFillKeepsUploadedImage(
   });
 
   const layers = page.getByRole("tree", { name: "Layers" });
-  await page.getByRole("heading", { name: "Layers", exact: true }).click();
+  // oracle-change: the Layers heading is now a collapse toggle, so clicking it would hide the tree; Escape closes the picker without touching the Layers tree.
+  await page.keyboard.press("Escape");
   await layers.getByRole("button", { name: "Original A", exact: true }).click();
   const fill = page
     .getByRole("heading", { name: "Fill", exact: true })
@@ -435,7 +436,8 @@ async function uploadAfterPickerCloses(
     const imagePicker = page.getByRole("dialog").filter({ has: imageUrlInput });
     await expect(imagePicker).toBeVisible();
     const layers = page.getByRole("tree", { name: "Layers" });
-    await page.getByRole("heading", { name: "Layers", exact: true }).click();
+    // oracle-change: the Layers heading is now a collapse toggle, so clicking it would hide the tree; Escape closes the picker without touching the Layers tree.
+    await page.keyboard.press("Escape");
     await expect(imagePicker).toBeHidden();
     const nextSelection = switchToOtherScreen
       ? layers.getByRole("button", {

@@ -237,7 +237,6 @@ export function useBuilderSourceReviewBatches(args: {
 
     void (async () => {
       try {
-        let listing: Promise<PreviewBuilderSourceReviewResponse> | null = null;
         if (!work.firstBatchLoaded) {
           const firstPages =
             scope === "all"
@@ -248,8 +247,6 @@ export function useBuilderSourceReviewBatches(args: {
               : [];
           let response: PreviewBuilderSourceReviewResponse;
           if (firstPages.length > 0) {
-            listing = listPages();
-            void listing.catch(() => undefined);
             response = await load({
               scope: "selected",
               documentIds: firstPages,
@@ -265,15 +262,16 @@ export function useBuilderSourceReviewBatches(args: {
                       BUILDER_REVIEW_FIRST_BATCH_SIZE,
                     ),
                   }
-                : {}),
+                : { quickStart: true }),
               bodyComparison: "text",
               batchSize: BUILDER_REVIEW_FIRST_BATCH_SIZE,
             });
           }
           if (isAborted()) return;
           work.firstBatchLoaded = true;
-          work.firstPages = firstPages;
-          work.pagesListed = firstPages.length === 0;
+          work.firstPages =
+            firstPages.length > 0 ? firstPages : (response.documentIds ?? []);
+          work.pagesListed = scope !== "all";
           work.response = mergedResponse(null, response, []);
           work.textPages = [
             ...(response.remainingDocumentIds ?? []),
@@ -284,7 +282,7 @@ export function useBuilderSourceReviewBatches(args: {
           setSnapshot(snapshotOf(work, null));
         }
         if (!work.pagesListed) {
-          const response = await (listing ?? listPages());
+          const response = await listPages();
           if (isAborted()) return;
           const reviewed = new Set(work.firstPages);
           work.pagesListed = true;

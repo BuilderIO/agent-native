@@ -29,12 +29,15 @@
     transition-timing-function: var(--ease-standard);
   }
 
+  .alert-dialog-popup:where(:not([hidden])) {
+    display: grid;
+  }
+
   .alert-dialog-popup {
     position: fixed;
     left: 50%;
     top: 50%;
     z-index: var(--layer-alert-dialog);
-    display: grid;
     gap: var(--space-4);
     box-sizing: border-box;
     width: calc(100vw - var(--space-3) * 2);
@@ -88,7 +91,8 @@
 
   .alert-dialog-footer {
     display: flex;
-    flex-direction: column-reverse;
+    flex-direction: column;
+    min-inline-size: 0;
     gap: var(--space-2);
   }
 
@@ -99,6 +103,7 @@
 
     .alert-dialog-footer {
       flex-direction: row;
+      flex-wrap: wrap;
       justify-content: flex-end;
     }
   }

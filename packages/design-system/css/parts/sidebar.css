@@ -191,12 +191,7 @@
 
   .sidebar-drawer[data-starting-style],
   .sidebar-drawer[data-ending-style] {
-    translate: -100%;
-  }
-
-  .sidebar-drawer:dir(rtl)[data-starting-style],
-  .sidebar-drawer:dir(rtl)[data-ending-style] {
-    translate: 100%;
+    translate: calc(-100% * var(--_inline-direction, 1));
   }
 
   .sidebar-drawer .sidebar {

@@ -4,42 +4,17 @@ import { Meta } from "@storybook/addon-docs/blocks";
 
 # Agent-Native design system
 
-One system for every Agent-Native app: tokens and component styles in `@agent-native/design-system`, components in `@agent-native/toolkit`. Behavior comes from [Base UI](https://base-ui.com/react/components). The props and their styling follow [Radix Themes](https://www.radix-ui.com/themes/docs/overview/getting-started), drawn on our own scale and tokens.
+The toolkit provides React components built on Base UI. The design-system package provides their tokens, themes and CSS.
 
-## How it is organized
+[Browse components](?path=/docs/components-overview--docs) to choose a control. Each guide includes a usage example, supported props and interaction details. For example, [Select](?path=/docs/components-select--docs) chooses a value, [Combobox](?path=/docs/components-combobox--docs) searches choices, and [Menu](?path=/docs/components-menu--docs) offers commands.
 
-- **Foundations** are the tokens: color, type, space, sizing, radius, elevation, motion, and the app themes built from them.
-- **Components** are single controls and elements. Each has a page with its props, sizes, variants and states.
-- **Patterns** compose components into layouts: the app shell, the sidebar, the page header, settings.
-- **Migration status** counts, per app, the files that still use an older source for each component.
+## Use a component
 
-## Names
-
-A component takes Base UI's name wherever Base UI has it: Menu, Preview Card, Input, Meter, Toast. Where Base UI has none, it takes Radix Themes' name: Kbd, Callout, Text Area, Segmented Control, Icon Button.
-
-## Props
-
-Every component speaks the same five props, as Radix Themes names them. A component supports a subset of each list, and none adds its own spelling of one.
-
-| Prop           | Values                                                   |                                                                                                    |
-| -------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `variant`      | `solid`, `soft`, `surface`, `outline`, `ghost`           | How the color applies, from the strongest fill to none.                                            |
-| `color`        | `accent`, `gray`, `danger`, `warning`, `success`, `info` | Which scale it draws from. Unset, it inherits the nearest one, and the theme's accent at the root. |
-| `size`         | `"1"` to `"4"`                                           | Control heights of 16, 20, 24 and 32px. Text components use the type scale's `"1"` to `"9"`.       |
-| `radius`       | `none`, `small`, `medium`, `large`, `full`               | Overrides the theme's corners for one component.                                                   |
-| `highContrast` | boolean                                                  | Uses the scale's darkest steps.                                                                    |
-
-The props are defined once, in the catalog. The components' types, these pages' controls, the agent manifest and the Figma parity check all read those definitions, so they can't drift apart.
-
-## Color
-
-Each scale has 12 steps, as in Radix Colors. `data-color` on any element binds that element's `--accent-*` steps to a scale, and a component reads only those, so `color="danger"` needs no rule of its own. Where Radix's step 9 or step 11 falls under WCAG AA at our 12px text, each palette picks the nearest step that passes, as `--accent-solid` and `--accent-text`.
-
-Each app theme generates its scales from its own colors, so a component draws that app's palette wherever its theme applies.
-
-## Using a component
+Load the tokens and component styles once at your app entry point. Import each component from its public toolkit module. The Controls table lists the sizes, variants and colors it supports.
 
 ```tsx
+import "@agent-native/design-system/tokens.css";
+import "@agent-native/design-system/styles.css";
 import { Button } from "@agent-native/toolkit/ui/base-ui/button";
 
 <Button variant="soft" color="gray" size="sm">
@@ -47,4 +22,35 @@ import { Button } from "@agent-native/toolkit/ui/base-ui/button";
 </Button>;
 ```
 
-Component styles are plain CSS, one file per component, in `@agent-native/design-system/styles.css`. Tailwind is for an app's own layout and chrome, never inside a component.
+For a screen that uses a few controls, replace `styles.css` with their component stylesheets. Button, Icon Button, Dialog, Autocomplete and Combobox have focused imports. Each includes its built-in parts. Keep the tokens and app theme imports.
+
+```css
+@import "@agent-native/design-system/components/dialog.css";
+@import "@agent-native/design-system/components/combobox.css";
+```
+
+## Theme a region
+
+[ThemeProvider](?path=/docs/components-theme-provider--docs) sets the appearance of an application or an individual surface. Load its theme stylesheet alongside the design-system styles. Menus and dialogs inherit the theme where they open.
+
+```tsx
+import "@agent-native/design-system/themes/design.css";
+import { ThemeProvider } from "@agent-native/toolkit/ui/base-ui/theme-provider";
+
+<ThemeProvider appTheme="design" appearance="dark" density="compact">
+  {children}
+</ThemeProvider>;
+```
+
+## Accessibility checks
+
+Storybook scans the state shown at the end of each interaction test. Its scan excludes Base UI’s focus guards, the elements that direct Tab through a portal. For a full overlay audit, scan the document with the popup open and check where Tab and Escape move focus.
+
+## Explore the system
+
+- **Foundations** show live token values for color, typography, spacing, sizing, shape, elevation and motion.
+- **Patterns** show components working together, including [announcements](?path=/docs/patterns-announcement--docs) and the [app shell](?path=/docs/patterns-app-shell--docs).
+- **Migration status** tracks adoption across apps.
+- The [component manifest](./manifests/components.json) contains the same usage guides, public imports, props and examples for agents. The [docs manifest](./manifests/docs.json) contains standalone reference pages.
+
+[Base UI behavior](https://base-ui.com/react/overview/quick-start) · [Radix Themes](https://www.radix-ui.com/themes/docs/overview/getting-started)

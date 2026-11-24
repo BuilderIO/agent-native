@@ -16,7 +16,10 @@ import {
   DATABASE_ROW_PATCH_LIMIT,
   databaseMutationEnvelopeSchema,
   databaseMutationTargetInputSchema,
+  fenceRowPatchReceipt,
   patchDatabaseRows,
+  reconcileRowPatchReceipt,
+  rowPatchReceiptLocator,
 } from "./_database-row-mutation.js";
 import { expectedPropertyGenerationsSchema } from "./_property-generations.js";
 
@@ -75,6 +78,14 @@ export default defineAction({
     patchDatabaseItemsOutputSchema,
   ),
   mcpOutputSchema: true,
+  mcpScript: "write",
+  mcpScriptWrite: {
+    rowBound: (args) => args.rows.length,
+    receiptLocator: rowPatchReceiptLocator,
+    reconcile: reconcileRowPatchReceipt,
+    fence: fenceRowPatchReceipt,
+    destructive: true,
+  },
   audit: {
     recordInputs: false,
     target: (args) => ({

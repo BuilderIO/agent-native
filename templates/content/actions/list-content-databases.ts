@@ -106,6 +106,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpScript: "read",
   run: async (args): Promise<ListContentDatabasesResponse> => {
     if (args.includeSystemCollections && !args.spaceId) {
       throw new ContentDatabaseResolutionError(
