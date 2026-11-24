@@ -52,9 +52,7 @@ describe("addSplit", () => {
       name: "Investors",
       condition: "Messages about fundraising",
     });
-    const condition = mocks.createAutomationRule.mock.calls
-      .at(0)
-      ?.at(1)?.condition;
+    const condition = mocks.createAutomationRule.mock.lastCall?.[1]?.condition;
     expect(condition).toContain("Messages about fundraising");
     expect(condition).toContain(HUMAN_AUTHOR_CLAUSE);
   });

@@ -25,7 +25,7 @@ const addSplitOutputSchema = z.object({
     id: z.string(),
     ownerEmail: z.string(),
     domain: z.string(),
-    kind: z.enum(["automation", "ai-filter"]),
+    kind: z.enum(["automation", "ai-filter"]).optional(),
     name: z.string(),
     condition: z.string(),
     actions: z.array(automationActionSchema),
