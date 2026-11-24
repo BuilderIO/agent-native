@@ -2868,6 +2868,7 @@ describe("agentNative Vite plugin preset", () => {
       for (const appRoot of [
         path.join(home, "app"),
         path.join(home, ".agent-native", "workspaces", "app"),
+        path.join(home, "a|b (c) [d] {e} !f +g @h"),
       ]) {
         fs.mkdirSync(path.join(appRoot, ".agent-native"), { recursive: true });
         fs.writeFileSync(
@@ -2895,7 +2896,7 @@ describe("agentNative Vite plugin preset", () => {
             throw new Error("Vite did not bind a port.");
           }
           const get = (pathname: string) =>
-            fetch(`http://127.0.0.1:${address.port}${pathname}`);
+            fetch(`http://127.0.0.1:${address.port}${encodeURI(pathname)}`);
 
           expect(
             await (await get(`/@fs${appRoot}/public.txt?raw`)).text(),

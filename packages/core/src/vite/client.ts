@@ -3276,7 +3276,7 @@ export function agentNativeStateFsDeny(
             .resolve(cwd, root, ".agent-native")
             .split(path.sep)
             .join("/")
-            .replace(/[*?[\]{}()!+@]/g, "\\$&")}/**`,
+            .replace(/[^\w/.:-]/g, "\\$&")}/**`,
       ),
     ),
   ];

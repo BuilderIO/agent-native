@@ -60,11 +60,17 @@ function unquote(value: string): string {
   return value.replace(/^"(.*)"$/, "$1");
 }
 
+const AUTHORITY = /^(?:\[([0-9a-f:.]+)\]|([a-z0-9.-]+))(?::\d{1,5})?$/;
+const BARE_IPV6 = /^[0-9a-f:.]+$/;
+
 function hostnameOf(authority: string): string {
   const value = unquote(authority).trim().toLowerCase();
-  if (value.startsWith("[")) return value.slice(1, value.indexOf("]"));
-  const colons = value.split(":").length - 1;
-  return colons === 1 ? value.slice(0, value.indexOf(":")) : value;
+  const match = AUTHORITY.exec(value);
+  if (match) {
+    const [, bracketed, name] = match;
+    return bracketed || name;
+  }
+  return value.includes(":") && BARE_IPV6.test(value) ? value : "";
 }
 
 const IPV4_LOOPBACK_LITERAL =

@@ -217,6 +217,13 @@ describe("isLoopbackRequest", () => {
     { host: "127.0.0.1.attacker.example:3000" },
     { host: "127.0.0.256" },
     { host: "localhost:8080", "x-forwarded-for": "127.attacker.example" },
+    { host: "[::1]attacker.example" },
+    { host: "127.0.0.1:bad" },
+    { host: "localhost:8080:8080" },
+    { host: "user@localhost" },
+    { host: "localhost:8080", "x-forwarded-host": "[::1]attacker.example" },
+    { host: "localhost:8080", "x-forwarded-host": "127.0.0.1:bad" },
+    { host: "localhost:8080", forwarded: 'for="[::1]attacker.example"' },
     {},
   ])("refuses a proxied or foreign-host request %j", (headers) => {
     expect(isLoopbackPeerRequest(makeEvent(headers))).toBe(false);
