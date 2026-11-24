@@ -44,6 +44,26 @@ const receiptSchema = z.discriminatedUnion("outcome", [
   }),
 ]);
 
+const ALREADY_EXISTS_CODE =
+  /(?:^|_)(?:already_exists|exists|duplicate)(?:_|$)/i;
+
+function targetAlreadyExists(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as { errorCode?: unknown }).errorCode;
+  if (typeof code === "string" && ALREADY_EXISTS_CODE.test(code)) return true;
+  return /\balready exists\b/i.test(error.message);
+}
+
+function safeAppUrl(value: string | null | undefined): string | undefined {
+  if (!value || !URL.canParse(value)) return undefined;
+  const url = new URL(value);
+  if (url.username || url.password) return undefined;
+  const local =
+    url.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  return url.protocol === "https:" || local ? url.href : undefined;
+}
+
 function unavailable(): never {
   throw new NoWriteError(
     "This suggestion is no longer available in this workspace.",
@@ -89,10 +109,15 @@ export default defineAction({
 
     if (!(await canOfferActionSuggestion(suggestion))) unavailable();
     if (execution.type === "action") {
-      await callAppAction.run(
-        { app: appId, action: execution.action, args: execution.params },
-        context,
-      );
+      try {
+        await callAppAction.run(
+          { app: appId, action: execution.action, args: execution.params },
+          context,
+        );
+      } catch (error) {
+        // The target is already there, which is the outcome the user asked for.
+        if (!targetAlreadyExists(error)) throw error;
+      }
       return { suggestionId, status: "accepted", outcome: "action-completed" };
     }
 
@@ -122,35 +147,31 @@ export default defineAction({
           prompt: result.prompt,
         };
       case "app-id-taken": {
-        if (result.conflict !== "registered") return unavailable();
         const app = (
           await listWorkspaceApps({ includeAgentCards: false })
         ).find(
           (item) =>
-            item.id === result.appId &&
-            !item.archived &&
-            !item.isDispatch &&
-            item.status === "ready" &&
-            item.url,
+            item.id === result.appId && !item.archived && !item.isDispatch,
         );
-        if (!app?.url || !URL.canParse(app.url)) return unavailable();
-        const url = new URL(app.url);
-        if (
-          url.username ||
-          url.password ||
-          (url.protocol !== "https:" &&
-            !(
-              url.protocol === "http:" &&
-              ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
-            ))
-        )
-          return unavailable();
-        return {
-          suggestionId,
-          status: "accepted",
-          outcome: "action-completed",
-          url: app.url,
-        };
+        const url = safeAppUrl(app?.url);
+        if (!app || !url) return unavailable();
+        if (result.conflict === "registered" && app.status === "ready") {
+          return {
+            suggestionId,
+            status: "accepted",
+            outcome: "action-completed",
+            url,
+          };
+        }
+        if (result.conflict === "pending" && app.status === "pending") {
+          return {
+            suggestionId,
+            status: "accepted",
+            outcome: "app-creation-started",
+            url,
+          };
+        }
+        return unavailable();
       }
       case "builder-unavailable":
       case "coming-soon":

@@ -478,6 +478,8 @@ const messages = {
       suggestionNullValue: "無",
       suggestionYesValue: "是",
       suggestionNoValue: "否",
+      suggestionActionLabel: "操作",
+      suggestionAppLabel: "應用程式",
       openExistingApp: "開啟應用程式",
       openInBuilder: "在 Builder 中開啟",
       actionSuggestionAccepted: "已接受建議。",
