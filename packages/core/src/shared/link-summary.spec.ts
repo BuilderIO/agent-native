@@ -19,6 +19,7 @@ describe("linkSummaryItemFromPath", () => {
     ["clips", "/r/rec_1", "r"],
     ["clips", "/share/rec_1", "share"],
     ["clips", "/embed/rec_1", "embed"],
+    ["content", "/page/Ixq7NbGOAI4w", "page"],
   ] as const)("reads a %s item from %s", (app, path, route) => {
     expect(linkSummaryItemFromPath(app, path)).toEqual({
       app,
@@ -35,6 +36,9 @@ describe("linkSummaryItemFromPath", () => {
     ["slides", "/deck/abc/edit"],
     ["slides", "/p/abc/present"],
     ["clips", "/r/a%2Fb"],
+    ["content", "/p/abc"],
+    ["content", "/page/abc/edit"],
+    ["content", "/_agent-native/open"],
     ["clips", "/r/../share"],
     ["clips", `/r/${"x".repeat(129)}`],
   ] as const)("names no %s item for %s", (app, path) => {
