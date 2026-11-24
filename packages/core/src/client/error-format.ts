@@ -340,7 +340,9 @@ function parseProviderErrorPayload(
   raw: string,
 ): ParsedProviderErrorPayload | null {
   try {
-    const parsed: unknown = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(
+      raw.replace(/^(?:Error:\s*)?(?:HTTP\s+)?[45]\d{2}\s+(?=\{)/i, ""),
+    );
     if (!parsed || typeof parsed !== "object") return null;
     const record = parsed as Record<string, unknown>;
     const error = record.error;
@@ -516,7 +518,10 @@ export function normalizeChatError(
     };
   }
 
-  if (isProviderRateLimit(text, code)) {
+  if (
+    isProviderRateLimit(text, code) ||
+    providerPayload?.errorCode === "overloaded_error"
+  ) {
     return {
       message:
         providerMessage ??
