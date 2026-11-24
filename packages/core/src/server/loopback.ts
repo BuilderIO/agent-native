@@ -2,6 +2,7 @@ import { getRequestIP } from "h3";
 import type { H3Event } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
+import { resolveDeployEnvironment } from "./deploy-environment.js";
 import { isDevEnvironment } from "./oauth-return-url.js";
 
 export function isLoopbackAddress(ip: string | undefined): boolean {
@@ -32,7 +33,9 @@ export function isPublicDevContainer(): boolean {
 export function isLoopbackTrustedEnvironment(): boolean {
   return (
     !isPublicDevContainer() ||
-    (isDevEnvironment() && getAppConfig().auth.allowBuilderPreviewLocalDev)
+    (isDevEnvironment() &&
+      resolveDeployEnvironment() !== "production" &&
+      getAppConfig().auth.allowBuilderPreviewLocalDev)
   );
 }
 

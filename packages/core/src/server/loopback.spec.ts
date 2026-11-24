@@ -275,6 +275,10 @@ describe("isLoopbackRequest", () => {
     const event = makeEvent({ host: "localhost:8080" });
     expect(isLoopbackRequest(event)).toBe(true);
 
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production");
+    expect(isLoopbackRequest(event)).toBe(false);
+
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
     vi.stubEnv("NODE_ENV", "production");
     expect(isLoopbackRequest(event)).toBe(false);
   });
