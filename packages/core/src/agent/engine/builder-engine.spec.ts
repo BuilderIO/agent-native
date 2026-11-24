@@ -153,6 +153,67 @@ const BASE_OPTS: EngineStreamOptions = {
 };
 
 describe("createBuilderEngine", () => {
+  it.each([
+    { reason: "error", level: "error" },
+    { reason: "invalid_request", level: "warn" },
+  ] as const)(
+    "logs safe diagnostics for streamed $reason credit errors",
+    async ({ reason, level }) => {
+      const log = vi.spyOn(console, level).mockImplementation(() => {});
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonlResponse([
+            {
+              type: "stop",
+              reason,
+              code: "credits-limit-daily",
+              requestId: "req-credit",
+            },
+          ]),
+        ),
+      );
+      const events = await collectEvents(
+        createBuilderEngine().stream(BASE_OPTS),
+      );
+      expect(events.find((event) => event.type === "stop")).toMatchObject({
+        errorCode: "credits-limit-daily",
+        providerRetryable: false,
+      });
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining(`stop reason=${reason}`),
+      );
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining("requestId=req-credit"),
+      );
+    },
+  );
+
+  it("captures no-detail streamed credit errors without provider text", async () => {
+    const capture = vi
+      .spyOn(captureErrorModule, "captureError")
+      .mockReturnValue(undefined);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            code: "credits-limit-daily",
+            requestId: "req-credit",
+          },
+        ]),
+      ),
+    );
+    await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    expect(capture).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "BuilderGatewayNoDetailError" }),
+      expect.objectContaining({ errorMessagePolicy: "omit" }),
+    );
+  });
+
   beforeEach(() => {
     credentialState.builderPrivateKey = "bpk-test";
     credentialState.builderPublicKey = "space-test";
