@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
@@ -11,11 +11,8 @@ import http, {
 import https from "node:https";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 
 import { parse, type ParserPlugin } from "@babel/parser";
-import { decodeHTMLAttribute, escapeAttribute } from "entities";
-import { parse as parseHtml, type DefaultTreeAdapterMap } from "parse5";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 import {
@@ -1544,26 +1541,11 @@ function addLiveEditBaseHref(html: string, href: string): string {
   return `<!DOCTYPE html><html><head>${baseTag}<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${html}</body></html>`;
 }
 
-type PreviewResourceBase = {
-  baseUrl: string;
-  origin: string;
-  absolute?: boolean;
-};
-
 function addPreviewTokenToResourceUrl(
   resourceUrl: string,
   previewToken: string,
-  context: PreviewResourceBase = {
-    baseUrl: "http://bridge.invalid/",
-    origin: "http://bridge.invalid",
-  },
 ): string {
-  if (
-    !resourceUrl ||
-    /^(?:[a-z][a-z\d+.-]*:|\/\/|#|%23)/i.test(resourceUrl) ||
-    !URL.canParse(resourceUrl, context.baseUrl) ||
-    new URL(resourceUrl, context.baseUrl).origin !== context.origin
-  ) {
+  if (!resourceUrl || /^(?:[a-z][a-z\d+.-]*:|\/\/|#|%23)/i.test(resourceUrl)) {
     return resourceUrl;
   }
   const hashIndex = resourceUrl.indexOf("#");
@@ -1574,10 +1556,7 @@ function addPreviewTokenToResourceUrl(
   const pathname = queryIndex === -1 ? path : path.slice(0, queryIndex);
   const search = queryIndex === -1 ? "" : path.slice(queryIndex);
   const withoutStaleToken = stripQueryPair(search, "previewToken");
-  const tokenized = `${pathname}${appendQueryPair(withoutStaleToken, "previewToken", previewToken)}${hash}`;
-  return context.absolute
-    ? new URL(tokenized, context.baseUrl).toString()
-    : tokenized;
+  return `${pathname}${appendQueryPair(withoutStaleToken, "previewToken", previewToken)}${hash}`;
 }
 
 const MAX_PREVIEW_HMR_MESSAGE_BYTES = 1024 * 1024;
@@ -1636,41 +1615,8 @@ function webSocketDataBuffer(data: RawData): Buffer {
 
 function addOpaqueFrameCredentials(
   html: string,
-  bridgeBaseUrl: string,
-  targetPath: string,
   previewToken?: string,
 ): string {
-  const origin = new URL(bridgeBaseUrl).origin;
-  const documentUrl = new URL(bridgeBaseUrl);
-  const queryIndex = targetPath.indexOf("?");
-  documentUrl.pathname =
-    queryIndex === -1 ? targetPath : targetPath.slice(0, queryIndex);
-  documentUrl.search = queryIndex === -1 ? "" : targetPath.slice(queryIndex);
-  const nodes: DefaultTreeAdapterMap["node"][] = [parseHtml(html)];
-  let baseUrl = documentUrl.toString();
-  while (nodes.length) {
-    const node = nodes.pop();
-    if (!node) break;
-    if (
-      "tagName" in node &&
-      node.tagName === "base" &&
-      node.namespaceURI === "http://www.w3.org/1999/xhtml"
-    ) {
-      const href = node.attrs.find((attribute) => attribute.name === "href");
-      if (href) {
-        if (URL.canParse(href.value, documentUrl)) {
-          baseUrl = new URL(href.value, documentUrl).toString();
-        }
-        break;
-      }
-    }
-    if ("childNodes" in node) {
-      for (let i = node.childNodes.length - 1; i >= 0; i -= 1) {
-        nodes.push(node.childNodes[i]);
-      }
-    }
-  }
-  const context = { baseUrl, origin, absolute: true };
   const withCredentialedResources = html.replace(
     /<(script|link|img|audio|video|source|track|iframe)\b([^>]*?)>/gi,
     (fullTag, tagName: string, attributes: string) => {
@@ -1686,27 +1632,16 @@ function addOpaqueFrameCredentials(
       ) {
         return fullTag;
       }
-      const decodedResourceUrl = decodeHTMLAttribute(resourceUrl);
-      if (
-        !URL.canParse(decodedResourceUrl, baseUrl) ||
-        new URL(decodedResourceUrl, baseUrl).origin !== origin
-      ) {
-        return fullTag;
-      }
       let nextAttributes = attributes;
       if (previewToken) {
         const tokenizedResourceUrl = addPreviewTokenToResourceUrl(
-          decodedResourceUrl,
+          resourceUrl,
           previewToken,
-          context,
         );
         if (tokenizedResourceUrl !== resourceUrl) {
           nextAttributes = nextAttributes.replace(
             resourceMatch[0],
-            resourceMatch[0].replace(
-              resourceUrl,
-              escapeAttribute(tokenizedResourceUrl),
-            ),
+            resourceMatch[0].replace(resourceUrl, tokenizedResourceUrl),
           );
         }
       }
@@ -1730,49 +1665,50 @@ function addOpaqueFrameCredentials(
   const withInlineStyleTokens = withCredentialedResources.replace(
     /(<style\b[^>]*>)([\s\S]*?)(<\/style\s*>)/gi,
     (_full, opening: string, body: string, closing: string) =>
-      `${opening}${addOpaqueFrameResourceTokens(body, previewToken, context)}${closing}`,
+      `${opening}${addOpaqueFrameResourceTokens(body, previewToken)}${closing}`,
   );
   const withInlineModuleTokens = withInlineStyleTokens.replace(
     /(<script\b[^>]*\btype\s*=\s*["']module["'][^>]*>)([\s\S]*?)(<\/script\s*>)/gi,
     (_full, opening: string, body: string, closing: string) =>
-      `${opening}${addOpaqueFrameJavaScriptResourceTokens(body, previewToken, context)}${closing}`,
+      `${opening}${addOpaqueFrameJavaScriptResourceTokens(body, previewToken)}${closing}`,
   );
   const hmrImport = "/@id/__x00__virtual:react-router/inject-hmr-runtime";
+  const hmrImportWithToken = `${hmrImport}?previewToken=${encodeURIComponent(previewToken)}`;
+  const withHmrToken = withInlineModuleTokens
+    .replaceAll(`"${hmrImport}"`, `"${hmrImportWithToken}"`)
+    .replaceAll(`'${hmrImport}'`, `'${hmrImportWithToken}'`);
   const previewTokenLiteral = JSON.stringify(previewToken).replace(
     /</g,
     "\\u003c",
   );
-  const bridgeOriginLiteral = JSON.stringify(origin).replace(/</g, "\\u003c");
   const previewImportMap = JSON.stringify({
-    imports: Object.fromEntries(
-      [
-        hmrImport.replace("/inject-hmr-runtime", "/browser-manifest"),
-        hmrImport.replace("/inject-hmr-runtime", "/hmr-runtime"),
-        "/@vite/client",
-      ].map((resource) => [
-        resource,
-        new URL(
-          `${resource}?previewToken=${encodeURIComponent(previewToken)}`,
-          bridgeBaseUrl,
-        ).toString(),
-      ]),
-    ),
+    imports: {
+      "/@id/__x00__virtual:react-router/browser-manifest": `${hmrImport.replace(
+        "/inject-hmr-runtime",
+        "/browser-manifest",
+      )}?previewToken=${encodeURIComponent(previewToken)}`,
+      "/@id/__x00__virtual:react-router/hmr-runtime": `${hmrImport.replace(
+        "/inject-hmr-runtime",
+        "/hmr-runtime",
+      )}?previewToken=${encodeURIComponent(previewToken)}`,
+      "/@vite/client": `/@vite/client?previewToken=${encodeURIComponent(previewToken)}`,
+    },
   });
   const withImportMap = injectDocumentMarkup(
-    withInlineModuleTokens,
+    withHmrToken,
     `<script type="importmap" data-agent-native-opaque-preview-imports>${previewImportMap}</script>`,
     { target: "head" },
   );
   const withViteHmrStyleAuth = injectDocumentMarkup(
     withImportMap,
     // coercion-ok: malformed Vite-generated CSS URLs stay unchanged in the frame.
-    `<script data-agent-native-vite-css-auth>(function(t){var p=Element.prototype.after;Element.prototype.after=function(){for(var i=0;i<arguments.length;i++){var n=arguments[i];if(!n||n.nodeType!==1||n.tagName!=="LINK")continue;try{var b=new URL(document.baseURI),u=new URL(n.getAttribute("href"),b);if(u.origin===${bridgeOriginLiteral}&&!u.searchParams.has("previewToken")){u.searchParams.set("previewToken",t);n.setAttribute("href",u.toString())}}catch(_){}}return p.apply(this,arguments)}})(${previewTokenLiteral});</script>`,
+    `<script data-agent-native-vite-css-auth>(function(t){var p=Element.prototype.after;Element.prototype.after=function(){for(var i=0;i<arguments.length;i++){var n=arguments[i];if(!n||n.nodeType!==1||n.tagName!=="LINK")continue;try{var b=new URL(document.baseURI),u=new URL(n.getAttribute("href"),b);if(u.origin===b.origin&&!u.searchParams.has("previewToken")){u.searchParams.set("previewToken",t);n.setAttribute("href",u.toString())}}catch(_){}}return p.apply(this,arguments)}})(${previewTokenLiteral});</script>`,
     { target: "head" },
   );
   return injectDocumentMarkup(
     withViteHmrStyleAuth,
     // coercion-ok: invalid browser-owned URLs stay unchanged in the frame.
-    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},o,h;try{var b=new URL(${bridgeOriginLiteral});o=b.origin;h=b.host}catch(_){return}function u(v){try{if(v==null)return null;var r=String(v);if(/^(?:#|%23)/i.test(r.trim()))return null;var a=new URL(r,document.baseURI),same=a.origin===o||(h===a.host&&a.protocol===(b.protocol==="https:"?"wss:":"ws:"));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){if(v.indexOf("\\")!==-1)return h;var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}function d(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return n}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){return p.call(this,d(n))};var i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){return i.call(this,d(n),r)}})();</script>`,
+    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},o,h;try{var b=new URL(document.baseURI);o=b.origin;h=b.host}catch(_){return}function u(v){try{if(v==null)return null;var r=String(v);if(/^(?:#|%23)/i.test(r.trim()))return null;var a=new URL(r,document.baseURI),same=a.origin===o||(h===a.host&&(a.protocol==="ws:"||a.protocol==="wss:"));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}function d(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return n}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){return p.call(this,d(n))};var i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){return i.call(this,d(n),r)}})();</script>`,
     { target: "head" },
   );
 }
@@ -1780,19 +1716,19 @@ function addOpaqueFrameCredentials(
 function addOpaqueFrameResourceTokens(
   css: string,
   previewToken: string,
-  context?: PreviewResourceBase,
 ): string {
   const withImportTokens = css.replace(
     /(@import\s+)(["'])([^"']+)\2/gi,
     (_full, prefix: string, quote: string, resourceUrl: string) =>
-      `${prefix}${quote}${resourceUrl.includes("\\") ? resourceUrl : addPreviewTokenToResourceUrl(resourceUrl, previewToken, context)}${quote}`,
+      `${prefix}${quote}${addPreviewTokenToResourceUrl(resourceUrl, previewToken)}${quote}`,
   );
   return withImportTokens.replace(
     /url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,
     (full, quote: string, resourceUrl: string) => {
-      const tokenizedResourceUrl = resourceUrl.includes("\\")
-        ? resourceUrl
-        : addPreviewTokenToResourceUrl(resourceUrl, previewToken, context);
+      const tokenizedResourceUrl = addPreviewTokenToResourceUrl(
+        resourceUrl,
+        previewToken,
+      );
       return tokenizedResourceUrl === resourceUrl
         ? full
         : `url(${quote}${tokenizedResourceUrl}${quote})`;
@@ -1800,138 +1736,33 @@ function addOpaqueFrameResourceTokens(
   );
 }
 
-type PreviewImportLiteral = { start: number; end: number; value: string };
-
-function collectPreviewImportLiterals(root: unknown): PreviewImportLiteral[] {
-  const literals: PreviewImportLiteral[] = [];
-  const nodes: unknown[] = [root];
-  while (nodes.length) {
-    const node = nodes.pop();
-    if (!node || typeof node !== "object") continue;
-    if (Array.isArray(node)) {
-      for (const child of node) nodes.push(child);
-      continue;
-    }
-    const record = node as Record<string, unknown>;
-    const isImport =
-      record.type === "ImportExpression" ||
-      record.type === "ImportDeclaration" ||
-      record.type === "ExportNamedDeclaration" ||
-      record.type === "ExportAllDeclaration";
-    const callee = record.callee as Record<string, unknown> | undefined;
-    const args = Array.isArray(record.arguments) ? record.arguments : [];
-    const base = args[1] as Record<string, unknown> | undefined;
-    const meta = base?.object as Record<string, unknown> | undefined;
-    const isModuleUrl =
-      record.type === "NewExpression" &&
-      callee?.type === "Identifier" &&
-      callee.name === "URL" &&
-      args.length === 2 &&
-      base?.type === "MemberExpression" &&
-      !base.computed &&
-      (base.property as Record<string, unknown>)?.name === "url" &&
-      meta?.type === "MetaProperty" &&
-      (meta.meta as Record<string, unknown>)?.name === "import" &&
-      (meta.property as Record<string, unknown>)?.name === "meta";
-    if (isImport || isModuleUrl) {
-      const literal = (isImport ? record.source : args[0]) as Record<
-        string,
-        unknown
-      > | null;
-      if (
-        literal?.type === "StringLiteral" &&
-        typeof literal.value === "string" &&
-        typeof literal.start === "number" &&
-        typeof literal.end === "number" &&
-        /^(?:\/|\.{1,2}\/)/.test(literal.value)
-      ) {
-        literals.push({
-          start: literal.start,
-          end: literal.end,
-          value: literal.value,
-        });
-      }
-    }
-    for (const value of Object.values(record)) nodes.push(value);
-  }
-  return literals;
-}
-
-function parsePreviewImportLiterals(source: string): PreviewImportLiteral[] {
-  try {
-    return collectPreviewImportLiterals(
-      parse(source, {
-        sourceType: "unambiguous",
-        plugins: ["jsx"],
-        createImportExpressions: true,
-      }).program,
-    );
-  } catch (error) {
-    if (!(error instanceof RangeError)) throw error;
-  }
-
-  // Babel's parser can exhaust V8's stack on valid generated expressions. A
-  // separate process contains the larger stack and fails closed if it overflows.
-  const parserUrl = pathToFileURL(
-    createRequire(import.meta.url).resolve("@babel/parser"),
-  ).href;
-  const script = `import { readFileSync } from "node:fs";
-const { parse } = await import(process.argv[1]);
-const collect = (${collectPreviewImportLiterals.toString()});
-const source = readFileSync(0, "utf8");
-process.stdout.write(JSON.stringify(collect(parse(source, { sourceType: "unambiguous", plugins: ["jsx"], createImportExpressions: true }).program)));`;
-  const result = spawnSync(
-    process.execPath,
-    ["--stack-size=32768", "--input-type=module", "-e", script, parserUrl],
-    {
-      input: source,
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-      timeout: 15000,
-    },
-  );
-  if (result.error || result.status !== 0) {
-    throw new Error(
-      "Unable to parse preview module for authenticated imports.",
-      { cause: result.error },
-    );
-  }
-  return JSON.parse(result.stdout) as PreviewImportLiteral[];
-}
-
 function addOpaqueFrameJavaScriptResourceTokens(
   source: string,
   previewToken: string,
-  context?: PreviewResourceBase,
 ): string {
-  const edits: { start: number; end: number; replacement: string }[] = [];
-  for (const literal of parsePreviewImportLiterals(source)) {
-    const url = addPreviewTokenToResourceUrl(
-      literal.value,
-      previewToken,
-      context,
-    );
-    if (url !== literal.value) {
-      const quote = source[literal.start];
-      const value = JSON.stringify(url).slice(1, -1).replace(/</g, "\\u003c");
-      edits.push({
-        start: literal.start,
-        end: literal.end,
-        replacement:
-          quote === "'" ? `'${value.replace(/'/g, "\\'")}'` : `"${value}"`,
-      });
-    }
-  }
-  let rewritten = source;
-  for (const edit of edits.sort((a, b) => b.start - a.start)) {
-    rewritten =
-      rewritten.slice(0, edit.start) +
-      edit.replacement +
-      rewritten.slice(edit.end);
-  }
   const rewrite = (prefix: string, quote: string, resourceUrl: string) =>
-    `${prefix}${quote}${addPreviewTokenToResourceUrl(resourceUrl, previewToken, context)}${quote}`;
-  return rewritten
+    `${prefix}${quote}${addPreviewTokenToResourceUrl(resourceUrl, previewToken)}${quote}`;
+  return source
+    .replace(
+      /(\b(?:import|export)\s+[^;]*?\sfrom\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    )
+    .replace(
+      /(\bimport\s+)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    )
+    .replace(
+      /(\bimport\s*\((?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    )
+    .replace(
+      /(\bnew\s+URL\s*\(\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    )
     .replace(
       /((?:["']?)(?:module|clientActionModule|clientLoaderModule|clientMiddlewareModule|hydrateFallbackModule)(?:["']?)\s*:\s*)(["'])(\/(?:app|@id)\/[^"']*)\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>
@@ -1989,8 +1820,6 @@ function injectLiveEditBridge(
   const withBase = injectPreBootLocationShim(
     addOpaqueFrameCredentials(
       addLiveEditBaseHref(html, baseHref),
-      baseHref,
-      targetPath,
       identity.previewToken,
     ),
     targetPath,
