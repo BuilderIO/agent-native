@@ -820,7 +820,8 @@ export async function persistContentLiveCopy(
           .where(eq(schema.documents.id, commit.docId)),
       );
   const pendingEditorIds =
-    saved !== undefined && saved.content !== commit.text
+    cause?.operation === "accept-suggestion" ||
+    (saved !== undefined && saved.content !== commit.text)
       ? liveCopyBlockIds(commit.state)
       : null;
   const locked = await lockPageForBodyWrite(
@@ -842,9 +843,10 @@ export async function persistContentLiveCopy(
   assertEditablePage(locked.page);
   await cause?.beforeWrite?.(tx);
   const editorIds =
-    pendingEditorIds && commit.text !== locked.page.content
-      ? await pendingEditorIds
-      : null;
+    commit.text === locked.page.content
+      ? null
+      : await (pendingEditorIds ??
+          (cause ? null : liveCopyBlockIds(commit.state)));
   await writeBody({
     tx,
     db,

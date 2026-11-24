@@ -898,6 +898,26 @@ describe("writes through a switched page's live copy", () => {
     expect(read).toHaveBeenCalledTimes(1);
   });
 
+  it("reads an accepted suggestion's block IDs, and no other server write's", async () => {
+    await switchedPage("ids-accept", "Hello there");
+    const { liveCopyBlockIds } = await import("./block-ids.js");
+    const read = vi.mocked(liveCopyBlockIds);
+    read.mockClear();
+    const commit = (operation: string, content: string) =>
+      cause.withContentBodyWriteCause({ operation }, () =>
+        collab.mutateLiveCopy(binding.contentLiveCopy, "ids-accept", {
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: { content },
+        }),
+      );
+
+    await commit("test-replace", "Hello again");
+    expect(read).not.toHaveBeenCalled();
+    await commit("accept-suggestion", "Hello once more");
+    expect(read).toHaveBeenCalledTimes(1);
+    expect((await page("ids-accept")).content).toBe("Hello once more");
+  });
+
   it("refuses an editor update to a switched page in Trash, and commits nothing", async () => {
     await switchedPage("trashed", "Hello there");
     const update = await appendParagraphUpdate("trashed", "A");

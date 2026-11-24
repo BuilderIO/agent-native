@@ -681,6 +681,44 @@ describe("opening a block link", () => {
     }
   });
 
+  it("gives the editor a full wait after an answer that comes just before the wait ends", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout"],
+      shouldAdvanceTime: true,
+    });
+    try {
+      const target = open("Apples");
+      let answer: (found: unknown) => void = () => undefined;
+      hooks.callAction.mockReturnValueOnce(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      );
+      const { onMissing } = await reveal(target, "block_pears");
+      await act(async () => {
+        vi.advanceTimersByTime(7_900);
+      });
+      await act(async () => {
+        answer({
+          state: "live",
+          path: "1",
+          content: blockContentHashesByPath("Apples\nPears")["1"],
+        });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(1_000);
+      });
+      expect(onMissing).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(8_000);
+      });
+      expect(onMissing).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("highlights nothing where the server's block has other text", async () => {
     const target = open("Apples\nPlums");
     hooks.callAction.mockResolvedValueOnce({

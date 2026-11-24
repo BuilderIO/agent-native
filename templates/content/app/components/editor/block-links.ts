@@ -404,21 +404,12 @@ export function useLinkedBlockReveal(args: {
     };
     editor.on("update", tryReveal);
     if (!tryReveal()) {
-      let looking = true;
-      let waited = false;
-      timer = setTimeout(() => {
-        if (done) return;
-        if (looking) waited = true;
-        else missing();
-      }, LINK_WAIT_MS);
       void resolveBlockLink(documentId, blockId)
         .then((found) => {
-          looking = false;
           if (done) return;
           if (found.state === "live") {
             at = { path: found.path, content: found.content };
-            if (!tryReveal() && waited)
-              timer = setTimeout(missing, LINK_WAIT_MS);
+            if (!tryReveal()) timer = setTimeout(missing, LINK_WAIT_MS);
             return;
           }
           finish();
@@ -426,7 +417,6 @@ export function useLinkedBlockReveal(args: {
           else callbacksRef.current.onMissing();
         })
         .catch(() => {
-          looking = false;
           if (done) return;
           finish();
           callbacksRef.current.onFailed();
