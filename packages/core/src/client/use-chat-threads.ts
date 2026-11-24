@@ -812,10 +812,14 @@ export function useChatThreads(
   );
   const activeThreadIdRef = useRef(activeThreadId);
   activeThreadIdRef.current = activeThreadId;
+  const initialActiveThreadKeyRef = useRef(activeThreadKey);
   // Restore can settle before React commits a newer selection.
   const activeThreadSelectionRevisionRef = useRef(0);
   const setActiveThreadId = useCallback((id: string | null) => {
-    activeThreadSelectionRevisionRef.current += 1;
+    if (activeThreadIdRef.current !== id) {
+      activeThreadSelectionRevisionRef.current += 1;
+      setRestoredThreadIdOnListFailure(null);
+    }
     activeThreadIdRef.current = id;
     setActiveThreadIdState(id);
   }, []);
@@ -974,6 +978,9 @@ export function useChatThreads(
         initialRouteConfirmationPendingRef.current = null;
         if (
           restoredId &&
+          restoredId === initialActiveThreadRef.current?.id &&
+          activeThreadKey === initialActiveThreadKeyRef.current &&
+          selectionRevision === 0 &&
           autoCreate &&
           !routeControlsActiveThread &&
           !newlyCreatedRef.current.has(restoredId) &&
@@ -1136,6 +1143,7 @@ export function useChatThreads(
       setIsLoading(false);
     },
     [
+      activeThreadKey,
       activeThreadSeenKey,
       addOptimisticThread,
       apiUrl,
