@@ -915,7 +915,9 @@ describe("writes through a switched page's live copy", () => {
     expect(read).not.toHaveBeenCalled();
     await commit("accept-suggestion", "Hello once more");
     expect(read).toHaveBeenCalledTimes(1);
-    expect((await page("ids-accept")).content).toBe("Hello once more");
+    expect(await page("ids-accept")).toMatchObject({
+      content: "Hello once more",
+    });
   });
 
   it("refuses an editor update to a switched page in Trash, and commits nothing", async () => {
