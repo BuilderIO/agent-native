@@ -118,6 +118,7 @@ export function useTokenFieldMenu(
     }));
     return {
       request: () => source?.request(),
+      status: source?.tokens.status ?? null,
       boundVar,
       boundResolved:
         boundVar && tokens

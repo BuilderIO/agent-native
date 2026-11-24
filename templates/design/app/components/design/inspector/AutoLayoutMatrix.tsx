@@ -2009,6 +2009,17 @@ export function SizingField({
           <DropdownMenuSeparator />
         </>
       ) : null}
+      {tokenBinding &&
+      (tokenMenu.status === "loading" || tokenMenu.status === "error") ? (
+        <>
+          <DropdownMenuLabel className="text-muted-foreground">
+            {tokenMenu.status === "loading"
+              ? t("designEditor.tokens.field.loading")
+              : t("editPanel.colorPicker.tokensFailed")}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+        </>
+      ) : null}
       {tokenBinding && tokenMenu.groups.length > 0 ? (
         <>
           {tokenMenu.groups.map((group) => (
