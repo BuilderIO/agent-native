@@ -189,7 +189,6 @@ test("opacity and font size keep their token names through reload and detach to 
 
   await page.reload();
   await app.zoomToFit();
-  await selectLayer(app, "copy");
   await expect(opacity).toHaveValue("opacity-muted");
   await expect(size).toHaveValue("font-size-lg");
 

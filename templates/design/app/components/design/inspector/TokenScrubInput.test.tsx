@@ -236,6 +236,48 @@ describe("TokenScrubInput", () => {
     expect(input.value).toBe("container-sm");
   });
 
+  it("returns focus to the field after a preset is picked", () => {
+    const onSelect = vi.fn();
+    const renderWithPreset = (authored: string) =>
+      act(() =>
+        root.render(
+          <DesignColorTokensProvider designId="design-1">
+            <TokenScrubInput
+              label="Size"
+              ariaLabel="Size"
+              value={16}
+              onChange={vi.fn()}
+              unit="px"
+              tokenBinding={{
+                accepts: ["font-size"],
+                authored,
+                onBind: vi.fn(),
+                onDetach: vi.fn(),
+                extraGroups: [
+                  {
+                    key: "scale",
+                    items: [{ key: "24", label: "24", onSelect }],
+                  },
+                ],
+              }}
+            />
+          </DesignColorTokensProvider>,
+        ),
+      );
+    renderWithPreset("16px");
+    const input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Size"]',
+    );
+    if (!input) throw new Error("missing field");
+    act(() => input.focus());
+    key(input, "ArrowDown");
+    key(input, "Enter");
+    expect(onSelect).toHaveBeenCalled();
+
+    renderWithPreset("24px");
+    expect(document.activeElement).toBe(input);
+  });
+
   it("keeps ↑ nudging the value", () => {
     const { input, onChange } = render(undefined);
     act(() => input.focus());

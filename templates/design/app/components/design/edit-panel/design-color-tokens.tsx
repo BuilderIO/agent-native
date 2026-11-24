@@ -144,12 +144,19 @@ export function DesignColorTokensProvider({
   children: ReactNode;
 }) {
   const [requested, setRequested] = useState(false);
-  const [tokens, setTokens] = useState<{
-    colors: DesignColorTokens;
-    all: DesignTokenList;
-  }>(LOADING_TOKENS);
+  const [loaded, setLoaded] = useState<{
+    designId: string;
+    tokens: { colors: DesignColorTokens; all: DesignTokenList };
+  } | null>(null);
   const request = useCallback(() => setRequested(true), []);
-  useEffect(() => setTokens(LOADING_TOKENS), [designId]);
+  const onTokens = useCallback(
+    (next: { colors: DesignColorTokens; all: DesignTokenList }) => {
+      if (designId) setLoaded({ designId, tokens: next });
+    },
+    [designId],
+  );
+  const tokens =
+    loaded && loaded.designId === designId ? loaded.tokens : LOADING_TOKENS;
   const value = useMemo(
     () =>
       designId
@@ -163,7 +170,7 @@ export function DesignColorTokensProvider({
   return (
     <DesignTokensContext.Provider value={value}>
       {requested && designId ? (
-        <TokenLoader key={designId} designId={designId} onTokens={setTokens} />
+        <TokenLoader key={designId} designId={designId} onTokens={onTokens} />
       ) : null}
       {children}
     </DesignTokensContext.Provider>

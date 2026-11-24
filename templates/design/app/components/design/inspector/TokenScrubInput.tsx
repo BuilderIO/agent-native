@@ -305,7 +305,14 @@ function TokenCombobox({
       }
       refocusRef.current = true;
       binding.onBind(row.cssVar, row.resolved);
-    } else if (!row.item.disabled) row.item.onSelect();
+    } else if (!row.item.disabled) {
+      if (row.item.active) {
+        apiRef.current?.focus();
+        return;
+      }
+      refocusRef.current = true;
+      row.item.onSelect();
+    }
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
