@@ -18,7 +18,6 @@ import {
   readSyncAccounts,
   type InboxTabWindows,
   type InboxThreadRow,
-  type SyncAccountRow,
 } from "../server/lib/inbox-store.js";
 import {
   buildLocalInboxItems,
