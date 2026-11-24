@@ -8996,7 +8996,7 @@ describe("a finished run whose events stop short of its terminal event", () => {
   async function followCutRun(
     wires: readonly Wire[],
     options: Parameters<typeof createAgentKitProtocolAdapter>[1] = {},
-    server: { status: string; terminalReason: string } = {
+    server: { status: string; terminalReason: string; runId?: string } = {
       status: "completed",
       terminalReason: "done",
     },
@@ -9011,7 +9011,8 @@ describe("a finished run whose events stop short of its terminal event", () => {
           ...server,
         });
       }
-      if (url.pathname.endsWith("/runs/run-1/events")) {
+      const eventsRunId = /\/runs\/([^/]+)\/events$/.exec(url.pathname)?.[1];
+      if (eventsRunId) {
         const after = Number(url.searchParams.get("after") ?? 0);
         return new Response(
           wires
@@ -9022,7 +9023,7 @@ describe("a finished run whose events stop short of its terminal event", () => {
           {
             headers: {
               "Content-Type": "text/event-stream",
-              "X-Run-Id": "run-1",
+              "X-Run-Id": eventsRunId,
             },
           },
         );
@@ -9192,6 +9193,20 @@ describe("a finished run whose events stop short of its terminal event", () => {
       }
     });
   }
+
+  it("reads the saved reply of the successor run the server ended", async () => {
+    const readSavedReplyText = vi.fn(async () => "Hello world");
+    const events = await followCutRun(
+      [HELLO],
+      { readSavedReplyText },
+      { status: "completed", terminalReason: "done", runId: "run-2" },
+    );
+
+    expect(readSavedReplyText).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "run-2" }),
+    );
+    expect(terminals(events)).toMatchObject([{ type: "run.completed" }]);
+  });
 
   it("ends unverified when no saved reply reader is configured", async () => {
     const events = await followCutRun([HELLO]);

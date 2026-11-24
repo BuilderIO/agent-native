@@ -3882,7 +3882,7 @@ export function createAgentKitProtocolAdapter(
     try {
       saved = await options.readSavedReplyText({
         threadId: run.threadId,
-        runId: run.turn.runId ?? run.runId,
+        runId: savedReplyRunId(run, decision),
         signal: readers.signal,
       });
     } catch (error) {
@@ -3896,9 +3896,12 @@ export function createAgentKitProtocolAdapter(
       reduceAgentEvent,
       createAgentThreadState(run.threadId),
     );
-    const shown = state.messages
-      .filter((message) => message.role === "assistant")
-      .flatMap((message) => message.parts)
+    // The saved reply is the run's latest assistant message, not every one it
+    // emitted, so compare it with the latest one shown.
+    const shown = (
+      state.messages.filter((message) => message.role === "assistant").at(-1)
+        ?.parts ?? []
+    )
       .map((part) => (part.type === "text" ? part.text : ""))
       .join("");
     if (saved === null || !saved.startsWith(shown)) return decision;
@@ -3922,6 +3925,19 @@ export function createAgentKitProtocolAdapter(
     }
     append(run, { type: "message.delta", messageId, text: suffix, ...format });
     return { type: "terminal", outcome: "succeeded" };
+  }
+
+  /** The run the server ended, which may be a successor of the one this turn started. */
+  function savedReplyRunId(
+    run: ProtocolRun,
+    decision: Extract<StreamClosedDecision, { type: "terminal" }>,
+  ): string {
+    const details =
+      "error" in decision ? asRecord(decision.error.details) : undefined;
+    const runId = details?.runId;
+    return typeof runId === "string" && runId
+      ? runId
+      : (run.turn.runId ?? run.runId);
   }
 
   function appendAuthorityTerminal(
