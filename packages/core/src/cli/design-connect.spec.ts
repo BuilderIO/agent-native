@@ -2981,8 +2981,8 @@ describe("design connect bridge endpoints", () => {
     const devServer = http.createServer((req, res) => {
       const html =
         req.url === "/escaped"
-          ? String.raw`<!doctype html><style>body{background:url('/\2f 127.0.0.1:${externalPort}/escaped-css')}</style><img src="&#47;&#47;127.0.0.1:${externalPort}/escaped-html"><script type="module">import('/\\\\127.0.0.1:${externalPort}/escaped-js');</script>`
-          : `<!doctype html><html><head><base href="http://127.0.0.1:${externalPort}/"><style>body{background:url('/style-image')}</style></head><body><img src="/image"><script type="module">import '/module.js'; fetch('/fetch');</script></body></html>`;
+          ? String.raw`<!doctype html><style>body{background:url('/\2f 127.0.0.1:${externalPort}/escaped-css')}</style><img src="&#47;&#47;127.0.0.1:${externalPort}/escaped-html"><script>var style=document.createElement('style');style.textContent=${JSON.stringify(String.raw`body::before{content:'';display:block;width:1px;height:1px;background:url('/\2f 127.0.0.1:${externalPort}/dynamic-css')}`)};document.head.appendChild(style);</script><script type="module">import('/\\\\127.0.0.1:${externalPort}/escaped-js');</script>`
+          : `<!doctype html><html><head><base href="http://127.0.0.1:${externalPort}/"><style>body{background:url('/style-image')}</style></head><body><img src="/image"><script>fetch('/fetch');</script><script type="module">import '/module.js';</script></body></html>`;
       res.writeHead(200, { "content-type": "text/html" }).end(html);
     });
     await new Promise<void>((resolve) =>
@@ -3014,13 +3014,12 @@ describe("design connect bridge endpoints", () => {
       await expect
         .poll(() => requests.some((request) => request.startsWith("/fetch")))
         .toBe(true);
+      // oracle-change: external scripts are blocked before an import map can redirect credentials.
       expect(requests).toEqual(
-        expect.arrayContaining([
-          "/image",
-          "/style-image",
-          "/module.js",
-          "/fetch",
-        ]),
+        expect.arrayContaining(["/image", "/style-image", "/fetch"]),
+      );
+      expect(requests.some((request) => request.startsWith("/module.js"))).toBe(
+        false,
       );
       await page.locator("iframe").evaluate((iframe, url) => {
         iframe.src = url;
@@ -3028,11 +3027,14 @@ describe("design connect bridge endpoints", () => {
       await expect
         .poll(
           () =>
-            requests.includes("/escaped-js") &&
             requests.includes("/escaped-css") &&
+            requests.includes("/dynamic-css") &&
             requests.includes("/escaped-html"),
         )
         .toBe(true);
+      expect(
+        requests.some((request) => request.startsWith("/escaped-js")),
+      ).toBe(false);
       expect(
         requests.some((request) => request.includes(bridge.previewToken)),
       ).toBe(false);
@@ -3048,7 +3050,8 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
-  it("does not make third-party preview resources opt into CORP or CORS", async () => {
+  // oracle-change: external scripts are blocked to prevent import-map credential leakage.
+  it("blocks third-party scripts in preview frames without blocking the document", async () => {
     const root = tmpDir();
     const assetPort = await freePort();
     let externalAssetRequests = 0;
@@ -3121,14 +3124,10 @@ describe("design connect bridge endpoints", () => {
         .frames()
         .find((candidate) => candidate !== page.mainFrame());
       if (!frame) throw new Error("preview iframe did not load");
-      await frame.waitForFunction(
-        () =>
-          (window as Window & { __thirdPartyPreviewAssetLoaded?: boolean })
-            .__thirdPartyPreviewAssetLoaded === true,
-        { timeout: 10_000 },
+      expect(await frame.locator("#asset-status").textContent()).toBe(
+        "Missing",
       );
-      expect(await frame.locator("#asset-status").textContent()).toBe("Loaded");
-      expect(externalAssetRequests).toBeGreaterThan(0);
+      expect(externalAssetRequests).toBe(0);
     } finally {
       await browser.close();
       await new Promise<void>((resolve) =>
@@ -4173,6 +4172,151 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("does not leak preview credentials through remapped static or computed imports", async () => {
+    const root = tmpDir();
+    const externalPort = await freePort();
+    const requests: string[] = [];
+    const external = http.createServer((req, res) => {
+      requests.push(req.url ?? "");
+      res
+        .writeHead(200, {
+          "content-type": "text/javascript",
+          "access-control-allow-origin": "null",
+          "access-control-allow-credentials": "true",
+        })
+        .end("export default 'external';");
+    });
+    await new Promise<void>((resolve) =>
+      external.listen(externalPort, "127.0.0.1", resolve),
+    );
+    const devPort = await freePort();
+    let previewToken = "";
+    const dev = http.createServer((req, res) => {
+      if (req.url === "/local.js") {
+        res
+          .writeHead(200, { "content-type": "text/javascript" })
+          .end("export default 'local';");
+        return;
+      }
+      if (req.url === "/main.js") {
+        res
+          .writeHead(200, { "content-type": "text/javascript" })
+          .end(
+            "const path = '/steal/computed.js'; import(path).catch(() => document.body.dataset.computed = 'blocked');",
+          );
+        return;
+      }
+      const map = JSON.stringify({
+        imports: {
+          "/steal/": `http://127.0.0.1:${externalPort}/`,
+          mapped: `/local.js?previewToken=${previewToken}`,
+        },
+      });
+      const mapMarkup =
+        req.url === "/dynamic"
+          ? `<script>const map=document.createElement('script');map.type='importmap';map.textContent=${JSON.stringify(map)};document.head.appendChild(map);</script>`
+          : `<script type="importmap">${map}</script>`;
+      res
+        .writeHead(200, { "content-type": "text/html" })
+        .end(
+          `<!doctype html><html><head><script>window.__blockedImports = 0; window.addEventListener('securitypolicyviolation', () => window.__blockedImports++);</script>${mapMarkup}<script type="module">import value from 'mapped'; document.body.dataset.local=value;</script><script type="module">import '/steal/static.js';</script><script type="module" src="/main.js"></script></head><body data-path="${req.url}"></body></html>`,
+        );
+    });
+    await new Promise<void>((resolve) =>
+      dev.listen(devPort, "127.0.0.1", resolve),
+    );
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    previewToken = bridge.previewToken;
+    const hostPort = await freePort();
+    const host = http.createServer((_req, res) =>
+      res
+        .writeHead(200, { "content-type": "text/html" })
+        .end(
+          `<iframe sandbox="allow-scripts" src="http://127.0.0.1:${port}/live-edit?path=/&previewToken=${bridge.previewToken}"></iframe>`,
+        ),
+    );
+    await new Promise<void>((resolve) =>
+      host.listen(hostPort, "127.0.0.1", resolve),
+    );
+    let browser: Browser | undefined;
+    try {
+      browser = await launchBrowser();
+      const page = await browser.newPage();
+      const messages: string[] = [];
+      page.on("console", (message) => messages.push(message.text()));
+      await page.goto(`http://127.0.0.1:${hostPort}/`);
+      const frame = page
+        .frames()
+        .find((candidate) => candidate !== page.mainFrame());
+      if (!frame) throw new Error("preview frame did not load");
+      await expect
+        .poll(() => frame.locator("body").getAttribute("data-computed"))
+        .toBe("blocked");
+      await expect
+        .poll(() => frame.locator("body").getAttribute("data-local"))
+        .toBe("local");
+      await expect
+        .poll(() =>
+          frame.evaluate(
+            () =>
+              (window as Window & { __blockedImports: number })
+                .__blockedImports,
+          ),
+        )
+        .toBe(2);
+      await page.locator("iframe").evaluate((iframe, url) => {
+        iframe.src = url;
+      }, `http://127.0.0.1:${port}/live-edit?path=/dynamic&previewToken=${bridge.previewToken}`);
+      await expect
+        .poll(() => frame.locator("body").getAttribute("data-path"))
+        .toBe("/dynamic");
+      await expect
+        .poll(() => frame.locator("body").getAttribute("data-computed"))
+        .toBe("blocked");
+      await expect
+        .poll(() => frame.locator("body").getAttribute("data-local"))
+        .toBe("local");
+      await expect
+        .poll(() =>
+          frame.evaluate(
+            () =>
+              (window as Window & { __blockedImports: number })
+                .__blockedImports,
+          ),
+        )
+        .toBe(2);
+      const direct = await getText(
+        `http://127.0.0.1:${port}/?previewToken=${bridge.previewToken}`,
+        { "sec-fetch-dest": "iframe" },
+      );
+      expect(direct.headers["content-security-policy"]).toContain(`script-src`);
+      expect(
+        messages.some((message) =>
+          message.includes("Design preview blocked an external script"),
+        ),
+      ).toBe(true);
+      expect(requests).toEqual([]);
+      expect(requests.some((url) => url.includes(bridge.previewToken))).toBe(
+        false,
+      );
+    } finally {
+      await browser?.close();
+      await bridge.close();
+      await Promise.all(
+        [host, dev, external].map(
+          (server) =>
+            new Promise<void>((resolve) => server.close(() => resolve())),
+        ),
+      );
+    }
+  });
+
   it("loads six computed Vite imports in an opaque preview frame", async () => {
     const root = tmpDir();
     await fsPromises.mkdir(path.join(root, "src"), { recursive: true });
@@ -4231,6 +4375,10 @@ describe("design connect bridge endpoints", () => {
         port,
       });
       bridge = await startDesignConnectBridge(manifest);
+      await fsPromises.writeFile(
+        path.join(root, "index.html"),
+        `<!doctype html><script type="importmap">{"imports":{"mapped":"/src/route0.js?previewToken=${bridge.previewToken}","/src/redirect/":"http://127.0.0.1:${externalPort}/redirect/"}}</script><div id="value">waiting</div><script type="module" src="/src/main.js"></script>`,
+      );
       await new Promise<void>((resolve) =>
         host.listen(hostPort, "127.0.0.1", resolve),
       );
@@ -4256,20 +4404,20 @@ describe("design connect bridge endpoints", () => {
             loadComputed: (value: string) => Promise<{ default: string }>;
           }
         ).loadComputed;
-        return Promise.all([
+        await fetch(new URL("/baseline.js", externalUrl));
+        return Promise.allSettled([
           load("mapped"),
           load("./redirect/mod.js"),
           load(externalUrl),
-        ]).then((modules) => modules.map((module) => module.default));
+        ]).then((modules) =>
+          modules.map((module) =>
+            module.status === "fulfilled" ? module.value.default : "blocked",
+          ),
+        );
       }, `http://127.0.0.1:${externalPort}/absolute.js?mode=test#part`);
-      expect(results).toEqual(["external", "external", "external"]);
-      expect(externalRequests).toEqual(
-        expect.arrayContaining([
-          "/bare.js",
-          "/redirect/mod.js?import",
-          "/absolute.js?mode=test",
-        ]),
-      );
+      // oracle-change: external scripts are blocked; a credentialed local import map still works.
+      expect(results).toEqual(["route0", "blocked", "blocked"]);
+      expect(externalRequests).toEqual(["/baseline.js"]);
       const previewToken = bridge.previewToken;
       expect(externalRequests.some((url) => url.includes(previewToken))).toBe(
         false,

@@ -220,10 +220,13 @@ const LIVE_EDIT_REGISTRATION_CAPABILITY_DOMAIN =
 const PREVIEW_ATTESTATION_DOMAIN =
   "agent-native-design-preview-attestation-v1\0";
 const PREVIEW_SESSION_COOKIE_NAME = "agent-native-preview-token";
-const BRIDGE_FRAME_HEADERS = {
-  "cross-origin-embedder-policy": "credentialless",
-  "cross-origin-resource-policy": "cross-origin",
-} as const;
+function bridgeFrameHeaders(bridgeUrl: string): Record<string, string> {
+  return {
+    "cross-origin-embedder-policy": "credentialless",
+    "cross-origin-resource-policy": "cross-origin",
+    "content-security-policy": `script-src 'unsafe-inline' 'unsafe-eval' blob: ${new URL(bridgeUrl).origin}`,
+  };
+}
 
 /**
  * Derive a read-only preview credential from the stronger filesystem token.
@@ -1731,7 +1734,7 @@ function addOpaqueFrameCredentials(
   return injectDocumentMarkup(
     withViteHmrStyleAuth,
     // coercion-ok: invalid browser-owned URLs stay unchanged in the frame.
-    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},b=new URL(${JSON.stringify(new URL(bridgeBase).origin)}),o=b.origin,h=b.host;function u(v){try{if(v==null)return null;var r=String(v);if(/^(?:#|%23)/i.test(r.trim()))return null;var a=new URL(r,document.baseURI),same=a.origin===o||(h===a.host&&((b.protocol==="http:"&&a.protocol==="ws:")||(b.protocol==="https:"&&a.protocol==="wss:")));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){if(v.indexOf("\\\\")!==-1)return h;var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}function d(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return n}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){return p.call(this,d(n))};var i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){return i.call(this,d(n),r)}})();</script>`,
+    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},b=new URL(${JSON.stringify(new URL(bridgeBase).origin)}),o=b.origin,h=b.host;if(window.addEventListener)window.addEventListener("securitypolicyviolation",function(e){if(e.effectiveDirective.indexOf("script-src")===0)console.error("Design preview blocked an external script to protect preview credentials.")});function u(v){try{if(v==null)return null;var r=String(v);if(/^(?:#|%23)/i.test(r.trim()))return null;var a=new URL(r,document.baseURI),same=a.origin===o||(h===a.host&&((b.protocol==="http:"&&a.protocol==="ws:")||(b.protocol==="https:"&&a.protocol==="wss:")));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){if(v.indexOf("\\")!==-1)return h;var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}function d(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return n}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){return p.call(this,d(n))};var i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){return i.call(this,d(n),r)}})();</script>`,
     { target: "head" },
   );
 }
@@ -4456,7 +4459,7 @@ export async function startDesignConnectBridge(
                 ...snapshot.setCookieHeaders,
                 previewSessionSetCookie(providedPreviewToken),
               ],
-              BRIDGE_FRAME_HEADERS,
+              bridgeFrameHeaders(manifest.bridgeUrl),
             );
           } catch (err: unknown) {
             sendJson(res, 400, {
@@ -4992,7 +4995,7 @@ export async function startDesignConnectBridge(
                 next.searchParams.set("previewToken", providedPreviewToken);
                 res.writeHead(302, {
                   location: next.toString(),
-                  ...BRIDGE_FRAME_HEADERS,
+                  ...bridgeFrameHeaders(manifest.bridgeUrl),
                   ...bridgeCorsHeaders(res),
                 });
                 res.end();
@@ -5128,7 +5131,7 @@ export async function startDesignConnectBridge(
               advertisedContentLength,
               proxied.setCookieHeaders,
               documentNavigation && contentType.includes("html")
-                ? BRIDGE_FRAME_HEADERS
+                ? bridgeFrameHeaders(manifest.bridgeUrl)
                 : {},
               shouldRewriteOpaqueFrameResources,
             );
