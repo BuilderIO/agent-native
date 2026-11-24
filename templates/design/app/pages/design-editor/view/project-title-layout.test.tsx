@@ -66,9 +66,13 @@ async function expectEllipsis(titleElement: Locator) {
     scrollWidth: element.scrollWidth,
     clientWidth: element.clientWidth,
     textOverflow: getComputedStyle(element).textOverflow,
+    overflowX: getComputedStyle(element).overflowX,
+    whiteSpace: getComputedStyle(element).whiteSpace,
   }));
   expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
   expect(overflow.textOverflow).toBe("ellipsis");
+  expect(overflow.overflowX).toBe("hidden");
+  expect(overflow.whiteSpace).toBe("nowrap");
 }
 
 beforeAll(async () => {
