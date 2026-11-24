@@ -5111,6 +5111,33 @@ export function createAgentNativeAgentKitTransport(
   const protocolTransport = createAgentKitProtocolAdapter(runtime, {
     ...options.adapter,
     onRunOutcome,
+    readSavedReplyText: async ({ threadId, runId, signal }) => {
+      const stored = await fetchThread(threadId, signal);
+      if (!stored) return null;
+      const reply = storedMessages(
+        storedRepository(stored).messages,
+        now,
+        options.adapter?.textFormat,
+      )
+        .filter(
+          (message) =>
+            message.role === "assistant" &&
+            asRecord(message.metadata)?.runId === runId,
+        )
+        .at(-1);
+      const custom = asRecord(asRecord(reply?.metadata)?.custom);
+      if (
+        !reply ||
+        (reply.status !== undefined && reply.status !== "complete") ||
+        custom?.userStopped === true ||
+        asRecord(custom?.runError) !== null
+      ) {
+        return null;
+      }
+      return reply.parts
+        .map((part) => (part.type === "text" ? part.text : ""))
+        .join("");
+    },
     // A spread would freeze the host's label at its locale when this was built.
     get autoContinueLabel() {
       return options.adapter?.autoContinueLabel;

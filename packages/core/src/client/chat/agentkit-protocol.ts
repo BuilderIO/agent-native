@@ -1,3 +1,7 @@
+import {
+  createAgentThreadState,
+  reduceAgentEvent,
+} from "@agent-native/agentkit/client";
 import type {
   AgentActionInvocation,
   AgentActionResult,
@@ -123,6 +127,16 @@ export interface CreateAgentKitProtocolAdapterOptions {
    * changes the run.
    */
   readonly onRunOutcome?: (report: RunOutcomeReport) => void;
+  /**
+   * The text of the reply the server saved for a finished run, or null when it
+   * saved no settled reply for that run. Read only when the run's own events
+   * could not be read to its terminal event, to finish a reply cut short.
+   */
+  readonly readSavedReplyText?: (input: {
+    threadId: string;
+    runId: string;
+    signal: AbortSignal;
+  }) => Promise<string | null>;
   /** Maximum replay events retained for each process-local run. */
   readonly maxRetainedEvents?: number;
   /**
@@ -188,7 +202,6 @@ interface ProtocolRun {
   restoredPendingConnectionRequestId?: string | null;
   restoredRunStatus?: ServerRunState["status"];
   terminalDrain?: TerminalDrain;
-  readingTerminalDrain?: boolean;
   successorWaitStartedAtMs?: number;
   /** Time-limit stops already sent for continuation, with any refusal. */
   autoContinueAsked?: Map<string, AutoContinueRefusalCode | null>;
@@ -3678,18 +3691,11 @@ export function createAgentKitProtocolAdapter(
   async function followRunAuthority(
     run: ProtocolRun,
     authority: NonNullable<typeof runAuthority>,
-    stream: { failed: boolean },
   ): Promise<AgentChatRuntimeTurn | null> {
     const stopped = () =>
       (run.phase.type !== "followingSuccessor" &&
         run.phase.type !== "holdingInterruption") ||
       readers.signal.aborted;
-    if (run.readingTerminalDrain && run.terminalDrain) {
-      run.readingTerminalDrain = false;
-      if (!stream.failed) {
-        run.terminalDrain = { ...run.terminalDrain, readToEnd: true };
-      }
-    }
     while (!stopped()) {
       const runtimeRunId = run.turn.runId ?? run.runId;
       const read =
@@ -3730,7 +3736,9 @@ export function createAgentKitProtocolAdapter(
       });
       run.quietAuthorityReads = (run.quietAuthorityReads ?? 0) + 1;
       if (decision.type === "terminal") {
-        appendAuthorityTerminal(run, decision);
+        const settled = await completeFromSavedReply(run, decision);
+        if (stopped()) return null;
+        appendAuthorityTerminal(run, settled);
         return null;
       }
       if (decision.type === "continue") {
@@ -3752,11 +3760,7 @@ export function createAgentKitProtocolAdapter(
           run.terminalDrain?.runId === decision.runId
             ? run.terminalDrain.attempts
             : 0;
-        run.terminalDrain = {
-          runId: decision.runId,
-          attempts: previous + 1,
-          readToEnd: false,
-        };
+        run.terminalDrain = { runId: decision.runId, attempts: previous + 1 };
       }
       // Keep the turn identity this stream started with; the server's turn id
       // only fills in for a run restored without one.
@@ -3794,7 +3798,6 @@ export function createAgentKitProtocolAdapter(
         connection.abort();
         return null;
       }
-      run.readingTerminalDrain = decision.drain;
       return {
         ...(turnId ? { id: turnId } : {}),
         sessionId: run.session.id,
@@ -3861,6 +3864,73 @@ export function createAgentKitProtocolAdapter(
       return null;
     }
     return next;
+  }
+
+  async function completeFromSavedReply(
+    run: ProtocolRun,
+    decision: Extract<StreamClosedDecision, { type: "terminal" }>,
+  ): Promise<Extract<StreamClosedDecision, { type: "terminal" }>> {
+    if (
+      !("error" in decision) ||
+      decision.error.code !== "run_events_incomplete" ||
+      !options.readSavedReplyText ||
+      run.firstRetainedSequence > 1
+    ) {
+      return decision;
+    }
+    let saved: string | null;
+    try {
+      saved = await options.readSavedReplyText({
+        threadId: run.threadId,
+        runId: run.turn.runId ?? run.runId,
+        signal: readers.signal,
+      });
+    } catch (error) {
+      console.warn("[agentkit] Could not read a finished run's saved reply", {
+        runId: run.runId,
+        error,
+      });
+      return decision;
+    }
+    const state = run.events.reduce(
+      reduceAgentEvent,
+      createAgentThreadState(run.threadId),
+    );
+    const shown = state.messages
+      .filter((message) => message.role === "assistant")
+      .flatMap((message) => message.parts)
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .join("");
+    if (saved === null || !saved.startsWith(shown)) return decision;
+    const suffix = saved.slice(shown.length);
+    if (!suffix) return { type: "terminal", outcome: "succeeded" };
+    const format = textFormat ? { format: textFormat } : {};
+    if (
+      run.activeMessageId &&
+      !run.activeMessageCompleted &&
+      (run.activeMessageRole ?? "assistant") === "assistant"
+    ) {
+      append(run, {
+        type: "message.delta",
+        messageId: run.activeMessageId,
+        text: suffix,
+        ...format,
+      });
+    } else {
+      const messageId = createId("message");
+      run.activeMessageId = messageId;
+      run.activeMessageRole = "assistant";
+      run.activeMessageCompleted = false;
+      append(run, {
+        type: "message.created",
+        message: {
+          id: messageId,
+          role: "assistant",
+          parts: [{ type: "text", text: suffix, ...format }],
+        },
+      });
+    }
+    return { type: "terminal", outcome: "succeeded" };
   }
 
   function appendAuthorityTerminal(
@@ -4025,7 +4095,7 @@ export function createAgentKitProtocolAdapter(
             break;
           const resumed =
             runAuthority && capabilities.resumableRuns === true
-              ? await followRunAuthority(run, runAuthority, stream)
+              ? await followRunAuthority(run, runAuthority)
               : await resumeWithoutAuthority(run, stream);
           while (isRunCancelling(run))
             await notifyWhenChanged(run, readers.signal);
