@@ -105,7 +105,7 @@ function elementSizeTokenBinding(
     accepts: axis === "horizontal" ? ["container", "spacing"] : ["spacing"],
     authored: authoredStyleValue(element, property),
     onBind: (cssVar, resolved) => {
-      const px = resolvedPxSize(resolved);
+      const px = resolvedPxSize(resolved) ?? measuredElementSize(element, axis);
       if (px === null) return;
       commitElementSizeToken(
         element,

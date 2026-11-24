@@ -153,8 +153,7 @@ export function CornerRadiusControl({
     : cornersDiffer
       ? corners.topLeft
       : cssLengthNumber(styles.borderRadius || String(corners.topLeft));
-  const commitRadius = (value: number, meta?: ScrubInputChangeMeta) => {
-    const next = `${Math.max(0, Math.round(value))}${radiusUnit}`;
+  const writeRadius = (next: string, meta?: ScrubInputChangeMeta) => {
     const patch = {
       borderRadius: next,
       borderTopLeftRadius: next,
@@ -170,29 +169,16 @@ export function CornerRadiusControl({
       onStyleChange(property, style, meta),
     );
   };
+  const commitRadius = (value: number, meta?: ScrubInputChangeMeta) =>
+    writeRadius(`${Math.max(0, Math.round(value))}${radiusUnit}`, meta);
   const radiusTokenBinding: TokenFieldBinding | undefined =
     element && !cornersDiffer
       ? {
           accepts: ["radius"],
           authored: authoredStyleValue(element, "borderRadius"),
-          onBind: (cssVar) => {
-            const next = `var(${cssVar})`;
-            const patch = {
-              borderRadius: next,
-              borderTopLeftRadius: next,
-              borderTopRightRadius: next,
-              borderBottomRightRadius: next,
-              borderBottomLeftRadius: next,
-            };
-            if (onStylesChange) onStylesChange(patch);
-            else {
-              Object.entries(patch).forEach(([property, style]) =>
-                onStyleChange(property, style),
-              );
-            }
-          },
+          onBind: (cssVar) => writeRadius(`var(${cssVar})`),
           onDetach: (resolved) =>
-            commitRadius(resolved ? cssLengthNumber(resolved) : radius),
+            resolved ? writeRadius(resolved) : commitRadius(radius),
         }
       : undefined;
   const toggleIndependentCorners = () => {

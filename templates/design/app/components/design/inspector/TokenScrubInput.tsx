@@ -451,9 +451,11 @@ function TokenCombobox({
             <div className={cn(designMenuLabelClass, "text-muted-foreground")}>
               {source?.tokens.status === "loading"
                 ? t("designEditor.tokens.field.loading")
-                : query
-                  ? t("designEditor.tokens.noMatches")
-                  : t("designEditor.tokens.empty")}
+                : source?.tokens.status === "error"
+                  ? t("editPanel.colorPicker.tokensFailed")
+                  : query
+                    ? t("designEditor.tokens.noMatches")
+                    : t("designEditor.tokens.empty")}
             </div>
           ) : null}
           {sections.map((section, sectionIndex) => (

@@ -208,6 +208,22 @@ describe("TokenScrubInput", () => {
     expect(binding.onBind).not.toHaveBeenCalled();
   });
 
+  it("says the token list failed to load instead of showing it empty", () => {
+    const data = TOKEN_QUERY.data;
+    Object.assign(TOKEN_QUERY, { data: undefined, isError: true });
+    try {
+      const { input } = render(undefined);
+      act(() => input.focus());
+      key(input, "ArrowDown");
+
+      expect(document.querySelector('[role="listbox"]')?.textContent).toBe(
+        "editPanel.colorPicker.tokensFailed",
+      );
+    } finally {
+      Object.assign(TOKEN_QUERY, { data, isError: false });
+    }
+  });
+
   it("keeps ↑ nudging the value", () => {
     const { input, onChange } = render(undefined);
     act(() => input.focus());

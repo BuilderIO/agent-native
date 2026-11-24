@@ -2,11 +2,11 @@ import { expect, styleOf, test, type App } from "./rails";
 
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Tokens</title>
-<style>:root{--container-sm:640px;--space-14:56px;--space-page:var(--space-14);--leading-tight:1.2;}</style>
+<style>:root{--container-sm:640px;--space-14:56px;--space-page:var(--space-14);--leading-tight:1.2;--space-rem:1rem;--radius-rem:0.5rem;}</style>
 </head>
 <body style="margin:0;min-height:600px">
 <main data-agent-native-node-id="main" style="position:relative;min-height:600px">
-  <div data-agent-native-node-id="card" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:#dadada"></div>
+  <div data-agent-native-node-id="card" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:#dadada;border-radius:var(--radius-rem)"></div>
   <p data-agent-native-node-id="copy" style="position:absolute;left:40px;top:200px;margin:0;font-size:20px;line-height:1.25em">Token copy</p>
 </main></body></html>`;
 
@@ -84,4 +84,33 @@ test("an em line height shows as its percentage and a typed bare number is px", 
   expect(
     styleOf((await app.savedNodes(designId)).get("copy"))["line-height"],
   ).toBe("30px");
+});
+
+test("H binds to a rem spacing token and a rem radius detaches to its rem value", async ({
+  app,
+  page,
+}) => {
+  const designId = await openScreen(app);
+  await selectLayer(app, "card");
+  const height = page.getByRole("textbox", { name: "H size in pixels" });
+  await height.focus();
+  await page.keyboard.press("ArrowDown");
+  await page
+    .getByRole("listbox")
+    .locator('[data-token-field-option="space-rem"]')
+    .dispatchEvent("pointerdown");
+  await app.settled();
+  expect(styleOf((await app.savedNodes(designId)).get("card")).height).toBe(
+    "var(--space-rem)",
+  );
+  await expect(height).toHaveValue("space-rem");
+
+  const radius = page.getByRole("textbox", { name: "Corner radius" });
+  await expect(radius).toHaveValue("radius-rem");
+  await radius.focus();
+  await page.keyboard.press("Backspace");
+  await app.settled();
+  expect(
+    styleOf((await app.savedNodes(designId)).get("card"))["border-radius"],
+  ).toBe("0.5rem");
 });
