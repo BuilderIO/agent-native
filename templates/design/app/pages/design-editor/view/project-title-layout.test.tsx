@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -113,8 +113,14 @@ beforeAll(async () => {
   const result = await vite.transformRequest("/app/global.css?direct");
   if (!result) throw new Error("Could not compile Design's stylesheet");
   css = result.code;
-  // Playwright's own Chromium, which CI installs for browser-backed tests.
-  browser = await chromium.launch({ headless: true });
+  // Prefer Playwright's own Chromium, which the test lanes install. Jobs
+  // without it (like the fix-proof check) use the runner's Chromium.
+  const useSystemChromium =
+    !existsSync(chromium.executablePath()) && existsSync("/usr/bin/chromium");
+  browser = await chromium.launch({
+    headless: true,
+    ...(useSystemChromium ? { executablePath: "/usr/bin/chromium" } : {}),
+  });
 }, 60_000);
 
 afterAll(async () => {
