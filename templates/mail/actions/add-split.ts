@@ -51,6 +51,13 @@ export default defineAction({
       .describe("Apply the split to recent mail (default true)"),
   }),
   outputSchema: addSplitOutputSchema,
+  mcpTool: false,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Unauthenticated");
