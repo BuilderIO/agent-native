@@ -140,6 +140,36 @@ describe("a link that may let its holder in", () => {
 });
 
 describe("linkSummaryResultSchema", () => {
+  const summaryOf = (app: string, kind: string) => ({
+    status: "available",
+    app,
+    kind,
+    title: "Launch brief",
+    url: `https://${app}.example.com/item/i1`,
+  });
+
+  it.each([
+    ["design", "design"],
+    ["slides", "deck"],
+    ["clips", "recording"],
+    ["content", "page"],
+  ])("takes a %s answer about a %s", (app, kind) => {
+    const result = { summaries: [summaryOf(app, kind)] };
+    expect(linkSummaryResultSchema.parse(result)).toEqual(result);
+  });
+
+  it.each([
+    ["mail", "page"],
+    ["content", "email"],
+    ["", "page"],
+    ["content", ""],
+  ])("refuses an answer from app %j about kind %j", (app, kind) => {
+    expect(
+      linkSummaryResultSchema.safeParse({ summaries: [summaryOf(app, kind)] })
+        .success,
+    ).toBe(false);
+  });
+
   it("refuses an unavailable answer that carries anything else", () => {
     expect(
       linkSummaryResultSchema.safeParse({

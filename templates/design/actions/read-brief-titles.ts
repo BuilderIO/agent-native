@@ -1,4 +1,7 @@
-import { readPeerLinkSummaries } from "@agent-native/core/a2a";
+import {
+  AgentInvocationError,
+  readPeerLinkSummaries,
+} from "@agent-native/core/a2a";
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
@@ -45,8 +48,13 @@ export default defineAction({
     try {
       content = await resolveContentPeer();
     } catch (error) {
+      if (
+        !(error instanceof AgentInvocationError) ||
+        error.code !== "not-found"
+      )
+        throw error;
       console.warn("[read-brief-titles] could not find Content", {
-        error: error instanceof Error ? error.message : String(error),
+        error: error.message,
       });
       return unavailable;
     }

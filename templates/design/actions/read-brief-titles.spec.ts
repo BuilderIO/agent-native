@@ -6,6 +6,13 @@ const mocks = vi.hoisted(() => ({
   resolveTarget: vi.fn(),
   designUrl: undefined as string | undefined,
   contentMount: "",
+  AgentInvocationError: class extends Error {
+    readonly code: string;
+    constructor(code: string, message: string) {
+      super(message);
+      this.code = code;
+    }
+  },
 }));
 
 vi.mock("../../../packages/core/src/a2a/caller-auth.js", () => ({
@@ -19,6 +26,7 @@ vi.mock("../../../packages/core/src/a2a/invoke.js", () => ({
 }));
 vi.mock("@agent-native/core/a2a", async () => ({
   ...(await import("../../../packages/core/src/a2a/link-summary.js")),
+  AgentInvocationError: mocks.AgentInvocationError,
   resolveAgentInvocationTarget: mocks.resolveTarget,
 }));
 vi.mock("@agent-native/core/server", () => ({
@@ -168,13 +176,29 @@ describe("read-brief-titles", () => {
 
   it("makes no call when no Content is connected", async () => {
     mocks.resolveTarget.mockRejectedValue(
-      new Error('Error: Agent "content" not found.'),
+      new mocks.AgentInvocationError(
+        "not-found",
+        'Error: Agent "content" not found.',
+      ),
     );
     await expect(
       readBriefTitles.run({ ids: ["launch", "other"] }),
     ).resolves.toEqual({
       summaries: [{ status: "unavailable" }, { status: "unavailable" }],
     });
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it("fails when it can't read which apps are connected", async () => {
+    mocks.resolveTarget.mockRejectedValue(
+      new mocks.AgentInvocationError(
+        "discovery-failed",
+        "Error: Could not read connected-agent sources.",
+      ),
+    );
+    await expect(readBriefTitles.run({ ids: ["launch"] })).rejects.toThrow(
+      "Could not read connected-agent sources",
+    );
     expect(mocks.invoke).not.toHaveBeenCalled();
   });
 
