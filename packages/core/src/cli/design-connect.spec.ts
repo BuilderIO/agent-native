@@ -4222,6 +4222,46 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("authenticates literal imports after JavaScript line comment terminators", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const port = await freePort();
+    const source = ["\r", "\n", "\r\n", "\u2028", "\u2029"]
+      .map(
+        (end, index) => `import(// comment${end}'./module.js?case=${index}');`,
+      )
+      .join("\n");
+    const devServer = http.createServer((_req, res) => {
+      res
+        .writeHead(200, { "content-type": "application/javascript" })
+        .end(source);
+    });
+    await new Promise<void>((resolve) =>
+      devServer.listen(devPort, "127.0.0.1", resolve),
+    );
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const module = await getText(
+        `http://127.0.0.1:${port}/main.js?previewToken=${bridge.previewToken}`,
+        { origin: "null", "sec-fetch-dest": "script" },
+      );
+      expect(module.status).toBe(200);
+      for (let index = 0; index < 5; index++) {
+        expect(module.body).toContain(
+          `case=${index}&previewToken=${bridge.previewToken}`,
+        );
+      }
+    } finally {
+      await bridge.close();
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
   it("authenticates Vite ignored literal imports without exposing the token to external imports", async () => {
     const root = tmpDir();
     await fsPromises.mkdir(path.join(root, "src"), { recursive: true });
