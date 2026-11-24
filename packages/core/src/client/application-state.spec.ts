@@ -2067,6 +2067,146 @@ describe("application state before an agent turn", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("fences queued state as soon as a known session is invalidated", async () => {
+    const { announceSessionInvalidated, recordSessionIdentity } =
+      await import("./session-identity.js");
+    recordSessionIdentity("first-user", "first-org");
+    const fetcher = vi.fn(async () => jsonResponse({ view: "private" }));
+    vi.stubGlobal("fetch", fetcher);
+    const save = state.writeClientAppState("navigation", { view: "private" });
+    announceSessionInvalidated();
+    recordSessionIdentity("first-user", "first-org");
+    await expect(save).rejects.toThrow("scope changed before saving");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each(["write", "delete", "compare"])(
+    "does not send a %s while the invalidated session is being verified",
+    async (operation) => {
+      const { announceSessionInvalidated, recordSessionIdentity } =
+        await import("./session-identity.js");
+      recordSessionIdentity("first-user", "first-org");
+      const fetcher = vi.fn(async () => jsonResponse({ view: "private" }));
+      vi.stubGlobal("fetch", fetcher);
+      announceSessionInvalidated();
+      const save =
+        operation === "write"
+          ? state.writeClientAppState("navigation", { view: "private" })
+          : operation === "delete"
+            ? state.deleteClientAppState("navigation")
+            : state.compareAndSetClientAppState("navigation", null, {
+                view: "private",
+              });
+      await expect(save).rejects.toThrow(
+        "Application state session is being verified",
+      );
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["single", "many"])(
+    "does not send a %s read while the invalidated session is being verified",
+    async (operation) => {
+      const { announceSessionInvalidated, recordSessionIdentity } =
+        await import("./session-identity.js");
+      recordSessionIdentity("first-user", "first-org");
+      const fetcher = vi.fn(async () =>
+        jsonResponse({ values: { navigation: "private" }, missing: [] }),
+      );
+      vi.stubGlobal("fetch", fetcher);
+      announceSessionInvalidated();
+      const read =
+        operation === "single"
+          ? state.readClientAppState("navigation")
+          : state.readClientAppStateMany(["navigation"]);
+      await expect(read).rejects.toThrow(
+        "Application state session is being verified",
+      );
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps state fenced if a scope update still leaves the identity unknown", async () => {
+    const {
+      announceSessionInvalidated,
+      notifySessionIdentityPublished,
+      recordSessionIdentity,
+    } = await import("./session-identity.js");
+    recordSessionIdentity("first-user", "first-org");
+    const fetcher = vi.fn(async () => jsonResponse({ view: "private" }));
+    vi.stubGlobal("fetch", fetcher);
+    announceSessionInvalidated();
+    recordSessionIdentity(undefined, "pending-org");
+    notifySessionIdentityPublished(null);
+    await expect(
+      state.writeClientAppState("navigation", { view: "private" }),
+    ).rejects.toThrow("Application state session is being verified");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("waits for session confirmation and preserves flushers when the session is unchanged", async () => {
+    const {
+      announceSessionInvalidated,
+      notifySessionIdentityPublished,
+      recordSessionIdentity,
+    } = await import("./session-identity.js");
+    recordSessionIdentity("first-user", "first-org");
+    const flush = vi.fn();
+    const unregister = state.registerBeforeAgentTurnFlush(flush);
+    try {
+      announceSessionInvalidated();
+      await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
+        "Application state session is being verified",
+      );
+      expect(flush).not.toHaveBeenCalled();
+      notifySessionIdentityPublished("first-user\nfirst-org");
+      await expect(
+        state.flushClientAppStateBeforeAgentTurn(),
+      ).resolves.toBeUndefined();
+      expect(flush).toHaveBeenCalledTimes(1);
+    } finally {
+      unregister();
+    }
+  });
+
+  it("keeps a queued save when the same session is confirmed before dispatch", async () => {
+    const {
+      announceSessionInvalidated,
+      notifySessionIdentityPublished,
+      recordSessionIdentity,
+    } = await import("./session-identity.js");
+    recordSessionIdentity("first-user", "first-org");
+    const fetcher = vi.fn(async () => jsonResponse({ view: "inbox" }));
+    vi.stubGlobal("fetch", fetcher);
+    const save = state.writeClientAppState("navigation", { view: "inbox" });
+    announceSessionInvalidated();
+    notifySessionIdentityPublished("first-user\nfirst-org");
+    await expect(save).resolves.toEqual({ view: "inbox" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not restore prior-session flushers when verification finds another session", async () => {
+    const {
+      announceSessionInvalidated,
+      notifySessionIdentityPublished,
+      recordSessionIdentity,
+    } = await import("./session-identity.js");
+    recordSessionIdentity("first-user", "first-org");
+    const flush = vi.fn();
+    const unregister = state.registerBeforeAgentTurnFlush(flush);
+    try {
+      announceSessionInvalidated();
+      recordSessionIdentity("second-user", "second-org");
+      notifySessionIdentityPublished("second-user\nsecond-org");
+      await expect(
+        state.flushClientAppStateBeforeAgentTurn(),
+      ).resolves.toBeUndefined();
+      expect(flush).not.toHaveBeenCalled();
+    } finally {
+      unregister();
+    }
+  });
+
   it("fences startup state when an invalidation was missed before listeners installed", async () => {
     vi.resetModules();
     vi.stubGlobal("window", {

@@ -338,6 +338,7 @@ type InternalActionFetchOptions = ActionFetchOptions & {
   uiCapabilityRetry?: boolean;
   /** A GET that may share one request with the other GETs in its tick. */
   batch?: boolean;
+  batchGroup?: string;
   /** Internal: never retain a private request body beyond transport handoff. */
   privateInput?: boolean;
   /** Internal: this read was already re-sent with the method the action declared. */
@@ -850,6 +851,9 @@ async function performActionFetch<T>(
               init,
               headers,
               batchUrl: `${actionPrefix()}/${ACTION_BATCH_ACTION_NAME}`,
+              ...(options?.batchGroup
+                ? { batchGroup: options.batchGroup }
+                : {}),
             })
           : (() => {
               try {
@@ -1988,6 +1992,8 @@ export function useActionQuery<
     queryFn: async ({ signal, client }) => {
       const key = circuitKey();
       const query = client.getQueryCache().find({ queryKey, exact: true });
+      const initialBatch =
+        batchInitial === true && query?.state.data === undefined;
       if (!restOptions.refetchIntervalInBackground && isSurfaceHidden())
         throw new CancelledError({ revert: true });
       const foreground =
@@ -2020,8 +2026,8 @@ export function useActionQuery<
               ...(retryUiCapability === undefined ? {} : { retryUiCapability }),
               batch:
                 method === "GET" &&
-                ((batchInitial === true && query?.state.data === undefined) ||
-                  canBatchActionQueryFetch(query)),
+                (initialBatch || canBatchActionQueryFetch(query)),
+              ...(initialBatch ? { batchGroup: "initial" } : {}),
               onResponse: (response) => {
                 lastResponse = response;
                 onResponse(response);

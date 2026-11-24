@@ -22,6 +22,7 @@ import { recordStateWrite } from "./recorder.js";
 import {
   currentSessionIdentity,
   currentSessionScope,
+  subscribeSessionIdentityPublished,
   subscribeSessionInvalidation,
   subscribeSessionScope,
 } from "./session-identity.js";
@@ -54,6 +55,7 @@ const requestSessionIds = new WeakMap<object, number>();
 let nextRequestSessionId = 0;
 let appStateSessionScope = currentSessionScope();
 let awaitingInitialSession = currentSessionIdentity() === undefined;
+let invalidatedSession: { session: object; appState: object } | undefined;
 const initialInvalidationMarker =
   typeof window === "undefined"
     ? undefined
@@ -64,14 +66,23 @@ if (
   typeof window.addEventListener === "function"
 ) {
   subscribeSessionInvalidation(() => {
-    if (awaitingInitialSession) {
-      awaitingInitialSession = false;
-      appStateSessionScope = {};
+    const session = currentSessionScope();
+    if (!invalidatedSession || invalidatedSession.session !== session) {
+      invalidatedSession = { session, appState: appStateSessionScope };
     }
+    awaitingInitialSession = false;
+    appStateSessionScope = {};
   });
 }
 subscribeSessionScope(() => {
   const identity = currentSessionIdentity();
+  if (
+    invalidatedSession &&
+    identity !== undefined &&
+    invalidatedSession.session !== currentSessionScope()
+  ) {
+    invalidatedSession = undefined;
+  }
   if (
     !awaitingInitialSession ||
     identity === undefined ||
@@ -82,6 +93,19 @@ subscribeSessionScope(() => {
   }
   if (identity !== undefined) awaitingInitialSession = false;
 });
+subscribeSessionIdentityPublished(() => {
+  if (currentSessionIdentity() === undefined) return;
+  if (invalidatedSession?.session === currentSessionScope()) {
+    appStateSessionScope = invalidatedSession.appState;
+  }
+  invalidatedSession = undefined;
+});
+
+function assertAppStateSessionReady(): void {
+  if (invalidatedSession) {
+    throw new Error("Application state session is being verified");
+  }
+}
 
 export interface ClientAppStateReadOptions {
   signal?: AbortSignal;
@@ -251,6 +275,7 @@ export function registerBeforeAgentTurnFlush(
 export async function flushClientAppStateBeforeAgentTurn(
   signal?: AbortSignal,
 ): Promise<void> {
+  assertAppStateSessionReady();
   const context = currentBeforeTurnContext();
   const pendingInScope = () =>
     [...pendingTurnMutations]
@@ -1001,6 +1026,7 @@ export async function readClientAppStateMany(
   keys: readonly string[],
   options: ClientAppStateReadOptions = {},
 ): Promise<ClientAppStateBatch> {
+  assertAppStateSessionReady();
   assertAgentNativeApiEnabled(`read application state [${keys.join(", ")}]`);
   const context = currentBeforeTurnContext();
   const session = currentSessionScope();
@@ -1141,6 +1167,7 @@ export async function readClientAppState<T = unknown>(
   key: string,
   options: ClientAppStateReadOptions = {},
 ): Promise<T | null> {
+  assertAppStateSessionReady();
   appStateUrl(key);
   if (options.signal?.aborted) {
     throw options.signal.reason ?? new Error("Aborted");
@@ -1179,6 +1206,7 @@ export async function writeClientAppState<T = unknown>(
   value: T,
   options: ClientAppStateWriteOptions = {},
 ): Promise<T> {
+  assertAppStateSessionReady();
   assertAgentNativeApiEnabled(`write application state "${key}"`);
   const ownRequest = !!options.signal || options.ownRequest === true;
   // Numbered now, in the order it was made, like a queued write.
@@ -1226,6 +1254,7 @@ export async function compareAndSetClientAppState(
   next: Record<string, unknown> | null,
   options: ClientAppStateWriteOptions = {},
 ): Promise<boolean> {
+  assertAppStateSessionReady();
   assertAgentNativeApiEnabled(`compare application state \"${key}\"`);
   return runBarrierMutation(
     key,
@@ -1263,6 +1292,7 @@ export async function deleteClientAppState(
   key: string,
   options: ClientAppStateWriteOptions = {},
 ): Promise<void> {
+  assertAppStateSessionReady();
   assertAgentNativeApiEnabled(`delete application state "${key}"`);
   const seq = options.signal ? nextWriteSeq() : 0;
   const deletion = options.signal

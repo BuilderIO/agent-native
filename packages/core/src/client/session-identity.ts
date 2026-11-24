@@ -129,6 +129,7 @@ export function subscribeSessionInvalidation(listener: () => void): () => void {
 export type SessionScope = string | null;
 
 let publishedListener: ((scope: SessionScope) => void) | undefined;
+const publishedListeners = new Set<() => void>();
 
 /**
  * Runs after the session resolver publishes a session it read, so a module the
@@ -141,6 +142,14 @@ export function onSessionIdentityPublished(
   publishedListener = listener;
 }
 
+export function subscribeSessionIdentityPublished(
+  listener: () => void,
+): () => void {
+  publishedListeners.add(listener);
+  return () => publishedListeners.delete(listener);
+}
+
 export function notifySessionIdentityPublished(scope: SessionScope): void {
   publishedListener?.(scope);
+  for (const listener of [...publishedListeners]) listener();
 }
