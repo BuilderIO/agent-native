@@ -621,7 +621,7 @@ describe("local-folder Content source", () => {
     const file = "# Field notes\n\n* one\n* two\n\nClosing.\n";
     const page = "# Field notes\n- one\n- two\nClosing.";
     const first = await sync(file);
-    const documentId = first.created[0]!.id;
+    const documentId = first.created.map(({ id }) => id).join();
     const stored = async () => {
       const [document] = await getDb()
         .select()
@@ -651,12 +651,12 @@ describe("local-folder Content source", () => {
     const outsidePage = editedPage.replace("- two", "- two outside");
     const afterOutsideEdit = await sync(outsideFile);
     expect(afterOutsideEdit.conflicts).toHaveLength(0);
-    expect((await stored()).content).toBe(outsidePage);
+    expect((await stored()).content).toBe(outsideFile);
 
     const respelled = outsideFile.replace("* one", "- one");
     const afterRespelling = await sync(respelled);
     expect(afterRespelling.conflicts).toHaveLength(0);
-    expect((await stored()).content).toBe(outsidePage);
+    expect((await stored()).content).toBe(outsideFile);
 
     const contentPage = outsidePage.replace(
       "Closing words.",
@@ -693,13 +693,13 @@ describe("local-folder Content source", () => {
         sourceContent: overlappingFile,
       }),
     );
-    const afterResolution = await sync(
-      overlappingFile.replace("Closing outside.", "Closing again."),
+    const laterFile = overlappingFile.replace(
+      "Closing outside.",
+      "Closing again.",
     );
+    const afterResolution = await sync(laterFile);
     expect(afterResolution.conflicts).toHaveLength(0);
-    expect((await stored()).content).toBe(
-      outsidePage.replace("Closing words.", "Closing again."),
-    );
+    expect((await stored()).content).toBe(laterFile);
   });
 
   it("reviews a metadata conflict on a page that spells its file differently", async () => {
@@ -722,7 +722,7 @@ describe("local-folder Content source", () => {
         }),
       );
     const first = await sync("Baseline");
-    const documentId = first.created[0]!.id;
+    const documentId = first.created.map(({ id }) => id).join();
     await getDb()
       .update(schema.documents)
       .set({
@@ -1643,6 +1643,93 @@ describe("local-folder Content source", () => {
     expect(replaced.created).toHaveLength(1);
     expect(replaced.created[0]?.id).not.toBe(initial.created[0]?.id);
     expect(replaced.conflicts).toHaveLength(0);
+  });
+
+  it("follows a file that is renamed before the folder syncs a save", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-save-then-rename",
+        label: "Saved docs",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const sync = (files: Record<string, { text: string; identity: string }>) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({
+          sourceId: connection.sourceId,
+          files: Object.fromEntries(
+            Object.entries(files).map(([path, { text }]) => [path, text]),
+          ),
+          fileIdentities: Object.fromEntries(
+            Object.entries(files).map(([path, { identity }]) => [
+              path,
+              identity,
+            ]),
+          ),
+        }),
+      );
+    const before = "# Trip\n\n* pack\n* leave\n";
+    const initial = await sync({
+      "trip.md": { text: before, identity: "trip-one" },
+      "other.md": { text: "Other", identity: "other-one" },
+    });
+    const documentId = initial.created.find(
+      ({ path }) => path === "trip.md",
+    )?.id;
+    if (!documentId) throw new Error("The folder's page was not created.");
+    await getDb()
+      .update(schema.documents)
+      .set({
+        content: "# Trip\n- pack\n- leave early",
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.documents.id, documentId));
+
+    const moved = await sync({
+      "notes/travel.md": {
+        text: "# Trip\n\n* pack\n* leave early\n",
+        identity: "trip-two",
+      },
+      "other.md": { text: "Other", identity: "other-one" },
+    });
+    expect(moved.created).toEqual([]);
+    expect(moved.conflicts).toEqual([]);
+    expect(moved.updated).toEqual([
+      expect.objectContaining({ id: documentId, path: "notes/travel.md" }),
+    ]);
+  });
+
+  it("follows a renamed file in a folder that gives its files no identity, unless two files read the same", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "browser-folder-rename",
+        label: "Browser docs",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const sync = (files: Record<string, string>) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({ sourceId: connection.sourceId, files }),
+      );
+    const initial = await sync({ "one.md": "* one", "two.md": "Two" });
+    const idOf = (path: string) =>
+      initial.created.find((page) => page.path === path)?.id;
+
+    const moved = await sync({ "one-moved.md": "* one", "two.md": "Two" });
+    expect(moved.created).toEqual([]);
+    expect(moved.updated).toEqual([
+      expect.objectContaining({ id: idOf("one.md"), path: "one-moved.md" }),
+    ]);
+
+    const copied = await sync({
+      "one-moved.md": "* one",
+      "two-a.md": "Two",
+      "two-b.md": "Two",
+    });
+    expect(copied.created).toHaveLength(2);
+    expect(copied.created.map(({ id }) => id)).not.toContain(idOf("two.md"));
   });
 
   it("keeps a remaining folder link when another source deletes the same page", async () => {

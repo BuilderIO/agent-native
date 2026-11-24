@@ -58,13 +58,19 @@ unchanged_key: preserve-me
 
 Old body`;
 
-    expect(
-      sourceFileContent(
-        document,
-        "content/getting-started.mdx",
-        existingSource,
-      ),
-    ).toBe(`---
+    const serialized = sourceFileContent(
+      document,
+      "content/getting-started.mdx",
+      existingSource,
+    );
+
+    expect(serialized).toContain('title: "Getting Started"');
+    expect(serialized).not.toContain('title: "Old title"');
+    expect(serialized).toContain('tags: ["acceptance", "local"]');
+    expect(serialized).toContain("unchanged_key: preserve-me");
+    expect(serialized).toContain("# source-owned comment");
+    expect(serialized).toContain("Hello from the editor.");
+    expect(serialized).toBe(`---
 title: "Getting Started"
 tags: ["acceptance", "local"]
 unchanged_key: preserve-me
@@ -118,6 +124,29 @@ Closing words.
     );
   });
 
+  it("leaves a description, icon and settings changed outside when the page didn't change them", () => {
+    const existingSource =
+      '---\ndescription: Outside\nicon: "🌿"\nposition: 9\nisFavorite: true\nvisibility: org\n---\n\nOriginal\n';
+    const page = { ...document, description: "Mine", icon: "🍂" };
+    const save = (changed?: { description?: string; icon?: string | null }) =>
+      sourceFileContent(
+        page,
+        "content/getting-started.mdx",
+        existingSource,
+        changed,
+      );
+    const body = existingSource.replace("Original", "Hello from the editor.");
+
+    expect(save()).toBe(body);
+    expect(save({ description: "Mine" })).toBe(body.replace("Outside", "Mine"));
+    expect(save({ icon: "🍂" })).toBe(body.replace("🌿", "🍂"));
+    expect(
+      sourceFileContent(page, "content/getting-started.mdx", "Original\n"),
+    ).toBe(
+      '---\ndescription: "Mine"\nicon: "🍂"\n---\n\nHello from the editor.\n',
+    );
+  });
+
   it("writes an edited document through the desktop single-file bridge", async () => {
     const folder = {
       id: "folder-repo",
@@ -168,9 +197,11 @@ Closing words.
       content: expect.stringContaining("Hello from the editor."),
       expectedRevision: "a".repeat(64),
     });
+    // oracle-change: a save adds no title to a file whose name already gives it
     expect(writeFile.mock.calls[0]?.[0].content).toBe(
       '---\ntags: "keep-me"\n---\n\nHello from the editor.',
     );
+    expect(writeFile.mock.calls[0]?.[0].content).toContain('tags: "keep-me"');
     expect(writeFiles).not.toHaveBeenCalled();
   });
 

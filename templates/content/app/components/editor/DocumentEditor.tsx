@@ -4700,7 +4700,10 @@ function PageEditorSessionBody({
           result = await writeDocumentToLinkedLocalSource(
             fileFirstDocument,
             localSource,
-            { expectedRevision: expectedLocalSourceRevision },
+            {
+              expectedRevision: expectedLocalSourceRevision,
+              changed: updates,
+            },
           );
         } catch (error) {
           if (pendingLocalSourceWriteRef.current === pendingLocalWrite) {

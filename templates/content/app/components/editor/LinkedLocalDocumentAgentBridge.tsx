@@ -27,15 +27,22 @@ type EditArgs = {
 const actionName = (documentId: string) =>
   `content-edit-linked-document:${documentId}`;
 
-function managedDocumentMetadata(document: Document) {
-  return {
-    parentId: document.parentId,
-    icon: document.icon,
-    position: document.position,
-    isFavorite: document.isFavorite,
-    hideFromSearch: document.hideFromSearch,
-    visibility: document.visibility,
-  };
+type ManagedMetadata = Pick<
+  Document,
+  | "parentId"
+  | "icon"
+  | "position"
+  | "isFavorite"
+  | "hideFromSearch"
+  | "visibility"
+>;
+
+function governedByFile(document: Document, page: ManagedMetadata) {
+  return { ...page, icon: document.icon ?? page.icon };
+}
+
+function sameIcon(left: ManagedMetadata, right: ManagedMetadata) {
+  return JSON.stringify(left.icon) === JSON.stringify(right.icon);
 }
 
 export function LinkedLocalDocumentAgentBridge({
@@ -86,6 +93,7 @@ export function LinkedLocalDocumentAgentBridge({
         if (args.documentId !== current.id) {
           return { status: "conflict", error: "The open document changed." };
         }
+        const expected: ManagedMetadata = JSON.parse(args.expectedMetadata);
         const editorMatchesExpected = () => {
           const editor = getEditorSnapshotRef.current();
           return (
@@ -117,8 +125,7 @@ export function LinkedLocalDocumentAgentBridge({
           ) ||
           baseline.document.title !== args.expectedTitle ||
           (baseline.document.description ?? "") !== args.expectedDescription ||
-          JSON.stringify(managedDocumentMetadata(baseline.document)) !==
-            args.expectedMetadata
+          !sameIcon(governedByFile(baseline.document, expected), expected)
         ) {
           return {
             status: "conflict",
@@ -133,6 +140,13 @@ export function LinkedLocalDocumentAgentBridge({
           return {
             status: "failed",
             error: "None of the requested text was found in the linked file.",
+          };
+        }
+        if (sameSourceMarkdown(applied.content, args.expectedContent)) {
+          return {
+            status: "failed",
+            error:
+              "The edit changes nothing Content keeps in this page, so the linked file was left as it is.",
           };
         }
         const next = { ...baseline.document, content: applied.content };
@@ -168,7 +182,7 @@ export function LinkedLocalDocumentAgentBridge({
             content: next.content,
             title: next.title,
             description: next.description ?? "",
-            metadata: managedDocumentMetadata(next),
+            metadata: governedByFile(next, expected),
             path: written.path,
             runtime: written.runtime,
             revision: written.revision,
@@ -188,9 +202,11 @@ export function LinkedLocalDocumentAgentBridge({
           !written.revision ||
           !readBack.revision ||
           written.revision === readBack.revision;
-        const managedMetadataMatches =
-          JSON.stringify(managedDocumentMetadata(readBack.document)) ===
-          JSON.stringify(managedDocumentMetadata(next));
+        const metadata = governedByFile(readBack.document, expected);
+        const managedMetadataMatches = sameIcon(
+          metadata,
+          governedByFile(next, expected),
+        );
         if (
           !revisionMatches ||
           !sameSourceMarkdown(readBack.document.content, applied.content) ||
@@ -203,7 +219,7 @@ export function LinkedLocalDocumentAgentBridge({
             content: readBack.document.content,
             title: readBack.document.title,
             description: readBack.document.description ?? "",
-            metadata: managedDocumentMetadata(readBack.document),
+            metadata,
             path: readBack.path,
             runtime: readBack.runtime,
             revision: readBack.revision,
@@ -215,13 +231,19 @@ export function LinkedLocalDocumentAgentBridge({
             content: readBack.document.content,
             title: readBack.document.title,
             description: readBack.document.description ?? "",
-            metadata: managedDocumentMetadata(readBack.document),
+            metadata,
             path: readBack.path,
             runtime: readBack.runtime,
             revision: readBack.revision,
           };
         }
-        onPersistedRef.current(readBack.document, readBack.revision);
+        onPersistedRef.current(
+          {
+            ...readBack.document,
+            icon: readBack.document.icon ?? current.icon,
+          },
+          readBack.revision,
+        );
         return {
           status: "persisted",
           content: readBack.document.content,

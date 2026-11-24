@@ -103,6 +103,12 @@ export type LinkedLocalSourceWatchResult =
 
 export type LinkedLocalSourceWriteOptions = {
   expectedRevision?: string;
+  changed?: LinkedLocalSourceChanges;
+};
+
+type LinkedLocalSourceChanges = {
+  description?: string | undefined;
+  icon?: Document["icon"] | undefined;
 };
 
 const LOCAL_FILES_DB_NAME = "content-local-files";
@@ -408,20 +414,23 @@ export function sourceFileContent(
   document: Document,
   path: string,
   existingSource: string,
+  changed: LinkedLocalSourceChanges = {},
 ) {
+  const file = parseContentSourceFile(path, existingSource);
+  const writes = (field: keyof LinkedLocalSourceChanges) =>
+    changed[field] !== undefined || file[field] === undefined;
   return updateContentSourceFile(path, existingSource, {
     title: document.title,
     content: document.content,
-    description: document.description,
-    icon:
-      typeof document.icon === "string"
-        ? document.icon
-        : serializeIconValue(parseIconValue(document.icon)),
-    parentId: document.parentId,
-    position: document.position,
-    isFavorite: document.isFavorite,
-    hideFromSearch: document.hideFromSearch,
-    visibility: document.visibility,
+    ...(writes("description") ? { description: document.description } : {}),
+    ...(writes("icon")
+      ? {
+          icon:
+            typeof document.icon === "string"
+              ? document.icon
+              : serializeIconValue(parseIconValue(document.icon)),
+        }
+      : {}),
   });
 }
 
@@ -517,6 +526,7 @@ export async function writeDocumentToLinkedLocalSource(
       document,
       desktopSource.path,
       existingSource,
+      options.changed,
     );
     const expectedRevision =
       options.expectedRevision ?? current.revisions?.[desktopSource.path];
@@ -585,6 +595,7 @@ export async function writeDocumentToLinkedLocalSource(
     document,
     browserSource.path,
     existingSource.content,
+    options.changed,
   );
   const result = await writeBrowserFile(
     browserSource.handle,

@@ -7,6 +7,7 @@ import DiffMatchPatch, {
 import {
   canonicalizeNfm,
   docToNfm,
+  escapeGfmPipes,
   locateNfmBlocks,
   nfmToDoc,
   serializeCellInline,
@@ -61,35 +62,32 @@ type BlockWriter = (block: SourceBlock, page: PageBlock) => string;
 
 export function sameSourceMarkdown(left: string, right: string): boolean {
   if (left === right) return true;
-  const form = sourceForm(left);
-  return form !== null && form === sourceForm(right);
+  const form = sourceMarkdownForm(left);
+  return form !== null && form === sourceMarkdownForm(right);
 }
 
 export function mergeSourceMarkdown(source: string, page: string): string {
   if (sameSourceMarkdown(source, page)) return source;
-  const form = sourceForm(page);
-  if (form === null || sourceForm(source) === null) return page;
+  const form = sourceMarkdownForm(page);
+  if (form === null || sourceMarkdownForm(source) === null) return page;
 
   const layout = readLayout(source);
   const pageBlocks = readPage(form);
   const stretches = alignBlocks(layout.blocks, pageBlocks);
   const finalEol = source === "" || /[\r\n]$/.test(source) ? layout.eol : "";
   const candidates = [
-    ...(stretches
-      ? [patchBlock, rewriteBlock].map(
-          (write) => () => writeStretches(layout, stretches, write),
-        )
-      : []),
+    () => writeStretches(layout, stretches, patchBlock),
+    () => writeStretches(layout, stretches, rewriteBlock),
     () => withEol(form, layout.eol) + finalEol,
   ];
   for (const candidate of candidates) {
     const text = candidate();
-    if (sourceForm(text) === form) return text;
+    if (sourceMarkdownForm(text) === form) return text;
   }
   return page;
 }
 
-function sourceForm(markdown: string): string | null {
+export function sourceMarkdownForm(markdown: string): string | null {
   let canonical: string;
   try {
     canonical = canonicalizeNfm(markdown);
@@ -130,6 +128,11 @@ function majorityEol(source: string): string {
   return crlf * 2 > lineBreaks(source) ? "\r\n" : "\n";
 }
 
+function withoutFinalBreaks(text: string): string {
+  const trimmed = text.trimEnd();
+  return trimmed + (/^[^\r\n]*/.exec(text.slice(trimmed.length))?.[0] ?? "");
+}
+
 function readPage(form: string): PageBlock[] {
   if (isBlank(form)) return [];
   return nfmToDoc(form).content.map((node) => ({ key: blockKey(node), node }));
@@ -144,7 +147,7 @@ function readLayout(source: string): SourceLayout {
   for (const span of locateNfmBlocks(source)) {
     if (span.nodes.length === 0) continue;
     const body = lines.slice(span.startLine, span.endLine).join("");
-    const raw = body.trimEnd();
+    const raw = withoutFinalBreaks(body);
     gap += lines.slice(line, span.startLine).join("");
     if (blocks.length === 0) {
       leading = gap;
@@ -171,7 +174,23 @@ function readLayout(source: string): SourceLayout {
 function matchKeys(
   before: readonly string[],
   after: readonly string[],
-): Map<number, number> | null {
+): Map<number, number> {
+  const matches = new Map<number, number>();
+  const shorter = Math.min(before.length, after.length);
+  let prefix = 0;
+  while (prefix < shorter && before[prefix] === after[prefix]) {
+    matches.set(prefix, prefix);
+    prefix += 1;
+  }
+  let suffix = 0;
+  while (
+    suffix < shorter - prefix &&
+    before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  ) {
+    suffix += 1;
+    matches.set(before.length - suffix, after.length - suffix);
+  }
+
   const codes = new Map<string, string>();
   const encode = (keys: readonly string[]) =>
     keys
@@ -181,13 +200,12 @@ function matchKeys(
         return code;
       })
       .join("");
-  const encodedBefore = encode(before);
-  const encodedAfter = encode(after);
-  if (codes.size >= MAX_DISTINCT_KEYS) return null;
+  const encodedBefore = encode(before.slice(prefix, before.length - suffix));
+  const encodedAfter = encode(after.slice(prefix, after.length - suffix));
+  if (codes.size >= MAX_DISTINCT_KEYS) return matches;
 
-  const matches = new Map<number, number>();
-  let from = 0;
-  let to = 0;
+  let from = prefix;
+  let to = prefix;
   for (const [kind, text] of new DiffMatchPatch().diff_main(
     encodedBefore,
     encodedAfter,
@@ -206,13 +224,11 @@ function matchKeys(
 function alignBlocks(
   blocks: readonly SourceBlock[],
   page: readonly PageBlock[],
-): Stretch[] | null {
+): Stretch[] {
   const matches = matchKeys(
     blocks.flatMap((block) => block.keys),
     page.map((block) => block.key),
   );
-  if (!matches) return null;
-
   const stretches: Stretch[] = [];
   let changed: SourceBlock[] = [];
   let written = 0;
@@ -360,22 +376,20 @@ function writeStretches(
       continue;
     }
     const pairs = pairBlocks(stretch);
-    const waiting = [...stretch.blocks];
+    const waiting = stretch.blocks.values();
     for (const page of stretch.page) {
       const block = pairs.get(page);
       if (!block) {
         add(withEol(ordinaryMarkdown(page), layout.eol), undefined);
         continue;
       }
-      for (
-        let skipped = waiting.shift();
-        skipped && skipped !== block;
-        skipped = waiting.shift()
-      )
+      for (const skipped of waiting) {
+        if (skipped === block) break;
         passed.push(skipped.gap);
+      }
       add(withEol(write(block, page), layout.eol), block);
     }
-    passed.push(...waiting.map((block) => block.gap));
+    for (const skipped of waiting) passed.push(skipped.gap);
   }
   const dropped = passed.filter((gap) => !isBlank(gap)).join("");
   return out + dropped + (empty ? layout.eol : layout.trailing);
@@ -387,8 +401,12 @@ function ordinaryMarkdown(page: PageBlock): string {
   return table !== null && readsAs(table, page.key) ? table : page.key;
 }
 
+function writesHtml(block: SourceBlock): boolean {
+  return block.text.trimStart().startsWith("<");
+}
+
 function rewriteBlock(block: SourceBlock, page: PageBlock): string {
-  return block.text === block.keys.join("\n")
+  return writesHtml(block) || block.text === block.keys.join("\n")
     ? page.key
     : ordinaryMarkdown(page);
 }
@@ -397,14 +415,14 @@ function patchBlock(block: SourceBlock, page: PageBlock): string {
   const before = block.keys.join("\n");
   if (block.text === before) return page.key;
   const attempts =
-    page.node.type === "table"
+    page.node.type === "table" && !writesHtml(block)
       ? [() => patchPipeTable(block, page.node)]
       : carriedEdits(block, before, page);
   for (const attempt of attempts) {
     const text = attempt();
     if (text !== null && readsAs(text, page.key)) return text;
   }
-  return ordinaryMarkdown(page);
+  return rewriteBlock(block, page);
 }
 
 function carriedEdits(
@@ -511,7 +529,6 @@ function carryHunks(
 function patchPipeTable(block: SourceBlock, table: PMNode): string | null {
   const before = block.nodes.find((node) => node.type === "table");
   if (!before || block.nodes.length > 1) return null;
-  if (block.text.trimStart().startsWith("<")) return null;
   return writePipeTable(table, {
     table: before,
     lines: block.text.split("\n"),
@@ -523,7 +540,9 @@ function tableRows(table: PMNode): PMNode[] {
 }
 
 function pipeCells(row: PMNode): string[] | null {
-  const cells = (row.content ?? []).map((cell) => serializeCellInline(cell));
+  const cells = (row.content ?? []).map((cell) =>
+    escapeGfmPipes(serializeCellInline(cell)),
+  );
   const fits = cells.every(
     (cell) =>
       !cell.includes("\n") && splitGfmPipeRow(`| ${cell} |`)?.length === 1,
@@ -566,13 +585,16 @@ function writePipeTable(
     if (!cells) return null;
     rows.push(cells);
   }
-  const priorLines = prior?.lines.filter((_, index) => index !== 1) ?? [];
   const header = prior?.lines.find((_, index) => index === 0) ?? "| |";
   const delimiter = prior?.lines.find((_, index) => index === 1) ?? "";
+  const priorLines = new Map(
+    prior?.lines.filter((_, index) => index !== 1).entries(),
+  );
   const priorRows = (prior ? tableRows(prior.table) : []).map((row, index) => ({
     cells: pipeCells(row) ?? [],
-    line: priorLines.find((_, at) => at === index) ?? "",
+    line: priorLines.get(index) ?? "",
   }));
+  const priorRowAt = new Map(priorRows.entries());
 
   const indent = /^\t*/.exec(header)?.[0] ?? "";
   const open = header.trimStart().startsWith("|") ? "|" : "";
@@ -584,10 +606,9 @@ function writePipeTable(
       ? delimiterLine.areas
       : [];
   const writeRow = (cells: readonly string[], padded: readonly number[]) => {
+    const widths = new Map(padded.entries());
     const line = cells
-      .map((cell, index) =>
-        ` ${cell} `.padEnd(padded.find((_, at) => at === index) ?? 0),
-      )
+      .map((cell, index) => ` ${cell} `.padEnd(widths.get(index) ?? 0))
       .join("|");
     return indent + (open ? `|${line}` : line.trimStart()) + close;
   };
@@ -597,25 +618,23 @@ function writePipeTable(
     rows.map((row) => JSON.stringify(row)),
   );
   const keptRows = new Map(
-    Array.from(matches ?? [], ([from, to]) => [to, from] as const),
+    Array.from(matches, ([from, to]) => [to, from] as const),
   );
   let next = 0;
   const lines = rows.map((cells, index) => {
     const kept = keptRows.get(index);
     if (kept !== undefined) {
       next = kept + 1;
-      return priorRows.find((_, at) => at === kept)?.line ?? "";
+      return priorRowAt.get(kept)?.line ?? "";
     }
-    const paired = matches?.has(next)
-      ? undefined
-      : priorRows.find((_, at) => at === next);
+    const paired = matches.has(next) ? undefined : priorRowAt.get(next);
     if (!paired) return writeRow(cells, areas);
     next += 1;
-    const raw = splitGfmPipeRow(paired.line) ?? [];
+    const raw = new Map((splitGfmPipeRow(paired.line) ?? []).entries());
+    const before = new Map(paired.cells.entries());
     const reused = cells.map((cell, at) =>
-      paired.cells.length === cells.length &&
-      paired.cells.find((_, position) => position === at) === cell
-        ? (raw.find((_, position) => position === at) ?? cell)
+      paired.cells.length === cells.length && before.get(at) === cell
+        ? (raw.get(at) ?? cell)
         : cell,
     );
     return writeRow(reused, areas);

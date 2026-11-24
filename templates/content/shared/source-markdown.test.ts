@@ -230,6 +230,43 @@ describe("mergeSourceMarkdown", () => {
     );
   });
 
+  it("keeps the layout of a table the file writes as HTML", () => {
+    const table =
+      '<table header-row="true">\n  <tr>\n    <td>A</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>1</td>\n    <td>2</td>\n  </tr>\n</table>\n\nAfter\n';
+    expectMerge(
+      table,
+      (page) => page.replace("<td>2</td>", "<td>3</td>"),
+      table.replace("<td>2</td>", "<td>3</td>"),
+    );
+  });
+
+  it("escapes a pipe in a pipe table's code", () => {
+    expectMerge(
+      "| a | b |\n| --- | --- |\n| 1 | 2 |\n",
+      (page) => page.replace("<td>2</td>", "<td>`x|y`</td>"),
+      "| a | b |\n| --- | --- |\n| 1 | `x\\|y` |\n",
+    );
+  });
+
+  it("reads an escaped pipe in a pipe table's code as a pipe", () => {
+    expect(canonicalizeNfm("| a |\n| --- |\n| `x\\|y` \\| z |\n")).toContain(
+      "<td>`x|y` \\| z</td>",
+    );
+  });
+
+  it("keeps every other line when a line ending in spaces changes", () => {
+    expectMerge(
+      "Intro\n\nOld  \nNext\n\nEnd\n",
+      (page) => page.replace("Old", "New"),
+      "Intro\n\nNew  \nNext\n\nEnd\n",
+    );
+    expectMerge(
+      "Intro   \n\nOld  \n\nEnd\t\n",
+      (page) => page.replace("Old", "Older"),
+      "Intro   \n\nOlder  \n\nEnd\t\n",
+    );
+  });
+
   it("writes a table that a pipe table can't hold as HTML", () => {
     const merged = mergeSourceMarkdown(
       NOTE,

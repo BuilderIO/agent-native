@@ -2395,6 +2395,16 @@ export function splitGfmPipeRow(line: string): string[] | null {
   return cells;
 }
 
+export function escapeGfmPipes(value: string): string {
+  return value.replace(/\\[\s\S]|\|/g, (match) =>
+    match === "|" ? "\\|" : match,
+  );
+}
+
+function unescapeGfmPipes(value: string): string {
+  return value.replace(/\\[\s\S]/g, (match) => (match === "\\|" ? "|" : match));
+}
+
 function isGfmDelimiterCell(value: string): boolean {
   return /^-+$/.test(value.trim());
 }
@@ -2459,7 +2469,12 @@ function parseGfmPipeTable(
     content: Array.from({ length: columnCount }, (_, index) => ({
       type: rowIndex === 0 ? "tableHeader" : "tableCell",
       attrs: { color: null, textAlign: alignments[index] ?? null },
-      content: [{ type: "paragraph", content: parseInline(row[index] ?? "") }],
+      content: [
+        {
+          type: "paragraph",
+          content: parseInline(unescapeGfmPipes(row[index] ?? "")),
+        },
+      ],
     })),
   }));
   const attrs: Record<string, unknown> = {

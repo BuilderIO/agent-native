@@ -21,8 +21,10 @@ import {
   isContentSourcePath,
   parseContentSourceFile,
 } from "../shared/content-source.js";
-import { canonicalizeNfm } from "../shared/nfm.js";
-import { sameSourceMarkdown } from "../shared/source-markdown.js";
+import {
+  sameSourceMarkdown,
+  sourceMarkdownForm,
+} from "../shared/source-markdown.js";
 import { setFavoriteMembership } from "./_content-favorites.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
@@ -354,6 +356,63 @@ export default defineAction({
     const conflicts: Array<{ id: string; path: string; title: string }> = [];
     const outbound: Array<{ id: string; path: string; title: string }> = [];
 
+    const rowsByMovedFile = (
+      snapshot: Awaited<ReturnType<typeof loadSnapshot>>,
+      unplaced: typeof valid,
+      placedDocumentIds: ReadonlySet<string | undefined>,
+    ) => {
+      type Move = { files: typeof valid; rows: SourceRow[] };
+      const moves = new Map<string, Move>();
+      const movesReading = (content: string) => {
+        const form = sourceMarkdownForm(content);
+        if (!form) return undefined;
+        const move = moves.get(form) ?? { files: [], rows: [] };
+        moves.set(form, move);
+        return move;
+      };
+      const presentPaths = new Set(entries.map(([path]) => path));
+      const gone = snapshot.storedRows.filter(
+        (row) =>
+          !placedDocumentIds.has(row.documentId) &&
+          !presentPaths.has(deletedFilePath(row)),
+      );
+      if (gone.length === 0)
+        return new Map<(typeof valid)[number], SourceRow>();
+      for (const file of unplaced) movesReading(file.content)?.files.push(file);
+      for (const row of gone) {
+        const page = snapshot.documentById.get(row.documentId);
+        if (page) movesReading(page.content)?.rows.push(row);
+      }
+      return new Map(
+        [...moves.values()].flatMap((move) =>
+          move.files.length === 1 && move.rows.length === 1
+            ? move.files.flatMap((file) =>
+                move.rows
+                  .filter((row) => mayHaveMoved(snapshot, row, file))
+                  .map((row) => [file, row] as const),
+              )
+            : [],
+        ),
+      );
+    };
+
+    const mayHaveMoved = (
+      snapshot: Awaited<ReturnType<typeof loadSnapshot>>,
+      row: SourceRow,
+      file: (typeof valid)[number],
+    ) => {
+      const values = parseJson(row.sourceValuesJson);
+      const page = snapshot.documentById.get(row.documentId);
+      if (!page) return false;
+      if (!values.bridgeFileIdentity && !fileIdentities[file.path]) return true;
+      return (
+        typeof values.pageHash === "string" &&
+        (values.pageHash !== contentHash(page.content) ||
+          (values.metadataHash !== metadataHash(page) &&
+            metadataHash(page) === metadataHash(file)))
+      );
+    };
+
     const buildPlans = (snapshot: Awaited<ReturnType<typeof loadSnapshot>>) => {
       const rowByBridgeIdentity = new Map<
         string,
@@ -366,18 +425,30 @@ export default defineAction({
         }
       }
 
+      const explicitIdOf = (file: (typeof valid)[number]) =>
+        file.id && localIdentity.workingCopy.kind === "temporary"
+          ? opaqueId("content_local_file", `${sourceId}:${file.id}`)
+          : file.id;
+      const knownRow = (file: (typeof valid)[number]) => {
+        const identity = fileIdentities[file.path];
+        return (
+          snapshot.rowByPath.get(file.path) ??
+          (identity ? rowByBridgeIdentity.get(identity) : undefined)
+        );
+      };
+      const movedRows = rowsByMovedFile(
+        snapshot,
+        valid.filter((file) => !explicitIdOf(file) && !knownRow(file)),
+        new Set(
+          valid.map((file) => explicitIdOf(file) ?? knownRow(file)?.documentId),
+        ),
+      );
+
       return valid.map((file, index) => {
-        const directPathRow = snapshot.rowByPath.get(file.path);
         const incomingBridgeFileIdentity = fileIdentities[file.path];
-        const identityRow = incomingBridgeFileIdentity
-          ? rowByBridgeIdentity.get(incomingBridgeFileIdentity)
-          : undefined;
         const incomingHash = contentHash(file.content);
-        const pathRow = directPathRow ?? identityRow;
-        const explicitId =
-          file.id && localIdentity.workingCopy.kind === "temporary"
-            ? opaqueId("content_local_file", `${sourceId}:${file.id}`)
-            : file.id;
+        const pathRow = knownRow(file) ?? movedRows.get(file);
+        const explicitId = explicitIdOf(file);
         const id =
           explicitId ??
           pathRow?.documentId ??
@@ -437,9 +508,7 @@ export default defineAction({
         const pageContent =
           existing && (holdsFile || !applyIncoming)
             ? existing.content
-            : existing && policy === "source_primary"
-              ? canonicalizeNfm(file.content)
-              : file.content;
+            : file.content;
         return {
           file,
           index,

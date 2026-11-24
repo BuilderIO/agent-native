@@ -10,6 +10,7 @@ import {
   serializeContentSourceDocument,
   updateContentSourceFile,
 } from "./content-source";
+import { sameSourceMarkdown } from "./source-markdown";
 
 describe("content source files", () => {
   it("serializes documents as frontmatter plus markdown body", () => {
@@ -225,6 +226,81 @@ describe("updateContentSourceFile", () => {
         content: "One",
       }),
     ).toBe("One\n");
+  });
+
+  it("keeps a body that looks like frontmatter out of the header", () => {
+    const content = "---\nnot: a header\n---\nBody";
+    const saved = updateContentSourceFile(PATH, "Old body\n", {
+      ...unchanged,
+      content,
+    });
+    const reread = parseContentSourceFile(PATH, saved);
+    expect(sameSourceMarkdown(reread.content, content)).toBe(true);
+    expect(
+      updateContentSourceFile(PATH, saved, { ...unchanged, content }),
+    ).toBe(saved);
+  });
+
+  it("writes a changed title where an indented header keeps its keys", () => {
+    const source =
+      "---\n  # mine\n  title: Field notes\n  nested:\n    title: other\n---\n\nOne\n";
+    const saved = updateContentSourceFile(PATH, source, {
+      ...unchanged,
+      title: "Trip notes",
+      description: "Short",
+      content: "One",
+    });
+    expect(saved).toBe(
+      '---\n  # mine\n  title: Trip notes\n  nested:\n    title: other\n  description: "Short"\n---\n\nOne\n',
+    );
+    expect(parseContentSourceFile(PATH, saved)).toMatchObject({
+      title: "Trip notes",
+      description: "Short",
+    });
+  });
+
+  it("keeps the comments and blank lines below a value it changes", () => {
+    const title = (value: string) =>
+      "---\ntitle: " +
+      value +
+      "\n  # why this title\n\ntags: [a]\n---\n\nOne\n";
+    expect(
+      updateContentSourceFile(PATH, title("Field notes"), {
+        ...unchanged,
+        title: "Trip notes",
+        content: "One",
+      }),
+    ).toBe(title("Trip notes"));
+    expect(
+      updateContentSourceFile(
+        PATH,
+        "---\ndescription: |\n  # part of the text\n\n  more\n\ntags: [a]\n---\n\nOne\n",
+        { ...unchanged, description: "Short", content: "One" },
+      ),
+    ).toBe('---\ndescription: "Short"\n\ntags: [a]\n---\n\nOne\n');
+  });
+
+  it("keeps each header line's own ending", () => {
+    expect(
+      updateContentSourceFile(
+        PATH,
+        "---\r\ntitle: Field notes\ntags: [a]\r\nmore: b\n---\r\n\r\nOne\r\n",
+        { ...unchanged, title: "Trip notes", content: "One" },
+      ),
+    ).toBe(
+      "---\r\ntitle: Trip notes\ntags: [a]\r\nmore: b\n---\r\n\r\nOne\r\n",
+    );
+  });
+
+  it("leaves what the edit doesn't give", () => {
+    const source =
+      '---\ntitle: Field Notes\ndescription: Outside\nicon: "🌿"\nposition: 9\nisFavorite: true\n---\n\nOne\n';
+    expect(
+      updateContentSourceFile(PATH, source, {
+        title: "Field Notes",
+        content: "Two",
+      }),
+    ).toBe(source.replace("One", "Two"));
   });
 
   it("updates the Content settings the file records", () => {
