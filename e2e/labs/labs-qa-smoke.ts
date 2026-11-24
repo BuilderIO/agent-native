@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 
-import { chromium } from "playwright";
+import { chromium, type BrowserContext, type Page } from "@playwright/test";
 
 import {
   verificationLinkFor,
