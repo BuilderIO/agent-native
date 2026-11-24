@@ -30,6 +30,7 @@ import {
 
 const ACCOUNT = "recipient@example.com";
 const QUERY_KEY = [...INBOX_THREADS_QUERY_KEY, { offset: 0 }];
+const OLDER_QUERY_KEY = [...INBOX_THREADS_QUERY_KEY, { tab: "other" }];
 
 function message(id: string, isRead: boolean): EmailMessage {
   return {
@@ -50,9 +51,10 @@ function message(id: string, isRead: boolean): EmailMessage {
   };
 }
 
-function setup(row: { messageCount: number; unreadCount: number }) {
-  const qc = new QueryClient();
-  qc.setQueryData(QUERY_KEY, {
+type Row = { messageCount: number; unreadCount: number };
+
+function listResult(row: Row, clientSnapshotId: number) {
+  return {
     activeTabId: "important",
     items: [
       { ...message("m1", row.unreadCount === 0), ...row, messageIds: ["m1"] },
@@ -61,8 +63,16 @@ function setup(row: { messageCount: number; unreadCount: number }) {
     accounts: [],
     total: 1,
     syncing: false,
-    clientSnapshotId: 1,
-  });
+    clientSnapshotId,
+  };
+}
+
+function setup(row: Row, olderRow?: Row) {
+  const qc = new QueryClient();
+  if (olderRow) {
+    qc.setQueryData(OLDER_QUERY_KEY, listResult(olderRow, 1));
+  }
+  qc.setQueryData(QUERY_KEY, listResult(row, 2));
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   );
@@ -139,6 +149,18 @@ describe("useMarkRead inbox row", () => {
     await inbox.press(false);
 
     expect(inbox.unreadCount()).toBe(1);
+  });
+
+  it("goes by the list that was fetched last", async () => {
+    const inbox = setup(
+      { messageCount: 2, unreadCount: 2 },
+      { messageCount: 2, unreadCount: 0 },
+    );
+    setCachedThread("t1", [message("m1", false)], ACCOUNT);
+
+    await inbox.press(false);
+
+    expect(inbox.unreadCount()).toBe(2);
   });
 
   it("puts the row back when Gmail refuses the change", async () => {
