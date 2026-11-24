@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 import { parse, type ParserPlugin } from "@babel/parser";
+import { decodeHTMLAttribute } from "entities/decode";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 import {
@@ -1547,7 +1548,8 @@ function addPreviewTokenToResourceUrl(
 ): string {
   if (
     !resourceUrl ||
-    /[\\\s\x00-\x1f\x7f]/.test(resourceUrl) ||
+    resourceUrl.trim() !== resourceUrl ||
+    /[\\\x00-\x1f\x7f-\x9f]|[^\S ]/.test(resourceUrl) ||
     /^(?:[a-z][a-z\d+.-]*:|\/\/|#|%23)/i.test(resourceUrl)
   ) {
     return resourceUrl;
@@ -1629,23 +1631,30 @@ function addOpaqueFrameCredentials(
       );
       const resourceUrl =
         resourceMatch?.[2] ?? resourceMatch?.[3] ?? resourceMatch?.[4] ?? "";
+      const decodedResourceUrl = decodeHTMLAttribute(resourceUrl);
       if (
         !resourceMatch ||
-        !resourceUrl ||
-        /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(resourceUrl)
+        !decodedResourceUrl ||
+        /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(decodedResourceUrl)
       ) {
         return fullTag;
       }
       let nextAttributes = attributes;
       if (previewToken) {
         const tokenizedResourceUrl = addPreviewTokenToResourceUrl(
-          resourceUrl,
+          decodedResourceUrl,
           previewToken,
         );
-        if (tokenizedResourceUrl !== resourceUrl) {
+        if (tokenizedResourceUrl !== decodedResourceUrl) {
+          const escapedResourceUrl = tokenizedResourceUrl
+            .replace(/&/g, "&amp;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
           nextAttributes = nextAttributes.replace(
             resourceMatch[0],
-            resourceMatch[0].replace(resourceUrl, tokenizedResourceUrl),
+            () => `${resourceMatch[1]}="${escapedResourceUrl}"`,
           );
         }
       }

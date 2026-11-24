@@ -2680,7 +2680,7 @@ describe("design connect bridge endpoints", () => {
       expect(html.body).toContain("filter='url(%23n)'");
       expect(html.body).not.toContain("url(%23n?previewToken=");
       expect(html.body).toContain(
-        `/assets/stale.png?mode=dark&previewToken=${bridge.previewToken}`,
+        `/assets/stale.png?mode=dark&amp;previewToken=${bridge.previewToken}`,
       );
       expect(html.body).toContain(
         `src="https://cdn.example.com/anonymous.png"`,
@@ -3101,6 +3101,105 @@ describe("design connect bridge endpoints", () => {
         bridge.server.close(() => resolve()),
       );
       await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("loads spaced local assets without leaking tokens through HTML entities", async () => {
+    const root = tmpDir();
+    const externalPort = await freePort();
+    const externalRequests: string[] = [];
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>';
+    const external = http.createServer((req, res) => {
+      externalRequests.push(req.url ?? "");
+      res.writeHead(200, { "content-type": "image/svg+xml" }).end(svg);
+    });
+    await new Promise<void>((resolve) =>
+      external.listen(externalPort, "127.0.0.1", resolve),
+    );
+    const devPort = await freePort();
+    const localRequests: string[] = [];
+    const dev = http.createServer((req, res) => {
+      const url = req.url ?? "";
+      if (url.startsWith("/assets/")) {
+        localRequests.push(url);
+        res.writeHead(200, { "content-type": "image/svg+xml" }).end(svg);
+      } else {
+        res
+          .writeHead(200, { "content-type": "text/html" })
+          .end(
+            `<!doctype html><img id="spaced" src="/assets/my image.svg?color=red&amp;shape=round" onload="this.dataset.state='loaded'" onerror="this.dataset.state='error'"><img id="external" src="&sol;&sol;127.0.0.1:${externalPort}/external.svg" onload="this.dataset.state='loaded'" onerror="this.dataset.state='error'"><img id="leading" src=" /assets/leading.svg" onload="this.dataset.state='loaded'" onerror="this.dataset.state='error'"><img id="trailing" src="/assets/trailing.svg " onload="this.dataset.state='loaded'" onerror="this.dataset.state='error'"><img id="control" src="/assets/tab&#9;name.svg" onload="this.dataset.state='loaded'" onerror="this.dataset.state='error'"><img id="unquoted" src=/assets/unquoted&#32;name.svg?x=1&amp;y=2 onload="this.dataset.state='loaded'" onerror="this.dataset.state='error'"><img id="dollar" src="/assets/$&amp;figure.svg" onload="this.dataset.state='loaded'" onerror="this.dataset.state='error'">`,
+          );
+      }
+    });
+    await new Promise<void>((resolve) =>
+      dev.listen(devPort, "127.0.0.1", resolve),
+    );
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const hostPort = await freePort();
+    const host = http.createServer((_req, res) =>
+      res
+        .writeHead(200, { "content-type": "text/html" })
+        .end(
+          `<iframe sandbox="allow-scripts" src="http://127.0.0.1:${port}/live-edit?path=/&previewToken=${bridge.previewToken}"></iframe>`,
+        ),
+    );
+    await new Promise<void>((resolve) =>
+      host.listen(hostPort, "127.0.0.1", resolve),
+    );
+    let browser: Browser | undefined;
+    try {
+      browser = await launchBrowser();
+      const page = await browser.newPage();
+      await page.goto(`http://127.0.0.1:${hostPort}/`);
+      const frame = page.frameLocator("iframe");
+      await expect
+        .poll(() => frame.locator("#external").getAttribute("data-state"))
+        .toBe("loaded");
+      await expect
+        .poll(() => frame.locator("#spaced").getAttribute("data-state"))
+        .not.toBeNull();
+      await expect
+        .poll(() => frame.locator("#leading").getAttribute("data-state"))
+        .toBe("error");
+      await expect
+        .poll(() => frame.locator("#trailing").getAttribute("data-state"))
+        .toBe("error");
+      await expect
+        .poll(() => frame.locator("#control").getAttribute("data-state"))
+        .toBe("error");
+      await expect
+        .poll(() => frame.locator("#unquoted").getAttribute("data-state"))
+        .toBe("loaded");
+      await expect
+        .poll(() => frame.locator("#dollar").getAttribute("data-state"))
+        .toBe("loaded");
+      expect
+        .soft(await frame.locator("#spaced").getAttribute("data-state"))
+        .toBe("loaded");
+      expect.soft(externalRequests).toEqual(["/external.svg"]);
+      expect
+        .soft([...localRequests].sort())
+        .toEqual([
+          "/assets/$&figure.svg",
+          "/assets/my%20image.svg?color=red&shape=round",
+          "/assets/unquoted%20name.svg?x=1&y=2",
+        ]);
+    } finally {
+      await browser?.close();
+      await bridge.close();
+      await Promise.all(
+        [host, dev, external].map(
+          (server) =>
+            new Promise<void>((resolve) => server.close(() => resolve())),
+        ),
+      );
     }
   });
 
