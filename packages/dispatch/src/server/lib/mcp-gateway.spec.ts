@@ -2914,6 +2914,124 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
   );
 
   it.each(["workspace-sso", "dispatch-grant"] as const)(
+    "routes root-mounted Workspace app chat directly through %s without changing document embeds",
+    async (route) => {
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("APP_URL", "https://beta.agent-workspace.builder.io");
+      vi.stubEnv(
+        "WORKSPACE_GATEWAY_URL",
+        "https://beta.agent-workspace.builder.io/dispatch",
+      );
+      vi.stubEnv("APP_BASE_PATH", "");
+      vi.stubEnv("VITE_APP_BASE_PATH", "");
+      vi.stubEnv(
+        "IDENTITY_SSO_APP_REGISTRY_JSON",
+        JSON.stringify([
+          {
+            appId: "customer-ticket-triage",
+            clientId: "workspace-client",
+            origin: "https://beta.agent-workspace.builder.io",
+            callbackPath: "/_agent-native/identity/callback",
+            capabilities: ["identity-sso"],
+          },
+        ]),
+      );
+      const workspaceApp = {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/",
+        url: "https://beta.agent-workspace.builder.io",
+        isDispatch: false,
+      };
+      mocks.listWorkspaceApps.mockResolvedValue([workspaceApp]);
+      mocks.discoverAgents.mockResolvedValue([
+        { ...workspaceApp, color: "#14B8A6" },
+      ]);
+      mocks.managerCallTool.mockImplementation(async (_tool, args) =>
+        args.runtime
+          ? {
+              structuredContent: {
+                runtime: "workspace-app-chat",
+                token: "private-chat-credential",
+                targetPath: "/",
+                expiresAt: Date.now() + 900000,
+              },
+            }
+          : {
+              structuredContent: {
+                startUrl:
+                  "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+              },
+            },
+      );
+      const context = {
+        userEmail: "owner@example.test",
+        identityAuthenticatedAtMs: Date.now() - 1000,
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      };
+
+      const document = await runWithRequestContext(context, () => {
+        const input = {
+          app: workspaceApp.id,
+          path: "/",
+          chrome: "minimal" as const,
+        };
+        return route === "workspace-sso"
+          ? createWorkspaceSsoEmbedSession(input)
+          : createGrantedDispatchMcpEmbedSession(input);
+      });
+      expect(mocks.managerConstructor).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          servers: {
+            target: expect.objectContaining({
+              url: "https://beta.agent-workspace.builder.io/dispatch/mcp",
+            }),
+          },
+        }),
+      );
+      expect(mocks.managerCallTool).toHaveBeenLastCalledWith(
+        "mcp__target__create_embed_session",
+        { url: "https://beta.agent-workspace.builder.io/", chrome: "minimal" },
+      );
+      expect(document.startUrl).toBe(
+        "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+      );
+
+      const chat = await runWithRequestContext(context, () =>
+        route === "workspace-sso"
+          ? createWorkspaceSsoEmbedSessionForWorkspaceAppChat(workspaceApp.id)
+          : createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
+              workspaceApp.id,
+            ),
+      );
+      expect.soft(mocks.managerConstructor).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          servers: {
+            target: expect.objectContaining({
+              url: "https://beta.agent-workspace.builder.io/mcp",
+            }),
+          },
+        }),
+      );
+      expect(mocks.managerCallTool).toHaveBeenLastCalledWith(
+        "mcp__target__create_embed_session",
+        {
+          url: "https://beta.agent-workspace.builder.io/",
+          chrome: "minimal",
+          runtime: "workspace-app-chat",
+        },
+      );
+      expect.soft(chat).toEqual({
+        token: "private-chat-credential",
+        targetPath: "/",
+        expiresAt: expect.any(Number),
+        appBaseUrl: "https://beta.agent-workspace.builder.io",
+      });
+    },
+  );
+
+  it.each(["workspace-sso", "dispatch-grant"] as const)(
     "retains the Workspace gateway path for discovered-only app chats through %s",
     async (route) => {
       vi.stubEnv("A2A_SECRET", "test-a2a-secret");
