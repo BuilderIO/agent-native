@@ -148,8 +148,9 @@ inside the new app. Only fork one of those apps when the user explicitly asks
 for a customized copy.
 To save pages or Collection rows to Content, message Content to do the work as
 the signed-in person: `call-agent` to `content` from the agent, or
-`invokeAgent()` with the identity from `resolveA2ACallerAuth()` in server code.
-Never ask the user for a Content token or keep one in an environment variable.
+`invokeAgent()` from a server request, passing the `userEmail`, `orgDomain` and
+`orgSecret` that `resolveA2ACallerAuth()` returns. Never ask the user for a
+Content token or keep one in an environment variable.
 
 ## Editing shared behavior
 

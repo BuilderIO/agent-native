@@ -135,8 +135,9 @@ not a single app that clones every provider integration.
   first-party app just to reuse its data. Delegate or link to the existing app.
 - Do not ask for a Content token, or keep one in an environment variable, to
   save pages or Collection rows. Message Content to do it as the signed-in
-  person: `call-agent` to `content` from the agent, or `invokeAgent()` with the
-  identity from `resolveA2ACallerAuth()` in server code.
+  person: `call-agent` to `content` from the agent, or `invokeAgent()` from a
+  server request, passing the `userEmail`, `orgDomain` and `orgSecret` that
+  `resolveA2ACallerAuth()` returns.
 - Do not hide a multi-provider workflow inside a giant "misc tools" app.
 - Do not add one-off provider endpoints when `provider-api-request` can express
   the upstream API safely.
