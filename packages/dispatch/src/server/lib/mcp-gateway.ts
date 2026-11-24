@@ -2102,7 +2102,10 @@ async function createEmbedSessionForResolvedApp(input: {
     };
   }
 
-  const targetMcpUrl = appMcpUrl(target.app);
+  const targetMcpUrl =
+    input.runtime && new URL(appHomeBaseUrl(target.app)).pathname !== "/"
+      ? `${appHomeBaseUrl(target.app)}/mcp`
+      : appMcpUrl(target.app);
   const firstPartyMcp =
     (input.workspaceSso === true || input.runtime === "workspace-app-chat") &&
     isWorkspaceSsoAppUrl(

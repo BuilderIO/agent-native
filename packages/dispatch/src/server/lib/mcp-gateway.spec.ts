@@ -2532,23 +2532,33 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         isDispatch: false,
       },
     ]);
-    mocks.managerCallTool.mockImplementation(async (_tool, args) =>
-      args.runtime
-        ? {
-            structuredContent: {
-              runtime: "workspace-app-chat",
-              token: "private-chat-credential",
-              targetPath: "/",
-              expiresAt: Date.now() + 900000,
+    mocks.managerCallTool.mockImplementation(async (_tool, args) => {
+      if (args.runtime) {
+        expect(mocks.managerConstructor).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            servers: {
+              target: expect.objectContaining({
+                url: "https://beta.agent-workspace.builder.io/customer-ticket-triage/mcp",
+              }),
             },
-          }
-        : {
-            structuredContent: {
-              startUrl:
-                "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
-            },
+          }),
+        );
+        return {
+          structuredContent: {
+            runtime: "workspace-app-chat",
+            token: "private-chat-credential",
+            targetPath: "/",
+            expiresAt: Date.now() + 900000,
           },
-    );
+        };
+      }
+      return {
+        structuredContent: {
+          startUrl:
+            "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+        },
+      };
+    });
 
     // Independent auth review: retain the document assertion, then pin the
     // separate chat caller's explicit purpose. Public inputs cannot escalate it.
@@ -2573,6 +2583,27 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       },
     );
 
+    expect(mocks.managerConstructor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            url: "https://beta.agent-workspace.builder.io/dispatch/mcp",
+          }),
+        },
+      }),
+    );
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      undefined,
+      undefined,
+      expect.objectContaining({
+        audience: "https://beta.agent-workspace.builder.io/dispatch/mcp",
+        preferGlobalSecret: true,
+      }),
+    );
+    mocks.managerConstructor.mockClear();
+    mocks.signA2AToken.mockClear();
+
     const session = await runWithRequestContext(
       {
         userEmail: "owner@example.test",
@@ -2589,7 +2620,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       expect.objectContaining({
         servers: {
           target: expect.objectContaining({
-            url: "https://beta.agent-workspace.builder.io/dispatch/mcp",
+            url: "https://beta.agent-workspace.builder.io/customer-ticket-triage/mcp",
           }),
         },
       }),
@@ -2599,7 +2630,8 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       undefined,
       expect.objectContaining({
-        audience: "https://beta.agent-workspace.builder.io/dispatch/mcp",
+        audience:
+          "https://beta.agent-workspace.builder.io/customer-ticket-triage/mcp",
         preferGlobalSecret: true,
       }),
     );
