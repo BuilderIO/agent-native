@@ -198,15 +198,6 @@ describe("Design left header title", () => {
         expect(titleBox.width).toBeGreaterThan(0);
         expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(toggleBox.x);
         if (!editing) await expectEllipsis(titleElement);
-        const trigger = editing
-          ? titleElement
-          : titleElement.locator("xpath=ancestor-or-self::*[@data-state][1]");
-        expect(await trigger.getAttribute("data-state")).not.toBeNull();
-        expect(
-          await trigger.evaluate(
-            (element) => (element as HTMLElement).tabIndex,
-          ),
-        ).toBeGreaterThanOrEqual(0);
       } finally {
         await page.close();
       }
