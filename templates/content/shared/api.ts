@@ -1383,7 +1383,7 @@ export interface ContentDatabaseNavigationItem {
   parentId: string | null;
   title: string;
   icon: string | null;
-  type: "page" | "database";
+  type: "page" | "database" | "folder";
   hasChildren: boolean;
   spaceId: string | null;
   sourceKind: string | null;
