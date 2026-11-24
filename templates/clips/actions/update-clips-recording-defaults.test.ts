@@ -4,6 +4,7 @@ const state = vi.hoisted(() => ({
   email: "member@example.com" as string | null,
   stored: null as Record<string, unknown> | null,
   organizationDefault: null as string | null,
+  enforced: false,
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -29,8 +30,10 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
-  readActiveOrganizationDefaultVisibility: async () =>
-    state.organizationDefault,
+  readActiveOrganizationVisibilityPolicy: async () => ({
+    defaultVisibility: state.organizationDefault,
+    enforced: state.enforced,
+  }),
 }));
 
 import getAction from "./get-clips-recording-defaults";
@@ -48,6 +51,7 @@ beforeEach(() => {
   state.email = "member@example.com";
   state.stored = null;
   state.organizationDefault = null;
+  state.enforced = false;
 });
 
 describe("Clips recording defaults actions", () => {
@@ -56,6 +60,7 @@ describe("Clips recording defaults actions", () => {
       defaultPlaybackSpeed: "1.2",
       defaultRecordingVisibility: null,
       organizationDefaultVisibility: null,
+      organizationVisibilityEnforced: false,
       effectiveRecordingVisibility: "public",
       recordingVisibilitySource: "built-in",
     });
@@ -69,6 +74,7 @@ describe("Clips recording defaults actions", () => {
       defaultPlaybackSpeed: "1.2",
       defaultRecordingVisibility: null,
       organizationDefaultVisibility: "private",
+      organizationVisibilityEnforced: false,
       effectiveRecordingVisibility: "private",
       recordingVisibilitySource: "organization",
     });
@@ -81,9 +87,33 @@ describe("Clips recording defaults actions", () => {
     await expect(get.run({})).resolves.toMatchObject({
       defaultRecordingVisibility: "public",
       organizationDefaultVisibility: "private",
+      organizationVisibilityEnforced: false,
       effectiveRecordingVisibility: "public",
       recordingVisibilitySource: "personal",
     });
+  });
+
+  it("ignores a stored personal choice while the organization enforces its default", async () => {
+    state.organizationDefault = "org";
+    state.enforced = true;
+    state.stored = { defaultRecordingVisibility: "public" };
+
+    await expect(get.run({})).resolves.toMatchObject({
+      defaultRecordingVisibility: null,
+      organizationVisibilityEnforced: true,
+      effectiveRecordingVisibility: "org",
+      recordingVisibilitySource: "organization",
+    });
+  });
+
+  it("refuses a personal visibility while the organization enforces its default", async () => {
+    state.organizationDefault = "org";
+    state.enforced = true;
+
+    await expect(
+      update.run({ defaultRecordingVisibility: "public" }),
+    ).rejects.toThrow(/enforces/);
+    expect(state.stored).toBeNull();
   });
 
   it("saves one default and keeps the other Clips preferences", async () => {
@@ -97,6 +127,7 @@ describe("Clips recording defaults actions", () => {
       defaultPlaybackSpeed: "1.5",
       defaultRecordingVisibility: "org",
       organizationDefaultVisibility: null,
+      organizationVisibilityEnforced: false,
       effectiveRecordingVisibility: "org",
       recordingVisibilitySource: "personal",
     });
@@ -122,6 +153,7 @@ describe("Clips recording defaults actions", () => {
       defaultPlaybackSpeed: "2",
       defaultRecordingVisibility: null,
       organizationDefaultVisibility: "private",
+      organizationVisibilityEnforced: false,
       effectiveRecordingVisibility: "private",
       recordingVisibilitySource: "organization",
     });
