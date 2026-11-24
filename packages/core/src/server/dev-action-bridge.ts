@@ -10,15 +10,6 @@
  * running, forward the call to it over loopback instead: the server already
  * holds the connection and the action registry, so the CLI never needs its
  * own.
- *
- * Protocol: the dev server writes `<appRoot>/.agent-native/dev-server.json`
- * (mode 0600) while listening, and the CLI reads it before touching the
- * database. The two sides only proceed when the file's `databaseKey` (a hash
- * of the resolved `DATABASE_URL`) matches the CLI's own — a stale file from a
- * different app/database in the same directory must never be trusted. The
- * bearer token in that file is also kept in the server's own process memory
- * (never persisted anywhere else) and compared with a timing-safe check on
- * every request.
  */
 
 import crypto from "node:crypto";
@@ -48,11 +39,13 @@ import {
 import { notifyActionChange } from "./action-change.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
 import {
-  DEV_ACTION_DISCOVERY_PATH,
   type DevActionDiscovery,
+  devActionDiscoveryFilePath,
+  LEGACY_DEV_ACTION_DISCOVERY_PATH,
   readDevActionDiscoveryFile,
 } from "./dev-action-discovery.js";
 import { getH3App } from "./framework-request-handler.js";
+import { isLoopbackPeerRequest } from "./loopback.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -69,7 +62,10 @@ export const DEV_ACTION_ORG_HEADER = "x-agent-native-dev-org";
 /** "personal" when the CLI caller acts in no org; see AGENT_ORG_SCOPE_ENV. */
 export const DEV_ACTION_ORG_SCOPE_HEADER = "x-agent-native-dev-org-scope";
 
-export { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
+export {
+  devActionDiscoveryFilePath,
+  readDevActionDiscoveryFile,
+} from "./dev-action-discovery.js";
 
 function devOrgChoiceFromHeaders(event: H3Event): DevOrgChoice {
   return {
@@ -214,6 +210,12 @@ function resolveExpectedDevActionToken(): string | undefined {
   );
 }
 
+/**
+ * Records this dev server for the CLI at `devActionDiscoveryFilePath`, never
+ * inside a directory the dev server serves. The CLI forwards only when the
+ * file's `databaseKey` matches its own database, and the bearer token is
+ * checked against this process's memory with a timing-safe compare.
+ */
 export function writeDevActionDiscoveryFile(
   appRoot: string,
   origin: string,
@@ -221,7 +223,8 @@ export function writeDevActionDiscoveryFile(
 ): void {
   const token = crypto.randomBytes(32).toString("hex");
   devBridgeProcess.__agentNativeDevActionToken = token;
-  const filePath = path.join(appRoot, DEV_ACTION_DISCOVERY_PATH);
+  removeLegacyDevActionDiscoveryFile(appRoot);
+  const filePath = devActionDiscoveryFilePath(appRoot);
   const discovery: DevActionDiscovery = {
     origin,
     pid: process.pid,
@@ -229,8 +232,9 @@ export function writeDevActionDiscoveryFile(
     databaseKey,
   };
   try {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
     fs.writeFileSync(filePath, JSON.stringify(discovery), { mode: 0o600 });
+    fs.chmodSync(filePath, 0o600);
   } catch (error) {
     console.warn(
       "[agent-native] could not write dev action discovery file:",
@@ -245,12 +249,25 @@ export function writeDevActionDiscoveryFile(
   }
 }
 
+function removeLegacyDevActionDiscoveryFile(appRoot: string): void {
+  try {
+    fs.unlinkSync(path.join(appRoot, LEGACY_DEV_ACTION_DISCOVERY_PATH));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn(
+        "[agent-native] could not remove the legacy dev action discovery file:",
+        error,
+      );
+    }
+  }
+}
+
 export function removeDevActionDiscoveryFile(appRoot: string): void {
   devBridgeProcess.__agentNativeDevActionToken = undefined;
   const current = readDevActionDiscoveryFile(appRoot);
   if (!current || current.pid !== process.pid) return;
   try {
-    fs.unlinkSync(path.join(appRoot, DEV_ACTION_DISCOVERY_PATH));
+    fs.unlinkSync(devActionDiscoveryFilePath(appRoot));
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
       console.warn(
@@ -324,7 +341,6 @@ export function mountDevActionForwardRoute(
   getH3App(nitroApp).use(
     DEV_ACTION_ROUTE,
     defineEventHandler(async (event: H3Event) => {
-      const { isLoopbackRequest } = await import("./auth.js");
       // No discovery token is ever generated outside a local dev server, so
       // this also fails closed in practice without the explicit check —
       // it's kept explicit so a production deploy never even compares tokens.
@@ -332,7 +348,7 @@ export function mountDevActionForwardRoute(
         setResponseStatus(event, 401);
         return { ok: false, error: "Not available outside local development." };
       }
-      if (!isLoopbackRequest(event)) {
+      if (!isLoopbackPeerRequest(event)) {
         setResponseStatus(event, 401);
         return {
           ok: false,
@@ -480,12 +496,11 @@ export function mountDevActionForwardRoute(
 async function rejectNonDevRequest(
   event: H3Event,
 ): Promise<{ ok: false; error: string } | null> {
-  const { isLoopbackRequest } = await import("./auth.js");
   if (resolveDeployEnvironment() === "production") {
     setResponseStatus(event, 401);
     return { ok: false, error: "Not available outside local development." };
   }
-  if (!isLoopbackRequest(event)) {
+  if (!isLoopbackPeerRequest(event)) {
     setResponseStatus(event, 401);
     return {
       ok: false,
