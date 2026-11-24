@@ -2081,6 +2081,7 @@ export interface PreviewBuilderSourceReviewRequest {
   documentIds?: string[];
   bodyComparison?: "text" | "blocks";
   batchSize?: number;
+  quickStart?: boolean;
 }
 
 export interface PreviewBuilderSourceReviewResponse {
