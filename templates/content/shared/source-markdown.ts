@@ -18,6 +18,7 @@ import {
 const EMPTY_BLOCK = "<empty-block/>";
 const BLANK_LINE = "\n\n";
 const LINE_BREAK = "\n";
+const NEEDS_BLANK_LINE_RE = /^\s*(?:[|<]|[-=]+\s*$)/;
 const MAX_DISTINCT_KEYS = 0xffff;
 const MAX_PAIRING_CANDIDATES = 50;
 const MIN_PAIRING_SIMILARITY = 0.4;
@@ -84,7 +85,7 @@ export function mergeSourceMarkdown(source: string, page: string): string {
   const finalEol = source === "" || /[\r\n]$/.test(source) ? layout.eol : "";
   const candidates = [
     ...[patchBlocks(layout), rewriteBlock].flatMap((write) =>
-      [...new Set([usualGap(layout), LINE_BREAK])].map(
+      [usualGap(layout), null].map(
         (gap) => () => writeStretches(layout, stretches, write, gap),
       ),
     ),
@@ -344,7 +345,7 @@ function writeStretches(
   layout: SourceLayout,
   stretches: readonly Stretch[],
   write: BlockWriter,
-  usual: string,
+  usual: string | null,
 ): string {
   const empty = layout.blocks.length === 0;
   const opening = empty ? layout.trailing : layout.leading;
@@ -362,13 +363,28 @@ function writeStretches(
   let out = empty && isBlank(opening) ? "" : opening;
   if (empty && out !== "" && !/[\r\n]$/.test(out)) out += layout.eol;
   let passed: string[] = [];
+  let reached = 0;
   let previous: { text: string; inserted: boolean } | undefined;
+  const pass = (block: SourceBlock) => {
+    passed.push(block.gap);
+    reached += 1;
+  };
+  const isBeforeBlankLine = () =>
+    lineBreaks(
+      [
+        ...passed,
+        ...layout.blocks.slice(reached, reached + 1).map((next) => next.gap),
+      ].join(""),
+    ) > lineBreaks(LINE_BREAK);
   const add = (text: string, block: SourceBlock | undefined) => {
     const own = block ? joinedGap([...passed, block.gap]) : "";
+    const needsBlankLine =
+      [previous?.text ?? "", text].some((side) =>
+        NEEDS_BLANK_LINE_RE.test(side),
+      ) ||
+      (usual !== null && !block && isBeforeBlankLine());
     const fresh = withEol(
-      [previous?.text ?? "", text].some((side) => /^\t*\|/.test(side))
-        ? BLANK_LINE
-        : usual,
+      needsBlankLine ? BLANK_LINE : (usual ?? LINE_BREAK),
       layout.eol,
     );
     if (!previous) out += isBlank(own) ? "" : own;
@@ -377,7 +393,9 @@ function writeStretches(
     else out += lineBreaks(own) >= lineBreaks(fresh) ? own : fresh;
     out += text;
     previous = { text, inserted: !block };
-    if (block) passed = [];
+    if (!block) return;
+    passed = [];
+    reached += 1;
   };
 
   for (const stretch of stretches) {
@@ -393,12 +411,12 @@ function writeStretches(
       if (block) {
         for (const skipped of waiting) {
           if (skipped === block) break;
-          passed.push(skipped.gap);
+          pass(skipped);
         }
       }
       add(text, block);
     }
-    for (const skipped of waiting) passed.push(skipped.gap);
+    for (const skipped of waiting) pass(skipped);
   }
   const dropped = passed.filter((gap) => !isBlank(gap)).join("");
   return out + dropped + (empty ? layout.eol : layout.trailing);
@@ -410,12 +428,13 @@ function ordinaryMarkdown(page: PageBlock): string {
   return table !== null && readsAs(table, page.key) ? table : page.key;
 }
 
-function writesHtml(block: SourceBlock): boolean {
-  return block.text.trimStart().startsWith("<");
+function writesHtmlTable(block: SourceBlock): boolean {
+  return /^\s*<table[\s>]/i.test(block.text);
 }
 
 function rewriteBlock(block: SourceBlock | undefined, page: PageBlock): string {
-  return block && (writesHtml(block) || block.text === block.keys.join("\n"))
+  return block &&
+    (writesHtmlTable(block) || block.text === block.keys.join("\n"))
     ? page.key
     : ordinaryMarkdown(page);
 }
@@ -435,7 +454,7 @@ function patchBlock(block: SourceBlock, page: PageBlock): string {
   const before = block.keys.join("\n");
   if (block.text === before) return page.key;
   const attempts =
-    page.node.type === "table" && !writesHtml(block)
+    page.node.type === "table" && !writesHtmlTable(block)
       ? [() => patchPipeTable(block, page.node)]
       : carriedEdits(block, before, page);
   for (const attempt of attempts) {
@@ -670,7 +689,8 @@ function writePipeTable(
     const line = cells
       .map((cell, index) => ` ${cell} `.padEnd(widths.get(index) ?? 0))
       .join("|");
-    return indent + (open ? `|${line}` : line.trimStart()) + close;
+    const row = open + (open ? line : line.trimStart());
+    return indent + (close ? row + close : row.trimEnd());
   };
 
   const matches = matchKeys(

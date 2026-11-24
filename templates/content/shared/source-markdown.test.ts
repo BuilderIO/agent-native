@@ -171,6 +171,26 @@ describe("mergeSourceMarkdown", () => {
     );
   });
 
+  it("keeps a new block apart from the paragraph above a blank line in a file with wrapped lines", () => {
+    const source =
+      "One wraps\nover two\nor three lines.\n\nReactions are permanent and stay\nfor good.\n";
+    expectMerge(
+      source,
+      (page) => page.replace("Reactions are", "Reactions\nare"),
+      source.replace("Reactions are", "Reactions\n\nare"),
+    );
+    expectMerge(
+      source,
+      (page) => page.replace("or three lines.", "or three lines.\nNew"),
+      source.replace("or three lines.", "or three lines.\n\nNew"),
+    );
+    expectMerge(
+      source,
+      (page) => page.replace("over two", "over two\nNew"),
+      source.replace("over two", "over two\nNew"),
+    );
+  });
+
   it("splits a paragraph in place", () => {
     expectMerge(
       NOTE,
@@ -245,6 +265,29 @@ describe("mergeSourceMarkdown", () => {
       "| a | b |\n| --- | --- |\n| 1 | 2 |\n",
       (page) => page.replace("<td>2</td>", "<td>`x|y`</td>"),
       "| a | b |\n| --- | --- |\n| 1 | `x\\|y` |\n",
+    );
+  });
+
+  it("keeps a pipe table whose first cell is HTML a pipe table", () => {
+    const table = "<b>A</b> | B\n--- | ---\n1 | 2\n";
+    expectMerge(
+      table,
+      (page) => page.replace("<td>2</td>", "<td>`x|y`</td>"),
+      table.replace("2\n", "`x\\|y`\n"),
+    );
+  });
+
+  it("puts a blank line around HTML and before a rule in a file without blank lines", () => {
+    const source = "# A\n# B\n# C\n# D\n\n<div>text</div>\n\nEnd\n";
+    expectMerge(
+      source,
+      (page) => `${page}\n${page.split("\n").slice(4, 5).join("")}\nAfter`,
+      `${source}\n<div>text</div>\n\nAfter\n`,
+    );
+    expectMerge(
+      "# A\n# B\n# C\nLabel\n",
+      (page) => `${page}\n---\nAfter`,
+      "# A\n# B\n# C\nLabel\n\n---\n\nAfter\n",
     );
   });
 

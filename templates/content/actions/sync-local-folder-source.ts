@@ -98,6 +98,7 @@ function sourceValues(args: {
   hash: string;
   pageHash: string;
   metadataHash: string;
+  explicitId: boolean;
   workingCopyId: string;
   bridgeFileIdentity?: string;
 }) {
@@ -112,6 +113,7 @@ function sourceValues(args: {
     contentHash: args.hash,
     pageHash: args.pageHash,
     metadataHash: args.metadataHash,
+    explicitId: args.explicitId,
     observedRevision,
     sourceFileIdentity: localFolderSourceFileIdentity({
       workingCopyId: args.workingCopyId,
@@ -403,10 +405,9 @@ export default defineAction({
     ) => {
       const values = parseJson(row.sourceValuesJson);
       const page = snapshot.documentById.get(row.documentId);
-      if (!page) return false;
-      if (!values.bridgeFileIdentity && !fileIdentities[file.path]) return true;
       return (
-        typeof values.pageHash === "string" &&
+        !!page &&
+        values.explicitId === false &&
         (values.pageHash !== contentHash(page.content) ||
           (values.metadataHash !== metadataHash(page) &&
             metadataHash(page) === metadataHash(file)))
@@ -990,6 +991,7 @@ export default defineAction({
               hash: plan.incomingHash,
               pageHash: contentHash(plan.pageContent),
               metadataHash: plan.incomingMetadataHash,
+              explicitId: Boolean(plan.file.id),
               workingCopyId: localIdentity.workingCopy.id,
               bridgeFileIdentity: plan.bridgeFileIdentity,
             }),

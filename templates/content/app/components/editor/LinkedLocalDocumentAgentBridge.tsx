@@ -37,6 +37,17 @@ type ManagedMetadata = Pick<
   | "visibility"
 >;
 
+function managedMetadata(document: Document): ManagedMetadata {
+  return {
+    parentId: document.parentId,
+    icon: document.icon,
+    position: document.position,
+    isFavorite: document.isFavorite,
+    hideFromSearch: document.hideFromSearch,
+    visibility: document.visibility,
+  };
+}
+
 function governedByFile(document: Document, page: ManagedMetadata) {
   return { ...page, icon: document.icon ?? page.icon };
 }
@@ -240,7 +251,7 @@ export function LinkedLocalDocumentAgentBridge({
         onPersistedRef.current(
           {
             ...readBack.document,
-            icon: readBack.document.icon ?? current.icon,
+            ...governedByFile(readBack.document, managedMetadata(current)),
           },
           readBack.revision,
         );

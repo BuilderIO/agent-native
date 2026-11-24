@@ -11,7 +11,11 @@ const bridge = vi.hoisted(() => ({
   actions: [] as {
     run: (args: Record<string, unknown>) => Promise<unknown>;
   }[],
-  file: { content: "", icon: null as string | null },
+  file: {
+    content: "",
+    icon: null as string | null,
+    isFavorite: undefined as boolean | undefined,
+  },
   write: vi.fn(),
 }));
 
@@ -33,7 +37,11 @@ vi.mock("@/lib/local-content-source-files", () => ({
     runtime: "desktop",
     revision: "r1",
     content: bridge.file.content,
-    document: { ...base, ...bridge.file },
+    document: {
+      ...base,
+      ...bridge.file,
+      isFavorite: bridge.file.isFavorite ?? base.isFavorite,
+    },
   }),
   writeDocumentToLinkedLocalSource: async (next: Document) => {
     bridge.write(next.content);
@@ -75,7 +83,11 @@ describe("LinkedLocalDocumentAgentBridge", () => {
   const onPersisted = vi.fn();
 
   beforeEach(async () => {
-    bridge.file = { content: "Alpha\n\nBeta\n", icon: null };
+    bridge.file = {
+      content: "Alpha\n\nBeta\n",
+      icon: null,
+      isFavorite: undefined,
+    };
     bridge.write.mockClear();
     onPersisted.mockClear();
     root = createRoot(globalThis.document.createElement("div"));
@@ -118,6 +130,17 @@ describe("LinkedLocalDocumentAgentBridge", () => {
     expect(bridge.write).toHaveBeenCalledWith("Alpha\nGamma");
     expect(onPersisted).toHaveBeenCalledWith(
       expect.objectContaining({ icon: "🌿", content: "Alpha\nGamma" }),
+      "r1",
+    );
+  });
+
+  it("keeps the page's favorite when the file records an older one", async () => {
+    bridge.file.isFavorite = false;
+    await expect(run([{ find: "Beta", replace: "Gamma" }])).resolves.toEqual([
+      expect.objectContaining({ status: "persisted" }),
+    ]);
+    expect(onPersisted).toHaveBeenCalledWith(
+      expect.objectContaining({ isFavorite: true, position: 4 }),
       "r1",
     );
   });

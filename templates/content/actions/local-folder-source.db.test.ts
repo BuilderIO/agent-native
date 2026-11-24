@@ -1700,7 +1700,7 @@ describe("local-folder Content source", () => {
     ]);
   });
 
-  it("follows a renamed file in a folder that gives its files no identity, unless two files read the same", async () => {
+  it("follows a renamed file that has no identity only when its page was saved since the last sync and one file reads the same", async () => {
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({
         connectionId: "browser-folder-rename",
@@ -1713,23 +1713,43 @@ describe("local-folder Content source", () => {
       runWithRequestContext({ userEmail: OWNER }, () =>
         syncLocalFolder.run({ sourceId: connection.sourceId, files }),
       );
-    const initial = await sync({ "one.md": "* one", "two.md": "Two" });
-    const idOf = (path: string) =>
-      initial.created.find((page) => page.path === path)?.id;
-
-    const moved = await sync({ "one-moved.md": "* one", "two.md": "Two" });
-    expect(moved.created).toEqual([]);
-    expect(moved.updated).toEqual([
-      expect.objectContaining({ id: idOf("one.md"), path: "one-moved.md" }),
-    ]);
-
-    const copied = await sync({
-      "one-moved.md": "* one",
-      "two-a.md": "Two",
-      "two-b.md": "Two",
+    const initial = await sync({
+      "saved.md": "* one",
+      "unsaved.md": "Unsaved",
+      "copied.md": "Copied",
+      "marked.md": "---\nid: rename-marked-page\n---\nMarked",
     });
-    expect(copied.created).toHaveLength(2);
-    expect(copied.created.map(({ id }) => id)).not.toContain(idOf("two.md"));
+    const save = async (path: string, content: string) => {
+      const id = initial.created.find((page) => page.path === path)?.id;
+      if (!id) throw new Error(`${path} has no page.`);
+      await getDb()
+        .update(schema.documents)
+        .set({ content, updatedAt: new Date().toISOString() })
+        .where(eq(schema.documents.id, id));
+      return id;
+    };
+    const savedId = await save("saved.md", "- one more");
+    await save("copied.md", "Copied more");
+    await save("marked.md", "Marked more");
+
+    const moved = await sync({
+      "saved-moved.md": "* one more",
+      "unsaved-moved.md": "Unsaved",
+      "copied-a.md": "Copied more",
+      "copied-b.md": "Copied more",
+      "marked-moved.md": "Marked more",
+    });
+    expect(moved.updated).toEqual([
+      expect.objectContaining({ id: savedId, path: "saved-moved.md" }),
+    ]);
+    expect(moved.created.map(({ path }) => path).sort()).toEqual([
+      "copied-a.md",
+      "copied-b.md",
+      "marked-moved.md",
+      "unsaved-moved.md",
+    ]);
+    const initialIds = initial.created.map(({ id }) => id);
+    for (const { id } of moved.created) expect(initialIds).not.toContain(id);
   });
 
   it("keeps a remaining folder link when another source deletes the same page", async () => {
