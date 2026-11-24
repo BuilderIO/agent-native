@@ -804,6 +804,16 @@ const editor = {
       "Le bloc a changé avant de pouvoir être déplacé, donc rien n’a été déplacé.",
     moveFailed: "Impossible de déplacer le bloc vers {{title}}",
     openPage: "Ouvrir",
+    copyLink: "Copier le lien",
+    linkCopied: "Lien copié",
+    copyLinkFailed: "Impossible de copier le lien",
+    linkNotReady:
+      "Le lien de ce bloc n’est pas encore prêt. Réessayez dans un instant.",
+    linkedBlockDeleted: "Le bloc vers lequel pointe ce lien a été supprimé.",
+    linkedBlockMissing:
+      "Impossible de trouver le bloc vers lequel pointe ce lien.",
+    linkedBlockLookupFailed:
+      "Impossible d’ouvrir le bloc vers lequel pointe ce lien. Rechargez la page pour réessayer.",
   },
   noDocumentSelected: "Aucun document sélectionné",
   registryBlockLoadError:

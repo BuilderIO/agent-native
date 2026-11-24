@@ -801,6 +801,17 @@ const editor = {
       "Der Block hat sich geändert, bevor er verschoben werden konnte. Nichts wurde verschoben.",
     moveFailed: "Der Block konnte nicht nach {{title}} verschoben werden",
     openPage: "Öffnen",
+    copyLink: "Link kopieren",
+    linkCopied: "Link kopiert",
+    copyLinkFailed: "Der Link konnte nicht kopiert werden",
+    linkNotReady:
+      "Der Link zu diesem Block ist noch nicht bereit. Versuche es gleich noch einmal.",
+    linkedBlockDeleted:
+      "Der Block, auf den dieser Link verweist, wurde gelöscht.",
+    linkedBlockMissing:
+      "Der Block, auf den dieser Link verweist, wurde nicht gefunden.",
+    linkedBlockLookupFailed:
+      "Der Block, auf den dieser Link verweist, konnte nicht geöffnet werden. Lade die Seite neu, um es noch einmal zu versuchen.",
   },
   noDocumentSelected: "Kein Dokument ausgewählt",
   registryBlockLoadError:
