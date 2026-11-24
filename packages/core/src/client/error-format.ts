@@ -577,6 +577,8 @@ export function normalizeChatError(
     };
   }
 
+  if (providerMessage) return { message: providerMessage, details: text };
+
   if (looksHtml) {
     return {
       message:

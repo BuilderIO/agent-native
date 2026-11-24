@@ -81,9 +81,9 @@ describe("describeCredentialScopeGap", () => {
       );
 
       expect(message).toBe(
-        'Ask an organization owner or admin to save "GITHUB_TOKEN" with ' +
-          "Workspace or Organization scope. This workspace has it only as " +
-          "a Personal key, which works only for the member who saved it.",
+        "Ask an organization owner or admin to save it with Workspace or " +
+          "Organization scope. This workspace has it only as a Personal " +
+          "key, which works only for the member who saved it.",
       );
       expect(message).not.toContain("integration");
       expect(message).not.toContain("Save your own");
@@ -145,6 +145,23 @@ describe("describeCredentialScopeGap", () => {
     expect(message).toContain("Personal key");
   });
 
+  it("ends by naming the key it found when several were tried", async () => {
+    execute = async ({ args }) =>
+      args?.[0] === "GH_TOKEN" ? { rows: [{ 1: 1 }] } : { rows: [] };
+
+    const message = await describeCredentialScopeGap(
+      ["GITHUB_TOKEN", "GH_TOKEN"],
+      { userEmail: "owner@example.com", orgId: "org-1" },
+    );
+
+    expect(message).toBe(
+      "Ask an organization owner or admin to save it with Workspace or " +
+        "Organization scope. This workspace has it only as a Personal " +
+        "key, which works only for the member who saved it. The saved key " +
+        "is GH_TOKEN.",
+    );
+  });
+
   it("stays quiet when the key is missing everywhere in the org", async () => {
     const message = await describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
       userEmail: "owner@example.com",
@@ -184,7 +201,7 @@ describe("describeCredentialScopeGap across organizations", () => {
     resolveOrgIdForEmailResult = null;
   });
 
-  it("names the organization holding the key and the mismatch as the cause", async () => {
+  it("leads with both fixes, naming the organization holding the key but not the key, then the cause", async () => {
     onlyAnotherMemberOrgHasKey("Builder.io");
 
     const message = await describeCredentialScopeGap(
@@ -192,11 +209,41 @@ describe("describeCredentialScopeGap across organizations", () => {
       { userEmail: "tim@example.com", orgId: "coach-org" },
     );
 
-    expect(message).toContain("ACADEMY_CONVEX_SITE_URL");
-    expect(message).toContain('"Builder.io" organization');
-    expect(message).toContain(
-      "organization mismatch rather than a missing key",
+    // oracle-change: the message was reworded fix-first; one exact match replaces three partial matches on the old wording
+    expect(message).toBe(
+      "Save it in this organization, or switch your active organization " +
+        "to \"Builder.io\", where it's saved. Credentials aren't shared " +
+        "between organizations.",
     );
+  });
+
+  it("ends by naming the key it found when several were tried", async () => {
+    execute = async ({ sql, args }) =>
+      sql.includes(CROSS_ORG_PROBE) && args?.[1] === "GH_TOKEN"
+        ? { rows: [{ org_name: "Builder.io" }] }
+        : { rows: [] };
+
+    const message = await describeCredentialScopeGap(
+      ["GITHUB_TOKEN", "GH_TOKEN"],
+      { userEmail: "owner@example.com", orgId: "org-1" },
+    );
+
+    expect(message).toBe(
+      "Save it in this organization, or switch your active organization " +
+        "to \"Builder.io\", where it's saved. Credentials aren't shared " +
+        "between organizations. The saved key is GH_TOKEN.",
+    );
+  });
+
+  it("trims the organization's name", async () => {
+    onlyAnotherMemberOrgHasKey("  Builder.io  ");
+
+    const message = await describeCredentialScopeGap(["GITHUB_TOKEN"], {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    expect(message).toContain('organization to "Builder.io", where');
   });
 
   it("bounds the probe to the caller's own memberships and excludes the active org", async () => {
@@ -227,7 +274,9 @@ describe("describeCredentialScopeGap across organizations", () => {
       orgId: "org-1",
     });
 
-    expect(message).toContain("another organization");
+    expect(message).toMatch(
+      /^Save it in this organization, or switch your active organization to one where it's saved\. /,
+    );
     expect(message).not.toContain("org-1");
   });
 
