@@ -724,6 +724,7 @@ export async function runBigQueryAgentQuery(
   const record = decided?.record ?? emptyRecord();
   const executionId = randomUUID();
   const queryHash = createHash("sha256").update(input.sql).digest("hex");
+  let submission: "not_run" | "unknown" | "accepted" = "not_run";
   const report = async (): Promise<OutsideAgentBigQueryReport> => {
     try {
       return await bounded(call.report(), deadline.wrapUp);
@@ -771,15 +772,16 @@ export async function runBigQueryAgentQuery(
         source: input.source,
         jobId: record.jobId,
       });
+      const jobId = submission === "not_run" ? null : record.jobId;
       return {
         status: "failed",
         code: "execution_record_unavailable",
         message:
           "The query's governance record could not be saved, so its results are withheld. " +
-          (record.jobId
-            ? `BigQuery job ${record.jobId} ran; do not resubmit it. Try a new query later.`
-            : "Nothing ran. Try again later."),
-        jobId: record.jobId,
+          (jobId === null
+            ? "Nothing ran. Try again later."
+            : `BigQuery job ${jobId} ${submission === "unknown" ? "may have run" : "ran"}; do not resubmit it. Try a new query later.`),
+        jobId,
         cost:
           "cost" in result && result.cost && "billedBytes" in result.cost
             ? result.cost
@@ -969,12 +971,13 @@ export async function runBigQueryAgentQuery(
   usage.location = jobLocation;
   const acceptedButUnread =
     outcome.status === "uncertain" && outcome.reason === "poll_unreadable";
-  usage.submissionState =
+  submission =
     outcome.status === "rejected" || outcome.status === "not_submitted"
-      ? "rejected"
+      ? "not_run"
       : outcome.status === "uncertain" && !acceptedButUnread
         ? "unknown"
         : "accepted";
+  usage.submissionState = submission === "not_run" ? "rejected" : submission;
   await bounded(
     finalizeBigQueryJobUsage(usage, token, usageRecorded, deadline.wrapUp),
     deadline.wrapUp,

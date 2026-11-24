@@ -902,6 +902,62 @@ describe("runBigQueryAgentQuery", () => {
       expect.objectContaining({ state: "settled" }),
     ]);
   });
+
+  const failFinalRecord = (status: string) => {
+    database.stall = (sql, args) =>
+      sql.includes("analytics_bigquery_agent_executions") &&
+      args.includes(status)
+        ? Promise.reject(new Error("connection reset"))
+        : undefined;
+  };
+
+  it("says nothing ran when BigQuery refused the job and the final record cannot be written", async () => {
+    scenario.submit = async () =>
+      json(
+        {
+          error: {
+            code: 400,
+            message: "Syntax error",
+            errors: [{ reason: "invalidQuery", message: "Syntax error" }],
+          },
+        },
+        400,
+      );
+    failFinalRecord("failed");
+    const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
+    expect(calls.submissions).toHaveLength(1);
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "execution_record_unavailable",
+      jobId: null,
+    });
+    expect(result.status === "failed" && result.message).toMatch(
+      /Nothing ran\. Try again later\.$/,
+    );
+    expect(await admissions()).toEqual([
+      expect.objectContaining({ state: "released" }),
+    ]);
+  });
+
+  it("says the job may have run when its outcome is unknown and the final record cannot be written", async () => {
+    scenario.submit = async () => {
+      throw new TypeError("fetch failed");
+    };
+    scenario.jobsGet = () => json({ error: { code: 503 } }, 503);
+    failFinalRecord("uncertain");
+    const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "execution_record_unavailable",
+      jobId: expect.any(String),
+    });
+    expect(result.status === "failed" && result.message).toMatch(
+      /may have run; do not resubmit it/,
+    );
+    expect(await admissions()).toEqual([
+      expect.objectContaining({ state: "pending" }),
+    ]);
+  });
 });
 
 describe("runBigQueryAgentQuery: one frozen query", () => {
@@ -2042,6 +2098,34 @@ describe("runBigQueryAgentQuery: across UTC midnight", () => {
         "SELECT utc_day, state FROM analytics_bigquery_agent_jobs",
       );
       expect(rows).toEqual([{ utc_day: "2026-11-22", state: "released" }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says nothing ran when the day ends before the send and the final record cannot be written", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-22T23:59:59.000Z"));
+      database.stall = (sql, args) => {
+        if (sql.includes("INSERT INTO analytics_bigquery_usage")) {
+          vi.setSystemTime(new Date("2026-11-23T00:00:01.000Z"));
+        }
+        return sql.includes("analytics_bigquery_agent_executions") &&
+          args.includes("refused")
+          ? Promise.reject(new Error("connection reset"))
+          : undefined;
+      };
+      const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
+      expect(calls.submissions).toHaveLength(0);
+      expect(result).toMatchObject({
+        status: "failed",
+        code: "execution_record_unavailable",
+        jobId: null,
+      });
+      expect(result.status === "failed" && result.message).toMatch(
+        /Nothing ran\. Try again later\.$/,
+      );
     } finally {
       vi.useRealTimers();
     }
