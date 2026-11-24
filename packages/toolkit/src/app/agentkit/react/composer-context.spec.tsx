@@ -766,9 +766,10 @@ describe("AgentKit composer context submission", () => {
       ),
     );
 
-    await act(async () =>
-      capture.props!.onSubmit("quarterly roadmap", [], [], {}),
-    );
+    await act(async () => {
+      if (!capture.props) throw new Error("capture.props missing");
+      await capture.props.onSubmit("quarterly roadmap", [], [], {});
+    });
     expect(onSubmit).toHaveBeenCalledOnce();
     expect(onSubmit.mock.calls[0]?.[0]).toBe("quarterly roadmap");
     expect(assertAiSetupReady).not.toHaveBeenCalled();

@@ -8010,10 +8010,11 @@ export function AgentKitComposer({
     if (!editingMessage && onSubmitOverride) {
       if (submitRequiresAiSetup) {
         const readinessEngine = options.engine ?? selectedEngine;
-        await controller.assertAiSetupReady({
-          engine:
-            typeof readinessEngine === "string" ? readinessEngine : undefined,
-        });
+        await controller.assertAiSetupReady(
+          typeof readinessEngine === "string"
+            ? { engine: readinessEngine }
+            : {},
+        );
       }
       const submitOptions = {
         ...(suggestion ? { ...options, suggestion } : options),
