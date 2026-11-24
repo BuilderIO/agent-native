@@ -109,6 +109,7 @@ export const credentialKeys: CredentialKeyConfig[] = [
   },
   { key: "NOTION_API_KEY", label: "Notion", required: false },
   { key: "TWITTER_BEARER_TOKEN", label: "Twitter/X", required: false },
+  { key: "YOUTUBE_API_KEY", label: "YouTube Data API Key", required: false },
   { key: "PYLON_API_KEY", label: "Pylon", required: false },
   { key: "COMMONROOM_API_TOKEN", label: "Common Room", required: false },
   { key: "DATAFORSEO_LOGIN", label: "DataForSEO", required: false },
@@ -277,6 +278,11 @@ export const credentialProviderConfigs: CredentialProviderConfig[] = [
     requiredKeys: ["TWITTER_BEARER_TOKEN"],
   },
   {
+    provider: "youtube",
+    label: "YouTube",
+    requiredKeys: ["YOUTUBE_API_KEY"],
+  },
+  {
     provider: "pylon",
     label: "Pylon",
     requiredKeys: ["PYLON_API_KEY"],
@@ -339,6 +345,7 @@ const credentialAliases: Record<string, string[]> = {
   stripe: ["STRIPE_SECRET_KEY"],
   twitter: ["TWITTER_BEARER_TOKEN"],
   x: ["TWITTER_BEARER_TOKEN"],
+  youtube: ["YOUTUBE_API_KEY"],
 };
 
 function normalizeLookup(value: string): string {
