@@ -123,7 +123,9 @@ export default defineAction({
         };
       case "app-id-taken": {
         if (result.conflict !== "registered") return unavailable();
-        const app = (await listWorkspaceApps()).find(
+        const app = (
+          await listWorkspaceApps({ includeAgentCards: false })
+        ).find(
           (item) =>
             item.id === result.appId &&
             !item.archived &&
