@@ -115,8 +115,8 @@ type CalendarInventorySource = "google" | "bookings" | "ics" | "overlays";
 
 interface CalendarEventsResult {
   events: CalendarEvent[];
-  errors: Array<{ email: string; error: string }>;
-  primaryErrors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; code?: string }>;
+  primaryErrors: Array<{ email: string; error: string; code?: string }>;
   primaryEventCount: number;
   googleConnected: boolean;
   range: CalendarEventRange;
@@ -623,7 +623,7 @@ export async function listCalendarEvents(
   const includeOverlays = sources.includes("overlays");
 
   let googleEvents: CalendarEvent[] = [];
-  let errors: Array<{ email: string; error: string }> = [];
+  let errors: Array<{ email: string; error: string; code?: string }> = [];
   let overlaySources: Array<{
     email: string;
     status: "ok" | "error";
@@ -1129,9 +1129,28 @@ export default defineAction({
       };
     }
 
-    if (result.primaryEventCount === 0 && result.primaryErrors.length > 0) {
-      throw new Error(
-        result.primaryErrors.map((e) => `${e.email}: ${e.error}`).join("; "),
+    if (result.primaryErrors.length > 0) {
+      const rateLimited = result.primaryErrors.some(
+        (e) => e.code === "RATE_LIMITED",
+      );
+      const authRequired = result.primaryErrors.some(
+        (e) =>
+          e.code === "AUTH_REQUIRED" ||
+          /invalid_grant|refresh token revoked/i.test(e.error),
+      );
+      throw Object.assign(
+        new Error(
+          result.primaryErrors.map((e) => `${e.email}: ${e.error}`).join("; "),
+        ),
+        {
+          expected: true,
+          errorCode: rateLimited
+            ? "calendar_rate_limited"
+            : authRequired
+              ? "calendar_auth_required"
+              : "calendar_read_failed",
+          statusCode: rateLimited ? 429 : authRequired ? 401 : 503,
+        },
       );
     }
 

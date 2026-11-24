@@ -42,6 +42,7 @@ import {
   calendarPatchEvent,
   calendarUpdateEvent,
   isGoogleEventAbsentError,
+  GoogleApiError,
   peopleGetProfile,
 } from "./google-api.js";
 import { getCalendarProviderApiRuntime } from "./provider-api.js";
@@ -1184,13 +1185,28 @@ export async function resolveGoogleCalendarSource(
   return source;
 }
 
+function googleReadErrorCode(error: unknown): string {
+  if (!(error instanceof GoogleApiError)) return "PROVIDER_READ_FAILED";
+  if (
+    error.status === 429 ||
+    (error.status === 403 &&
+      ["rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"].includes(
+        error.reason ?? "",
+      ))
+  )
+    return "RATE_LIMITED";
+  return error.status === 401 ? "AUTH_REQUIRED" : "PROVIDER_READ_FAILED";
+}
+
 export async function listGoogleCalendars(forEmail?: string): Promise<{
   calendars: GoogleCalendarSource[];
-  errors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; code?: string }>;
 }> {
   const { clients, errors: refreshErrors } =
     await getClientsForAccountsWithErrors(forEmail);
-  const errors = [...refreshErrors];
+  const errors: Array<{ email: string; error: string; code?: string }> = [
+    ...refreshErrors,
+  ];
   const results = await mapWithConcurrency(clients, async (client) => {
     try {
       const items: any[] = [];
@@ -1234,6 +1250,7 @@ export async function listGoogleCalendars(forEmail?: string): Promise<{
     } catch (error: any) {
       errors.push({
         email: client.email,
+        code: googleReadErrorCode(error),
         error: error?.message || "Unable to list Google calendars",
       });
       return [];
@@ -1400,11 +1417,13 @@ export async function listEvents(
   } = {},
 ): Promise<{
   events: CalendarEvent[];
-  errors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; code?: string }>;
 }> {
   const { clients, errors: refreshErrors } =
     await getClientsForAccountsWithErrors(forEmail, options.accountEmails);
-  const errors: Array<{ email: string; error: string }> = [...refreshErrors];
+  const errors: Array<{ email: string; error: string; code?: string }> = [
+    ...refreshErrors,
+  ];
   if (clients.length === 0) return { events: [], errors };
   const hasMultipleOwnedAccounts =
     clients.length > 1 || (await getOwnedAccountEmails(forEmail)).length > 1;
@@ -1416,6 +1435,7 @@ export async function listEvents(
   if (requestedSourceKeys.length > 0) {
     const discovered = await listGoogleCalendars(forEmail);
     errors.push(...discovered.errors);
+    if (discovered.errors.length > 0) return { events: [], errors };
     const discoveredByKey = new Map<
       string,
       {
@@ -1523,6 +1543,7 @@ export async function listEvents(
           } catch (error: any) {
             errors.push({
               email,
+              code: googleReadErrorCode(error),
               error: source
                 ? `Unable to read Google Calendar source ${source.name} (${source.calendarId}): ${error?.message || "Unknown provider error"}`
                 : error?.message || "Unable to load Google Calendar events",

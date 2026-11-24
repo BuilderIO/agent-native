@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "Google 日历请求受到限制。将显示可用的已保存日程，并自动重试。",
     connect: "连接",
     connected: "已连接",
     connecting: "正在连接...",

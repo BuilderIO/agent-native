@@ -387,6 +387,26 @@ describe("list-events inventory contract", () => {
     expect(Array.isArray(result)).toBe(true);
   });
 
+  it("reports rate limiting to the calendar without treating it as an authentication failure", async () => {
+    listGoogleEventsMock.mockResolvedValue({
+      events: [],
+      errors: [
+        {
+          email: "owner@example.com",
+          error: "quota exceeded",
+          code: "RATE_LIMITED",
+        },
+      ],
+    });
+
+    await expect(
+      listEventsAction.run({
+        from: "2026-06-17",
+        to: "2026-06-18",
+      }),
+    ).rejects.toMatchObject({ errorCode: "calendar_rate_limited" });
+  });
+
   it("does not apply a legacy bare id when multiple Google accounts make it ambiguous", async () => {
     getOwnedAccountEmailsMock.mockResolvedValue([
       "steve@example.com",

@@ -104,11 +104,13 @@ export function createOAuth2Client(
 
 export class GoogleApiError extends Error {
   readonly status: number;
+  readonly reason: string | undefined;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, reason?: string) {
     super(`Google API error (${status}): ${message}`);
     this.name = "GoogleApiError";
     this.status = status;
+    this.reason = reason;
   }
 }
 
@@ -143,14 +145,24 @@ export async function googleFetch(
 
   if (res.status === 204) return null;
 
-  const data = await res.json();
+  const data = await res.json().catch((error: unknown) => {
+    if (!res.ok) throw new GoogleApiError(res.status, res.statusText);
+    throw error;
+  });
 
   if (!res.ok) {
     const msg =
       (data as any)?.error?.message ||
       (data as any)?.error_description ||
       res.statusText;
-    throw new GoogleApiError(res.status, msg);
+    const reason = (
+      data as { error?: { errors?: Array<{ reason?: unknown }> } } | null
+    )?.error?.errors?.[0]?.reason;
+    throw new GoogleApiError(
+      res.status,
+      msg,
+      typeof reason === "string" ? reason : undefined,
+    );
   }
 
   return data;

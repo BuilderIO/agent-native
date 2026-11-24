@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "تم تقييد طلبات تقويم Google. تظهر الأحداث المحفوظة عند توفرها، وستتم إعادة المحاولة تلقائيًا.",
     connect: "اتصال",
     connected: "متصل",
     connecting: "جارٍ الاتصال...",

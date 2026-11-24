@@ -329,7 +329,10 @@ export function useEvents(
   const demo = isSharedCalendarDemo();
   const live = useActionQuery<CalendarEvent[]>("list-events", params, {
     enabled: !demo,
-    retry: false,
+    retry: (_count, error) =>
+      (error as { code?: string }).code === "calendar_rate_limited",
+    retryDelay: (attempt) =>
+      Math.min(60_000, 1000 * 2 ** attempt) * (0.5 + Math.random() * 0.5),
     staleTime: 30_000,
     gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,

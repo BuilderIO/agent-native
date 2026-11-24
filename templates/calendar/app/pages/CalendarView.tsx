@@ -702,10 +702,14 @@ export default function CalendarView({
   const {
     data: rawEventsData,
     error: eventsError,
+    failureReason: eventsFailureReason,
     isLoading,
     isFetching,
     isPlaceholderData,
   } = useEvents(from, to, overlayEmails, enabledGoogleCalendarSourceKeys);
+  const eventsLoadError = (eventsError ?? eventsFailureReason) as
+    | (Error & { code?: string })
+    | null;
   const rawEvents = Array.isArray(rawEventsData) ? rawEventsData : [];
   const draftEvent = useMemo(
     () => (eventDraft ? draftToCalendarEvent(eventDraft, selectedDate) : null),
@@ -739,7 +743,7 @@ export default function CalendarView({
   ]);
 
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || eventsLoadError) return;
     const ranges = (() => {
       switch (viewMode) {
         case "month": {
@@ -793,6 +797,7 @@ export default function CalendarView({
   }, [
     displayTimezone,
     enabledGoogleCalendarSourceKeys,
+    eventsLoadError,
     isLoading,
     overlayEmails,
     queryClient,
@@ -2056,12 +2061,16 @@ export default function CalendarView({
         {/* Left: calendar area (header + grid) */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {/* Google Calendar connect banner — show when there's a credentials error */}
-          {eventsError ? <GoogleConnectBanner /> : null}
+          {eventsLoadError?.code === "calendar_auth_required" ? (
+            <GoogleConnectBanner />
+          ) : null}
 
           {/* Error detail */}
-          {eventsError && (
+          {eventsLoadError && (
             <div className="shrink-0 border-b border-destructive/20 bg-destructive/[0.06] px-4 py-1.5 text-xs text-destructive/70">
-              {eventsError.message}
+              {eventsLoadError.code === "calendar_rate_limited"
+                ? t("common.calendarRateLimited")
+                : eventsLoadError.message}
             </div>
           )}
 
