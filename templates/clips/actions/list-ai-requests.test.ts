@@ -446,22 +446,21 @@ describe("server-side AI request reconciliation", () => {
     });
     mocks.turnRuns.set(`${state.threadId}/${state.turnId}`, [`run-${id}`]);
     mocks.runStatuses.set(`run-${id}`, status);
+    if (status === "completed") {
+      mocks.runEvents.set(`${state.threadId}/${state.turnId}`, [
+        { runId: `run-${id}`, seq: 1, event: { type: "done" } },
+      ]);
+    }
     return state;
   };
 
-  it.each([
-    ["completed", "completed"],
-    ["errored", "failed"],
-    ["truncated", "truncated"],
-    ["aborted", "cancelled"],
-  ])("reconciles durable %s as %s", async (runStatus, expected) => {
-    const original = await seed("rec", runStatus);
+  it("reconciles a durably completed run", async () => {
+    const original = await seed("rec", "completed");
     const result = await listAiRequests.run({});
     expect(result.activeSessions).toEqual([]);
     expect(mocks.appState[0].value).toEqual({
       ...original,
-      status: expected,
-      message: null,
+      status: "completed",
       updatedAt: expect.any(String),
     });
     expect(mocks.compare).toHaveBeenCalledWith(
@@ -469,6 +468,57 @@ describe("server-side AI request reconciliation", () => {
       original,
       mocks.appState[0].value,
     );
+  });
+
+  it.each(["aborted", "truncated", "errored"])(
+    "keeps a potentially recoverable %s run active without erasing its message",
+    async (runStatus) => {
+      const original = {
+        ...(await seed("rec", runStatus)),
+        message: "Verify your email before continuing",
+      };
+      mocks.appState[0].value = original;
+      expect((await listAiRequests.run({})).activeSessions).toEqual([
+        expect.objectContaining(original),
+      ]);
+      expect(mocks.appState[0].value).toEqual(original);
+      expect(mocks.compare).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["absent", "auto_continue"])(
+    "keeps a completed chunk active when final evidence is %s",
+    async (terminalEvent) => {
+      const original = await seed("rec", "completed");
+      mocks.runEvents.delete(`${original.threadId}/${original.turnId}`);
+      if (terminalEvent === "auto_continue") {
+        mocks.runEvents.set(`${original.threadId}/${original.turnId}`, [
+          { runId: "run-rec", seq: 1, event: { type: "auto_continue" } },
+        ]);
+      }
+      expect((await listAiRequests.run({})).activeSessions).toEqual([
+        expect.objectContaining(original),
+      ]);
+      expect(mocks.appState[0].value).toEqual(original);
+      expect(mocks.compare).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves existing detail when a final completion is reconciled", async () => {
+    const original = {
+      ...(await seed("rec", "completed")),
+      message: "Verify your email before continuing",
+    };
+    mocks.appState[0].value = original;
+    mocks.runEvents.set(`${original.threadId}/${original.turnId}`, [
+      { runId: "run-rec", seq: 1, event: { type: "done" } },
+    ]);
+    expect((await listAiRequests.run({})).activeSessions).toEqual([]);
+    expect(mocks.appState[0].value).toEqual({
+      ...original,
+      status: "completed",
+      updatedAt: expect.any(String),
+    });
   });
 
   it("finds a receipt without a run ID and uses the newest same-turn continuation", async () => {
@@ -482,6 +532,10 @@ describe("server-side AI request reconciliation", () => {
     expect((await listAiRequests.run({})).activeSessions).toHaveLength(1);
     expect(mocks.compare).not.toHaveBeenCalled();
     mocks.runStatuses.set("run-next", "completed");
+    mocks.runEvents.set(`${original.threadId}/${original.turnId}`, [
+      { runId: "run-rec", seq: 1, event: { type: "auto_continue" } },
+      { runId: "run-next", seq: 1, event: { type: "done" } },
+    ]);
     expect((await listAiRequests.run({})).activeSessions).toEqual([]);
     expect(mocks.appState[0].value).toMatchObject({
       status: "completed",

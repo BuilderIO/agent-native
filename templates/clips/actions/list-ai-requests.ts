@@ -106,31 +106,17 @@ async function reconcileRequestSession(
   const latestRunId = runs[runs.length - 1];
   if (!latestRunId) return session;
   const runStatus = await getRunStatus(latestRunId);
-  const status =
-    runStatus === "completed"
-      ? "completed"
-      : runStatus === "errored"
-        ? "failed"
-        : runStatus === "truncated"
-          ? "truncated"
-          : runStatus === "aborted"
-            ? "cancelled"
-            : null;
-  if (!status) return session;
-  if (runStatus === "truncated") {
-    const events = await getCurrentTurnRunEventsForThread(
-      session.threadId,
-      session.turnId,
-    );
-    const lastEvent = events
-      .filter((event) => event.runId === latestRunId)
-      .pop();
-    if (
-      lastEvent?.event.type === "auto_continue" ||
-      lastEvent?.event.type === "loop_limit"
-    ) {
-      return session;
-    }
+  if (runStatus !== "completed") return session;
+
+  // A completed chunk can be saved before its continuation event. Only a
+  // durable final event distinguishes it from a handoff still in progress.
+  const events = await getCurrentTurnRunEventsForThread(
+    session.threadId,
+    session.turnId,
+  );
+  const lastEvent = events.filter((event) => event.runId === latestRunId).pop();
+  if (lastEvent?.event.type !== "done" || lastEvent.event.reason === "user") {
+    return session;
   }
 
   // A receipt may name an earlier chunk; a same-turn successor owns the outcome.
@@ -147,8 +133,7 @@ async function reconcileRequestSession(
   const key = `${STATUS_PREFIX}${session.recordingId}`;
   const next = {
     ...expected,
-    status,
-    message: null,
+    status: "completed",
     runId: latestRunId,
     updatedAt: new Date().toISOString(),
   };

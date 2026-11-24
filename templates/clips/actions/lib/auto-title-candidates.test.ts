@@ -10,6 +10,22 @@ let db: ReturnType<typeof drizzle>;
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 
 let client: PGliteClient;
+const state = vi.hoisted(() => ({
+  caller: "owner@example.com",
+  entries: [] as Array<{
+    key: string;
+    value: Record<string, unknown>;
+    session?: string;
+  }>,
+}));
+vi.mock("@agent-native/core/application-state", () => ({
+  listAppState: async (prefix: string) =>
+    state.entries.filter(
+      (entry) =>
+        entry.key.startsWith(prefix) &&
+        (entry.session ?? "owner@example.com") === state.caller,
+    ),
+}));
 
 vi.mock("../../server/db/index.js", async () => {
   const schema = await import("../../server/db/schema.js");
@@ -60,6 +76,8 @@ async function insert(row: Row) {
 }
 
 beforeEach(async () => {
+  state.entries = [];
+  state.caller = "owner@example.com";
   client = await PGlite.create("memory://");
   db = drizzle(client);
   await client.query(`CREATE TABLE recordings (
@@ -78,6 +96,68 @@ afterEach(async () => {
 });
 
 describe("listAutoTitleCandidates", () => {
+  it("filters durable and legacy terminal outcomes before the limit", async () => {
+    for (let index = 0; index < 60; index++) {
+      const id = `rec_${String(index).padStart(2, "0")}`;
+      await insert({ id });
+      if (index > 0)
+        state.entries.push({
+          key: `clips-ai-title-terminal-${id}`,
+          value: { suppressed: true },
+        });
+    }
+    await insert({ id: "rec_60" });
+    state.entries.push({
+      key: "clips-ai-request-status-rec_60",
+      value: { kind: "generate-metadata", status: "cancelled" },
+    });
+    expect(
+      (await listAutoTitleCandidates("owner@example.com")).map(({ id }) => id),
+    ).toEqual(["rec_00"]);
+  });
+
+  it("does not use another caller's marker for this owner's candidates", async () => {
+    await insert({ id: "rec_01" });
+    state.entries.push({
+      session: "other@example.com",
+      key: "clips-ai-title-terminal-rec_01",
+      value: { suppressed: true },
+    });
+    expect(
+      (await listAutoTitleCandidates("owner@example.com")).map(({ id }) => id),
+    ).toEqual(["rec_01"]);
+  });
+
+  it.each(["failed", "truncated", "cancelled"])(
+    "filters legacy terminal %s",
+    async (status) => {
+      await insert({ id: "rec_01" });
+      state.entries.push({
+        key: "clips-ai-request-status-rec_01",
+        value: { kind: "regenerate-title", status },
+      });
+      expect(await listAutoTitleCandidates("owner@example.com")).toEqual([]);
+    },
+  );
+
+  it("keeps completed, unrelated and unsuppressed requests eligible", async () => {
+    for (const id of ["rec_01", "rec_02", "rec_03"]) await insert({ id });
+    state.entries.push(
+      {
+        key: "clips-ai-request-status-rec_01",
+        value: { kind: "generate-metadata", status: "completed" },
+      },
+      {
+        key: "clips-ai-request-status-rec_02",
+        value: { kind: "regenerate-summary", status: "failed" },
+      },
+      { key: "clips-ai-title-terminal-rec_03", value: { suppressed: false } },
+    );
+    expect(
+      (await listAutoTitleCandidates("owner@example.com")).map(({ id }) => id),
+    ).toEqual(["rec_03", "rec_02", "rec_01"]);
+  });
+
   it("returns only the owner's ready, untitled clips with transcript text", async () => {
     await insert({ id: "rec_01" });
     await insert({ id: "rec_02", titleSource: "context", title: "Chrome" });

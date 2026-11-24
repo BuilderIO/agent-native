@@ -332,7 +332,11 @@ export function useAutoTitleBridge(): void {
                 reason?: string;
                 queueSkippedReason?: string;
               } | null;
-              if (outcome?.queued === true) {
+              if (
+                outcome?.queued === true ||
+                outcome?.reason === "title_request_unsuccessful" ||
+                outcome?.queueSkippedReason === "title_request_unsuccessful"
+              ) {
                 bumpAiRequestRefresh();
               } else if (
                 // The local title is saved but its refinement was not queued;
@@ -344,8 +348,15 @@ export function useAutoTitleBridge(): void {
                 retryTitleFallback(key);
               }
             })
-            .catch(() => {
-              retryTitleFallback(key);
+            .catch((error: unknown) => {
+              if (
+                (error as { errorCode?: unknown })?.errorCode ===
+                "title_request_unsuccessful"
+              ) {
+                bumpAiRequestRefresh();
+              } else {
+                retryTitleFallback(key);
+              }
             });
         }
       } finally {
