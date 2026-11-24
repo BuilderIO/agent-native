@@ -1145,7 +1145,7 @@ export function EditorWorkspace({
             pane={properties}
             label="Properties panel width"
             defaultSize={280}
-            minSize={240}
+            minSize={280}
             maxSize={400}
             snapToStep
             minContentSize={220}
