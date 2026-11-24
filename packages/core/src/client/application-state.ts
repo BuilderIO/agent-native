@@ -15,7 +15,11 @@ import {
   reserveKeepaliveBytes,
 } from "./keepalive-budget.js";
 import { recordStateWrite } from "./recorder.js";
-import { currentSessionScope } from "./session-identity.js";
+import {
+  currentSessionIdentity,
+  currentSessionScope,
+  subscribeSessionScope,
+} from "./session-identity.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
 const CORE_BEFORE_TURN_STATE_KEYS = [
@@ -950,6 +954,12 @@ export interface ClientAppStateBatch {
   missing: string[];
 }
 
+class AppStateScopeChangedError extends Error {
+  constructor() {
+    super("Application state scope changed before reading");
+  }
+}
+
 const MAX_BATCH_KEYS = 100;
 
 export async function readClientAppStateMany(
@@ -960,7 +970,7 @@ export async function readClientAppStateMany(
   const context = currentBeforeTurnContext();
   const assertScope = () => {
     if (currentBeforeTurnContext() !== context) {
-      throw new Error("Application state scope changed before reading");
+      throw new AppStateScopeChangedError();
     }
   };
   const unique = [...new Set(keys)];
@@ -1044,7 +1054,7 @@ function scheduleBatchedRead(key: string): Promise<ClientAppStateBatch> {
     setTimeout(() => {
       if (pendingBatch?.promise === promise) pendingBatch = undefined;
       if (currentBeforeTurnContext() !== context) {
-        reject(new Error("Application state scope changed before reading"));
+        reject(new AppStateScopeChangedError());
         return;
       }
       readClientAppStateMany([...keys]).then(resolve, reject);
@@ -1091,8 +1101,28 @@ export async function readClientAppState<T = unknown>(
   if (options.signal?.aborted) {
     throw options.signal.reason ?? new Error("Aborted");
   }
-  const batch = await awaitWithAbort(scheduleBatchedRead(key), options.signal);
-  return (batch.values[key] ?? null) as T | null;
+  const initialIdentityUnknown = currentSessionIdentity() === undefined;
+  let scopeChanges = 0;
+  const unsubscribe = subscribeSessionScope(() => scopeChanges++);
+  try {
+    let batch: ClientAppStateBatch;
+    try {
+      batch = await awaitWithAbort(scheduleBatchedRead(key), options.signal);
+    } catch (error) {
+      if (
+        !(error instanceof AppStateScopeChangedError) ||
+        !initialIdentityUnknown ||
+        scopeChanges !== 1 ||
+        currentSessionIdentity() === undefined
+      ) {
+        throw error;
+      }
+      batch = await awaitWithAbort(scheduleBatchedRead(key), options.signal);
+    }
+    return (batch.values[key] ?? null) as T | null;
+  } finally {
+    unsubscribe();
+  }
 }
 
 export async function writeClientAppState<T = unknown>(

@@ -61,6 +61,48 @@ describe("client application-state helpers", () => {
     );
   });
 
+  it.each([
+    {
+      body: {
+        values: { "chat-first-pane": { appId: "mail", path: "/inbox" } },
+        missing: [],
+      },
+      expected: { appId: "mail", path: "/inbox" },
+    },
+    { body: { values: {}, missing: ["chat-first-pane"] }, expected: null },
+  ])(
+    "reads pane state when the initial session resolves",
+    async ({ body, expected }) => {
+      const { recordSessionIdentity } = await import("./session-identity.js");
+      recordSessionIdentity(undefined);
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
+      const read = readClientAppState("chat-first-pane");
+      recordSessionIdentity("pane-user", "pane-org");
+      await expect(read).resolves.toEqual(expected);
+    },
+  );
+
+  it("rejects an unreadable pane response after the initial session resolves", async () => {
+    const { recordSessionIdentity } = await import("./session-identity.js");
+    recordSessionIdentity(undefined);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not JSON")));
+    const read = readClientAppState("chat-first-pane");
+    recordSessionIdentity("pane-user", "pane-org");
+    await expect(read).rejects.toThrow("non-JSON");
+  });
+
+  it("does not retry across two session changes during startup", async () => {
+    const { recordSessionIdentity } = await import("./session-identity.js");
+    recordSessionIdentity(undefined);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const read = readClientAppState("chat-first-pane");
+    recordSessionIdentity("first-user", "first-org");
+    recordSessionIdentity("second-user", "second-org");
+    await expect(read).rejects.toThrow("scope changed before reading");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("coalesces same-tick reads into one batched request", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
