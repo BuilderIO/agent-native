@@ -11,6 +11,7 @@ import {
   discussionMessagesByLocale,
 } from "./discussion-messages";
 import { importMessagesByLocale } from "./import-messages";
+import { linkCardMessagesByLocale } from "./link-card-messages";
 import { trashMessagesByLocale } from "./trash-messages";
 
 const databaseMessages = {
@@ -2437,6 +2438,7 @@ const enUS = {
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
   analyticsChart: analyticsChartMessagesByLocale["en-US"],
+  linkCard: linkCardMessagesByLocale["en-US"],
   designScreen: designScreenMessagesByLocale["en-US"],
   builderAutosave: builderAutosaveMessagesByLocale["en-US"],
 };
@@ -2504,6 +2506,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
     analyticsChart: enUS.analyticsChart,
+    linkCard: enUS.linkCard,
     designScreen: enUS.designScreen,
     builderAutosave: enUS.builderAutosave,
     creativeContext: {
@@ -3028,6 +3031,7 @@ function mergeMessagesForLocale(
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
     analyticsChart: analyticsChartMessagesByLocale[locale],
+    linkCard: linkCardMessagesByLocale[locale],
     designScreen: designScreenMessagesByLocale[locale],
     builderAutosave: builderAutosaveMessagesByLocale[locale],
   };

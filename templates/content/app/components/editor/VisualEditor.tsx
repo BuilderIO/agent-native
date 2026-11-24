@@ -255,6 +255,11 @@ import {
   waitForImageUploadsToSettle,
   wasImageUploadBlockRemoved,
 } from "./image-upload-previews";
+import {
+  LinkCardPaste,
+  type LinkCardPasteContext,
+  type LinkCardPasteOptions,
+} from "./link-card/link-card-paste";
 import { LinkHoverPreview } from "./LinkHoverPreview";
 import {
   LIVE_BODY_PARITY_QUIET_MS,
@@ -2382,6 +2387,7 @@ interface VisualEditorExtensionOptions {
   findCommentQuote?: CommentHighlightOptions["findQuote"];
   /** Turns a pasted Analytics panel link into a chart while it returns one. */
   analyticsChartPaste?: AnalyticsChartPasteOptions["getContext"];
+  linkCardPaste?: LinkCardPasteOptions["getContext"];
   designScreenPaste?: DesignScreenPasteOptions["getContext"];
 }
 
@@ -3449,6 +3455,7 @@ export function createVisualEditorExtensions({
   onMediaSourceCommitted,
   findCommentQuote,
   analyticsChartPaste,
+  linkCardPaste,
   designScreenPaste,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return createSharedEditorExtensions({
@@ -3560,6 +3567,9 @@ export function createVisualEditorExtensions({
       NotionMarkdownShortcuts,
       ...(analyticsChartPaste
         ? [AnalyticsChartPaste.configure({ getContext: analyticsChartPaste })]
+        : []),
+      ...(linkCardPaste
+        ? [LinkCardPaste.configure({ getContext: linkCardPaste })]
         : []),
       ...(designScreenPaste
         ? [DesignScreenPaste.configure({ getContext: designScreenPaste })]
@@ -4322,6 +4332,29 @@ export function VisualEditor({
         : null,
     [documentId, localFileMode],
   );
+  const linkCardOrigins = useActionQuery(
+    "get-link-card-origins",
+    {},
+    {
+      enabled: Boolean(documentId) && editable && !localFileMode,
+      staleTime: Infinity,
+      retry: false,
+    },
+  );
+  const linkCardAppUrlsRef = useRef<LinkCardPasteContext["appUrls"]>({});
+  useEffect(() => {
+    linkCardAppUrlsRef.current = linkCardOrigins.data ?? {};
+  }, [linkCardOrigins.data]);
+  const getLinkCardPasteContext = useCallback(
+    () =>
+      documentId && !localFileMode
+        ? {
+            canEdit: !suggestingRef.current,
+            appUrls: linkCardAppUrlsRef.current,
+          }
+        : null,
+    [documentId, localFileMode],
+  );
   const designLinks = useActionQuery(
     "get-design-links",
     {},
@@ -4413,6 +4446,7 @@ export function VisualEditor({
         onMediaSourceCommitted,
         findCommentQuote,
         analyticsChartPaste: getAnalyticsChartPasteContext,
+        linkCardPaste: getLinkCardPasteContext,
         designScreenPaste: getDesignScreenPasteContext,
       }),
       Extension.create({
@@ -4497,6 +4531,7 @@ export function VisualEditor({
       onMediaSourceCommitted,
       findCommentQuote,
       getAnalyticsChartPasteContext,
+      getLinkCardPasteContext,
       getDesignScreenPasteContext,
     ],
   );
