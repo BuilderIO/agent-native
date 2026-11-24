@@ -568,10 +568,12 @@ describe("Meetings › Calendar accounts", () => {
         },
       ],
     };
-    await click(button(row("calendar-cal-stale"), "clipsSettings.reconnect"));
+    await click(
+      button(anchored("calendar-cal-stale"), "clipsSettings.reconnect"),
+    );
     await flush();
 
-    expect(row("calendar-cal-stale").textContent).toContain(
+    expect(anchored("calendar-cal-stale").textContent).toContain(
       'clipsSettings.connectedAs {"account":"stale@example.com"}',
     );
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
@@ -626,7 +628,7 @@ describe("Meetings › Calendar accounts", () => {
   it("lists a connected account's calendars, only the main one on", async () => {
     await renderWithCalendars();
 
-    const connected = row("google-calendar");
+    const connected = anchored("google-calendar");
     expect(connected.textContent).toContain("clipsSettings.mainCalendar");
     expect(connected.querySelectorAll('[role="switch"]')).toHaveLength(2);
     expect(calendarSwitch("ok@example.com").getAttribute("aria-checked")).toBe(
@@ -634,7 +636,7 @@ describe("Meetings › Calendar accounts", () => {
     );
     expect(calendarSwitch("Team").getAttribute("aria-checked")).toBe("false");
     expect(
-      row("calendar-cal-stale").querySelector('[role="switch"]'),
+      anchored("calendar-cal-stale").querySelector('[role="switch"]'),
     ).toBeNull();
   });
 
@@ -695,7 +697,7 @@ describe("Meetings › Calendar accounts", () => {
     };
     await renderWithCalendars();
 
-    const connected = row("google-calendar");
+    const connected = anchored("google-calendar");
     expect(connected.textContent).toContain(
       "clipsSettings.calendarsLoadFailed",
     );

@@ -47,7 +47,6 @@ const TWO_FACTOR_CODE = /^\d{6,8}$/;
 
 /** Account › Security: sign-in methods and data requests. */
 export function SecuritySettings() {
-  const t = useT();
   const { session, status } = useSession();
   if (status === "loading" && !session) {
     return <SettingsSkeleton lines={4} />;

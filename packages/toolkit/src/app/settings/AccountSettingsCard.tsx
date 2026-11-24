@@ -44,7 +44,6 @@ import {
   IconLock,
   IconShieldLock,
   IconPencil,
-  IconShieldCheck,
   IconTrash,
 } from "@tabler/icons-react";
 import { QRCodeSVG } from "qrcode.react";
