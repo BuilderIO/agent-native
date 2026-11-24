@@ -1,6 +1,3 @@
-// Strong mail words win over everything, a GitHub issue or pull request noun
-// wins over a bare "message" (commit messages, PR messages), and a bare
-// "message" is the weakest mail signal.
 const MAIL_STRONG = /\b(?:e-?mails?|inbox)\b/i;
 const MAIL_WEAK = /\bmessages?\b/i;
 const GITHUB = /\bgithub\b/i;
