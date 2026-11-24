@@ -6,6 +6,7 @@ import {
   buildLabelDisplayNames,
   labelTreeRows,
   reorderById,
+  sidebarLabelTabs,
 } from "./AppLayout";
 
 function appLayoutSource(): string {
@@ -24,6 +25,22 @@ function mailGlobalCss(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("lists only labels and saved filters under the sidebar's Labels, not inbox tabs", () => {
+    const tabs = [
+      { id: "inbox" },
+      { id: "__inbox_all__" },
+      { id: "important" },
+      { id: "other" },
+      { id: "receipts", pinnedId: "receipts" },
+      { id: "filter-1", filterId: "filter-1" },
+    ];
+
+    expect(sidebarLabelTabs(tabs).map((tab) => tab.id)).toEqual([
+      "receipts",
+      "filter-1",
+    ]);
+  });
+
   it("clears in-memory thread bodies when the session or mailbox scope changes", () => {
     const source = appLayoutSource();
 

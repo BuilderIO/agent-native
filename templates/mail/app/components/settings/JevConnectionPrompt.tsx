@@ -93,10 +93,10 @@ export function JevConnectionPrompt({
             setOpen(true);
           }}
           disabled={disabled || flow.connecting}
-          className="justify-between"
+          className="justify-between gap-4"
         >
           {t("mail.sort.priority")}
-          <span className="text-xs text-muted-foreground">
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
             {t("mail.aiFilter.connectJev")}
           </span>
         </DropdownMenuItem>

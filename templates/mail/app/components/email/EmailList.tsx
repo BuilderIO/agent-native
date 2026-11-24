@@ -2523,7 +2523,7 @@ export function EmailList({
                 </button>
               </DropdownMenuTrigger>
             </ActionTooltip>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent align="end" className="min-w-44">
               <DropdownMenuItem
                 onSelect={() => onSortModeChange?.("newest")}
                 className="justify-between"
@@ -2563,10 +2563,10 @@ export function EmailList({
                   <DropdownMenuItem
                     onSelect={onJevRetry}
                     disabled={jevAvailabilityLoading}
-                    className="justify-between"
+                    className="justify-between gap-4"
                   >
                     {t("mail.sort.priority")}
-                    <span className="text-xs text-muted-foreground">
+                    <span className="whitespace-nowrap text-xs text-muted-foreground">
                       {t("mail.error.tryAgain")}
                     </span>
                   </DropdownMenuItem>
