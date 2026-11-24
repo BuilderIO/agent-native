@@ -1163,6 +1163,12 @@ export default {
         opacity: "Opacité",
       },
       editColor: "Modifier la couleur de {{name}}",
+      field: {
+        open: "Jetons",
+        detach: "Détacher le jeton",
+        primitives: "Primitives {{group}}",
+        loading: "Chargement des jetons…",
+      },
     },
     import: {
       description:

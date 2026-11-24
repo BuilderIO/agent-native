@@ -1142,6 +1142,12 @@ export default {
         opacity: "अपारदर्शिता",
       },
       editColor: "{{name}} का रंग संपादित करें",
+      field: {
+        open: "टोकन",
+        detach: "टोकन अलग करें",
+        primitives: "{{group}} प्रिमिटिव",
+        loading: "टोकन लोड हो रहे हैं…",
+      },
     },
     import: {
       description:

@@ -1145,6 +1145,12 @@ export default {
         opacity: "불투명도",
       },
       editColor: "{{name}} 색상 편집",
+      field: {
+        open: "토큰",
+        detach: "토큰 분리",
+        primitives: "{{group}} 프리미티브",
+        loading: "토큰 불러오는 중…",
+      },
     },
     import: {
       description:

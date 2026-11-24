@@ -1,0 +1,87 @@
+import { expect, styleOf, test, type App } from "./rails";
+
+const SCREEN_HTML = `<!doctype html>
+<html><head><meta charset="utf-8"><title>Tokens</title>
+<style>:root{--container-sm:640px;--space-14:56px;--space-page:var(--space-14);--leading-tight:1.2;}</style>
+</head>
+<body style="margin:0;min-height:600px">
+<main data-agent-native-node-id="main" style="position:relative;min-height:600px">
+  <div data-agent-native-node-id="card" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:#dadada"></div>
+  <p data-agent-native-node-id="copy" style="position:absolute;left:40px;top:200px;margin:0;font-size:20px;line-height:1.25em">Token copy</p>
+</main></body></html>`;
+
+async function selectLayer(app: App, nodeId: string) {
+  const rect = await app.designRect(nodeId);
+  const point = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
+  );
+  await app.page.keyboard.down("ControlOrMeta");
+  await app.page.mouse.click(point.x, point.y);
+  await app.page.keyboard.up("ControlOrMeta");
+}
+
+async function openScreen(app: App) {
+  const designId = await app.seed(SCREEN_HTML, { title: "Inspector tokens" });
+  await app.open(designId);
+  await app.zoomToFit();
+  return designId;
+}
+
+test("W binds to a token from its list, keeps it through reload, and Detach keeps the value", async ({
+  app,
+  page,
+}) => {
+  const designId = await openScreen(app);
+  await selectLayer(app, "card");
+  const width = page.getByRole("textbox", { name: "W size in pixels" });
+  await expect(width).toHaveValue("120");
+
+  await width.focus();
+  await page.keyboard.press("ArrowDown");
+  const list = page.getByRole("listbox");
+  await expect(list.getByRole("option").first()).toBeVisible();
+  expect(
+    (await list.getByRole("option").allInnerTexts())
+      .slice(0, 3)
+      .map((text) => text.replace(/\s+/g, " ").trim()),
+  ).toEqual(["container-sm 640", "space-page 56", "space-14 56"]);
+  await list
+    .locator('[data-token-field-option="container-sm"]')
+    .dispatchEvent("pointerdown");
+  await app.settled();
+
+  expect(styleOf((await app.savedNodes(designId)).get("card")).width).toBe(
+    "var(--container-sm)",
+  );
+  await expect(width).toHaveValue("container-sm");
+
+  await page.reload();
+  await app.zoomToFit();
+  await expect(width).toHaveValue("container-sm");
+
+  await width.focus();
+  await page.keyboard.press("Backspace");
+  await app.settled();
+  expect(styleOf((await app.savedNodes(designId)).get("card")).width).toBe(
+    "640px",
+  );
+  await expect(width).toHaveValue("640");
+});
+
+test("an em line height shows as its percentage and a typed bare number is px", async ({
+  app,
+  page,
+}) => {
+  const designId = await openScreen(app);
+  await selectLayer(app, "copy");
+  const lineHeight = page.getByRole("textbox", { name: "Line Height" });
+  await expect(lineHeight).toHaveValue("125%");
+
+  await lineHeight.fill("30");
+  await lineHeight.press("Enter");
+  await app.settled();
+  expect(
+    styleOf((await app.savedNodes(designId)).get("copy"))["line-height"],
+  ).toBe("30px");
+});

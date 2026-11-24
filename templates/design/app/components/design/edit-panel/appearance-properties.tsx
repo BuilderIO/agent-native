@@ -32,7 +32,11 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { ScrubInput, type ScrubInputChangeMeta } from "../inspector";
+import { type ScrubInputChangeMeta } from "../inspector";
+import {
+  TokenScrubInput,
+  type TokenFieldBinding,
+} from "../inspector/TokenScrubInput";
 import type { ElementInfo } from "../types";
 import { elementIdentityKey } from "./element-identity";
 import { FieldTrailer } from "./field-primitives";
@@ -47,6 +51,7 @@ import {
   InspectorGrid,
   InspectorGridCell,
 } from "./inspector-grid";
+import { authoredStyleValue } from "./interaction-state-helpers";
 import { PanelSection } from "./panel-primitives";
 import { cssLengthNumber, fourValuesEqual } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
@@ -165,6 +170,31 @@ export function CornerRadiusControl({
       onStyleChange(property, style, meta),
     );
   };
+  const radiusTokenBinding: TokenFieldBinding | undefined =
+    element && !cornersDiffer
+      ? {
+          accepts: ["radius"],
+          authored: authoredStyleValue(element, "borderRadius"),
+          onBind: (cssVar) => {
+            const next = `var(${cssVar})`;
+            const patch = {
+              borderRadius: next,
+              borderTopLeftRadius: next,
+              borderTopRightRadius: next,
+              borderBottomRightRadius: next,
+              borderBottomLeftRadius: next,
+            };
+            if (onStylesChange) onStylesChange(patch);
+            else {
+              Object.entries(patch).forEach(([property, style]) =>
+                onStyleChange(property, style),
+              );
+            }
+          },
+          onDetach: (resolved) =>
+            commitRadius(resolved ? cssLengthNumber(resolved) : radius),
+        }
+      : undefined;
   const toggleIndependentCorners = () => {
     if (showIndependentCorners && cornersDiffer && !radiusMixed) {
       commitRadius(radius);
@@ -183,6 +213,7 @@ export function CornerRadiusControl({
         mixed={radiusMixed}
         min={0}
         precision={0}
+        tokenBinding={radiusTokenBinding}
       />
       {element ? (
         <FieldTrailer
@@ -377,9 +408,11 @@ export function AppearanceScrubField({
   unit,
   precision,
   disabled = false,
+  tokenBinding,
 }: {
   label: string;
   ariaLabel?: string;
+  tokenBinding?: TokenFieldBinding | undefined;
   icon: (props: { className?: string }) => ReactNode;
   value: number;
   onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
@@ -392,18 +425,19 @@ export function AppearanceScrubField({
   disabled?: boolean;
 }) {
   return (
-    <ScrubInput
+    <TokenScrubInput
+      tokenBinding={tokenBinding}
       label={label}
       ariaLabel={ariaLabel ?? label}
       icon={icon}
       value={value}
       onChange={onChange}
       mixed={mixed}
-      min={min}
-      max={max}
-      step={step}
-      unit={unit}
-      precision={precision}
+      {...(min !== undefined ? { min } : {})}
+      {...(max !== undefined ? { max } : {})}
+      {...(step !== undefined ? { step } : {})}
+      {...(unit !== undefined ? { unit } : {})}
+      {...(precision !== undefined ? { precision } : {})}
       disabled={disabled}
       className="w-full min-w-0 gap-0"
       labelClassName="h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground [&>span]:sr-only"
@@ -661,6 +695,13 @@ export function AppearanceProperties({
             step={1}
             unit="%"
             precision={1}
+            tokenBinding={{
+              accepts: ["opacity"],
+              authored: authoredStyleValue(element, "opacity"),
+              onBind: (cssVar) => onStyleChange("opacity", `var(${cssVar})`),
+              onDetach: (resolved) =>
+                onStyleChange("opacity", resolved ?? (styles.opacity || "1")),
+            }}
           />
           <FieldTrailer
             element={element}

@@ -1127,6 +1127,12 @@ export default {
         opacity: "不透明度",
       },
       editColor: "编辑 {{name}} 的颜色",
+      field: {
+        open: "令牌",
+        detach: "分离令牌",
+        primitives: "{{group}}原始令牌",
+        loading: "正在加载令牌…",
+      },
     },
     import: {
       description: "将 Figma 剪贴板 HTML 或独立 HTML 导入为 Design 页面。",

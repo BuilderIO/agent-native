@@ -33,13 +33,16 @@ import {
   type AutoLayoutMatrixLabels,
   type AutoLayoutMatrixValue,
   type AutoLayoutSidesMixed,
+  type AutoLayoutSizingAxis,
   type ScrubInputChangeMeta,
 } from "../inspector";
 import { IconLayoutSettings } from "../inspector/design-icons";
+import type { TokenFieldBinding } from "../inspector/TokenScrubInput";
 import type { ElementInfo } from "../types";
 import {
   autoLayoutAlignmentFromStyles,
   availableSizingForElement,
+  commitElementSizeToken,
   commitFixedElementSizes,
   commitElementMinMax,
   commitElementSizing,
@@ -52,6 +55,7 @@ import {
   isParentFlex,
   isParentGrid,
   readElementMinMax,
+  resolvedPxSize,
   verticalToAlign,
 } from "./element-classification";
 import {
@@ -62,6 +66,7 @@ import {
 import { FieldTrailer, ScrubStyleInput } from "./field-primitives";
 import { joinCssLayers, splitCssLayers } from "./fill-gradient-helpers";
 import { SectionIconButton } from "./inspector-controls";
+import { authoredStyleValue } from "./interaction-state-helpers";
 import { lineGeometryForElement, lineLengthSizes } from "./line-geometry";
 import {
   INSPECTOR_GRID_ACTION_GUTTER_SPAN,
@@ -87,6 +92,38 @@ import {
   optionValue,
   parseNumericValue,
 } from "./style-options";
+
+function elementSizeTokenBinding(
+  element: ElementInfo,
+  axis: AutoLayoutSizingAxis,
+  commitPx: (px: number) => void,
+  onStyleChange: StyleChangeHandler,
+  onStylesChange?: StylesChangeHandler,
+): Omit<TokenFieldBinding, "extraGroups"> {
+  const property = axis === "horizontal" ? "width" : "height";
+  return {
+    accepts: axis === "horizontal" ? ["container", "spacing"] : ["spacing"],
+    authored: authoredStyleValue(element, property),
+    onBind: (cssVar, resolved) => {
+      const px = resolvedPxSize(resolved);
+      if (px === null) return;
+      commitElementSizeToken(
+        element,
+        axis,
+        `var(${cssVar})`,
+        px,
+        onStyleChange,
+        onStylesChange,
+      );
+    },
+    onDetach: (resolved) => {
+      const px =
+        (resolved ? resolvedPxSize(resolved) : null) ??
+        measuredElementSize(element, axis);
+      if (px !== null) commitPx(px);
+    },
+  };
+}
 
 export function justifyContentForGapMode(
   gapMode: "auto" | "fixed",
@@ -693,6 +730,34 @@ function FlexContainerControls({
             meta,
           )
         }
+        sizeTokenBindings={{
+          horizontal: elementSizeTokenBinding(
+            element,
+            "horizontal",
+            (px) =>
+              commitFixedElementSizes(
+                element,
+                { horizontal: px },
+                onStyleChange,
+                onStylesChange,
+              ),
+            onStyleChange,
+            onStylesChange,
+          ),
+          vertical: elementSizeTokenBinding(
+            element,
+            "vertical",
+            (px) =>
+              commitFixedElementSizes(
+                element,
+                { vertical: px },
+                onStyleChange,
+                onStylesChange,
+              ),
+            onStyleChange,
+            onStylesChange,
+          ),
+        }}
         onChildMinMaxChange={(axis, kind, val, meta) =>
           commitElementMinMax(axis, kind, val, onStyleChange, meta)
         }
@@ -1034,6 +1099,13 @@ export function LayoutContextProperties({
                   onMinMaxChange={(axis, kind, val, meta) =>
                     commitElementMinMax(axis, kind, val, onStyleChange, meta)
                   }
+                  tokenBinding={elementSizeTokenBinding(
+                    element,
+                    "horizontal",
+                    commitWidth,
+                    onStyleChange,
+                    onStylesChange,
+                  )}
                 />
               </div>
             </InspectorGridCell>
@@ -1075,6 +1147,13 @@ export function LayoutContextProperties({
                   onMinMaxChange={(axis, kind, val, meta) =>
                     commitElementMinMax(axis, kind, val, onStyleChange, meta)
                   }
+                  tokenBinding={elementSizeTokenBinding(
+                    element,
+                    "vertical",
+                    commitHeight,
+                    onStyleChange,
+                    onStylesChange,
+                  )}
                 />
               </div>
             </InspectorGridCell>
