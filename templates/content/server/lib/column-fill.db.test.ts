@@ -439,6 +439,44 @@ describe("Fill with AI", () => {
     expect((await cells(fill.id)).get(row)).toBe("filled");
   });
 
+  it("treats a follow-up that lands as its cell is tried again as an edit", async () => {
+    const ids = await fixture(1);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    const row = ids.row(0);
+    agents.statuses.set("task-1", "errored");
+    await columnFill.sweepColumnFills({ deadlineAt: Date.now() + 10_000 });
+    agents.onGetThread = async () => {
+      await columnFill.retryColumnFillCell({
+        fillId: fill.id,
+        documentId: row,
+      });
+    };
+    await asOwner(() =>
+      columnFill.fillColumnCell(
+        { fillId: fill.id, documentId: row, value: "From the old chat" },
+        chatTurn(1),
+      ),
+    );
+    expect((await cells(fill.id)).get(row)).toBe("running");
+
+    const retried = await asOwner(() =>
+      columnFill.fillColumnCell(
+        { fillId: fill.id, documentId: row, value: "From the retry" },
+        run(2),
+      ),
+    );
+    expect(retried.status).toBe("kept");
+    expect(await cellValue(row, ids.summary)).toBe("From the old chat");
+  });
+
   it("keeps an edit made after a run's first save when the run saves again", async () => {
     const ids = await fixture(2);
     const fill = await asOwner(() =>
@@ -909,6 +947,36 @@ describe("Fill with AI", () => {
     expect(late.status).toBe("done");
     expect(late.cells[0]?.status).toBe("failed");
     expect(agents.spawned).toHaveLength(2);
+  });
+
+  it("stops starting rows between batches when the sweep is told to stop", async () => {
+    const ids = await fixture(12);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    for (const task of [...agents.statuses.keys()]) {
+      agents.statuses.set(task, "errored");
+    }
+    const sweep = new AbortController();
+    agents.onSpawn = async () => {
+      sweep.abort();
+      throw new Error("No room.");
+    };
+    await columnFill.sweepColumnFills({
+      deadlineAt: Date.now() + 10_000,
+      signal: sweep.signal,
+    });
+    expect(agents.spawned).toHaveLength(10);
+    const statuses = await cells(fill.id);
+    expect(statuses.get(ids.row(9))).toBe("failed");
+    expect(statuses.get(ids.row(10))).toBe("waiting");
+    expect(statuses.get(ids.row(11))).toBe("waiting");
   });
 
   it("won't try a cell again while its fill is stopping", async () => {

@@ -367,32 +367,38 @@ async function claimCells(fillId: string): Promise<{
       }
       return { fill, claimed: [], more: false };
     }
-    const next = waiting.slice(
-      0,
-      Math.max(0, COLUMN_FILL_CONCURRENCY - running),
-    );
-    if (!next.length) return { fill, claimed: [], more: false };
+    const open = COLUMN_FILL_CONCURRENCY - running;
+    if (open <= 0) return { fill, claimed: [], more: false };
     const generations = await readPropertyGenerations(
       tx as unknown as ReturnType<typeof getDb>,
-      next.map((cell) => cell.documentId),
+      waiting.map((cell) => cell.documentId),
       { propertyIds: [fill.propertyId] },
     );
-    const claimed: CellRow[] = [];
-    for (const cell of next) {
-      const edited =
-        generations.of(cell.documentId, fill.propertyId) !==
-        (cell.baseGeneration ?? 0);
-      const status: ColumnFillCellStatus = edited ? "kept" : "running";
+    const edited = (cell: CellRow) =>
+      generations.of(cell.documentId, fill.propertyId) !==
+      (cell.baseGeneration ?? 0);
+    const kept = waiting.filter(edited);
+    const claimed = waiting
+      .filter((cell) => !edited(cell))
+      .slice(0, open)
+      .map((cell) => ({ ...cell, status: "running", updatedAt: stamp }));
+    for (const { status, cells: changed } of [
+      { status: "kept", cells: kept },
+      { status: "running", cells: claimed },
+    ]) {
+      if (!changed.length) continue;
       await tx
         .update(schema.contentColumnFillCells)
         .set({ status, updatedAt: stamp })
         .where(
           and(
             eq(schema.contentColumnFillCells.fillId, fillId),
-            eq(schema.contentColumnFillCells.documentId, cell.documentId),
+            inArray(
+              schema.contentColumnFillCells.documentId,
+              changed.map((cell) => cell.documentId),
+            ),
           ),
         );
-      if (!edited) claimed.push({ ...cell, status, updatedAt: stamp });
     }
     await tx
       .update(schema.contentColumnFills)
@@ -499,7 +505,20 @@ async function startCellAgents(fill: FillRow, cells: CellRow[]) {
   }
 }
 
-export async function advanceColumnFill(fillId: string): Promise<void> {
+interface SweepBudget {
+  deadlineAt: number;
+  signal?: AbortSignal;
+}
+
+function outOfTime(budget: SweepBudget | undefined): boolean {
+  if (!budget) return false;
+  return Boolean(budget.signal?.aborted) || Date.now() >= budget.deadlineAt;
+}
+
+export async function advanceColumnFill(
+  fillId: string,
+  budget?: SweepBudget,
+): Promise<void> {
   const fill = await loadFill(fillId);
   if (!fill || !isColumnFillActive(fill.status as ColumnFillStatus)) return;
   await runWithRequestContext(
@@ -515,13 +534,11 @@ export async function advanceColumnFill(fillId: string): Promise<void> {
         await requestStop(fill.id);
       }
       await reconcileRunningCells(fill);
-      for (;;) {
+      do {
         const result = await claimCells(fillId);
         if (!result?.more) return;
-        if (result.claimed.length) {
-          await startCellAgents(result.fill, result.claimed);
-        }
-      }
+        await startCellAgents(result.fill, result.claimed);
+      } while (!outOfTime(budget));
     },
   );
 }
@@ -995,14 +1012,11 @@ async function activeFillIds(limit: number): Promise<string[]> {
   return rows.map((row) => row.id);
 }
 
-export async function sweepColumnFills(context: {
-  deadlineAt: number;
-  signal?: AbortSignal;
-}): Promise<void> {
+export async function sweepColumnFills(budget: SweepBudget): Promise<void> {
   for (const fillId of await activeFillIds(SWEEP_FILL_LIMIT)) {
-    if (context.signal?.aborted || Date.now() >= context.deadlineAt) return;
+    if (outOfTime(budget)) return;
     try {
-      await advanceColumnFill(fillId);
+      await advanceColumnFill(fillId, budget);
     } catch (error) {
       console.warn(`[column-fill] could not advance fill ${fillId}:`, error);
     }
