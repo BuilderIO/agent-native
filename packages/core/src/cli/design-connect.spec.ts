@@ -2980,9 +2980,11 @@ describe("design connect bridge endpoints", () => {
     const devPort = await freePort();
     const devServer = http.createServer((req, res) => {
       const html =
-        req.url === "/escaped"
-          ? String.raw`<!doctype html><style>body{background:url('/\2f 127.0.0.1:${externalPort}/escaped-css')}</style><img src="&#47;&#47;127.0.0.1:${externalPort}/escaped-html"><script>var style=document.createElement('style');style.textContent=${JSON.stringify(String.raw`body::before{content:'';display:block;width:1px;height:1px;background:url('/\2f 127.0.0.1:${externalPort}/dynamic-css')}`)};document.head.appendChild(style);</script><script type="module">import('/\\\\127.0.0.1:${externalPort}/escaped-js');</script>`
-          : `<!doctype html><html><head><base href="http://127.0.0.1:${externalPort}/"><style>body{background:url('/style-image')}</style></head><body><img src="/image"><script>fetch('/fetch');</script><script type="module">import '/module.js';</script></body></html>`;
+        req.url === "/dynamic-base"
+          ? `<!doctype html><html><head><base href="/"><script>document.querySelector('base').href='http://127.0.0.1:${externalPort}/'</script></head><body><img src="/dynamic-image"></body></html>`
+          : req.url === "/escaped"
+            ? String.raw`<!doctype html><style>body{background:url('/\2f 127.0.0.1:${externalPort}/escaped-css')}</style><img src="&#47;&#47;127.0.0.1:${externalPort}/escaped-html"><script>var style=document.createElement('style');style.textContent=${JSON.stringify(String.raw`body::before{content:'';display:block;width:1px;height:1px;background:url('/\2f 127.0.0.1:${externalPort}/dynamic-css')}`)};document.head.appendChild(style);</script><script type="module">import('/\\\\127.0.0.1:${externalPort}/escaped-js');fetch(new URL('/url-exfil', 'http://127.0.0.1:${externalPort}/'));</script>`
+            : `<!doctype html><html><head><base href="http://127.0.0.1:${externalPort}/"><style>body{background:url('/style-image')}</style></head><body><img src="/image"><script>fetch('/fetch');</script><script type="module">import '/module.js';</script></body></html>`;
       res.writeHead(200, { "content-type": "text/html" }).end(html);
     });
     await new Promise<void>((resolve) =>
@@ -3029,12 +3031,24 @@ describe("design connect bridge endpoints", () => {
           () =>
             requests.includes("/escaped-css") &&
             requests.includes("/dynamic-css") &&
-            requests.includes("/escaped-html"),
+            requests.includes("/escaped-html") &&
+            requests.some((request) => request.startsWith("/url-exfil")),
         )
         .toBe(true);
       expect(
         requests.some((request) => request.startsWith("/escaped-js")),
       ).toBe(false);
+      await page.locator("iframe").evaluate((iframe, url) => {
+        iframe.src = url;
+      }, `http://127.0.0.1:${port}/live-edit?path=/dynamic-base&previewToken=${bridge.previewToken}`);
+      const dynamicFrame = page
+        .frames()
+        .find((candidate) => candidate !== page.mainFrame());
+      if (!dynamicFrame) throw new Error("preview frame did not load");
+      await expect.poll(() => dynamicFrame.locator("img").count()).toBe(1);
+      expect(
+        await dynamicFrame.evaluate(() => new URL(document.baseURI).origin),
+      ).toBe(`http://127.0.0.1:${port}`);
       expect(
         requests.some((request) => request.includes(bridge.previewToken)),
       ).toBe(false);
@@ -3199,8 +3213,17 @@ describe("design connect bridge endpoints", () => {
         (end, index) => `import(// comment${end}'./local-${index}.js');`,
       ),
     ].join("\n");
-    const devServer = http.createServer((_req, res) => {
-      res.writeHead(200, { "content-type": "text/javascript" }).end(source);
+    const malformedCss = `url(${" ".repeat(4000)}!`;
+    const devServer = http.createServer((req, res) => {
+      if (req.url === "/stress.css") {
+        res.writeHead(200, { "content-type": "text/css" }).end(malformedCss);
+      } else if (req.url === "/broken.js") {
+        res
+          .writeHead(200, { "content-type": "text/javascript" })
+          .end("const broken = (");
+      } else {
+        res.writeHead(200, { "content-type": "text/javascript" }).end(source);
+      }
     });
     await new Promise<void>((resolve) =>
       devServer.listen(devPort, "127.0.0.1", resolve),
@@ -3224,6 +3247,18 @@ describe("design connect bridge endpoints", () => {
           `./local-${index}.js?previewToken=${bridge.previewToken}`,
         );
       }
+      const css = await getText(
+        `http://127.0.0.1:${port}/stress.css?previewToken=${bridge.previewToken}`,
+      );
+      expect(css.status).toBe(200);
+      expect(css.body).toBe(malformedCss);
+      const broken = await getJson(
+        `http://127.0.0.1:${port}/broken.js?previewToken=${bridge.previewToken}`,
+      );
+      expect(broken.status).toBe(400);
+      expect(broken.body["error"]).toBe(
+        "Cannot authenticate preview JavaScript because it could not be parsed.",
+      );
     } finally {
       await bridge.close();
       await new Promise<void>((resolve) => devServer.close(() => resolve()));
@@ -4317,120 +4352,211 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
-  it("loads six computed Vite imports in an opaque preview frame", async () => {
-    const root = tmpDir();
-    await fsPromises.mkdir(path.join(root, "src"), { recursive: true });
-    const externalPort = await freePort();
-    const externalRequests: string[] = [];
-    const external = http.createServer((req, res) => {
-      externalRequests.push(req.url ?? "");
-      res
-        .writeHead(200, {
-          "content-type": "text/javascript",
-          "access-control-allow-origin": "null",
-          "access-control-allow-credentials": "true",
-        })
-        .end("export default 'external';");
-    });
-    await new Promise<void>((resolve) =>
-      external.listen(externalPort, "127.0.0.1", resolve),
-    );
-    await fsPromises.writeFile(
-      path.join(root, "index.html"),
-      `<!doctype html><script type="importmap">{"imports":{"mapped":"http://127.0.0.1:${externalPort}/bare.js","/src/redirect/":"http://127.0.0.1:${externalPort}/redirect/"}}</script><div id="value">waiting</div><script type="module" src="/src/main.js"></script>`,
-    );
-    await fsPromises.writeFile(
-      path.join(root, "src", "main.js"),
-      `window.loadComputed = value => import(/* @vite-ignore */ value); const name = location.pathname.slice(1); const target = './' + name + '.js?mode=route#part'; window.loadComputed(target).then(m => document.querySelector('#value').textContent = m.default);`,
-    );
-    for (let index = 0; index < 6; index++) {
-      await fsPromises.writeFile(
-        path.join(root, "src", `route${index}.js`),
-        `export default 'route${index}';`,
+  it.each([
+    {
+      name: "same-origin base",
+      base: '<base href="/">',
+      comment: "",
+      scriptSrc: "/main.js",
+    },
+    {
+      name: "decoded same-origin base",
+      base: '<base href="&#47;app/">',
+      comment: "",
+      scriptSrc: "main.js",
+    },
+    {
+      name: "import-looking comment",
+      base: "",
+      comment: '// import("\n',
+      scriptSrc: "/main.js",
+    },
+  ])(
+    "loads a local module after $name",
+    async ({ base, comment, scriptSrc }) => {
+      const root = tmpDir();
+      const devPort = await freePort();
+      const dev = http.createServer((req, res) => {
+        if (req.url === "/main.js" || req.url === "/app/main.js") {
+          res
+            .writeHead(200, { "content-type": "text/javascript" })
+            .end(
+              `${comment}import("./dep.js").then(m => document.querySelector('#value').textContent = m.default);`,
+            );
+        } else if (req.url === "/dep.js" || req.url === "/app/dep.js") {
+          res
+            .writeHead(200, { "content-type": "text/javascript" })
+            .end("export default 'loaded';");
+        } else {
+          res
+            .writeHead(200, { "content-type": "text/html" })
+            .end(
+              `<!doctype html><html><head>${base}</head><body><div id="value">waiting</div><script type="module" src="${scriptSrc}"></script></body></html>`,
+            );
+        }
+      });
+      await new Promise<void>((resolve) =>
+        dev.listen(devPort, "127.0.0.1", resolve),
       );
-    }
-    const devPort = await freePort();
-    const vite = await createServer({
-      configFile: false,
-      logLevel: "silent",
-      root,
-      server: { host: "127.0.0.1", port: devPort, strictPort: true },
-    });
-    let bridge:
-      | Awaited<ReturnType<typeof startDesignConnectBridge>>
-      | undefined;
-    let browser: Browser | undefined;
-    const hostPort = await freePort();
-    const host = http.createServer((_req, res) =>
-      res
-        .writeHead(200, { "content-type": "text/html" })
-        .end('<iframe sandbox="allow-scripts"></iframe>'),
-    );
-    try {
-      await vite.listen();
       const port = await freePort();
       const manifest = await prepareDesignConnectManifest({
         root,
         url: `http://127.0.0.1:${devPort}`,
         port,
       });
-      bridge = await startDesignConnectBridge(manifest);
-      await fsPromises.writeFile(
-        path.join(root, "index.html"),
-        `<!doctype html><script type="importmap">{"imports":{"mapped":"/src/route0.js?previewToken=${bridge.previewToken}","/src/redirect/":"http://127.0.0.1:${externalPort}/redirect/"}}</script><div id="value">waiting</div><script type="module" src="/src/main.js"></script>`,
+      const bridge = await startDesignConnectBridge(manifest);
+      const hostPort = await freePort();
+      const host = http.createServer((_req, res) =>
+        res
+          .writeHead(200, { "content-type": "text/html" })
+          .end(
+            `<iframe sandbox="allow-scripts" src="http://127.0.0.1:${port}/live-edit?path=/&previewToken=${bridge.previewToken}"></iframe>`,
+          ),
       );
       await new Promise<void>((resolve) =>
         host.listen(hostPort, "127.0.0.1", resolve),
       );
-      browser = await launchBrowser();
-      const page = await browser.newPage();
-      await page.goto(`http://127.0.0.1:${hostPort}/`);
-      for (let index = 0; index < 6; index++) {
-        await page.locator("iframe").evaluate((iframe, url) => {
-          iframe.src = url;
-        }, `http://127.0.0.1:${port}/live-edit?path=/route${index}&previewToken=${bridge.previewToken}`);
-        const frame = page.frameLocator("iframe");
+      let browser: Browser | undefined;
+      try {
+        browser = await launchBrowser();
+        const page = await browser.newPage();
+        await page.goto(`http://127.0.0.1:${hostPort}/`);
         await expect
-          .poll(() => frame.locator("#value").textContent())
-          .toBe(`route${index}`);
-      }
-      const frame = page
-        .frames()
-        .find((candidate) => candidate !== page.mainFrame());
-      if (!frame) throw new Error("preview frame did not load");
-      const results = await frame.evaluate(async (externalUrl) => {
-        const load = (
-          window as Window & {
-            loadComputed: (value: string) => Promise<{ default: string }>;
-          }
-        ).loadComputed;
-        await fetch(new URL("/baseline.js", externalUrl));
-        return Promise.allSettled([
-          load("mapped"),
-          load("./redirect/mod.js"),
-          load(externalUrl),
-        ]).then((modules) =>
-          modules.map((module) =>
-            module.status === "fulfilled" ? module.value.default : "blocked",
+          .poll(() =>
+            page.frameLocator("iframe").locator("#value").textContent(),
+          )
+          .toBe("loaded");
+      } finally {
+        await browser?.close();
+        await bridge.close();
+        await Promise.all(
+          [host, dev].map(
+            (server) =>
+              new Promise<void>((resolve) => server.close(() => resolve())),
           ),
         );
-      }, `http://127.0.0.1:${externalPort}/absolute.js?mode=test#part`);
-      // oracle-change: external scripts are blocked; a credentialed local import map still works.
-      expect(results).toEqual(["route0", "blocked", "blocked"]);
-      expect(externalRequests).toEqual(["/baseline.js"]);
-      const previewToken = bridge.previewToken;
-      expect(externalRequests.some((url) => url.includes(previewToken))).toBe(
-        false,
+      }
+    },
+  );
+
+  it.each(["/", "/app/"])(
+    "loads six computed Vite imports with base %s in an opaque preview frame",
+    async (viteBase) => {
+      const root = tmpDir();
+      await fsPromises.mkdir(path.join(root, "src"), { recursive: true });
+      const externalPort = await freePort();
+      const externalRequests: string[] = [];
+      const external = http.createServer((req, res) => {
+        externalRequests.push(req.url ?? "");
+        res
+          .writeHead(200, {
+            "content-type": "text/javascript",
+            "access-control-allow-origin": "null",
+            "access-control-allow-credentials": "true",
+          })
+          .end("export default 'external';");
+      });
+      await new Promise<void>((resolve) =>
+        external.listen(externalPort, "127.0.0.1", resolve),
       );
-    } finally {
-      await browser?.close();
-      await bridge?.close();
-      await vite.close();
-      await new Promise<void>((resolve) => external.close(() => resolve()));
-      if (host.listening)
-        await new Promise<void>((resolve) => host.close(() => resolve()));
-    }
-  });
+      await fsPromises.writeFile(
+        path.join(root, "index.html"),
+        `<!doctype html><script type="importmap">{"imports":{"mapped":"http://127.0.0.1:${externalPort}/bare.js","/src/redirect/":"http://127.0.0.1:${externalPort}/redirect/"}}</script><div id="value">waiting</div><script type="module" src="/src/main.js"></script>`,
+      );
+      await fsPromises.writeFile(
+        path.join(root, "src", "main.js"),
+        `window.loadComputed = value => import(/* @vite-ignore */ value); const name = location.pathname.split('/').pop(); const target = './' + name + '.js?mode=route#part'; window.loadComputed(target).then(m => document.querySelector('#value').textContent = m.default);`,
+      );
+      for (let index = 0; index < 6; index++) {
+        await fsPromises.writeFile(
+          path.join(root, "src", `route${index}.js`),
+          `export default 'route${index}';`,
+        );
+      }
+      const devPort = await freePort();
+      const vite = await createServer({
+        configFile: false,
+        logLevel: "silent",
+        root,
+        base: viteBase,
+        server: { host: "127.0.0.1", port: devPort, strictPort: true },
+      });
+      let bridge:
+        | Awaited<ReturnType<typeof startDesignConnectBridge>>
+        | undefined;
+      let browser: Browser | undefined;
+      const hostPort = await freePort();
+      const host = http.createServer((_req, res) =>
+        res
+          .writeHead(200, { "content-type": "text/html" })
+          .end('<iframe sandbox="allow-scripts"></iframe>'),
+      );
+      try {
+        await vite.listen();
+        const port = await freePort();
+        const manifest = await prepareDesignConnectManifest({
+          root,
+          url: `http://127.0.0.1:${devPort}`,
+          port,
+        });
+        bridge = await startDesignConnectBridge(manifest);
+        await fsPromises.writeFile(
+          path.join(root, "index.html"),
+          `<!doctype html><script type="importmap">{"imports":{"mapped":"${viteBase}src/route0.js?previewToken=${bridge.previewToken}","${viteBase}src/redirect/":"http://127.0.0.1:${externalPort}/redirect/"}}</script><div id="value">waiting</div><script type="module" src="/src/main.js"></script>`,
+        );
+        await new Promise<void>((resolve) =>
+          host.listen(hostPort, "127.0.0.1", resolve),
+        );
+        browser = await launchBrowser();
+        const page = await browser.newPage();
+        await page.goto(`http://127.0.0.1:${hostPort}/`);
+        for (let index = 0; index < 6; index++) {
+          await page.locator("iframe").evaluate((iframe, url) => {
+            iframe.src = url;
+          }, `http://127.0.0.1:${port}/live-edit?path=${viteBase}route${index}&previewToken=${bridge.previewToken}`);
+          const frame = page.frameLocator("iframe");
+          await expect
+            .poll(() => frame.locator("#value").textContent())
+            .toBe(`route${index}`);
+        }
+        const frame = page
+          .frames()
+          .find((candidate) => candidate !== page.mainFrame());
+        if (!frame) throw new Error("preview frame did not load");
+        const results = await frame.evaluate(async (externalUrl) => {
+          const load = (
+            window as Window & {
+              loadComputed: (value: string) => Promise<{ default: string }>;
+            }
+          ).loadComputed;
+          await fetch(new URL("/baseline.js", externalUrl));
+          return Promise.allSettled([
+            load("mapped"),
+            load("./redirect/mod.js"),
+            load(externalUrl),
+          ]).then((modules) =>
+            modules.map((module) =>
+              module.status === "fulfilled" ? module.value.default : "blocked",
+            ),
+          );
+        }, `http://127.0.0.1:${externalPort}/absolute.js?mode=test#part`);
+        // oracle-change: external scripts are blocked; a credentialed local import map still works.
+        expect(results).toEqual(["route0", "blocked", "blocked"]);
+        expect(externalRequests).toEqual(["/baseline.js"]);
+        const previewToken = bridge.previewToken;
+        expect(externalRequests.some((url) => url.includes(previewToken))).toBe(
+          false,
+        );
+      } finally {
+        await browser?.close();
+        await bridge?.close();
+        await vite.close();
+        await new Promise<void>((resolve) => external.close(() => resolve()));
+        if (host.listening)
+          await new Promise<void>((resolve) => host.close(() => resolve()));
+      }
+    },
+  );
 
   it("authenticates Vite ignored literal imports without exposing the token to external imports", async () => {
     const root = tmpDir();
