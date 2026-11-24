@@ -3249,6 +3249,12 @@ describe("chat thread store", () => {
         claimId: "c-2",
       }),
     ).rejects.toThrow("Unknown queued message: queued-never-existed");
+    await expect(
+      mutateThreadQueuedMessages("thread-1", {
+        type: "steer",
+        messageId: "queued-never-existed",
+      }),
+    ).rejects.toThrow("Unknown queued message: queued-never-existed");
   });
 
   it("refuses to reorder a message that is being promoted", async () => {
