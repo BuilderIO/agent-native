@@ -116,14 +116,14 @@ describe("Design project title tooltip", () => {
             pointerType: "mouse",
           }),
         );
-        // Radix opens after the provider's delay, here a zero timeout.
-        await new Promise((resolve) => setTimeout(resolve, 0));
       });
 
-      const tooltip = document.body.querySelector(
-        '[data-agent-native-tooltip="true"]',
-      );
-      expect(tooltip?.textContent).toContain(title);
+      await vi.waitFor(() => {
+        const tooltip = document.body.querySelector(
+          '[data-agent-native-tooltip="true"]',
+        );
+        expect(tooltip?.textContent).toContain(title);
+      });
     },
   );
 });

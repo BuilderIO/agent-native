@@ -79,8 +79,6 @@ async function expectEllipsis(titleElement: Locator) {
   expect(overflow.whiteSpace).toBe("nowrap");
 }
 
-// Only Design's stylesheet is compiled: no file watching, dependency
-// discovery or dev-server sockets, which stall on a busy CI shard.
 beforeAll(async () => {
   cacheDir = await mkdtemp(path.join(os.tmpdir(), "design-title-layout-"));
   vite = await createServer({
@@ -113,8 +111,6 @@ beforeAll(async () => {
   const result = await vite.transformRequest("/app/global.css?direct");
   if (!result) throw new Error("Could not compile Design's stylesheet");
   css = result.code;
-  // Prefer Playwright's own Chromium, which the test lanes install. Jobs
-  // without it (like the fix-proof check) use the runner's Chromium.
   const useSystemChromium =
     !existsSync(chromium.executablePath()) && existsSync("/usr/bin/chromium");
   browser = await chromium.launch({
