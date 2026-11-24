@@ -10750,6 +10750,39 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
   });
 
+  it.each(["runtime_error", "provider_internal_error", "http_500"])(
+    "uses a plain message for %s failures and retains diagnostics without retrying",
+    async (code) => {
+      const raw =
+        'Error: 500 {"type":"error","error":{"message":"Internal failure"}}';
+      chatMocks.failureError = { code, message: raw, retryable: false };
+
+      await mount(baseProps());
+
+      expect(chatMocks.failureProps.info).toMatchObject({
+        message: "actionErrors.failed",
+        details: raw,
+        errorCode: code,
+        recoverable: false,
+      });
+      expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+      expect(chatMocks.composerProps).toBeTruthy();
+    },
+  );
+
+  it("preserves structured diagnostics when a generic run fails", async () => {
+    chatMocks.failureError = {
+      code: "runtime_error",
+      message: "The upstream request failed.",
+      details: { requestId: "request-123", status: 500 },
+    };
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.info.message).toBe("actionErrors.failed");
+    expect(chatMocks.failureProps.info.details).toContain("request-123");
+  });
+
   it("shows an error when loop-limit Continue rejects", async () => {
     chatMocks.failureError = { code: "loop_limit", message: "Limit reached" };
     chatMocks.control.sendMessage.mockRejectedValueOnce(

@@ -7088,14 +7088,22 @@ function AgentKitRunFailure({
           () => sendContinueRequest(surface, retryRequest, runId),
           setContinueFailed,
         );
+  const genericFailure =
+    error.code === "runtime_error" ||
+    error.code === "provider_internal_error" ||
+    /^http_5\d\d$/.test(error.code);
   const info: RunErrorInfo = {
     message: canRetryWithoutAttachment
       ? t("agentChat.errorMessages.invalidAttachmentNamed", {
           name: failedAttachmentNames.join(", "),
         })
-      : formatAgentKitErrorText(error, t),
+      : genericFailure
+        ? t("actionErrors.failed")
+        : formatAgentKitErrorText(error, t),
     errorCode: error.code,
-    details: formatErrorDetails(error.details),
+    details:
+      formatErrorDetails(error.details) ||
+      (genericFailure ? error.message : undefined),
     runId,
     recoverable: error.retryable,
   };
