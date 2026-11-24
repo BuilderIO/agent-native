@@ -812,6 +812,8 @@ export function useChatThreads(
   );
   const activeThreadIdRef = useRef(activeThreadId);
   activeThreadIdRef.current = activeThreadId;
+  const activeThreadKeyRef = useRef(activeThreadKey);
+  activeThreadKeyRef.current = activeThreadKey;
   const initialActiveThreadKeyRef = useRef(activeThreadKey);
   // Restore can settle before React commits a newer selection.
   const activeThreadSelectionRevisionRef = useRef(0);
@@ -1001,6 +1003,15 @@ export function useChatThreads(
       const restoredOnPage = restoredId
         ? loadedThreads.find((t) => t.id === restoredId)
         : undefined;
+      const restoredConfirmationKey = restoredId
+        ? serverConfirmedThreadKey(apiUrl, historyScopeKey, restoredId)
+        : null;
+      const wasConfirmed = restoredConfirmationKey
+        ? serverConfirmedThreadIdsRef.current.has(restoredConfirmationKey)
+        : false;
+      const scopeMutation = restoredId
+        ? (scopeMutationsRef.current.get(restoredId) ?? 0)
+        : 0;
       const restoredThread =
         lookupRestored && (!restoredOnPage || routeControlsActiveThread)
           ? await fetchThreadById(apiUrl, restoredId!, historyScope)
@@ -1022,7 +1033,22 @@ export function useChatThreads(
       ) {
         initialRouteConfirmationPendingRef.current = null;
       }
-      if (selectionRevision !== activeThreadSelectionRevisionRef.current) {
+      if (
+        activeThreadIdRef.current !== restoredId ||
+        activeThreadKeyRef.current !== activeThreadKey ||
+        (restoredId &&
+          lookupRestored &&
+          (isUnconfirmedClientDraftThread(
+            restoredId,
+            newlyCreatedRef.current,
+          ) ||
+            (restoredConfirmationKey &&
+              !wasConfirmed &&
+              serverConfirmedThreadIdsRef.current.has(
+                restoredConfirmationKey,
+              )) ||
+            (scopeMutationsRef.current.get(restoredId) ?? 0) !== scopeMutation))
+      ) {
         initialLoadRequestIdRef.current = null;
         loadingRequestIdRef.current = null;
         initialRouteConfirmationPendingRef.current = null;
