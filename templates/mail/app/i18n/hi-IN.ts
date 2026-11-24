@@ -652,7 +652,7 @@ const messages = {
       instructionsTitle: "निर्देश",
       instructionCount: "{{count}} निर्देश",
       instructionPlaceholder:
-        "उदा. “question for you, Steve” जैसे विषय वाले मेल अनचाहे हैं",
+        "उदा. “quick question for you” जैसे विषय वाले मेल अनचाहे हैं",
       addInstruction: "जोड़ें",
       noInstructions: "अभी कोई निर्देश नहीं हैं।",
       instructionExample: "आज़माएँ: “सभी राजनीतिक अभियान के मेल अनचाहे हैं।”",
@@ -908,6 +908,7 @@ const messages = {
     autocomplete: "ऑटोकंप्लीट",
     sendAndMarkDone: "भेजें और पूर्ण के रूप में चिह्नित करें",
     autocompleteSaveFailed: "ऑटोकंप्लीट सेटिंग सेव नहीं हो सकी।",
+    signaturePlaceholder: "शुभकामनाएँ,\nआपका नाम",
     writingStylePlaceholder: "छोटा, विशिष्ट, गर्मजोशी भरा। औपचारिक filler से बचें।",
     saveDraftingSettings: "Drafting settings सहेजें",
     reset: "रीसेट",

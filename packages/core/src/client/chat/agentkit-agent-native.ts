@@ -43,6 +43,7 @@ import {
   parseNullableAgentQueuedSubmissionStatus,
   parseAgentRunOptions,
   parseAgentThreadSnapshot,
+  parseAgentToolCall,
   persistableFilePart,
 } from "@agent-native/agentkit/protocol";
 
@@ -66,6 +67,7 @@ import {
   requireAgentEngineConfiguredForDispatch,
 } from "../agent-engine-readiness.js";
 import { agentNativePath } from "../api-path.js";
+import { flushClientAppStateBeforeAgentTurn } from "../application-state.js";
 import {
   CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
   CHAT_CAPABILITY_UNSUPPORTED_MESSAGE,
@@ -3385,11 +3387,55 @@ export function createAgentNativeAgentKitTransport(
                 )
               : (messagesWithLegacyRoot ?? agentKitMessages)
             : storedMessageProjection,
-          events: agentKit.events,
+          events: Array.isArray(agentKit.events)
+            ? agentKit.events.map((value: unknown) => {
+                const event = asRecord(value);
+                if (
+                  event?.omitFromPersistedHistory === true &&
+                  (((event.type === "activity.started" ||
+                    event.type === "activity.updated" ||
+                    event.type === "activity.completed") &&
+                    !Object.hasOwn(event, "activity")) ||
+                    (event.type === "message.completed" &&
+                      !Object.hasOwn(event, "message")) ||
+                    (event.type === "x-agent-native.persisted-event-omission" &&
+                      !Object.hasOwn(event, "payload")))
+                ) {
+                  return {
+                    id: event.id,
+                    threadId: event.threadId,
+                    runId: event.runId,
+                    sequence: event.sequence,
+                    occurredAt: event.occurredAt,
+                    ...(Object.hasOwn(event, "metadata")
+                      ? { metadata: event.metadata }
+                      : {}),
+                    type: "x-agent-native.persisted-event-omission",
+                    payload: { sourceType: event.type },
+                  };
+                }
+                return value;
+              })
+            : agentKit.events,
           runs: agentKit.runs,
           activeRunIds: agentKit.activeRunIds,
           suggestions: agentKit.suggestions,
-          toolCalls: agentKit.toolCalls,
+          toolCalls: Array.isArray(agentKit.toolCalls)
+            ? agentKit.toolCalls.filter((value: unknown, index: number) => {
+                const toolCall = asRecord(value);
+                if (
+                  toolCall?.omitFromPersistedHistory === true &&
+                  !Object.hasOwn(toolCall, "name")
+                ) {
+                  parseAgentToolCall(
+                    { ...toolCall, name: "redacted" },
+                    `threadSnapshot.toolCalls[${index}]`,
+                  );
+                  return false;
+                }
+                return true;
+              })
+            : agentKit.toolCalls,
           activities: agentKit.activities,
           widgets: agentKit.widgets,
           annotations: agentKit.annotations,
@@ -4775,6 +4821,7 @@ export function createAgentNativeAgentKitTransport(
   async function startRunTrackingRunningState(
     input: Parameters<AgentKitProtocolAdapter["startRun"]>[0],
     context: Parameters<AgentKitProtocolAdapter["startRun"]>[1],
+    beforeSubmit?: () => Promise<void>,
   ): ReturnType<AgentKitProtocolAdapter["startRun"]> {
     dispatchAgentChatRunning({
       isRunning: true,
@@ -4783,7 +4830,7 @@ export function createAgentNativeAgentKitTransport(
       tabId: input.threadId,
     });
     try {
-      const run = await startRun(input, context);
+      const run = await startRun(input, context, beforeSubmit);
       if (!run.runId) {
         dispatchAgentChatRunning({
           isRunning: false,
@@ -4925,10 +4972,6 @@ export function createAgentNativeAgentKitTransport(
     receiptQueuedFirstSeen.set(seenKey, firstSeen);
     const waitedTooLong = Date.now() - firstSeen >= RECEIPT_QUEUED_TAKEOVER_MS;
     if (seen < RECEIPT_QUEUED_TAKEOVER_ATTEMPTS && !waitedTooLong) throw busy();
-    await persistQueueMutation(threadId, { type: "remove", messageId });
-    receiptQueuedWaits.delete(seenKey);
-    receiptQueuedFirstSeen.delete(seenKey);
-    clearPromotionClaimId(threadId, messageId);
     const latest = (await snapshot(threadId)) ?? thread;
     const run = await startRunTrackingRunningState(
       {
@@ -4958,6 +5001,12 @@ export function createAgentNativeAgentKitTransport(
         ...(queued.metadata === undefined ? {} : { metadata: queued.metadata }),
       },
       undefined,
+      async () => {
+        await persistQueueMutation(threadId, { type: "remove", messageId });
+        receiptQueuedWaits.delete(seenKey);
+        receiptQueuedFirstSeen.delete(seenKey);
+        clearPromotionClaimId(threadId, messageId);
+      },
     );
     if (!run.runId) {
       throw new TypeError(
@@ -5698,11 +5747,14 @@ export function createAgentNativeAgentKitTransport(
       // coercion-ok: telemetry must never change how a start fails.
     }
   };
-  const startRun: typeof protocolTransport.startRun = async (
-    input,
-    context,
-  ) => {
+  const startRun = async (
+    input: Parameters<AgentKitProtocolAdapter["startRun"]>[0],
+    context: Parameters<AgentKitProtocolAdapter["startRun"]>[1],
+    beforeSubmit?: () => Promise<void>,
+  ): ReturnType<AgentKitProtocolAdapter["startRun"]> => {
     try {
+      await flushClientAppStateBeforeAgentTurn(context?.signal);
+      await beforeSubmit?.();
       return await protocolStartRun(input, context);
     } catch (error) {
       const record = asRecord(error);

@@ -1464,6 +1464,12 @@ export const migrations = runMigrations(
       sql: {},
       run: copyRecordingCommentsOnce,
     },
+    {
+      version: 107,
+      name: "recording-comments-copy-to-review-kit-again",
+      sql: {},
+      run: copyRecordingCommentsOnce,
+    },
   ]),
   { table: "clips_migrations" },
 );
@@ -1484,6 +1490,12 @@ async function copyRecordingCommentsOnce(): Promise<MigrationRunResult> {
     console.warn(
       `[db] Kept ${report.kitWrittenComments.length} recording comment(s) that were written through the review kit's own actions and aren't in Clips:`,
       report.kitWrittenComments.slice(0, 20),
+    );
+  }
+  if (report.orphanedReplies.length > 0) {
+    console.warn(
+      `[db] Deleted ${report.orphanedReplies.length} recording comment(s) written through the review kit's own actions in a thread Clips deleted:`,
+      report.orphanedReplies.slice(0, 20),
     );
   }
   if (report.differences.length > 0 || report.failedRecordings.length > 0) {

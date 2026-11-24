@@ -19,11 +19,48 @@ import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   sanitizeThreadDataForPrivateActions,
+  recoverThreadHistoryForRequest,
   threadDataToEngineMessages,
   upsertAssistantMessage,
   upsertUserMessage,
 } from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
+
+describe("recovered history for inline fallback", () => {
+  it("excludes only the stored current submission, including attachment-only prompts", () => {
+    const prior = [
+      { role: "user", content: [{ type: "text", text: "Same prompt" }] },
+      { role: "assistant", content: [{ type: "text", text: "Prior reply" }] },
+    ];
+    const current = {
+      role: "user",
+      content: [{ type: "text", text: "Same prompt" }],
+      metadata: { custom: { submittedTurnId: "current" } },
+    };
+    const expected = [
+      { role: "user", content: [{ type: "text", text: "Same prompt" }] },
+      { role: "assistant", content: [{ type: "text", text: "Prior reply" }] },
+    ];
+    expect(
+      recoverThreadHistoryForRequest(
+        { messages: [...prior, current] },
+        { excludeSubmittedTurnId: "current" },
+      ),
+    ).toEqual(expected);
+    expect(
+      recoverThreadHistoryForRequest(
+        { messages: [...prior, { ...current, content: [] }] },
+        { excludeSubmittedTurnId: "current" },
+      ),
+    ).toEqual(expected);
+    expect(
+      recoverThreadHistoryForRequest(
+        { messages: prior },
+        { excludeSubmittedTurnId: "current" },
+      ),
+    ).toEqual(expected);
+  });
+});
 
 describe("foldUnstartedTurnFailure", () => {
   it("answers a refused turn with a typed notice and a failed run, once", () => {

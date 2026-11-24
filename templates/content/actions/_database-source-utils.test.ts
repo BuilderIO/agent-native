@@ -2628,6 +2628,68 @@ describe("database source helpers", () => {
     ).toEqual([]);
   });
 
+  it("leaves out of a new edit the change a waiting record already sends", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Old title",
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "New title"]]),
+      localValuesByDocument: new Map([
+        ["doc-1", new Map([["prop-handle", "draft-fields-check"]])],
+      ]),
+      writableFields: [
+        {
+          propertyId: "prop-handle",
+          localFieldKey: "prop-handle",
+          sourceFieldKey: "data.handle",
+          sourceFieldLabel: "Handle",
+          propertyType: "text",
+          sourceFieldType: "text",
+        },
+      ],
+      storedChangeSets: [
+        {
+          id: "waiting-1",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          kind: "field_update",
+          direction: "outbound",
+          state: "pending_push",
+          pushMode: "autosave",
+          localOnly: true,
+          summary: "Pending local Builder CMS title change.",
+          fieldChanges: [
+            {
+              propertyId: null,
+              propertyName: "Title",
+              localFieldKey: "title",
+              sourceFieldKey: "data.title",
+              currentValue: "Old title",
+              proposedValue: "New title",
+            },
+          ],
+          bodyChange: null,
+          createdAt: "2026-06-08T00:00:00.000Z",
+          updatedAt: "2026-06-08T00:00:00.000Z",
+        },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.fieldChanges).toEqual([
+      expect.objectContaining({
+        localFieldKey: "prop-handle",
+        proposedValue: "draft-fields-check",
+      }),
+    ]);
+  });
+
   it("surfaces a new pending Builder title edit after an older staged record", () => {
     const pending = buildBuilderLocalOutboundChangeSets({
       source: { sourceType: "builder-cms" },

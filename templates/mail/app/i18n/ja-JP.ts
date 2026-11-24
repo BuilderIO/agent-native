@@ -661,7 +661,7 @@ const messages = {
       instructionsTitle: "指示",
       instructionCount: "{{count}} 件の指示",
       instructionPlaceholder:
-        "例：「question for you, Steve」のような件名は不要",
+        "例：「quick question for you」のような件名は不要",
       addInstruction: "追加",
       noInstructions: "指示はまだありません。",
       instructionExample: "「政治キャンペーンのメールはすべて不要」を試す",
@@ -922,6 +922,7 @@ const messages = {
     autocomplete: "自動補完",
     sendAndMarkDone: "送信して完了にする",
     autocompleteSaveFailed: "自動補完の設定を保存できませんでした。",
+    signaturePlaceholder: "よろしくお願いいたします。\n名前",
     writingStylePlaceholder: "短く、具体的に、温かく。形式的な埋め草は避ける。",
     saveDraftingSettings: "下書き設定を保存",
     reset: "リセット",

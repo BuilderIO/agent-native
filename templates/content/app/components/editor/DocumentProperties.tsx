@@ -3535,9 +3535,13 @@ function FilesMediaValueEditor({
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  const singleLink = property.sourceWriteback === true;
+
   function addItem(value: string) {
     if (!isValidFilesMediaLink(value)) return;
-    setItems((current) => mergeFilesMediaItems(current, value));
+    setItems((current) =>
+      mergeFilesMediaItems(singleLink ? [] : current, value),
+    );
     setLinkValue("");
   }
 
@@ -3619,7 +3623,12 @@ function FilesMediaValueEditor({
           linkInputRef.current?.reportValidity();
           return;
         }
-        void save(mergeFilesMediaItems(items, linkValue));
+        void save(
+          mergeFilesMediaItems(
+            singleLink && linkValue.trim() ? [] : items,
+            linkValue,
+          ),
+        );
       }}
     >
       <div className="grid max-h-48 gap-1 overflow-auto">
@@ -3690,15 +3699,17 @@ function FilesMediaValueEditor({
           {t("editor.properties.add")}
         </Button>
       </div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        disabled={!fileStorageConfigured}
-        className="sr-only"
-        onChange={(event) => void uploadFiles(event.currentTarget.files)}
-      />
+      {singleLink ? null : (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          disabled={!fileStorageConfigured}
+          className="sr-only"
+          onChange={(event) => void uploadFiles(event.currentTarget.files)}
+        />
+      )}
       <FileStorageStatusGate
         status={fileUploadStatus}
         open={storageSetupOpen}
@@ -3710,22 +3721,24 @@ function FilesMediaValueEditor({
         }}
       />
       <div className="flex justify-end gap-2">
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            if (fileStorageConfigured) {
-              fileInputRef.current?.click();
-            } else {
-              setStorageSetupOpen(true);
-            }
-          }}
-          disabled={mutation.isPending || uploading}
-        >
-          <IconUpload className="size-3.5" />
-          {t("editor.properties.upload")}
-        </Button>
+        {singleLink ? null : (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              if (fileStorageConfigured) {
+                fileInputRef.current?.click();
+              } else {
+                setStorageSetupOpen(true);
+              }
+            }}
+            disabled={mutation.isPending || uploading}
+          >
+            <IconUpload className="size-3.5" />
+            {t("editor.properties.upload")}
+          </Button>
+        )}
         <Button
           type="button"
           variant="ghost"
@@ -3992,18 +4005,24 @@ function DateValueEditor({
           onSelect={(_selected, day) => pickDay(day)}
         />
       )}
-      <div className="grid grid-cols-2 gap-2">
-        <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
-          <input
-            type="checkbox"
-            checked={showEnd}
-            onChange={(event) => {
-              setShowEnd(event.target.checked);
-              if (!event.target.checked) setEndValue("");
-            }}
-          />
-          {t("database.endDate")}
-        </label>
+      <div
+        className={
+          property.sourceWriteback ? "grid gap-2" : "grid grid-cols-2 gap-2"
+        }
+      >
+        {property.sourceWriteback ? null : (
+          <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={showEnd}
+              onChange={(event) => {
+                setShowEnd(event.target.checked);
+                if (!event.target.checked) setEndValue("");
+              }}
+            />
+            {t("database.endDate")}
+          </label>
+        )}
         <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
           <input
             name="property-include-time"
@@ -4311,7 +4330,8 @@ function OptionValueEditor({
   const [optionQuery, setOptionQuery] = useState("");
   const filteredOptions = filterPropertyOptions(options, optionQuery);
   const firstFilteredOption = firstMatchingPropertyOption(options, optionQuery);
-  const canCreateOption = canCreatePropertyOption(options, optionQuery);
+  const canCreateOption =
+    !property.sourceWriteback && canCreatePropertyOption(options, optionQuery);
   const optionSearchInputRef = useRef<HTMLInputElement>(null);
   const currentSelectedIds = useMemo(() => {
     if (property.definition.type === "multi_select") {

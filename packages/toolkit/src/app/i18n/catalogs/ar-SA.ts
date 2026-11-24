@@ -717,6 +717,8 @@ const messages: ToolkitAgentChatTranslation = {
     "كان مخطط إحدى الأدوات غير صالح، لذلك رفض النموذج الطلب قبل بدئه. يمكن تخطي الأداة غير الصالحة وإعادة محاولة الطلب.",
   "errorMessages.malformedRequest":
     "رفض مزوّد النموذج هذا الطلب لأنه غير صالح، لذلك لم تُعد المحاولة. أعد المحاولة، أو ابدأ محادثة جديدة إذا استمر الأمر.",
+  "errorMessages.requestNotRead":
+    "تعذّر على النموذج قراءة هذا الطلب لأنه كبير أو معقّد جدًا، مثل وجود أدوات كثيرة جدًا، لذلك لم تُعد المحاولة. ابدأ محادثة جديدة أو اختر نموذجًا آخر.",
   "errorMessages.requestTooLarge":
     "تجاوز هذا الطلب حد الحجم على الخادم (HTTP 413). ابدأ دردشة جديدة أو أزل المرفقات أو المراجع الكبيرة، ثم حاول مرة أخرى.",
   "errorMessages.capabilityUnavailable":
@@ -2367,6 +2369,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "اللغة والمنطقة",
   "settingsShell.account.languageDescription": "يُطبَّق على جميع أجهزتك.",
   "settingsShell.account.appearance": "المظهر",
+  "settingsShell.account.theme": "السمة",
+  "settingsShell.account.themeSystem": "النظام",
+  "settingsShell.account.themeLight": "فاتح",
+  "settingsShell.account.themeDark": "داكن",
   "settingsShell.account.themeFamily": "نمط السمة",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal": "الألوان الأصلية للتطبيق",

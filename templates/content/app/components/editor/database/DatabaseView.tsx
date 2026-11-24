@@ -1,4 +1,3 @@
-import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   getBrowserTabId,
@@ -274,7 +273,6 @@ import { cn } from "@/lib/utils";
 import { resolveBuilderCmsWriteEffect } from "../../../../actions/_builder-cms-write-adapter.js";
 import { ContentIcon, contentIconValue } from "../../icons/ContentIcon";
 import {
-  builderBodyHydrationDisplayHydratedCount,
   databaseItemBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
 } from "../body-hydration";
@@ -329,6 +327,13 @@ import {
   type PreviewDocumentSaveSuccess,
 } from "../previewDocumentSaveController";
 import {
+  builderSourceContinuationKey,
+  builderSourceRowFetchStatus,
+  builderSourceWriteMode,
+} from "./builder-source-progress";
+import { BuilderSourcePanel } from "./BuilderSourcePanel";
+import { BuilderSourceStatusLine } from "./BuilderSourceStatusLine";
+import {
   ContentTableConstraintChip,
   ContentTableConstraintBar,
   ContentTableRowActionButton,
@@ -373,6 +378,10 @@ import {
   DATABASE_VIEW_TABS_ROW_CLASS_NAME,
   DatabaseViewSkeleton,
 } from "./DatabaseViewSkeleton";
+import {
+  BuilderDetailsSourcePanel,
+  NotionDetailsSourcePanel,
+} from "./DetailsSourcePanel";
 import { databaseFilterSelectedValues } from "./filter-chips";
 import { contentFilterFields, useContentFilterKitState } from "./filter-kit";
 import { DatabaseFormView } from "./FormView";
@@ -389,6 +398,7 @@ import {
   databaseVisibleItemSummaries,
   fitDatabaseNavigationState,
 } from "./navigation-state";
+import { NotionSourceStatusLine } from "./NotionSourceStatusLine";
 import {
   databaseItemCanDuplicate,
   databaseItemCanRemoveFromDatabase,
@@ -407,7 +417,10 @@ import {
   databaseSortDirectionLabel,
   databaseSortPropertyType,
 } from "./sort-direction";
+import { BuilderLogoMark, NotionLogoMark } from "./SourceLogos";
+import { SourceUnlinkButton } from "./SourceUnlinkDialog";
 import { DatabaseTimelineView } from "./TimelineView";
+import { useConnectNotionHere } from "./use-connect-notion-here";
 import {
   normalizeClientColumnWrapOverrides,
   normalizeClientFrozenThroughColumnId,
@@ -1333,15 +1346,13 @@ function DatabaseTable({
     if (panel !== "source") sourceHandoffActiveRef.current = false;
     setSettingsPanel(panel);
   };
-  // Opens Sources at one source's own page, as the GitHub status line's
-  // "From the … folder" does; each request has a new id so a repeat opens it.
   const [sourceNavRequest, setSourceNavRequest] =
     useState<SourceNavRequest | null>(null);
-  const openGitHubSource = () => {
+  const openSourcePage = (step: SourceNavStep) => {
     changeDatabaseSettingsPanel("source");
     setSourceNavRequest((request) => ({
       id: (request?.id ?? 0) + 1,
-      stack: [{ kind: "github" }],
+      stack: [step],
     }));
     setSettingsOpen(true);
   };
@@ -3736,20 +3747,53 @@ function DatabaseTable({
       {builderSources.map((builderSource) => {
         const continuationKey = builderSourceContinuationKey(builderSource);
         return (
-          <BuilderSourceContinuationBar
+          <BuilderSourceStatusLine
             key={builderSource.id}
             source={builderSource}
+            documentId={document.id}
             canEdit={effectiveCanEdit}
+            pageCount={totalItemCount}
             pending={
               sourcePendingOperations.refreshSourceId === builderSource.id
             }
+            onSyncNow={() => runSourceRefresh(builderSource.id)}
+            onOpenSource={
+              canEditWidgetRows
+                ? undefined
+                : () =>
+                    openSourcePage(
+                      builderSource.metadata.federation?.role === "secondary"
+                        ? {
+                            kind: "secondarySource",
+                            sourceId: builderSource.id,
+                            sourceName: builderSource.sourceName,
+                          }
+                        : {
+                            kind: "model",
+                            sourceId: builderSource.id,
+                            sourceName: builderSource.sourceName,
+                          },
+                    )
+            }
+            onUnlinked={() => closeBuilderReview(true)}
             clientError={
               !!continuationKey &&
               builderContinuationClientErrorKeys.includes(continuationKey)
             }
             progressHighWater={builderProgressHighWater[builderSource.id]}
+            onRetryContent={() =>
+              runBuilderHydration(builderSource.id, {}, { retryFailed: true })
+            }
+            retryContentPending={databaseSourceOperationIsPending(
+              sourcePendingOperations,
+              builderSource.id,
+              ["refresh", "hydration", "disconnect"],
+            )}
             onRetry={() => {
-              if (!continuationKey) return;
+              if (!continuationKey) {
+                runSourceRefresh(builderSource.id);
+                return;
+              }
               setBuilderContinuationClientErrorKeys((current) =>
                 current.filter((key) => key !== continuationKey),
               );
@@ -3780,8 +3824,33 @@ function DatabaseTable({
         documentId={document.id}
         canEdit={canEdit}
         pageCount={totalItemCount}
-        onOpenSource={canEditWidgetRows ? undefined : openGitHubSource}
+        onOpenSource={
+          canEditWidgetRows
+            ? undefined
+            : () => openSourcePage({ kind: "github" })
+        }
       />
+      {sources
+        .filter((candidate) => candidate.sourceType === "notion-database")
+        .map((notionSource) => (
+          <NotionSourceStatusLine
+            key={notionSource.id}
+            source={notionSource}
+            documentId={document.id}
+            canEdit={effectiveCanEdit}
+            pageCount={totalItemCount}
+            onOpenSource={
+              canEditWidgetRows
+                ? undefined
+                : () =>
+                    openSourcePage({
+                      kind: "secondarySource",
+                      sourceId: notionSource.id,
+                      sourceName: notionSource.sourceName,
+                    })
+            }
+          />
+        ))}
       {canEdit &&
       databaseId &&
       data &&
@@ -4254,33 +4323,10 @@ function DatabaseTable({
         onHydrateBuilderBodies={(sourceId) =>
           runBuilderHydration(sourceId, {}, { retryFailed: true })
         }
-        onDisconnectSource={(sourceId) =>
-          disconnectSource.mutate(
-            {
-              documentId: document.id,
-              sourceId,
-            },
-            {
-              onSuccess: () => {
-                setSettingsPanel("source");
-                setBuilderReviewOpen(false);
-                setBuilderReviewResult(null);
-                setBuilderReviewCheckedAt(null);
-                toast.success(dbText("sourceDisconnected"), {
-                  description: dbText(
-                    "databaseRowsAndLocalPropertiesWereKeptIntact",
-                  ),
-                });
-              },
-              onError: (error) => {
-                toast.error(dbText("sourceWasNotDisconnected"), {
-                  description:
-                    error instanceof Error ? error.message : dbText("tryAgain"),
-                });
-              },
-            },
-          )
-        }
+        onSourceUnlinked={() => {
+          setSettingsPanel("source");
+          closeBuilderReview(true);
+        }}
         onReviewBuilderUpdate={(sourceId) => {
           openBuilderReview(sourceId);
         }}
@@ -4302,14 +4348,7 @@ function DatabaseTable({
           );
           setSourceWriteMode.mutate(request, {
             onSuccess: () => {
-              toast.success(dbText("builderWriteModeUpdated"), {
-                description:
-                  settings.writeMode === "publish_updates"
-                    ? "Approved updates can write through to Builder while preserving publication state."
-                    : settings.writeMode === "stage_only"
-                      ? "Approved updates will stage Builder autosave revisions."
-                      : "Builder writes are disabled for this source.",
-              });
+              toast.success(dbText("builderWriteModeUpdated"));
             },
             onError: (error) => {
               for (const [queryKey, data] of previous) {
@@ -7548,53 +7587,46 @@ type SourceNavStep =
 
 type SourceNavRequest = { id: number; stack: SourceNavStep[] };
 
-function sourceNavTitle(stack: SourceNavStep[]): string {
-  const top = stack.length > 0 ? stack[stack.length - 1] : undefined;
-  if (!top) return dbText("sources");
-  if (top.kind === "provider") return "Builder";
-  if (top.kind === "space") return top.spaceName;
-  if (top.kind === "addSource") return dbText("addASource");
-  if (top.kind === "secondarySource") return top.sourceName;
-  if (top.kind === "keyConfirm") return dbText("matchExistingItemsToDetails");
-  if (top.kind === "fieldPicker") return dbText("chooseFields");
-  if (top.kind === "github") return "GitHub";
-  return top.model?.displayName ?? top.sourceName ?? "Builder";
-}
+const BUILDER_TITLE = {
+  text: "Builder",
+  icon: <BuilderLogoMark className="size-3.5 shrink-0" />,
+};
 
-function BuilderLogoMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 71 80"
-      fill="currentColor"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M70.86 24C70.86 10.69 60.06 0 46.86 0H6.31995C2.81995 0 0 2.84031 0 6.32031C0 12.8003 13.71 17.71 13.71 40C13.71 62.29 0 67.2102 0 73.6802C0 77.1602 2.81995 80 6.31995 80H46.86C60.06 80 70.86 69.31 70.86 56C70.86 46.22 64.98 40.25 64.75 40C64.98 39.75 70.86 33.78 70.86 24ZM8.37 6.86035H46.87C51.45 6.86035 55.75 8.64037 58.99 11.8804C62.23 15.1204 64.01 19.42 64.01 24C64.01 28.58 62.3199 32.62 59.3199 35.79L8.37 6.86035ZM58.99 68.1304C55.75 71.3704 51.45 73.1504 46.87 73.1504H8.37L59.3199 44.2202C62.3199 47.3902 64.01 51.5703 64.01 56.0103C64.01 60.4503 62.23 64.8904 58.99 68.1304ZM15.83 61.02C16.24 60.17 20.58 51.74 20.58 40C20.58 28.26 16.24 19.83 15.83 18.98L52.85 40L15.83 61.02Z" />
-    </svg>
-  );
-}
-
-function NotionLogoMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 100 100"
-      xmlns="http://www.w3.org/2000/svg"
-      className={cn("notion-logo-icon", className)}
-      aria-hidden="true"
-    >
-      <path
-        className="notion-logo-icon-face"
-        d="M6.017 4.313l55.333 -4.087c6.797 -0.583 8.543 -0.19 12.817 2.917l17.663 12.443c2.913 2.14 3.883 2.723 3.883 5.053v68.243c0 4.277 -1.553 6.807 -6.99 7.193L24.467 99.967c-4.08 0.193 -6.023 -0.39 -8.16 -3.113L3.3 79.94c-2.333 -3.113 -3.3 -5.443 -3.3 -8.167V11.113c0 -3.497 1.553 -6.413 6.017 -6.8z"
-      />
-      <path
-        className="notion-logo-icon-mark"
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M61.35 0.227l-55.333 4.087C1.553 4.7 0 7.617 0 11.113v60.66c0 2.723 0.967 5.053 3.3 8.167l13.007 16.913c2.137 2.723 4.08 3.307 8.16 3.113l64.257 -3.89c5.433 -0.387 6.99 -2.917 6.99 -7.193V20.64c0 -2.21 -0.873 -2.847 -3.443 -4.733L74.167 3.143c-4.273 -3.107 -6.02 -3.5 -12.817 -2.917zM25.92 19.523c-5.247 0.353 -6.437 0.433 -9.417 -1.99L8.927 11.507c-0.77 -0.78 -0.383 -1.753 1.557 -1.947l53.193 -3.887c4.467 -0.39 6.793 1.167 8.54 2.527l9.123 6.61c0.39 0.197 1.36 1.36 0.193 1.36l-54.933 3.307 -0.68 0.047zM19.803 88.3V30.367c0 -2.53 0.777 -3.697 3.103 -3.893L86 22.78c2.14 -0.193 3.107 1.167 3.107 3.693v57.547c0 2.53 -0.39 4.67 -3.883 4.863l-60.377 3.5c-3.493 0.193 -5.043 -0.97 -5.043 -4.083zm59.6 -54.827c0.387 1.75 0 3.5 -1.75 3.7l-2.91 0.577v42.773c-2.527 1.36 -4.853 2.137 -6.797 2.137 -3.107 0 -3.883 -0.973 -6.21 -3.887l-19.03 -29.94v28.967l6.02 1.363s0 3.5 -4.857 3.5l-13.39 0.777c-0.39 -0.78 0 -2.723 1.357 -3.11l3.497 -0.97v-38.3L30.48 40.667c-0.39 -1.75 0.58 -4.277 3.3 -4.473l14.367 -0.967 19.8 30.327v-26.83l-5.047 -0.58c-0.39 -2.143 1.163 -3.7 3.103 -3.89l13.4 -0.78z"
-      />
-    </svg>
-  );
+function sourceNavTitle(
+  stack: SourceNavStep[],
+  sources: ContentDatabaseSource[],
+): { text: string; icon?: ReactNode } {
+  const top = stack.slice(-1).pop();
+  if (!top) return { text: dbText("sources") };
+  if (top.kind === "provider") return BUILDER_TITLE;
+  if (top.kind === "space") return { text: top.spaceName };
+  if (top.kind === "addSource") return { text: dbText("addASource") };
+  if (top.kind === "secondarySource") {
+    const sourceType = sources.find(
+      (item) => item.id === top.sourceId,
+    )?.sourceType;
+    if (sourceType === "builder-cms") return BUILDER_TITLE;
+    if (sourceType === "notion-database") {
+      return {
+        text: "Notion",
+        icon: <NotionLogoMark className="size-3.5 shrink-0" />,
+      };
+    }
+    return { text: top.sourceName };
+  }
+  if (top.kind === "keyConfirm") {
+    return { text: dbText("matchExistingItemsToDetails") };
+  }
+  if (top.kind === "fieldPicker")
+    return { text: dbText("sourceChooseDetails") };
+  if (top.kind === "github") {
+    return {
+      text: "GitHub",
+      icon: <IconBrandGithub className="size-3.5 shrink-0" aria-hidden />,
+    };
+  }
+  if (top.sourceId) return BUILDER_TITLE;
+  return { text: top.model?.displayName ?? top.sourceName ?? "Builder" };
 }
 
 function DatabaseSettingsPanelSheet({
@@ -7622,7 +7654,7 @@ function DatabaseSettingsPanelSheet({
   onDisconnectSecondary,
   onRefreshSource,
   onHydrateBuilderBodies,
-  onDisconnectSource,
+  onSourceUnlinked,
   onReviewBuilderUpdate,
   onSetBuilderLiveWrites,
   sourceActionPending,
@@ -7676,7 +7708,7 @@ function DatabaseSettingsPanelSheet({
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
-  onDisconnectSource: (sourceId?: string) => void;
+  onSourceUnlinked: (sourceId: string) => void;
   onReviewBuilderUpdate: (sourceId: string) => void;
   onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
@@ -7742,11 +7774,14 @@ function DatabaseSettingsPanelSheet({
   }, [sourceNavRequest]);
 
   const title =
-    panel === "main"
-      ? "Collection settings"
-      : panel === "source"
-        ? sourceNavTitle(sourceNavStack)
-        : databaseSettingsPanelTitle(panel);
+    panel === "source"
+      ? sourceNavTitle(sourceNavStack, sources)
+      : {
+          text:
+            panel === "main"
+              ? "Collection settings"
+              : databaseSettingsPanelTitle(panel),
+        };
 
   const handleBack = () => {
     if (panel === "source" && sourceNavStack.length > 0) {
@@ -7798,8 +7833,9 @@ function DatabaseSettingsPanelSheet({
               <IconArrowLeft className="size-4" />
             </button>
           )}
-          <SheetTitle className="min-w-0 flex-1 truncate text-sm font-semibold">
-            {title}
+          <SheetTitle className="flex min-w-0 flex-1 items-center gap-1.5 text-sm font-semibold">
+            {title.icon}
+            <span className="min-w-0 truncate">{title.text}</span>
           </SheetTitle>
           <button
             type="button"
@@ -7845,7 +7881,10 @@ function DatabaseSettingsPanelSheet({
               }}
               onRefreshSource={onRefreshSource}
               onHydrateBuilderBodies={onHydrateBuilderBodies}
-              onDisconnectSource={onDisconnectSource}
+              onSourceUnlinked={(sourceId) => {
+                onSourceUnlinked(sourceId);
+                setSourceNavStack([]);
+              }}
               onReviewBuilderUpdate={onReviewBuilderUpdate}
               onSetBuilderLiveWrites={onSetBuilderLiveWrites}
               sourceActionPending={sourceActionPending}
@@ -8052,14 +8091,7 @@ export function builderSourceLiveWriteControlState(
   source: ContentDatabaseSource | null,
 ) {
   const isBuilderSource = source?.sourceType === "builder-cms";
-  const legacyAllowedWriteModes = source?.metadata.allowedWriteModes ?? [];
-  const writeMode =
-    source?.metadata.writeMode ??
-    (source?.capabilities.liveWritesEnabled === true
-      ? legacyAllowedWriteModes.some((mode) => mode !== "autosave")
-        ? "publish_updates"
-        : "stage_only"
-      : "read_only");
+  const writeMode = builderSourceWriteMode(source);
   const enabled = writeMode !== "read_only";
   return {
     safeTarget: isBuilderSource,
@@ -8105,13 +8137,6 @@ const BUILDER_WRITE_MODE_OPTIONS: Array<{
     descriptionKey: "writesUpdatesToLiveEntries",
   },
 ];
-
-function builderWriteModeSummary(mode: ContentDatabaseSourceWriteMode) {
-  return dbText(
-    BUILDER_WRITE_MODE_OPTIONS.find((option) => option.mode === mode)
-      ?.descriptionKey ?? "noBuilderWrites",
-  );
-}
 
 export function buildClientBuilderReviewPayload(
   source: ContentDatabaseSource,
@@ -8235,7 +8260,7 @@ export function buildClientBuilderReviewPayload(
   };
 }
 
-function DatabaseSettingsSourcePanel({
+export function DatabaseSettingsSourcePanel({
   source,
   sources,
   databaseId,
@@ -8254,7 +8279,7 @@ function DatabaseSettingsSourcePanel({
   onDisconnectSecondary,
   onRefreshSource,
   onHydrateBuilderBodies,
-  onDisconnectSource,
+  onSourceUnlinked,
   onReviewBuilderUpdate,
   onSetBuilderLiveWrites,
   sourceActionPending,
@@ -8289,14 +8314,13 @@ function DatabaseSettingsSourcePanel({
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
-  onDisconnectSource: (sourceId?: string) => void;
+  onSourceUnlinked: (sourceId: string) => void;
   onReviewBuilderUpdate: (sourceId: string) => void;
   onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
   builderAttachPreviewPending: boolean;
   sourcePendingOperations: DatabaseSourcePendingOperations;
 }) {
-  const { isCodeMode } = useCodeMode();
   const navigate = useNavigate();
   const builderSources = databaseAttachedBuilderSources(sources, source);
   const builderStatus = useBuilderStatus();
@@ -8320,6 +8344,37 @@ function DatabaseSettingsSourcePanel({
     },
   });
   const top = nav[nav.length - 1];
+  const builderDetailsPanel = (detailsSource: ContentDatabaseSource) => (
+    <BuilderDetailsSourcePanel
+      source={detailsSource}
+      documentId={documentId}
+      canEdit={canEdit}
+      pageCount={itemCount}
+      syncPending={sourcePendingOperations.refreshSourceId === detailsSource.id}
+      syncDisabled={
+        sourcePendingOperations.refresh ||
+        databaseSourceOperationIsPending(
+          sourcePendingOperations,
+          detailsSource.id,
+          ["changeRole", "refresh", "disconnect"],
+        )
+      }
+      rolePending={sourceActionPending}
+      onSyncNow={() => onRefreshSource(detailsSource.id)}
+      onChooseDetails={() =>
+        onNavPush({
+          kind: "fieldPicker",
+          sourceId: detailsSource.id,
+          sourceName: detailsSource.sourceName,
+        })
+      }
+      onAddAsItems={async () => {
+        const result = await onChangeSourceRole(detailsSource.id, "items");
+        if (result) onNavReplace([]);
+      }}
+      onUnlinked={() => onSourceUnlinked(detailsSource.id)}
+    />
+  );
 
   if (!top) {
     return (
@@ -8416,6 +8471,33 @@ function DatabaseSettingsSourcePanel({
 
   if (top.kind === "secondarySource") {
     const secondary = sources.find((item) => item.id === top.sourceId) ?? null;
+    const chooseDetails = () =>
+      secondary
+        ? onNavPush({
+            kind: "fieldPicker",
+            sourceId: secondary.id,
+            sourceName: secondary.sourceName,
+          })
+        : undefined;
+    if (secondary?.sourceType === "notion-database") {
+      return (
+        <NotionDetailsSourcePanel
+          source={secondary}
+          documentId={documentId}
+          canEdit={canEdit}
+          pageCount={itemCount}
+          rolePending={sourceActionPending}
+          onChooseDetails={chooseDetails}
+          onUnlinked={() => onSourceUnlinked(secondary.id)}
+        />
+      );
+    }
+    if (
+      secondary?.sourceType === "builder-cms" &&
+      sourceAddsDetails(secondary)
+    ) {
+      return builderDetailsPanel(secondary);
+    }
     return (
       <SecondarySourceLeaf
         source={secondary}
@@ -8445,16 +8527,11 @@ function DatabaseSettingsSourcePanel({
           const result = await onChangeSourceRole(secondary.id, "items");
           if (result) onNavReplace([]);
         }}
-        onChooseFields={() =>
-          secondary
-            ? onNavPush({
-                kind: "fieldPicker",
-                sourceId: secondary.id,
-                sourceName: secondary.sourceName,
-              })
-            : undefined
-        }
+        onChooseFields={chooseDetails}
         onDisconnect={() => onDisconnectSecondary(top.sourceId)}
+        documentId={documentId}
+        pageCount={itemCount}
+        onUnlinked={() => onSourceUnlinked(top.sourceId)}
       />
     );
   }
@@ -8657,19 +8734,11 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
+  if (sourceAddsDetails(selectedBuilderSource)) {
+    return builderDetailsPanel(selectedBuilderSource);
+  }
+
   const selectedSource = selectedBuilderSource;
-  const selectedSourceChangeSetsComplete =
-    databaseSourceChangeSetsAreComplete(selectedSource);
-  const reviewableBuilderChangeSets =
-    builderReviewableChangeSets(selectedSource);
-  const outboundChangeSets = reviewableBuilderChangeSets;
-  const conflictChangeSets = selectedSource.changeSets.filter(
-    (changeSet) => changeSet.conflictState === "source_changed",
-  );
-  const builderSyncFailed =
-    selectedSource.syncState === "error" || Boolean(selectedSource.lastError);
-  const liveWriteControl = builderSourceLiveWriteControlState(selectedSource);
-  const builderWriteMode = liveWriteControl.writeMode;
   const selectedSourceMutationPending = databaseSourceOperationIsPending(
     sourcePendingOperations,
     selectedSource.id,
@@ -8713,305 +8782,56 @@ function DatabaseSettingsSourcePanel({
     );
 
   return (
-    <div className="grid min-w-0 gap-4">
-      <>
-        <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-background p-3 text-sm">
-          <div className="flex min-w-0 items-center justify-between gap-2">
-            <span
-              className="truncate font-medium"
-              title={selectedSource.sourceName}
-            >
-              {selectedSource.sourceName}
-            </span>
-            <div className="flex shrink-0 items-center gap-1">
-              {selectedSource.capabilities.liveWritesEnabled ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
-                  <IconPencil className="size-3" />
-                  {dbText("liveWritesOn")}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  <IconLock className="size-3" />
-                  {dbText("readOnly")}
-                </span>
-              )}
-              {!builderSyncFailed ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 px-2 text-xs"
-                  disabled={!canEdit || selectedSourceRefreshControlPending}
-                  onClick={() => onRefreshSource(selectedSource.id)}
-                >
-                  <IconRefresh className="size-3" />
-                  {dbText("refreshSource")}
-                </Button>
-              ) : null}
-            </div>
-          </div>
-          <div className="min-w-0 break-words text-xs text-muted-foreground">
-            {builderSyncFailed ? (
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 text-destructive hover:underline disabled:opacity-60"
-                disabled={!canEdit || selectedSourceRefreshControlPending}
-                onClick={() => onRefreshSource(selectedSource.id)}
-              >
-                <IconRefresh className="size-3" />
-                {dbText("couldntSyncRetry")}
-              </button>
-            ) : (
-              [
-                builderConfigured ? (builderSpaceLabel ?? "Connected") : null,
-                selectedSource.lastRefreshedAt
-                  ? `synced ${
-                      formatRelativeSyncTime(selectedSource.lastRefreshedAt) ??
-                      selectedSource.freshness
-                    }`
-                  : selectedSource.freshness,
-                typeof selectedSource.metadata.lastReadFetchedEntryCount ===
-                "number"
-                  ? dbText("builderRowsFetched", {
-                      count: selectedSource.metadata.lastReadFetchedEntryCount,
-                    })
-                  : null,
-                builderSourceRowFetchStatus(selectedSource) === "error"
-                  ? dbText("builderRowsFetchFailed")
-                  : builderSourceRowFetchStatus(selectedSource) === "fetching"
-                    ? dbText("builderRowsFetchingMore")
-                    : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")
-            )}
-          </div>
-          <div className="grid min-w-0 gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
-            <div className="flex items-center justify-between gap-3">
-              <span className="font-medium text-foreground">
-                {dbText("builderWriteMode")}
-              </span>
-              <span>{builderWriteModeSummary(builderWriteMode)}</span>
-            </div>
-            <div
-              className="grid grid-cols-3 gap-0.5 rounded-md border border-border bg-muted/35 p-0.5"
-              aria-label={dbText("builderWriteMode")}
-            >
-              {BUILDER_WRITE_MODE_OPTIONS.map((option) => {
-                const selected = builderWriteMode === option.mode;
-                return (
-                  <button
-                    key={option.mode}
-                    type="button"
-                    aria-pressed={selected}
-                    title={dbText(option.descriptionKey)}
-                    disabled={builderWriteModeDisabled}
-                    className={cn(
-                      "min-w-0 rounded px-2 py-1.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
-                      selected
-                        ? "bg-database-blue text-database-blue-foreground shadow-sm"
-                        : "text-muted-foreground hover:bg-background hover:text-foreground",
-                    )}
-                    onClick={() =>
-                      onSetBuilderLiveWrites({
-                        sourceId: selectedSource.id,
-                        writeMode: option.mode,
-                        allowPublicationTransitions:
-                          option.mode === "publish_updates"
-                            ? liveWriteControl.allowPublicationTransitions
-                            : false,
-                      })
-                    }
-                  >
-                    <span className="block truncate">
-                      {dbText(option.labelKey)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            {liveWriteControl.showPublicationTransitions ? (
-              <button
-                type="button"
-                role="checkbox"
-                aria-checked={liveWriteControl.allowPublicationTransitions}
-                disabled={builderWriteModeDisabled}
-                className="flex min-w-0 items-start gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60"
-                onClick={() =>
-                  onSetBuilderLiveWrites({
-                    sourceId: selectedSource.id,
-                    writeMode: "publish_updates",
-                    allowPublicationTransitions:
-                      !liveWriteControl.allowPublicationTransitions,
-                  })
-                }
-              >
-                <span
-                  className={cn(
-                    "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded border",
-                    liveWriteControl.allowPublicationTransitions
-                      ? "border-database-blue bg-database-blue text-database-blue-foreground"
-                      : "border-muted-foreground/40 bg-background text-transparent",
-                  )}
-                >
-                  {liveWriteControl.allowPublicationTransitions ? (
-                    <IconCheck className="size-3" />
-                  ) : null}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-foreground">
-                    {dbText("allowPublishUnpublishPerItem")}
-                  </span>
-                </span>
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-muted/30 p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-sm font-medium">
-                {selectedSourceChangeSetsComplete &&
-                conflictChangeSets.length > 0
-                  ? `${conflictChangeSets.length} change${
-                      conflictChangeSets.length === 1 ? "" : "s"
-                    } need review`
-                  : selectedSourceChangeSetsComplete &&
-                      reviewableBuilderChangeSets.length > 0
-                    ? `${reviewableBuilderChangeSets.length} change${
-                        reviewableBuilderChangeSets.length === 1 ? "" : "s"
-                      } ready to push`
-                    : "Check for local content changes"}
-              </div>
-              <div className="mt-0.5 break-words text-xs text-muted-foreground">
-                {dbText("reviewDiffDescription")}
-              </div>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              className="shrink-0"
-              disabled={!canEdit || selectedSourceReviewControlPending}
-              onClick={() => onReviewBuilderUpdate(selectedSource.id)}
-            >
-              <IconCheck className="mr-1.5 size-3.5" />
-              {dbText("reviewDiff")}
-            </Button>
-          </div>
-        </div>
-
-        {selectedSource.bodyHydration ? (
-          <BuilderBodyHydrationCard
-            source={selectedSource}
-            canEdit={canEdit}
-            pending={selectedSourceHydrationControlPending}
-            onHydrate={() => onHydrateBuilderBodies(selectedSource.id)}
-          />
-        ) : null}
-
+    <BuilderSourcePanel
+      source={selectedSource}
+      documentId={documentId}
+      canEdit={canEdit}
+      pageCount={itemCount}
+      knownChangeCount={
+        databaseSourceChangeSetsAreComplete(selectedSource)
+          ? builderReviewableChangeSets(selectedSource).length
+          : null
+      }
+      syncPending={
+        sourcePendingOperations.refreshSourceId === selectedSource.id
+      }
+      syncDisabled={selectedSourceRefreshControlPending}
+      retryContentDisabled={selectedSourceHydrationControlPending}
+      reviewDisabled={selectedSourceReviewControlPending}
+      writeModeDisabled={builderWriteModeDisabled}
+      roleDisabled={selectedSourceRoleControlPending}
+      unlinkDisabled={selectedSourceDisconnectControlPending}
+      notice={
         <BuilderRequiredFieldsCard
           documentId={documentId}
           source={selectedSource}
           canEdit={canEdit}
           pending={selectedSourceMutationPending}
         />
-
-        {isCodeMode ? (
-          <>
-            <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
-              <div className="font-medium">{dbText("builderChanges")}</div>
-              <div className="text-xs text-muted-foreground">
-                {selectedSource.capabilities.liveWritesEnabled
-                  ? "Local edits can be reviewed and sent through the guarded Builder autosave path."
-                  : "Local edits can be staged as a Builder save revision/autosave record. Live Builder writes are disabled."}
-              </div>
-              <div className="grid min-w-0 gap-2">
-                {outboundChangeSets.slice(0, 6).map((changeSet) => (
-                  <SourceChangeSetReviewCard
-                    key={changeSet.id}
-                    changeSet={changeSet}
-                    source={selectedSource}
-                  />
-                ))}
-                {outboundChangeSets.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">
-                    {dbText("noPendingChangesEditASourceBackedRow")}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </>
-        ) : null}
-
-        <SourceRoleCard
-          source={selectedSource}
-          canAddDetails={
-            selectedSource.sourceType !== "local-folder" &&
-            selectedSource.sourceType !== "github" &&
-            sources.some(
-              (item) =>
-                item.id !== selectedSource.id && !sourceAddsDetails(item),
-            )
-          }
-          canEdit={canEdit}
-          pending={selectedSourceRoleControlPending}
-          onAddDetails={() => {
-            if (
-              selectedSource.sourceType === "local-folder" ||
-              selectedSource.sourceType === "github" ||
-              selectedSource.sourceType === "github-pull-requests"
-            )
-              return;
-            onNavPush({
-              kind: "keyConfirm",
-              candidate: {
-                sourceType: selectedSource.sourceType,
-                sourceName: selectedSource.sourceName,
-                sourceTable: selectedSource.sourceTable,
-                displayName: selectedSource.sourceName,
-                existingSourceId: selectedSource.id,
-              },
-            });
-          }}
-          onAddItems={async () => {
-            const result = await onChangeSourceRole(selectedSource.id, "items");
-            if (result) onNavReplace([]);
-          }}
-          onChooseFields={() =>
-            onNavPush({
-              kind: "fieldPicker",
-              sourceId: selectedSource.id,
-              sourceName: selectedSource.sourceName,
-            })
-          }
-        />
-
-        <div className="rounded-lg border border-border bg-background p-3">
-          <div className="text-xs font-medium">
-            {dbText("disconnectSource")}
-          </div>
-          <div className="mt-0.5 break-words text-xs text-muted-foreground">
-            {dbText("keepTheDatabaseRowsAndLocalPropertiesButRemoveSource")}
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="mt-2 text-xs text-destructive hover:text-destructive"
-            disabled={!canEdit || selectedSourceDisconnectControlPending}
-            onClick={() => onDisconnectSource(selectedSource.id)}
-          >
-            {selectedSourceDisconnectControlPending ? (
-              <Spinner className="mr-1 size-3.5" />
-            ) : (
-              <IconX className="mr-1 size-3.5" />
-            )}
-            Disconnect
-          </Button>
-        </div>
-      </>
-    </div>
+      }
+      onSyncNow={() => onRefreshSource(selectedSource.id)}
+      onRetryContent={() => onHydrateBuilderBodies(selectedSource.id)}
+      onReview={() => onReviewBuilderUpdate(selectedSource.id)}
+      onSetWriteMode={onSetBuilderLiveWrites}
+      onAddDetailsInstead={
+        sources.some(
+          (item) => item.id !== selectedSource.id && !sourceAddsDetails(item),
+        )
+          ? () =>
+              onNavPush({
+                kind: "keyConfirm",
+                candidate: {
+                  sourceType: "builder-cms",
+                  sourceName: selectedSource.sourceName,
+                  sourceTable: selectedSource.sourceTable,
+                  displayName: selectedSource.sourceName,
+                  existingSourceId: selectedSource.id,
+                },
+              })
+          : undefined
+      }
+      onUnlinked={() => onSourceUnlinked(selectedSource.id)}
+    />
   );
 }
 
@@ -9412,8 +9232,13 @@ function AddSourceView({
   }) => void;
   onPickNotionDatabase: (source: { id: string; name: string }) => void;
 }) {
+  const t = useT();
   const query = useContentDatabases({ enabled: true, excludeDatabaseIds });
   const notion = useNotionDatabaseSources(true);
+  const connectNotion = useConnectNotionHere(
+    async () => (await notion.refetch()).data?.connected === true,
+  );
+  const notionConnected = notion.data?.connected === true;
   const excluded = new Set(excludeDatabaseIds);
   const tables = (query.data?.databases ?? []).filter(
     (table) => !excluded.has(table.databaseId),
@@ -9461,11 +9286,16 @@ function AddSourceView({
           value={
             notion.isLoading
               ? dbText("loadingTables")
-              : notion.data?.connected
-                ? (notion.data.workspaceName ?? "Notion")
-                : dbText("connectNotionFirst")
+              : notionConnected
+                ? (notion.data?.workspaceName ?? "Notion")
+                : t("editor.toolbar.connectNotion")
           }
-          disabled={!notion.data?.connected}
+          onClick={
+            !notion.isLoading && !notionConnected && canEdit
+              ? () => void connectNotion.start()
+              : undefined
+          }
+          disabled={notionConnected || !canEdit || connectNotion.connecting}
         />
         {notion.data?.connected
           ? notion.data.sources.map((source) => (
@@ -9493,6 +9323,9 @@ function SecondarySourceLeaf({
   onAddItems,
   onChooseFields,
   onDisconnect,
+  documentId,
+  pageCount,
+  onUnlinked,
 }: {
   source: ContentDatabaseSource | null;
   canEdit: boolean;
@@ -9501,6 +9334,9 @@ function SecondarySourceLeaf({
   onAddItems: () => void | Promise<void>;
   onChooseFields: () => void;
   onDisconnect: () => void;
+  documentId: string;
+  pageCount: number;
+  onUnlinked: () => void;
 }) {
   if (!source) {
     return (
@@ -9549,28 +9385,46 @@ function SecondarySourceLeaf({
           </code>
         </div>
       ) : null}
-      <div className="rounded-lg border border-border bg-background p-3">
-        <div className="text-xs font-medium">{dbText("removeThisSource")}</div>
-        <div className="mt-0.5 break-words text-xs text-muted-foreground">
-          Removes the federated columns&rsquo; link to this source. Your local
-          rows and columns stay.
+      {source.sourceType === "builder-cms" ||
+      source.sourceType === "notion-database" ? (
+        canEdit ? (
+          <SourceUnlinkButton
+            provider={
+              source.sourceType === "builder-cms" ? "builder" : "notion"
+            }
+            documentId={documentId}
+            sourceId={source.id}
+            pageCount={pageCount}
+            disabled={pending}
+            onUnlinked={onUnlinked}
+          />
+        ) : null
+      ) : (
+        <div className="rounded-lg border border-border bg-background p-3">
+          <div className="text-xs font-medium">
+            {dbText("removeThisSource")}
+          </div>
+          <div className="mt-0.5 break-words text-xs text-muted-foreground">
+            Removes the federated columns&rsquo; link to this source. Your local
+            rows and columns stay.
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline-destructive"
+            className="mt-2"
+            disabled={!canEdit || pending}
+            onClick={onDisconnect}
+          >
+            {pending ? (
+              <Spinner className="mr-1 size-3.5" />
+            ) : (
+              <IconX className="mr-1 size-3.5" />
+            )}
+            Remove
+          </Button>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="mt-2 text-xs text-destructive hover:text-destructive"
-          disabled={!canEdit || pending}
-          onClick={onDisconnect}
-        >
-          {pending ? (
-            <Spinner className="mr-1 size-3.5" />
-          ) : (
-            <IconX className="mr-1 size-3.5" />
-          )}
-          Remove
-        </Button>
-      </div>
+      )}
     </div>
   );
 }
@@ -9762,254 +9616,6 @@ function SourceRoleCard({
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function BuilderSourceContinuationBar({
-  source,
-  canEdit,
-  pending,
-  clientError,
-  progressHighWater,
-  onRetry,
-}: {
-  source: ContentDatabaseSource | null;
-  canEdit: boolean;
-  pending: boolean;
-  clientError: boolean;
-  progressHighWater?: BuilderSourceProgressHighWater;
-  onRetry: () => void;
-}) {
-  if (
-    !source ||
-    source.sourceType !== "builder-cms" ||
-    sourceAddsDetails(source)
-  ) {
-    return null;
-  }
-  const rowsComplete =
-    source.metadata.lastReadHasMore === false ||
-    progressHighWater?.rowsComplete === true;
-  const rawStatus = clientError ? "error" : builderSourceRowFetchStatus(source);
-  const status = rowsComplete && rawStatus === "fetching" ? null : rawStatus;
-  const bodyHydration = source.bodyHydration;
-  const rawFetchedCount =
-    typeof source.metadata.lastReadFetchedEntryCount === "number"
-      ? source.metadata.lastReadFetchedEntryCount
-      : typeof source.metadata.lastReadEntryCount === "number"
-        ? source.metadata.lastReadEntryCount
-        : null;
-  const hydratedCount = bodyHydration
-    ? builderBodyHydrationDisplayHydratedCount({
-        summary: bodyHydration,
-        highWaterCount: progressHighWater?.hydratedCount ?? 0,
-      })
-    : 0;
-  const fetchedCount =
-    rowsComplete && bodyHydration
-      ? Math.max(
-          rawFetchedCount ?? 0,
-          bodyHydration.total,
-          progressHighWater?.fetchedCount ?? 0,
-        )
-      : rawFetchedCount;
-  const hasMore = source.metadata.lastReadHasMore === true && !rowsComplete;
-  const fetchedCountDetail = builderSourceContinuationFetchedCountDetail(
-    source,
-    fetchedCount,
-    rowsComplete,
-  );
-  const bodyHydrationActive =
-    !hasMore &&
-    !!bodyHydration &&
-    bodyHydration.total > 0 &&
-    bodyHydration.pending + bodyHydration.hydrating > 0;
-  const bodyHydrationFailed =
-    !hasMore &&
-    !!bodyHydration &&
-    bodyHydration.total > 0 &&
-    bodyHydration.error > 0 &&
-    bodyHydration.pending + bodyHydration.hydrating === 0;
-  const bodyHydrationVisible = bodyHydrationActive || bodyHydrationFailed;
-  if (!status && !bodyHydrationVisible) return null;
-  const showRetry = status === "error" || bodyHydrationFailed;
-  const progressPercent = bodyHydrationActive
-    ? Math.round((hydratedCount / bodyHydration!.total) * 100)
-    : builderSourceContinuationProgressPercent(source);
-  const label =
-    status === "error"
-      ? dbText("builderRowsLoadingHitSnag")
-      : bodyHydrationFailed
-        ? dbText("builderRowsLoadingHitSnag")
-        : bodyHydrationActive
-          ? dbText("builderRowsFetchedSyncingBodies")
-          : hasMore
-            ? dbText("builderRowsLoadingBackground")
-            : dbText("builderRowsFinishingUp");
-  const detail =
-    fetchedCount === null
-      ? bodyHydrationVisible && bodyHydration
-        ? dbText(
-            bodyHydrationFailed
-              ? "builderBodiesSyncFinishedWithFailures"
-              : "builderBodiesSyncingProgress",
-            {
-              hydrated: hydratedCount,
-              total: bodyHydration.total,
-              failed: bodyHydration.error,
-            },
-          )
-        : null
-      : bodyHydrationVisible && bodyHydration
-        ? dbText(
-            bodyHydrationFailed
-              ? "builderRowsFetchedBodiesSyncFinishedWithFailures"
-              : "builderRowsFetchedBodiesSyncing",
-            {
-              rows: fetchedCount,
-              hydrated: hydratedCount,
-              total: bodyHydration.total,
-              failed: bodyHydration.error,
-            },
-          )
-        : dbText("builderRowsFetchedSoFar", {
-            count: fetchedCountDetail ?? fetchedCount,
-          });
-
-  return (
-    <div
-      className={cn(
-        "mx-6 mb-3 grid gap-2 rounded-lg border p-3 text-xs",
-        showRetry
-          ? "border-destructive/30 bg-destructive/5 text-destructive"
-          : "border-border bg-muted/35 text-foreground",
-      )}
-    >
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="font-medium">{label}</div>
-          {detail ? (
-            <div
-              className={cn(
-                "mt-0.5 break-words",
-                showRetry ? "text-destructive/80" : "text-muted-foreground",
-              )}
-            >
-              {detail}
-            </div>
-          ) : null}
-        </div>
-        {showRetry ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 shrink-0 px-2 text-xs"
-            disabled={pending || !canEdit}
-            onClick={onRetry}
-          >
-            {pending ? (
-              <Spinner className="mr-1 size-3.5" />
-            ) : (
-              <IconRefresh className="mr-1 size-3.5" />
-            )}
-            {dbText("retry")}
-          </Button>
-        ) : null}
-      </div>
-      {status === "fetching" || bodyHydrationActive ? (
-        <div className="h-1.5 overflow-hidden rounded-full bg-background">
-          <div
-            className={cn(
-              "h-full rounded-full bg-foreground/70 transition-[width]",
-              progressPercent === null ? "w-full animate-pulse" : null,
-            )}
-            style={
-              progressPercent === null
-                ? undefined
-                : { width: `${progressPercent}%` }
-            }
-          />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function BuilderBodyHydrationCard({
-  source,
-  canEdit,
-  pending,
-  onHydrate,
-}: {
-  source: ContentDatabaseSource;
-  canEdit: boolean;
-  pending: boolean;
-  onHydrate: () => void;
-}) {
-  const summary = source.bodyHydration;
-  if (!summary || summary.total === 0) return null;
-  const activeCount = summary.pending + summary.hydrating;
-  const hasErrors = summary.error > 0;
-  const needsWork = activeCount > 0 || hasErrors;
-  const canResume =
-    activeCount > 0 || (summary.retryableErrors ?? summary.error) > 0;
-  const hydratedLabel = dbText("builderBodiesHydrated", {
-    hydrated: summary.hydrated,
-    total: summary.total,
-  });
-  const detail = needsWork
-    ? [
-        activeCount > 0
-          ? dbText("builderBodiesQueued", { count: activeCount })
-          : null,
-        summary.error > 0
-          ? dbText("builderBodySyncFailed", { count: summary.error })
-          : null,
-      ]
-        .filter(Boolean)
-        .join(" · ")
-    : dbText("builderBodiesReadyLocally");
-
-  return (
-    <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs font-medium">{dbText("builderBodySync")}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">
-            {hydratedLabel}
-          </div>
-        </div>
-        {canResume ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 shrink-0 px-2 text-xs"
-            disabled={!canEdit || pending}
-            onClick={onHydrate}
-          >
-            {pending ? (
-              <Spinner className="mr-1 size-3.5" />
-            ) : (
-              <IconRefresh className="mr-1 size-3.5" />
-            )}
-            {(summary.retryableErrors ?? summary.error) > 0
-              ? dbText("retry")
-              : dbText("resume")}
-          </Button>
-        ) : null}
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-        <div
-          className="h-full rounded-full bg-foreground transition-[width]"
-          style={{
-            width: `${Math.round((summary.hydrated / summary.total) * 100)}%`,
-          }}
-        />
-      </div>
-      <div className="break-words text-xs text-muted-foreground">{detail}</div>
     </div>
   );
 }
@@ -10512,213 +10118,6 @@ function BuilderSpaceModelsView({
   );
 }
 
-function SourceChangeSetReviewCard({
-  changeSet,
-  source,
-}: {
-  changeSet: ContentDatabaseSourceChangeSet;
-  source: ContentDatabaseSource;
-}) {
-  const latestReview =
-    changeSet.reviewEvents[changeSet.reviewEvents.length - 1] ?? null;
-  const latestExecution =
-    changeSet.executions[changeSet.executions.length - 1] ?? null;
-  const dryRunStatus = latestExecution
-    ? builderExecutionDryRunStatus(latestExecution.payload)
-    : null;
-
-  return (
-    <div className="min-w-0 rounded-md border border-border/70 px-2 py-1.5">
-      <div className="flex min-w-0 items-start justify-between gap-2">
-        <span
-          className="min-w-0 break-words font-medium leading-snug"
-          title={changeSet.summary}
-        >
-          {changeSet.summary}
-        </span>
-        <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-          {changeSet.state.replace(/_/g, " ")}
-        </span>
-      </div>
-
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-        <span className={sourceRiskClass(changeSet.riskLevel)}>
-          {changeSet.riskLevel} risk
-        </span>
-        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-          {changeSet.conflictState === "source_changed"
-            ? "source changed"
-            : "no conflict"}
-        </span>
-        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-          {sourcePushModeLabel(changeSet.pushMode)}
-        </span>
-        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-          {changeSet.localOnly ? "local-only" : "external write"}
-        </span>
-      </div>
-
-      <div className="mt-2 grid min-w-0 gap-1.5">
-        {changeSet.fieldChanges.slice(0, 3).map((field) => (
-          <div
-            key={`${changeSet.id}-${field.localFieldKey}`}
-            className="min-w-0 rounded border border-border/60 bg-muted/20 p-1.5 text-xs"
-          >
-            <div className="font-medium">
-              {field.propertyName ?? field.sourceFieldKey}
-            </div>
-            <div className="mt-1 grid min-w-0 gap-1 text-muted-foreground">
-              <div className="min-w-0 break-words">
-                Current: {sourceValueText(field.currentValue)}
-              </div>
-              <div className="min-w-0 break-words">
-                Proposed: {sourceValueText(field.proposedValue)}
-              </div>
-            </div>
-          </div>
-        ))}
-        {changeSet.fieldChanges.length > 3 ? (
-          <div className="text-xs text-muted-foreground">
-            +{changeSet.fieldChanges.length - 3} more field changes
-          </div>
-        ) : null}
-        {changeSet.bodyChange ? (
-          <div className="rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
-            <div className="font-medium">{changeSet.bodyChange.summary}</div>
-            <div className="mt-1 text-muted-foreground">
-              {dbText("bodyDiff")}
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="mt-2 break-words text-xs text-muted-foreground">
-        {changeSet.riskReasons.join(", ")}
-        {" • "}
-        {source.capabilities.liveWritesEnabled
-          ? "live writes enabled"
-          : "live writes disabled"}
-        {" • "}
-        {formatSourceTimestamp(changeSet.updatedAt)}
-      </div>
-
-      {latestReview ? (
-        <div className="mt-2 rounded border border-border/60 bg-muted/20 p-1.5 text-xs text-muted-foreground">
-          {latestReview.decision} by {latestReview.reviewerEmail}
-          {" • "}
-          {formatSourceTimestamp(latestReview.createdAt)}
-        </div>
-      ) : null}
-
-      {latestExecution ? (
-        <div className="mt-2 rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
-          <div className="flex min-w-0 items-center justify-between gap-2">
-            <span className="font-medium">{dbText("executionGate")}</span>
-            <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
-              {latestExecution.state.replace(/_/g, " ")}
-            </span>
-          </div>
-          <div className="mt-1 break-words text-muted-foreground">
-            {latestExecution.summary}
-          </div>
-          {builderExecutionRequestLine(latestExecution.payload) ? (
-            <div className="mt-1 break-words text-muted-foreground">
-              Would call {builderExecutionRequestLine(latestExecution.payload)}
-            </div>
-          ) : null}
-          {builderExecutionBlockers(latestExecution.payload).length > 0 ? (
-            <div className="mt-1 grid gap-1 text-muted-foreground">
-              {builderExecutionBlockers(latestExecution.payload)
-                .slice(0, 2)
-                .map((blocker) => (
-                  <div key={blocker} className="break-words">
-                    Blocked: {blocker}
-                  </div>
-                ))}
-            </div>
-          ) : null}
-          {dryRunStatus ? (
-            <div className="mt-1 break-words text-muted-foreground">
-              Dry run {dryRunStatus.status}
-              {dryRunStatus.validatedAt
-                ? ` • ${formatSourceTimestamp(dryRunStatus.validatedAt)}`
-                : ""}
-            </div>
-          ) : null}
-          {latestExecution.lastError ? (
-            <div className="mt-1 break-words text-destructive">
-              {latestExecution.lastError}
-            </div>
-          ) : null}
-          <div className="mt-1 break-all text-muted-foreground">
-            {latestExecution.idempotencyKey}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function sourceRiskClass(risk: ContentDatabaseSourceChangeSet["riskLevel"]) {
-  return cn(
-    "rounded border px-1.5 py-0.5",
-    risk === "high"
-      ? "border-destructive/40 bg-destructive/10 text-destructive"
-      : risk === "medium"
-        ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
-        : "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300",
-  );
-}
-
-function sourceValueText(value: DocumentPropertyValue) {
-  if (value === null || value === undefined || value === "") return "empty";
-  if (Array.isArray(value)) return value.join(", ") || "empty";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
-}
-
-function builderExecutionRequestLine(payload: Record<string, unknown>) {
-  const request =
-    payload.request &&
-    typeof payload.request === "object" &&
-    !Array.isArray(payload.request)
-      ? (payload.request as Record<string, unknown>)
-      : null;
-  const method =
-    typeof request?.method === "string" ? request.method.toUpperCase() : null;
-  const path = typeof request?.path === "string" ? request.path : null;
-  if (!request || !method || !path) return null;
-
-  const query =
-    request.query && typeof request.query === "object"
-      ? (request.query as Record<string, unknown>)
-      : null;
-  const queryText = query
-    ? Object.entries(query)
-        .filter(
-          (entry): entry is [string, string] => typeof entry[1] === "string",
-        )
-        .map(([key, value]) => `${key}=${value}`)
-        .join("&")
-    : "";
-  return `${method} ${path}${queryText ? `?${queryText}` : ""}`;
-}
-
-function builderExecutionBlockers(payload: Record<string, unknown>) {
-  const safety =
-    payload.safety &&
-    typeof payload.safety === "object" &&
-    !Array.isArray(payload.safety)
-      ? (payload.safety as Record<string, unknown>)
-      : null;
-  const blockers = safety?.blockers;
-  return Array.isArray(blockers)
-    ? blockers.filter(
-        (blocker): blocker is string => typeof blocker === "string",
-      )
-    : [];
-}
-
 function builderExecutionDryRunStatus(payload: Record<string, unknown>) {
   const dryRun =
     payload.dryRun &&
@@ -10745,74 +10144,6 @@ function formatSourceTimestamp(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-function formatRelativeSyncTime(value: string | null): string | null {
-  if (!value) return null;
-  const ms = new Date(value).getTime();
-  if (Number.isNaN(ms)) return null;
-  const diff = Date.now() - ms;
-  if (diff < 60_000) return "just now";
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
-export function builderSourceRowFetchStatus(
-  source: Pick<ContentDatabaseSource, "metadata">,
-): "fetching" | "error" | null {
-  if (source.metadata.sourceFetchState === "error") return "error";
-  if (
-    source.metadata.sourceFetchState === "fetching" ||
-    source.metadata.lastReadPartial
-  ) {
-    return "fetching";
-  }
-  return null;
-}
-
-export function builderSourceContinuationKey(
-  source: Pick<ContentDatabaseSource, "id" | "metadata">,
-) {
-  const offset =
-    typeof source.metadata.lastReadNextOffset === "number"
-      ? source.metadata.lastReadNextOffset
-      : null;
-  return offset === null ? null : `${source.id}:${offset}`;
-}
-
-export function builderSourceContinuationProgressPercent(
-  source: Pick<ContentDatabaseSource, "metadata">,
-) {
-  const fetched = source.metadata.lastReadFetchedEntryCount;
-  const limit = source.metadata.lastReadLimit;
-  if (typeof fetched !== "number" || typeof limit !== "number" || limit <= 0) {
-    return null;
-  }
-  const rawPercent = Math.max(0, Math.min(100, (fetched / limit) * 100));
-  return source.metadata.lastReadHasMore === true
-    ? Math.min(95, rawPercent)
-    : rawPercent;
-}
-
-export function builderSourceContinuationFetchedCountDetail(
-  source: Pick<ContentDatabaseSource, "metadata">,
-  fetchedCount: number | null,
-  rowsComplete = false,
-) {
-  const knownFetchTotal =
-    !rowsComplete &&
-    source.metadata.lastReadHasMore === true &&
-    typeof source.metadata.lastReadLimit === "number"
-      ? source.metadata.lastReadLimit
-      : null;
-  return fetchedCount !== null &&
-    knownFetchTotal !== null &&
-    knownFetchTotal > fetchedCount
-    ? `${fetchedCount} of ${knownFetchTotal}`
-    : fetchedCount;
-}
-
 export function builderSourceContinuationWatchdogDecision(refires: number) {
   return "refire";
 }
@@ -10826,15 +10157,6 @@ export function builderSourceContinuationWatchdogDelay(refires: number) {
     BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS,
     BUILDER_SOURCE_CONTINUATION_STALL_MS * 2 ** Math.max(0, refires),
   );
-}
-
-function sourcePushModeLabel(
-  mode: ContentDatabaseSource["metadata"]["pushMode"] | null | undefined,
-) {
-  if (mode === "autosave") return "Save revision / autosave";
-  if (mode === "draft") return "Draft";
-  if (mode === "publish") return "Publish";
-  return "No push";
 }
 
 function sourceFieldMappingForColumn(

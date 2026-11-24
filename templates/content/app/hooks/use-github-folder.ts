@@ -17,6 +17,7 @@ import {
   contentSpaceFilesDatabaseId,
   invalidateContentQueries,
 } from "./use-content-action-mutation";
+import { githubSyncNowMutationOptions } from "./use-content-database";
 import { contentSyncInvalidatePredicate } from "./use-db-sync";
 
 type GitHubFolderAction = "link-github-folder" | "sync-github-folder";
@@ -114,9 +115,13 @@ export function useRefreshAfterGitHubFolder() {
 function useGitHubFolderMutation<TData, TVariables>(
   actionName: GitHubFolderAction,
   changesRows: (variables: TVariables, data: TData | undefined) => boolean,
+  refreshingSourceId?: string,
 ) {
   const refresh = useRefreshAfterGitHubFolder();
   return useActionMutation<TData, TVariables>(actionName, {
+    ...(refreshingSourceId
+      ? githubSyncNowMutationOptions(refreshingSourceId)
+      : {}),
     skipActionQueryInvalidation: true,
     onSettled: (data, _error, variables) => {
       if (changesRows(variables as TVariables, data)) refresh(actionName);
@@ -138,13 +143,15 @@ export function useLinkGitHubFolder() {
  */
 export function useSyncGitHubFolder({
   refresh = true,
-}: { refresh?: boolean } = {}) {
+  refreshingSourceId,
+}: { refresh?: boolean; refreshingSourceId?: string } = {}) {
   return useGitHubFolderMutation<
     SyncGitHubFolderResponse,
     { databaseId: string }
   >(
     "sync-github-folder",
     (_variables, data) => refresh && data?.sync.state !== "busy",
+    refreshingSourceId,
   );
 }
 

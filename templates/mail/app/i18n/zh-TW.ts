@@ -632,7 +632,7 @@ const messages = {
       instructionsTitle: "指示",
       instructionCount: "{{count}} 個指示",
       instructionPlaceholder:
-        "例如：主旨包含「question for you, Steve」的郵件不需要",
+        "例如：主旨包含「quick question for you」的郵件不需要",
       addInstruction: "新增",
       noInstructions: "尚無指示。",
       instructionExample: "試試「所有政治競選郵件都不需要」。",
@@ -876,6 +876,7 @@ const messages = {
     autocomplete: "自動完成",
     sendAndMarkDone: "傳送並標記為已完成",
     autocompleteSaveFailed: "無法儲存自動完成設定。",
+    signaturePlaceholder: "祝好，\n你的名字",
     writingStylePlaceholder: "簡短、具體、溫暖。避免正式套話。",
     saveDraftingSettings: "儲存草稿設定",
     reset: "重設",

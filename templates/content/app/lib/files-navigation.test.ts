@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from "node:fs";
-
 import type {
   ContentDatabaseNavigationItem,
   ContentDatabaseNavigationPageResponse,
@@ -16,9 +14,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({ callActionWithRetry }));
 
 import {
   cachedFilesRootDocumentIds,
+  cachedFilesSiblingDocumentIds,
   confirmCreatedFilesRow,
   filesNavigationPageParams,
   filesNavigationQueryKey,
+  filesRowDocument,
   filesRowMove,
   forgetCreatedFilesRows,
   isFilesRowCreationPending,
@@ -296,6 +296,351 @@ describe("pages this tab created in the Files tree", () => {
     expect(rows[rows.length - 1]?.title).toBe("Plans");
   });
 
+  it("stay at the end of the tree's first page when the Move picker's read lists them", async () => {
+    const firstPage = Array.from({ length: 20 }, (_, index) =>
+      row(`folder-${index}`, { type: "folder", sourceKind: "folder" }),
+    );
+    queryClient.setQueryData(branchKey(), page(firstPage, true));
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+
+    const pickerParams = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    callActionWithRetry.mockResolvedValueOnce(page([row("new")]));
+    const picker = await readFilesNavigationPage(queryClient, pickerParams, [
+      "folder-0",
+    ]);
+    expect(callActionWithRetry.mock.calls[0]?.[1]).toEqual(pickerParams);
+    expect(
+      "available" in picker ? [] : picker.items.map((item) => item.documentId),
+    ).toEqual(["new"]);
+
+    const shown = await reread(queryClient, page(firstPage, true));
+    expect(shown[shown.length - 1]).toBe("new");
+  });
+
+  it("shows confirmed pages but not folders in a racing Move picker read without retiring the tree overlay", async () => {
+    const pickerParams = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const read = readFilesNavigationPage(queryClient, pickerParams, []);
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+    showCreatedFilesRow(queryClient, FILES, created("folder"), "folder");
+    answer(page([row("a")]));
+    const result = await read;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((item) => item.documentId)).toEqual(["a", "new"]);
+
+    callActionWithRetry.mockResolvedValueOnce(page([row("new")]));
+    await readFilesNavigationPage(queryClient, pickerParams, []);
+    expect(await reread(queryClient, page([row("a")], true))).toContain("new");
+  });
+
+  it.each(["created", "moved"])(
+    "retires an absent confirmed %s page without dropping folders or pending creates",
+    async (kind) => {
+      const picker = filesNavigationPageParams({
+        databaseId: FILES,
+        parentId: null,
+        pagesOnly: true,
+      });
+      let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
+      callActionWithRetry.mockReturnValueOnce(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      );
+      const olderPicker = readFilesNavigationPage(queryClient, picker, []);
+      if (kind === "created") {
+        startCreate(queryClient, created("stale"));
+        confirmCreatedFilesRow(queryClient, "stale");
+      } else {
+        keepMovedFilesRow(queryClient, {
+          documentId: "stale",
+          databaseId: FILES,
+          parentId: null,
+          from: { databaseId: FILES, parentId: "old" },
+          item: row("stale"),
+        });
+      }
+      startCreate(queryClient, created("pending"));
+      showCreatedFilesRow(queryClient, FILES, created("folder"), "folder");
+      callActionWithRetry.mockResolvedValueOnce(page([row("a")]));
+      const fresh = await readFilesNavigationPage(queryClient, picker, []);
+      if ("available" in fresh) throw new Error("The Files read failed");
+      expect(fresh.items.map((item) => item.documentId)).toEqual([
+        "a",
+        "pending",
+      ]);
+      answer(page([row("a"), row("stale")]));
+      const older = await olderPicker;
+      if ("available" in older) throw new Error("The Files read failed");
+      expect(older.items.map((item) => item.documentId)).toEqual([
+        "a",
+        "pending",
+      ]);
+      expect(await reread(queryClient, page([row("a")], true))).toEqual([
+        "a",
+        "pending",
+        "folder",
+      ]);
+    },
+  );
+
+  it("keeps a moved destination when a newer tree read overtakes the picker", async () => {
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const read = readFilesNavigationPage(queryClient, picker, []);
+    const item = row("moved");
+    keepMovedFilesRow(queryClient, {
+      documentId: "moved",
+      databaseId: FILES,
+      parentId: null,
+      from: { databaseId: FILES, parentId: "old" },
+      item,
+    });
+    await reread(queryClient, page([row("a"), item]));
+    answer(page([row("a")]));
+    const result = await read;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((entry) => entry.documentId)).toEqual([
+      "a",
+      "moved",
+    ]);
+  });
+
+  it("keeps a destination confirmed by a newer tree read when an older picker omits it", async () => {
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const read = readFilesNavigationPage(queryClient, picker, []);
+    await reread(queryClient, page([row("a"), row("new")]));
+    answer(page([row("a")]));
+    const result = await read;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((entry) => entry.documentId)).toEqual(["a", "new"]);
+    expect(await reread(queryClient, page([row("a")], true))).toEqual(["a"]);
+  });
+
+  it("does not let an older picker omission suppress a newer pending picker", async () => {
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    let answerOld!: (value: ContentDatabaseNavigationPageResponse) => void;
+    let answerNew!: (value: ContentDatabaseNavigationPageResponse) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerOld = resolve;
+      }),
+    );
+    const older = readFilesNavigationPage(queryClient, picker, []);
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerNew = resolve;
+      }),
+    );
+    const newer = readFilesNavigationPage(queryClient, picker, []);
+    answerOld(page([row("a")]));
+    await older;
+    answerNew(page([row("a"), row("new")]));
+    const result = await newer;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((entry) => entry.documentId)).toEqual(["a", "new"]);
+  });
+
+  it("retires tree rows even while an older picker read is pending", async () => {
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const read = readFilesNavigationPage(queryClient, picker, []);
+    await reread(queryClient, page([row("a"), row("new")]));
+    answer(page([row("a")]));
+    await read;
+    expect(await reread(queryClient, page([row("a")], true))).toEqual(["a"]);
+  });
+
+  it("does not resurrect a retired row when a newer whole-tree read leaves it out", async () => {
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const read = readFilesNavigationPage(queryClient, picker, []);
+    await reread(queryClient, page([row("a")]));
+    answer(page([row("a"), row("new")]));
+    const result = await read;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((entry) => entry.documentId)).toEqual(["a"]);
+  });
+
+  it("does not restore a retained row after a later whole-tree read sees an external deletion", async () => {
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const read = readFilesNavigationPage(queryClient, picker, []);
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+    await reread(queryClient, page([row("a"), row("new")]));
+    await reread(queryClient, page([row("a")]));
+    answer(page([row("a")]));
+    const result = await read;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((entry) => entry.documentId)).toEqual(["a"]);
+  });
+
+  it("keeps a retained destination through incomplete or older tree reads", async () => {
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    const tree = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+    });
+    let answerPicker!: (value: ContentDatabaseNavigationPageResponse) => void;
+    let answerOlderTree!: (
+      value: ContentDatabaseNavigationPageResponse,
+    ) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerPicker = resolve;
+      }),
+    );
+    const read = readFilesNavigationPage(queryClient, picker, []);
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerOlderTree = resolve;
+      }),
+    );
+    const olderTree = readFilesNavigationPage(queryClient, tree, []);
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+    await reread(queryClient, page([row("a"), row("new")]));
+    await reread(queryClient, page([row("a")], true));
+    answerOlderTree(page([row("a")]));
+    await olderTree;
+    answerPicker(page([row("a")]));
+    const result = await read;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((entry) => entry.documentId)).toEqual(["a", "new"]);
+  });
+
+  it("does not restore a row moved away after the picker read started", async () => {
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const read = readFilesNavigationPage(queryClient, picker, []);
+    const item = row("moved", { parentId: "elsewhere" });
+    const move = {
+      documentId: "moved",
+      databaseId: FILES,
+      parentId: "elsewhere",
+      from: { databaseId: FILES, parentId: null },
+      item,
+    };
+    keepMovedFilesRow(queryClient, move);
+    moveCachedFilesRow(queryClient, move);
+    answer(page([row("a"), row("moved")]));
+    const result = await read;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((entry) => entry.documentId)).toEqual(["a"]);
+  });
+
+  it("does not add folders to cached pages-only results after creation or move", () => {
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    queryClient.setQueryData(filesNavigationQueryKey(picker), page([row("a")]));
+    showCreatedFilesRow(queryClient, FILES, created("folder"), "folder");
+    const item = row("moved-folder", { type: "folder" });
+    moveCachedFilesRow(queryClient, {
+      documentId: item.documentId,
+      databaseId: FILES,
+      parentId: null,
+      from: { databaseId: FILES, parentId: "old" },
+      item,
+    });
+    expect(
+      queryClient
+        .getQueryData<ContentDatabaseNavigationPageResponse>(
+          filesNavigationQueryKey(picker),
+        )
+        ?.items.map((entry) => entry.documentId),
+    ).toEqual(["a"]);
+  });
+
   it("take out a failed create, and leave a deleted page to the write's reread", async () => {
     startCreate(queryClient, created("failed"));
     removeCreatedFilesRows(queryClient, ["failed"]);
@@ -321,22 +666,6 @@ describe("pages this tab created in the Files tree", () => {
 
     confirmCreatedFilesRow(queryClient, "new");
     expect(isFilesRowCreationPending(queryClient, "new")).toBe(false);
-  });
-
-  it("stay in a branch whatever reader mounted last, because every reader reads through one hook", () => {
-    // A query refetches with the read function of the reader that mounted
-    // last; a Files reader with its own would drop these rows on refetch.
-    const appDir = new URL("../", import.meta.url);
-    const readers = readdirSync(appDir, { recursive: true, encoding: "utf8" })
-      .filter(
-        (file) => /\.tsx?$/.test(file) && !/\.(test|spec)\.tsx?$/.test(file),
-      )
-      .filter((file) =>
-        /use(Action)?Query\b[^;]*?["']query-content-database-items["'][^;]*?filesNavigationPageParams\(/s.test(
-          readFileSync(new URL(file.replace(/\\/g, "/"), appDir), "utf8"),
-        ),
-      );
-    expect(readers).toEqual([]);
   });
 
   it("leave a branch marked for a reread marked", async () => {
@@ -388,6 +717,16 @@ describe("cachedFilesRootDocumentIds", () => {
     queryClient.setQueryData(key("personal", "journal"), rows("monday"));
     queryClient.setQueryData(key("personal", null, "page-2"), rows("later"));
     queryClient.setQueryData(key("archive", null), { available: false });
+    queryClient.setQueryData(
+      filesNavigationQueryKey(
+        filesNavigationPageParams({
+          databaseId: "personal",
+          parentId: null,
+          pagesOnly: true,
+        }),
+      ),
+      rows("journal", "draft"),
+    );
 
     expect(cachedFilesRootDocumentIds(queryClient, "draft")).toEqual([
       "journal",
@@ -396,6 +735,148 @@ describe("cachedFilesRootDocumentIds", () => {
       "hiring",
     ]);
     expect(cachedFilesRootDocumentIds(new QueryClient(), "draft")).toEqual([]);
+  });
+
+  it("never offers a linked folder as a page to open", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      filesNavigationQueryKey(
+        filesNavigationPageParams({ databaseId: "linked", parentId: null }),
+      ),
+      page([
+        row("local-source-directory:vault:notes", {
+          type: "folder",
+          sourceKind: "folder",
+        }),
+        row("readme"),
+      ]),
+    );
+
+    expect(cachedFilesRootDocumentIds(queryClient, "readme")).toEqual([
+      "readme",
+    ]);
+  });
+});
+
+describe("cachedFilesSiblingDocumentIds", () => {
+  it("lists the other pages of the folder the page is in now, from every cached page of its branch", () => {
+    const queryClient = new QueryClient();
+    const notes = "local-source-directory:vault:notes";
+    const key = (
+      parentId: string | null,
+      extra: { cursor?: string; pagesOnly?: boolean } = {},
+    ) =>
+      filesNavigationQueryKey(
+        filesNavigationPageParams({ databaseId: FILES, parentId, ...extra }),
+      );
+    queryClient.setQueryData(
+      key(notes),
+      page([
+        row("local-source-directory:vault:notes%2Fold", {
+          type: "folder",
+          sourceKind: "folder",
+        }),
+        row("today"),
+        row("yesterday"),
+      ]),
+    );
+    queryClient.setQueryData(
+      key(notes, { cursor: "next" }),
+      page([row("later")]),
+    );
+    queryClient.setQueryData(
+      key(null),
+      page([
+        row(notes, { type: "folder", sourceKind: "folder" }),
+        row("inbox"),
+      ]),
+    );
+    queryClient.setQueryData(
+      key(null, { pagesOnly: true }),
+      page([row("inbox"), row("picker-only")]),
+    );
+    queryClient.setQueryData(
+      key("local-source-directory:vault:old"),
+      page([row("today"), row("left-behind")]),
+    );
+    const pathTo = (documentId: string, parentId: string | null) => [
+      ...(parentId
+        ? [{ id: parentId, parentId: null, databaseId: FILES }]
+        : []),
+      { id: documentId, parentId, databaseId: FILES },
+    ];
+
+    expect(
+      cachedFilesSiblingDocumentIds(
+        queryClient,
+        "today",
+        pathTo("today", notes),
+      ),
+    ).toEqual(["yesterday", "later"]);
+    expect(
+      cachedFilesSiblingDocumentIds(
+        queryClient,
+        "later",
+        pathTo("later", notes),
+      ),
+    ).toEqual(["today", "yesterday"]);
+    expect(
+      cachedFilesSiblingDocumentIds(
+        queryClient,
+        "inbox",
+        pathTo("inbox", null),
+      ),
+    ).toEqual([]);
+  });
+
+  it("leaves out the same folder's pages cached for another space's Files", () => {
+    const queryClient = new QueryClient();
+    const notes = "local-source-directory:vault:notes";
+    for (const [databaseId, rows] of [
+      [FILES, ["today", "yesterday"]],
+      ["other-files", ["elsewhere"]],
+    ] as const) {
+      queryClient.setQueryData(
+        filesNavigationQueryKey(
+          filesNavigationPageParams({ databaseId, parentId: notes }),
+        ),
+        page(rows.map((id) => row(id))),
+      );
+    }
+
+    expect(
+      cachedFilesSiblingDocumentIds(queryClient, "today", [
+        { id: notes, parentId: null, databaseId: FILES },
+        { id: "today", parentId: notes, databaseId: FILES },
+      ]),
+    ).toEqual(["yesterday"]);
+    expect(
+      cachedFilesSiblingDocumentIds(queryClient, "today", [
+        { id: "today", parentId: notes, databaseId: null },
+      ]),
+    ).toEqual([]);
+  });
+});
+
+describe("a linked folder's row", () => {
+  it("stands for a read-only local folder, not a page", () => {
+    const folder = filesRowDocument(
+      row("local-source-directory:vault:notes", {
+        title: "notes",
+        type: "folder",
+        sourceKind: "folder",
+        hasChildren: true,
+        canEdit: false,
+        canManage: false,
+      }),
+    );
+
+    expect(folder).toMatchObject({
+      title: "notes",
+      canEdit: false,
+      canManage: false,
+      source: { mode: "local-files", kind: "folder" },
+    });
   });
 });
 

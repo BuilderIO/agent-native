@@ -114,6 +114,7 @@ export interface DispatchMcpAccessibleApp {
   url: string;
   homeUrl?: string;
   mcpUrl?: string;
+  workspaceMount?: boolean;
   color: string;
   source?: DiscoveredAgent["source"];
   aliases?: string[];
@@ -1014,7 +1015,7 @@ export async function listDispatchMcpApps(): Promise<{
             mountedApp && sameOriginMount
               ? mountedWorkspaceAppHomeUrl(mountedApp)
               : null;
-          if (homeUrl) return { ...accessible, homeUrl };
+          if (homeUrl) return { ...accessible, homeUrl, workspaceMount: true };
           return agent.source === "workspace" ||
             isDispatchAppPageUrl(accessible.url)
             ? { ...accessible, mountedPathUnavailable: true }
@@ -1131,6 +1132,7 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
       description: app.description,
       url: app.url,
       homeUrl,
+      workspaceMount: true,
       ...(mcpUrl ? { mcpUrl } : {}),
       color: DISPATCH_COLOR,
       granted: true,
@@ -2651,7 +2653,10 @@ async function createEmbedSessionForResolvedApp(input: {
     };
   }
 
-  const targetMcpUrl = appMcpUrl(target.app);
+  const targetMcpUrl =
+    input.runtime && target.app.workspaceMount
+      ? `${appHomeBaseUrl(target.app)}/mcp`
+      : appMcpUrl(target.app);
   const firstPartyMcp = isWorkspaceSsoAppUrl(
     { id: target.app.id, url: targetMcpUrl },
     {
@@ -2767,7 +2772,9 @@ async function createEmbedSessionForResolvedApp(input: {
       targetPath: parsed.targetPath,
       expiresAt: parsed.expiresAt,
       app: target.app.id,
-      appBaseUrl: appChatBaseUrl(target.app),
+      appBaseUrl: target.app.workspaceMount
+        ? appHomeBaseUrl(target.app)
+        : appChatBaseUrl(target.app),
     };
   }
   if (!parsed.startUrl || parsed.token) {

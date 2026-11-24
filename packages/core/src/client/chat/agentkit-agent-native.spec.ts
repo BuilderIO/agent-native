@@ -26,6 +26,7 @@ import {
   AgentChatAiSetupRequiredError,
   resetAgentEngineReadinessForTests,
 } from "../agent-engine-readiness.js";
+import { registerBeforeAgentTurnFlush } from "../application-state.js";
 import {
   createAgentNativeAgentKitTransport as createAgentNativeAgentKitTransportImplementation,
   withQueuedMessageHistory,
@@ -294,6 +295,138 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
+  it.each([
+    "activity.started",
+    "activity.updated",
+    "activity.completed",
+    "message.completed",
+    "x-agent-native.persisted-event-omission",
+  ])(
+    "restores a redacted %s event at the historical index",
+    async (eventType) => {
+      const events = Array.from({ length: 19 }, (_, index) => ({
+        id: `event-${index}`,
+        threadId: "thread-redacted",
+        runId: "run-1",
+        sequence: index + 1,
+        occurredAt: "2026-11-20T00:00:00.000Z",
+        ...(index === 18
+          ? { type: eventType, omitFromPersistedHistory: true }
+          : {
+              type: "x-agent-native.persisted-event-omission",
+              payload: { sourceType: "legacy" },
+            }),
+      }));
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active: false, status: "idle" })
+            : json({
+                id: "thread-redacted",
+                threadData: JSON.stringify({
+                  agentKit: { messages: [], events },
+                }),
+              }),
+        ) as typeof fetch,
+      });
+      const snapshot = await transport.getThreadSnapshot?.({
+        threadId: "thread-redacted",
+      });
+      expect(snapshot?.events?.[18]).toMatchObject({
+        type: "x-agent-native.persisted-event-omission",
+        sequence: 19,
+      });
+      await transport.dispose();
+    },
+  );
+
+  it.each([
+    { type: "activity.updated" },
+    {
+      type: "activity.updated",
+      omitFromPersistedHistory: true,
+      activity: null,
+    },
+  ])(
+    "rejects malformed activity without a valid redaction omission",
+    async (event) => {
+      const storedEvent = {
+        id: "e1",
+        threadId: "thread-corrupt",
+        runId: "r1",
+        sequence: 1,
+        occurredAt: "2026-11-20T00:00:00.000Z",
+        ...event,
+      };
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active: false, status: "idle" })
+            : json({
+                id: "thread-corrupt",
+                threadData: JSON.stringify({
+                  agentKit: { messages: [], events: [storedEvent] },
+                }),
+              }),
+        ) as typeof fetch,
+      });
+      await expect(
+        transport.getThreadSnapshot?.({ threadId: "thread-corrupt" }),
+      ).rejects.toMatchObject({
+        name: "AgentProtocolValidationError",
+        path: "threadSnapshot.events[0].activity",
+      });
+      await transport.dispose();
+    },
+  );
+
+  it("omits a redacted tool call after validating its remaining fields", async () => {
+    const threadData = {
+      agentKit: {
+        messages: [],
+        toolCalls: [
+          {
+            id: "tool-1",
+            status: "completed",
+            runId: "run-1",
+            messageId: "m1",
+            omitFromPersistedHistory: true,
+          },
+        ],
+      },
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "idle" })
+          : json({
+              id: "thread-redacted",
+              threadData: JSON.stringify(threadData),
+            }),
+      ) as typeof fetch,
+    });
+    expect(
+      (await transport.getThreadSnapshot?.({ threadId: "thread-redacted" }))
+        ?.toolCalls,
+    ).toEqual([]);
+    threadData.agentKit.toolCalls[0].status = "invalid";
+    await expect(
+      transport.getThreadSnapshot?.({ threadId: "thread-redacted" }),
+    ).rejects.toMatchObject({
+      name: "AgentProtocolValidationError",
+      path: "threadSnapshot.toolCalls[0].status",
+    });
+    threadData.agentKit.toolCalls[0].status = "completed";
+    threadData.agentKit.toolCalls[0].omitFromPersistedHistory = false;
+    await expect(
+      transport.getThreadSnapshot?.({ threadId: "thread-redacted" }),
+    ).rejects.toMatchObject({
+      name: "AgentProtocolValidationError",
+      path: "threadSnapshot.toolCalls[0].name",
+    });
+    await transport.dispose();
+  });
+
   it.each([null, "bad", {}])(
     "rejects corrupt stored message parts: %s",
     async (parts) => {
@@ -373,6 +506,46 @@ describe("createAgentNativeAgentKitTransport", () => {
       );
     },
   );
+
+  it("waits for the visible selection to flush before making any turn request", async () => {
+    const pending = Promise.withResolvers<void>();
+    const started = Promise.withResolvers<void>();
+    const unregister = registerBeforeAgentTurnFlush(() => {
+      started.resolve();
+      return pending.promise;
+    });
+    const fetcher = vi.fn(async () =>
+      json({ error: "Test request reached server" }, 503),
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher,
+    });
+    try {
+      const request = transport.startRun({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Reply to this" }],
+          },
+        ],
+      });
+      const rejected = (async () => {
+        await expect(request).rejects.toThrow();
+      })();
+      await started.promise;
+      expect(fetcher).not.toHaveBeenCalled();
+      pending.resolve();
+      await rejected;
+      expect(fetcher).toHaveBeenCalled();
+    } finally {
+      pending.resolve();
+      unregister();
+      await transport.dispose();
+    }
+  });
 
   it("keeps an accepted submission receipt without loading its active run", async () => {
     const fetcher = vi.fn(async () =>
@@ -12190,6 +12363,55 @@ describe("createAgentNativeAgentKitTransport", () => {
       },
     ]);
     await transport.dispose();
+  });
+
+  it("keeps a receipt-managed queued prompt when the before-turn flush fails", async () => {
+    const threadId = "thread-flush-queue";
+    const messageId = "queued-flush";
+    const queuedMessages = [
+      { id: messageId, threadId, text: "Keep this prompt" },
+    ];
+    const mutations: string[] = [];
+    const unregister = registerBeforeAgentTurnFlush(async () => {
+      throw new Error("State save failed");
+    });
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/runs/active?")) return json({});
+        if (url.endsWith(`/queue/${messageId}/receipt`))
+          return json({ state: "queued" });
+        if (url.endsWith(`/threads/${threadId}/queued`)) {
+          mutations.push(JSON.parse(String(init?.body)).mutation.type);
+          return json({ queuedMessages, receiptManaged: true });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ queuedMessages }),
+          });
+        }
+        return json({ error: "Unexpected request" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+    try {
+      for (let i = 0; i < 2; i++) {
+        await expect(
+          transport.steerQueuedMessage?.({ threadId, messageId }),
+        ).rejects.toMatchObject({ code: "queue_item_busy" });
+      }
+      await expect(
+        transport.steerQueuedMessage?.({ threadId, messageId }),
+      ).rejects.toThrow("State save failed");
+      expect(mutations).not.toContain("remove");
+    } finally {
+      unregister();
+      await transport.dispose();
+    }
   });
 
   it("reattaches to a queue run submitted by the inbox drain", async () => {

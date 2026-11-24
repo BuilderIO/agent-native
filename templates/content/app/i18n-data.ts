@@ -11,6 +11,7 @@ import {
   discussionMessagesByLocale,
 } from "./discussion-messages";
 import { importMessagesByLocale } from "./import-messages";
+import { linkCardMessagesByLocale } from "./link-card-messages";
 import { trashMessagesByLocale } from "./trash-messages";
 
 const databaseMessages = {
@@ -115,31 +116,91 @@ const databaseMessages = {
   githubDetailFolder: "Folder",
   githubDetailBranch: "Branch",
   githubDetailVersion: "Version",
-  githubDetailUpdated: "Updated",
-  githubCheckForUpdates: "Check for updates",
+  sourceDetailUpdated: "Updated",
   githubOpenFolder: "Open in GitHub",
-  githubUnlinkFolder: "Unlink folder…",
   githubUnlinkTitle: "Unlink this GitHub folder?",
   githubUnlinkBodyOne:
     "The 1 page stays here and becomes a normal page you can edit. Changes on GitHub won’t come in anymore. To link this folder again later, you’ll use a new collection.",
   githubUnlinkBody:
     "The {{count}} pages stay here and become normal pages you can edit. Changes on GitHub won’t come in anymore. To link this folder again later, you’ll use a new collection.",
-  githubUnlink: "Unlink",
-  githubUnlinking: "Unlinking…",
-  githubUnlinkedToast:
+  sourceUnlinkConfirm: "Unlink",
+  sourceUnlinking: "Unlinking…",
+  sourceUnlinkedToast:
     "Unlinked. Your pages are kept and you can edit them now.",
-  githubUnlinkFailed: "Couldn’t unlink the folder",
+  sourceSyncNow: "Sync now",
+  sourceUnlink: "Unlink…",
+  sourceUnlinkFailed: "Couldn’t unlink",
+  sourceFromBuilderModel: "From the {{name}} model in Builder",
+  sourceDetailsFromBuilderModel: "Details from the {{name}} model in Builder",
+  sourceDetailsFromNotionDatabase:
+    "Details from the {{name}} database in Notion",
+  sourceDetailModel: "Model",
+  sourceDetailDatabase: "Database",
+  sourceUnlinkBuilderTitle: "Unlink this Builder model?",
+  sourceUnlinkBuilderBodyOne:
+    "The 1 page stays here and becomes a normal page you can edit. Changes in Builder won’t come in anymore.",
+  sourceUnlinkBuilderBody:
+    "The {{count}} pages stay here and become normal pages you can edit. Changes in Builder won’t come in anymore.",
+  sourceUnlinkNotionTitle: "Unlink this Notion database?",
+  sourceUnlinkNotionBodyOne:
+    "The 1 page stays here and stays yours to edit. Details from Notion won’t come in anymore.",
+  sourceUnlinkNotionBody:
+    "The {{count}} pages stay here and stay yours to edit. Details from Notion won’t come in anymore.",
+  sourceProblemNotion: "Couldn’t update from Notion.",
+  sourceProblemBuilder: "Couldn’t update from Builder.",
+  sourceShowingDetailsAsOf: "Showing details as of {{time}}.",
+  notionSyncedToast: "Updated from Notion.",
   githubFromFolder: "From the {{folder}} folder on GitHub",
   githubFromRepo: "From {{repo}} on GitHub",
-  githubUpdatedAgo: "Updated {{time}}",
-  githubJustNow: "just now",
-  githubNotUpdatedYet: "Not updated yet",
+  sourceUpdatedAgo: "Updated {{time}}",
+  sourceJustNow: "just now",
+  sourceNotUpdatedYet: "Not updated yet",
   githubEditOnGitHub: "Edit on GitHub",
-  githubDetails: "Details",
+  sourceDetails: "Details",
   githubNotShownOne: "1 file not shown",
   githubNotShown: "{{count}} files not shown",
   githubNotShownHeading: "Not shown",
-  githubShowingAsOf: "Showing pages as of {{time}}.",
+  sourceShowingPagesAsOf: "Showing pages as of {{time}}.",
+  sourcePanelFromGitHubFolder:
+    "Pages come from the {{folder}} folder in {{repo}}.",
+  sourcePanelFromGitHubRepo: "Pages come from {{repo}}.",
+  sourcePanelFromBuilderModel: "Pages come from the {{name}} model.",
+  sourcePanelDetailsFromBuilderModel:
+    "Details come from the {{name}} model, added to matching pages here.",
+  sourcePanelDetailsFromNotionDatabase:
+    "Details come from the {{name}} database, added to matching pages here.",
+  sourceUpToDate: "Up to date · checked {{time}}",
+  sourceNoDetailsChosen: "No details chosen yet.",
+  sourceLoadingPageContent: "Loading page content, {{done}} of {{total}}",
+  sourceEditingGitHub: "You can’t edit these pages here. Edit them on GitHub.",
+  sourceEditingNotion:
+    "You can’t edit Notion’s details here. Edit them in Notion.",
+  sourceEditingBuilderDetails:
+    "You can’t edit Builder’s details here. Edit them in Builder.",
+  sourceEditingBuilderReadOnly: "Edits here aren’t sent to Builder.",
+  sourceEditingBuilderStageOnly:
+    "Edits here are saved to Builder for review, not published.",
+  sourceEditingBuilderPublish: "Edits here change the live site after review.",
+  sourceNoChangesWaiting: "No changes waiting",
+  sourcePagesChangedOne: "1 page changed",
+  sourcePagesChanged: "{{count}} pages changed",
+  sourceChangesCheckFailed: "Couldn’t check for changes.",
+  sourceReviewAndSend: "Review and send",
+  sourceMore: "More",
+  sourceBuilderEditsHeading: "What happens to my edits",
+  sourceBuilderEditsDontSend: "Don’t send",
+  sourceBuilderEditsSaveForReview: "Save to Builder for review",
+  sourceBuilderEditsPublish: "Publish to the live site",
+  sourceBuilderPublishConfirmTitle: "Publish edits to the live site?",
+  sourceBuilderPublishConfirmBody:
+    "Edits you send from here after review will change the live site right away.",
+  sourceMatchedOn: "Pages are matched on {{field}}.",
+  sourceMatchedOnIgnoringCase:
+    "Pages are matched on {{field}}, ignoring capitals.",
+  sourceMatchedOnCustom: "Pages are matched on {{field}} with a custom rule.",
+  sourceUnlinkKeepsPages: "The pages stay here and become yours to edit.",
+  sourceUnlinkKeepsDetailPages: "The pages stay here and stay yours to edit.",
+  sourceChooseDetails: "Choose details",
   githubSyncingProgress: "Bringing in changes: {{done}} of {{total}} files",
   githubPicturesWaiting:
     "Some pictures won’t show until a workspace admin sets up file storage.",
@@ -203,7 +264,6 @@ const databaseMessages = {
   bestWhenSameKindAdditionalRows:
     "Best when this collection has the same kind of records and should appear as additional rows.",
   builderSpace: "Builder space",
-  connectNotionFirst: "Connect Notion first",
   connected: "Connected",
   builderBulkUpdateNotStaged: "Builder bulk update not staged",
   builderBulkUpdateStaged: "Builder bulk update staged",
@@ -265,14 +325,11 @@ const databaseMessages = {
   builderRowsFinishingUp: "Builder rows are finishing up.",
   builderRowsLoadingBackground:
     "Builder is still loading rows in the background.",
-  builderRowsLoadingHitSnag: "Builder row loading hit a snag.",
   checkingForMatchingFields: "Checking for matching fields...",
   checkingHowTheseRecordsMatch: "Checking how these records match...",
   chooseFields: "Choose fields",
   closeDatabaseSettings: "Close collection settings",
   closeSearch: "Close search",
-  databaseRowsAndLocalPropertiesWereKeptIntact:
-    "Collection rows and local properties were kept intact.",
   failedToAttachSource: "Failed to attach source",
   failedToCreateRow: "Failed to create row",
   pageCreatedCollectionRefreshFailed:
@@ -371,8 +428,6 @@ const databaseMessages = {
   searchProperties: "Search properties",
   somethingWentWrong: "Something went wrong",
   sort: "Sort",
-  sourceDisconnected: "Source disconnected",
-  sourceWasNotDisconnected: "Source was not disconnected",
   sources: "Sources",
   table: "Table",
   tableColumnHandle: "Click or drag table column handle",
@@ -976,6 +1031,9 @@ const editorMediaMessages = {
   imageUploadFailed: "Couldn’t upload this image",
   imageUploadsFailed: "{{failed}} of {{total}} image uploads failed.",
   imageView: "Image view",
+  imagePosition: "{{current}} of {{total}}",
+  nextImage: "Next image",
+  previousImage: "Previous image",
   keptYourAltText: "Kept your alt text.",
   link: "Link",
   loadingAssetsPicker: "Loading Assets picker",
@@ -1634,6 +1692,14 @@ const enUS = {
       moveChanged: "The block changed before it could move, so nothing moved.",
       moveFailed: "Couldn’t move the block to {{title}}",
       openPage: "Open",
+      copyLink: "Copy link",
+      linkCopied: "Link copied",
+      copyLinkFailed: "Couldn’t copy the link",
+      linkNotReady: "This block’s link isn’t ready yet. Try again in a moment.",
+      linkedBlockDeleted: "The block this link points to was deleted.",
+      linkedBlockMissing: "Couldn’t find the block this link points to.",
+      linkedBlockLookupFailed:
+        "Couldn’t open the block this link points to. Reload the page to try again.",
     },
     heading1: "Heading 1",
     heading2: "Heading 2",
@@ -1679,6 +1745,16 @@ const enUS = {
     githubSourceReadOnly:
       "View only. This page follows a file in GitHub and updates after each push.",
     githubSourceOpenFile: "Open in GitHub",
+    syncedPageBuilder: "This page comes from the {{name}} model in Builder.",
+    syncedPageBuilderReadOnly: "Edits here aren’t sent to Builder.",
+    syncedPageBuilderStageOnly:
+      "Edits here can be saved to Builder after review, never published.",
+    syncedPageBuilderPublish:
+      "Edits here can be published to Builder after review.",
+    syncedPageNotion:
+      "Some details on this page come from the {{name}} database in Notion and are view only here.",
+    syncedPageSourceUnreadable: "Couldn’t check where this page comes from.",
+    syncedPageCheckAgain: "Try again",
     copyUnsavedText: "Copy my unsaved text",
     unsavedTextCopied: "Unsaved text copied",
     useDiskVersion: "Use disk version",
@@ -2365,6 +2441,7 @@ const enUS = {
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
   analyticsChart: analyticsChartMessagesByLocale["en-US"],
+  linkCard: linkCardMessagesByLocale["en-US"],
   designScreen: designScreenMessagesByLocale["en-US"],
   builderAutosave: builderAutosaveMessagesByLocale["en-US"],
 };
@@ -2432,6 +2509,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
     analyticsChart: enUS.analyticsChart,
+    linkCard: enUS.linkCard,
     designScreen: enUS.designScreen,
     builderAutosave: enUS.builderAutosave,
     creativeContext: {
@@ -2956,6 +3034,7 @@ function mergeMessagesForLocale(
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
     analyticsChart: analyticsChartMessagesByLocale[locale],
+    linkCard: linkCardMessagesByLocale[locale],
     designScreen: designScreenMessagesByLocale[locale],
     builderAutosave: builderAutosaveMessagesByLocale[locale],
   };

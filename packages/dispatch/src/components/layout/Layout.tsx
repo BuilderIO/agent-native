@@ -180,6 +180,7 @@ import {
   WorkspaceAppFrame,
   type WorkspaceAppViewReader,
   WorkspaceAppKeepAlive,
+  useWorkspaceAppChildBrowserTab,
 } from "../workspace-app-host";
 import {
   AppNotice,
@@ -1703,6 +1704,7 @@ function DispatchLayout({
     tabId: string;
   } | null>(null);
   const turnViewportLockRef = useRef(createTurnViewportLock());
+  const workspaceAppChildTab = useWorkspaceAppChildBrowserTab();
   const previousChatFirstSurfaceScopeRef = useRef(chatFirstSurfaceScope);
   const previousChatFirstSurfaceTabCountRef = useRef<number | null>(null);
   const activeChatFirstSurfaceTab = useMemo(
@@ -2598,6 +2600,9 @@ function DispatchLayout({
       ].find(
         (candidate) =>
           candidate
+            .closest("[data-dispatch-workspace-app-cache-entry]")
+            ?.getAttribute("aria-hidden") !== "true" &&
+          candidate
             .closest("[data-chat-first-surface-content]")
             ?.getAttribute("aria-hidden") !== "true",
       );
@@ -2763,7 +2768,7 @@ function DispatchLayout({
                 src={url}
                 title={title ?? chatFirstCopy("browserPage")}
                 referrerPolicy="no-referrer"
-                allow="clipboard-read; clipboard-write"
+                allow="clipboard-read; clipboard-write; fullscreen"
                 className="h-full w-full border-0 bg-background"
               />
             )}
@@ -3057,9 +3062,12 @@ function DispatchLayout({
           appName={workspaceAppChatRegistration.name ?? workspaceAppId}
           agentPageHref={agentPageHref}
           onFullscreenRequest={openAskAgentFullscreen}
+          browserTabId={workspaceAppChildTab.browserTabId}
         >
           <WorkspaceAppKeepAlive
             activeAppId={workspaceAppId}
+            claimBrowserTab
+            onViewReaderChange={workspaceAppChildTab.onViewReaderChange}
             {...(workspaceAppDeepPath
               ? { initialPath: workspaceAppDeepPath }
               : {})}

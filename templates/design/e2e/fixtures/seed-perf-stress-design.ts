@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 
 const { values } = parseArgs({
   options: {
     "base-url": { type: "string" },
-    copies: { type: "string", default: "6" },
+    copies: { type: "string" },
+    source: { type: "string" },
     title: { type: "string" },
   },
 });
@@ -14,11 +16,15 @@ if (!baseUrl) {
     "--base-url is required: the Design server's URL (it must run with AUTH_DISABLED=1)",
   );
 }
-const copies = Number(values.copies);
+if (values.source !== undefined && values.copies !== undefined) {
+  throw new Error("--source and --copies cannot be combined");
+}
+const copies = Number(values.copies ?? "6");
 if (!Number.isInteger(copies) || copies < 1) {
   throw new Error(`--copies must be a positive integer, got ${values.copies}`);
 }
 
+const MAX_DATA_OPERATIONS = 500;
 const SCREEN_WIDTH = 1440;
 const COLUMN_GAP = 240;
 const ROW_GAP = 480;
@@ -1651,6 +1657,120 @@ function countElements(html: string): number {
   return html.match(/<[a-zA-Z][^>]*>/g)?.length ?? 0;
 }
 
+function remapFileIds(value: unknown, ids: Map<string, string>): unknown {
+  if (typeof value === "string") return ids.get(value) ?? value;
+  if (Array.isArray(value)) return value.map((item) => remapFileIds(item, ids));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        ids.get(key) ?? key,
+        remapFileIds(item, ids),
+      ]),
+    );
+  }
+  return value;
+}
+
+function findOldFileIds(value: unknown, ids: Map<string, string>): string[] {
+  const found = new Set<string>();
+  const visit = (node: unknown) => {
+    if (typeof node === "string") {
+      for (const oldId of ids.keys())
+        if (node.includes(oldId)) found.add(oldId);
+    } else if (Array.isArray(node)) {
+      node.forEach(visit);
+    } else if (node && typeof node === "object") {
+      for (const [key, item] of Object.entries(node)) {
+        visit(key);
+        visit(item);
+      }
+    }
+  };
+  visit(value);
+  return [...found];
+}
+
+async function importSource(path: string): Promise<void> {
+  const source = JSON.parse(readFileSync(path, "utf8")) as {
+    title?: string;
+    projectType?: string;
+    data?: string | Record<string, unknown>;
+    files: {
+      id: string;
+      filename: string;
+      content: string;
+      fileType?: string;
+    }[];
+  };
+  const title = values.title ?? "Perf stress - imported";
+  const created = await postAction<{ id: string }>("create-design", {
+    title,
+    projectType: source.projectType ?? "prototype",
+  });
+  console.log(`design ${created.id} "${title}"`);
+  const fileIds = new Map<string, string>();
+  for (const file of source.files) {
+    const made = await postAction<{ id: string; warnings?: string[] }>(
+      "create-file",
+      {
+        designId: created.id,
+        filename: file.filename,
+        content: file.content,
+        fileType: file.fileType ?? "html",
+      },
+    );
+    if (made.warnings?.length) {
+      console.warn(
+        `create-file ${file.filename} warnings: ${made.warnings.join("; ")}`,
+      );
+    }
+    fileIds.set(file.id, made.id);
+  }
+  if (fileIds.size !== source.files.length) {
+    throw new Error(
+      `created ${fileIds.size} files for ${source.files.length} in the source (duplicate file ids?)`,
+    );
+  }
+  const rawData =
+    typeof source.data === "string"
+      ? JSON.parse(source.data || "{}")
+      : (source.data ?? {});
+  const data = remapFileIds(rawData, fileIds) as Record<string, unknown>;
+  const leftover = findOldFileIds(data, fileIds);
+  if (leftover.length) {
+    throw new Error(
+      `old file ids remain in the imported data: ${leftover.slice(0, 5).join(", ")}`,
+    );
+  }
+  const dataOperations = Object.entries(data).map(([key, value]) => ({
+    op: "set",
+    path: [key],
+    value,
+  }));
+  for (
+    let start = 0;
+    start < dataOperations.length;
+    start += MAX_DATA_OPERATIONS
+  ) {
+    await postAction("update-design", {
+      id: created.id,
+      dataOperations: dataOperations.slice(start, start + MAX_DATA_OPERATIONS),
+    });
+  }
+  const frames = data.canvasFrames;
+  const screens =
+    frames && typeof frames === "object" ? Object.keys(frames).length : 0;
+  console.log(
+    `\n${screens} screens, ${fileIds.size} files imported from source`,
+  );
+  console.log(`${baseUrl}/design/${encodeURIComponent(created.id)}`);
+}
+
+if (values.source !== undefined) {
+  await importSource(values.source);
+  process.exit(0);
+}
+
 const designTitle =
   values.title ?? `Perf stress - ${copies * ARCHETYPES.length} screens`;
 const created = await postAction<{ id: string }>("create-design", {
@@ -1690,26 +1810,36 @@ for (const [column, archetype] of ARCHETYPES.entries()) {
   }
 }
 
-await postAction("update-design", {
-  id: designId,
-  dataOperations: placements.flatMap((placement) => [
-    {
-      op: "set",
-      path: ["canvasFrames", placement.fileId, "x"],
-      value: placement.x,
-    },
-    {
-      op: "set",
-      path: ["canvasFrames", placement.fileId, "y"],
-      value: placement.y,
-    },
-    {
-      op: "set",
-      path: ["canvasFrames", placement.fileId, "height"],
-      value: placement.height,
-    },
-  ]),
-});
+const placementOperations = placements.flatMap((placement) => [
+  {
+    op: "set",
+    path: ["canvasFrames", placement.fileId, "x"],
+    value: placement.x,
+  },
+  {
+    op: "set",
+    path: ["canvasFrames", placement.fileId, "y"],
+    value: placement.y,
+  },
+  {
+    op: "set",
+    path: ["canvasFrames", placement.fileId, "height"],
+    value: placement.height,
+  },
+]);
+for (
+  let start = 0;
+  start < placementOperations.length;
+  start += MAX_DATA_OPERATIONS
+) {
+  await postAction("update-design", {
+    id: designId,
+    dataOperations: placementOperations.slice(
+      start,
+      start + MAX_DATA_OPERATIONS,
+    ),
+  });
+}
 
 console.log(
   `\n${placements.length} screens, ${totalElements.toLocaleString()} authored elements, ${(totalBytes / 1024 / 1024).toFixed(1)} MB of HTML`,

@@ -19,6 +19,7 @@ vi.mock("@/hooks/use-github-folder", () => ({
   useSyncGitHubFolder: () => sync,
 }));
 vi.mock("@/hooks/use-content-database", () => ({
+  useContentDatabaseSourceRefreshing: () => false,
   useDisconnectContentDatabaseSource: () => unlink,
 }));
 vi.mock("sonner", () => ({
@@ -77,6 +78,7 @@ beforeEach(() => {
   opened = [];
   unlink.mutate.mockReset();
   sync.mutate.mockReset();
+  sync.isPending = false;
   window.addEventListener(GITHUB_LINK_DIALOG_OPEN_EVENT, listen);
 });
 
@@ -125,7 +127,19 @@ describe("The GitHub step in Sources", () => {
     expect(queryButton("New collection from GitHub")).toBe(null);
   });
 
-  it("shows a linked folder's details, and asks before unlinking it", async () => {
+  it("holds Unlink… while Sync now runs", () => {
+    sync.isPending = true;
+    renderUi(
+      <GitHubSourcePanel
+        place={place}
+        sources={[github]}
+        onUnlinked={vi.fn()}
+      />,
+    );
+    expect(button("Unlink…").disabled).toBe(true);
+  });
+
+  it("says where a linked folder's pages come from, and asks before unlinking it", async () => {
     const onUnlinked = vi.fn();
     renderUi(
       <GitHubSourcePanel
@@ -135,14 +149,24 @@ describe("The GitHub step in Sources", () => {
       />,
     );
     const text = document.body.textContent ?? "";
-    expect(text).toContain("Folderacme/handbook/docs");
-    expect(text).toContain("Version65b1d83");
+    expect(text).toContain("Pages come from the docs folder in acme/handbook.");
+    expect(text).toContain("Up to date · checked 2 minutes ago");
     expect(text).toContain(
-      "This collection’s pages come from GitHub. Unlink the folder to use another source.",
+      "You can’t edit these pages here. Edit them on GitHub.",
     );
-    expect(queryButton("Check for updates")).not.toBe(null);
+    expect(text).toContain("The pages stay here and become yours to edit.");
+    expect(text).not.toContain("65b1d83");
+    expect(
+      document.querySelector<HTMLAnchorElement>(
+        'a[href="https://github.com/acme/handbook/tree/main/docs"]',
+      )?.textContent,
+    ).toBe("Open in GitHub");
+    expect(queryButton("Sync now")).not.toBe(null);
+    expect(text).not.toContain("Branch");
+    await click(button("More"));
+    expect(document.body.textContent).toContain("Branchmain");
 
-    await click(button("Unlink folder…"));
+    await click(button("Unlink…"));
     expect(document.body.textContent).toContain("Unlink this GitHub folder?");
     await click(button("Unlink"));
     const [variables, options] = unlink.mutate.mock.calls[0] as [
@@ -154,6 +178,34 @@ describe("The GitHub step in Sources", () => {
     expect(onUnlinked).toHaveBeenCalledTimes(1);
   });
 
+  it("shows a stopped sync's problem and fix in place of Up to date", () => {
+    renderUi(
+      <GitHubSourcePanel
+        place={place}
+        sources={[
+          {
+            ...github,
+            metadata: {
+              github: {
+                ...github.metadata.github,
+                problem: {
+                  code: "connection",
+                  message: "Bad credentials",
+                  at: new Date().toISOString(),
+                },
+              },
+            },
+          } as ContentDatabaseSource,
+        ]}
+        onUnlinked={vi.fn()}
+      />,
+    );
+    const alert = document.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("Showing pages as of 2 minutes ago.");
+    expect(queryButton("Reconnect GitHub")).not.toBe(null);
+    expect(document.body.textContent).not.toContain("Up to date");
+  });
+
   it("doesn't offer Unlink to readers", () => {
     renderUi(
       <GitHubSourcePanel
@@ -162,7 +214,7 @@ describe("The GitHub step in Sources", () => {
         onUnlinked={vi.fn()}
       />,
     );
-    expect(queryButton("Unlink folder…")).toBe(null);
-    expect(queryButton("Check for updates")).not.toBe(null);
+    expect(queryButton("Unlink…")).toBe(null);
+    expect(queryButton("Sync now")).not.toBe(null);
   });
 });

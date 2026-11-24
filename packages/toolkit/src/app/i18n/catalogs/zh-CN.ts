@@ -674,6 +674,8 @@ const messages: ToolkitAgentChatTranslation = {
     "工具架构无效，因此模型在请求开始前拒绝了该请求。可以跳过无效工具并重试请求。",
   "errorMessages.malformedRequest":
     "模型提供方认为该请求格式有误并予以拒绝，因此未重试。请重试，若问题持续出现，请开始新的对话。",
+  "errorMessages.requestNotRead":
+    "该请求过大或过于复杂（例如工具过多），模型无法读取，因此未重试。请开始新的对话或选择其他模型。",
   "errorMessages.requestTooLarge":
     "此请求超出了服务器大小限制（HTTP 413）。请开始新聊天，或移除较大的附件或引用后重试。",
   "errorMessages.capabilityUnavailable": "暂时无法发送你的消息。请稍后重试。",
@@ -2049,6 +2051,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "语言和地区",
   "settingsShell.account.languageDescription": "适用于您的所有设备。",
   "settingsShell.account.appearance": "外观",
+  "settingsShell.account.theme": "主题",
+  "settingsShell.account.themeSystem": "跟随系统",
+  "settingsShell.account.themeLight": "浅色",
+  "settingsShell.account.themeDark": "深色",
   "settingsShell.account.themeFamily": "主题样式",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal": "原应用配色",

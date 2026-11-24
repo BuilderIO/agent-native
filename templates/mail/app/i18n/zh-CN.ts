@@ -634,7 +634,7 @@ const messages = {
       instructionsTitle: "指令",
       instructionCount: "{{count}} 条指令",
       instructionPlaceholder:
-        "例如：主题包含“question for you, Steve”的邮件是不需要的",
+        "例如：主题包含“quick question for you”的邮件是不需要的",
       addInstruction: "添加",
       noInstructions: "还没有指令。",
       instructionExample: "试试“所有政治竞选邮件都不需要”。",
@@ -879,6 +879,7 @@ const messages = {
     autocomplete: "自动补全",
     sendAndMarkDone: "发送并标记为已完成",
     autocompleteSaveFailed: "无法保存自动补全设置。",
+    signaturePlaceholder: "祝好，\n你的名字",
     writingStylePlaceholder: "简短、具体、温暖。避免正式套话。",
     saveDraftingSettings: "保存草稿设置",
     reset: "重置",

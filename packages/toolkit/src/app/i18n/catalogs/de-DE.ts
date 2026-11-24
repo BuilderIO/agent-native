@@ -1454,6 +1454,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Ein Tool-Schema war ungültig. Deshalb hat das Modell die Anfrage abgelehnt, bevor sie gestartet wurde. Das ungültige Tool kann übersprungen und die Anfrage erneut gesendet werden.",
   "errorMessages.malformedRequest":
     "Der Modellanbieter hat diese Anfrage als fehlerhaft abgelehnt, daher wurde sie nicht wiederholt. Versuchen Sie es erneut oder starten Sie einen neuen Chat, wenn das Problem weiterhin auftritt.",
+  "errorMessages.requestNotRead":
+    "Das Modell konnte diese Anfrage nicht lesen, weil sie zu groß oder zu komplex war, zum Beispiel wegen zu vieler Tools, daher wurde sie nicht wiederholt. Starten Sie einen neuen Chat oder wählen Sie ein anderes Modell.",
   "errorMessages.requestTooLarge":
     "Diese Anfrage überschritt das Größenlimit des Servers (HTTP 413). Starte einen neuen Chat oder entferne große Anhänge oder Referenzen und versuche es erneut.",
   "errorMessages.capabilityUnavailable":
@@ -2334,6 +2336,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "Sprache und Region",
   "settingsShell.account.languageDescription": "Gilt auf allen deinen Geräten.",
   "settingsShell.account.appearance": "Darstellung",
+  "settingsShell.account.theme": "Design",
+  "settingsShell.account.themeSystem": "System",
+  "settingsShell.account.themeLight": "Hell",
+  "settingsShell.account.themeDark": "Dunkel",
   "settingsShell.account.themeFamily": "Farbschema",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal": "Originalfarben der App",
