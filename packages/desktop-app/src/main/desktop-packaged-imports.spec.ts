@@ -19,6 +19,10 @@ describe("packagedModuleNames", () => {
           "  - out/**",
           '  - "!node_modules/**"',
           "  - node_modules/ws/**",
+          "",
+          "# A comment at the margin",
+          "  # and one in the list",
+          '  - "node_modules/quoted/**"',
           "  - node_modules/@scope/core/package.json",
           "  - node_modules/@scope/core/dist/**",
           "asarUnpack:",
@@ -29,7 +33,7 @@ describe("packagedModuleNames", () => {
           "",
         ].join("\n"),
       ),
-    ).toEqual(new Set(["ws", "@scope/core"]));
+    ).toEqual(new Set(["ws", "quoted", "@scope/core"]));
   });
 });
 

@@ -11,9 +11,10 @@ export interface UnpackagedImport {
 
 export function packagedModuleNames(builderConfig: string): Set<string> {
   const files =
-    builderConfig.match(/^files:\r?\n((?: {2}- .*(?:\r?\n|$))*)/m)?.[1] ?? "";
+    builderConfig.match(/^files:\r?\n((?:(?: .*|#.*|)(?:\r?\n|$))*)/m)?.[1] ??
+    "";
   const entries = files.matchAll(
-    /^ {2}- node_modules\/((?:@[^/\s]+\/)?[^/\s]+)\//gm,
+    /^ {2}- ["']?node_modules\/((?:@[^/\s]+\/)?[^/\s]+)\//gm,
   );
   return new Set(Array.from(entries).flatMap((match) => match.slice(1, 2)));
 }
