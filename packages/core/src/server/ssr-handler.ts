@@ -552,7 +552,12 @@ export function createH3SSRHandler(getBuild: () => unknown) {
     const isLegacyRecovery = isLegacyChunkRecoveryRequest(event.url);
     const p = stripChunkRecoveryPathSuffix(appPath);
     if (isFrameworkOrAssetPath(p)) {
-      return new Response(null, { status: 404 });
+      // Without this, Cloudflare tells the browser to keep the answer for 4 hours,
+      // so a file that comes back (a rollback) stays missing through a reload.
+      return new Response(null, {
+        status: 404,
+        headers: { "cache-control": "no-store" },
+      });
     }
     try {
       const request = requestForAnonymousSsr(
