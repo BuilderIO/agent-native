@@ -1545,7 +1545,11 @@ function addPreviewTokenToResourceUrl(
   resourceUrl: string,
   previewToken: string,
 ): string {
-  if (!resourceUrl || /^(?:[a-z][a-z\d+.-]*:|\/\/|#|%23)/i.test(resourceUrl)) {
+  if (
+    !resourceUrl ||
+    /[\\\s\x00-\x1f\x7f]/.test(resourceUrl) ||
+    /^(?:[a-z][a-z\d+.-]*:|\/\/|#|%23)/i.test(resourceUrl)
+  ) {
     return resourceUrl;
   }
   const hashIndex = resourceUrl.indexOf("#");
@@ -1593,6 +1597,9 @@ function rewriteViteHmrUpdate(
       candidate.type !== "js-update" ||
       !("acceptedPath" in candidate) ||
       typeof candidate.acceptedPath !== "string" ||
+      !candidate.acceptedPath.startsWith("/") ||
+      candidate.acceptedPath.startsWith("//") ||
+      /[\\\s\x00-\x1f\x7f]/.test(candidate.acceptedPath) ||
       !("timestamp" in candidate) ||
       typeof candidate.timestamp !== "number" ||
       !Number.isSafeInteger(candidate.timestamp)
@@ -1615,68 +1622,82 @@ function webSocketDataBuffer(data: RawData): Buffer {
 
 function addOpaqueFrameCredentials(
   html: string,
+  bridgeBase: string,
+  staticTokensSafe: boolean,
   previewToken?: string,
 ): string {
-  const withCredentialedResources = html.replace(
-    /<(script|link|img|audio|video|source|track|iframe)\b([^>]*?)>/gi,
-    (fullTag, tagName: string, attributes: string) => {
-      const resourceMatch = attributes.match(
-        /\b(src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i,
+  const withCredentialedResources = !staticTokensSafe
+    ? html
+    : html.replace(
+        /<(script|link|img|audio|video|source|track|iframe)\b([^>]*?)>/gi,
+        (fullTag, tagName: string, attributes: string) => {
+          const resourceMatch = attributes.match(
+            /\b(src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i,
+          );
+          const resourceUrl =
+            resourceMatch?.[2] ??
+            resourceMatch?.[3] ??
+            resourceMatch?.[4] ??
+            "";
+          if (
+            !resourceMatch ||
+            !resourceUrl ||
+            resourceUrl.split("?", 1)[0].includes("&") ||
+            /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(resourceUrl)
+          ) {
+            return fullTag;
+          }
+          let nextAttributes = attributes;
+          if (previewToken) {
+            const tokenizedResourceUrl = addPreviewTokenToResourceUrl(
+              resourceUrl,
+              previewToken,
+            );
+            if (tokenizedResourceUrl !== resourceUrl) {
+              nextAttributes = nextAttributes.replace(
+                resourceMatch[0],
+                resourceMatch[0].replace(resourceUrl, tokenizedResourceUrl),
+              );
+            }
+          }
+          if (
+            tagName.toLowerCase() === "script" ||
+            tagName.toLowerCase() === "link"
+          ) {
+            if (/\bcrossorigin\s*=/i.test(nextAttributes)) {
+              nextAttributes = nextAttributes.replace(
+                /\bcrossorigin\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i,
+                'crossorigin="use-credentials"',
+              );
+            } else {
+              nextAttributes += ' crossorigin="use-credentials"';
+            }
+          }
+          return `<${tagName}${nextAttributes}>`;
+        },
       );
-      const resourceUrl =
-        resourceMatch?.[2] ?? resourceMatch?.[3] ?? resourceMatch?.[4] ?? "";
-      if (
-        !resourceMatch ||
-        !resourceUrl ||
-        /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(resourceUrl)
-      ) {
-        return fullTag;
-      }
-      let nextAttributes = attributes;
-      if (previewToken) {
-        const tokenizedResourceUrl = addPreviewTokenToResourceUrl(
-          resourceUrl,
-          previewToken,
-        );
-        if (tokenizedResourceUrl !== resourceUrl) {
-          nextAttributes = nextAttributes.replace(
-            resourceMatch[0],
-            resourceMatch[0].replace(resourceUrl, tokenizedResourceUrl),
-          );
-        }
-      }
-      if (
-        tagName.toLowerCase() === "script" ||
-        tagName.toLowerCase() === "link"
-      ) {
-        if (/\bcrossorigin\s*=/i.test(nextAttributes)) {
-          nextAttributes = nextAttributes.replace(
-            /\bcrossorigin\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i,
-            'crossorigin="use-credentials"',
-          );
-        } else {
-          nextAttributes += ' crossorigin="use-credentials"';
-        }
-      }
-      return `<${tagName}${nextAttributes}>`;
-    },
-  );
   if (!previewToken) return withCredentialedResources;
-  const withInlineStyleTokens = withCredentialedResources.replace(
-    /(<style\b[^>]*>)([\s\S]*?)(<\/style\s*>)/gi,
-    (_full, opening: string, body: string, closing: string) =>
-      `${opening}${addOpaqueFrameResourceTokens(body, previewToken)}${closing}`,
-  );
-  const withInlineModuleTokens = withInlineStyleTokens.replace(
-    /(<script\b[^>]*\btype\s*=\s*["']module["'][^>]*>)([\s\S]*?)(<\/script\s*>)/gi,
-    (_full, opening: string, body: string, closing: string) =>
-      `${opening}${addOpaqueFrameJavaScriptResourceTokens(body, previewToken)}${closing}`,
-  );
+  const withInlineStyleTokens = !staticTokensSafe
+    ? withCredentialedResources
+    : withCredentialedResources.replace(
+        /(<style\b[^>]*>)([\s\S]*?)(<\/style\s*>)/gi,
+        (_full, opening: string, body: string, closing: string) =>
+          `${opening}${addOpaqueFrameResourceTokens(body, previewToken)}${closing}`,
+      );
+  const withInlineModuleTokens = !staticTokensSafe
+    ? withInlineStyleTokens
+    : withInlineStyleTokens.replace(
+        /(<script\b[^>]*\btype\s*=\s*["']module["'][^>]*>)([\s\S]*?)(<\/script\s*>)/gi,
+        (_full, opening: string, body: string, closing: string) =>
+          `${opening}${addOpaqueFrameJavaScriptResourceTokens(body, previewToken)}${closing}`,
+      );
   const hmrImport = "/@id/__x00__virtual:react-router/inject-hmr-runtime";
   const hmrImportWithToken = `${hmrImport}?previewToken=${encodeURIComponent(previewToken)}`;
-  const withHmrToken = withInlineModuleTokens
-    .replaceAll(`"${hmrImport}"`, `"${hmrImportWithToken}"`)
-    .replaceAll(`'${hmrImport}'`, `'${hmrImportWithToken}'`);
+  const withHmrToken = !staticTokensSafe
+    ? withInlineModuleTokens
+    : withInlineModuleTokens
+        .replaceAll(`"${hmrImport}"`, `"${hmrImportWithToken}"`)
+        .replaceAll(`'${hmrImport}'`, `'${hmrImportWithToken}'`);
   const previewTokenLiteral = JSON.stringify(previewToken).replace(
     /</g,
     "\\u003c",
@@ -1694,21 +1715,23 @@ function addOpaqueFrameCredentials(
       "/@vite/client": `/@vite/client?previewToken=${encodeURIComponent(previewToken)}`,
     },
   });
-  const withImportMap = injectDocumentMarkup(
-    withHmrToken,
-    `<script type="importmap" data-agent-native-opaque-preview-imports>${previewImportMap}</script>`,
-    { target: "head" },
-  );
+  const withImportMap = !staticTokensSafe
+    ? withHmrToken
+    : injectDocumentMarkup(
+        withHmrToken,
+        `<script type="importmap" data-agent-native-opaque-preview-imports>${previewImportMap}</script>`,
+        { target: "head" },
+      );
   const withViteHmrStyleAuth = injectDocumentMarkup(
     withImportMap,
     // coercion-ok: malformed Vite-generated CSS URLs stay unchanged in the frame.
-    `<script data-agent-native-vite-css-auth>(function(t){var p=Element.prototype.after;Element.prototype.after=function(){for(var i=0;i<arguments.length;i++){var n=arguments[i];if(!n||n.nodeType!==1||n.tagName!=="LINK")continue;try{var b=new URL(document.baseURI),u=new URL(n.getAttribute("href"),b);if(u.origin===b.origin&&!u.searchParams.has("previewToken")){u.searchParams.set("previewToken",t);n.setAttribute("href",u.toString())}}catch(_){}}return p.apply(this,arguments)}})(${previewTokenLiteral});</script>`,
+    `<script data-agent-native-vite-css-auth>(function(t){var p=Element.prototype.after;Element.prototype.after=function(){for(var i=0;i<arguments.length;i++){var n=arguments[i];if(!n||n.nodeType!==1||n.tagName!=="LINK")continue;try{var u=new URL(n.getAttribute("href"),document.baseURI);if(u.origin===${JSON.stringify(new URL(bridgeBase).origin)}&&!u.searchParams.has("previewToken")){u.searchParams.set("previewToken",t);n.setAttribute("href",u.toString())}}catch(_){}}return p.apply(this,arguments)}})(${previewTokenLiteral});</script>`,
     { target: "head" },
   );
   return injectDocumentMarkup(
     withViteHmrStyleAuth,
     // coercion-ok: invalid browser-owned URLs stay unchanged in the frame.
-    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},o,h;try{var b=new URL(document.baseURI);o=b.origin;h=b.host}catch(_){return}function u(v){try{if(v==null)return null;var r=String(v);if(/^(?:#|%23)/i.test(r.trim()))return null;var a=new URL(r,document.baseURI),same=a.origin===o||(h===a.host&&(a.protocol==="ws:"||a.protocol==="wss:"));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}function d(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return n}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){return p.call(this,d(n))};var i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){return i.call(this,d(n),r)}})();</script>`,
+    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},b=new URL(${JSON.stringify(new URL(bridgeBase).origin)}),o=b.origin,h=b.host;function u(v){try{if(v==null)return null;var r=String(v);if(/^(?:#|%23)/i.test(r.trim()))return null;var a=new URL(r,document.baseURI),same=a.origin===o||(h===a.host&&((b.protocol==="http:"&&a.protocol==="ws:")||(b.protocol==="https:"&&a.protocol==="wss:")));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){if(v.indexOf("\\\\")!==-1)return h;var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}function d(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return n}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){return p.call(this,d(n))};var i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){return i.call(this,d(n),r)}})();</script>`,
     { target: "head" },
   );
 }
@@ -1742,6 +1765,70 @@ function addOpaqueFrameJavaScriptResourceTokens(
 ): string {
   const rewrite = (prefix: string, quote: string, resourceUrl: string) =>
     `${prefix}${quote}${addPreviewTokenToResourceUrl(resourceUrl, previewToken)}${quote}`;
+  const dynamicImport = /\bimport\s*\(/g;
+  let result = "";
+  let copied = 0;
+  for (
+    let match = dynamicImport.exec(source);
+    match;
+    match = dynamicImport.exec(source)
+  ) {
+    let cursor = dynamicImport.lastIndex;
+    while (cursor < source.length) {
+      if (/\s/.test(source[cursor])) {
+        cursor++;
+      } else if (source.startsWith("/*", cursor)) {
+        const end = source.indexOf("*/", cursor + 2);
+        cursor = end < 0 ? source.length : end + 2;
+      } else if (source.startsWith("//", cursor)) {
+        cursor += 2;
+        while (
+          cursor < source.length &&
+          !/[\r\n\u2028\u2029]/.test(source[cursor])
+        )
+          cursor++;
+      } else {
+        break;
+      }
+    }
+    const quote = source[cursor];
+    if (quote === '"' || quote === "'") {
+      const end = source.indexOf(quote, cursor + 1);
+      if (end >= 0) {
+        const url = source.slice(cursor + 1, end);
+        if (/^(?:\/|\.{1,2}\/)/.test(url)) {
+          result +=
+            source.slice(copied, cursor + 1) +
+            addPreviewTokenToResourceUrl(url, previewToken);
+          copied = end;
+        }
+        cursor = end + 1;
+      }
+    }
+    dynamicImport.lastIndex = Math.max(dynamicImport.lastIndex, cursor);
+  }
+  source = result + source.slice(copied);
+  source = source.replace(
+    /^import\s*\{\s*injectQuery\s+as\s+__vite__injectQuery\s*\}\s*from\s*(["'])\/@vite\/client(?:\?[^"']*)?\1\s*;?/,
+    (
+      declaration,
+    ) => `${declaration.replace("__vite__injectQuery", "__agentNativeViteInjectQuery")}
+function __vite__injectQuery(url, query) {
+  const value = __agentNativeViteInjectQuery(url, query);
+  if (typeof value !== "string" || !/^(?:\\/(?!\\/)|\\.{1,2}\\/)/.test(value)) return value;
+  try {
+    const resolved = new URL(import.meta.resolve(value));
+    if (resolved.origin !== new URL(import.meta.url).origin) return value;
+    if (resolved.searchParams.has("previewToken")) resolved.searchParams.delete("previewToken");
+    const hash = resolved.hash;
+    resolved.hash = "";
+    const href = resolved.href;
+    const tokenized = href + (href.endsWith("?") || href.endsWith("&") ? "" : resolved.search ? "&" : "?") + "previewToken=" + encodeURIComponent(${JSON.stringify(previewToken)}) + hash;
+    if (new URL(import.meta.resolve(tokenized)).origin !== new URL(import.meta.url).origin) return value;
+    return tokenized;
+  } catch { return value; }
+}`,
+  );
   return source
     .replace(
       /(\b(?:import|export)\s+[^;]*?\sfrom\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
@@ -1750,11 +1837,6 @@ function addOpaqueFrameJavaScriptResourceTokens(
     )
     .replace(
       /(\bimport\s+)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
-      (_full, prefix: string, quote: string, resourceUrl: string) =>
-        rewrite(prefix, quote, resourceUrl),
-    )
-    .replace(
-      /(\bimport\s*\((?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>
         rewrite(prefix, quote, resourceUrl),
     )
@@ -1820,6 +1902,8 @@ function injectLiveEditBridge(
   const withBase = injectPreBootLocationShim(
     addOpaqueFrameCredentials(
       addLiveEditBaseHref(html, baseHref),
+      baseHref,
+      !/<base\b/i.test(html),
       identity.previewToken,
     ),
     targetPath,

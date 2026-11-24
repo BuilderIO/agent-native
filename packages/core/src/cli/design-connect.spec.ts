@@ -84,6 +84,12 @@ async function launchBrowser(): Promise<Browser> {
   try {
     return await chromium.launch({ headless: true });
   } catch {
+    if (fs.existsSync("/usr/bin/chromium")) {
+      return chromium.launch({
+        executablePath: "/usr/bin/chromium",
+        headless: true,
+      });
+    }
     return chromium.launch({ channel: "chrome", headless: true });
   }
 }
@@ -2690,7 +2696,7 @@ describe("design connect bridge endpoints", () => {
       );
       expect(html.body).toContain("data-agent-native-opaque-preview-auth");
       expect(html.body).toContain("var W=window.WebSocket");
-      expect(html.body).toContain('a.protocol==="ws:"||a.protocol==="wss:"');
+      expect(html.body).toContain('b.protocol==="https:"&&a.protocol==="wss:"');
       expect(html.body).toContain('a.searchParams.has("previewToken")');
       expect(html.body).toContain(bridge.previewToken);
       const authScript = html.body.match(
@@ -2955,6 +2961,93 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("never sends preview credentials to an external base from a sandboxed frame", async () => {
+    const root = tmpDir();
+    const externalPort = await freePort();
+    const requests: string[] = [];
+    const external = http.createServer((req, res) => {
+      requests.push(req.url ?? "");
+      res
+        .writeHead(200, {
+          "access-control-allow-origin": "*",
+          "content-type": "application/javascript",
+        })
+        .end("export default 1;");
+    });
+    await new Promise<void>((resolve) =>
+      external.listen(externalPort, "127.0.0.1", resolve),
+    );
+    const devPort = await freePort();
+    const devServer = http.createServer((req, res) => {
+      const html =
+        req.url === "/escaped"
+          ? String.raw`<!doctype html><style>body{background:url('/\2f 127.0.0.1:${externalPort}/escaped-css')}</style><img src="&#47;&#47;127.0.0.1:${externalPort}/escaped-html"><script type="module">import('/\\\\127.0.0.1:${externalPort}/escaped-js');</script>`
+          : `<!doctype html><html><head><base href="http://127.0.0.1:${externalPort}/"><style>body{background:url('/style-image')}</style></head><body><img src="/image"><script type="module">import '/module.js'; fetch('/fetch');</script></body></html>`;
+      res.writeHead(200, { "content-type": "text/html" }).end(html);
+    });
+    await new Promise<void>((resolve) =>
+      devServer.listen(devPort, "127.0.0.1", resolve),
+    );
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const hostPort = await freePort();
+    const host = http.createServer((_req, res) => {
+      res
+        .writeHead(200, { "content-type": "text/html" })
+        .end(
+          `<iframe sandbox="allow-scripts" src="http://127.0.0.1:${port}/live-edit?path=/&previewToken=${bridge.previewToken}"></iframe>`,
+        );
+    });
+    await new Promise<void>((resolve) =>
+      host.listen(hostPort, "127.0.0.1", resolve),
+    );
+    let browser: Browser | undefined;
+    try {
+      browser = await launchBrowser();
+      const page = await browser.newPage();
+      await page.goto(`http://127.0.0.1:${hostPort}/`);
+      await expect
+        .poll(() => requests.some((request) => request.startsWith("/fetch")))
+        .toBe(true);
+      expect(requests).toEqual(
+        expect.arrayContaining([
+          "/image",
+          "/style-image",
+          "/module.js",
+          "/fetch",
+        ]),
+      );
+      await page.locator("iframe").evaluate((iframe, url) => {
+        iframe.src = url;
+      }, `http://127.0.0.1:${port}/live-edit?path=/escaped&previewToken=${bridge.previewToken}`);
+      await expect
+        .poll(
+          () =>
+            requests.includes("/escaped-js") &&
+            requests.includes("/escaped-css") &&
+            requests.includes("/escaped-html"),
+        )
+        .toBe(true);
+      expect(
+        requests.some((request) => request.includes(bridge.previewToken)),
+      ).toBe(false);
+    } finally {
+      await browser?.close();
+      await bridge.close();
+      await Promise.all(
+        [host, devServer, external].map(
+          (server) =>
+            new Promise<void>((resolve) => server.close(() => resolve())),
+        ),
+      );
+    }
+  });
+
   it("does not make third-party preview resources opt into CORP or CORS", async () => {
     const root = tmpDir();
     const assetPort = await freePort();
@@ -3094,6 +3187,46 @@ describe("design connect bridge endpoints", () => {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("keeps escaped destinations external and authenticates imports after every line terminator", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const source = [
+      String.raw`import '/\\\\external.example/mod.js';`,
+      ...["\r", "\u2028", "\u2029"].map(
+        (end, index) => `import(// comment${end}'./local-${index}.js');`,
+      ),
+    ].join("\n");
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/javascript" }).end(source);
+    });
+    await new Promise<void>((resolve) =>
+      devServer.listen(devPort, "127.0.0.1", resolve),
+    );
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const response = await getText(
+        `http://127.0.0.1:${port}/main.js?previewToken=${bridge.previewToken}`,
+      );
+      expect(response.body).toContain(
+        String.raw`import '/\\\\external.example/mod.js';`,
+      );
+      for (let index = 0; index < 3; index++) {
+        expect(response.body).toContain(
+          `./local-${index}.js?previewToken=${bridge.previewToken}`,
+        );
+      }
+    } finally {
+      await bridge.close();
       await new Promise<void>((resolve) => devServer.close(() => resolve()));
     }
   });
@@ -4040,6 +4173,117 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("loads six computed Vite imports in an opaque preview frame", async () => {
+    const root = tmpDir();
+    await fsPromises.mkdir(path.join(root, "src"), { recursive: true });
+    const externalPort = await freePort();
+    const externalRequests: string[] = [];
+    const external = http.createServer((req, res) => {
+      externalRequests.push(req.url ?? "");
+      res
+        .writeHead(200, {
+          "content-type": "text/javascript",
+          "access-control-allow-origin": "null",
+          "access-control-allow-credentials": "true",
+        })
+        .end("export default 'external';");
+    });
+    await new Promise<void>((resolve) =>
+      external.listen(externalPort, "127.0.0.1", resolve),
+    );
+    await fsPromises.writeFile(
+      path.join(root, "index.html"),
+      `<!doctype html><script type="importmap">{"imports":{"mapped":"http://127.0.0.1:${externalPort}/bare.js","/src/redirect/":"http://127.0.0.1:${externalPort}/redirect/"}}</script><div id="value">waiting</div><script type="module" src="/src/main.js"></script>`,
+    );
+    await fsPromises.writeFile(
+      path.join(root, "src", "main.js"),
+      `window.loadComputed = value => import(/* @vite-ignore */ value); const name = location.pathname.slice(1); const target = './' + name + '.js?mode=route#part'; window.loadComputed(target).then(m => document.querySelector('#value').textContent = m.default);`,
+    );
+    for (let index = 0; index < 6; index++) {
+      await fsPromises.writeFile(
+        path.join(root, "src", `route${index}.js`),
+        `export default 'route${index}';`,
+      );
+    }
+    const devPort = await freePort();
+    const vite = await createServer({
+      configFile: false,
+      logLevel: "silent",
+      root,
+      server: { host: "127.0.0.1", port: devPort, strictPort: true },
+    });
+    let bridge:
+      | Awaited<ReturnType<typeof startDesignConnectBridge>>
+      | undefined;
+    let browser: Browser | undefined;
+    const hostPort = await freePort();
+    const host = http.createServer((_req, res) =>
+      res
+        .writeHead(200, { "content-type": "text/html" })
+        .end('<iframe sandbox="allow-scripts"></iframe>'),
+    );
+    try {
+      await vite.listen();
+      const port = await freePort();
+      const manifest = await prepareDesignConnectManifest({
+        root,
+        url: `http://127.0.0.1:${devPort}`,
+        port,
+      });
+      bridge = await startDesignConnectBridge(manifest);
+      await new Promise<void>((resolve) =>
+        host.listen(hostPort, "127.0.0.1", resolve),
+      );
+      browser = await launchBrowser();
+      const page = await browser.newPage();
+      await page.goto(`http://127.0.0.1:${hostPort}/`);
+      for (let index = 0; index < 6; index++) {
+        await page.locator("iframe").evaluate((iframe, url) => {
+          iframe.src = url;
+        }, `http://127.0.0.1:${port}/live-edit?path=/route${index}&previewToken=${bridge.previewToken}`);
+        const frame = page.frameLocator("iframe");
+        await expect
+          .poll(() => frame.locator("#value").textContent())
+          .toBe(`route${index}`);
+      }
+      const frame = page
+        .frames()
+        .find((candidate) => candidate !== page.mainFrame());
+      if (!frame) throw new Error("preview frame did not load");
+      const results = await frame.evaluate(async (externalUrl) => {
+        const load = (
+          window as Window & {
+            loadComputed: (value: string) => Promise<{ default: string }>;
+          }
+        ).loadComputed;
+        return Promise.all([
+          load("mapped"),
+          load("./redirect/mod.js"),
+          load(externalUrl),
+        ]).then((modules) => modules.map((module) => module.default));
+      }, `http://127.0.0.1:${externalPort}/absolute.js?mode=test#part`);
+      expect(results).toEqual(["external", "external", "external"]);
+      expect(externalRequests).toEqual(
+        expect.arrayContaining([
+          "/bare.js",
+          "/redirect/mod.js?import",
+          "/absolute.js?mode=test",
+        ]),
+      );
+      const previewToken = bridge.previewToken;
+      expect(externalRequests.some((url) => url.includes(previewToken))).toBe(
+        false,
+      );
+    } finally {
+      await browser?.close();
+      await bridge?.close();
+      await vite.close();
+      await new Promise<void>((resolve) => external.close(() => resolve()));
+      if (host.listening)
+        await new Promise<void>((resolve) => host.close(() => resolve()));
+    }
+  });
+
   it("authenticates Vite ignored literal imports without exposing the token to external imports", async () => {
     const root = tmpDir();
     await fsPromises.mkdir(path.join(root, "src"), { recursive: true });
@@ -4084,7 +4328,7 @@ describe("design connect bridge endpoints", () => {
       bridge = await startDesignConnectBridge(manifest);
       const base = `http://127.0.0.1:${port}`;
       const upstream = await getText(`http://127.0.0.1:${devPort}/src/main.js`);
-      expect(upstream.status, upstream.body).toBe(200);
+      expect(upstream.status).toBe(200);
       expect(upstream.body).toContain("/* first */ /* @vite-ignore */");
       expect(upstream.body).toContain("// comment\n/* @vite-ignore */");
       const module = await getText(
