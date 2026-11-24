@@ -149,19 +149,18 @@ export async function getDefaultRecordingVisibility(
 ): Promise<RecordingVisibility> {
   if (explicit) return explicit;
 
-  const email = userEmail;
-  const enforced = organizationId
-    ? (await readOrganizationVisibilityPolicy(organizationId)).enforced
-    : false;
-  if (email && !enforced) {
-    const prefs = (await getUserSetting(
-      normalizeOwnerEmail(email),
-      CLIPS_USER_PREFS_KEY,
-    )) as ClipsUserPrefs | null;
-    const preferred = prefs?.defaultRecordingVisibility;
-    if (isRecordingVisibility(preferred)) return preferred;
-  }
-  return getOrganizationDefaultVisibility(organizationId);
+  const prefs = userEmail
+    ? ((await getUserSetting(
+        normalizeOwnerEmail(userEmail),
+        CLIPS_USER_PREFS_KEY,
+      )) as ClipsUserPrefs | null)
+    : null;
+  const policy = organizationId
+    ? await readOrganizationVisibilityPolicy(organizationId)
+    : null;
+  const preferred = prefs?.defaultRecordingVisibility;
+  if (isRecordingVisibility(preferred) && !policy?.enforced) return preferred;
+  return policy?.defaultVisibility ?? DEFAULT_RECORDING_VISIBILITY;
 }
 
 const ORG_ROLE_RANK: Record<OrganizationAccessRole, number> = {
