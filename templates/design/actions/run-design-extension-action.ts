@@ -21,7 +21,7 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
   "design.asset-library:browse": {
     action: "get-design-snapshot",
     paramHint:
-      "Call get-design-snapshot to inspect the active design, then use the Assets MCP tool (generate-asset / open-asset-picker) or the Assets app via call-agent.",
+      "Call get-design-snapshot to inspect the active design, then use the Assets MCP tools (generate-asset / open-asset-picker) when they are in your tool list.",
     readOnly: true,
   },
   "design.asset-library:insert": {
@@ -31,9 +31,9 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
     readOnly: false,
   },
   "design.asset-library:generate": {
-    action: "call-agent",
+    action: "generate-asset",
     paramHint:
-      'Delegate to the Assets app via call-agent with agent "assets" and a generation prompt.  Pass the returned assetUrl to insert-asset.',
+      'Call the Assets MCP tool generate-asset with a generation prompt and callerAppId "design", then pass the returned assetUrl to insert-asset.  If no generate-asset tool is in your tool list, Assets is not connected for this organization: say so (an org owner or admin can run connect-assets-mcp) and do not try to reach another app.',
     readOnly: false,
   },
 
