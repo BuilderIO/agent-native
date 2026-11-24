@@ -93,7 +93,7 @@ it("loads later pages on request and refetches the first page on reopening", asy
   expect(document.body.textContent).not.toContain("folder");
   const more = Array.from(
     document.querySelectorAll('[role="option"], button'),
-  ).find((element) => element.textContent?.includes("sidebar.showMore"));
+  ).find((element) => element.textContent.includes("sidebar.showMore"));
   expect(more).toBeDefined();
   await act(async () => (more as HTMLElement).click());
   await vi.waitFor(() => expect(document.body.textContent).toContain("later"));
