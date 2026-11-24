@@ -239,7 +239,7 @@ function ProjectTitleControl({
   if (!canEditDesign) {
     if (briefs.length === 0) {
       return (
-        <span className="-mx-1 min-w-0 flex-1 truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90">
+        <span className="-mx-1 block truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90">
           {design.title}
         </span>
       );
