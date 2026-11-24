@@ -149,15 +149,17 @@ export default defineAction({
       });
     }
     if (navigation) {
-      // Store readiness must finish before the snapshot: initialization can
-      // require DDL and a separate transaction in local and self-hosted mode.
       const [settingsReady] = await Promise.allSettled([ensureSettingsStore()]);
       return withFederatedMembershipSnapshot(
         () => resolveContentDatabaseRead(databaseRef),
         async (preflight) => {
           if (!preflight.available) return preflight;
-          if (!userEmail) throw new Error("Not authenticated.");
-          if (settingsReady?.status === "rejected") throw settingsReady.reason;
+          if (!userEmail)
+            fail("Not authenticated.", {
+              errorCode: "unauthenticated",
+              statusCode: 401,
+            });
+          if (settingsReady.status === "rejected") throw settingsReady.reason;
           return getDb().transaction(
             async () => {
               const resolved = await resolveContentDatabaseRead(databaseRef);

@@ -166,19 +166,9 @@ jobs:
     if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.lint == 'true' || needs.change-scope.outputs.has_reports == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_DB: content_navigation_test
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d content_navigation_test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Require a successful change scope
         env:
@@ -251,13 +241,32 @@ jobs:
         if: ${{ !cancelled() && needs.change-scope.result == 'success' && steps.setup.outcome == 'success' && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
         run: node scripts/guard-no-major-changeset.mjs
 
+      - name: Start PostgreSQL for navigation proof
+        if: needs.change-scope.outputs.has_reports == 'true' && contains(github.event.pull_request.body, 'actions/query-content-database-items.navigation.postgres.integration.test.ts')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker run -d --name feedback-proof-postgres \
+            -e POSTGRES_DB=content_navigation_test -e POSTGRES_HOST_AUTH_METHOD=trust \
+            -p 127.0.0.1:5432:5432 ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+          for attempt in {1..30}; do
+            if docker exec feedback-proof-postgres pg_isready -U postgres -d content_navigation_test; then
+              echo 'CONTENT_NAVIGATION_POSTGRES_URL=postgres://postgres@127.0.0.1:5432/content_navigation_test' >> "$GITHUB_ENV"
+              echo 'CONTENT_NAVIGATION_POSTGRES_REQUIRED=1' >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs feedback-proof-postgres
+          exit 1
+
       - name: Re-run feedback fix proofs
         if: needs.change-scope.outputs.has_reports == 'true'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          CONTENT_NAVIGATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_navigation_test
-          CONTENT_NAVIGATION_POSTGRES_REQUIRED: "1"
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/feedback-proof-gate"

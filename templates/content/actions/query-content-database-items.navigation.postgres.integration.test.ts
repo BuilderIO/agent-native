@@ -123,6 +123,7 @@ describe.runIf(Boolean(url))("PostgreSQL navigation snapshots", () => {
   });
 
   afterAll(async () => {
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- setup can fail before the writer is assigned.
     if (writer) await writer.end();
     const { closeDbExec } = await import("@agent-native/core/db");
     await closeDbExec();
@@ -140,21 +141,26 @@ describe.runIf(Boolean(url))("PostgreSQL navigation snapshots", () => {
       await import("../../../packages/core/src/db/store-registry.js");
     const suffix = crypto.randomUUID().replaceAll("-", "");
     const table = `store_probe_${suffix}`;
+    // raw-sql-ok: table is a test-owned identifier made from a UUID.
     const store = defineStore({
       id: table,
       migrations: [{ name: "initial", sql: `CREATE TABLE ${table} (id TEXT)` }],
     });
     await store.ready();
     const exec = getDbExec();
+    if (!exec.transaction) throw new Error("Transaction support is required");
     await expect(
-      exec.transaction!(async (tx) => {
+      exec.transaction(async (tx) => {
         await store.ready();
+        // raw-sql-ok: table is a test-owned identifier made from a UUID.
         await tx.execute(`INSERT INTO ${table} (id) VALUES ('rolled-back')`);
         throw new Error("intentional rollback");
       }),
     ).rejects.toThrow("intentional rollback");
+    // raw-sql-ok: table is a test-owned identifier made from a UUID.
     const { rows } = await exec.execute(`SELECT id FROM ${table}`);
     expect(rows).toEqual([]);
+    // raw-sql-ok: table is a test-owned identifier made from a UUID.
     await exec.execute(`DROP TABLE ${table}`);
   });
 
@@ -166,6 +172,7 @@ describe.runIf(Boolean(url))("PostgreSQL navigation snapshots", () => {
     const suffix = crypto.randomUUID().replaceAll("-", "");
     const coldTable = `cold_probe_${suffix}`;
     const scopedTable = `scoped_probe_${suffix}`;
+    // raw-sql-ok: id is a test-owned identifier made from a UUID.
     const storeFor = (id: string) =>
       defineStore({
         id,
@@ -174,18 +181,23 @@ describe.runIf(Boolean(url))("PostgreSQL navigation snapshots", () => {
     const cold = storeFor(coldTable);
     const scoped = storeFor(scopedTable);
     const exec = getDbExec();
+    if (!exec.transaction) throw new Error("Transaction support is required");
     await expect(
-      exec.transaction!(async () => {
+      exec.transaction(async () => {
         await cold.ready();
         throw new Error("roll back unscoped");
       }),
     ).rejects.toThrow("roll back unscoped");
     expect(
-      (await exec.execute(`SELECT to_regclass('${coldTable}') AS name`)).rows[0]
-        ?.name,
+      (
+        await exec.execute({
+          sql: "SELECT to_regclass(?) AS name",
+          args: [coldTable],
+        })
+      ).rows[0]?.name,
     ).toBe(coldTable);
     await expect(
-      exec.transaction!(async (tx) =>
+      exec.transaction(async (tx) =>
         withDbExec(tx, async () => {
           await scoped.ready();
           throw new Error("roll back scoped");
@@ -193,14 +205,23 @@ describe.runIf(Boolean(url))("PostgreSQL navigation snapshots", () => {
       ),
     ).rejects.toThrow("roll back scoped");
     expect(
-      (await exec.execute(`SELECT to_regclass('${scopedTable}') AS name`))
-        .rows[0]?.name,
+      (
+        await exec.execute({
+          sql: "SELECT to_regclass(?) AS name",
+          args: [scopedTable],
+        })
+      ).rows[0]?.name,
     ).toBeNull();
     await scoped.ready();
     expect(
-      (await exec.execute(`SELECT to_regclass('${scopedTable}') AS name`))
-        .rows[0]?.name,
+      (
+        await exec.execute({
+          sql: "SELECT to_regclass(?) AS name",
+          args: [scopedTable],
+        })
+      ).rows[0]?.name,
     ).toBe(scopedTable);
+    // raw-sql-ok: both table names are test-owned identifiers made from a UUID.
     await exec.execute(`DROP TABLE ${coldTable}, ${scopedTable}`);
   });
 
@@ -407,10 +428,13 @@ describe.runIf(Boolean(url))("PostgreSQL navigation snapshots", () => {
               ),
           );
         if (memberPresent) {
+          // oxlint-disable-next-line vitest/no-conditional-expect -- the parameter selects the authorized outcome.
           await expect(read()).resolves.toMatchObject({
+            // oxlint-disable-next-line vitest/no-conditional-expect -- the authorized response contains rows.
             items: expect.any(Array),
           });
         } else {
+          // oxlint-disable-next-line vitest/no-conditional-expect -- the parameter selects the unauthorized outcome.
           await expect(read()).rejects.toMatchObject({
             errorCode: "DATABASE_NOT_FOUND",
           });
@@ -445,23 +469,28 @@ describe.runIf(Boolean(url))("PostgreSQL navigation snapshots", () => {
             );
           });
           const concurrent = await Promise.all([read(), read()]);
+          // oxlint-disable-next-line vitest/no-conditional-expect -- only an active member can run this concurrency case.
           expect(concurrent).toHaveLength(2);
           await writer`UPDATE org_members SET role = ${"member"} WHERE id = ${`${id}-member`}`;
           const key = `u:${owner}:content-database-personal-view:${databaseId}`;
           await writer`INSERT INTO settings (key, value, updated_at) VALUES (${key}, ${"{"}, ${0})`;
+          // oxlint-disable-next-line vitest/no-conditional-expect -- only an active member reaches personal settings.
           await expect(read()).rejects.toBeInstanceOf(SyntaxError);
           const reconciled =
             (await writer`SELECT role FROM org_members WHERE id = ${`${id}-member`}`) as unknown as Array<{
               role: string;
             }>;
+          // oxlint-disable-next-line vitest/no-conditional-expect -- reconciliation applies to the active member case.
           expect(reconciled.map((row) => row.role)).toEqual(["admin"]);
           await writer`DELETE FROM settings WHERE key = ${key}`;
           beforeSnapshot = async () => {
             await writer`DELETE FROM org_members WHERE id = ${`${id}-member`}`;
           };
+          // oxlint-disable-next-line vitest/no-conditional-expect -- the membership is removed just before the snapshot.
           await expect(read()).rejects.toMatchObject({
             errorCode: "DATABASE_NOT_FOUND",
           });
+          // oxlint-disable-next-line vitest/no-conditional-expect -- the active member case must exercise the interleaving.
           expect(beforeSnapshot).toBeUndefined();
         }
       } finally {
@@ -470,6 +499,21 @@ describe.runIf(Boolean(url))("PostgreSQL navigation snapshots", () => {
       }
     },
   );
+
+  it("rejects navigation when the action identity is missing", async () => {
+    const databaseId = await fixture(
+      `missing-identity-${randomUUID()}`,
+      "a.md",
+    );
+    await expect(
+      runWithRequestContext({ userEmail: owner }, () =>
+        action.run(
+          { databaseId, navigation: { parentId: null, sort: "name" } },
+          {},
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "unauthenticated", statusCode: 401 });
+  });
 
   it("reads only the resolved database's personal view and propagates its parse errors", async () => {
     const id = `personal-${randomUUID()}`;
