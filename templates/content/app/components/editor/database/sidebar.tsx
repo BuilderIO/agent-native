@@ -67,6 +67,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cachedPathParentId } from "@/hooks/use-documents";
 import { usePendingMoves } from "@/hooks/use-pending-moves";
 import { usePendingTrash } from "@/hooks/use-pending-trash";
 import {
@@ -312,6 +313,13 @@ function PagedContentFilesBranch({
   const activeDocument = props.activePathDocuments.find(
     (document) => document.id === props.activeDocumentId,
   );
+  const revealsHere = (document: ActivePathDocument) => {
+    if (document.parentId !== props.parentId) return false;
+    const cachedParentId = props.activeDocumentId
+      ? cachedPathParentId(queryClient, props.activeDocumentId, document.id)
+      : undefined;
+    return cachedParentId === undefined || cachedParentId === props.parentId;
+  };
   const locateId = groups && activeDocument ? activeDocument.id : undefined;
   const located = useFilesNavigationPage(
     filesNavigationPageParams({
@@ -401,7 +409,7 @@ function PagedContentFilesBranch({
       ? data.items.length +
         props.activePathDocuments.filter(
           (document) =>
-            document.parentId === props.parentId &&
+            revealsHere(document) &&
             !data.items.some((item) => item.documentId === document.id),
         ).length
       : null;
@@ -686,9 +694,7 @@ function PagedContentFilesBranch({
   const revealedItems = props.activePathDocuments
     .filter(
       (document) =>
-        !flat &&
-        document.parentId === props.parentId &&
-        !pageDocumentIds.has(document.id),
+        !flat && revealsHere(document) && !pageDocumentIds.has(document.id),
     )
     .map((document) => activePathItem(document, props.activePathDocuments));
   const movedInItems =
