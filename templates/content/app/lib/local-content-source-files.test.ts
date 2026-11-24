@@ -58,14 +58,64 @@ unchanged_key: preserve-me
 
 Old body`;
 
-    const serialized = sourceFileContent(document, existingSource);
+    expect(
+      sourceFileContent(
+        document,
+        "content/getting-started.mdx",
+        existingSource,
+      ),
+    ).toBe(`---
+title: "Getting Started"
+tags: ["acceptance", "local"]
+unchanged_key: preserve-me
+# source-owned comment
+---
 
-    expect(serialized).toContain('title: "Getting Started"');
-    expect(serialized).not.toContain('title: "Old title"');
-    expect(serialized).toContain('tags: ["acceptance", "local"]');
-    expect(serialized).toContain("unchanged_key: preserve-me");
-    expect(serialized).toContain("# source-owned comment");
-    expect(serialized).toContain("Hello from the editor.");
+Hello from the editor.`);
+  });
+
+  it("changes only the edited line of a file it saves", () => {
+    const existingSource = `---
+tags: [acceptance, local]
+---
+
+# Field notes
+
+* first
+* second
+
+| Name  | Count |
+| ----- | ----: |
+| Pears |     3 |
+
+Closing paragraph.
+`;
+    const saved = sourceFileContent(
+      {
+        ...document,
+        content: `# Field notes
+- first
+- second
+<table header-row="true">
+<tr>
+<td>Name</td>
+<td align="right">Count</td>
+</tr>
+<tr>
+<td>Pears</td>
+<td align="right">3</td>
+</tr>
+</table>
+Closing words.
+<empty-block/>`,
+      },
+      "content/getting-started.mdx",
+      existingSource,
+    );
+
+    expect(saved).toBe(
+      existingSource.replace("Closing paragraph.", "Closing words."),
+    );
   });
 
   it("writes an edited document through the desktop single-file bridge", async () => {
@@ -118,10 +168,9 @@ Old body`;
       content: expect.stringContaining("Hello from the editor."),
       expectedRevision: "a".repeat(64),
     });
-    expect(writeFile.mock.calls[0]?.[0].content).toContain(
-      'title: "Getting Started"',
+    expect(writeFile.mock.calls[0]?.[0].content).toBe(
+      '---\ntags: "keep-me"\n---\n\nHello from the editor.',
     );
-    expect(writeFile.mock.calls[0]?.[0].content).toContain('tags: "keep-me"');
     expect(writeFiles).not.toHaveBeenCalled();
   });
 

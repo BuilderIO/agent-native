@@ -602,6 +602,161 @@ describe("local-folder Content source", () => {
     expect(resolvedChangeSet.state).toBe("applied");
   });
 
+  it("keeps a page and its file in step when they spell the same text differently", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-file-spelling",
+        label: "File spelling",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const sync = (text: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({
+          sourceId: connection.sourceId,
+          files: { "notes.md": text },
+        }),
+      );
+    const file = "# Field notes\n\n* one\n* two\n\nClosing.\n";
+    const page = "# Field notes\n- one\n- two\nClosing.";
+    const first = await sync(file);
+    const documentId = first.created[0]!.id;
+    const stored = async () => {
+      const [document] = await getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId));
+      return document;
+    };
+    const save = (content: string) =>
+      getDb()
+        .update(schema.documents)
+        .set({ content, updatedAt: new Date().toISOString() })
+        .where(eq(schema.documents.id, documentId));
+    expect((await stored()).content).toBe(file);
+
+    const editedPage = page.replace("Closing.", "Closing words.");
+    const editedFile = file.replace("Closing.", "Closing words.");
+    await save(editedPage);
+    const before = await stored();
+    const afterSave = await sync(editedFile);
+    expect(afterSave.conflicts).toHaveLength(0);
+    expect(await stored()).toMatchObject({
+      content: editedPage,
+      bodyRevision: before.bodyRevision,
+    });
+
+    const outsideFile = editedFile.replace("* two", "* two outside");
+    const outsidePage = editedPage.replace("- two", "- two outside");
+    const afterOutsideEdit = await sync(outsideFile);
+    expect(afterOutsideEdit.conflicts).toHaveLength(0);
+    expect((await stored()).content).toBe(outsidePage);
+
+    const respelled = outsideFile.replace("* one", "- one");
+    const afterRespelling = await sync(respelled);
+    expect(afterRespelling.conflicts).toHaveLength(0);
+    expect((await stored()).content).toBe(outsidePage);
+
+    const contentPage = outsidePage.replace(
+      "Closing words.",
+      "Closing in Content.",
+    );
+    await save(contentPage);
+    const overlappingFile = respelled.replace(
+      "Closing words.",
+      "Closing outside.",
+    );
+    const overlapping = await sync(overlappingFile);
+    expect(overlapping.conflicts).toEqual([
+      expect.objectContaining({ id: documentId, path: "notes.md" }),
+    ]);
+    expect((await stored()).content).toBe(contentPage);
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseSourceChangeSets.sourceId,
+            connection.sourceId,
+          ),
+          eq(schema.contentDatabaseSourceChangeSets.state, "proposed"),
+        ),
+      );
+    expect(changeSet.kind).toBe("body_update");
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      resolveLocalFolderConflict.run({
+        changeSetId: changeSet.id,
+        decision: "accept_source",
+        sourceContent: overlappingFile,
+      }),
+    );
+    const afterResolution = await sync(
+      overlappingFile.replace("Closing outside.", "Closing again."),
+    );
+    expect(afterResolution.conflicts).toHaveLength(0);
+    expect((await stored()).content).toBe(
+      outsidePage.replace("Closing words.", "Closing again."),
+    );
+  });
+
+  it("reviews a metadata conflict on a page that spells its file differently", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-spelled-metadata",
+        label: "Spelled metadata",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const body = "* one\n* two\n";
+    const sync = (title: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({
+          sourceId: connection.sourceId,
+          files: {
+            "notes.md": ["---", "title: " + title, "---", "", body].join("\n"),
+          },
+        }),
+      );
+    const first = await sync("Baseline");
+    const documentId = first.created[0]!.id;
+    await getDb()
+      .update(schema.documents)
+      .set({
+        title: "Content title",
+        content: "- one\n- two",
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.documents.id, documentId));
+    expect((await sync("Folder title")).conflicts).toHaveLength(1);
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        eq(
+          schema.contentDatabaseSourceChangeSets.sourceId,
+          connection.sourceId,
+        ),
+      );
+    expect(changeSet.kind).toBe("metadata_update");
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      resolveLocalFolderConflict.run({
+        changeSetId: changeSet.id,
+        decision: "accept_source",
+        sourceContent: body,
+      }),
+    );
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId)),
+    ).resolves.toEqual([expect.objectContaining({ title: "Folder title" })]);
+  });
+
   it("records concurrent metadata-only edits as a conflict", async () => {
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({

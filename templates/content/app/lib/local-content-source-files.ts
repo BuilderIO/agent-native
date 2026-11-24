@@ -3,7 +3,7 @@ import type { Document, DocumentSourceInfo } from "@shared/api";
 import {
   CONTENT_SOURCE_ROOT,
   parseContentSourceFile,
-  serializeContentSourceDocument,
+  updateContentSourceFile,
 } from "@shared/content-source";
 
 import { getDesktopContentFiles } from "./desktop-content-files";
@@ -404,26 +404,12 @@ async function readBrowserFile(root: LocalDirectoryHandle, filePath: string) {
   };
 }
 
-const MANAGED_SOURCE_FRONTMATTER_KEYS = new Set([
-  "id",
-  "title",
-  "description",
-  "parentId",
-  "icon",
-  "position",
-  "isFavorite",
-  "hideFromSearch",
-  "visibility",
-  "updatedAt",
-]);
-
-const SOURCE_FRONTMATTER_RE =
-  /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n\r?\n|\r?\n|$)/;
-
-export function sourceFileContent(document: Document, existingSource?: string) {
-  const serialized = serializeContentSourceDocument({
-    id: document.id,
-    parentId: document.parentId,
+export function sourceFileContent(
+  document: Document,
+  path: string,
+  existingSource: string,
+) {
+  return updateContentSourceFile(path, existingSource, {
     title: document.title,
     content: document.content,
     description: document.description,
@@ -431,25 +417,12 @@ export function sourceFileContent(document: Document, existingSource?: string) {
       typeof document.icon === "string"
         ? document.icon
         : serializeIconValue(parseIconValue(document.icon)),
+    parentId: document.parentId,
     position: document.position,
     isFavorite: document.isFavorite,
     hideFromSearch: document.hideFromSearch,
     visibility: document.visibility,
-    updatedAt: document.updatedAt,
   });
-  const existingFrontmatter = existingSource?.match(SOURCE_FRONTMATTER_RE)?.[1];
-  if (!existingFrontmatter) return serialized;
-
-  const preservedLines = existingFrontmatter.split(/\r?\n/).filter((line) => {
-    const key = line.match(/^([A-Za-z][A-Za-z0-9_-]*):/)?.[1];
-    return !key || !MANAGED_SOURCE_FRONTMATTER_KEYS.has(key);
-  });
-  if (preservedLines.length === 0) return serialized;
-
-  return serialized.replace(
-    "\n---\n\n",
-    `\n${preservedLines.join("\n")}\n---\n\n`,
-  );
 }
 
 function documentFromSourceContent(input: {
@@ -479,8 +452,8 @@ function documentFromSourceContent(input: {
       description: parsed.description ?? input.base.description,
       icon: parsed.icon === undefined ? null : parsed.icon,
       position: parsed.position ?? input.base.position,
-      isFavorite: parsed.isFavorite ?? false,
-      hideFromSearch: parsed.hideFromSearch ?? false,
+      isFavorite: parsed.isFavorite ?? input.base.isFavorite,
+      hideFromSearch: parsed.hideFromSearch ?? input.base.hideFromSearch,
       visibility: parsed.visibility ?? input.base.visibility,
       updatedAt: input.updatedAt,
       source: input.source,
@@ -540,7 +513,11 @@ export async function writeDocumentToLinkedLocalSource(
         error: `Local file "${filePath}" was not found.`,
       };
     }
-    const content = sourceFileContent(document, existingSource);
+    const content = sourceFileContent(
+      document,
+      desktopSource.path,
+      existingSource,
+    );
     const expectedRevision =
       options.expectedRevision ?? current.revisions?.[desktopSource.path];
     if (!expectedRevision) {
@@ -604,7 +581,11 @@ export async function writeDocumentToLinkedLocalSource(
       error: `Local file "${filePath}" has no observed revision.`,
     };
   }
-  const content = sourceFileContent(document, existingSource.content);
+  const content = sourceFileContent(
+    document,
+    browserSource.path,
+    existingSource.content,
+  );
   const result = await writeBrowserFile(
     browserSource.handle,
     browserSource.path,

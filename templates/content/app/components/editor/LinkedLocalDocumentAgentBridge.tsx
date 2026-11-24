@@ -6,6 +6,7 @@ import {
   applyDocumentTextEdits,
   type DocumentTextEdit,
 } from "@shared/document-text-edits";
+import { sameSourceMarkdown } from "@shared/source-markdown";
 import { useEffect, useRef } from "react";
 
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
@@ -88,7 +89,7 @@ export function LinkedLocalDocumentAgentBridge({
         const editorMatchesExpected = () => {
           const editor = getEditorSnapshotRef.current();
           return (
-            editor.content === args.expectedContent &&
+            sameSourceMarkdown(editor.content, args.expectedContent) &&
             editor.title === args.expectedTitle
           );
         };
@@ -110,7 +111,10 @@ export function LinkedLocalDocumentAgentBridge({
           };
         }
         if (
-          baseline.document.content !== args.expectedContent ||
+          !sameSourceMarkdown(
+            baseline.document.content,
+            args.expectedContent,
+          ) ||
           baseline.document.title !== args.expectedTitle ||
           (baseline.document.description ?? "") !== args.expectedDescription ||
           JSON.stringify(managedDocumentMetadata(baseline.document)) !==
@@ -122,7 +126,7 @@ export function LinkedLocalDocumentAgentBridge({
           };
         }
         const applied = applyDocumentTextEdits(
-          baseline.document.content,
+          args.expectedContent,
           args.edits,
         );
         if (applied.changeCount === 0) {
@@ -189,7 +193,7 @@ export function LinkedLocalDocumentAgentBridge({
           JSON.stringify(managedDocumentMetadata(next));
         if (
           !revisionMatches ||
-          readBack.document.content !== applied.content ||
+          !sameSourceMarkdown(readBack.document.content, applied.content) ||
           !managedMetadataMatches ||
           (readBack.document.description ?? "") !== (next.description ?? "") ||
           readBack.document.title !== next.title

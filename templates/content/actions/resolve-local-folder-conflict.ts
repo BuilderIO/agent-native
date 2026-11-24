@@ -447,6 +447,7 @@ export default defineAction({
               sourceValuesJson: JSON.stringify({
                 ...values,
                 contentHash: proposedHash,
+                pageHash: proposedHash,
                 metadataHash: hash(
                   JSON.stringify({
                     title: resolvedTitle,

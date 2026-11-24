@@ -21,6 +21,8 @@ import {
   isContentSourcePath,
   parseContentSourceFile,
 } from "../shared/content-source.js";
+import { canonicalizeNfm } from "../shared/nfm.js";
+import { sameSourceMarkdown } from "../shared/source-markdown.js";
 import { setFavoriteMembership } from "./_content-favorites.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
@@ -92,6 +94,7 @@ function sourceValues(args: {
   path: string;
   title: string;
   hash: string;
+  pageHash: string;
   metadataHash: string;
   workingCopyId: string;
   bridgeFileIdentity?: string;
@@ -105,6 +108,7 @@ function sourceValues(args: {
     extension: args.path.toLowerCase().endsWith(".mdx") ? ".mdx" : ".md",
     title: args.title,
     contentHash: args.hash,
+    pageHash: args.pageHash,
     metadataHash: args.metadataHash,
     observedRevision,
     sourceFileIdentity: localFolderSourceFileIdentity({
@@ -394,15 +398,26 @@ export default defineAction({
           typeof previousValues.metadataHash === "string"
             ? previousValues.metadataHash
             : null;
+        const previousPageHash =
+          typeof previousValues.pageHash === "string"
+            ? previousValues.pageHash
+            : previousHash;
         const incomingMetadataHash = metadataHash(file);
         const localHash = existing ? contentHash(existing.content) : null;
+        const holdsFile =
+          !!existing &&
+          (localHash === incomingHash ||
+            (localHash === previousPageHash && incomingHash === previousHash) ||
+            sameSourceMarkdown(existing.content, file.content));
         const localMetadataHash = existing ? metadataHash(existing) : null;
         const incomingChanged =
           previousHash !== incomingHash ||
           previousMetadataHash !== incomingMetadataHash;
         const localChanged =
           !!existing &&
-          ((!!previousHash && localHash !== previousHash) ||
+          ((!!previousPageHash &&
+            !holdsFile &&
+            localHash !== previousPageHash) ||
             (!!previousMetadataHash &&
               localMetadataHash !== previousMetadataHash));
         const conflict =
@@ -410,8 +425,7 @@ export default defineAction({
           !!previousHash &&
           incomingChanged &&
           (localChanged || policy === "database_primary") &&
-          (localHash !== incomingHash ||
-            localMetadataHash !== incomingMetadataHash);
+          (!holdsFile || localMetadataHash !== incomingMetadataHash);
         const keepContent =
           !!existing &&
           !!previousHash &&
@@ -420,6 +434,12 @@ export default defineAction({
           policy !== "source_primary";
         const applyIncoming =
           incomingChanged || (localChanged && policy === "source_primary");
+        const pageContent =
+          existing && (holdsFile || !applyIncoming)
+            ? existing.content
+            : existing && policy === "source_primary"
+              ? canonicalizeNfm(file.content)
+              : file.content;
         return {
           file,
           index,
@@ -431,6 +451,8 @@ export default defineAction({
           incomingMetadataHash,
           localHash,
           localMetadataHash,
+          holdsFile,
+          pageContent,
           incomingChanged,
           localChanged,
           conflict,
@@ -634,10 +656,7 @@ export default defineAction({
                 sourceId,
                 databaseItemId: plan.previousRow?.databaseItemId ?? null,
                 documentId: plan.id,
-                kind:
-                  plan.localHash === plan.incomingHash
-                    ? "metadata_update"
-                    : "body_update",
+                kind: plan.holdsFile ? "metadata_update" : "body_update",
                 direction: "incoming",
                 state: "proposed",
                 pushMode: "none",
@@ -705,7 +724,7 @@ export default defineAction({
               orgId: target.database.orgId,
               parentId: null,
               title: plan.file.title,
-              content: plan.file.content,
+              content: plan.pageContent,
               description: plan.file.description ?? "",
               icon: plan.file.icon ?? null,
               position: plan.file.position ?? plan.index,
@@ -731,7 +750,7 @@ export default defineAction({
             await syncPrivateBodyReferences(tx as ReturnType<typeof getDb>, {
               documentId: plan.id,
               before: "",
-              after: plan.file.content,
+              after: plan.pageContent,
               userEmail,
               ownerEmail: userEmail,
               orgId: target.database.orgId,
@@ -763,7 +782,7 @@ export default defineAction({
             const legacy = plan.applyIncoming
               ? await lockLegacyBodyWrites(tx, [plan.id], {
                   operation: "sync-local-folder-source",
-                  content: plan.file.content,
+                  content: plan.pageContent,
                 })
               : undefined;
             const reboundDocuments = await tx
@@ -772,8 +791,8 @@ export default defineAction({
                 ...(legacy
                   ? {
                       title: plan.file.title,
-                      content: plan.file.content,
-                      bodyRevision: legacy.bodyRevision(plan.file.content),
+                      content: plan.pageContent,
+                      bodyRevision: legacy.bodyRevision(plan.pageContent),
                       description:
                         plan.file.description ?? plan.existing.description,
                       icon: plan.file.icon ?? plan.existing.icon,
@@ -821,7 +840,7 @@ export default defineAction({
               await syncPrivateBodyReferences(tx as ReturnType<typeof getDb>, {
                 documentId: plan.id,
                 before: plan.existing.content,
-                after: plan.file.content,
+                after: plan.pageContent,
                 userEmail,
                 ownerEmail: plan.existing.ownerEmail,
                 orgId: target.database.orgId,
@@ -900,6 +919,7 @@ export default defineAction({
               path: plan.file.path,
               title: plan.file.title,
               hash: plan.incomingHash,
+              pageHash: contentHash(plan.pageContent),
               metadataHash: plan.incomingMetadataHash,
               workingCopyId: localIdentity.workingCopy.id,
               bridgeFileIdentity: plan.bridgeFileIdentity,

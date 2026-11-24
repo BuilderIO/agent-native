@@ -5,8 +5,10 @@ import {
   contentSourcePathForDocument,
   isBuilderMdxSourcePath,
   isContentSourcePath,
+  mergeContentSourceFiles,
   parseContentSourceFile,
   serializeContentSourceDocument,
+  updateContentSourceFile,
 } from "./content-source";
 
 describe("content source files", () => {
@@ -103,6 +105,15 @@ describe("content source files", () => {
     });
   });
 
+  it("reads only top-level frontmatter keys", () => {
+    expect(
+      parseContentSourceFile(
+        "content/pricing-page.mdx",
+        "---\ntitle: Pricing\nseo:\n  title: Search title\n  icon: rocket\n---\n\nBody",
+      ),
+    ).toMatchObject({ title: "Pricing", icon: undefined });
+  });
+
   it("builds a deterministic content bundle path per document", () => {
     const doc = {
       id: "abc123",
@@ -134,5 +145,128 @@ describe("content source files", () => {
       false,
     );
     expect(isContentSourcePath("content/plain.mdx")).toBe(true);
+  });
+});
+
+describe("updateContentSourceFile", () => {
+  const PATH = "notes/field-notes.md";
+  const unchanged = {
+    title: "Field Notes",
+    description: "",
+    icon: null,
+    parentId: null,
+    position: 2,
+    isFavorite: false,
+    hideFromSearch: false,
+    visibility: "private" as const,
+  };
+
+  it("adds no frontmatter to a file that has none", () => {
+    expect(
+      updateContentSourceFile(PATH, "One\n\nTwo\n", {
+        ...unchanged,
+        content: "One\nThree",
+      }),
+    ).toBe("One\n\nThree\n");
+  });
+
+  it("keeps the header's own bytes when only the body changed", () => {
+    const source =
+      "---\r\n# written by hand\r\ntags: [a,  b]\r\ntitle:   'Field Notes'\r\n---\r\n\r\nOne\r\n";
+    expect(
+      updateContentSourceFile(PATH, source, { ...unchanged, content: "Two" }),
+    ).toBe(source.replace("One", "Two"));
+  });
+
+  it("writes a changed title in the line it already has", () => {
+    expect(
+      updateContentSourceFile(
+        PATH,
+        "---\ntitle: Field notes\ntags: [a]\n---\nOne\n",
+        { ...unchanged, title: "Trip notes", content: "One" },
+      ),
+    ).toBe("---\ntitle: Trip notes\ntags: [a]\n---\nOne\n");
+  });
+
+  it("quotes a changed title that plain YAML can't hold", () => {
+    expect(
+      updateContentSourceFile(PATH, "---\ntitle: Field notes\n---\n\nOne\n", {
+        ...unchanged,
+        title: "Notes: the trip",
+        content: "One",
+      }),
+    ).toBe('---\ntitle: "Notes: the trip"\n---\n\nOne\n');
+  });
+
+  it("replaces a value that continues on the lines below it", () => {
+    expect(
+      updateContentSourceFile(
+        PATH,
+        "---\ndescription: >\n  first\n  second\ntags:\n  - a\n---\n\nOne\n",
+        { ...unchanged, description: "Short", content: "One" },
+      ),
+    ).toBe('---\ndescription: "Short"\ntags:\n  - a\n---\n\nOne\n');
+  });
+
+  it("adds a header only for what the file can't already say", () => {
+    expect(
+      updateContentSourceFile(PATH, "One\n", {
+        ...unchanged,
+        title: "Trip notes",
+        content: "One",
+      }),
+    ).toBe('---\ntitle: "Trip notes"\n---\n\nOne\n');
+    expect(
+      updateContentSourceFile(PATH, "One\n", {
+        ...unchanged,
+        isFavorite: true,
+        hideFromSearch: true,
+        visibility: "org",
+        content: "One",
+      }),
+    ).toBe("One\n");
+  });
+
+  it("updates the Content settings the file records", () => {
+    expect(
+      updateContentSourceFile(
+        PATH,
+        "---\nposition: 4\nisFavorite: false\nvisibility: private\nupdatedAt: 2024-05-01\n---\n\nOne\n",
+        { ...unchanged, isFavorite: true, visibility: "org", content: "One" },
+      ),
+    ).toBe(
+      "---\nposition: 2\nisFavorite: true\nvisibility: org\nupdatedAt: 2024-05-01\n---\n\nOne\n",
+    );
+  });
+});
+
+describe("mergeContentSourceFiles", () => {
+  const exported = serializeContentSourceDocument({
+    id: "doc_1234",
+    parentId: null,
+    title: "Field Notes",
+    content: "# Field notes\n- one\n- two",
+    description: "",
+    icon: null,
+    position: 3,
+    isFavorite: false,
+    hideFromSearch: false,
+    visibility: "private",
+  });
+
+  it("leaves a file alone when its page says the same thing", () => {
+    const source = "# Field notes\n\n* one\n* two\n";
+    expect(
+      mergeContentSourceFiles(
+        { "field-notes.md": source },
+        { "field-notes.md": exported },
+      ),
+    ).toEqual({ "field-notes.md": source });
+  });
+
+  it("writes a page whose file is gone as it was exported", () => {
+    expect(mergeContentSourceFiles({}, { "field-notes.md": exported })).toEqual(
+      { "field-notes.md": exported },
+    );
   });
 });
