@@ -679,13 +679,13 @@ const messages = {
       skipInboxRuleHelp:
         "用自然语言编写指令。符合条件的邮件会被归档并跳过收件箱。",
       spamRuleHelp:
-        "用自然语言编写指令。Jev 会为匹配的邮件添加 agent-native-filtered 标签并归档。这不是 Gmail 垃圾邮件。",
+        "用自然语言编写指令。Mail 会为匹配的邮件添加 agent-native-filtered 标签并归档。这不是 Gmail 垃圾邮件。",
       filteredMode: "已筛选",
       manageSettings: "管理",
-      askJev: "询问 Jev",
+      askJev: "询问 Mail 的代理",
       askJevPrompt:
         "帮我优化这条 Mail 规则：{{condition}}。先询问我想如何修改，再更新规则。",
-      composerPlaceholder: "让 Jev 帮你整理收件箱…",
+      composerPlaceholder: "让 Mail 的代理帮你整理收件箱…",
       chatSuggestionFilter: "过滤类似这样的邮件",
       chatSuggestionPriority: "优先处理来自…的邮件",
       chatSuggestionArchive: "自动归档机器人通知",
@@ -816,7 +816,8 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "可以问我任何关于邮件的问题",
+    emptyState:
+      "我是 Mail 的代理。可以问我邮件相关的问题，也可以让我帮你整理邮件。",
     suggestionSummarize: "总结我的未读邮件",
     suggestionReplies: "今天哪些邮件需要我回复？",
     suggestionWidget: "为我的收件箱创建自定义小组件",

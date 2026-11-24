@@ -46,7 +46,7 @@ const messages = {
         "حوّل هذا النمط إلى قاعدة للأهمية أو للأرشفة التلقائية.",
       priorityFeedbackAskAgent: "اطلب من الوكيل اقتراح قواعد",
       aiSetupTitle: "إعداد بريدك الوارد بالذكاء الاصطناعي",
-      aiSetupTagLabel: "إنشاء وسم ذكاء اصطناعي",
+      aiSetupTagLabel: "إنشاء تصنيف ذكاء اصطناعي",
       aiSetupImportanceLabel: "رسائل مهمة",
       aiSetupSpamLabel: "مزعج",
       aiSetupArchiveLabel: "تجاوز البريد الوارد",
@@ -117,7 +117,7 @@ const messages = {
       aiSetupSortInbox: "نظّم صندوق الوارد",
       aiSetupImportantExample: "كل ما يصل من مديري Priya ‏(priya@company.com)…",
       aiSetupTagsDescription:
-        "تضع AI وسومًا على الرسائل المطابقة وتنشئ تبويبًا لكل وسم بجوار البريد الوارد.",
+        "تضع AI تصنيفات على الرسائل المطابقة وتنشئ تبويبًا لكل تصنيف بجوار البريد الوارد.",
       aiSetupImportantDescription:
         "تضيف AI تصنيف «مهم» إلى الرسائل المطابقة لتظهر في تبويب المهم.",
       aiSetupSkipInboxDescription:
@@ -155,7 +155,7 @@ const messages = {
       accounts: "Accounts",
       closeSidebar: "إغلاق الشريط الجانبي",
       settings: "الإعدادات",
-      aiSettings: "إدارة الوسوم والقواعد",
+      aiSettings: "إدارة التصنيفات والقواعد",
     },
     search: {
       label: "بحث",
@@ -179,7 +179,7 @@ const messages = {
       combinedInbox: "صندوق وارد موحد",
       allTab: "تبويب الكل",
       help: "يعرض طرق العرض والتصنيفات وعوامل التصفية المحفوظة التي اخترتها كعلامات تبويب منفصلة في صندوق الوارد. أوقفه لعرض كل بريد الوارد في علامة تبويب واحدة.",
-      aiSetup: "إعداد وسوم وقواعد الذكاء الاصطناعي",
+      aiSetup: "إعداد تصنيفات وقواعد الذكاء الاصطناعي",
     },
     accounts: {
       remove: "إزالة",
@@ -694,23 +694,23 @@ const messages = {
       autoArchiveMode: "أرشفة تلقائية",
       skipInboxMode: "تجاوز صندوق الوارد",
       spamMode: "مزعج",
-      tagMode: "وسم",
-      aiTagsTitle: "وسوم الذكاء الاصطناعي",
+      tagMode: "تصنيف",
+      aiTagsTitle: "تصنيفات الذكاء الاصطناعي",
       ruleHelpLabel: "شرح قواعد {{mode}}",
       aiTagRuleHelp:
-        "اكتب توجيهًا بلغة طبيعية. يضيف Jev هذه العلامة إلى الرسائل المطابقة.",
+        "اكتب توجيهًا بلغة طبيعية. يضيف Mail هذا التصنيف إلى الرسائل المطابقة.",
       importantRuleHelp:
-        "اكتب توجيهًا بلغة طبيعية. يضع Jev علامة مهم على الرسائل المطابقة.",
+        "اكتب توجيهًا بلغة طبيعية. يضع Mail علامة مهم على الرسائل المطابقة.",
       skipInboxRuleHelp:
-        "اكتب توجيهًا بلغة طبيعية. يؤرشف Jev الرسائل المطابقة لتجاوز صندوق الوارد.",
+        "اكتب توجيهًا بلغة طبيعية. يؤرشف Mail الرسائل المطابقة لتجاوز صندوق الوارد.",
       spamRuleHelp:
-        "اكتب توجيهًا بلغة طبيعية. يضيف Jev تصنيف agent-native-filtered إلى الرسائل المطابقة ويؤرشفها. هذا ليس Spam في Gmail.",
+        "اكتب توجيهًا بلغة طبيعية. يضيف Mail تصنيف agent-native-filtered إلى الرسائل المطابقة ويؤرشفها. هذا ليس Spam في Gmail.",
       filteredMode: "مصفّى",
       manageSettings: "إدارة",
-      askJev: "اسأل Jev",
+      askJev: "اسأل وكيل Mail",
       askJevPrompt:
         "ساعدني في تحسين قاعدة Mail هذه: {{condition}}. اسألني عما أريد تغييره ثم حدّثها.",
-      composerPlaceholder: "اطلب من Jev تنظيم صندوق الوارد…",
+      composerPlaceholder: "اطلب من وكيل Mail تنظيم صندوق الوارد…",
       chatSuggestionFilter: "صفِّ الرسائل المشابهة لهذه",
       chatSuggestionPriority: "أعطِ الأولوية لرسائل من…",
       chatSuggestionArchive: "أرشف إشعارات الروبوتات تلقائيًا",
@@ -737,7 +737,7 @@ const messages = {
       importantPlaceholder: "مثال: الرسائل التي تحتاج إلى رد أو لها موعد نهائي",
       ruleAdded: "تمت إضافة قاعدة الذكاء الاصطناعي.",
       instructionHelp: "استخدم لغة طبيعية",
-      tagNamePlaceholder: "اسم الوسم",
+      tagNamePlaceholder: "اسم التصنيف",
       spamLabelHint: "تُوسم المطابقات وتُنقل خارج الوارد.",
       spamPlaceholder: "مثال: الرسائل الترويجية أو غير المرغوب فيها بوضوح",
       tagPlaceholder: "مثال: الإيصالات وتأكيدات الطلبات من المتاجر الإلكترونية",
@@ -764,8 +764,8 @@ const messages = {
       previewEmpty: "شغّل المعاينة لرؤية المطابقات المحتملة هنا.",
       previewFailed: "تعذر معاينة البريد الأخير.",
       promptRulesCleared: "تمت إزالة قواعد الفرز.",
-      tagTabsHelp: "وسم توضيحي يصبح علامة تبويب في الوارد",
-      addTag: "إضافة وسم",
+      tagTabsHelp: "كل تصنيف يصبح علامة تبويب في الوارد",
+      addTag: "إضافة تصنيف",
       triageTitle: "الفرز بالذكاء الاصطناعي",
       connectJev: "اربط موفر ذكاء اصطناعي",
       connectJevToRunTriage: "اربط موفر ذكاء اصطناعي لتشغيل الفرز",
@@ -842,7 +842,7 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "اسألني أي شيء عن رسائلك",
+    emptyState: "أنا وكيل Mail. اسألني عن بريدك أو اطلب مني ترتيبه.",
     suggestionSummarize: "لخص رسائلي غير المقروءة",
     suggestionReplies: "ما الذي يحتاج إلى ردي اليوم؟",
     suggestionWidget: "أنشئ لي ويدجت مخصصا لصندوق الوارد",
