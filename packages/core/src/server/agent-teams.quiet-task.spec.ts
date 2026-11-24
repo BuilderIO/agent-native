@@ -49,10 +49,16 @@ vi.mock("../progress/registry.js", () => ({
   getRun: vi.fn(async () => null),
 }));
 
+const runContext = vi.hoisted(() => ({
+  allowedActionNames: undefined as string[] | undefined,
+}));
 vi.mock("./request-context.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./request-context.js")>()),
   getRequestOrgId: () => undefined,
-  getRequestRunContext: () => undefined,
+  getRequestRunContext: () =>
+    runContext.allowedActionNames === undefined
+      ? undefined
+      : { allowedActionNames: runContext.allowedActionNames },
   getRequestUserEmail: () => "owner@example.com",
   hasRequestContext: () => false,
   runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
@@ -66,6 +72,7 @@ describe("spawnTask from app code", () => {
     createThreadMock.mockClear();
     enqueueAgentTeamRunMock.mockClear();
     startProgressRunMock.mockClear();
+    runContext.allowedActionNames = undefined;
   });
 
   it("starts a scoped, quiet task with no chat behind it", async () => {
@@ -106,10 +113,12 @@ describe("spawnTask from app code", () => {
       description: "Fill a cell",
       ownerEmail: OWNER,
       quiet: true,
+      allowedActionNames: ["fill-column-cell"],
     });
     const visible = await spawnTask({
       description: "Research a topic",
       ownerEmail: OWNER,
+      parentSend: () => {},
     });
 
     const runs = await listAgentTeamBackgroundRuns({ ownerEmail: OWNER });
@@ -117,5 +126,34 @@ describe("spawnTask from app code", () => {
     expect(taskIds).toContain(visible.taskId);
     expect(taskIds).not.toContain(quiet.taskId);
     expect(startProgressRunMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("needs an allowlist when no chat is waiting on the task", async () => {
+    const { spawnTask } = await import("./agent-teams.js");
+
+    await expect(
+      spawnTask({ description: "Fill a cell", ownerEmail: OWNER, quiet: true }),
+    ).rejects.toThrow(/allowedActionNames/);
+    expect(createThreadMock).not.toHaveBeenCalled();
+    expect(enqueueAgentTeamRunMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a task's actions inside the run that starts it", async () => {
+    const { spawnTask } = await import("./agent-teams.js");
+    runContext.allowedActionNames = ["get-document"];
+
+    await spawnTask({
+      description: "Fill a cell",
+      ownerEmail: OWNER,
+      allowedActionNames: ["get-document", "fill-column-cell"],
+    });
+
+    expect(enqueueAgentTeamRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          allowedActionNames: ["get-document"],
+        }),
+      }),
+    );
   });
 });
