@@ -131,6 +131,7 @@ describe("googleFetch quota handling", () => {
       "quota-token-whole-batch",
       "quota-token-b",
       "chunk-token-c",
+      "people-token-a",
       "shared-token-a",
       "shared-token-b",
       "streak-token-a",
@@ -694,7 +695,7 @@ describe("googleFetch quota handling", () => {
     ).rejects.toThrow(/briefly busy/);
   });
 
-  it("splits large Gmail batches by quota cost instead of sending one burst", async () => {
+  it("splits large Gmail batches into requests of at most 10 parts", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const requestBody = String(init?.body || "");
       const partCount = (requestBody.match(/Content-ID: <part-/g) || []).length;
@@ -726,8 +727,39 @@ describe("googleFetch quota handling", () => {
       "metadata",
     );
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(14);
+    for (const [, init] of fetchMock.mock.calls) {
+      const partCount = (
+        String(init?.body || "").match(/Content-ID: <part-/g) || []
+      ).length;
+      expect(partCount).toBeLessThanOrEqual(10);
+    }
     expect(result).toHaveLength(137);
+  });
+
+  it("leaves Gmail's cooldown alone when another Google API is rate limited", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(429, {
+          error: {
+            code: 429,
+            message: "Quota exceeded for quota metric 'Read requests'",
+          },
+        }),
+      ),
+    );
+
+    const result = googleFetch(
+      "https://people.googleapis.com/v1/people/me?personFields=photos",
+      "people-token-a",
+    );
+
+    await expect(result).rejects.toMatchObject({ status: 429 });
+    await expect(result).rejects.not.toBeInstanceOf(GmailQuotaCooldownError);
+    expect(quotaState.rows.get("account@example.com")?.cooldownUntil ?? 0).toBe(
+      0,
+    );
   });
 
   it("charges the published Gmail unit costs", () => {
@@ -924,7 +956,7 @@ describe("googleFetch quota handling", () => {
           result.reason instanceof GmailQuotaCooldownError,
       ),
     ).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(30);
   });
 
   it("increases consecutive 429 cooldowns and carries each through its quota window", async () => {

@@ -340,7 +340,7 @@ export async function googleFetch(
       }
     }
 
-    if (!res.ok && isQuotaError(res.status, data)) {
+    if (gmailRequest && !res.ok && isQuotaError(res.status, data)) {
       const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
       let effectiveCooldownMs = cooldownMs;
       try {
@@ -726,6 +726,7 @@ export interface GmailBatchResult {
 }
 
 const GMAIL_BATCH_URL = "https://gmail.googleapis.com/batch/gmail/v1";
+const MAX_PARTS_PER_GMAIL_BATCH_REQUEST = 10;
 
 async function gmailBatchGet(
   accessToken: string,
@@ -766,6 +767,30 @@ async function gmailBatchGet(
   );
   signal?.throwIfAborted();
 
+  const results: GmailBatchResult[] = [];
+  for (let i = 0; i < ids.length; i += MAX_PARTS_PER_GMAIL_BATCH_REQUEST) {
+    const part = await sendGmailBatch(
+      accessToken,
+      ids.slice(i, i + MAX_PARTS_PER_GMAIL_BATCH_REQUEST),
+      buildPath,
+      signal,
+    );
+    results.push(...part);
+  }
+  await markGmailQuotaSuccessAfterResponse(
+    accessToken,
+    clearCooldownAfterSuccess,
+  );
+  return results;
+}
+
+async function sendGmailBatch(
+  accessToken: string,
+  ids: string[],
+  buildPath: (id: string) => string,
+  signal?: AbortSignal,
+): Promise<GmailBatchResult[]> {
+  signal?.throwIfAborted();
   const boundary = `batch_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
   const CRLF = "\r\n";
   const parts: string[] = [];
@@ -836,10 +861,6 @@ async function gmailBatchGet(
     );
     throw new GmailQuotaCooldownError(cooldownMs);
   }
-  await markGmailQuotaSuccessAfterResponse(
-    accessToken,
-    clearCooldownAfterSuccess,
-  );
   return parsed;
 }
 
