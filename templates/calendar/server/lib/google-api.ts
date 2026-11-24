@@ -126,6 +126,15 @@ export function isGooglePreconditionFailedError(error: unknown): boolean {
   );
 }
 
+export function isGoogleRequestRejectedError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const status =
+    error instanceof GoogleApiError
+      ? error.status
+      : Number(/^Google API error \((\d{3})\):/.exec(error.message)?.[1]);
+  return status >= 400 && status < 500;
+}
+
 export function isGoogleEventAbsentError(error: unknown): boolean {
   return (
     isGoogleNotFoundError(error) ||
