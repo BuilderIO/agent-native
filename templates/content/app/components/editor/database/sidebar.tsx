@@ -453,7 +453,11 @@ function PagedContentFilesBranch({
           hasChildren={hasChildren}
           isCollection={navigationItem.type === "database"}
           canMove={
-            props.parentId === null || !isLocalSourceDirectoryId(props.parentId)
+            navigationItem.canMove !== false &&
+            (navigationItem.parentId === null ||
+              !isLocalSourceDirectoryId(navigationItem.parentId)) &&
+            (props.parentId === null ||
+              !isLocalSourceDirectoryId(props.parentId))
           }
           expanded={expanded}
           onToggleExpanded={(open) =>

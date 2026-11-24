@@ -490,6 +490,12 @@ describe("Files navigation of linked local folders", () => {
       expect(draft?.count).toBe(3);
       expect(shown(draft?.page.items ?? [])).toEqual(["readme", "today"]);
       expect(draft?.page.items[1]?.parentId).toBeNull();
+      expect(draft?.page.items[0]).toMatchObject({ documentId: "readme" });
+      expect(draft?.page.items[0]).not.toHaveProperty("canMove");
+      expect(draft?.page.items[1]).toMatchObject({
+        documentId: "today",
+        canMove: false,
+      });
 
       const nextCursor = draft?.page.pagination.nextCursor;
       expect(nextCursor).toBeTruthy();
@@ -503,7 +509,25 @@ describe("Files navigation of linked local folders", () => {
         2,
       );
       expect(shown(rest.items)).toEqual(["yesterday"]);
+      expect(rest.items[0]).toMatchObject({ canMove: false });
       expect(rest.groups).toBeUndefined();
+
+      await getDb()
+        .update(schema.documents)
+        .set({ parentId: "plain-page" })
+        .where(eq(schema.documents.id, "today"));
+      try {
+        const movedGroup = await navigate(FILES, { parentId: null }, 2);
+        const moved = movedGroup.groups
+          ?.find((group) => group.id === "folders-stage:stage-draft")
+          ?.page.items.find((item) => item.documentId === "today");
+        expect(moved).toMatchObject({ parentId: "plain-page", canMove: false });
+      } finally {
+        await getDb()
+          .update(schema.documents)
+          .set({ parentId: null })
+          .where(eq(schema.documents.id, "today"));
+      }
     } finally {
       await getDb()
         .update(schema.contentDatabases)

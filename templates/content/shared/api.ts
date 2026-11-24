@@ -1386,6 +1386,7 @@ export interface ContentDatabaseNavigationItem {
   hasChildren: boolean;
   spaceId: string | null;
   sourceKind: string | null;
+  canMove?: boolean;
   isFavorite: boolean;
   canEdit: boolean;
   canManage: boolean;
