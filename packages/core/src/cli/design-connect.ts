@@ -1545,7 +1545,13 @@ function addPreviewTokenToResourceUrl(
   resourceUrl: string,
   previewToken: string,
 ): string {
-  if (!resourceUrl || /^(?:[a-z][a-z\d+.-]*:|\/\/|#|%23)/i.test(resourceUrl)) {
+  if (
+    !resourceUrl ||
+    /^(?:[a-z][a-z\d+.-]*:|\/\/|#|%23)/i.test(resourceUrl) ||
+    !URL.canParse(resourceUrl, "http://bridge.invalid/") ||
+    new URL(resourceUrl, "http://bridge.invalid/").origin !==
+      "http://bridge.invalid"
+  ) {
     return resourceUrl;
   }
   const hashIndex = resourceUrl.indexOf("#");
@@ -1740,24 +1746,57 @@ function addOpaqueFrameJavaScriptResourceTokens(
   source: string,
   previewToken: string,
 ): string {
+  const ast = parse(source, { sourceType: "unambiguous", plugins: ["jsx"] });
+  const edits: { start: number; end: number; replacement: string }[] = [];
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child);
+      return;
+    }
+    const record = node as Record<string, unknown>;
+    if (
+      record.type === "ImportExpression" ||
+      record.type === "ImportDeclaration" ||
+      record.type === "ExportNamedDeclaration" ||
+      record.type === "ExportAllDeclaration"
+    ) {
+      const literal = record.source as Record<string, unknown> | null;
+      if (
+        literal?.type === "StringLiteral" &&
+        typeof literal.value === "string" &&
+        typeof literal.start === "number" &&
+        typeof literal.end === "number" &&
+        /^(?:\/|\.{1,2}\/)/.test(literal.value)
+      ) {
+        const url = addPreviewTokenToResourceUrl(literal.value, previewToken);
+        if (url !== literal.value) {
+          const quote = source[literal.start];
+          const value = JSON.stringify(url)
+            .slice(1, -1)
+            .replace(/</g, "\\u003c");
+          edits.push({
+            start: literal.start,
+            end: literal.end,
+            replacement:
+              quote === "'" ? `'${value.replace(/'/g, "\\'")}'` : `"${value}"`,
+          });
+        }
+      }
+    }
+    for (const value of Object.values(record)) visit(value);
+  };
+  visit(ast.program);
+  let rewritten = source;
+  for (const edit of edits.sort((a, b) => b.start - a.start)) {
+    rewritten =
+      rewritten.slice(0, edit.start) +
+      edit.replacement +
+      rewritten.slice(edit.end);
+  }
   const rewrite = (prefix: string, quote: string, resourceUrl: string) =>
     `${prefix}${quote}${addPreviewTokenToResourceUrl(resourceUrl, previewToken)}${quote}`;
-  return source
-    .replace(
-      /(\b(?:import|export)\s+[^;]*?\sfrom\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
-      (_full, prefix: string, quote: string, resourceUrl: string) =>
-        rewrite(prefix, quote, resourceUrl),
-    )
-    .replace(
-      /(\bimport\s+)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
-      (_full, prefix: string, quote: string, resourceUrl: string) =>
-        rewrite(prefix, quote, resourceUrl),
-    )
-    .replace(
-      /(\bimport\s*\(\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
-      (_full, prefix: string, quote: string, resourceUrl: string) =>
-        rewrite(prefix, quote, resourceUrl),
-    )
+  return rewritten
     .replace(
       /(\bnew\s+URL\s*\(\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>

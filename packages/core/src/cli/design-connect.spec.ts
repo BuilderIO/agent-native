@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
 
+import { parse } from "@babel/parser";
 import { chromium, type Browser } from "playwright";
 import { createServer } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -2558,6 +2559,11 @@ describe("design connect bridge endpoints", () => {
         );
         return;
       }
+      if (req.url?.startsWith("/src/ignored.js")) {
+        res.writeHead(200, { "content-type": "application/javascript" });
+        res.end("export default 'loaded';");
+        return;
+      }
       if (req.url?.startsWith("/src/main.ts")) {
         if (req.headers.cookie || req.headers.authorization) {
           res.writeHead(400, { "content-type": "text/plain" });
@@ -2574,7 +2580,7 @@ describe("design connect bridge endpoints", () => {
           "cache-control": "no-store",
         });
         res.end(
-          "import '/src/dependency.ts'; import './relative-dependency.ts'; import('../shared/chunk.js'); const worker = new URL('./worker.ts', import.meta.url); window.__csrBooted = true; document.querySelector('#root').textContent = 'CSR booted';",
+          `import '/src/dependency.ts'; import './relative-dependency.ts'; import('../shared/chunk.js'); import(/* @vite-ignore */ './ignored.js?mode=dev#part'); import(${JSON.stringify("/\\external.example/module.js")}); const worker = new URL('./worker.ts', import.meta.url); window.__csrBooted = true; document.querySelector('#root').textContent = 'CSR booted';`,
         );
         return;
       }
@@ -2868,6 +2874,23 @@ describe("design connect bridge endpoints", () => {
         `./worker.ts?previewToken=${bridge.previewToken}`,
       );
       expect(module.body).toContain("CSR booted");
+      expect(module.body).toContain(
+        `import(${JSON.stringify("/\\external.example/module.js")})`,
+      );
+      const ignoredImport = module.body.match(
+        /import\(\/\* @vite-ignore \*\/ '([^']+)'\)/,
+      )?.[1];
+      if (!ignoredImport) throw new Error("missing ignored dynamic import");
+      const ignoredModule = await getText(
+        new URL(ignoredImport, `${base}/src/main.ts`).toString(),
+        {
+          origin: "null",
+          "sec-fetch-dest": "script",
+        },
+      );
+      expect(ignoredModule.status).toBe(200);
+      expect(ignoredModule.headers["access-control-allow-origin"]).toBe("null");
+      expect(ignoredModule.body).toContain("export default 'loaded'");
 
       const manifestModule = await getText(
         `${base}/@id/__x00__virtual:react-router/browser-manifest?previewToken=${bridge.previewToken}`,
@@ -4037,6 +4060,116 @@ describe("design connect bridge endpoints", () => {
       if (rawServerClose) await rawServerClose;
       else await bridge.close();
       await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("authenticates Vite ignored literal imports without exposing the token to external imports", async () => {
+    const root = tmpDir();
+    await fsPromises.mkdir(path.join(root, "src"), { recursive: true });
+    await fsPromises.writeFile(
+      path.join(root, "index.html"),
+      '<!doctype html><div id="value">waiting</div><script type="module" src="/src/main.js"></script>',
+    );
+    await fsPromises.writeFile(
+      path.join(root, "src", "main.js"),
+      [
+        `const text = "import('./not-an-import.js')";`,
+        `const computed = './ignored.js';`,
+        `import(/* @vite-ignore */ './ignored.js?mode=dev#part').then(m => document.querySelector('#value').textContent = m.default);`,
+        `if (false) import(/* @vite-ignore */ 'https://external.example/module.js');`,
+        `if (false) import(/* @vite-ignore */ computed);`,
+      ].join("\n"),
+    );
+    await fsPromises.writeFile(
+      path.join(root, "src", "ignored.js"),
+      "export default 'loaded';",
+    );
+    const devPort = await freePort();
+    const vite = await createServer({
+      configFile: false,
+      logLevel: "silent",
+      root,
+      server: { host: "127.0.0.1", port: devPort, strictPort: true },
+    });
+    let bridge: Awaited<ReturnType<typeof startDesignConnectBridge>> | null =
+      null;
+    let browser: Browser | null = null;
+    try {
+      await vite.listen();
+      const port = await freePort();
+      const manifest = await prepareDesignConnectManifest({
+        root,
+        url: `http://127.0.0.1:${devPort}`,
+        port,
+      });
+      bridge = await startDesignConnectBridge(manifest);
+      const base = `http://127.0.0.1:${port}`;
+      const upstream = await getText(`http://127.0.0.1:${devPort}/src/main.js`);
+      expect(upstream.status, upstream.body).toBe(200);
+      expect(upstream.body).toContain("@vite-ignore");
+      const module = await getText(
+        `${base}/src/main.js?previewToken=${bridge.previewToken}`,
+        { origin: "null", "sec-fetch-dest": "script" },
+      );
+      expect(module.status).toBe(200);
+      expect(module.headers["access-control-allow-origin"]).toBe("null");
+      expect(() => parse(module.body, { sourceType: "module" })).not.toThrow();
+      expect(module.body).toContain(`"import('./not-an-import.js')"`);
+      expect(module.body).toContain("https://external.example/module.js");
+      expect(module.body).not.toContain(
+        `external.example/module.js?previewToken=`,
+      );
+      expect(upstream.body).toContain(
+        `import(/* @vite-ignore */ __vite__injectQuery(computed, 'import'))`,
+      );
+      expect(module.body).toContain(
+        `import(/* @vite-ignore */ __vite__injectQuery(computed, 'import'))`,
+      );
+      const match = module.body.match(
+        /import\(\/\* @vite-ignore \*\/ ['"]([^'"]*ignored\.js[^'"]*)['"]\)/,
+      );
+      if (!match) throw new Error("missing Vite ignored literal import");
+      const imported = await getText(
+        new URL(match[1], `${base}/src/main.js`).toString(),
+        { origin: "null", "sec-fetch-dest": "script" },
+      );
+      expect(imported.status).toBe(200);
+      expect(imported.headers["access-control-allow-origin"]).toBe("null");
+      expect(imported.body).toContain("loaded");
+      const unauthenticated = await getText(`${base}/src/ignored.js`, {
+        origin: "null",
+        "sec-fetch-dest": "script",
+      });
+      expect(unauthenticated.status).toBe(401);
+      expect(
+        unauthenticated.headers["access-control-allow-origin"],
+      ).toBeUndefined();
+      const cookieOnly = await getText(`${base}/src/ignored.js`, {
+        origin: "null",
+        cookie: `agent-native-preview-token=${bridge.previewToken}`,
+        "sec-fetch-dest": "script",
+      });
+      expect(cookieOnly.status).toBe(200);
+      expect(cookieOnly.headers["access-control-allow-origin"]).toBeUndefined();
+
+      browser = await launchBrowser();
+      const page = await browser.newPage();
+      const previewUrl = new URL("/live-edit", base);
+      previewUrl.searchParams.set("path", "/");
+      previewUrl.searchParams.set("previewToken", bridge.previewToken);
+      await page.setContent(
+        `<iframe sandbox="allow-scripts" src="${previewUrl}"></iframe>`,
+      );
+      const iframe = await page.locator("iframe").elementHandle();
+      const frame = await iframe?.contentFrame();
+      if (!frame) throw new Error("missing opaque preview frame");
+      await frame.waitForFunction(
+        () => document.querySelector("#value")?.textContent === "loaded",
+      );
+    } finally {
+      await browser?.close();
+      await bridge?.close();
+      await vite.close();
     }
   });
 
