@@ -1224,10 +1224,10 @@ export default function LocalFilesRoute() {
           folderId: directory.id,
         });
         if (!observed.ok) throw new Error(observed.error);
-        const files = mergeContentSourceFiles(
-          observed.sources ?? {},
-          bundle.files,
-        );
+        if (!observed.sources) {
+          throw new Error(t("localFiles.desktopFolderUnavailable"));
+        }
+        const files = mergeContentSourceFiles(observed.sources, bundle.files);
         const expectedRevisions: Record<string, string | null> = {
           ...(observed.revisions ?? {}),
         };
