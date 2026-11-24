@@ -148,6 +148,7 @@ test("runs the catalog contract specs for any workspace source change", (t) => {
     "export const args = process.argv.slice(2);",
   );
   const specs = [
+    "src/action-conformance-inventory.spec.ts",
     "src/mcp/advertised-tool-annotations.spec.ts",
     "src/mcp/agent-mcp-parity.spec.ts",
     "src/mcp/instructions-name-advertised-tools.spec.ts",

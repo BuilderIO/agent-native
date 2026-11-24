@@ -260,6 +260,7 @@ export function cliEntryCoreSpecs(paths: readonly string[]): readonly string[] {
 // that cannot change a catalog. Do not narrow this to the directories known to
 // register tools: a missed directory skips the contract without any failure.
 const CATALOG_CONTRACT_CORE_SPECS = [
+  "src/action-conformance-inventory.spec.ts",
   "src/mcp/advertised-tool-annotations.spec.ts",
   "src/mcp/agent-mcp-parity.spec.ts",
   "src/mcp/instructions-name-advertised-tools.spec.ts",

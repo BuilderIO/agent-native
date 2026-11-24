@@ -832,6 +832,7 @@ export {
   BUILDER_CONTENT_WRITE_SCOPE,
   BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
+  hasOwnStoredBuilderOAuthGrantForUse,
   resolveBuilderOAuthRequestAccessState,
   type BuilderOAuthPermissionScope,
   type BuilderOAuthRequestAccessState,

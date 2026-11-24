@@ -26,6 +26,7 @@ import {
   AgentChatAiSetupRequiredError,
   resetAgentEngineReadinessForTests,
 } from "../agent-engine-readiness.js";
+import { registerBeforeAgentTurnFlush } from "../application-state.js";
 import {
   createAgentNativeAgentKitTransport as createAgentNativeAgentKitTransportImplementation,
   withQueuedMessageHistory,
@@ -505,6 +506,46 @@ describe("createAgentNativeAgentKitTransport", () => {
       );
     },
   );
+
+  it("waits for the visible selection to flush before making any turn request", async () => {
+    const pending = Promise.withResolvers<void>();
+    const started = Promise.withResolvers<void>();
+    const unregister = registerBeforeAgentTurnFlush(() => {
+      started.resolve();
+      return pending.promise;
+    });
+    const fetcher = vi.fn(async () =>
+      json({ error: "Test request reached server" }, 503),
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher,
+    });
+    try {
+      const request = transport.startRun({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Reply to this" }],
+          },
+        ],
+      });
+      const rejected = (async () => {
+        await expect(request).rejects.toThrow();
+      })();
+      await started.promise;
+      expect(fetcher).not.toHaveBeenCalled();
+      pending.resolve();
+      await rejected;
+      expect(fetcher).toHaveBeenCalled();
+    } finally {
+      pending.resolve();
+      unregister();
+      await transport.dispose();
+    }
+  });
 
   it("keeps an accepted submission receipt without loading its active run", async () => {
     const fetcher = vi.fn(async () =>
@@ -12322,6 +12363,55 @@ describe("createAgentNativeAgentKitTransport", () => {
       },
     ]);
     await transport.dispose();
+  });
+
+  it("keeps a receipt-managed queued prompt when the before-turn flush fails", async () => {
+    const threadId = "thread-flush-queue";
+    const messageId = "queued-flush";
+    const queuedMessages = [
+      { id: messageId, threadId, text: "Keep this prompt" },
+    ];
+    const mutations: string[] = [];
+    const unregister = registerBeforeAgentTurnFlush(async () => {
+      throw new Error("State save failed");
+    });
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/runs/active?")) return json({});
+        if (url.endsWith(`/queue/${messageId}/receipt`))
+          return json({ state: "queued" });
+        if (url.endsWith(`/threads/${threadId}/queued`)) {
+          mutations.push(JSON.parse(String(init?.body)).mutation.type);
+          return json({ queuedMessages, receiptManaged: true });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ queuedMessages }),
+          });
+        }
+        return json({ error: "Unexpected request" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+    try {
+      for (let i = 0; i < 2; i++) {
+        await expect(
+          transport.steerQueuedMessage?.({ threadId, messageId }),
+        ).rejects.toMatchObject({ code: "queue_item_busy" });
+      }
+      await expect(
+        transport.steerQueuedMessage?.({ threadId, messageId }),
+      ).rejects.toThrow("State save failed");
+      expect(mutations).not.toContain("remove");
+    } finally {
+      unregister();
+      await transport.dispose();
+    }
   });
 
   it("reattaches to a queue run submitted by the inbox drain", async () => {

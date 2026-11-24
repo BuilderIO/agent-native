@@ -21,13 +21,41 @@ vi.mock("@agent-native/core/server", async (importOriginal) => ({
   },
 }));
 
-async function listTools(enabled: boolean) {
+vi.mock("@agent-native/core/settings", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getUserSetting: vi.fn(async () => ({
+    mode: "selected-apps",
+    selectedAppIds: [],
+  })),
+}));
+
+vi.mock("../lib/mcp-app-discovery.js", () => ({
+  discoverDispatchMcpApps: vi.fn(async () => ({
+    agents: [
+      {
+        id: "slides",
+        name: "Slides",
+        description: "Presentations",
+        url: "https://slides.example.test",
+        color: "#000000",
+      },
+    ],
+    mountedApps: [],
+    degradedSources: [],
+  })),
+}));
+
+async function requestMcp(
+  enabled: boolean,
+  method: string,
+  params: Record<string, unknown>,
+) {
   resetAppConfigForTests();
   defineAppConfig({ dispatch: { directAppActions: enabled } });
   await import("./agent-chat.js");
   const options = captured.options;
   if (!options) throw new Error("Dispatch plugin was not registered");
-  const rpc = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} };
+  const rpc = { jsonrpc: "2.0", id: 1, method, params };
   const response = await handleMcpFetchRequest(
     new Request("https://dispatch.example.test/mcp", {
       method: "POST",
@@ -59,9 +87,12 @@ async function listTools(enabled: boolean) {
   if (body.startsWith("event:") && !data)
     throw new Error("Missing MCP response data");
   const json = data ? data.slice(5) : body;
-  return JSON.parse(json).result.tools.map(
-    (tool: { name: string }) => tool.name,
-  );
+  return JSON.parse(json);
+}
+
+async function listTools(enabled: boolean) {
+  const response = await requestMcp(enabled, "tools/list", {});
+  return response.result.tools.map((tool: { name: string }) => tool.name);
 }
 
 describe("Dispatch direct app action MCP catalog", () => {
@@ -72,4 +103,33 @@ describe("Dispatch direct app action MCP catalog", () => {
     for (const name of names) expect(disabled).not.toContain(name);
     expect(await listTools(true)).toEqual(expect.arrayContaining(names));
   });
+
+  it.each([
+    { name: "list_app_actions", arguments: { app: "slides" } },
+    {
+      name: "call_app_action",
+      arguments: { app: "slides", action: "list-decks", args: {} },
+    },
+    { name: "read_view", arguments: { app: "slides" } },
+  ])(
+    "enforces opt-in and app access on HTTP calls to $name",
+    async (params) => {
+      const disabled = await requestMcp(false, "tools/call", params);
+      expect(disabled.result).toMatchObject({
+        isError: true,
+        content: [{ type: "text", text: `Unknown tool: ${params.name}` }],
+      });
+
+      const ungranted = await requestMcp(true, "tools/call", params);
+      expect(ungranted.result).toMatchObject({
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining('access to "slides" is not granted'),
+          },
+        ],
+      });
+    },
+  );
 });
