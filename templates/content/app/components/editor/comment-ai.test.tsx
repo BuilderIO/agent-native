@@ -398,6 +398,11 @@ describe("comment AI controls", () => {
         submittedModel: "claude-sonnet-5-5",
         submittedEngine: "builder",
       },
+      expected: { model: "gpt-6-luna", engine: "builder" },
+    },
+    {
+      name: "the recorded model alone when no engine was picked",
+      fields: { model: "gpt-6-luna", engine: "builder" },
       expected: { model: "gpt-6-luna", engine: undefined },
     },
     {

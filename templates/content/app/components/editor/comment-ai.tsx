@@ -1327,9 +1327,9 @@ function workingLabel(
 }
 
 function continuationModel(request: CommentAiRequest) {
-  if (request.model) return { model: request.model };
+  const model = request.model ?? request.submittedModel;
   return {
-    ...(request.submittedModel ? { model: request.submittedModel } : {}),
+    ...(model ? { model } : {}),
     ...(request.submittedEngine ? { engine: request.submittedEngine } : {}),
   };
 }
