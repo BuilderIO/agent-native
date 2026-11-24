@@ -162,20 +162,16 @@ function assertExternalImportsArePackagedPlugin(): Plugin {
         packaged: packagedModuleNames(
           readFileSync(resolve("electron-builder.yml"), "utf8"),
         ),
-        // Core ships as ES modules; the other packaged modules import nothing
-        // outside themselves.
-        walk: (specifier) =>
-          specifier.startsWith("@agent-native/core/")
-            ? desktopRequire.resolve(specifier)
-            : null,
+        readImportsOf: "@agent-native/core",
+        resolveFile: (specifier) => desktopRequire.resolve(specifier),
       });
       if (missing.length === 0) return;
       throw new Error(
         [
           "The packaged app would not start: electron-builder.yml leaves out packages its main process imports.",
           ...missing.map(
-            ({ specifier, chain }) =>
-              `- ${specifier}, imported through ${[...chain, specifier].join(" > ")}`,
+            ({ specifier, importedThrough }) =>
+              `- ${specifier}, imported through ${[...importedThrough, specifier].join(" > ")}`,
           ),
           'Add each one to "files" in packages/desktop-app/electron-builder.yml, or stop importing it.',
         ].join("\n"),

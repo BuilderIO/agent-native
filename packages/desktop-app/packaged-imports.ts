@@ -6,20 +6,16 @@ import { parseAst } from "vite";
 
 export interface UnpackagedImport {
   specifier: string;
-  /** The import, then each file from there to the one that needs the package. */
-  chain: string[];
+  importedThrough: string[];
 }
 
-/** Names the packages electron-builder.yml copies out of node_modules. */
 export function packagedModuleNames(builderConfig: string): Set<string> {
   const files =
     builderConfig.match(/^files:\r?\n((?: {2}- .*(?:\r?\n|$))*)/m)?.[1] ?? "";
-  return new Set(
-    Array.from(
-      files.matchAll(/^ {2}- node_modules\/((?:@[^/\s]+\/)?[^/\s]+)\//gm),
-      (match) => match[1],
-    ),
+  const entries = files.matchAll(
+    /^ {2}- node_modules\/((?:@[^/\s]+\/)?[^/\s]+)\//gm,
   );
+  return new Set(Array.from(entries).flatMap((match) => match.slice(1, 2)));
 }
 
 function packageName(specifier: string): string {
@@ -37,52 +33,49 @@ function staticImports(file: string): string[] {
   );
 }
 
-/**
- * Finds packages the app needs to start but doesn't ship. `walk` resolves a
- * specifier to the file to read imports from, or returns null for a package
- * whose files don't need reading.
- */
 export function findUnpackagedImports(options: {
   specifiers: Iterable<string>;
   packaged: ReadonlySet<string>;
-  walk: (specifier: string) => string | null;
+  readImportsOf: string;
+  resolveFile: (specifier: string) => string;
 }): UnpackagedImport[] {
   const missing = new Map<string, UnpackagedImport>();
   const visited = new Set<string>();
-  const queue: { specifier: string; chain: string[] }[] = Array.from(
+  const queue: { specifier: string; importedThrough: string[] }[] = Array.from(
     options.specifiers,
-    (specifier) => ({ specifier, chain: [] }),
+    (specifier) => ({ specifier, importedThrough: [] }),
   );
 
   for (let next = queue.shift(); next; next = queue.shift()) {
-    const { specifier, chain } = next;
-    if (isBuiltin(specifier) || packageName(specifier) === "electron") continue;
-    if (!options.packaged.has(packageName(specifier))) {
-      if (!missing.has(packageName(specifier))) {
-        missing.set(packageName(specifier), { specifier, chain });
-      }
+    const { specifier, importedThrough } = next;
+    const name = packageName(specifier);
+    if (isBuiltin(specifier) || name === "electron") continue;
+    if (!options.packaged.has(name)) {
+      if (!missing.has(name)) missing.set(name, next);
       continue;
     }
-    const entry = options.walk(specifier);
-    if (!entry) continue;
+    if (name !== options.readImportsOf) continue;
 
-    const files = [{ file: entry, chain: [...chain, specifier] }];
+    const entry = options.resolveFile(specifier);
+    const files = [
+      { file: entry, importedThrough: [...importedThrough, specifier] },
+    ];
     for (let current = files.shift(); current; current = files.shift()) {
       if (visited.has(current.file)) continue;
       visited.add(current.file);
-      const { file, chain: fileChain } = current;
+      const { file, importedThrough: path } = current;
       for (const imported of staticImports(file)) {
         if (imported.startsWith(".")) {
           const target = resolve(dirname(file), imported);
           files.push({
             file: target,
-            chain: [
-              ...fileChain,
+            importedThrough: [
+              ...path,
               relative(dirname(entry), target).replaceAll("\\", "/"),
             ],
           });
         } else {
-          queue.push({ specifier: imported, chain: fileChain });
+          queue.push({ specifier: imported, importedThrough: path });
         }
       }
     }

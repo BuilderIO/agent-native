@@ -46,10 +46,9 @@ describe("findUnpackagedImports", () => {
     return findUnpackagedImports({
       specifiers,
       packaged: new Set(packaged),
-      walk: (specifier) =>
-        specifier.startsWith("@scope/core/")
-          ? join(core, `${specifier.slice("@scope/core/".length)}.js`)
-          : null,
+      readImportsOf: "@scope/core",
+      resolveFile: (specifier) =>
+        join(core, `${specifier.slice("@scope/core/".length) || "index"}.js`),
     });
   }
 
@@ -74,7 +73,7 @@ describe("findUnpackagedImports", () => {
     ).toEqual([
       {
         specifier: "zod",
-        chain: [
+        importedThrough: [
           "@scope/core/cli/agent-plugin",
           "../mcp/remote-url.js",
           "../config/schema.js",
@@ -89,7 +88,16 @@ describe("findUnpackagedImports", () => {
   it("reports a package the bundle imports directly, but not Electron or Node's own", () => {
     expect(
       find(["electron", "electron/main", "path", "node:fs", "ws"], ["zod"]),
-    ).toEqual([{ specifier: "ws", chain: [] }]);
+    ).toEqual([{ specifier: "ws", importedThrough: [] }]);
+  });
+
+  it("reads the imports of the package's own entry point", () => {
+    write("index.js", 'export * from "./server/index.js";');
+    write("server/index.js", 'import "h3";');
+
+    expect(find(["@scope/core"], ["@scope/core"])).toEqual([
+      { specifier: "h3", importedThrough: ["@scope/core", "server/index.js"] },
+    ]);
   });
 
   it("ignores type-like text and imports that only run on demand", () => {
@@ -106,7 +114,7 @@ describe("findUnpackagedImports", () => {
     write("b.js", 'import "./a.js";\nimport "left-pad/sub";');
 
     expect(find(["@scope/core/a"], ["@scope/core"])).toEqual([
-      { specifier: "left-pad", chain: ["@scope/core/a"] },
+      { specifier: "left-pad", importedThrough: ["@scope/core/a"] },
     ]);
   });
 });
