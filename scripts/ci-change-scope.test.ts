@@ -4114,6 +4114,7 @@ test("selects Core integration E2E for its runtime dependencies and specs", () =
     "packages/core/src/server/action-routes.ts",
     "packages/core/src/server/embedded.ts",
     "packages/core/src/server/ssr-handler.ts",
+    "packages/core/src/shared/cache-control.ts",
     "packages/core/src/shared/route-chunk-recovery-bootstrap.ts",
     "packages/core/src/extensions/session-replay-iframe.ts",
     "packages/core/src/mcp/script-writes.ts",

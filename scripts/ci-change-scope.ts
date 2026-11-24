@@ -798,6 +798,7 @@ const CORE_INTEGRATION_RUNTIME_FILES = new Set([
   "packages/core/src/server/request-context.ts",
   "packages/core/src/server/ssr-handler.ts",
   "packages/core/src/session-replay-iframe-protocol.ts",
+  "packages/core/src/shared/cache-control.ts",
   "packages/core/src/shared/route-chunk-recovery-bootstrap.ts",
   "templates/analytics/scripts/journey-capture-iframe-audit.ts",
   "templates/design/app/components/templates/TemplatePreview.tsx",
