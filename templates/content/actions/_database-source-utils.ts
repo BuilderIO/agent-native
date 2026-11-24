@@ -5114,6 +5114,7 @@ export async function getContentDatabaseSourceSnapshotById(
 export type BuilderReviewBodyComparisonOptions = {
   builderBodyComparison?: "text" | "blocks";
   blocksCheckDocumentIds?: Set<string>;
+  pendingBodyDocumentIds?: Set<string>;
 };
 
 export async function getContentDatabaseSourceSnapshotForWrite(
@@ -5999,6 +6000,15 @@ async function loadSourceSnapshot(
         item.bodyHydrationVersion,
       ]),
     );
+    for (const item of databaseItemRows) {
+      if (
+        (item.bodyHydrationStatus === "pending" ||
+          item.bodyHydrationStatus === "hydrating") &&
+        sourceRowByDocumentId.has(item.documentId)
+      ) {
+        options.pendingBodyDocumentIds?.add(item.documentId);
+      }
+    }
     await Promise.all(
       allDocumentIds.map(async (documentId) => {
         const row = sourceRowByDocumentId.get(documentId);
@@ -7464,6 +7474,13 @@ function builderSourceValuesWithPreservedBodyBaseline(args: {
       next[BUILDER_CMS_BODY_LAST_UPDATED_KEY] =
         args.existingLastSourceUpdatedAt;
     }
+  }
+  if (
+    builderCmsBodyKnownEmpty(existing) &&
+    !incomingHash &&
+    !(BUILDER_CMS_BODY_BLOCK_COUNT_KEY in next)
+  ) {
+    next[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = 0;
   }
   const referenceIdPrefix = "__agent_native_builder_reference_id:";
   for (const [key, value] of Object.entries(existing)) {

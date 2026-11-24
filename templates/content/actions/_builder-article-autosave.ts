@@ -733,6 +733,7 @@ export interface BuilderArticleAutosaveDeps {
     database: DatabaseRecord;
     sourceId: string;
     documentId: string;
+    pendingBodyDocumentIds: Set<string>;
   }) => Promise<ContentDatabaseSource | null>;
   prepareReview: (args: {
     databaseId: string;
@@ -829,10 +830,12 @@ async function saveArticle(args: {
 }): Promise<SaveOutcome> {
   const { database, row, deps } = args;
   const { sourceId } = row;
+  const pendingBodyDocumentIds = new Set<string>();
   const snapshot = await deps.getSourceSnapshot({
     database,
     sourceId,
     documentId: row.documentId,
+    pendingBodyDocumentIds,
   });
   if (!snapshot || snapshot.sourceType !== "builder-cms") {
     return {
@@ -885,9 +888,10 @@ async function saveArticle(args: {
       !hasExecution(candidate, ["succeeded"]),
   );
   const changeSet = firstOf(pending);
-  const moreToSave = pending.length > 1;
+  const moreToSave =
+    pending.length > 1 || pendingBodyDocumentIds.has(row.documentId);
   if (!changeSet) {
-    return { state: row.record?.lastSavedAt ? "saved" : "idle" };
+    return { state: row.record?.lastSavedAt ? "saved" : "idle", moreToSave };
   }
   const sourceRow = snapshot.rows.find(
     (candidate) => candidate.documentId === row.documentId,

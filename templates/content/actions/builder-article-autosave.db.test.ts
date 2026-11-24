@@ -1714,4 +1714,124 @@ describe("Builder article autosave", () => {
     expect(request.body.data).not.toHaveProperty("author");
     expect(status.autosave).toMatchObject({ state: "saved", error: null });
   });
+
+  async function createFromTitleThenType(body: string) {
+    const ids = await seedArticle({ linked: false });
+    const created = `created_${ids.entryId}`;
+    const live: BuilderCmsEntryLiveState = {
+      ...liveDraft(created),
+      lastUpdated: LAST_UPDATED_MS + 5000,
+      values: { "data.title": "New title", published: "draft" },
+    };
+    const { deps, executeWrite, refreshSource } = harness({
+      entryId: created,
+      live,
+    });
+    const run = (now: string, retry = false) =>
+      asOwner(() =>
+        autosave.runBuilderArticleAutosaveWithDeps(
+          { documentId: ids.rowDocumentId, retry },
+          { ...deps, now: () => now },
+        ),
+      );
+    await run("2026-06-29T15:00:05.000Z");
+    expect(executeWrite).toHaveBeenCalledTimes(1);
+    await getDb()
+      .update(schema.documents)
+      .set({ content: body, updatedAt: "2026-06-29T15:00:30.000Z" })
+      .where(eq(schema.documents.id, ids.rowDocumentId));
+    return { executeWrite, ids, live, refreshSource, run };
+  }
+
+  const setBodyHydration = (itemId: string, status: string) =>
+    getDb()
+      .update(schema.contentDatabaseItems)
+      .set({ bodyHydrationStatus: status })
+      .where(eq(schema.contentDatabaseItems.id, itemId));
+
+  it("saves a body typed after an article's first save", async () => {
+    const { executeWrite, run } = await createFromTitleThenType(
+      "Typed after the title was saved.",
+    );
+
+    const status = await run("2026-06-29T15:00:40.000Z");
+
+    expect(executeWrite).toHaveBeenCalledTimes(2);
+    const [[create], [save]] = executeWrite.mock.calls as unknown as [
+      { request: { method: string; body: { data: { blocks?: unknown[] } } } },
+    ][];
+    expect(create.request.method).toBe("POST");
+    expect(create.request.body.data).not.toHaveProperty("blocks");
+    expect(save.request.method).toBe("PATCH");
+    expect(JSON.stringify(save.request.body.data.blocks)).toContain(
+      "Typed after the title was saved.",
+    );
+    expect(status.autosave).toMatchObject({ state: "saved", error: null });
+  });
+
+  it("won't save a body over one Builder gained after the first save", async () => {
+    const { executeWrite, live, run } = await createFromTitleThenType(
+      "Typed after the title was saved.",
+    );
+    live.blocksHash = "body-typed-in-builder";
+
+    const status = await run("2026-06-29T15:00:40.000Z");
+
+    expect(executeWrite).toHaveBeenCalledTimes(1);
+    expect(status.autosave?.state).not.toBe("saved");
+  });
+
+  it("won't save over that body on a retry that has refreshed the row", async () => {
+    const { executeWrite, ids, live, refreshSource, run } =
+      await createFromTitleThenType("Typed after the title was saved.");
+    const lastUpdated = LAST_UPDATED_MS + 9000;
+    live.blocksHash = "body-typed-in-builder";
+    live.lastUpdated = lastUpdated;
+    const stopped = await run("2026-06-29T15:00:40.000Z");
+    expect(stopped.autosave?.reason).toBe("builder_changed");
+    refreshSource.mockImplementation(async () => {
+      await getDb()
+        .update(schema.contentDatabaseSourceRows)
+        .set({
+          sourceValuesJson: JSON.stringify({
+            "data.title": "New title",
+            published: "draft",
+            lastUpdated: String(lastUpdated),
+            "__builder.body.blocksHash": "body-typed-in-builder",
+            "__builder.body.blockCount": 1,
+          }),
+          lastSourceUpdatedAt: String(lastUpdated),
+        })
+        .where(eq(schema.contentDatabaseSourceRows.sourceId, ids.sourceId));
+      await setBodyHydration(ids.itemId, "pending");
+      return {};
+    });
+
+    const status = await run("2026-06-29T15:01:40.000Z", true);
+
+    expect(refreshSource).toHaveBeenCalledTimes(1);
+    expect(executeWrite).toHaveBeenCalledTimes(1);
+    expect(status.autosave?.state).not.toBe("saved");
+  });
+
+  it.each(["pending", "hydrating"])(
+    "keeps a body due while Builder's body read is %s",
+    async (reading) => {
+      const { executeWrite, ids, run } = await createFromTitleThenType(
+        "Typed after the title was saved.",
+      );
+      await setBodyHydration(ids.itemId, reading);
+
+      const waiting = await run("2026-06-29T15:00:40.000Z");
+
+      expect(executeWrite).toHaveBeenCalledTimes(1);
+      expect(waiting.autosave).toMatchObject({ due: true });
+
+      await setBodyHydration(ids.itemId, "hydrated");
+      const saved = await run("2026-06-29T15:00:50.000Z");
+
+      expect(executeWrite).toHaveBeenCalledTimes(2);
+      expect(saved.autosave).toMatchObject({ state: "saved", due: false });
+    },
+  );
 });

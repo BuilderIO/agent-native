@@ -2979,6 +2979,35 @@ describe("Builder unpublished saves", () => {
     );
   });
 
+  it("records a draft created without a body as a body with no blocks", () => {
+    const created = changeSet();
+    const builderSource = source({ rows: [], changeSets: [created] });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: created,
+      pushModeConfirmation: "autosave",
+    });
+    expect(plan.payload.effect).toBe("create_draft");
+    const blockCountAfter = (responseBody: unknown) =>
+      JSON.parse(
+        builderCmsReconciledSourceValuesJson({
+          existingSourceValuesJson: undefined,
+          snapshotSourceValues: undefined,
+          changeSet: created,
+          plan,
+          responseBody,
+        }),
+      )[BUILDER_CMS_BODY_BLOCK_COUNT_KEY];
+
+    expect(blockCountAfter({ id: "builder-entry-1" })).toBe(0);
+    expect(
+      blockCountAfter({
+        id: "builder-entry-1",
+        recoveredByReadOnlyLookup: true,
+      }),
+    ).toBe(0);
+  });
+
   it("stores the entry's publication state once the write lands", () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
     const builderSource = source({

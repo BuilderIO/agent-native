@@ -27,10 +27,18 @@ export function realBuilderArticleAutosaveDeps(): BuilderArticleAutosaveDeps {
     assertPageEditor: async (documentId) => {
       await assertAccess("document", documentId, "editor");
     },
-    getSourceSnapshot: ({ database, sourceId, documentId }) =>
-      getContentDatabaseSourceSnapshotForWrite(database, sourceId, [
-        documentId,
-      ]),
+    getSourceSnapshot: ({
+      database,
+      sourceId,
+      documentId,
+      pendingBodyDocumentIds,
+    }) =>
+      getContentDatabaseSourceSnapshotForWrite(
+        database,
+        sourceId,
+        [documentId],
+        { pendingBodyDocumentIds },
+      ),
     prepareReview: async (args) => prepareBuilderSourceReview.run(args),
     execute: (args) =>
       executeBuilderSourceExecutionWithDeps(
