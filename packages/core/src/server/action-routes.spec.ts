@@ -838,6 +838,75 @@ describe("mountActionRoutes", () => {
       expect(result.error).toContain("a service identity can never give it");
     });
 
+    it.each([
+      ["proven UI", true],
+      ["browser cookie without capability", true],
+      ["bearer with frontend header", false],
+      ["plain HTTP", false],
+      ["cross-site frontend header", false],
+    ] as const)(
+      "marks a %s call as the app page's: %s",
+      async (caller, appPage) => {
+        const { mountActionRoutes } = await import("./action-routes.js");
+        const mounted: Array<(event: unknown) => Promise<unknown>> = [];
+        const contexts: Array<ReturnType<typeof getRequestContext>> = [];
+        const run = vi.fn(async () => {
+          contexts.push(getRequestContext());
+          return { ok: true };
+        });
+        const owner = "owner@example.com";
+        if (caller === "proven UI") {
+          mockHasUiActionCapability.mockReturnValue(true);
+        }
+        mockGetBrowserCookieSession.mockResolvedValue({
+          email: owner,
+        } as AuthSession);
+        const entry: ActionEntry = {
+          tool: { description: "Save a position" },
+          run,
+        };
+        mountActionRoutes(
+          {
+            use: (
+              _path: string,
+              handler: (event: unknown) => Promise<unknown>,
+            ) => mounted.push(handler),
+          },
+          { "save-position": entry },
+          { getOwnerFromEvent: async () => owner },
+        );
+        const event = {
+          _method: "POST",
+          _headers: {
+            host: "app.example.com",
+            "sec-fetch-site":
+              caller === "cross-site frontend header"
+                ? "cross-site"
+                : "same-origin",
+            cookie: "an_session=test-browser-session",
+            ...(caller === "bearer with frontend header"
+              ? { authorization: "Bearer test-token" }
+              : {}),
+            ...(caller === "plain HTTP"
+              ? {}
+              : { "x-agent-native-frontend": "1" }),
+          },
+          context: {},
+          req: { json: async () => ({ positionMs: 1 }) },
+        };
+
+        await mounted.at(0)?.(event);
+
+        expect(run).toHaveBeenCalledTimes(1);
+        expect(contexts.map((context) => context?.appPageRequest)).toEqual([
+          appPage,
+        ]);
+        expect(contexts.map((context) => context?.provenUiRequest)).toEqual([
+          caller === "proven UI",
+        ]);
+      },
+    );
+
     it("lets a full-app panel owner's frontend perform an approval-gated action", async () => {
       vi.stubEnv("OAUTH_STATE_SECRET", "full-app-panel-test-secret");
       mockEmbedDbExecute.mockReset().mockResolvedValue({ rows: [] });
@@ -1388,12 +1457,16 @@ describe("mountActionRoutes", () => {
     [
       Object.assign(new Error("Forbidden"), { statusCode: 403 }),
       403,
-      "Forbidden",
+      { error: "Forbidden", errorCode: "action_http_403" },
     ],
-    [new McpOAuthRefreshUnavailableError(), 503, "Internal server error"],
+    [
+      new McpOAuthRefreshUnavailableError(),
+      503,
+      { error: "Internal server error", errorCode: "action_execution_failed" },
+    ],
   ])(
     "uses action error statusCode for HTTP responses",
-    async (err, status, message) => {
+    async (err, status, expected) => {
       mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
       const { mountActionRoutes } = await import("./action-routes.js");
       const mounted: Array<{ path: string; handler: any }> = [];
@@ -1417,7 +1490,7 @@ describe("mountActionRoutes", () => {
       const event = { _method: "POST", req: { json: async () => ({}) } };
       const result = await mounted[0].handler(event);
 
-      expect(result).toEqual({ error: message });
+      expect(result).toEqual(expected);
       expect(event._status).toBe(status);
     },
   );
@@ -1879,7 +1952,10 @@ describe("mountActionRoutes", () => {
     const result = await mounted[0].handler(event);
 
     expect(event._status).toBe(500);
-    expect(result).toEqual({ error: "Internal server error" });
+    expect(result).toEqual({
+      error: "Internal server error",
+      errorCode: "action_execution_failed",
+    });
     expect(JSON.stringify(consoleError.mock.calls)).not.toContain(privateValue);
     expect(JSON.stringify(consoleError.mock.calls)).toContain(
       "params: <redacted>",
@@ -2026,7 +2102,10 @@ describe("mountActionRoutes", () => {
       };
       const result = await mounted[0].handler(event);
 
-      expect(result).toEqual({ error: "Internal server error" });
+      expect(result).toEqual({
+        error: "Internal server error",
+        errorCode: "action_execution_failed",
+      });
       expect(event._status).toBe(500);
       expect(provider).toHaveBeenCalledWith(error, {
         route: "/_agent-native/actions/resolve-notion-sync-conflict",
@@ -3540,7 +3619,7 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("uses the canonical fallback app ID and marks ticketed safe reads", async () => {
+  it("publishes change markers for ticketed widget actions classified as writes", async () => {
     const { createMcpDirectoryWidgetReadCapability } =
       await import("../shared/embed-auth.js");
     const { mountActionRoutes } = await import("./action-routes.js");
@@ -3609,7 +3688,10 @@ describe("mountActionRoutes", () => {
       mcpDirectoryWidgetResourceIds: { deckId: "deck-1" },
     });
     expect(run).toHaveBeenCalledOnce();
-    expect(mockNotifyActionChange).not.toHaveBeenCalled();
+    expect(mockNotifyActionChange).toHaveBeenCalledWith({
+      actionName: "get-deck",
+      owner: "ticket-owner@example.com",
+    });
   });
 
   it("carries only the ticketed widget write actions into scoped read context", async () => {
@@ -6032,6 +6114,7 @@ describe("mountActionRoutes", () => {
       });
       expect(result).toMatchObject({
         error: expect.stringMatching(/^Invalid action parameters/),
+        errorCode: "action_invalid_parameters",
       });
       expect(recordActionAudit).toHaveBeenCalledTimes(1);
       expect(recordActionAudit.mock.calls[0]![0]).toMatchObject({
@@ -7829,7 +7912,10 @@ describe("action boundary error classification", () => {
     try {
       const { status, result, captured } = await invoke(error, true);
       expect(status).toBe(500);
-      expect(result).toEqual({ error: "Internal server error" });
+      expect(result).toEqual({
+        error: "Internal server error",
+        errorCode: "action_execution_failed",
+      });
       expect(captured).toHaveBeenCalledOnce();
       const [reported, context] = captured.mock.calls[0] as unknown as [
         Error,
@@ -7928,7 +8014,10 @@ describe("action boundary error classification", () => {
     const { status, result, captured } = await invoke(error);
 
     expect(status).toBe(500);
-    expect(result).toEqual({ error: "Internal server error" });
+    expect(result).toEqual({
+      error: "Internal server error",
+      errorCode: "action_execution_failed",
+    });
     expect(captured).toHaveBeenCalledWith(error, expect.anything());
   });
 
@@ -7939,7 +8028,10 @@ describe("action boundary error classification", () => {
     const { status, result, captured } = await invoke(error);
 
     expect(status).toBe(500);
-    expect(result).toEqual({ error: "Internal server error" });
+    expect(result).toEqual({
+      error: "Internal server error",
+      errorCode: "action_execution_failed",
+    });
     expect(captured).toHaveBeenCalledTimes(1);
   });
 
@@ -8011,7 +8103,10 @@ describe("action boundary error classification", () => {
     const { status, result, captured } = await invoke(error);
 
     expect(status).toBe(500);
-    expect(result).toEqual({ error: "Internal server error" });
+    expect(result).toEqual({
+      error: "Internal server error",
+      errorCode: "action_execution_failed",
+    });
     expect(captured).toHaveBeenCalledTimes(1);
   });
 
@@ -8021,7 +8116,10 @@ describe("action boundary error classification", () => {
     try {
       const { status, result, captured } = await invoke(error);
       expect(status).toBe(500);
-      expect(result).toEqual({ error: "Internal server error" });
+      expect(result).toEqual({
+        error: "Internal server error",
+        errorCode: "action_execution_failed",
+      });
       expect(captured).toHaveBeenCalledWith(error, expect.anything());
       expect(JSON.stringify(logged.mock.calls)).toContain(error.message);
     } finally {
@@ -8039,7 +8137,10 @@ describe("action boundary error classification", () => {
       const { status, result, captured } = await invoke(error);
 
       expect(status, message).toBe(500);
-      expect(result).toEqual({ error: "Internal server error" });
+      expect(result).toEqual({
+        error: "Internal server error",
+        errorCode: "action_execution_failed",
+      });
       expect(captured).toHaveBeenCalledWith(error, expect.anything());
     }
   });
@@ -8137,6 +8238,7 @@ describe("action boundary error classification", () => {
 
       await expect(mounted[0](event)).resolves.toEqual({
         error: "Internal server error",
+        errorCode: "action_execution_failed",
       });
       expect(event._status).toBe(500);
       expect(mockNotifyActionChange).toHaveBeenCalledTimes(readOnly ? 0 : 1);

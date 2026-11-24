@@ -15,6 +15,7 @@ import {
 export default defineAction({
   description:
     "Record a successfully opened foreground Page or exact database View in the current user's Recent navigation. Does not edit or pin the target.",
+  automatic: true,
   schema: contentRecentTargetSchema,
   agentTool: false,
   run: async (target, ctx) => {

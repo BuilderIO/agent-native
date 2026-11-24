@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
 import type { DocumentProperty } from "@shared/api";
+import { FILES_PROPERTY_TYPES } from "@shared/properties";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -48,6 +51,8 @@ vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
   useDeleteDocumentProperty: () => mutations.remove,
   useDocumentProperties: () => ({ data: undefined }),
 }));
+
+import { contentDatabaseQueryKey } from "@/hooks/use-content-database";
 
 import {
   PropertyManagementPopover,
@@ -175,6 +180,52 @@ describe("property management menu", () => {
         description: "Notes details",
       }),
     );
+  });
+
+  it("offers a Files property only the types Files takes, besides its own", async () => {
+    function ReadFiles({ children }: { children: ReactNode }) {
+      const queryClient = useQueryClient();
+      useState(() =>
+        queryClient.setQueryData(contentDatabaseQueryKey("document"), {
+          database: { id: "database", systemRole: "files" },
+        }),
+      );
+      return children;
+    }
+    renderUi(
+      <ReadFiles>
+        <PropertyManagementPopover
+          property={property("files_media", "Attachments", [])}
+          documentId="document"
+          databaseId="database"
+          icon={TYPE_ICONS.files_media}
+        />
+      </ReadFiles>,
+    );
+    const typeItems = () =>
+      [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(
+        (item) => item.textContent.trim(),
+      );
+    await click(byLabel("editor.properties.propertyMenuFor(Attachments)"));
+    const edit = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((item) => item.textContent.trim() === "editor.properties.editField");
+    if (edit) await click(edit);
+    const typeMenu = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((item) => item.textContent.startsWith("editor.properties.type"));
+    if (!typeMenu) throw new Error("No Type submenu");
+    await focus(typeMenu);
+    await press(typeMenu, "ArrowRight");
+    await nextFrame();
+
+    const offered = typeItems();
+    for (const type of [...FILES_PROPERTY_TYPES, "files_media"]) {
+      expect(offered).toContain(`editor.propertyTypes.${type}`);
+    }
+    for (const type of ["relation", "blocks", "id", "created_time"]) {
+      expect(offered).not.toContain(`editor.propertyTypes.${type}`);
+    }
   });
 
   it("focuses and selects the property name when the menu opens", async () => {

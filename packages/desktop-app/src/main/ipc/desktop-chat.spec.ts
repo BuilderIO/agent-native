@@ -1,10 +1,21 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import nodeFs from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
 
+import { readMirroredMemory } from "@agent-native/core/resources/shared-memory";
 import type { AppConfig } from "@shared/app-registry";
-import { net, shell } from "electron";
+import { app, net, shell } from "electron";
 import { describe, expect, it, vi } from "vitest";
 
 import { readCookieHeaderForUrl } from "../cookie-header";
@@ -21,6 +32,14 @@ vi.mock("@agent-native/core/terminal/pty-server", () => ({
   createPtyWebSocketServer: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/resources/shared-memory", async (importActual) => {
+  const actual =
+    await importActual<
+      typeof import("@agent-native/core/resources/shared-memory")
+    >();
+  return { ...actual, readMirroredMemory: vi.fn(actual.readMirroredMemory) };
+});
+
 vi.mock("../app-store", () => ({
   loadApps: vi.fn(() => []),
 }));
@@ -32,11 +51,16 @@ vi.mock("../cookie-header", () => ({
 import {
   activateDesktopBuilderAccount,
   desktopTerminalMcpArgs,
+  desktopTerminalMemoryEnvironment,
   desktopTerminalInfo,
   desktopTerminalWorkspacePath,
   DesktopTerminalMcpRelay,
   desktopTerminalOpenCodeEnvironment,
+  bindDesktopSessionMemoryOwner,
   closeDesktopChatRelay,
+  noteDesktopBuilderRelayOwner,
+  setDesktopMemoryAccount,
+  PI_TERMINAL_EXTENSION_SOURCE,
   getDesktopBuilderGatewayRunnerEnvironment,
   getDesktopBuilderConnectionStatus,
   getDesktopAppMcpAuthorization,
@@ -1237,5 +1261,613 @@ describe("Builder relay owner handling", () => {
     } finally {
       await h.cleanup();
     }
+  });
+});
+
+describe("desktop Pi extension memory prompt", () => {
+  async function startSession(promptFile: string) {
+    const file = path.join(
+      mkdtempSync(path.join("/tmp", "pi-ext-")),
+      "ext.mjs",
+    );
+    writeFileSync(file, PI_TERMINAL_EXTENSION_SOURCE);
+    vi.stubEnv("AGENT_NATIVE_TERMINAL_MCP_SERVERS", "{}");
+    type Handler = (event: unknown) => { systemPrompt: string };
+    const handlers = new Map<string, Handler>();
+    const pi = new Proxy(
+      { on: (name: string, fn: Handler) => handlers.set(name, fn) },
+      { get: (target, key) => (key === "on" ? target.on : () => undefined) },
+    );
+    const mod = await import(/* @vite-ignore */ file + "?t=" + Math.random());
+    mod.default(pi);
+    const handler = handlers.get("before_agent_start");
+    return () => {
+      vi.stubEnv("AGENT_NATIVE_MEMORY_PROMPT_FILE", promptFile);
+      return handler ? handler({ systemPrompt: "" }).systemPrompt : "";
+    };
+  }
+
+  function seedAccounts() {
+    const dir = mkdtempSync(path.join("/tmp", "pi-memory-"));
+    vi.mocked(app.getPath).mockReturnValue(dir);
+    const accounts: Array<{ owner: string; text: string }> = [
+      { owner: "a@example.test", text: "ALICE-SECRET" },
+      { owner: "b@example.test", text: "BOB-SECRET" },
+    ];
+    for (const { owner, text } of accounts) {
+      const ownerDir = path.join(dir, "memory", encodeURIComponent(owner));
+      mkdirSync(ownerDir, { recursive: true });
+      writeFileSync(path.join(ownerDir, "MEMORY.md"), text);
+    }
+    return dir;
+  }
+
+  it("loads only the signed-in account's memory", async () => {
+    const dir = seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const prompt = (await startSession(session.file))();
+    expect(prompt).toContain("ALICE-SECRET");
+    expect(prompt).not.toContain("BOB-SECRET");
+    session.release();
+    setDesktopMemoryAccount(null);
+    const none = await bindDesktopSessionMemoryOwner();
+    expect((await startSession(none.file))()).not.toContain("SECRET");
+    none.release();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("stops a running session's memory when the account switches", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const old = await bindDesktopSessionMemoryOwner();
+    const oldPrompt = await startSession(old.file);
+    expect(oldPrompt()).toContain("ALICE-SECRET");
+
+    setDesktopMemoryAccount("b@example.test");
+    const fresh = await bindDesktopSessionMemoryOwner();
+    const freshPrompt = await startSession(fresh.file);
+
+    expect(oldPrompt()).not.toContain("ALICE-SECRET");
+    expect(freshPrompt()).toContain("BOB-SECRET");
+    expect(freshPrompt()).not.toContain("ALICE-SECRET");
+    old.release();
+    fresh.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("clears memory for running and new sessions on sign-out", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const running = await bindDesktopSessionMemoryOwner();
+    const runningPrompt = await startSession(running.file);
+    expect(runningPrompt()).toContain("ALICE-SECRET");
+
+    noteDesktopBuilderRelayOwner("no-account");
+    const fresh = await bindDesktopSessionMemoryOwner();
+    const freshPrompt = await startSession(fresh.file);
+
+    expect(runningPrompt()).not.toContain("SECRET");
+    expect(freshPrompt()).not.toContain("SECRET");
+    running.release();
+    fresh.release();
+  });
+
+  it("fails closed when the identity is signed in but unreadable", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const running = await bindDesktopSessionMemoryOwner();
+    const runningPrompt = await startSession(running.file);
+    expect(runningPrompt()).toContain("ALICE-SECRET");
+
+    noteDesktopBuilderRelayOwner(null);
+    const fresh = await bindDesktopSessionMemoryOwner();
+    const freshPrompt = await startSession(fresh.file);
+
+    expect(runningPrompt()).not.toContain("SECRET");
+    expect(freshPrompt()).not.toContain("SECRET");
+    running.release();
+    fresh.release();
+  });
+
+  it("binds memory to a verified account and re-renders sessions started before sign-in", async () => {
+    seedAccounts();
+    noteDesktopBuilderRelayOwner("no-account");
+    const early = await bindDesktopSessionMemoryOwner();
+    const earlyPrompt = await startSession(early.file);
+    expect(earlyPrompt()).not.toContain("SECRET");
+
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    await vi.waitFor(() => expect(earlyPrompt()).toContain("ALICE-SECRET"));
+    const fresh = await bindDesktopSessionMemoryOwner();
+    const freshPrompt = await startSession(fresh.file);
+    expect(freshPrompt()).toContain("ALICE-SECRET");
+    expect(freshPrompt()).not.toContain("BOB-SECRET");
+
+    noteDesktopBuilderRelayOwner("account:b@example.test");
+    expect(earlyPrompt()).not.toContain("SECRET");
+    expect(freshPrompt()).not.toContain("SECRET");
+    early.release();
+    fresh.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("keeps a running terminal when the same account is bound again", async () => {
+    seedAccounts();
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const terminate = vi.fn();
+    session.bindTerminate(terminate);
+    const prompt = await startSession(session.file);
+    expect(prompt()).toContain("ALICE-SECRET");
+
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    setDesktopMemoryAccount(" A@Example.test ");
+    expect(terminate).not.toHaveBeenCalled();
+    expect(readdirSync(session.memoryDir as string)).toEqual([
+      encodeURIComponent("a@example.test"),
+    ]);
+    expect(prompt()).toContain("ALICE-SECRET");
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("removes memory prompt files left by a previous run at startup", async () => {
+    const dir = seedAccounts();
+    const ownersDir = path.join(dir, "memory-owners");
+    mkdirSync(ownersDir, { recursive: true });
+    const stale = path.join(ownersDir, "stale-uuid");
+    writeFileSync(stale, "ALICE-SECRET");
+    vi.resetModules();
+    const fresh = await import("./desktop-chat.js");
+    fresh.registerDesktopChatIpc();
+    expect(existsSync(stale)).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("clears a running session's prompt when the tombstone state is unreadable", async () => {
+    const dir = seedAccounts();
+    const index = path.join(
+      dir,
+      "memory",
+      encodeURIComponent("a@example.test"),
+      "MEMORY.md",
+    );
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const prompt = await startSession(session.file);
+    expect(prompt()).toContain("ALICE-SECRET");
+
+    writeFileSync(`${index}.deleted`, "not-a-number");
+    await vi.waitFor(() => expect(prompt()).not.toContain("ALICE"));
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("refreshes a running session's memory when the file changes", async () => {
+    const dir = seedAccounts();
+    const index = path.join(
+      dir,
+      "memory",
+      encodeURIComponent("a@example.test"),
+      "MEMORY.md",
+    );
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const prompt = await startSession(session.file);
+    expect(prompt()).toContain("ALICE-SECRET");
+
+    writeFileSync(index, "ALICE-UPDATED");
+    await vi.waitFor(() => expect(prompt()).toContain("ALICE-UPDATED"));
+    expect(prompt()).not.toContain("ALICE-SECRET");
+
+    writeFileSync(`${index}.deleted`, String(Date.now() + 60_000));
+    await vi.waitFor(() => expect(prompt()).not.toContain("ALICE"));
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("gives terminals a memory directory holding only the signed-in account's own", async () => {
+    const dir = seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const env = desktopTerminalMemoryEnvironment(
+      session.file,
+      session.memoryDir,
+    );
+    const root = env.AGENT_NATIVE_MEMORY_DIR as string;
+    expect(root).toBeTruthy();
+    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
+    expect(
+      realpathSync(path.join(root, encodeURIComponent("a@example.test"))),
+    ).toBe(
+      realpathSync(
+        path.join(dir, "memory", encodeURIComponent("a@example.test")),
+      ),
+    );
+    writeFileSync(
+      path.join(root, encodeURIComponent("a@example.test"), "saved.md"),
+      "from terminal",
+    );
+    expect(
+      readFileSync(
+        path.join(
+          dir,
+          "memory",
+          encodeURIComponent("a@example.test"),
+          "saved.md",
+        ),
+        "utf8",
+      ),
+    ).toBe("from terminal");
+    session.release();
+    expect(existsSync(root)).toBe(false);
+    setDesktopMemoryAccount(null);
+  });
+
+  it("ends a running terminal on sign-out and when a different account signs in", async () => {
+    seedAccounts();
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    const signedOut = await bindDesktopSessionMemoryOwner();
+    const endedOnSignOut = vi.fn();
+    signedOut.bindTerminate(endedOnSignOut);
+    noteDesktopBuilderRelayOwner("no-account");
+    expect(endedOnSignOut).toHaveBeenCalledTimes(1);
+    expect(readdirSync(signedOut.memoryDir as string)).toEqual([]);
+
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    const switched = await bindDesktopSessionMemoryOwner();
+    const endedOnSwitch = vi.fn();
+    switched.bindTerminate(endedOnSwitch);
+    noteDesktopBuilderRelayOwner("account:b@example.test");
+    expect(endedOnSwitch).toHaveBeenCalledTimes(1);
+    expect(endedOnSignOut).toHaveBeenCalledTimes(1);
+    expect(readdirSync(switched.memoryDir as string)).toEqual([]);
+    signedOut.release();
+    switched.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("keeps terminal access when the account email changes only in case", async () => {
+    seedAccounts();
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const root = session.memoryDir as string;
+
+    setDesktopMemoryAccount(" A@Example.test ");
+    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("never lets an inherited memory directory reach a terminal without its own root", () => {
+    const previous = process.env.AGENT_NATIVE_MEMORY_DIR;
+    process.env.AGENT_NATIVE_MEMORY_DIR = "/parent/broad/memory";
+    try {
+      const merged = {
+        ...process.env,
+        ...desktopTerminalMemoryEnvironment("/tmp/prompt.md", undefined),
+      };
+      expect(merged.AGENT_NATIVE_MEMORY_DIR).toBe("");
+    } finally {
+      if (previous === undefined) delete process.env.AGENT_NATIVE_MEMORY_DIR;
+      else process.env.AGENT_NATIVE_MEMORY_DIR = previous;
+    }
+  });
+
+  it("still revokes every session when clearing a prompt file fails", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const root = session.memoryDir as string;
+    await vi.waitFor(() => expect(existsSync(session.file)).toBe(true));
+    const realRm = nodeFs.rmSync;
+    const rm = vi.spyOn(nodeFs, "rmSync").mockImplementation(((
+      target: nodeFs.PathLike,
+      options?: nodeFs.RmOptions,
+    ) => {
+      if (String(target) === session.file) throw new Error("EBUSY");
+      return realRm(target, options);
+    }) as typeof nodeFs.rmSync);
+    try {
+      expect(() => setDesktopMemoryAccount(null)).not.toThrow();
+    } finally {
+      rm.mockRestore();
+    }
+    expect(readdirSync(root)).toEqual([]);
+    expect(readFileSync(session.file, "utf8")).toBe("");
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("does not throw into the relay flow when a revoke fails during an owner change", async () => {
+    seedAccounts();
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const root = session.memoryDir as string;
+    await vi.waitFor(() => expect(existsSync(session.file)).toBe(true));
+    const realRm = nodeFs.rmSync;
+    const rm = vi.spyOn(nodeFs, "rmSync").mockImplementation(((
+      target: nodeFs.PathLike,
+      options?: nodeFs.RmOptions,
+    ) => {
+      if (String(target) === session.file) throw new Error("EBUSY");
+      return realRm(target, options);
+    }) as typeof nodeFs.rmSync);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => noteDesktopBuilderRelayOwner("no-account")).not.toThrow();
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining("Could not fully switch"),
+        expect.any(AggregateError),
+      );
+    } finally {
+      rm.mockRestore();
+      log.mockRestore();
+    }
+    expect(readdirSync(root)).toEqual([]);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("fails closed when a session's link cannot be removed", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const root = session.memoryDir as string;
+    const link = path.join(root, encodeURIComponent("a@example.test"));
+    const realRm = nodeFs.rmSync;
+    const rm = vi.spyOn(nodeFs, "rmSync").mockImplementation(((
+      target: nodeFs.PathLike,
+      options?: nodeFs.RmOptions,
+    ) => {
+      if (String(target) === link) throw new Error("EBUSY");
+      return realRm(target, options);
+    }) as typeof nodeFs.rmSync);
+    try {
+      expect(() => setDesktopMemoryAccount(null)).not.toThrow();
+    } finally {
+      rm.mockRestore();
+    }
+    expect(existsSync(link)).toBe(false);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("ends a terminal whose prompt file can neither be removed nor blanked", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const terminate = vi.fn();
+    session.bindTerminate(terminate);
+    await vi.waitFor(() => expect(existsSync(session.file)).toBe(true));
+    const realRm = nodeFs.rmSync;
+    const realWrite = nodeFs.writeFileSync;
+    const rm = vi.spyOn(nodeFs, "rmSync").mockImplementation(((
+      target: nodeFs.PathLike,
+      options?: nodeFs.RmOptions,
+    ) => {
+      if (String(target) === session.file) throw new Error("EBUSY");
+      return realRm(target, options);
+    }) as typeof nodeFs.rmSync);
+    const write = vi.spyOn(nodeFs, "writeFileSync").mockImplementation(((
+      target: nodeFs.PathOrFileDescriptor,
+      ...rest: unknown[]
+    ) => {
+      if (String(target) === session.file) throw new Error("EROFS");
+      return (realWrite as (...a: unknown[]) => void)(target, ...rest);
+    }) as typeof nodeFs.writeFileSync);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      setDesktopMemoryAccount("b@example.test");
+    } finally {
+      write.mockRestore();
+      rm.mockRestore();
+      log.mockRestore();
+    }
+    expect(terminate).toHaveBeenCalledTimes(1);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("ends a terminal whose memory root cannot be removed", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const terminate = vi.fn();
+    session.bindTerminate(terminate);
+    const root = session.memoryDir as string;
+    const realRm = nodeFs.rmSync;
+    const rm = vi.spyOn(nodeFs, "rmSync").mockImplementation(((
+      target: nodeFs.PathLike,
+      options?: nodeFs.RmOptions,
+    ) => {
+      if (String(target).startsWith(root)) throw new Error("EBUSY");
+      return realRm(target, options);
+    }) as typeof nodeFs.rmSync);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      setDesktopMemoryAccount(null);
+    } finally {
+      rm.mockRestore();
+      log.mockRestore();
+    }
+    expect(terminate).toHaveBeenCalledTimes(1);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("ends only the terminals bound to the account that is switched away", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const bound = await bindDesktopSessionMemoryOwner();
+    const endedBound = vi.fn();
+    bound.bindTerminate(endedBound);
+    setDesktopMemoryAccount(null);
+    const unbound = await bindDesktopSessionMemoryOwner();
+    const endedUnbound = vi.fn();
+    unbound.bindTerminate(endedUnbound);
+    setDesktopMemoryAccount("b@example.test");
+    expect(endedBound).toHaveBeenCalledTimes(1);
+    expect(endedUnbound).not.toHaveBeenCalled();
+    expect(readdirSync(unbound.memoryDir as string)).toEqual([
+      encodeURIComponent("b@example.test"),
+    ]);
+    bound.release();
+    unbound.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("gives a session started before sign-in access once an account binds", async () => {
+    seedAccounts();
+    noteDesktopBuilderRelayOwner("no-account");
+    const session = await bindDesktopSessionMemoryOwner();
+    const root = session.memoryDir as string;
+    expect(root).toBeTruthy();
+    expect(readdirSync(root)).toEqual([]);
+
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("starts the session with an empty root when the link cannot be created", async () => {
+    seedAccounts();
+    const link = vi.spyOn(nodeFs, "symlinkSync").mockImplementation(() => {
+      throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      noteDesktopBuilderRelayOwner("account:a@example.test");
+      const session = await bindDesktopSessionMemoryOwner();
+      expect(readdirSync(session.memoryDir as string)).toEqual([]);
+      session.release();
+    } finally {
+      link.mockRestore();
+      log.mockRestore();
+      setDesktopMemoryAccount(null);
+    }
+  });
+
+  it("serializes refreshes so a slow stale read cannot restore deleted memory", async () => {
+    const dir = seedAccounts();
+    const index = path.join(
+      dir,
+      "memory",
+      encodeURIComponent("a@example.test"),
+      "MEMORY.md",
+    );
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const prompt = await startSession(session.file);
+    expect(prompt()).toContain("ALICE-SECRET");
+
+    const actual = await vi.importActual<
+      typeof import("@agent-native/core/resources/shared-memory")
+    >("@agent-native/core/resources/shared-memory");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let slowStarted = false;
+    vi.mocked(readMirroredMemory).mockImplementationOnce(async (...args) => {
+      slowStarted = true;
+      const result = await actual.readMirroredMemory(...args);
+      await gate;
+      return result;
+    });
+    writeFileSync(index, "ALICE-STALE");
+    await vi.waitFor(() => expect(slowStarted).toBe(true));
+    writeFileSync(`${index}.deleted`, String(Date.now() + 60_000));
+    // fixed-sleep-ok: the watcher event has no completion signal to await
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    release();
+
+    await vi.waitFor(() => expect(prompt()).not.toContain("ALICE"));
+    // fixed-sleep-ok: proving a stale write never arrives needs a quiet period
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(prompt()).not.toContain("ALICE");
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("sees a memory change made while the initial read is still running", async () => {
+    const dir = seedAccounts();
+    const index = path.join(
+      dir,
+      "memory",
+      encodeURIComponent("a@example.test"),
+      "MEMORY.md",
+    );
+    setDesktopMemoryAccount("a@example.test");
+    const actual = await vi.importActual<
+      typeof import("@agent-native/core/resources/shared-memory")
+    >("@agent-native/core/resources/shared-memory");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let slowStarted = false;
+    vi.mocked(readMirroredMemory).mockImplementationOnce(async (...args) => {
+      const result = await actual.readMirroredMemory(...args);
+      slowStarted = true;
+      await gate;
+      return result;
+    });
+    const binding = bindDesktopSessionMemoryOwner();
+    await vi.waitFor(() => expect(slowStarted).toBe(true));
+    writeFileSync(index, "ALICE-LATE");
+    // fixed-sleep-ok: the watcher event has no completion signal to await
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    release();
+    const session = await binding;
+    const prompt = await startSession(session.file);
+
+    await vi.waitFor(() => expect(prompt()).toContain("ALICE-LATE"));
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("keeps the last good prompt when a memory read fails", async () => {
+    const dir = seedAccounts();
+    const index = path.join(
+      dir,
+      "memory",
+      encodeURIComponent("a@example.test"),
+      "MEMORY.md",
+    );
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const prompt = await startSession(session.file);
+    expect(prompt()).toContain("ALICE-SECRET");
+
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const actual = await vi.importActual<
+      typeof import("@agent-native/core/resources/shared-memory")
+    >("@agent-native/core/resources/shared-memory");
+    vi.mocked(readMirroredMemory).mockRejectedValue(new Error("EIO"));
+    writeFileSync(index, "ALICE-NEXT");
+    await vi.waitFor(() => expect(logged).toHaveBeenCalled());
+    expect(prompt()).toContain("ALICE-SECRET");
+    vi.mocked(readMirroredMemory).mockImplementation(actual.readMirroredMemory);
+    logged.mockRestore();
+
+    writeFileSync(index, "ALICE-RECOVERED");
+    await vi.waitFor(() => expect(prompt()).toContain("ALICE-RECOVERED"));
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("injects nothing for a memory whose tombstone is newer than its file", async () => {
+    const dir = seedAccounts();
+    const index = path.join(
+      dir,
+      "memory",
+      encodeURIComponent("a@example.test"),
+      "MEMORY.md",
+    );
+    writeFileSync(`${index}.deleted`, String(Date.now() + 60_000));
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    expect((await startSession(session.file))()).not.toContain("SECRET");
+    session.release();
+    setDesktopMemoryAccount(null);
   });
 });

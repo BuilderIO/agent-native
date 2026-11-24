@@ -277,13 +277,17 @@ describe("document sidebar layout", () => {
     expect(sections).not.toContain("min-h-[38px]");
     expect(sections).toContain("text-muted-foreground");
     expect(sidebar).toContain("useContentDatabaseById(favoritesDatabaseId, {");
-    expect(sidebar).toContain("favoritesData?.items ?? []");
+    // Until the Favorites list lists a first pin, Pinned draws the pin itself.
+    expect(sidebar).toContain("const drawn = firstPinsToDraw(");
+    expect(sidebar).toContain("pinnedData?.items ?? []");
     expect(sidebar).toContain(").slice(0, limit);");
     expect(sidebar).toContain(
       "overrides={favoritesPersonalView.data?.overrides}",
     );
     expect(sidebar).toContain("sidebarOrder={favoritesOrder.order}");
     expect(sidebar).toContain("handlePinnedReorder");
+    // A pin its Favorites list doesn't list yet stays out of a saved order.
+    expect(sidebar).toContain("!isOptimisticFavoriteItemId(id)");
     expect(sidebar).not.toContain("updateFavoritesPersonalView.isPending");
     expect(sidebar).toContain(
       'const serverOrdered = favoritesOrder.order.mode !== "custom";',

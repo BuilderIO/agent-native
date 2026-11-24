@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -11,6 +12,8 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: true,
   },
+  needsApproval: ({ sendUpdates }, ctx) =>
+    sendUpdates === "all" && isOutsideAgentCall(ctx),
   description:
     "RSVP to a Google Calendar invitation as accepted, declined, or tentative for the authenticated user. Pass the event id and accountEmail from list-events. For recurring events, scope=single (default) answers only the supplied occurrence; scope=all answers the entire series.",
   schema: rsvpEventSchema.extend({

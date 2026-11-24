@@ -26,7 +26,7 @@ test("completed generation without output stays retryable", async ({
     waitUntil: "domcontentloaded",
   });
   await expect(
-    page.locator('[data-design-top-bar] [data-design-mode="edit"]'),
+    page.locator('[data-design-bottom-toolbar] button[aria-label="Edit"]'),
   ).toHaveAttribute("aria-pressed", "true");
   const pendingKey = `design.pending-generation.${designId}`;
   let runTabId: string | null = null;
@@ -191,7 +191,7 @@ test("unknown output verification preserves pending generation without offering 
     waitUntil: "domcontentloaded",
   });
   await expect(
-    page.locator('[data-design-top-bar] [data-design-mode="edit"]'),
+    page.locator('[data-design-bottom-toolbar] button[aria-label="Edit"]'),
   ).toHaveAttribute("aria-pressed", "true");
   const pendingKey = `design.pending-generation.${designId}`;
   let runTabId: string | null = null;

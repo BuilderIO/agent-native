@@ -28,7 +28,10 @@ const consumeApproval = vi.hoisted(() => vi.fn(async () => true));
 
 vi.mock("./tool-approval-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./tool-approval-store.js")>()),
-  resolveAgentToolApprovalTurnId: vi.fn(async () => null),
+  resolveAgentToolApprovalTurnId: vi.fn(
+    async (binding: { requestedTurnId?: string | null }) =>
+      binding.requestedTurnId ?? null,
+  ),
   createAgentToolApproval: vi.fn(async () => "approval-1"),
   consumeAgentToolApproval: consumeApproval,
   isAgentToolAlwaysAllowed: vi.fn(async () => false),
@@ -78,7 +81,13 @@ const pausedTurn: AgentChatStructuredMessage[] = [
   {
     role: "assistant",
     content: [
-      { type: "tool-call", id: "email-1", name: "send-email", input: EMAIL },
+      {
+        type: "tool-call",
+        id: "email-1",
+        name: "send-email",
+        input: EMAIL,
+        approvalAskId: "approval-1",
+      },
     ],
   },
   {
@@ -91,6 +100,7 @@ const pausedTurn: AgentChatStructuredMessage[] = [
         content:
           "Awaiting human approval. The send-email call did NOT execute.",
         approvalPause: true,
+        approvalAskId: "approval-1",
       },
     ],
   },
@@ -152,6 +162,7 @@ async function approve(
               turnId: `${threadId}-turn`,
               structuredHistory,
               approvedToolCalls: [toolCallCacheKey("send-email", EMAIL)],
+              approvedToolCallAskIds: ["approval-1"],
             }),
           }),
         ),

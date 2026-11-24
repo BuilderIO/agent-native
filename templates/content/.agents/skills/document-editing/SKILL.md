@@ -232,6 +232,38 @@ edit commits. Restore it before editing. A local-folder sync
 (`import-content-source`) leaves a page in Trash unchanged and lists it in
 `skipped`.
 
+### edit-table
+
+Change one table on a page without rewriting it: everything the table's row,
+column and block menus do, plus setting a cell's text. Read the page first and
+pass its `baseRevision` and a fresh `idempotencyKey`, as for `edit-document`.
+`table` numbers the page's tables from 1 in page order, counting each
+`<table>` block and Markdown pipe table, including those inside toggles,
+callouts and columns. Rows and columns also count from 1; row 1 is the header
+row when the table has one.
+
+```bash
+pnpm action edit-table --id abc123 --baseRevision "$REV" --idempotencyKey add-row-1 --table 1 \
+  --operations '[{"op":"insert-row","cells":["Gamma","**Done**"]},{"op":"set-color","row":4,"color":"green_bg"}]'
+```
+
+Operations run in order, each on the table the ones before it left:
+`insert-row` / `insert-column` (`at` is the new one's number; omit it to add at
+the end; `cells` fills it), `delete-row` / `delete-column`, `move-row` /
+`move-column` (`to` is its number after the move), `duplicate-row` /
+`duplicate-column`, `clear-row` / `clear-column` (empties cells, keeps colours),
+`set-cell` (`text` is one line of inline NFM; `<br>` breaks a line),
+`set-header-row` / `set-header-column` / `set-fit-page-width` (`value`), and
+`set-color` (a `row`, a `column`, or both for one cell; `color` is a colour or
+one ending in `_bg`, or `null` to clear). A pipe table comes back as a
+`<table>` block with the same content. The result is `edit-document`'s receipt
+plus `table`, the table's new size and settings (`null` when nothing was saved). Read the page just before
+editing: if it changed since, the edit can refuse with `STALE_BASE_REVISION`
+and `details.currentRevision`; read it again and resend. A change the table
+already has refuses that way whenever the page has moved on. A table it can't
+find exactly on the page, or whose text holds lines a table can't keep, refuses
+with `TABLE_NOT_LOCATED`; change that table with `edit-document`.
+
 ### update-document
 
 Update an existing document's metadata or browser-owned content. External
@@ -540,6 +572,11 @@ data by hand. To refresh a chart, call it again with `purpose: "refresh"` and
 the chart's `id` from `get-document` as `blockId`, then replace the old tag
 with the new one.
 
+Saving the page records which dashboards its charts come from, so each
+dashboard's Cited in list in Analytics shows the page.
+`list-analytics-chart-citations` with a `dashboardId` lists the pages you can
+open that hold its charts.
+
 Who can open the page and who can open the dashboard can differ:
 
 - `needs_confirmation` means more people can open the page than the
@@ -563,6 +600,45 @@ Who can open the page and who can open the dashboard can differ:
 
 Analytics refusals (`analytics_refused`, such as a dashboard the person can't
 open) come back with Analytics' own reason; pass it on.
+
+### Design screens
+
+A `<DesignScreen … />` block is a picture of one Design screen at one width,
+as Design rendered it for the editor who pinned or last refreshed it, stamped
+with when and by whom, and linked back to the screen. The picture is one of
+the page's private images, so it loads only for people who can open the page.
+Readers who can open the design also see when the screen changed in Design
+since the picture and how many open comments it has. When people paste a
+screen's copied link (Copy link on the screen in Design) into a page they can
+edit, Content does the same steps below for them.
+
+To add one, call `capture-design-screen` with `documentId` and the screen's
+`link` (or `designId` and `screenId`), and a `width` only when the person asks
+for one. It checks you can edit the page, has Design render the screen as you,
+keeps the picture with the page, and returns `designScreenTag`. Put that tag
+in the page with `edit-document` as its own block, exactly as returned; never
+write or change a `DesignScreen` tag by hand, and never point its picture at
+another image. To refresh a screen, read its tag with `get-document` and call
+it again with `purpose: "refresh"`, the tag's `id` as `blockId`, its
+`design.id` as `designId`, and its `screen.id` and `screen.width` as
+`screenId` and `width`, then replace the old tag with the new one.
+
+- `design_screen_board_link` means the link opens a whole board. Ask for one
+  screen's link (Copy link on that screen).
+- `needs_confirmation` means more people can open the page than the design.
+  Tell the person, and call again with `acknowledgeWiderAudience: true` only
+  if they agree.
+- `design_screen_wider_than_design` means the page is public and the design
+  isn't, so the screen can't be pinned there. Don't work around it; narrow the
+  page's sharing or ask the person to share the design more widely in Design.
+- Sharing a page more widely asks first when it pins screens from narrower
+  designs; it never refuses for them.
+- `design_screen_storage_unavailable` means Content has nowhere private to
+  keep the picture. Pass the message on: the person connects file storage in
+  Settings.
+
+Design refusals (`design_refused`, such as a design the person can't open or
+a screen with live effects) come back with Design's own reason; pass it on.
 
 ## Parent-Child Hierarchy
 
@@ -622,6 +698,7 @@ failures stop the run.
 | "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                          |
 | "Import my Notion export"    | Pass the zip's files with their paths; dry run, report losses and `databases`, then apply     |
 | "Add this Analytics chart"   | `capture-analytics-chart --documentId ... --link ...`, then `edit-document` with the tag       |
+| "Pin this Design screen"     | `capture-design-screen --documentId ... --link ...`, then `edit-document` with the tag         |
 | "Show me the document tree"  | `list-documents`                                                                              |
 
 Always run `refresh-list` after any create, update, or delete operation.

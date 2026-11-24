@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -14,10 +17,12 @@ export default defineAction({
         "URL path with its query, such as /factory?factoryId=<id>&tab=settings",
       ),
     threadId: z.string().optional().describe("Chat thread ID to open"),
+    intent: navigationIntentSchema,
   }),
   http: false,
   // Setting the current view twice is the same view.
   retrySafe: true,
+  mcpTool: "search",
   run: async (args) => {
     if (!args.view && !args.path) {
       throw new Error("At least --view or --path is required.");

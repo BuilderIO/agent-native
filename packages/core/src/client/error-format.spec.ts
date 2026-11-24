@@ -219,6 +219,24 @@ describe("formatChatErrorText", () => {
     );
   });
 
+  it.each(["api_error", "internal_server_error"])(
+    "shows a readable message for a %s provider payload",
+    (type) => {
+      const raw = JSON.stringify({
+        type: "error",
+        error: { type, message: "Internal server error" },
+        request_id: "req_example",
+      });
+      expect(normalizeChatError(raw)).toEqual({
+        message: "Internal server error",
+        details: raw,
+      });
+      expect(formatChatErrorText(raw, undefined, type)).toBe(
+        "Error: Internal server error",
+      );
+    },
+  );
+
   it("normalizes a bare-403 transient rejection instead of the credential-rejected copy", () => {
     const normalized = normalizeChatError(
       "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying.",
@@ -465,11 +483,11 @@ describe("Builder gateway internal-error envelope", () => {
     ).toEqual({ message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
   });
 
-  it("is recognized by its envelope on any accompanying code", () => {
+  it("recognizes the envelope when the gateway sends no specific error code", () => {
     const reported =
       "Sorry, this was caused by an internal error. " +
       "ERROR ID: 64e08217e3f547c1a20311ef7cfecacf";
-    const normalized = normalizeChatError(reported, "invalid_request");
+    const normalized = normalizeChatError(reported, "builder_gateway_error");
 
     expect(normalized.message).not.toContain("ERROR ID");
     expect(normalized.message).toContain("model gateway");
@@ -487,6 +505,20 @@ describe("Builder gateway internal-error envelope", () => {
 });
 
 describe("malformed provider request", () => {
+  it.each(["invalid_request", "invalid_request_error"])(
+    "shows request rejection for %s even with a generic gateway envelope",
+    (code) => {
+      const raw =
+        "Sorry, this was caused by an internal error. " +
+        "ERROR ID: 64e08217e3f547c1a20311ef7cfecacf";
+      const normalized = normalizeChatError(raw, code);
+
+      expect(normalized.message).toMatch(/rejected this request as malformed/i);
+      expect(normalized.message).not.toContain("ERROR ID");
+      expect(normalized.details).toBe(raw);
+    },
+  );
+
   it("gives a typed attachment rejection smaller and supported-format guidance", () => {
     const normalized = normalizeChatError(
       "Invalid 'input[0].content[1].image_url': image size exceeds limit.",

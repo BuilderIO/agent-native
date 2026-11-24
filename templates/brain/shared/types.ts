@@ -52,6 +52,8 @@ export interface BrainEvidenceInput {
 export interface BrainEvidence extends BrainEvidenceInput {
   sourceId: string;
   captureTitle: string;
+  capturedAt?: string | undefined;
+  capturedAtSource?: "manual-markdown" | undefined;
 }
 
 export interface BrainSettings {

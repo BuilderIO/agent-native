@@ -51,6 +51,20 @@ export const bookingLinks = table("booking_links", {
   ...ownableColumns(),
 });
 
+export const bookingLinkSingleUseTokens = table(
+  "booking_link_single_use_tokens",
+  {
+    // guard:allow-plaintext-secret-column — a single-use booking URL code its link's editors copy again; it books one meeting and grants no account access
+    token: text("token").primaryKey(),
+    bookingLinkId: text("booking_link_id").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull(),
+    usedAt: text("used_at"),
+    bookingId: text("booking_id"),
+    revokedAt: text("revoked_at"),
+  },
+);
+
 export const bookingSlugRedirects = table("booking_slug_redirects", {
   oldSlug: text("old_slug").primaryKey(),
   newSlug: text("new_slug").notNull(),

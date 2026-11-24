@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -296,6 +297,47 @@ describe("stage-journey-canvas-frames", () => {
     expect(JSON.stringify(mocks.row)).not.toContain("node-1");
     expect(mocks.blobWriteInDesignMutation).toBe(false);
   });
+
+  it("carries a NUL frame key through core's NUL-free parsed arguments and stages the same frame", async () => {
+    const schema = (
+      action as unknown as { schema: { parse: (v: unknown) => unknown } }
+    ).schema;
+    const parsed = schema.parse(input());
+    expect(JSON.stringify(parsed)).not.toContain("\\u0000");
+    const viaSchema = (await run(parsed)) as {
+      stagedFrames: Array<{ frameKey: string; stagedFrameId: string }>;
+    };
+    expect(viaSchema.stagedFrames[0]?.frameKey).toBe("node-1\u00000");
+    const direct = (await run(input())) as {
+      stagedFrames: Array<{ stagedFrameId: string }>;
+    };
+    expect(viaSchema.stagedFrames[0]?.stagedFrameId).toBe(
+      direct.stagedFrames[0]?.stagedFrameId,
+    );
+  });
+
+  it.each(["a\u001f0", "a\u00000", "a\u001f1", "a\u001f\u00000"])(
+    "restores the exact frame key %j after the escape",
+    async (frameKey) => {
+      const schema = (
+        action as unknown as { schema: { parse: (v: unknown) => unknown } }
+      ).schema;
+      const base = input();
+      const parsed = schema.parse({
+        ...base,
+        frames: [{ ...base.frames[0], frameKey }],
+      });
+      const result = (await run(parsed)) as {
+        stagedFrames: Array<{ frameKey: string; stagedFrameId: string }>;
+      };
+      const expectedId = `jcu_${createHash("sha256")
+        .update(`design-1\u0000import-1\u0000${frameKey}`)
+        .digest("hex")
+        .slice(0, 40)}`;
+      expect(result.stagedFrames[0]?.frameKey).toBe(frameKey);
+      expect(result.stagedFrames[0]?.stagedFrameId).toBe(expectedId);
+    },
+  );
 
   it("stages an unknown current route and source fingerprint as explicit nulls", async () => {
     const result = (await run(input(png(4, 3), null, null))) as {

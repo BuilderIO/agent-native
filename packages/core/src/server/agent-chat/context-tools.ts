@@ -425,7 +425,11 @@ export function createUrlTools(): Record<string, ActionEntry> {
         const merge = (args as any)?.merge !== "false";
         const { writeAppState } =
           await import("../../application-state/script-helpers.js");
-        await writeAppState(
+        const { withAuthorizedFrameworkUrlTool } =
+          await import("../../application-state/navigate-write-guard.js");
+        const writeUrlCommand = (key: string, value: Record<string, unknown>) =>
+          withAuthorizedFrameworkUrlTool(() => writeAppState(key, value));
+        await writeUrlCommand(
           appStateKeyForBrowserTab(
             "__set_url__",
             getRequestRunContext()?.browserTabId,
@@ -484,7 +488,11 @@ export function createUrlTools(): Record<string, ActionEntry> {
         const merge = (args as any)?.merge !== "false";
         const { writeAppState } =
           await import("../../application-state/script-helpers.js");
-        await writeAppState(
+        const { withAuthorizedFrameworkUrlTool } =
+          await import("../../application-state/navigate-write-guard.js");
+        const writeUrlCommand = (key: string, value: Record<string, unknown>) =>
+          withAuthorizedFrameworkUrlTool(() => writeAppState(key, value));
+        await writeUrlCommand(
           appStateKeyForBrowserTab(
             "__set_url__",
             getRequestRunContext()?.browserTabId,

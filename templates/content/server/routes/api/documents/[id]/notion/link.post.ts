@@ -11,7 +11,9 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: "id is required" });
   }
   const body = await readBody(event);
-  const owner = await getDocumentOwnerEmail(event, id);
+  const owner = await getDocumentOwnerEmail(event, id, {
+    requireOwner: true,
+  });
   return runAsRouteCaller(event, (ctx) =>
     linkDocumentToNotionPage(owner, id, body.pageIdOrUrl, ctx),
   );

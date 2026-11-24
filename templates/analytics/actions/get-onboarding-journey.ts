@@ -6,6 +6,14 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import {
+  allowanceApprovalNotice,
+  allowanceBudget,
+  allowanceToAskAbout,
+  firstPartyQueriesRunOnBigQuery,
+  needsAllowanceApproval,
+  recordReviewedAllowance,
+} from "../server/lib/bigquery-agent-approval.js";
 import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget.js";
 import {
   describeOutsideAgentBigQueryReport,
@@ -21,7 +29,11 @@ import {
   FIRST_PARTY_TEMPLATE_NAMES,
   isCalendarDate,
 } from "../server/lib/first-party-metric-catalog.js";
-import { outsideAgentOnboardingEventBytes } from "../server/lib/onboarding-journey-agent-budget.js";
+import {
+  approvedOutsideAgentOnboardingBound,
+  outsideAgentOnboardingEventBytes,
+  smallestOutsideAgentOnboardingCall,
+} from "../server/lib/onboarding-journey-agent-budget.js";
 import {
   DEFAULT_ONBOARDING_EVENT_ROW_BUDGET,
   getOnboardingJourney,
@@ -30,6 +42,7 @@ import {
   ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED,
+  ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_JOURNEY_QUERY_BUDGET_MS,
   OnboardingJourneyReadError,
   JourneyRecordingsError,
@@ -55,7 +68,7 @@ const isoDate = z
 
 export default defineAction({
   description:
-    'Return an access-scoped per-session onboarding tree through explicit saved-output events, preserving session counts and direct-parent denominators. When experimentId or splitDesignFirstTouch is supplied, return independent trees for each cohort; Design first-touch cohorts are crossed with experiment arms, and sessionless MCP OAuth signups are counted as events without replay. An aggregated `other` node includes up to 20 root-to-branch label paths, source step keys for identical paths, session counts, and direct-parent percentages; branch summaries are capped at 200 per tree and 64 KiB of serialized detail. `otherBranchCount` gives the full number of branches, and `otherBranchSummariesPartial: true` marks summaries omitted by those bounds. Labels/path segments longer than 300 characters and keys longer than 2,048 characters are visibly shortened with stable hash suffixes and truncation flags so the tree stays within the Design input contract. Journey counts stay bounded by the 200,000-event read cap. BigQuery pages have a 25 GB per-query cap, and maxTotalBytesBilled bounds how many pages one event read may run; it defaults to 275 GB, or 125 GB for an outside agent over MCP, whose BigQuery jobs count against its daily budget ($1 a person without asking, a $5 person ceiling, $50 an organization, per UTC day) and whose maxTotalBytesBilled is capped at what that budget can still pay for; such a response adds bigQueryBudget with the reserved and billed cost of the call and what is left today. Event and follow-up queries stop inside a 22-second time budget (15 seconds for the event read, follow-ups get the rest), leaving room in a hosted call before its gateway gives up; tree-format replay lookups run after that budget, so prefer format "summary" for long windows; coverage.truncated and notes identify partial counts, and when a time limit stopped the call, continueWith.observationWatermark lets the same call continue from the queries already cached or still running, and stoppedPage says which step the BigQuery event page the read was waiting on had reached (preparing, checking the cache, waiting for another call running the same page, getting BigQuery credentials, submitting, checking an earlier job, polling, saving or finished) and why any earlier job under the same name could not be collected. Raise maxTotalBytesBilled deliberately to read more pages, up to 1.275 TB. When event coverage is truncated, replay reads are skipped, coverage.sessionsWithReplay is null, and examples omit recordingId with viewportReason "recording_unknown"; recordingId null means a completed lookup found no replay. followUpMode "session" keeps existing bounded same-session counts. "person" adds aggregate-only activity joined into people by agreed session emails and direct canonical auth_user_id, matching later activity by any email or ID of that person (emails compared as hashes computed in the warehouse), across first-party sessions and apps over a fixed 30-day horizon, with a 25 GB bytes-billed cap per follow-up query; identity coverage says how many sessions matched each way. It separates selected-session activity, outside-session/app activity and their overlap, no activity after a fully observed horizon, right-censoring, unknown identity, identity coverage, and read completeness. Its minute-aligned observationWatermark freezes event and receive time. Unknown identity and sessions without a selected step never count as inactive; no-activity is window-bounded evidence, not permanent churn. Output and attempt IDs are never returned. Incomplete follow-up counts are null. A query that fails for a backend, cost, or per-query timeout reason returns a stage-specific error with safe BigQuery status/reason when available; an internal event-read deadline instead returns completed pages with truncated coverage. An unreadable query never becomes zero counts or an empty-tree substitute.',
+    'Return an access-scoped per-session onboarding tree through explicit saved-output events, preserving session counts and direct-parent denominators. When experimentId or splitDesignFirstTouch is supplied, return independent trees for each cohort; Design first-touch cohorts are crossed with experiment arms, and sessionless MCP OAuth signups are counted as events without replay. An aggregated `other` node includes up to 20 root-to-branch label paths, source step keys for identical paths, session counts, and direct-parent percentages; branch summaries are capped at 200 per tree and 64 KiB of serialized detail. `otherBranchCount` gives the full number of branches, and `otherBranchSummariesPartial: true` marks summaries omitted by those bounds. Labels/path segments longer than 300 characters and keys longer than 2,048 characters are visibly shortened with stable hash suffixes and truncation flags so the tree stays within the Design input contract. Journey counts stay bounded by the 200,000-event read cap. BigQuery pages have a 25 GB per-query cap, and maxTotalBytesBilled bounds how many of them one event read may run, counting only pages not already cached; it defaults to 275 GB, or 125 GB for an outside agent over MCP, whose BigQuery jobs count against its daily budget ($1 a person without asking, a $5 person ceiling, $50 an organization, per UTC day) and whose maxTotalBytesBilled is capped at what that budget can still pay for; such a response adds bigQueryBudget with the reserved and billed cost of the call and what is left today. Event and follow-up queries stop inside a 22-second time budget (15 seconds for the event read, follow-ups get the rest), leaving room in a hosted call before its gateway gives up; tree-format replay lookups run after that budget, so prefer format "summary" for long windows; coverage.truncated and notes identify partial counts, and when a time limit or maxTotalBytesBilled stopped the call, continueWith.observationWatermark lets the same call continue from the queries already cached or still running, and stoppedPage says which step the BigQuery event page the read was waiting on had reached (preparing, checking the cache, waiting for another call running the same page, getting BigQuery credentials, submitting, checking an earlier job, polling, saving or finished) and why any earlier job under the same name could not be collected. Raise maxTotalBytesBilled deliberately to read more pages, up to 1.275 TB. When event coverage is truncated, replay reads are skipped, coverage.sessionsWithReplay is null, and examples omit recordingId with viewportReason "recording_unknown"; recordingId null means a completed lookup found no replay. followUpMode "session" keeps existing bounded same-session counts. "person" adds aggregate-only activity joined into people by agreed session emails and direct canonical auth_user_id, matching later activity by any email or ID of that person (emails compared as hashes computed in the warehouse), across first-party sessions and apps over a fixed 30-day horizon, with a 25 GB bytes-billed cap per follow-up query; identity coverage says how many sessions matched each way. It separates selected-session activity, outside-session/app activity and their overlap, no activity after a fully observed horizon, right-censoring, unknown identity, identity coverage, and read completeness. Its minute-aligned observationWatermark freezes event and receive time. Unknown identity and sessions without a selected step never count as inactive; no-activity is window-bounded evidence, not permanent churn. Output and attempt IDs are never returned. Incomplete follow-up counts are null. A query that fails for a backend, cost, or per-query timeout reason returns a stage-specific error with safe BigQuery status/reason when available; an internal event-read deadline instead returns completed pages with truncated coverage. An unreadable query never becomes zero counts or an empty-tree substitute.',
   schema: z
     .object({
       dateFrom: isoDate.describe(
@@ -97,7 +110,7 @@ export default defineAction({
         .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/)
         .optional()
         .describe(
-          'A past UTC minute, such as 2026-11-10T22:38:00.000Z, to read as of instead of now. Pass continueWith.observationWatermark from a response a time limit stopped: the queries it finished are cached and the BigQuery queries it stopped keep running, so the same request with this value, sent within a few minutes, continues from them. It pins event time in both follow-up modes; only followUpMode "person" also pins receive time, so in session mode an event that arrives between calls can change pages, which coverage reports as may_have_shifted.',
+          'A past UTC minute, such as 2026-11-10T22:38:00.000Z, to read as of instead of now. Pass continueWith.observationWatermark from a response a time limit or maxTotalBytesBilled stopped: the queries it finished are cached, except any its notes say the cache did not keep, and BigQuery queries a time limit stopped keep running, so the same request with this value, sent within a few minutes, continues from them. It pins event time in both follow-up modes; only followUpMode "person" also pins receive time, so in session mode an event that arrives between calls can change pages, which coverage reports as may_have_shifted.',
         ),
       format: z
         .enum(["tree", "summary"])
@@ -160,7 +173,7 @@ export default defineAction({
         .max(ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED)
         .optional()
         .describe(
-          "Aggregate cap for event-page queries, in bytes billed. Each allowed BigQuery page reserves its full 25 GB per-query cap. Defaults to 275 GB (11 pages), or 125 GB (5 pages) for an outside agent over MCP; set a higher value deliberately to allow more pages, up to 1.275 TB (51 pages). Over MCP it is also capped at what today's BigQuery budget can pay for.",
+          "Aggregate cap for event-page queries, in bytes billed. Each BigQuery page not already cached reserves its full 25 GB per-query cap; cached pages are free. Defaults to 275 GB (11 pages), or 125 GB (5 pages) for an outside agent over MCP; set a higher value deliberately to allow more pages, up to 1.275 TB (51 pages). Over MCP it is also capped at what today's BigQuery budget can pay for.",
         ),
       recency: z
         .enum(["newest", "none"])
@@ -279,6 +292,32 @@ export default defineAction({
   mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   grounding: true,
+  mcpNeedsApproval: async (args, ctx) => {
+    const read = await allowanceBudget(ctx);
+    return (
+      read !== null &&
+      (await firstPartyQueriesRunOnBigQuery(read.identity)) &&
+      needsAllowanceApproval(
+        read.budget,
+        smallestOutsideAgentOnboardingCall(args),
+      )
+    );
+  },
+  approvalNotice: async (args, ctx) => {
+    const budget = await allowanceToAskAbout(
+      ctx,
+      smallestOutsideAgentOnboardingCall(args),
+    );
+    return allowanceApprovalNotice(
+      budget,
+      approvedOutsideAgentOnboardingBound(
+        budget,
+        args.maxTotalBytesBilled,
+        args,
+      ),
+    );
+  },
+  approvalProof: "review-page",
   run: async (args, context?: ActionRunContext) => {
     const days =
       (Date.parse(`${args.dateTo}T00:00:00Z`) -
@@ -333,16 +372,27 @@ export default defineAction({
         );
       }
       const identity = outsideAgentIdentity(scope.userEmail, scope.orgId);
-      const { requested, applied, refusal } =
-        await outsideAgentOnboardingEventBytes(
-          identity,
-          args.maxTotalBytesBilled,
-          {
-            followUpMode: args.followUpMode,
-            experimentId: args.experimentId,
-            splitDesignFirstTouch: args.splitDesignFirstTouch,
-          },
-        );
+      const call = {
+        followUpMode: args.followUpMode,
+        experimentId: args.experimentId,
+        splitDesignFirstTouch: args.splitDesignFirstTouch,
+      };
+      const askVia =
+        context?.caller === "mcp" ? "get-onboarding-journey" : undefined;
+      const onBigQuery = await firstPartyQueriesRunOnBigQuery(identity);
+      if (onBigQuery) await recordReviewedAllowance(identity);
+      const unbudgeted =
+        args.maxTotalBytesBilled ??
+        ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED;
+      const { requested, applied, refusal } = onBigQuery
+        ? await outsideAgentOnboardingEventBytes(
+            identity,
+            args.maxTotalBytesBilled,
+            call,
+            context?.signal,
+            askVia,
+          )
+        : { requested: unbudgeted, applied: unbudgeted, refusal: null };
       if (refusal) throw refusal;
       const { value, report } = await runOutsideAgentBigQueryCall(
         {
@@ -350,6 +400,7 @@ export default defineAction({
           source: "get-onboarding-journey",
           reservation: "full-cap",
           leaseMs: ONBOARDING_JOURNEY_QUERY_BUDGET_MS + 60_000,
+          ...(askVia ? { askVia } : {}),
         },
         () =>
           getOnboardingJourney(scope, journeyArgs(applied), context?.signal),

@@ -335,10 +335,13 @@ export async function upsertAudienceMember(
     });
 }
 
-export async function ensureEvidenceIntersectionAudience(input: {
-  captureIds: string[];
-  sourceId: string;
-}): Promise<BrainAudienceAssignment> {
+export async function ensureEvidenceIntersectionAudience(
+  input: {
+    captureIds: string[];
+    sourceId: string;
+  },
+  mode: "ensure" | "derive" = "ensure",
+): Promise<BrainAudienceAssignment> {
   const captureIds = Array.from(new Set(input.captureIds));
   if (!captureIds.length) {
     throw new Error("Evidence is required to derive a Brain audience");
@@ -443,6 +446,7 @@ export async function ensureEvidenceIntersectionAudience(input: {
     `evidence:${tenantKey}:${audienceIds.sort().join(",")}`,
   );
   const audienceId = `aud_${identityHash.slice(0, 24)}`;
+  if (mode === "derive") return { audienceId, aclHash, kind };
   const now = nowIso();
   await db
     .insert(schema.brainAudiences)

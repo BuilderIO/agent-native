@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { analyticsChartBlock } from "@/components/editor/analytics-chart/AnalyticsChartBlock";
 import { clipEmbedBlock } from "@/components/editor/clip-embed/ClipEmbedBlock";
+import { designScreenBlock } from "@/components/editor/design-screen/DesignScreenBlock";
 import { uploadImageFile } from "@/components/editor/image-upload";
 import {
   Popover,
@@ -53,6 +54,7 @@ contentBlockRegistry.register(sourceComponentBlock);
 contentBlockRegistry.register(inlineDatabaseBlock);
 contentBlockRegistry.register(clipEmbedBlock);
 contentBlockRegistry.register(analyticsChartBlock);
+contentBlockRegistry.register(designScreenBlock);
 
 type ContentBlockRenderContext = BlockRenderContext & {
   documentId?: string | null;
