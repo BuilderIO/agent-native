@@ -122,7 +122,7 @@ their markup.
   reason of 10+ characters.
 - **Row styles** (a target against its source, visual): map a source
   rendering that has no row ids with `applyRowLocators(document, [{ rowId,
-  selector }])` (missing and ambiguous selectors are reported, never guessed),
+selector }])` (missing and ambiguous selectors are reported, never guessed),
   capture both with `captureRowStyles`, and diff with
   `compareRowStyles(source, target, properties)`. `properties` limits the diff
   to what the target is meant to carry over.

@@ -46,11 +46,7 @@ function SectionBadge({
   }
   const color =
     badge.tone === "attention" && surface === "page" ? "warning" : "gray";
-  return (
-    <Badge color={color}>
-      {badge.value}
-    </Badge>
-  );
+  return <Badge color={color}>{badge.value}</Badge>;
 }
 
 function SectionStatus({
@@ -102,9 +98,7 @@ function SettingsSectionPart({ row, children }: PartProps) {
         open={row.state?.expanded === true}
         onOpenChange={() => run?.()}
       >
-        <CollapsibleTrigger
-          render={<Item render={<button type="button" />} />}
-        >
+        <CollapsibleTrigger render={<Item render={<button type="button" />} />}>
           {row.icon ? (
             <ItemMedia>
               <Glyph icon={row.icon} />

@@ -307,8 +307,8 @@ describe("compareRowSnapshots", () => {
 
   it("refuses a part set that renders a row twice", () => {
     const doubled = `${ours}${ours}`;
-    expect(() =>
-      compareRowSnapshots(render(doubled), render(target)),
-    ).toThrow(/rendered twice/);
+    expect(() => compareRowSnapshots(render(doubled), render(target))).toThrow(
+      /rendered twice/,
+    );
   });
 });

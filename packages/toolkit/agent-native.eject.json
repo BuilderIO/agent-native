@@ -2284,6 +2284,8 @@
       ],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/design-system",
+        "@base-ui/react",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-dialog",
         "@radix-ui/react-slot",
@@ -2292,6 +2294,7 @@
         "clsx",
         "culori",
         "react",
+        "react-router",
         "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"]
