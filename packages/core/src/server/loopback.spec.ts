@@ -29,6 +29,12 @@ function makeEvent(
 describe("isDirectLoopbackRequest", () => {
   beforeEach(() => {
     getRequestIPMock.mockReset().mockReturnValue("127.0.0.1");
+    vi.stubEnv("FUSION_ENVIRONMENT", "");
+    vi.stubEnv("FUSION_POD_UID", "");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("accepts an unforwarded request received on the IPv4 loopback address", () => {
@@ -207,6 +213,10 @@ describe("isLoopbackRequest", () => {
     { host: "localhost:8080", "x-real-ip": "203.0.113.7" },
     { host: "preview.example.dev" },
     { host: "localhost.example.dev" },
+    { host: "127.attacker.example" },
+    { host: "127.0.0.1.attacker.example:3000" },
+    { host: "127.0.0.256" },
+    { host: "localhost:8080", "x-forwarded-for": "127.attacker.example" },
     {},
   ])("refuses a proxied or foreign-host request %j", (headers) => {
     expect(isLoopbackPeerRequest(makeEvent(headers))).toBe(false);

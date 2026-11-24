@@ -67,11 +67,18 @@ function hostnameOf(authority: string): string {
   return colons === 1 ? value.slice(0, value.indexOf(":")) : value;
 }
 
+const IPV4_LOOPBACK_LITERAL =
+  /^(?:::ffff:)?127(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+
+function isLoopbackIpLiteral(value: string): boolean {
+  return value === "::1" || IPV4_LOOPBACK_LITERAL.test(value);
+}
+
 function isLoopbackHostname(hostname: string): boolean {
   return (
     hostname === "localhost" ||
     hostname.endsWith(".localhost") ||
-    isLoopbackAddress(hostname)
+    isLoopbackIpLiteral(hostname)
   );
 }
 
@@ -92,7 +99,7 @@ function forwardedHeadersNameOnlyLoopback(event: H3Event): boolean {
     }
   }
   return (
-    clients.every((client) => isLoopbackAddress(hostnameOf(client))) &&
+    clients.every((client) => isLoopbackIpLiteral(hostnameOf(client))) &&
     hosts.every((host) => isLoopbackHostname(hostnameOf(host)))
   );
 }

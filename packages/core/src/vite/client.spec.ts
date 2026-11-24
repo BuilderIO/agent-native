@@ -31,6 +31,7 @@ import {
   _nitroStartupRecovery,
   _persistent5xxRecovery,
   agentNative,
+  agentNativeStateFsDeny,
   defaultViteWatchIgnored,
   defineConfig,
   isFrameworkDynamicDevPath,
@@ -2840,12 +2841,13 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
-  it("refuses to serve .agent-native state through /@fs/ or the app root", async () => {
+  it("denies the served roots' .agent-native state, scoped to those roots", async () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
     const previousCwd = process.cwd();
+    const chatRoot = path.join(repositoryRoot(), "templates/chat");
     let config: { server: { fs: { deny: string[] } } };
-    process.chdir(path.join(repositoryRoot(), "templates/chat"));
+    process.chdir(chatRoot);
     try {
       config = await configPlugin.config(
         {},
@@ -2854,49 +2856,66 @@ describe("agentNative Vite plugin preset", () => {
     } finally {
       process.chdir(previousCwd);
     }
+    expect(config.server.fs.deny).toEqual(
+      expect.arrayContaining(agentNativeStateFsDeny(chatRoot, ["."])),
+    );
+    expect(config.server.fs.deny).not.toContain("**/.agent-native/**");
 
-    const appRoot = fs.realpathSync(
+    const home = fs.realpathSync(
       fs.mkdtempSync(path.join(os.tmpdir(), "an-fs-deny-")),
     );
-    fs.mkdirSync(path.join(appRoot, ".agent-native"));
-    fs.writeFileSync(
-      path.join(appRoot, ".agent-native", "dev-server.json"),
-      JSON.stringify({ token: "secret" }),
-    );
-    fs.writeFileSync(path.join(appRoot, "public.txt"), "visible");
-    const server = await createServer({
-      configFile: false,
-      root: appRoot,
-      logLevel: "silent",
-      server: {
-        host: "127.0.0.1",
-        port: 0,
-        fs: { allow: [appRoot], deny: config.server.fs.deny },
-      },
-    });
     try {
-      await server.listen();
-      const address = server.httpServer?.address();
-      if (!address || typeof address !== "object") {
-        throw new Error("Vite did not bind a port.");
-      }
-      const get = (pathname: string) =>
-        fetch(`http://127.0.0.1:${address.port}${pathname}`);
-
-      expect((await get(`/@fs${appRoot}/public.txt?raw`)).status).toBe(200);
-      for (const pathname of [
-        `/@fs${appRoot}/.agent-native/dev-server.json?raw`,
-        `/@fs${appRoot}/.agent-native/dev-server.json?import&raw`,
-        `/@fs${appRoot}/.agent-native/dev-server.json`,
-        "/.agent-native/dev-server.json?raw",
-        "/.agent-native/dev-server.json",
+      for (const appRoot of [
+        path.join(home, "app"),
+        path.join(home, ".agent-native", "workspaces", "app"),
       ]) {
-        const response = await get(pathname);
-        expect(await response.text()).not.toContain("secret");
+        fs.mkdirSync(path.join(appRoot, ".agent-native"), { recursive: true });
+        fs.writeFileSync(
+          path.join(appRoot, ".agent-native", "dev-server.json"),
+          JSON.stringify({ token: "secret" }),
+        );
+        fs.writeFileSync(path.join(appRoot, "public.txt"), "visible");
+        const server = await createServer({
+          configFile: false,
+          root: appRoot,
+          logLevel: "silent",
+          server: {
+            host: "127.0.0.1",
+            port: 0,
+            fs: {
+              allow: [appRoot],
+              deny: agentNativeStateFsDeny(appRoot, ["."]),
+            },
+          },
+        });
+        try {
+          await server.listen();
+          const address = server.httpServer?.address();
+          if (!address || typeof address !== "object") {
+            throw new Error("Vite did not bind a port.");
+          }
+          const get = (pathname: string) =>
+            fetch(`http://127.0.0.1:${address.port}${pathname}`);
+
+          expect(
+            await (await get(`/@fs${appRoot}/public.txt?raw`)).text(),
+          ).toContain("visible");
+          for (const pathname of [
+            `/@fs${appRoot}/.agent-native/dev-server.json?raw`,
+            `/@fs${appRoot}/.agent-native/dev-server.json?import&raw`,
+            `/@fs${appRoot}/.agent-native/dev-server.json`,
+            "/.agent-native/dev-server.json?raw",
+            "/.agent-native/dev-server.json",
+          ]) {
+            const response = await get(pathname);
+            expect(await response.text()).not.toContain("secret");
+          }
+        } finally {
+          await server.close();
+        }
       }
     } finally {
-      await server.close();
-      fs.rmSync(appRoot, { recursive: true, force: true });
+      fs.rmSync(home, { recursive: true, force: true });
     }
   });
 

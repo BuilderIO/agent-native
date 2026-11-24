@@ -3259,6 +3259,29 @@ function devActionBridgePlugin(): Plugin {
   };
 }
 
+/**
+ * Vite `server.fs.deny` patterns for the `.agent-native/` state directory of
+ * each served root. Scoped to those roots: an app can itself live under a
+ * `.agent-native/` directory, such as the desktop workspaces folder.
+ */
+export function agentNativeStateFsDeny(
+  cwd: string,
+  allowRoots: readonly string[],
+): string[] {
+  return [
+    ...new Set(
+      allowRoots.map(
+        (root) =>
+          `${path
+            .resolve(cwd, root, ".agent-native")
+            .split(path.sep)
+            .join("/")
+            .replace(/[*?[\]{}()!+@]/g, "\\$&")}/**`,
+      ),
+    ),
+  ];
+}
+
 function devAppDisplayName(appRoot: string): string {
   try {
     const pkg = JSON.parse(
@@ -5126,6 +5149,16 @@ function createAgentNativeConfig(
   const localWorkspacePackageAllow = localWorkspacePackageDeps.map(
     (pkg) => pkg.packageDir,
   );
+  const fsAllow = [
+    ".",
+    ...monorepoPackageAllow,
+    ...monorepoNodeModulesAllow,
+    ...workspaceCoreFsAllow,
+    ...localWorkspacePackageAllow,
+    ...workspaceNodeModulesAllow,
+    ...(userConfig.server?.fs?.allow ?? []),
+    ...(options.fsAllow ?? []),
+  ];
   const localWorkspacePackageResolveAliases = localWorkspacePackageAliases(
     localWorkspacePackageDeps,
   );
@@ -5274,22 +5307,13 @@ function createAgentNativeConfig(
       },
       fs: {
         ...(userConfig.server?.fs ?? {}),
-        allow: [
-          ".",
-          ...monorepoPackageAllow,
-          ...monorepoNodeModulesAllow,
-          ...workspaceCoreFsAllow,
-          ...localWorkspacePackageAllow,
-          ...workspaceNodeModulesAllow,
-          ...(userConfig.server?.fs?.allow ?? []),
-          ...(options.fsAllow ?? []),
-        ],
+        allow: fsAllow,
         deny: [
           ".env",
           ".env.*",
           "*.{crt,pem}",
           "**/.git/**",
-          "**/.agent-native/**",
+          ...agentNativeStateFsDeny(cwd, fsAllow),
           ...(userConfig.server?.fs?.deny ?? []),
           ...(options.fsDeny ?? []),
         ],
