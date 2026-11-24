@@ -128,6 +128,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import {
   memo,
+  startTransition,
   useContext,
   useEffect,
   useCallback,
@@ -291,6 +292,10 @@ import {
   BuilderArticleAutosaveRunner,
   BuilderArticleCellStatus,
 } from "../database-sources/BuilderArticleAutosave";
+import {
+  BuilderReviewOpeningPanel,
+  type BuilderReviewOpeningPanelHandle,
+} from "../database-sources/BuilderReviewOpeningPanel";
 import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
@@ -1268,6 +1273,7 @@ function DatabaseTable({
   const [addPropertyOpenRequestId, setAddPropertyOpenRequestId] = useState(0);
   const [constraintMenus] = useState(createConstraintMenus);
   const [builderReviewOpen, setBuilderReviewOpen] = useState(false);
+  const builderReviewOpeningRef = useRef<BuilderReviewOpeningPanelHandle>(null);
 
   const [builderReviewSourceId, setBuilderReviewSourceId] = useState<
     string | null
@@ -2827,13 +2833,16 @@ function DatabaseTable({
     };
     builderReviewGenerationRef.current = session.generation;
     builderReviewSessionRef.current = session;
-    setBuilderReviewSourceId(sourceId);
-    setBuilderReviewResult(null);
-    setBuilderReviewCheckedAt(null);
-    setBuilderReviewError(null);
-    setPreparedBuilderReviewConfirmation(null);
-    setBuilderReviewSelectionRemap(null);
-    setBuilderReviewOpen(true);
+    builderReviewOpeningRef.current?.show();
+    startTransition(() => {
+      setBuilderReviewSourceId(sourceId);
+      setBuilderReviewResult(null);
+      setBuilderReviewCheckedAt(null);
+      setBuilderReviewError(null);
+      setPreparedBuilderReviewConfirmation(null);
+      setBuilderReviewSelectionRemap(null);
+      setBuilderReviewOpen(true);
+    });
   }
 
   function closeBuilderReview(force = false) {
@@ -2848,6 +2857,7 @@ function DatabaseTable({
     }
     builderReviewGenerationRef.current += 1;
     builderReviewSessionRef.current = null;
+    builderReviewOpeningRef.current?.hide();
     setBuilderReviewOpen(false);
     setBuilderReviewSourceId(null);
     setBuilderReviewResult(null);
@@ -4398,6 +4408,10 @@ function DatabaseTable({
         onGroupsCollapsedChange={setGroupsCollapsed}
       />
 
+      <BuilderReviewOpeningPanel
+        ref={builderReviewOpeningRef}
+        dialogOpen={builderReviewOpen}
+      />
       <BuilderSourceReviewDialog
         open={builderReviewOpen}
         review={activeBuilderReview}
