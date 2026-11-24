@@ -3780,6 +3780,7 @@ export function createAgentChatPlugin(
             ? { taskCandidates: mcpOptions.taskCandidates }
             : {}),
           ...(mcpOptions.readOnlyResources ? { readOnlyResources: true } : {}),
+          ...(mcpOptions.servesAnSkill ? { servesAnSkill: true } : {}),
           ...(mcpOptions.connectorCatalog
             ? { connectorCatalog: mcpOptions.connectorCatalog }
             : {}),
