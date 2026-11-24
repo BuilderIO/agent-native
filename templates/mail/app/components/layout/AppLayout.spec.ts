@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildLabelDisplayNames,
+  isInboxSyncing,
   labelTreeRows,
   reorderById,
   sidebarLabelTabs,
@@ -453,5 +454,49 @@ describe("reorderById", () => {
       "pitch",
       "github",
     ]);
+  });
+});
+
+describe("isInboxSyncing", () => {
+  const ready = { state: "ready" };
+
+  it("spins while a sync runs or older mail is still loading", () => {
+    expect(
+      isInboxSyncing({ syncing: true, accounts: [ready] }, undefined),
+    ).toBe(true);
+    expect(
+      isInboxSyncing(
+        {
+          syncing: false,
+          accounts: [{ state: "ready", backfillPending: true }],
+        },
+        { freshness: "live" },
+      ),
+    ).toBe(true);
+  });
+
+  it("stays still when nothing is syncing", () => {
+    expect(
+      isInboxSyncing({ syncing: false, accounts: [ready] }, undefined),
+    ).toBe(false);
+    expect(isInboxSyncing(undefined, undefined)).toBe(false);
+  });
+
+  it("stays still while Gmail has Mail waiting, so it never spins without progress", () => {
+    expect(
+      isInboxSyncing(
+        {
+          syncing: true,
+          accounts: [{ state: "ready", backfillPending: true }],
+        },
+        { freshness: "cached" },
+      ),
+    ).toBe(false);
+    expect(
+      isInboxSyncing(
+        { syncing: true, accounts: [ready] },
+        { freshness: "stale" },
+      ),
+    ).toBe(false);
   });
 });
