@@ -677,13 +677,13 @@ const messages = {
       skipInboxRuleHelp:
         "以自然語言撰寫指示。符合條件的郵件會封存並略過收件匣。",
       spamRuleHelp:
-        "以自然語言撰寫指示。Jev 會為符合條件的郵件新增 agent-native-filtered 標籤並封存。這不是 Gmail 垃圾郵件。",
+        "以自然語言撰寫指示。Mail 會為符合條件的郵件新增 agent-native-filtered 標籤並封存。這不是 Gmail 垃圾郵件。",
       filteredMode: "已篩選",
       manageSettings: "管理",
-      askJev: "詢問 Jev",
+      askJev: "詢問 Mail 的代理",
       askJevPrompt:
         "幫我調整這條 Mail 規則：{{condition}}。先詢問我想變更什麼，再更新規則。",
-      composerPlaceholder: "請 Jev 幫你整理收件匣…",
+      composerPlaceholder: "請 Mail 的代理幫你整理收件匣…",
       chatSuggestionFilter: "篩選類似這樣的郵件",
       chatSuggestionPriority: "優先處理來自…的郵件",
       chatSuggestionArchive: "自動封存機器人通知",
@@ -813,7 +813,8 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "可以問我任何關於郵件的問題",
+    emptyState:
+      "我是 Mail 的代理。可以問我郵件相關的問題，也可以請我幫你整理郵件。",
     suggestionSummarize: "總結我的未讀郵件",
     suggestionReplies: "今天哪些郵件需要我回覆？",
     suggestionWidget: "為我的收件箱建立自訂小元件",

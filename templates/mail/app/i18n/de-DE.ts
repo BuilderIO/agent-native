@@ -47,7 +47,7 @@ const messages = {
         "Mach aus diesem Feedback eine Regel für Wichtigkeit oder automatisches Archivieren.",
       priorityFeedbackAskAgent: "Agent um Regelvorschläge bitten",
       aiSetupTitle: "KI-Posteingang einrichten",
-      aiSetupTagLabel: "KI-Tag erstellen",
+      aiSetupTagLabel: "KI-Label erstellen",
       aiSetupImportanceLabel: "Wichtige E-Mails",
       aiSetupSpamLabel: "Unerwünscht",
       aiSetupArchiveLabel: "Posteingang überspringen",
@@ -128,7 +128,7 @@ const messages = {
       aiSetupImportantExample:
         "Alles von meinem Chef, Priya (priya@company.com)…",
       aiSetupTagsDescription:
-        "Die KI versieht passende E-Mails mit Tags und erstellt für jeden Tag einen eigenen Tab neben deinem Posteingang.",
+        "Die KI versieht passende E-Mails mit Labels und erstellt für jedes Label einen eigenen Tab neben deinem Posteingang.",
       aiSetupImportantDescription:
         "Die KI versieht passende E-Mails mit dem Label Wichtig, damit sie im Tab Wichtig erscheinen.",
       aiSetupSkipInboxDescription:
@@ -166,7 +166,7 @@ const messages = {
       accounts: "Accounts",
       closeSidebar: "Seitenleiste schließen",
       settings: "Einstellungen",
-      aiSettings: "Tags und Regeln verwalten",
+      aiSettings: "Labels und Regeln verwalten",
     },
     search: {
       label: "Suchen",
@@ -191,7 +191,7 @@ const messages = {
       combinedInbox: "Kombinierter Posteingang",
       allTab: "Alle-Tab",
       help: "Zeigt deine ausgewählten Ansichten, Labels und gespeicherten Filter als eigene Posteingangs-Tabs. Deaktiviere es, um alle E-Mails im Posteingang in einem Tab zu sehen.",
-      aiSetup: "KI-Tags und Regeln einrichten",
+      aiSetup: "KI-Labels und Regeln einrichten",
     },
     accounts: {
       remove: "Entfernen",
@@ -722,23 +722,24 @@ const messages = {
       autoArchiveMode: "Automatisch archivieren",
       skipInboxMode: "Posteingang überspringen",
       spamMode: "Unerwünscht",
-      tagMode: "Tag",
-      aiTagsTitle: "KI-Tags",
+      tagMode: "Label",
+      aiTagsTitle: "KI-Labels",
       ruleHelpLabel: "{{mode}}-Regeln erklären",
       aiTagRuleHelp:
-        "Beschreibe es in natürlicher Sprache. Jev versieht passende Nachrichten mit diesem Tag.",
+        "Beschreibe es in natürlicher Sprache. Mail versieht passende Nachrichten mit diesem Label.",
       importantRuleHelp:
-        "Beschreibe es in natürlicher Sprache. Jev markiert passende Nachrichten als wichtig.",
+        "Beschreibe es in natürlicher Sprache. Mail markiert passende Nachrichten als wichtig.",
       skipInboxRuleHelp:
-        "Beschreibe es in natürlicher Sprache. Jev archiviert passende Nachrichten, damit sie den Posteingang überspringen.",
+        "Beschreibe es in natürlicher Sprache. Mail archiviert passende Nachrichten, damit sie den Posteingang überspringen.",
       spamRuleHelp:
-        "Beschreibe es in natürlicher Sprache. Jev fügt passenden Nachrichten das Label agent-native-filtered hinzu und archiviert sie. Das ist nicht Gmails Spam-Ordner.",
+        "Beschreibe es in natürlicher Sprache. Mail fügt passenden Nachrichten das Label agent-native-filtered hinzu und archiviert sie. Das ist nicht Gmails Spam-Ordner.",
       filteredMode: "Gefiltert",
       manageSettings: "Verwalten",
-      askJev: "Jev fragen",
+      askJev: "Mail-Agent fragen",
       askJevPrompt:
         "Hilf mir, diese Mail-Regel zu verfeinern: {{condition}}. Frag mich, was ich ändern möchte, und aktualisiere sie dann.",
-      composerPlaceholder: "Bitte Jev, deinen Posteingang zu organisieren…",
+      composerPlaceholder:
+        "Bitte den Mail-Agenten, deinen Posteingang zu organisieren…",
       chatSuggestionFilter: "Ähnliche Nachrichten herausfiltern",
       chatSuggestionPriority: "E-Mails von … priorisieren",
       chatSuggestionArchive: "Bot-Benachrichtigungen automatisch archivieren",
@@ -771,7 +772,7 @@ const messages = {
         "z. B. Nachrichten, die eine Antwort oder einen Termin erfordern",
       ruleAdded: "KI-Regel hinzugefügt.",
       instructionHelp: "Klare Sprache verwenden",
-      tagNamePlaceholder: "Tag-Name",
+      tagNamePlaceholder: "Labelname",
       spamLabelHint:
         "Treffer werden markiert und aus dem Posteingang verschoben.",
       spamPlaceholder:
@@ -803,8 +804,8 @@ const messages = {
         "Starte eine Vorschau, um wahrscheinliche Treffer zu sehen.",
       previewFailed: "Die aktuellen E-Mails konnten nicht geprüft werden.",
       promptRulesCleared: "Triage-Regeln entfernt.",
-      tagTabsHelp: "Jedes Tag wird zu einem Tab im Posteingang",
-      addTag: "Tag hinzufügen",
+      tagTabsHelp: "Jedes Label wird zu einem Tab im Posteingang",
+      addTag: "Label hinzufügen",
       triageTitle: "KI-Triage",
       connectJev: "KI-Anbieter verbinden",
       connectJevToRunTriage:
@@ -885,7 +886,8 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "Frag mich alles zu deinen E-Mails",
+    emptyState:
+      "Ich bin der Mail-Agent. Frag mich zu deinen E-Mails oder lass sie von mir sortieren.",
     suggestionSummarize: "Fasse meine ungelesenen E-Mails zusammen",
     suggestionReplies: "Was braucht heute meine Antwort?",
     suggestionWidget: "Baue ein eigenes Widget fur meinen Posteingang",
