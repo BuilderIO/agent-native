@@ -1704,6 +1704,7 @@ function DispatchLayout({
     tabId: string;
   } | null>(null);
   const turnViewportLockRef = useRef(createTurnViewportLock());
+  const workspaceAppChildTab = useWorkspaceAppChildBrowserTab();
   const previousChatFirstSurfaceScopeRef = useRef(chatFirstSurfaceScope);
   const previousChatFirstSurfaceTabCountRef = useRef<number | null>(null);
   const activeChatFirstSurfaceTab = useMemo(
@@ -3053,7 +3054,6 @@ function DispatchLayout({
         location.hash,
       )
     : undefined;
-  const workspaceAppChildTab = useWorkspaceAppChildBrowserTab();
   const workspaceAppContent =
     workspaceAppRouteActive && workspaceAppId ? (
       workspaceAppChatRegistration ? (
