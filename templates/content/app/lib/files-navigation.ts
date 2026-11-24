@@ -16,6 +16,7 @@ import type {
   ContentSidebarViewOrder,
   Document,
 } from "@shared/api";
+import { isLocalSourceDirectoryId } from "@shared/local-source-directory";
 import {
   useQuery,
   useQueryClient,
@@ -68,6 +69,7 @@ export function filesNavigationPageParams(args: {
   databaseId: string;
   parentId: string | null;
   cursor?: string;
+  pagesOnly?: boolean;
   group?: string;
   locate?: string;
 }) {
@@ -77,6 +79,7 @@ export function filesNavigationPageParams(args: {
     navigation: {
       parentId: args.parentId,
       cursor: args.cursor,
+      ...(args.pagesOnly ? { pagesOnly: true } : {}),
       ...(args.group === undefined ? {} : { group: args.group }),
       ...(args.locate === undefined ? {} : { locate: args.locate }),
     },
@@ -410,9 +413,11 @@ export function filesRowDocument(
     hideFromSearch: false,
     canEdit: item.canEdit,
     canManage: item.canManage,
-    ...(item.sourceKind
-      ? { source: { mode: "database", kind: item.sourceKind } }
-      : {}),
+    ...(item.type === "folder"
+      ? { source: { mode: "local-files", kind: "folder" } }
+      : item.sourceKind
+        ? { source: { mode: "database", kind: item.sourceKind } }
+        : {}),
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };
@@ -564,19 +569,65 @@ export function cachedFilesRootDocumentIds(
           | undefined;
         return (
           params?.navigation?.parentId === null &&
-          params.navigation.cursor === undefined
+          params.navigation.cursor === undefined &&
+          params.navigation.pagesOnly !== true
         );
       },
     })
     .flatMap(([, data]) =>
       data && !("available" in data)
-        ? [data.items.map((item) => item.documentId)]
+        ? [
+            data.items.flatMap((item) =>
+              item.type === "folder" ? [] : [item.documentId],
+            ),
+          ]
         : [],
     );
   return [
     ...roots.filter((ids) => ids.includes(documentId)),
     ...roots.filter((ids) => !ids.includes(documentId)),
   ].flat();
+}
+
+export function cachedFilesSiblingDocumentIds(
+  queryClient: Pick<QueryClient, "getQueriesData">,
+  documentId: string,
+  activePath: readonly {
+    id: string;
+    parentId: string | null;
+    databaseId: string | null;
+  }[],
+): string[] {
+  const entry = activePath.find((candidate) => candidate.id === documentId);
+  const parentId = entry?.parentId;
+  const databaseId = entry?.databaseId;
+  if (!databaseId || !parentId || !isLocalSourceDirectoryId(parentId)) {
+    return [];
+  }
+  const siblings = queryClient
+    .getQueriesData<FilesNavigationRead>({
+      queryKey: ["action", "query-content-database-items"],
+      predicate: ({ queryKey }) => {
+        const params = queryKey[2] as
+          | Partial<FilesNavigationPageParams>
+          | undefined;
+        return (
+          params?.databaseId === databaseId &&
+          params.navigation?.parentId === parentId &&
+          params.navigation.pagesOnly !== true
+        );
+      },
+    })
+    .flatMap(([, data]) =>
+      data && !("available" in data)
+        ? data.items.flatMap((item) =>
+            item.type === "folder" || item.documentId === documentId
+              ? []
+              : [item.documentId],
+          )
+        : [],
+    );
+  return [...new Set(siblings)];
 }
 
 /**
@@ -589,7 +640,8 @@ export async function readFilesNavigationPage(
   expanded: Iterable<string>,
   signal?: AbortSignal,
 ): Promise<FilesNavigationRead> {
-  const expand = [...expanded]
+  const pagesOnly = params.navigation.pagesOnly === true;
+  const expand = [...(pagesOnly ? [] : expanded)]
     .filter((parentId) => {
       const key = filesNavigationQueryKey(
         filesNavigationPageParams({
@@ -657,7 +709,9 @@ export async function readFilesNavigationPage(
         );
       }
     }
-    return withCreatedFilesRows(queryClient, params, page, readStartMark);
+    return pagesOnly
+      ? page
+      : withCreatedFilesRows(queryClient, params, page, readStartMark);
   } catch (error) {
     // The server checks access to the whole Files database for every page of
     // it, and answers a folder it can't show with a 400. So a refused read of
