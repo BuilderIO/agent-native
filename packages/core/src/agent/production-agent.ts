@@ -325,6 +325,7 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isContextOverflowCode,
   isContextOverflowMessage,
+  isCreditsLimitErrorCode,
   isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
   isProviderTokenRateLimitMessage,
@@ -2933,7 +2934,8 @@ export function isRetryableError(err: unknown): boolean {
   const engineErr = err instanceof EngineError ? err : null;
   const code = (engineErr?.errorCode ?? "").toLowerCase();
 
-  if (code === "builder_gateway_timeout") return false;
+  if (code === "builder_gateway_timeout" || isCreditsLimitErrorCode(code))
+    return false;
   if (
     code === "rate_limit_exceeded" ||
     msg.includes("daily gateway request cap")
@@ -5014,6 +5016,7 @@ export function isResumableEngineError(err: unknown): boolean {
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (
     (err instanceof EngineError && err.providerRetryable === false) ||
+    isCreditsLimitErrorCode(code) ||
     isRejectedRequestErrorCode(code)
   ) {
     return false;
@@ -5068,6 +5071,7 @@ export function isTransientProviderRateLimitError(err: unknown): boolean {
   const text = errorSearchText(err);
 
   if (
+    isCreditsLimitErrorCode(code) ||
     code === "rate_limit_exceeded" ||
     text.includes("daily gateway request cap")
   ) {
@@ -12710,6 +12714,7 @@ export function isRecoverableContinuationError(event: {
   if (
     event.providerRetryable === false ||
     event.recoverable === false ||
+    isCreditsLimitErrorCode(code) ||
     code === "builder_gateway_error" ||
     isRejectedRequestErrorCode(code)
   ) {

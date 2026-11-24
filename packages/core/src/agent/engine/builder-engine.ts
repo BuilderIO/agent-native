@@ -870,6 +870,7 @@ function gatewayErrorStop(
       : {}),
     ...(requestShape ? { requestShape } : {}),
     ...retry,
+    ...(isCreditsLimitErrorCode(errorCode) ? { providerRetryable: false } : {}),
   };
 }
 
@@ -1428,7 +1429,28 @@ async function* parseJsonlStream(
               captureContext.creditsLane,
               captureContext.requestShape,
             );
-          if (reason === "rate_limited") {
+          if (
+            (reason === "error" ||
+              reason === "invalid_request" ||
+              reason === "rate_limited") &&
+            typeof reportedAuthCode === "string" &&
+            isExplicitBuilderCreditsLimitCode(reportedAuthCode)
+          ) {
+            await notifyBuilderCreditLimit();
+            yield stop({
+              error: String(
+                event.error ||
+                  event.message ||
+                  event.detail ||
+                  "Gateway error (no detail)",
+              ),
+              errorCode: reportedAuthCode,
+              upgradeUrl: await buildUpgradeUrl(),
+              ...(typeof event.requestId === "string"
+                ? { requestId: event.requestId }
+                : {}),
+            });
+          } else if (reason === "rate_limited") {
             yield stop({
               error: `rate_limit exceeded: ${event.error ?? "upstream provider rate limited"}`,
               errorCode: "rate_limited",
@@ -1463,9 +1485,6 @@ async function* parseJsonlStream(
             console.warn(
               `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} requestId=${gatewayRequestId ?? "(none)"} requestShape=${JSON.stringify(captureContext.requestShape)} providerMessagePresent=${Boolean(event.error || event.message || event.detail)}`,
             );
-            if (isExplicitBuilderCreditsLimitCode(errCode)) {
-              await notifyBuilderCreditLimit();
-            }
             yield stop({
               error: errMsg,
               errorCode: errCode,
@@ -1541,9 +1560,6 @@ async function* parseJsonlStream(
                   typeof gatewayErrCode === "string" ? gatewayErrCode : errCode,
                 message: String(errMsg),
               });
-            }
-            if (isExplicitBuilderCreditsLimitCode(errCode)) {
-              await notifyBuilderCreditLimit();
             }
             if (!explicitErrMsg) {
               captureBuilderGatewayNoDetailError({

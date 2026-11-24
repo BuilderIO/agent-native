@@ -3,7 +3,12 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BUILDER_CLAUDE_SONNET_MODEL_ID } from "../model-config.js";
-import { isRetryableError } from "../production-agent.js";
+import {
+  isRecoverableContinuationError,
+  isResumableEngineError,
+  isRetryableError,
+  isTransientProviderRateLimitError,
+} from "../production-agent.js";
 import { createBuilderEngine } from "./builder-engine.js";
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "./credential-errors.js";
 import { EngineError, type EngineStreamOptions } from "./types.js";
@@ -96,8 +101,53 @@ describe("Builder gateway error retryability", () => {
       env?: Record<string, string>;
       upgradeUrl?: boolean;
       expectedErrorCode?: string;
+      expectedProviderRetryable?: boolean;
       retryable: boolean;
     }> = [
+      ...["credits-limit-daily", "credits-limit-monthly"].flatMap((code) => [
+        ...[402, 429, 500].map((status) => ({
+          label: `${status} ${code} with transient wording`,
+          response: () =>
+            jsonErrorResponse(status, { code, message: "quota exceeded" }),
+          retryable: false,
+          upgradeUrl: true,
+          expectedErrorCode: code,
+          expectedProviderRetryable: false,
+        })),
+        ...["error", "invalid_request", "rate_limited"].map((reason) => ({
+          label: `in-stream ${reason} ${code} with transient wording`,
+          response: () =>
+            jsonlResponse([
+              {
+                type: "stop",
+                reason,
+                code,
+                statusCode: 429,
+                error: "quota exceeded",
+              },
+            ]),
+          retryable: false,
+          upgradeUrl: true,
+          expectedErrorCode: code,
+          expectedProviderRetryable: false,
+        })),
+        {
+          label: `in-stream ${code} with connection wording`,
+          response: () =>
+            jsonlResponse([
+              {
+                type: "stop",
+                reason: "error",
+                code,
+                error: "Connection error",
+              },
+            ]),
+          retryable: false,
+          upgradeUrl: true,
+          expectedErrorCode: code,
+          expectedProviderRetryable: false,
+        },
+      ]),
       {
         label: "402 credits limit",
         response: () =>
@@ -432,9 +482,41 @@ describe("Builder gateway error retryability", () => {
             providerRetryable: stop.providerRetryable,
           });
           expect(isRetryableError(engineError)).toBe(branch.retryable);
+          if (branch.expectedProviderRetryable !== undefined) {
+            expect(stop.providerRetryable).toBe(
+              branch.expectedProviderRetryable,
+            );
+          }
         });
       }
     }
+
+    it.each(["credits-limit-daily", "credits-limit-monthly"])(
+      "does not retry %s despite conflicting retry signals",
+      (errorCode) => {
+        for (const statusCode of [429, 500]) {
+          for (const providerRetryable of [undefined, true]) {
+            const error = new EngineError("gateway timeout: quota exceeded", {
+              errorCode,
+              statusCode,
+              providerRetryable,
+            });
+            expect(isRetryableError(error)).toBe(false);
+            expect(isResumableEngineError(error)).toBe(false);
+            expect(isTransientProviderRateLimitError(error)).toBe(false);
+            expect(
+              isRecoverableContinuationError({
+                type: "error",
+                error: error.message,
+                errorCode,
+                providerRetryable,
+                recoverable: true,
+              }),
+            ).toBe(false);
+          }
+        }
+      },
+    );
 
     it("builds every terminal error stop through gatewayErrorStop", () => {
       const source = readFileSync(
