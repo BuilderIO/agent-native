@@ -104,6 +104,37 @@ describe("buildSettingsNavModel", () => {
     );
   });
 
+  it("shows a page entry's status in place of its unread dot", () => {
+    const StatusIcon = () => null;
+    const { model, details } = buildSettingsNavModel(
+      input({
+        unreadPageIds: ["app"],
+        appNavigationSections: [
+          {
+            id: "accounts",
+            label: "Accounts",
+            items: [
+              {
+                id: "account-alpha",
+                type: "page",
+                pageId: "app",
+                status: { icon: StatusIcon, label: "Needs reconnecting" },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(validateModel(model)).toEqual([]);
+    const row = flat(model.rows).find(
+      (candidate) => candidate.id === "settings.nav.app",
+    );
+    expect(row?.state).toEqual({
+      badge: { kind: "label", value: "Needs reconnecting", tone: "attention" },
+    });
+    expect(details.get("settings.nav.app")?.statusIcon).toBe(StatusIcon);
+  });
+
   it("selects a sub-page entry, and the page entry only when no visible entry names the sub", () => {
     const sections: AppSettingsNavigationSection[] = [
       {
