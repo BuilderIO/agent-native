@@ -320,6 +320,26 @@ export function reorderById<T>(
   return next;
 }
 
+export function isInboxSyncing(
+  metadata:
+    | {
+        syncing?: boolean;
+        accounts: readonly { state: string; backfillPending?: boolean }[];
+      }
+    | undefined,
+  read: { freshness: string } | undefined,
+): boolean {
+  if ((read?.freshness ?? "live") !== "live") return false;
+  return (
+    metadata?.syncing === true ||
+    (metadata?.accounts.some(
+      (account) =>
+        account.state === "ready" && account.backfillPending === true,
+    ) ??
+      false)
+  );
+}
+
 interface AppLayoutProps {
   children: React.ReactNode;
 }
@@ -700,12 +720,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     ? (resolvedInboxTab ?? inboxThreads.data?.tabs[0]?.id)
     : (inboxThreads.data?.activeTabId ?? resolvedInboxTab);
   const inboxIsFetching = inboxThreads.isFetching;
-  const inboxSyncing =
-    inboxMetadata?.syncing === true ||
-    inboxMetadata?.accounts.some(
-      (account) =>
-        account.state === "ready" && account.backfillPending === true,
-    );
+  const inboxSyncing = isInboxSyncing(inboxMetadata, inboxThreads.data?.read);
   const needsReauthAccount = inboxMetadata?.accounts.find(
     (account) => account.state === "needs_reauth",
   );
@@ -1677,20 +1692,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             </div>
           </>
 
-          {inboxSyncing && (
-            <span
-              className="flex shrink-0 items-center text-muted-foreground"
-              role="status"
-              aria-label={t("mail.inbox.syncing")}
-              title={t("mail.inbox.syncing")}
-            >
-              <IconRefresh
-                aria-hidden="true"
-                className="h-3 w-3 animate-spin"
-              />
-            </span>
-          )}
-
           {headerActions && (
             <div className="flex shrink-0 items-center gap-1">
               {headerActions}
@@ -1739,10 +1740,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             />
           )}
 
-          {/* Manual refresh — auto-poll backs off on error, but users
-                  still want a button to force a fresh fetch on demand. The
-                  spin animation only fires on user click, never on background
-                  poll-driven fetches. */}
+          <span className="sr-only" role="status">
+            {inboxSyncing ? t("mail.inbox.syncing") : ""}
+          </span>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -1770,12 +1770,16 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 <IconRefresh
                   className={cn(
                     "h-4 w-4",
-                    isManuallyRefreshing && "animate-spin",
+                    (isManuallyRefreshing || inboxSyncing) && "animate-spin",
                   )}
                 />
               </button>
             </TooltipTrigger>
-            <TooltipContent>{t("mail.toolbar.refreshInbox")}</TooltipContent>
+            <TooltipContent>
+              {inboxSyncing
+                ? t("mail.inbox.syncing")
+                : t("mail.toolbar.refreshInbox")}
+            </TooltipContent>
           </Tooltip>
 
           {/* Compose — prominent outline button */}
