@@ -246,6 +246,54 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.context).toContain("1 slide(s) omitted");
   });
 
+  it("preserves preset shapes with horizontal and vertical adjustment guides", async () => {
+    const elements = ["hexagon", "pentagon", "star5"].map(
+      (shapeType, index) => ({
+        id: String(index),
+        kind: "shape" as const,
+        x: 1,
+        y: 2,
+        width: 3,
+        height: 4,
+        shapeType,
+        shapeAdjustments: { adj: 50000, hf: 105146, vf: 110557 },
+      }),
+    );
+    const summary = summarizePptxShapes([
+      { texts: [], images: [], elements },
+    ]).at(0);
+    if (!summary) throw new Error("Missing slide summary");
+    expect(summary.omitted).toBe(0);
+    expect(summary.shapes).toHaveLength(3);
+    for (const shape of summary.shapes) {
+      expect(shape.adjustments).toEqual([
+        { name: "adj", value: 50000 },
+        { name: "hf", value: 105146 },
+        { name: "vf", value: 110557 },
+      ]);
+    }
+    const callActionImpl = vi.fn().mockResolvedValue({
+      format: "pptx",
+      slides: [
+        {
+          index: 0,
+          vectorShapes: summary.shapes,
+          vectorShapesOmitted: summary.omitted,
+        },
+      ],
+    });
+    const result = await hydrateReferenceDocuments([uploaded("deck.pptx")], {
+      callActionImpl,
+    });
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated")
+      throw new Error("Reference was not hydrated");
+    expect(result.context).toContain('"shapeType":"star5"');
+    expect(result.context).toContain('"name":"hf","value":105146');
+    expect(result.context).toContain('"name":"vf","value":110557');
+    expect(result.context).not.toContain("parsed vector shape(s) omitted");
+  });
+
   it("budgets shapes using their escaped serialized size", async () => {
     const slides = Array.from({ length: 5 }, (_, index) => ({
       texts: [],

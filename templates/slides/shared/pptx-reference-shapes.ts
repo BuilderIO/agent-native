@@ -49,7 +49,12 @@ export const pptxReferenceShapeSchema = z.object({
   flipV: z.boolean().optional(),
   shapeType: token.optional(),
   adjustments: z
-    .array(z.object({ name: z.string().regex(/^adj\d{0,2}$/), value: number }))
+    .array(
+      z.object({
+        name: z.string().regex(/^(?:adj\d{0,2}|hf|vf)$/),
+        value: number,
+      }),
+    )
     .max(20)
     .optional(),
   geometry: z
