@@ -128,14 +128,14 @@ describe("human author filter", () => {
     "deploy-bot@x.com",
     "bot@x.com",
   ])("excludes %s", (fromEmail) => {
-    expect(classifyAutomated({ ...base, fromEmail })).toBe(true);
+    expect(classifyAutomated({ ...base, fromEmail })).toBe("automated");
   });
   it("keeps people", () => {
     expect(classifyAutomated({ ...base, fromEmail: "abbott@x.com" })).toBe(
-      false,
+      "unclassified",
     );
     expect(classifyAutomated({ ...base, fromEmail: "robot.fan@x.com" })).toBe(
-      false,
+      "unclassified",
     );
   });
 });

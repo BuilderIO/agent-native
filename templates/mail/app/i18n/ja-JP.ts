@@ -460,6 +460,7 @@ const messages = {
       tryDifferentKeywords: "別のキーワードを試してください",
       nothingHere: "まだ何もありません",
       loadingMore: "さらに読み込み中...",
+      loadOlder: "以前の会話を読み込む",
       openAllMailForOlder: "古いメッセージはすべてのメールで開く",
     },
     toasts: {
@@ -559,6 +560,8 @@ const messages = {
       tryAgain: "再試行",
       rateLimitTitle: "Gmail のレート制限に達しました",
       loadTitle: "メールを読み込めません",
+      staleSaved:
+        "メールを更新できませんでした。保存済みの会話を表示しています。",
       rateLimitDescription:
         "Google への最近のリクエストが多すぎます。少し待ってから再試行します。",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",

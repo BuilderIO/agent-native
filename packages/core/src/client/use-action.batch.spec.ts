@@ -93,7 +93,7 @@ function batchedActions(calls: RecordedCall[]): string[] | undefined {
 type QuerySpec = readonly [
   name: string,
   params?: Record<string, unknown>,
-  options?: { batchRefetches?: boolean },
+  options?: { batchRefetches?: boolean; batchInitial?: boolean },
 ];
 
 const roots: Root[] = [];
@@ -160,6 +160,95 @@ afterEach(() => {
 });
 
 describe("action GET batching", () => {
+  it("keeps requests for different app mounts out of the same batch", async () => {
+    const { calls } = stubFetch((call) =>
+      call.url.endsWith("/get-actions-batch")
+        ? batchResponses(call, () => ({ status: 200, body: {} }))
+        : jsonResponse({}),
+    );
+    const request = (base: string, name: string) => ({
+      name,
+      query: "",
+      url: `${base}/actions/${name}`,
+      init: { method: "GET" },
+      headers: {},
+      batchUrl: `${base}/actions/get-actions-batch`,
+    });
+    await Promise.all([
+      fetchActionGet(request("/one/_agent-native", "get-a")),
+      fetchActionGet(request("/two/_agent-native", "get-b")),
+    ]);
+    expect(calls.map(requestLine)).toEqual([
+      "GET /one/_agent-native/actions/get-a",
+      "GET /two/_agent-native/actions/get-b",
+    ]);
+  });
+
+  it("batches opted-in initial reads and returns each action's result", async () => {
+    const names = ["get-lab-states", "get-feature-flags"];
+    const { calls } = stubFetch((call) =>
+      call.url === BATCH_URL
+        ? batchResponses(call, (index) => ({
+            status: 200,
+            body: { action: call.body?.requests?.[index]?.action },
+          }))
+        : jsonResponse({}),
+    );
+
+    const { states } = await mountQueries(
+      names.map((name) => [name, undefined, { batchInitial: true }] as const),
+    );
+
+    expect(calls.map(requestLine)).toEqual([`POST ${BATCH_URL}`]);
+    expect(batchedActions(calls)).toEqual(names);
+    expect(states().map((state) => state?.data)).toEqual(
+      names.map((action) => ({ action })),
+    );
+  });
+
+  it("does not put initial reads behind unrelated refetches", async () => {
+    const { calls } = stubFetch((call) =>
+      call.url === BATCH_URL
+        ? batchResponses(call, (index) => ({
+            status: 200,
+            body: { action: call.body?.requests?.[index]?.action },
+          }))
+        : jsonResponse({}),
+    );
+    const queryClient = new QueryClient();
+    for (const name of ["get-a", "get-b"]) {
+      queryClient.setQueryData(["action", name, undefined], { cached: name });
+    }
+
+    const { states } = await mountQueries(
+      [
+        ["get-a"],
+        ["get-b"],
+        ["get-lab-states", undefined, { batchInitial: true }],
+        ["get-feature-flags", undefined, { batchInitial: true }],
+      ],
+      queryClient,
+    );
+
+    expect(calls).toHaveLength(2);
+    expect(
+      calls
+        .map((call) =>
+          call.body?.requests
+            ?.map(({ action }) => action)
+            .sort()
+            .join(","),
+        )
+        .sort(),
+    ).toEqual(["get-a,get-b", "get-feature-flags,get-lab-states"]);
+    expect(states().map((state) => state?.status)).toEqual([
+      "success",
+      "success",
+      "success",
+      "success",
+    ]);
+  });
+
   it("sends each query's first fetch on its own request, even when they mount together", async () => {
     const names = ["list-designs", "list-decks", "get-brand"];
     const { calls } = stubFetch();

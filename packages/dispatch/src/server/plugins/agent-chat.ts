@@ -57,6 +57,7 @@ export default createAgentChatPlugin({
   mcp: {
     appApprovalPage: true,
     readOnlyResources: true,
+    servesAnSkill: true,
     taskCandidates: async ({ callableActionNames, signal }) => {
       signal.throwIfAborted();
       if (!callableActionNames.includes("open_app")) return [];

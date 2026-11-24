@@ -18,6 +18,8 @@ export interface AgentChatMcpOptions {
   connectorCatalog?: string[];
   taskCandidates?: MCPConfig["taskCandidates"];
   readOnlyResources?: boolean;
+  /** Serve the `an` skill over MCP (Skills extension). Dispatch only. */
+  servesAnSkill?: boolean;
   directoryProfile?: {
     connectorCatalog: string[];
     directoryRoute?: false;
@@ -101,6 +103,7 @@ export interface ResolvedAgentChatMcp {
   connectorCatalog: string[] | undefined;
   taskCandidates: MCPConfig["taskCandidates"];
   readOnlyResources: boolean | undefined;
+  servesAnSkill: boolean | undefined;
   directoryProfile: AgentChatMcpOptions["directoryProfile"] | undefined;
   externalAgents: ExternalAgentPolicy | undefined;
   builtinCrossAppTools: boolean | undefined;
@@ -210,6 +213,7 @@ export function resolveAgentChatMcpOptions(
     connectorCatalog,
     taskCandidates: mcp.taskCandidates,
     readOnlyResources: mcp.readOnlyResources,
+    servesAnSkill: mcp.servesAnSkill,
     directoryProfile: mcp.directoryProfile,
     externalAgents,
     builtinCrossAppTools: mcp.builtinCrossAppTools,
