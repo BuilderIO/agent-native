@@ -2663,7 +2663,7 @@ describe("design connect bridge endpoints", () => {
       );
       expect(html.body).toContain(`<base href="${base}/">`);
       expect(html.body).toContain(
-        `src="/src/main.ts?previewToken=${bridge.previewToken}" crossorigin="use-credentials"`,
+        `src="${base}/src/main.ts?previewToken=${bridge.previewToken}" crossorigin="use-credentials"`,
       );
       expect(html.body).toContain(
         `/assets/cover.png?previewToken=${bridge.previewToken}`,
@@ -2675,12 +2675,12 @@ describe("design connect bridge endpoints", () => {
         `/assets/inline.png?previewToken=${bridge.previewToken}`,
       );
       expect(html.body).toContain(
-        `./inline.css?previewToken=${bridge.previewToken}`,
+        `${base}/inline.css?previewToken=${bridge.previewToken}`,
       );
       expect(html.body).toContain("filter='url(%23n)'");
       expect(html.body).not.toContain("url(%23n?previewToken=");
       expect(html.body).toContain(
-        `/assets/stale.png?mode=dark&previewToken=${bridge.previewToken}`,
+        `/assets/stale.png?mode=dark&amp;previewToken=${bridge.previewToken}`,
       );
       expect(html.body).toContain(
         `src="https://cdn.example.com/anonymous.png"`,
@@ -2696,7 +2696,9 @@ describe("design connect bridge endpoints", () => {
       );
       expect(html.body).toContain("data-agent-native-opaque-preview-auth");
       expect(html.body).toContain("var W=window.WebSocket");
-      expect(html.body).toContain('a.protocol==="ws:"||a.protocol==="wss:"');
+      expect(html.body).toContain(
+        'a.protocol===(b.protocol==="https:"?"wss:":"ws:")',
+      );
       expect(html.body).toContain('a.searchParams.has("previewToken")');
       expect(html.body).toContain(bridge.previewToken);
       const authScript = html.body.match(
@@ -2759,6 +2761,14 @@ describe("design connect bridge endpoints", () => {
       const originalInlineSvgStyle = inlineSvgStyle.textContent;
       nodePrototype.appendChild(inlineSvgStyle);
       expect(inlineSvgStyle.textContent).toBe(originalInlineSvgStyle);
+      const escapedStyle = {
+        nodeType: 1,
+        tagName: "STYLE",
+        textContent: String.raw`body{background:url(\2f\2f external.example/image.png)}`,
+      };
+      const originalEscapedStyle = escapedStyle.textContent;
+      nodePrototype.appendChild(escapedStyle);
+      expect(escapedStyle.textContent).toBe(originalEscapedStyle);
       const liveReloadedStylesheet = {
         nodeType: 1,
         tagName: "LINK",
@@ -2834,7 +2844,7 @@ describe("design connect bridge endpoints", () => {
       expect(interactHtml.status).toBe(200);
       expect(interactHtml.body).toContain(`<base href="${base}/">`);
       expect(interactHtml.body).toContain(
-        `src="/src/main.ts?previewToken=${bridge.previewToken}"`,
+        `src="${base}/src/main.ts?previewToken=${bridge.previewToken}"`,
       );
       expect(interactHtml.body).not.toContain(
         "agent-native:editor-chrome-ready",
@@ -4059,6 +4069,210 @@ describe("design connect bridge endpoints", () => {
       );
       if (rawServerClose) await rawServerClose;
       else await bridge.close();
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("never sends preview tokens to resources resolved against an external HTML base", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const externalBase = "https://external.example/assets/";
+    const devServer = http.createServer((req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      if (req.url?.startsWith("/local/page")) {
+        res.end(
+          String.raw`<html><head><base href="./relative/"><style>body{background:url(\2f\2f external.example/image.png)}</style></head><body><script type="module">import './module.js';</script></body></html>`,
+        );
+        return;
+      }
+      res.end(
+        `<!doctype html><html><head><base href="https://external.example&#47;assets/"><style>@import './style.css'; body{background:url('/image.png')}</style></head><body><img src="./picture.png"><script type="module">import './module.js'; import('/dynamic.js'); fetch('./data.json').then(() => document.body.dataset.done = 'yes');</script></body></html>`,
+      );
+    });
+    await new Promise<void>((resolve) =>
+      devServer.listen(devPort, "127.0.0.1", resolve),
+    );
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const response = await getText(
+        `${manifest.bridgeUrl}/live-edit?path=/&previewToken=${bridge.previewToken}`,
+      );
+      expect(response.status).toBe(200);
+      expect(response.body).toContain(
+        "import './module.js'; import('/dynamic.js'); fetch('./data.json')",
+      );
+      expect(response.body).toContain(
+        "@import './style.css'; body{background:url('/image.png')}",
+      );
+      expect(response.body).toContain('<img src="./picture.png">');
+      const importMap = response.body.match(
+        /<script type="importmap" data-agent-native-opaque-preview-imports>([\s\S]*?)<\/script>/,
+      )?.[1];
+      if (!importMap) throw new Error("missing preview import map");
+      for (const target of Object.values(
+        JSON.parse(importMap).imports,
+      ) as string[]) {
+        expect(new URL(target, externalBase).origin).toBe(
+          new URL(manifest.bridgeUrl).origin,
+        );
+      }
+      const authScript = response.body.match(
+        /<script data-agent-native-opaque-preview-auth>([\s\S]*?)<\/script>/,
+      )?.[1];
+      if (!authScript) throw new Error("missing preview auth shim");
+      const requested: string[] = [];
+      const windowObject = { fetch: (url: string) => requested.push(url) };
+      vm.runInNewContext(authScript, {
+        window: windowObject,
+        document: { baseURI: externalBase },
+        Node: {
+          prototype: {
+            appendChild: () => undefined,
+            insertBefore: () => undefined,
+          },
+        },
+        XMLHttpRequest: { prototype: { open: () => undefined } },
+        Request,
+        URL,
+      });
+      windowObject.fetch("./data.json");
+      expect(requested).toEqual(["./data.json"]);
+      const local = await getText(
+        `${manifest.bridgeUrl}/live-edit?path=/local/page&previewToken=${bridge.previewToken}`,
+      );
+      expect(local.status).toBe(200);
+      expect(local.body).toContain(
+        `${manifest.bridgeUrl}/local/relative/module.js?previewToken=${bridge.previewToken}`,
+      );
+      expect(local.body).toContain(
+        String.raw`url(\2f\2f external.example/image.png)`,
+      );
+
+      const browser = await launchBrowser();
+      try {
+        const page = await browser.newPage();
+        const externalRequests: string[] = [];
+        await page.route("https://external.example/**", async (route) => {
+          const url = route.request().url();
+          externalRequests.push(url);
+          await route.fulfill({
+            status: 200,
+            headers: { "access-control-allow-origin": "*" },
+            contentType: url.endsWith(".js")
+              ? "application/javascript"
+              : "text/plain",
+            body: url.endsWith(".js") ? "export {};" : "",
+          });
+        });
+        const preview = new URL("/live-edit", manifest.bridgeUrl);
+        preview.searchParams.set("path", "/");
+        preview.searchParams.set("previewToken", bridge.previewToken);
+        await page.setContent(
+          `<iframe sandbox="allow-scripts" src="${preview}"></iframe>`,
+        );
+        const frame = await (
+          await page.locator("iframe").elementHandle()
+        )?.contentFrame();
+        if (!frame) throw new Error("missing opaque preview frame");
+        await frame.waitForFunction(() => document.body.dataset.done === "yes");
+        expect(externalRequests).toContain(
+          "https://external.example/assets/module.js",
+        );
+        expect(externalRequests).toContain(
+          "https://external.example/dynamic.js",
+        );
+        expect(externalRequests).toContain(
+          "https://external.example/assets/data.json",
+        );
+        expect(
+          externalRequests.every(
+            (url) => !new URL(url).searchParams.has("previewToken"),
+          ),
+        ).toBe(true);
+      } finally {
+        await browser.close();
+      }
+    } finally {
+      await bridge.close();
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("serves large valid JavaScript modules with authenticated imports", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const expression = Array(8000).fill("1").join("+");
+    const devServer = http.createServer((req, res) => {
+      res.writeHead(200, { "content-type": "application/javascript" });
+      res.end(
+        req.url?.startsWith("/dep.js")
+          ? "export default 42;"
+          : `import result from './dep.js'; const external = new URL('/asset.js', 'https://external.example'); const total = ${expression}; const lazy = () => import(/* @vite-ignore */ './lazy.js?mode=dev'); export { result, total, external, lazy };`,
+      );
+    });
+    await new Promise<void>((resolve) =>
+      devServer.listen(devPort, "127.0.0.1", resolve),
+    );
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const response = await getText(
+        `${manifest.bridgeUrl}/large.js?previewToken=${bridge.previewToken}`,
+        { origin: "null", "sec-fetch-dest": "script" },
+      );
+      expect(response.status, response.body).toBe(200);
+      expect(response.body).toContain(expression);
+      expect(response.body).toContain(
+        "new URL('/asset.js', 'https://external.example')",
+      );
+      expect(response.body).toContain(
+        `./lazy.js?mode=dev&previewToken=${bridge.previewToken}`,
+      );
+      const match = response.body.match(/from ['"]([^'"]*dep\.js[^'"]*)['"]/);
+      if (!match) throw new Error("missing dependency import");
+      const dependency = await getText(
+        new URL(match[1], `${manifest.bridgeUrl}/large.js`).toString(),
+        { origin: "null", "sec-fetch-dest": "script" },
+      );
+      expect(dependency.status).toBe(200);
+      expect(dependency.headers["access-control-allow-origin"]).toBe("null");
+      expect(dependency.body).toContain("export default 42");
+      const denied = await getText(`${manifest.bridgeUrl}/dep.js`, {
+        origin: "null",
+        "sec-fetch-dest": "script",
+      });
+      expect(denied.status).toBe(401);
+      expect(denied.headers["access-control-allow-origin"]).toBeUndefined();
+      const browser = await launchBrowser();
+      try {
+        const page = await browser.newPage();
+        const moduleUrl = `${manifest.bridgeUrl}/large.js?previewToken=${bridge.previewToken}`;
+        await page.setContent(
+          `<iframe sandbox="allow-scripts" srcdoc="<script type='module'>import { result, total } from '${moduleUrl}'; document.body.textContent = result + ':' + total;</script>"></iframe>`,
+        );
+        const frame = await (
+          await page.locator("iframe").elementHandle()
+        )?.contentFrame();
+        if (!frame) throw new Error("missing opaque preview frame");
+        await frame.waitForFunction(
+          () => document.body.textContent === "42:8000",
+        );
+      } finally {
+        await browser.close();
+      }
+    } finally {
+      await bridge.close();
       await new Promise<void>((resolve) => devServer.close(() => resolve()));
     }
   });
