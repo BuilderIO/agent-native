@@ -219,7 +219,14 @@ never by an agent's post.
 
 - **Slack `root`, `reply`**: a report or a new reply on one (steps 2 to 5).
   An item whose `channel` is in `$FACTORY_SLACK_ALERT_CHANNELS` is an alert
-  (see Alerts).
+  (see Alerts). A root with `"botPost": true` was posted by a bot for a
+  user outside Slack, as every report in #dev-agent-native-feedback is
+  (the in-app feedback form). It has no reporter: nobody in the thread can
+  answer a question, so never ask one, never wait on the reporter, and
+  never make the reporter a `needs-person` owner. Work from the post and
+  the factory's own sources (Sentry, analytics, logs near the post's
+  time). When they don't give enough to find the defect, it's
+  `not-actionable`, with no reply.
 - **Slack `mention`**: someone asking the factory directly (see Mentions).
 - **Talk about the factory.** Maintainers (check authors with
   `factory-slack member`) discussing the factory itself in a feedback
@@ -421,11 +428,10 @@ Blocked column and the console's Needs attention.
 - **`not-actionable`**: noise: a waitlist signup, an announcement, a thread
   people already handled or resolved, a vague report naming no defect, a
   low-signal error (a few events, 0 users, a synthetic event), a noisy alert
-  rule (suggest a threshold). So is a feedback-form submission (a workflow
-  post such as "New submission: Agent Native Feedback") that gives only a
+  rule (suggest a threshold). So is a `botPost` report that gives only a
   symptom, with no app, steps, error, or link to find it by ("It does not
-  start recording"): the form is anonymous, so no one can answer a
-  question, and none is asked.
+  start recording"), when the factory's sources don't show it either: no
+  one can answer a question, so none is asked.
 - **`needs-person`**: a specific person must act. Always set `ask`, one
   imperative sentence ("Set `NEON_ORG_ID` in the repo's GitHub Actions
   settings", "Decide whether personal automations use the org AI key"), and
