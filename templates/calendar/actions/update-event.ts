@@ -19,6 +19,7 @@ import {
   prepareZoomMeetingPatch,
   type CreatedZoomMeeting,
 } from "../server/lib/event-video-conferencing.js";
+import { isGoogleRequestRejectedError } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
 import { isCalendarEventOrganizer } from "../shared/event-permissions.js";
@@ -614,6 +615,43 @@ export default defineAction({
       updates.attendees = attendees;
     }
 
+    const replaceRecurringWorkingLocation =
+      hasWorkingLocationPatch &&
+      (args.scope ?? "single") === "single" &&
+      existingEvent?.recurringEventId &&
+      updates.workingLocationProperties;
+    if (replaceRecurringWorkingLocation) {
+      const hasUnsupportedReplacementPatch =
+        args.title !== undefined ||
+        args.description !== undefined ||
+        args.start !== undefined ||
+        args.end !== undefined ||
+        args.startTimeZone !== undefined ||
+        args.endTimeZone !== undefined ||
+        args.allDay !== undefined ||
+        args.status !== undefined ||
+        args.colorId !== undefined ||
+        args.attachments !== undefined ||
+        args.reminders !== undefined ||
+        args.reminderMinutes !== undefined ||
+        args.remindersUseDefault !== undefined ||
+        args.addGoogleMeet === true ||
+        args.addZoom === true ||
+        args.recurrence !== undefined ||
+        args.attendees !== undefined ||
+        args.addAttendees !== undefined ||
+        args.notificationMessage !== undefined;
+      if (hasUnsupportedReplacementPatch) {
+        fail(
+          "Change the working location separately from other event fields for a single recurring occurrence.",
+          { errorCode: "working_location_mixed_edit", statusCode: 400 },
+        );
+      }
+    }
+    const eventForNotification = guestNotificationMessage
+      ? await loadExistingEvent()
+      : undefined;
+
     let zoomMeetingLink: string | undefined;
     let zoomAlreadyPresent = false;
     let zoomCreated: CreatedZoomMeeting | undefined;
@@ -636,10 +674,6 @@ export default defineAction({
       Object.assign(updates, zoom.patch);
     }
 
-    const eventForNotification = guestNotificationMessage
-      ? await loadExistingEvent()
-      : undefined;
-
     const updatedKeys = Object.keys(updates).filter(
       (key) => key !== "accountEmail",
     );
@@ -656,40 +690,9 @@ export default defineAction({
 
     let result: Awaited<ReturnType<typeof googleCalendar.updateEvent>>;
     let returnedGoogleEventId = googleEventId;
-    const replaceRecurringWorkingLocation =
-      hasWorkingLocationPatch &&
-      (args.scope ?? "single") === "single" &&
-      existingEvent?.recurringEventId &&
-      updates.workingLocationProperties;
-
     if (replaceRecurringWorkingLocation) {
       const source = await loadExistingEvent();
       checkReadRevision(source);
-      const hasUnsupportedReplacementPatch =
-        args.title !== undefined ||
-        args.description !== undefined ||
-        args.start !== undefined ||
-        args.end !== undefined ||
-        args.startTimeZone !== undefined ||
-        args.endTimeZone !== undefined ||
-        args.allDay !== undefined ||
-        args.status !== undefined ||
-        args.colorId !== undefined ||
-        args.attachments !== undefined ||
-        args.reminders !== undefined ||
-        args.reminderMinutes !== undefined ||
-        args.remindersUseDefault !== undefined ||
-        args.addGoogleMeet === true ||
-        args.addZoom === true ||
-        args.recurrence !== undefined ||
-        args.attendees !== undefined ||
-        args.addAttendees !== undefined ||
-        args.notificationMessage !== undefined;
-      if (hasUnsupportedReplacementPatch) {
-        throw new Error(
-          "Change the working location separately from other event fields for a single recurring occurrence.",
-        );
-      }
       const now = new Date().toISOString();
       const replacement = await googleCalendar.createEvent(
         {
@@ -770,7 +773,10 @@ export default defineAction({
           expectedRevision: args.expectedRevision,
         });
       } catch (error) {
-        if (zoomCreated && isSaveConflict(error)) {
+        if (
+          zoomCreated &&
+          (isSaveConflict(error) || isGoogleRequestRejectedError(error))
+        ) {
           await discardZoomMeeting(zoomCreated);
         }
         throw error;

@@ -187,7 +187,7 @@ export async function discardZoomMeeting(
     await deleteZoomMeeting(meeting);
   } catch (error) {
     console.error(
-      "Failed to delete the Zoom meeting created for an event update that was refused.",
+      `Failed to delete Zoom meeting ${meeting.meetingId}, created for an event update that was refused.`,
       error,
     );
   }

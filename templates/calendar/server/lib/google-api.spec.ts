@@ -6,8 +6,30 @@ import {
   calendarListEvents,
   calendarPatchEvent,
   calendarUpdateEvent,
+  GoogleApiError,
   googleFetch,
+  isGoogleRequestRejectedError,
 } from "./google-api.js";
+
+describe("isGoogleRequestRejectedError", () => {
+  it("counts a 4xx answer as a refused write, but not a timeout or a server error", () => {
+    expect(isGoogleRequestRejectedError(new GoogleApiError(400, "Bad"))).toBe(
+      true,
+    );
+    expect(
+      isGoogleRequestRejectedError(new Error("Google API error (404): Gone")),
+    ).toBe(true);
+    expect(
+      isGoogleRequestRejectedError(new GoogleApiError(408, "Timeout")),
+    ).toBe(false);
+    expect(
+      isGoogleRequestRejectedError(new GoogleApiError(503, "Unavailable")),
+    ).toBe(false);
+    expect(isGoogleRequestRejectedError(new Error("socket hang up"))).toBe(
+      false,
+    );
+  });
+});
 
 describe("googleFetch", () => {
   const fetchMock = vi.fn();

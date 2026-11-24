@@ -41,6 +41,7 @@ import {
   discardZoomMeeting,
   prepareZoomMeetingPatch,
 } from "../server/lib/event-video-conferencing.js";
+import { GoogleApiError } from "../server/lib/google-api.js";
 import action from "./update-event";
 
 // Every caller's gate judges the call as prepared: validated, defaults
@@ -780,6 +781,63 @@ describe("update-event working locations", () => {
       accountId: "zoom-account",
       meetingId: "123",
     });
+  });
+
+  it("deletes the Zoom meeting it created when Google rejects the write", async () => {
+    getEventMock.mockResolvedValue({
+      id: "google-event-1",
+      revision: '"etag-1"',
+      title: "Team meeting",
+      description: "",
+      location: "",
+      start: "2026-07-07T15:00:00.000Z",
+      end: "2026-07-07T15:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "owner@example.com",
+      organizer: { email: "owner@example.com", self: true },
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+    vi.mocked(prepareZoomMeetingPatch).mockResolvedValue({
+      meetingLink: "https://zoom.us/j/123",
+      patch: { description: "Zoom: https://zoom.us/j/123" },
+      alreadyPresent: false,
+      created: { accountId: "zoom-account", meetingId: "123" },
+    });
+    updateEventMock.mockRejectedValue(
+      new GoogleApiError(400, "Invalid conference data"),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-event-1",
+          addZoom: true,
+          expectedRevision: '"etag-1"',
+        }),
+      ),
+    ).rejects.toThrow("Google API error (400)");
+    expect(discardZoomMeeting).toHaveBeenCalledWith({
+      accountId: "zoom-account",
+      meetingId: "123",
+    });
+  });
+
+  it("refuses a Zoom meeting on one occurrence's working-location change before creating it", async () => {
+    getEventMock.mockResolvedValue(recurringWorkingLocationEvent());
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-instance-20260707",
+          workingLocationType: "homeOffice",
+          addZoom: true,
+          scope: "single",
+        }),
+      ),
+    ).rejects.toThrow("Change the working location separately");
+    expect(prepareZoomMeetingPatch).not.toHaveBeenCalled();
   });
 
   it("keeps the Zoom meeting when the write fails without saying it wasn't applied", async () => {
