@@ -242,7 +242,7 @@ jobs:
         run: node scripts/guard-no-major-changeset.mjs
 
       - name: Start PostgreSQL for navigation proof
-        if: needs.change-scope.outputs.has_reports == 'true' && contains(github.event.pull_request.body, 'actions/query-content-database-items.navigation.postgres.integration.test.ts')
+        if: needs.change-scope.outputs.has_reports == 'true' && contains(github.event.pull_request.body, 'query-content-database-items.navigation.postgres.integration.test.ts')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -259,7 +259,7 @@ jobs:
             -e POSTGRES_DB=content_navigation_test -e POSTGRES_HOST_AUTH_METHOD=trust \
             -p 127.0.0.1:5432:5432 ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
           for attempt in {1..30}; do
-            if docker exec feedback-proof-postgres pg_isready -U postgres -d content_navigation_test; then
+            if docker exec feedback-proof-postgres pg_isready -h 127.0.0.1 -U postgres -d content_navigation_test; then
               echo 'CONTENT_NAVIGATION_POSTGRES_URL=postgres://postgres@127.0.0.1:5432/content_navigation_test' >> "$GITHUB_ENV"
               echo 'CONTENT_NAVIGATION_POSTGRES_REQUIRED=1' >> "$GITHUB_ENV"
               exit 0
