@@ -194,7 +194,6 @@ test("gradient fill trigger stays inside its cell and opens from one click", asy
   expect(removeBox).not.toBeNull();
   expect(handleBox).not.toBeNull();
   expect(rowBox).not.toBeNull();
-  // The handle hangs in the 16px section gutter beside the pill, not over it.
   expect(handleBox!.x + handleBox!.width).toBeLessThanOrEqual(
     triggerBox!.x + 0.5,
   );
