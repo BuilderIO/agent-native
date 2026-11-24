@@ -28,6 +28,8 @@ const agents = vi.hoisted(() => ({
   onSpawn: undefined as
     | ((options: Record<string, unknown>) => Promise<void>)
     | undefined,
+  onGetThread: undefined as (() => Promise<void>) | undefined,
+  onReadGenerations: undefined as (() => Promise<void>) | undefined,
 }));
 
 vi.mock("@agent-native/core/server", async (importOriginal) => {
@@ -63,10 +65,34 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
           }
         : undefined;
     }),
-    getThread: vi.fn(async (id: string) =>
-      agents.threads.has(id) ? { id, scope: agents.threads.get(id) } : null,
-    ),
+    getThread: vi.fn(async (id: string) => {
+      const hook = agents.onGetThread;
+      agents.onGetThread = undefined;
+      await hook?.();
+      return agents.threads.has(id)
+        ? { id, scope: agents.threads.get(id) }
+        : null;
+    }),
     isAgentChatAiSetupReady: vi.fn(async () => agents.aiReady),
+  };
+});
+
+vi.mock("../../actions/_property-generations.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../actions/_property-generations.js")
+    >();
+  return {
+    ...actual,
+    readPropertyGenerations: vi.fn(
+      async (...args: Parameters<typeof actual.readPropertyGenerations>) => {
+        const generations = await actual.readPropertyGenerations(...args);
+        const hook = agents.onReadGenerations;
+        agents.onReadGenerations = undefined;
+        await hook?.();
+        return generations;
+      },
+    ),
   };
 });
 
@@ -117,6 +143,8 @@ beforeEach(() => {
   agents.threads.clear();
   agents.aiReady = true;
   agents.onSpawn = undefined;
+  agents.onGetThread = undefined;
+  agents.onReadGenerations = undefined;
 });
 
 function run(index: number) {
@@ -373,6 +401,42 @@ describe("Fill with AI", () => {
     expect(
       (await asOwner(() => columnFill.readColumnFill(fill.id))).status,
     ).toBe("done");
+  });
+
+  it("keeps a retry's value when a follow-up from the failed run's chat saves after it", async () => {
+    const ids = await fixture(1);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    const row = ids.row(0);
+    agents.statuses.set("task-1", "errored");
+    await columnFill.sweepColumnFills({ deadlineAt: Date.now() + 10_000 });
+    agents.onGetThread = async () => {
+      await columnFill.retryColumnFillCell({
+        fillId: fill.id,
+        documentId: row,
+      });
+      await columnFill.fillColumnCell(
+        { fillId: fill.id, documentId: row, value: "From the retry" },
+        run(2),
+      );
+    };
+
+    const followUp = await asOwner(() =>
+      columnFill.fillColumnCell(
+        { fillId: fill.id, documentId: row, value: "From the old chat" },
+        chatTurn(1),
+      ),
+    );
+    expect(followUp.message).toContain("nothing was saved");
+    expect(await cellValue(row, ids.summary)).toBe("From the retry");
+    expect((await cells(fill.id)).get(row)).toBe("filled");
   });
 
   it("keeps an edit made after a run's first save when the run saves again", async () => {
@@ -817,6 +881,34 @@ describe("Fill with AI", () => {
     );
     expect(stale?.status).toBe("running");
     expect(await cellValue(ids.row(0), ids.summary)).toBeNull();
+  });
+
+  it("tries a failed cell again once when two tries overlap", async () => {
+    const ids = await fixture(1);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    const row = ids.row(0);
+    const retry = () =>
+      columnFill.retryColumnFillCell({ fillId: fill.id, documentId: row });
+    agents.statuses.set("task-1", "errored");
+    await columnFill.sweepColumnFills({ deadlineAt: Date.now() + 10_000 });
+    agents.onReadGenerations = async () => {
+      await retry();
+      agents.statuses.set("task-2", "errored");
+      await columnFill.sweepColumnFills({ deadlineAt: Date.now() + 10_000 });
+    };
+
+    const late = await asOwner(retry);
+    expect(late.status).toBe("done");
+    expect(late.cells[0]?.status).toBe("failed");
+    expect(agents.spawned).toHaveLength(2);
   });
 
   it("won't try a cell again while its fill is stopping", async () => {

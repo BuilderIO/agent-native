@@ -772,7 +772,7 @@ export async function retryColumnFillCell(args: {
             .for("update"),
         );
         if (current?.status === "stopping") throw fillStopping();
-        await tx
+        const updated = await tx
           .update(schema.contentColumnFillCells)
           .set(
             kept
@@ -792,10 +792,12 @@ export async function retryColumnFillCell(args: {
             and(
               eq(schema.contentColumnFillCells.fillId, fill.id),
               eq(schema.contentColumnFillCells.documentId, cell.documentId),
+              eq(schema.contentColumnFillCells.attempt, cell.attempt),
               eq(schema.contentColumnFillCells.status, "failed"),
             ),
-          );
-        if (kept) return;
+          )
+          .returning({ documentId: schema.contentColumnFillCells.documentId });
+        if (kept || !updated.length) return;
         await tx
           .update(schema.contentColumnFills)
           .set({ status: "running", updatedAt: stamp })
@@ -820,6 +822,11 @@ export async function fillColumnCell(
   ctx: ActionRunContext | undefined,
 ): Promise<{ status: ColumnFillCellStatus; message: string }> {
   const fill = await loadOwnFill(args.fillId);
+  const generations = await readPropertyGenerations(
+    getDb(),
+    [args.documentId],
+    { propertyIds: [fill.propertyId] },
+  );
   const cell = firstRow(
     await getDb()
       .select()
@@ -912,16 +919,24 @@ export async function fillColumnCell(
         databaseId: fill.databaseId,
         propertyId: fill.propertyId,
         value,
-        ...(followUp ? {} : { expectedGeneration: cell.baseGeneration ?? 0 }),
+        expectedGeneration: followUp
+          ? generations.of(cell.documentId, fill.propertyId)
+          : (cell.baseGeneration ?? 0),
       },
       ctx,
     );
   } catch (error) {
     if (
-      !followUp &&
       error instanceof ActionContractError &&
       error.errorCode === "PROPERTY_GENERATION_CONFLICT"
     ) {
+      if (followUp) {
+        return {
+          status,
+          message:
+            "This cell changed while you were saving, so nothing was saved. Read the page again before saving.",
+        };
+      }
       await setCell(cell, { status: "kept" }, status);
       await advanceColumnFill(fill.id);
       return { status: "kept", message: keptMessage };
