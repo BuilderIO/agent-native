@@ -11020,6 +11020,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               : []),
             ...(job?.meta.mcpTools ?? []),
           ],
+          ...(options?.resolveActionSurface
+            ? { resolveActionSurface: options.resolveActionSurface }
+            : {}),
           apiKey: options?.apiKey,
           model: resolveConfiguredAgentModel(options),
           appId: options?.appId,
@@ -11697,6 +11700,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         await import("../triggers/dispatcher.js");
       await initTriggerDispatcher({
         getActions: getBackgroundActionEntries,
+        ...(options?.resolveActionSurface
+          ? { resolveActionSurface: options.resolveActionSurface }
+          : {}),
         getWorkspaceAppContext: getBackgroundWorkspaceAppContext,
         getSystemPrompt: async (owner: string) => {
           const resources = await loadResourcesForPrompt(
