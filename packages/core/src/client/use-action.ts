@@ -695,12 +695,20 @@ function utf8ByteLength(value: string): number {
  * refused where its GETs would pass, so an embed keeps one request per call.
  */
 function canBatchActionGet(options?: InternalActionFetchOptions): boolean {
-  return (
-    options?.batch === true &&
-    options.responseType !== "blob" &&
-    options.headers === undefined &&
-    !isEmbedAuthActive()
-  );
+  if (options?.batch !== true) return false;
+  if (options.responseType === "blob") {
+    console.debug(
+      "[agent-native] Skipping action-GET batching: responseType is blob",
+    );
+    return false;
+  }
+  if (isEmbedAuthActive()) {
+    console.debug(
+      "[agent-native] Skipping action-GET batching: embed auth is active",
+    );
+    return false;
+  }
+  return true;
 }
 
 function waitForActionSend(
