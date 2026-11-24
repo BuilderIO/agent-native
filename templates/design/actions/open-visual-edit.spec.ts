@@ -235,8 +235,6 @@ describe("open-visual-edit", () => {
   });
 
   it("declares that opening the canvas is its job so an agent call is not refused for moving the view", () => {
-    // The schema has no `intent` field, so an agent could never satisfy the
-    // write-keeps-view guard that wraps its nested navigate.
     expect(action.allowsAgentNavigation).toBe(true);
   });
 
