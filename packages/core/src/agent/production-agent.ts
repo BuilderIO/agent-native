@@ -585,6 +585,7 @@ import {
   RunEvent,
   RESPONSE_GUARD_DRAFT_KEPT_EVENT,
   RESPONSE_GUARD_RICH_EVENT_NAMESPACE,
+  UNKNOWN_TOOL_ERROR_CODE,
   type ToolErrorClass,
   type UnknownWriteCause,
 } from "./types.js";
@@ -10457,6 +10458,7 @@ export async function runAgentLoop(opts: {
           result,
           isError: true,
           completedSideEffect: false,
+          ...(noLongerAvailable ? {} : { errorCode: UNKNOWN_TOOL_ERROR_CODE }),
         });
         recordToolResult(result, true);
         if (noLongerAvailable && isHistoryToolName(toolCall.name)) {

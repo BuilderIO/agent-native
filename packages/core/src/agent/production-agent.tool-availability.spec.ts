@@ -218,6 +218,10 @@ describe("tools that are gone since earlier in the conversation", () => {
     expect(done("invented-tool")?.result).toMatch(
       /^Error: Unknown tool "invented-tool"/,
     );
+    expect(done("invented-tool")).toMatchObject({
+      errorCode: "unknown_tool",
+    });
+    expect(done("editor-format")).not.toHaveProperty("errorCode");
   });
 
   it("keeps Unknown tool for a name that already got Unknown tool earlier", async () => {

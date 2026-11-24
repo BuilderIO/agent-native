@@ -11,8 +11,9 @@ import type {
 import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
 import {
-  isCallAgentToolCallShadowed,
+  isHiddenToolCall,
   isToolCallActive,
+  isUnknownToolCall,
   resolveToolCallRowContext,
   toolLabel,
 } from "@agent-native/core/client/tool-display";
@@ -1528,8 +1529,17 @@ export function ToolCallFallback({
   repeatCount?: number;
   isLatestRunning?: boolean;
   isActiveTail?: boolean;
+  errorCode?: string;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
+  if (
+    isUnknownToolCall({
+      type: "tool-call",
+      ...(rest.errorCode ? { errorCode: rest.errorCode } : {}),
+    })
+  ) {
+    return null;
+  }
   const isRunning =
     rest.outcome !== "unknown" &&
     ((result === undefined && chatRunning) ||
@@ -1591,7 +1601,7 @@ export function ReconnectStreamMessage({
     (latestIndex, part, index) =>
       part.type === "tool-call" &&
       !part.isError &&
-      !isCallAgentToolCallShadowed(content, index) &&
+      !isHiddenToolCall(content, index) &&
       (chatRunning || (allowActivitySpinner && part.activity === true))
         ? index
         : latestIndex,
@@ -1599,7 +1609,7 @@ export function ReconnectStreamMessage({
   );
 
   const renderPart = (part: ContentPart, i: number) => {
-    if (isCallAgentToolCallShadowed(content, i)) return null;
+    if (isHiddenToolCall(content, i)) return null;
     if (part.type === "text") {
       const partStreaming = chatRunning && i === streamingTextPartIndex;
       return (
@@ -1672,7 +1682,7 @@ export function ReconnectStreamMessage({
 
   for (let i = 0; i < content.length; i++) {
     const part = content[i]!;
-    if (isCallAgentToolCallShadowed(content, i)) continue;
+    if (isHiddenToolCall(content, i)) continue;
     const isOlderToolWork =
       toolSummary.startIndex >= 0 &&
       i < toolSummary.startIndex &&
@@ -1702,7 +1712,7 @@ function getReconnectToolSummaryInfo(content: readonly ContentPart[]) {
   const toolCallIndices = content.reduce<number[]>((indices, part, index) => {
     if (
       part.type === "tool-call" &&
-      !isCallAgentToolCallShadowed(content, index) &&
+      !isHiddenToolCall(content, index) &&
       isReconnectSummarizablePart(part)
     ) {
       indices.push(index);
@@ -1738,7 +1748,7 @@ function isReconnectToolSummaryPart(
 ): boolean {
   if (startIndex < 0 || index >= startIndex) return false;
   if (
-    isCallAgentToolCallShadowed(content, index) ||
+    isHiddenToolCall(content, index) ||
     !isReconnectSummarizablePart(content[index]!)
   ) {
     return false;
@@ -1747,7 +1757,7 @@ function isReconnectToolSummaryPart(
   let segmentStart = index;
   while (
     segmentStart > 0 &&
-    !isCallAgentToolCallShadowed(content, segmentStart - 1) &&
+    !isHiddenToolCall(content, segmentStart - 1) &&
     isReconnectSummarizablePart(content[segmentStart - 1]!)
   ) {
     segmentStart--;
@@ -1756,7 +1766,7 @@ function isReconnectToolSummaryPart(
   let segmentEnd = index + 1;
   while (
     segmentEnd < startIndex &&
-    !isCallAgentToolCallShadowed(content, segmentEnd) &&
+    !isHiddenToolCall(content, segmentEnd) &&
     isReconnectSummarizablePart(content[segmentEnd]!)
   ) {
     segmentEnd++;
