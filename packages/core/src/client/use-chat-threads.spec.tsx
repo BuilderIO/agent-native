@@ -1286,6 +1286,46 @@ describe("useChatThreads", () => {
     },
   );
 
+  it("does not report an old-scope initial list failure for the current scope", async () => {
+    const key =
+      "agent-chat-active-thread:design:scope:design:design-1:tab:tab-1";
+    window.localStorage.setItem(key, "old-thread");
+    let resolveList!: (response: Response) => void;
+    const pendingList = new Promise<Response>((resolve) => {
+      resolveList = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => pendingList),
+    );
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness({ designId }: { designId: string }) {
+      hook = useChatThreads(
+        "/chat",
+        "design",
+        { type: "design", id: designId },
+        { browserTabId: "tab-1" },
+      );
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness designId="design-1" />);
+    });
+    await act(async () => {
+      root.render(<Harness designId="design-2" />);
+    });
+    await act(async () => {
+      resolveList(new Response(null, { status: 503 }));
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    });
+
+    expect(hook!.isLoading).toBe(false);
+    expect(hook!.activeThreadId).toBe("old-thread");
+    expect(hook!.restoredThreadIdOnListFailure).toBeNull();
+  });
+
   it("keeps marked local drafts unconfirmed when they appear in the history list", async () => {
     let serverThread: ChatThreadSummary | null = null;
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
@@ -2453,6 +2493,154 @@ describe("useChatThreads", () => {
         expect(hook!.activeThreadId).toBe("forked-thread");
         expect(window.localStorage.getItem(key)).toBe("forked-thread");
       }
+    },
+  );
+
+  it.each(["global", "old scope"])(
+    "resolves an initial %s thread after a non-isolated scope change",
+    async (threadScope) => {
+      const initialKey =
+        "agent-chat-active-thread:design:scope:design:design-1:tab:tab-1";
+      window.localStorage.setItem(initialKey, "old-thread");
+      let resolveLookup!: (response: Response) => void;
+      const pendingLookup = new Promise<Response>((resolve) => {
+        resolveLookup = resolve;
+      });
+      const fetchMock = vi.fn(async (url: string) => {
+        if (url === "/chat/threads") return jsonResponse({ threads: [] });
+        if (url === "/chat/threads/old-thread") return pendingLookup;
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      let hook: ReturnType<typeof useChatThreads> | null = null;
+      function Harness({ designId }: { designId: string }) {
+        hook = useChatThreads(
+          "/chat",
+          "design",
+          { type: "design", id: designId },
+          { browserTabId: "tab-1" },
+        );
+        return null;
+      }
+
+      await act(async () => {
+        root.render(<Harness designId="design-1" />);
+      });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      await act(async () => {
+        root.render(<Harness designId="design-2" />);
+      });
+      expect(hook!.activeThreadId).toBe("old-thread");
+      await act(async () => {
+        resolveLookup(
+          jsonResponse({
+            id: "old-thread",
+            title: "Saved thread",
+            preview: "Saved message",
+            messageCount: 1,
+            createdAt: 1,
+            updatedAt: 1,
+            scope:
+              threadScope === "global"
+                ? null
+                : { type: "design", id: "design-1" },
+          }),
+        );
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      });
+
+      expect(hook!.isLoading).toBe(false);
+      if (threadScope === "global") {
+        expect(hook!.activeThreadId).toBe("old-thread");
+        expect(hook!.isThreadPersisted("old-thread")).toBe(true);
+      } else {
+        expect(hook!.activeThreadId).toBe("forked-thread");
+        expect(hook!.isNewThread("forked-thread")).toBe(true);
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(
+    [404, 403].flatMap((status) =>
+      ["open", "snapshot"].map((confirmation) => ({ status, confirmation })),
+    ),
+  )(
+    "keeps a thread re-confirmed by $confirmation when an older initial lookup returns $status",
+    async ({ status, confirmation }) => {
+      const key =
+        "agent-chat-active-thread:design:scope:design:design-1:tab:tab-1";
+      window.localStorage.setItem(key, "old-thread");
+      let resolveList!: (response: Response) => void;
+      let resolveLookup!: (response: Response) => void;
+      const pendingList = new Promise<Response>((resolve) => {
+        resolveList = resolve;
+      });
+      const pendingLookup = new Promise<Response>((resolve) => {
+        resolveLookup = resolve;
+      });
+      const fetchMock = vi.fn(async (url: string) => {
+        if (url === "/chat/threads?scopeType=design&scopeId=design-1") {
+          return pendingList;
+        }
+        if (
+          url === "/chat/threads/old-thread?scopeType=design&scopeId=design-1"
+        ) {
+          return pendingLookup;
+        }
+        if (url === "/chat/threads/old-thread") {
+          return jsonResponse({
+            id: "old-thread",
+            title: "Saved thread",
+            preview: "Saved message",
+            messageCount: 1,
+            createdAt: 1,
+            updatedAt: 1,
+            scope: { type: "design", id: "design-1" },
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      let hook: ReturnType<typeof useChatThreads> | null = null;
+      function Harness() {
+        hook = useChatThreads(
+          "/chat",
+          "design",
+          { type: "design", id: "design-1" },
+          { browserTabId: "tab-1", isolateHistoryByScope: true },
+        );
+        return null;
+      }
+
+      await act(async () => {
+        root.render(<Harness />);
+      });
+      await act(async () => {
+        hook!.confirmThreadSnapshotPersisted("old-thread");
+        resolveList(jsonResponse({ threads: [] }));
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(hook!.isThreadPersisted("old-thread")).toBe(true);
+      await act(async () => {
+        if (confirmation === "open") {
+          expect(await hook!.openThread("old-thread")).toBe("opened");
+        } else {
+          hook!.confirmThreadSnapshotPersisted("old-thread");
+        }
+      });
+      await act(async () => {
+        resolveLookup(new Response(null, { status }));
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      });
+
+      expect(hook!.isLoading).toBe(false);
+      expect(hook!.activeThreadId).toBe("old-thread");
+      expect(hook!.isThreadPersisted("old-thread")).toBe(true);
+      expect(window.localStorage.getItem(key)).toBe("old-thread");
     },
   );
 

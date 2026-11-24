@@ -633,6 +633,8 @@ export function useChatThreads(
   const historyScopeKey = historyScope
     ? `${historyScope.type}:${historyScope.id}`
     : null;
+  const historyScopeKeyRef = useRef(historyScopeKey);
+  historyScopeKeyRef.current = historyScopeKey;
   const routeControlsActiveThread = options?.routeThreadId !== undefined;
   const routeThreadId = normalizeThreadId(options?.routeThreadId);
   const routeThreadLookupKey =
@@ -728,7 +730,13 @@ export function useChatThreads(
   const knownThreadScopesRef = useRef<Map<string, ChatThreadScope | null>>(
     new Map(),
   );
-  const serverConfirmedThreadIdsRef = useRef<Set<string>>(new Set());
+  const serverConfirmedThreadVersionsRef = useRef<Map<string, number>>(
+    new Map(),
+  );
+  const markThreadConfirmed = useCallback((key: string) => {
+    const confirmations = serverConfirmedThreadVersionsRef.current;
+    confirmations.set(key, (confirmations.get(key) ?? 0) + 1);
+  }, []);
   const pendingPinnedAtRef = useRef<Map<string, number | null>>(new Map());
   const pendingArchivedAtRef = useRef<Map<string, number | null>>(new Map());
   const userRenamedThreadIdsRef = useRef<Set<string>>(new Set());
@@ -981,7 +989,7 @@ export function useChatThreads(
         if (
           restoredId &&
           restoredId === initialActiveThreadRef.current?.id &&
-          activeThreadKey === initialActiveThreadKeyRef.current &&
+          activeThreadKeyRef.current === initialActiveThreadKeyRef.current &&
           selectionRevision === 0 &&
           autoCreate &&
           !routeControlsActiveThread &&
@@ -1006,9 +1014,11 @@ export function useChatThreads(
       const restoredConfirmationKey = restoredId
         ? serverConfirmedThreadKey(apiUrl, historyScopeKey, restoredId)
         : null;
-      const wasConfirmed = restoredConfirmationKey
-        ? serverConfirmedThreadIdsRef.current.has(restoredConfirmationKey)
-        : false;
+      const confirmationVersion = restoredConfirmationKey
+        ? (serverConfirmedThreadVersionsRef.current.get(
+            restoredConfirmationKey,
+          ) ?? 0)
+        : 0;
       const scopeMutation = restoredId
         ? (scopeMutationsRef.current.get(restoredId) ?? 0)
         : 0;
@@ -1035,7 +1045,7 @@ export function useChatThreads(
       }
       if (
         activeThreadIdRef.current !== restoredId ||
-        activeThreadKeyRef.current !== activeThreadKey ||
+        historyScopeKeyRef.current !== historyScopeKey ||
         (restoredId &&
           lookupRestored &&
           (isUnconfirmedClientDraftThread(
@@ -1043,10 +1053,9 @@ export function useChatThreads(
             newlyCreatedRef.current,
           ) ||
             (restoredConfirmationKey &&
-              !wasConfirmed &&
-              serverConfirmedThreadIdsRef.current.has(
+              (serverConfirmedThreadVersionsRef.current.get(
                 restoredConfirmationKey,
-              )) ||
+              ) ?? 0) !== confirmationVersion) ||
             (scopeMutationsRef.current.get(restoredId) ?? 0) !== scopeMutation))
       ) {
         initialLoadRequestIdRef.current = null;
@@ -1089,7 +1098,7 @@ export function useChatThreads(
             persistedThreadTranscriptStatus(restoredThread, restoredId!) ===
               "verified"))
       ) {
-        serverConfirmedThreadIdsRef.current.add(
+        markThreadConfirmed(
           serverConfirmedThreadKey(apiUrl, historyScopeKey, restoredThread.id),
         );
         knownThreadScopesRef.current.set(
@@ -1177,6 +1186,7 @@ export function useChatThreads(
       historyScope,
       historyScopeKey,
       isolateHistory,
+      markThreadConfirmed,
       routeControlsActiveThread,
       routeThreadId,
       routeThreadLookupKey,
@@ -1220,7 +1230,7 @@ export function useChatThreads(
             !isRouteThread &&
             !isUnconfirmedClientDraftThread(thread.id, newlyCreatedRef.current)
           ) {
-            serverConfirmedThreadIdsRef.current.add(
+            markThreadConfirmed(
               serverConfirmedThreadKey(apiUrl, historyScopeKey, thread.id),
             );
             clearClientDraftThreadMarker(thread.id);
@@ -1282,7 +1292,7 @@ export function useChatThreads(
             persistedThreadTranscriptStatus(persistedThread, activeThreadId) ===
               "verified"
           ) {
-            serverConfirmedThreadIdsRef.current.add(
+            markThreadConfirmed(
               serverConfirmedThreadKey(apiUrl, historyScopeKey, activeThreadId),
             );
             knownThreadScopesRef.current.set(
@@ -1344,7 +1354,7 @@ export function useChatThreads(
                 newlyCreatedRef.current,
               )
             ) {
-              serverConfirmedThreadIdsRef.current.add(
+              markThreadConfirmed(
                 serverConfirmedThreadKey(apiUrl, historyScopeKey, thread.id),
               );
             }
@@ -1451,6 +1461,7 @@ export function useChatThreads(
       includeHidden,
       collapseEdits,
       isolateHistory,
+      markThreadConfirmed,
       ownership,
       routeControlsActiveThread,
       routeThreadId,
@@ -1531,7 +1542,7 @@ export function useChatThreads(
       if (initialRouteKey === routeThreadLookupKey) return;
     }
     if (
-      serverConfirmedThreadIdsRef.current.has(
+      serverConfirmedThreadVersionsRef.current.has(
         serverConfirmedThreadKey(apiUrl, historyScopeKey, routeThreadId),
       ) ||
       newlyCreatedRef.current.has(routeThreadId) ||
@@ -1592,7 +1603,7 @@ export function useChatThreads(
       ) {
         return;
       }
-      serverConfirmedThreadIdsRef.current.add(
+      markThreadConfirmed(
         serverConfirmedThreadKey(apiUrl, historyScopeKey, thread.id),
       );
       knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
@@ -1620,6 +1631,7 @@ export function useChatThreads(
     historyScopeKey,
     isolateHistory,
     isLoading,
+    markThreadConfirmed,
     threadListFetchRevision,
     routeControlsActiveThread,
     routeThreadId,
@@ -1997,7 +2009,7 @@ export function useChatThreads(
         return false;
       }
       if (
-        serverConfirmedThreadIdsRef.current.has(
+        serverConfirmedThreadVersionsRef.current.has(
           serverConfirmedThreadKey(apiUrl, historyScopeKey, id),
         )
       ) {
@@ -2010,7 +2022,7 @@ export function useChatThreads(
 
   const isThreadPersisted = useCallback(
     (id: string) =>
-      serverConfirmedThreadIdsRef.current.has(
+      serverConfirmedThreadVersionsRef.current.has(
         serverConfirmedThreadKey(apiUrl, historyScopeKey, id),
       ),
     [apiUrl, historyScopeKey],
@@ -2018,14 +2030,14 @@ export function useChatThreads(
 
   const confirmThreadSnapshotPersisted = useCallback(
     (id: string) => {
-      serverConfirmedThreadIdsRef.current.add(
+      markThreadConfirmed(
         serverConfirmedThreadKey(apiUrl, historyScopeKey, id),
       );
       clearClientDraftThreadMarker(id);
       newlyCreatedRef.current.delete(id);
       setThreadPersistenceVersion((version) => version + 1);
     },
-    [apiUrl, historyScopeKey],
+    [apiUrl, historyScopeKey, markThreadConfirmed],
   );
 
   const switchThread = useCallback(
@@ -2062,7 +2074,7 @@ export function useChatThreads(
         !isUnconfirmedDraft ||
         persistedThreadTranscriptStatus(thread, thread.id) === "verified"
       ) {
-        serverConfirmedThreadIdsRef.current.add(
+        markThreadConfirmed(
           serverConfirmedThreadKey(apiUrl, historyScopeKey, thread.id),
         );
         clearClientDraftThreadMarker(thread.id);
@@ -2082,7 +2094,13 @@ export function useChatThreads(
       );
       return "opened";
     },
-    [activeThreadKey, activeThreadSeenKey, apiUrl, historyScopeKey],
+    [
+      activeThreadKey,
+      activeThreadSeenKey,
+      apiUrl,
+      historyScopeKey,
+      markThreadConfirmed,
+    ],
   );
 
   const removeThread = useCallback(
@@ -2181,7 +2199,7 @@ export function useChatThreads(
         let saved = await putThread();
         if (saved.absent) {
           if (
-            serverConfirmedThreadIdsRef.current.has(
+            serverConfirmedThreadVersionsRef.current.has(
               serverConfirmedThreadKey(apiUrl, historyScopeKey, id),
             )
           ) {
