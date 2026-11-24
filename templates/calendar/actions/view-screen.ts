@@ -75,7 +75,9 @@ export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view, date range, and visible events. Basic route context is included in <current-screen>; call this for a fresh snapshot when visible event details matter.",
   schema: z.object({}),
+  readOnly: true,
   http: false,
+  mcpTool: "search",
   run: async (_args, ctx) => {
     const navigation = await readAppState("navigation");
     const visualPreferences = normalizeCalendarViewPreferences(

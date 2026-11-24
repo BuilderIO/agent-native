@@ -4,7 +4,11 @@ import {
 } from "@agent-native/core/db/request-pool-context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { BigQueryJobUsage } from "./bigquery-usage";
+import {
+  type BigQueryJobUsage,
+  type BigQueryUsageAttribution,
+  withBigQueryUsageAttribution,
+} from "./bigquery-usage";
 
 function present<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("Expected fixture observation");
@@ -47,13 +51,32 @@ vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute }),
 }));
 
-vi.mock("@agent-native/core/server", () => ({
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
   getCredentialContext,
   getRequestRunContext: () => undefined,
   platformWaitUntil: () => undefined,
 }));
 
+vi.mock("../db/index", async () => ({
+  schema: await import("../db/schema"),
+  getDb: () => {
+    throw new Error("Unexpected app database access in the provider fixture");
+  },
+}));
 vi.mock("./credentials", () => ({ resolveCredential }));
+
+vi.mock("./scoped-settings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./scoped-settings")>()),
+  getScopedSettingRecord: async () => ({
+    sink: "bigquery",
+    table: "test-project.analytics.events",
+  }),
+}));
+vi.mock("./first-party-analytics-health", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./first-party-analytics-health")>()),
+  recordFirstPartyAnalyticsQueryPressure: async () => {},
+}));
 
 vi.mock("./gcloud", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./gcloud")>()),
@@ -63,6 +86,7 @@ vi.mock("./gcloud", async (importOriginal) => ({
 const {
   BigQueryBackendError,
   BigQueryDryRunPreparationError,
+  BigQueryJobNotClaimedError,
   BigQueryMaximumBytesBilledError,
   BigQueryQueryTimeoutError,
   dryRunQuery,
@@ -424,6 +448,165 @@ describe("runQuery cancellation", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("labels only server-attributed alert submissions across concurrent contexts", async () => {
+    const submissions: Array<{
+      jobReference: { projectId: string; jobId: string };
+      configuration: {
+        labels?: Record<string, string>;
+        query: {
+          query: string;
+          maximumBytesBilled: string;
+          useLegacySql: boolean;
+          useQueryCache: boolean;
+        };
+      };
+    }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof globalThis.fetch>(async (input, init) => {
+        if (String(input).endsWith("/jobs")) {
+          const request = JSON.parse(String(init?.body));
+          submissions.push(request);
+          return jsonResponse({ jobReference: request.jobReference });
+        }
+        return jsonResponse({
+          jobComplete: true,
+          schema: { fields: [] },
+          rows: [],
+        });
+      }),
+    );
+    const cases: Array<{
+      sql: string;
+      context?: BigQueryUsageAttribution;
+      labels?: Record<string, string>;
+      workload: string;
+    }> = [
+      {
+        sql: "SELECT 1 AS labelled_alert",
+        context: { workload: "alert" },
+        labels: { agent_native_workload: "alert" },
+        workload: "alert",
+      },
+      {
+        sql: "SELECT 1 AS dashboard_control",
+        context: {
+          workload: "dashboard-panel",
+          dashboardId: "private-dashboard",
+          panelId: "private-panel",
+        },
+        workload: "dashboard-panel",
+      },
+      {
+        sql: "SELECT 1 AS concurrent_alert",
+        context: { workload: "alert", dashboardId: "not-a-provider-label" },
+        labels: { agent_native_workload: "alert" },
+        workload: "alert",
+      },
+      {
+        sql: "SELECT 'analytics_alert_page' AS sql_marker_control",
+        workload: "unattributed",
+      },
+    ];
+    await Promise.all(
+      cases.map(({ sql, context }) => {
+        const run = () =>
+          runQuery(sql, { forceRefresh: true, maxBytesBilled: 123456789 });
+        return context ? withBigQueryUsageAttribution(context, run) : run();
+      }),
+    );
+    expect(submissions).toHaveLength(cases.length);
+    for (const fixture of cases) {
+      const request = present(
+        submissions.find(
+          ({ configuration }) => configuration.query.query === fixture.sql,
+        ),
+      );
+      expect(request.configuration.labels).toEqual(fixture.labels);
+      expect(request.configuration.query).toEqual({
+        query: fixture.sql,
+        useLegacySql: false,
+        maximumBytesBilled: "123456789",
+        useQueryCache: false,
+      });
+      expect(
+        usageWrites.find(({ jobId }) => jobId === request.jobReference.jobId),
+      ).toMatchObject({
+        projectId: "test-project",
+        ownerEmail: "test@example.com",
+        workload: fixture.workload,
+      });
+    }
+  });
+
+  it("carries the real batch evaluator's attribution into its provider submission", async () => {
+    const { evaluateBigQueryAnalyticsAlertBatch } =
+      await import("./analytics-alerts");
+    const now = new Date("2026-11-20T18:00:00.000Z");
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        totalRows: "1",
+        schema: {
+          fields: [
+            { name: "count_0", type: "INTEGER" },
+            { name: "samples_0", type: "STRING" },
+          ],
+        },
+        rows: [{ f: [{ v: "0" }, { v: "[]" }] }],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const results = await evaluateBigQueryAnalyticsAlertBatch(
+      [
+        {
+          id: "label-entry-point",
+          name: "Synthetic alert",
+          description: "",
+          eventName: "synthetic_label_probe",
+          filters: [],
+          thresholdMode: "event_count",
+          distinctBy: null,
+          threshold: 1,
+          windowMinutes: 10,
+          cooldownMinutes: 30,
+          severity: "warning",
+          channels: ["inbox"],
+          emailRecipients: [],
+          slackWebhookUrl: null,
+          webhookUrl: null,
+          enabled: true,
+          lastEvaluatedAt: null,
+          lastTriggeredAt: null,
+          lastStatus: null,
+          lastError: null,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          ownerEmail: "test@example.com",
+          orgId: null,
+        },
+      ],
+      now,
+    );
+    expect(results.get("label-entry-point")).toMatchObject({
+      evaluation: { observedValue: 0 },
+    });
+    const submissions = fetchMock.mock.calls.filter(([input]) =>
+      String(input).endsWith("/jobs"),
+    );
+    expect(submissions).toHaveLength(1);
+    const request = JSON.parse(String(present(submissions[0])[1]?.body));
+    expect(request.configuration.labels).toEqual({
+      agent_native_workload: "alert",
+    });
+    expect(request.configuration.query.maximumBytesBilled).toBe("50000000000");
+    expect(usageWrites).toHaveLength(1);
+    expect(present(usageWrites[0])).toMatchObject({
+      workload: "alert",
+      jobId: request.jobReference.jobId,
+    });
+  });
+
   it("stops an incomplete job's poll wait immediately when the agent run aborts", async () => {
     vi.useFakeTimers();
     const controller = new AbortController();
@@ -651,7 +834,8 @@ describe("runQuery cancellation", () => {
                 }),
             { status },
           );
-        if (url.includes("/jobs?")) return jsonResponse({ jobs: [] });
+        if (url.includes("/jobs?"))
+          return jsonResponse({ kind: "bigquery#jobList", jobs: [] });
         if (url.includes("/cancel")) return jsonResponse({});
         throw new Error("Unexpected request: " + url);
       });
@@ -700,6 +884,7 @@ describe("runQuery cancellation", () => {
         }
         if (url.includes("/jobs?")) {
           return jsonResponse({
+            kind: "bigquery#jobList",
             jobs: [{ jobReference: { jobId, location: "US" } }],
           });
         }
@@ -742,7 +927,8 @@ describe("runQuery cancellation", () => {
             },
           } as Response;
         }
-        if (url.includes("/jobs?")) return jsonResponse({ jobs: [] });
+        if (url.includes("/jobs?"))
+          return jsonResponse({ kind: "bigquery#jobList", jobs: [] });
         return jsonResponse({});
       });
     vi.stubGlobal("fetch", fetchMock);
@@ -819,7 +1005,8 @@ describe("runQuery cancellation", () => {
   });
 
   it.each([
-    ["a next page token", { nextPageToken: "page-2" }],
+    ["a page token", { pageToken: "page-2", totalRows: "1" }],
+    ["fewer rows than its total row count", { totalRows: "2" }],
     ["no total row count", {}],
   ])(
     "marks BigQuery rows incomplete when the response has %s",
@@ -1033,6 +1220,7 @@ describe("runQuery cancellation", () => {
         }
         if (url.includes("/jobs?")) {
           return jsonResponse({
+            kind: "bigquery#jobList",
             jobs: [{ jobReference: { jobId, location: "us-central1" } }],
           });
         }
@@ -1207,6 +1395,7 @@ describe("runQuery cancellation", () => {
         { name: "signups", type: "INT64" },
       ],
       totalBytesProcessed: 1_048_576,
+      exactBytesProcessed: 1_048_576,
     });
     await expect(dryRunQuery("SELECT 1")).resolves.toBeNull();
   });
@@ -2048,6 +2237,86 @@ describe("runQuery cancellation", () => {
     }
     // The second read was served by the app cache, not a second BigQuery job.
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks claimJob only on a cache miss and starts no job when it declines", async () => {
+    const cache = useCacheDatabase();
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "4096",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const declined = vi.fn(async () => false);
+    const granted = vi.fn(async () => true);
+
+    await expect(
+      runQuery("SELECT 1 AS declined_job_claim", { claimJob: declined }),
+    ).rejects.toBeInstanceOf(BigQueryJobNotClaimedError);
+    expect(fetchMock).not.toHaveBeenCalled();
+    for (const entry of cache.values()) {
+      expect(entry.refreshInProgress).toBe(false);
+    }
+
+    const sql = "SELECT 1 AS granted_job_claim";
+    await runQuery(sql, { claimJob: granted });
+    const hit = await runQuery(sql, { claimJob: granted });
+
+    expect(hit).toMatchObject({ cached: true });
+    expect(declined).toHaveBeenCalledTimes(1);
+    expect(granted).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("tells onUncachedResult only about fresh results the cache did not keep", async () => {
+    useCacheDatabase();
+    const cacheDatabase = execute.getMockImplementation();
+    const complete = () =>
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalRows: "0",
+        totalBytesProcessed: "4096",
+      });
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalRows: "0",
+        totalBytesProcessed: "4096",
+        errors: [{ reason: "other", message: "A nonfatal query warning" }],
+      }),
+      complete(),
+      complete(),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const uncached = vi.fn();
+
+    await runQuery("SELECT 1 AS warned_result", { onUncachedResult: uncached });
+    expect(uncached).toHaveBeenCalledTimes(1);
+
+    const kept = "SELECT 1 AS kept_result";
+    await runQuery(kept, { onUncachedResult: uncached });
+    await expect(
+      runQuery(kept, { onUncachedResult: uncached }),
+    ).resolves.toMatchObject({ cached: true });
+    expect(uncached).toHaveBeenCalledTimes(1);
+
+    execute.mockImplementation(async (query) =>
+      String(query.sql).startsWith("UPDATE bigquery_cache SET sql")
+        ? { rows: [] }
+        : cacheDatabase?.(query),
+    );
+    await runQuery("SELECT 1 AS unsaved_result", {
+      onUncachedResult: uncached,
+    });
+    expect(uncached).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it("falls back to the cache row's created_at for results cached before fetchedAt existed", async () => {

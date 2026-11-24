@@ -1,0 +1,247 @@
+/*
+ * Part: dialog
+ *
+ *   <div class="dialog-backdrop" data-motion="default|instant" data-open|data-closed>
+ *   <div class="dialog-popup" role="dialog" data-motion="default|instant" data-open|data-closed>
+ *     <div class="dialog-header">
+ *       <h2 class="dialog-title"> <p class="dialog-description">
+ *     <div class="dialog-footer">
+ *     <button class="dialog-close"><svg/></button>
+ *
+ * Layers stay under the toolkit's popovers and menus and above drawers, so a
+ * menu opened inside a dialog paints over it. A dialog opened from another
+ * dialog stacks above it by DOM order, not by layer. With `data-motion="instant"`
+ * only the backdrop blur eases in.
+ *
+ * The close button is a gray ghost icon button.
+ */
+
+@layer components {
+  .dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--layer-dialog-backdrop);
+    background-color: var(--surface-overlay);
+    -webkit-backdrop-filter: blur(1px);
+    backdrop-filter: blur(1px);
+  }
+
+  .dialog-popup:where(:not([hidden])) {
+    display: grid;
+  }
+
+  .dialog-popup {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    z-index: var(--layer-dialog);
+    gap: var(--space-4);
+    box-sizing: border-box;
+    width: calc(100vw - var(--space-3) * 2);
+    max-width: 32rem;
+    max-height: min(760px, calc(100vh - var(--space-6)));
+    overflow-x: hidden;
+    overflow-y: auto;
+    translate: -50% -50%;
+    padding: var(--space-5);
+    border: 0;
+    border-radius: calc(var(--shape-dialog) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--surface-raised);
+    color: var(--fg-default);
+    box-shadow: var(--shadow-5);
+    outline-style: none;
+  }
+
+  /* ---- motion: default ---- */
+
+  .dialog-backdrop[data-motion="default"] {
+    transition-property: opacity;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .dialog-popup[data-motion="default"] {
+    transition-property: opacity, scale;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .dialog-backdrop[data-motion="default"][data-starting-style],
+  .dialog-backdrop[data-motion="default"][data-ending-style] {
+    opacity: 0;
+  }
+
+  .dialog-popup[data-motion="default"][data-starting-style],
+  .dialog-popup[data-motion="default"][data-ending-style] {
+    opacity: 0;
+    scale: 0.95;
+  }
+
+  .dialog-popup[data-motion="default"][data-ending-style] {
+    transition-duration: var(--duration-2);
+  }
+
+  /* An open child popup uses the anchor's viewport width for its own layout. */
+  @media (prefers-reduced-motion: no-preference) {
+    .dialog-popup[data-motion="default"]:has(
+        [role="combobox"],
+        [data-popup-open]
+      ) {
+      scale: none;
+      transition-property: opacity;
+    }
+  }
+
+  /* ---- motion: instant ---- */
+
+  .dialog-backdrop[data-motion="instant"] {
+    transition-property: backdrop-filter;
+    transition-duration: var(--duration-4);
+    transition-timing-function: var(--ease-enter);
+  }
+
+  .dialog-backdrop[data-motion="instant"][data-starting-style] {
+    -webkit-backdrop-filter: blur(0px);
+    backdrop-filter: blur(0px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dialog-backdrop[data-motion],
+    .dialog-popup[data-motion] {
+      transition-property: none;
+    }
+  }
+
+  /* ---- header, footer, text ---- */
+
+  .dialog-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    text-align: center;
+  }
+
+  .dialog-footer {
+    display: flex;
+    flex-direction: column;
+    min-inline-size: 0;
+    gap: var(--space-2);
+  }
+
+  @media (min-width: 40rem) {
+    .dialog-header {
+      text-align: start;
+    }
+
+    .dialog-footer {
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+  }
+
+  .dialog-title,
+  .dialog-description {
+    overflow-wrap: anywhere;
+  }
+
+  .dialog-title {
+    margin: 0;
+    font-size: var(--font-size-4);
+    line-height: var(--line-height-4);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--letter-spacing-4);
+    color: var(--fg-default);
+  }
+
+  .dialog-description {
+    margin: 0;
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    color: var(--fg-muted);
+  }
+
+  /* ---- sizes: padding, gap and type step together ---- */
+
+  /* ---- close button: a gray ghost icon button ---- */
+
+  .dialog-popup .dialog-close {
+    position: absolute;
+    top: var(--space-3);
+    inset-inline-end: var(--space-3);
+  }
+  :where(.dialog-media) {
+    aspect-ratio: 2 / 1;
+  }
+
+  .dialog-media {
+    overflow: hidden;
+    background: var(--surface-sunken);
+  }
+
+  :is(img, video, picture).dialog-media {
+    display: block;
+    inline-size: 100%;
+    block-size: auto;
+    object-fit: cover;
+  }
+
+  .dialog-media > :is(img, video, picture),
+  .dialog-media > picture > img {
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: cover;
+  }
+
+  video.dialog-media,
+  .dialog-media > video {
+    object-fit: contain;
+  }
+
+  .dialog-popup:has(> .dialog-body) {
+    grid-auto-rows: max-content;
+    max-inline-size: 35rem;
+    max-block-size: calc(100dvh - var(--space-6));
+    gap: 0;
+    padding: 0;
+  }
+
+  .dialog-body {
+    display: grid;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+    gap: var(--space-3);
+    padding: clamp(var(--space-4), 5vw, var(--space-7));
+  }
+
+  .dialog-popup:has(> .dialog-close) {
+    & > .dialog-title:first-child,
+    & > .dialog-header:first-child > .dialog-title:first-child,
+    & > .dialog-body:first-child > .dialog-title:first-child,
+    &
+      > .dialog-body:first-child
+      > .dialog-header:first-child
+      > .dialog-title:first-child {
+      padding-inline-end: var(--control-height-3);
+    }
+  }
+
+  .dialog-body > .dialog-footer {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-block-start: var(--space-3);
+  }
+
+  .dialog-body > .dialog-footer > * {
+    flex: 1 1 10rem;
+    min-block-size: var(--control-height-4);
+    min-inline-size: 0;
+  }
+  @media (forced-colors: active) {
+    .dialog-popup {
+      outline: 1px solid CanvasText;
+    }
+  }
+}

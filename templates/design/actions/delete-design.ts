@@ -18,7 +18,6 @@ const expectedCreatedShellSchema = z.object({
   dataOperationRevisions: z.string(),
   liveCollaborationEnabled: z.boolean(),
   projectType: z.string(),
-  designSystemId: z.string().nullable(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
   ownerEmail: z.string(),
@@ -56,7 +55,6 @@ export default defineAction({
               dataOperationRevisions: schema.designs.dataOperationRevisions,
               liveCollaborationEnabled: schema.designs.liveCollaborationEnabled,
               projectType: schema.designs.projectType,
-              designSystemId: schema.designs.designSystemId,
               createdAt: schema.designs.createdAt,
               updatedAt: schema.designs.updatedAt,
               ownerEmail: schema.designs.ownerEmail,
@@ -80,7 +78,6 @@ export default defineAction({
             design.liveCollaborationEnabled !==
               expectedCreatedShell.liveCollaborationEnabled ||
             design.projectType !== expectedCreatedShell.projectType ||
-            design.designSystemId !== expectedCreatedShell.designSystemId ||
             design.createdAt !== expectedCreatedShell.createdAt ||
             design.updatedAt !== expectedCreatedShell.updatedAt ||
             design.ownerEmail !== expectedCreatedShell.ownerEmail ||

@@ -19,6 +19,10 @@ import {
   SYNTHETIC_TRAFFIC_HEADER,
   isSyntheticTrafficValue,
 } from "../shared/test-traffic.js";
+import {
+  normalizeViewportMode,
+  type ViewportMode,
+} from "../shared/viewport-mode.js";
 import { ForbiddenError } from "../sharing/errors.js";
 import {
   CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
@@ -184,12 +188,22 @@ function readDurableBrowserSessionId(event: H3Event): string | undefined {
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
+export const VIEWPORT_MODE_HEADER = "x-agent-native-viewport-mode";
+
 export function readBrowserTabIdHeader(event: H3Event): string | undefined {
   const raw = readHeaderValue(event, "x-agent-native-browser-tab");
   const value = Array.isArray(raw) ? raw[0] : raw;
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
+}
+
+export function readViewportModeHeader(
+  event: H3Event,
+): ViewportMode | undefined {
+  const raw = readHeaderValue(event, VIEWPORT_MODE_HEADER);
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return normalizeViewportMode(value);
 }
 
 export function readAnalyticsClientPlatformHeader(
@@ -227,6 +241,7 @@ export function seedAgentRunOwnerContext(
 export async function seedBackgroundAgentRunOwnerContext(
   event: H3Event,
   runId: string,
+  initiatorSignature?: unknown,
 ): Promise<AgentRunOwnerContext> {
   const { getTurnInitiatorByRun } = await import("../agent/run-store.js");
   const initiator = await getTurnInitiatorByRun(runId);
@@ -235,6 +250,39 @@ export async function seedBackgroundAgentRunOwnerContext(
       statusCode: 409,
       statusMessage: "Agent turn initiator is unavailable",
     });
+  }
+  const { hasConfiguredA2ASecret } = await import("../a2a/auth-policy.js");
+  if (hasConfiguredA2ASecret()) {
+    const { verifyDispatchedTurnInitiator } =
+      await import("../integrations/internal-token.js");
+    if (!verifyDispatchedTurnInitiator(runId, initiator, initiatorSignature)) {
+      throw createError({
+        statusCode: 409,
+        statusMessage: "Agent turn initiator does not match its dispatch",
+      });
+    }
+  }
+  if (!initiator.anonymous && initiator.orgId) {
+    const { isOrgMember } = await import("../org/membership.js");
+    let member: boolean;
+    try {
+      member = await isOrgMember(initiator.orgId, initiator.email, {
+        requestEvent: event,
+      });
+    } catch (error) {
+      throw createError({
+        statusCode: 503,
+        statusMessage: "Agent turn initiator membership is unavailable",
+        cause: error,
+      });
+    }
+    if (!member) {
+      throw createError({
+        statusCode: 403,
+        statusMessage:
+          "Agent turn initiator is no longer an organization member",
+      });
+    }
   }
   return seedAgentRunOwnerContext(event, {
     owner: initiator.email,

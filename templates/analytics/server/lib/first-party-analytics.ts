@@ -27,7 +27,11 @@ import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract.
 import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import { getDb, schema } from "../db/index.js";
 import { scrubEventUrlFields } from "./analytics-url-scrub.js";
-import type { BigQueryQueryTrace } from "./bigquery.js";
+import { OutsideAgentBigQueryRefusalError } from "./bigquery-agent-context.js";
+import {
+  BigQueryJobNotClaimedError,
+  type BigQueryQueryTrace,
+} from "./bigquery.js";
 import {
   EXCEPTION_EVENT_NAME,
   ingestAnalyticsExceptionEvents,
@@ -154,6 +158,8 @@ export interface AnalyticsQueryOptions {
    * being cancelled. See RunQueryOptions.resumeAfter.
    */
   resumable?: { deadline?: AbortSignal };
+  claimJob?: () => Promise<boolean>;
+  onUncachedResult?: () => void;
   trace?: BigQueryQueryTrace;
 }
 
@@ -199,6 +205,7 @@ const FIRST_PARTY_QUERY_TABLE_NAMES = [
   "analytics_content_items",
   "analytics_content_metric_snapshots",
   "analytics_content_collection_runs",
+  "analytics_content_search_queries",
 ] as const;
 const FIRST_PARTY_QUERY_TABLES = new Set<string>(FIRST_PARTY_QUERY_TABLE_NAMES);
 const FIRST_PARTY_ROLLUP_TABLES = new Set([
@@ -212,6 +219,7 @@ const FIRST_PARTY_CONTENT_TABLES = new Set([
   "analytics_content_items",
   "analytics_content_metric_snapshots",
   "analytics_content_collection_runs",
+  "analytics_content_search_queries",
 ]);
 const FIRST_PARTY_SQL_STORE_ONLY_TABLES = new Set([
   "session_recordings",
@@ -2001,6 +2009,10 @@ export async function queryFirstPartyAnalyticsWithBackend(
             timeoutMs: remainingTime(),
             signal,
             ...(resumeAfter ? { resumeAfter } : {}),
+            ...(options.claimJob ? { claimJob: options.claimJob } : {}),
+            ...(options.onUncachedResult
+              ? { onUncachedResult: options.onUncachedResult }
+              : {}),
             ...(options.trace ? { trace: options.trace } : {}),
           }),
           signal,
@@ -2012,7 +2024,11 @@ export async function queryFirstPartyAnalyticsWithBackend(
         return { ...result, backend: "bigquery" };
       } catch (error) {
         const failure = normalizeFailure(error);
-        if (!options.signal?.aborted) {
+        if (
+          !options.signal?.aborted &&
+          !(failure instanceof OutsideAgentBigQueryRefusalError) &&
+          !(failure instanceof BigQueryJobNotClaimedError)
+        ) {
           await recordBigQueryPressure(queryOutcomeFromError(failure));
         }
         throw failure;

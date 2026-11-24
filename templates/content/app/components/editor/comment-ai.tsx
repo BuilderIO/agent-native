@@ -28,6 +28,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -122,6 +123,15 @@ export interface CommentAiContinuationState {
   status: BackgroundAgentSessionStatus;
   options?: BackgroundAgentSessionStartOptions;
   error?: string;
+}
+
+class CommentAiConversationUnavailableError extends Error {
+  readonly cause: unknown;
+
+  constructor(message: string, cause: unknown) {
+    super(message);
+    this.cause = cause;
+  }
 }
 
 interface CommentAiDispatchRecovery {
@@ -764,24 +774,22 @@ export function useCommentAiRequests(
   useEffect(() => {
     for (const request of serverRequests) {
       const receipt = sessionReceipt(request);
-      if (
-        !ACTIVE_STATUSES.has(request.status) ||
-        !receipt ||
-        monitoredRequestsRef.current.has(request.operationId)
-      )
-        continue;
-      monitoredRequestsRef.current.add(request.operationId);
+      if (!ACTIVE_STATUSES.has(request.status) || !receipt) continue;
+      const monitorKey = `${request.operationId}:${receipt.turnId}`;
+      if (monitoredRequestsRef.current.has(monitorKey)) continue;
+      monitoredRequestsRef.current.add(monitorKey);
+      const watching = () =>
+        mountedRef.current &&
+        serverRequestsRef.current.some(
+          (current) =>
+            current.operationId === request.operationId &&
+            ACTIVE_STATUSES.has(current.status) &&
+            sessionReceipt(current)?.turnId === receipt.turnId,
+        );
       void (async () => {
         let retryDelay = ACTIVE_REQUEST_REFETCH_INTERVAL_MS;
         try {
-          while (
-            mountedRef.current &&
-            serverRequestsRef.current.some(
-              (current) =>
-                current.operationId === request.operationId &&
-                ACTIVE_STATUSES.has(current.status),
-            )
-          ) {
+          while (watching()) {
             let snapshot;
             try {
               snapshot = await getBackgroundAgentSessionStatus(receipt);
@@ -792,6 +800,7 @@ export function useCommentAiRequests(
               continue;
             }
             if (shouldReconcileCommentAiSnapshot(snapshot)) {
+              if (!watching()) return;
               await reconcile(
                 request,
                 receipt.threadId,
@@ -807,7 +816,7 @@ export function useCommentAiRequests(
             );
           }
         } finally {
-          monitoredRequestsRef.current.delete(request.operationId);
+          monitoredRequestsRef.current.delete(monitorKey);
         }
       })();
     }
@@ -1054,13 +1063,20 @@ export function useCommentAiRequests(
       try {
         // Background sessions submit an empty model history. Rehydrate a
         // bounded transcript from this request's protected thread instead.
-        const priorConversation = boundedContinuationContext(
-          await loadCommentAiConversation({
+        let turns: Awaited<ReturnType<typeof loadCommentAiConversation>>;
+        try {
+          turns = await loadCommentAiConversation({
             operationId: request.operationId,
             agentThreadId: request.agentThreadId,
             initialTurnId: "",
-          }),
-        );
+          });
+        } catch (error) {
+          throw new CommentAiConversationUnavailableError(
+            t("comments.aiConversationUnavailable"),
+            error,
+          );
+        }
+        const priorConversation = boundedContinuationContext(turns);
         const options = {
           message,
           operationId,
@@ -1130,7 +1146,7 @@ export function useCommentAiRequests(
         throw error;
       }
     },
-    [monitorContinuation, updateContinuation],
+    [monitorContinuation, t, updateContinuation],
   );
 
   const continueConversation = useCallback<CommentAiController["continue"]>(
@@ -1423,7 +1439,19 @@ export function CommentAiRequestStatus({
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => void onRetry()}
+          onClick={() => {
+            void (async () => {
+              try {
+                await onRetry();
+              } catch (error) {
+                toast.error(
+                  error instanceof CommentAiConversationUnavailableError
+                    ? error.message
+                    : t("empty.genericError"),
+                );
+              }
+            })();
+          }}
         >
           {t("comments.retry")}
         </Button>

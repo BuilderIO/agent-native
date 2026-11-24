@@ -427,10 +427,10 @@ export function openConsentSettings(): void {
 }
 
 /** Whether the banner should show now, for the banner component. */
-export function shouldShowConsentBanner(): boolean {
+export function shouldShowConsentBanner(automaticPrompt = true): boolean {
   const current = state();
   if (current.settingsOpen) return true;
-  return current.region === "consent" && !getConsentChoice();
+  return automaticPrompt && current.region === "consent" && !getConsentChoice();
 }
 
 export function subscribeConsent(listener: () => void): () => void {

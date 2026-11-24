@@ -1,4 +1,8 @@
 import {
+  normalizeCommentImage,
+  type CommentImage,
+} from "@shared/comment-images";
+import {
   serializeStoredCommentMentions,
   type CommentAgentMention,
   type CommentMention,
@@ -51,6 +55,19 @@ export interface CommentDraft {
   text: string;
   mentions: MentionEntry[];
   aiDraft: CommentAiDraft | null;
+  images?: CommentImage[];
+}
+
+const NO_DRAFT_IMAGES: CommentImage[] = [];
+
+export function draftImages(draft: Pick<CommentDraft, "images">) {
+  return draft.images ?? NO_DRAFT_IMAGES;
+}
+
+function sameImages(left: CommentDraft, right: CommentDraft) {
+  return (
+    JSON.stringify(draftImages(left)) === JSON.stringify(draftImages(right))
+  );
 }
 
 /**
@@ -137,7 +154,8 @@ function draftsMatch(left: CommentDraft, right: CommentDraft) {
     left.aiDraft?.selection.model === right.aiDraft?.selection.model &&
     left.aiDraft?.selection.engine === right.aiDraft?.selection.engine &&
     left.aiDraft?.selection.provider === right.aiDraft?.selection.provider &&
-    sameMentions(left.mentions, right.mentions)
+    sameMentions(left.mentions, right.mentions) &&
+    sameImages(left, right)
   );
 }
 
@@ -167,6 +185,11 @@ function isCommentDraftRevision(value: unknown): value is CommentDraftRevision {
           ? typeof mention.model === "string"
           : typeof mention.email === "string"),
     ) &&
+    (draft.images === undefined ||
+      (Array.isArray(draft.images) &&
+        draft.images.every(
+          (image) => normalizeCommentImage(image) !== null,
+        ))) &&
     (draft.aiDraft === null ||
       (draft.aiDraft !== undefined &&
         typeof draft.aiDraft === "object" &&
@@ -340,6 +363,9 @@ function CommentDraftStore({
         next.set(key, {
           ...nextDraft,
           mentions: nextDraft.mentions.map((mention) => ({ ...mention })),
+          ...(nextDraft.images
+            ? { images: nextDraft.images.map((image) => ({ ...image })) }
+            : {}),
           aiDraft: nextDraft.aiDraft
             ? {
                 ...nextDraft.aiDraft,
@@ -416,6 +442,9 @@ function CommentDraftStore({
       next.set(key, {
         ...draft,
         mentions: draft.mentions.map((mention) => ({ ...mention })),
+        ...(draft.images
+          ? { images: draft.images.map((image) => ({ ...image })) }
+          : {}),
         ...(retry ? { retry: { ...retry } } : {}),
         revision: ++revision.current,
       });
@@ -563,6 +592,15 @@ export function useCommentDraft(
     },
     [context, key],
   );
+  const setImages = useCallback(
+    (images: CommentImage[]) => {
+      context.updateDraft(key, initialRef.current.draft, (current) => ({
+        ...current,
+        images,
+      }));
+    },
+    [context, key],
+  );
   const setAiDraft = useCallback<
     Dispatch<SetStateAction<CommentAiDraft | null>>
   >(
@@ -611,6 +649,7 @@ export function useCommentDraft(
     draft,
     setText,
     setMentions,
+    setImages,
     setAiDraft,
     clearIfUnchanged,
     clearOnSuccess,

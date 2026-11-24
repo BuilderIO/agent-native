@@ -296,7 +296,7 @@ async function downloadAllScreensPdf(
   await expect(exportMenu).toBeVisible();
   await exportMenu.hover();
   const pdfMenuItem = page.getByRole("menuitem", {
-    name: "Download PDF (all screens)",
+    name: "Download PDF (all pages)",
   });
   await expect(pdfMenuItem).toBeVisible();
   return downloadFromMenuItem(

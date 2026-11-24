@@ -41,6 +41,11 @@ what shows on cards.
 - Use `list-tasks` with `includeFields` to read per-task custom values and
   `update-task` with `fieldValues` to set or clear them; empty values clear the
   stored row.
+- Every task read (`list-tasks`, the selected task in `view-screen`, and
+  `update-task`'s result) carries a `revision`. Send it back as
+  `expectedRevision`. A `save_conflict` means the task changed after your read
+  and nothing was written: redo your edit on `details.current` and resend with
+  `details.currentRevision`.
 
 ## Task-card visibility
 

@@ -36,7 +36,8 @@ Every action has a schema; use `tool-search` for comments, sharing, Collections,
 | `get-blocks-field-word-count` | Count one exact collection field; omit `propertyId` for primary body |
 | `share-local-file-document` | Create/refresh a shareable copy, possibly already shared; outside-agent calls need approval |
 | `create-document` / `edit-document` / `update-document` / `delete-document` | Create, revision-edit, update, or move a page and children to Trash |
-| `import-content` / `undo-content-import` | Import Markdown as pages; undo trashes unedited imports |
+| `edit-table` | Change one table's rows, columns, cells or headers |
+| `import-content` / `undo-content-import` | Import Markdown or a Notion export as pages; undo trashes unedited imports |
 | `list-content-trash` / `get-trashed-document` | Find/read authorized Trash without restoring |
 | `plan-content-trash-purge` / `get-content-trash-purge-plan` / `execute-content-trash-purge` / `get-content-trash-operation` | Freeze, inspect, execute, and track permanent deletion |
 | `list-content-database-blocks` / `mutate-content-database-block` | Read or mutate stable blocks in one exact collection row/property |

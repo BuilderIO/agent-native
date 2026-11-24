@@ -14,11 +14,18 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store.js";
+import {
+  BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
+  BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
+  BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION_SQL,
+  BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION_SQL,
+} from "../lib/bigquery-agent-budget.js";
 import { BIGQUERY_USAGE_MIGRATION_SQL } from "../lib/bigquery-usage.js";
 import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "../lib/builtin-dashboard-checks-migration.js";
 import {
   CONTENT_METRICS_MIGRATION_SQL,
   CONTENT_COVERAGE_CONFIG_MIGRATION_SQL,
+  CONTENT_SEARCH_QUERIES_MIGRATION_SQL,
 } from "../lib/content-metrics/migration.js";
 import { DATA_NOTES_MIGRATION_SQL } from "../lib/data-notes-migration.js";
 import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-migration.js";
@@ -184,6 +191,41 @@ const WRITE_RECEIPTS_MIGRATION = {
   version: 186,
   name: "analytics-write-receipts",
   sql: WRITE_RECEIPTS_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned budget ledger DDL with no runtime values or interpolation.
+const BIGQUERY_AGENT_BUDGET_MIGRATION = {
+  version: 187,
+  name: "analytics-bigquery-agent-budget",
+  sql: BIGQUERY_AGENT_BUDGET_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned additive column DDL with no runtime values or interpolation.
+const BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION = {
+  version: 188,
+  name: "analytics-bigquery-agent-credential-fingerprint",
+  sql: BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned additive column DDL with no runtime values or interpolation.
+const BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION = {
+  version: 190,
+  name: "analytics-bigquery-agent-execution-job-identity",
+  sql: BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned additive column DDL with no runtime values or interpolation.
+const BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION = {
+  version: 191,
+  name: "analytics-bigquery-agent-execution-cancel-requested",
+  sql: BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned search query table DDL with no runtime values or interpolation.
+const CONTENT_SEARCH_QUERIES_MIGRATION = {
+  version: 189,
+  name: "analytics-content-search-queries",
+  sql: CONTENT_SEARCH_QUERIES_MIGRATION_SQL.join(";\n"),
 };
 
 export const runAnalyticsMigrations = runMigrations(
@@ -1951,6 +1993,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       ON session_report_shares (resource_id)`,
     },
     WRITE_RECEIPTS_MIGRATION,
+    BIGQUERY_AGENT_BUDGET_MIGRATION,
+    BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION,
+    CONTENT_SEARCH_QUERIES_MIGRATION,
+    BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION,
+    BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION,
   ],
   { table: "analytics_migrations" },
 );

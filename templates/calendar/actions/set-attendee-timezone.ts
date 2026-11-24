@@ -15,6 +15,12 @@ function isValidIanaTimeZone(timeZone: string): boolean {
 }
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Save or clear a per-attendee IANA timezone override so event details can show that guest's local time. Pass timeZone to set; omit or pass empty to clear.",
   schema: z.object({

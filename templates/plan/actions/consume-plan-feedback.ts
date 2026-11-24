@@ -1,8 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
+import { ensureReviewTables } from "@agent-native/core/review";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { mirrorPlanComments } from "../server/lib/plan-comment-mirror.js";
 import { assertPlanEditor, nowIso, writeEvent } from "../server/plans.js";
 
 export default defineAction({
@@ -35,16 +37,25 @@ export default defineAction({
     const db = getDb();
     const now = nowIso();
 
-    await db
-      .update(schema.planComments)
-      .set({ consumedAt: now, updatedAt: now })
-      .where(
-        and(
-          eq(schema.planComments.planId, args.planId),
-          inArray(schema.planComments.id, args.commentIds),
-          isNull(schema.planComments.deletedAt),
-        ),
+    await ensureReviewTables();
+    await db.transaction(async (tx) => {
+      const consumed = await tx
+        .update(schema.planComments)
+        .set({ consumedAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(schema.planComments.planId, args.planId),
+            inArray(schema.planComments.id, args.commentIds),
+            isNull(schema.planComments.deletedAt),
+          ),
+        )
+        .returning({ id: schema.planComments.id });
+      await mirrorPlanComments(
+        tx,
+        args.planId,
+        consumed.map((row) => row.id),
       );
+    });
 
     await writeEvent({
       planId: args.planId,

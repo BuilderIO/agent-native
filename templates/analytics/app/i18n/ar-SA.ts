@@ -2119,6 +2119,10 @@ export default {
     flagsUnavailable: "علامات الميزات غير متاحة",
     flagsUnreachable:
       "تعذر الوصول إلى دليل مساحة العمل. أعد المحاولة عند توفر الاتصال.",
+    verifiedFlagChangeOrg:
+      "تم التحقق في {{time}}: {{flag}} في {{app}} مضبوط على {{availability}} لهذه المؤسسة.",
+    verifiedFlagChangeGlobal:
+      "تم التحقق في {{time}}: {{flag}} في {{app}} مضبوط على {{availability}} لكل المؤسسات.",
     flagsEmpty: "لم يبلغ أي تطبيق في مساحة العمل عن علامات",
     flagsEmptyDetail:
       "ستظهر العلامات المسجلة هنا عندما تصبح التطبيقات المتصلة جاهزة.",
@@ -2279,6 +2283,15 @@ export default {
     addedBy: "أضافها {{email}}",
     more: "+{{count}} أخرى",
     flagLabel: "ملاحظات البيانات",
+  },
+  citedIn: {
+    menu: "مُستشهد به في",
+    menuTooltip: "صفحات Content التي تحتوي على مخططات من لوحة المعلومات هذه",
+    empty:
+      "لا توجد بعد صفحات Content يمكنك فتحها تحتوي على مخططات من لوحة المعلومات هذه",
+    unavailable: "تعذّر الوصول إلى Content. حاول مرة أخرى بعد دقيقة.",
+    untitledPage: "بلا عنوان",
+    more: "تحقّق Content من أحدث الصفحات المعدّلة فقط، لذا قد توجد صفحات أخرى.",
   },
   annotations: {
     menu: "التعليقات التوضيحية",

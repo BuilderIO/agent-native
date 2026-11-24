@@ -35,7 +35,12 @@ export function getExtensionIframeDisplaySources(): ExtensionIframeDisplaySource
   };
 }
 
-/** The header CSP the render route sets: the meta CSP plus `frame-ancestors`. */
+/**
+ * The header CSP the render route sets: the meta CSP plus `frame-ancestors`
+ * and a `sandbox` matching the frames' own sandbox attribute. The sandbox must
+ * never gain `allow-same-origin`: it is what keeps the member-authored
+ * document off the app origin if it is ever loaded outside those frames.
+ */
 export function buildExtensionIframeCsp(): string {
-  return `${buildExtensionIframeMetaCsp()} frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`;
+  return `${buildExtensionIframeMetaCsp()} frame-ancestors ${EXTENSION_FRAME_ANCESTORS}; sandbox allow-scripts allow-forms allow-downloads;`;
 }

@@ -3,10 +3,28 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-18
+
+### Improved
+
+- Every new hosted signup now sets up a Builder account automatically, so AI features are ready on first load.
+
+### Fixed
+
+- The agent now learns why a slide edit missed when it wrote line breaks as \n or an earlier edit in the same batch already changed the text, so it can fix the edit instead of failing
+
+## 2026-11-17
+
+### Improved
+
+- Only a comment's author can change what it says, and deleting a thread that holds other people's replies takes edit access.
+
 ## 2026-11-13
 
 ### Fixed
 
+- Exiting a live presentation no longer opens an invalid share link.
+- Slide edit errors show relevant context to help you retry safely
 - Selecting an object whose stylesheet locks its rotation no longer makes it briefly spin back to its inline rotation in current Chrome.
 - Slides refreshes AI availability after automatic Builder setup completes.
 
@@ -1475,21 +1493,5 @@ time from the command menu (Cmd+K → "What's new").
 ### Fixed
 
 - Hosted deck generation and editing chats have a longer background run window, reducing timeouts during complex creative turns.
-
-## 2026-06-28
-
-### Improved
-
-- Left sidebar collapse motion and footer controls now feel smoother and use less divider chrome.
-
-## 2026-06-27
-
-### Improved
-
-- Improved mobile navigation chrome and sidebar drawer motion.
-
-### Fixed
-
-- Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
 
 For the full list of updates, see the [changelog folder](./changelog/).

@@ -9,8 +9,9 @@ const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.List> & {
     variant?: "default" | "line";
+    size?: "default" | "sm";
   }
->(({ className, variant = "default", ...props }, ref) => (
+>(({ className, variant = "default", size = "default", ...props }, ref) => (
   <TabsPrimitive.List
     ref={ref}
     data-variant={variant}
@@ -18,6 +19,9 @@ const TabsList = React.forwardRef<
       variant === "line"
         ? "group/tabs-list inline-flex w-fit items-center justify-start gap-1 border-b border-border bg-transparent p-0 text-muted-foreground"
         : "inline-flex h-9 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground",
+      size === "sm" &&
+        variant !== "line" &&
+        "h-[var(--design-control-height)] p-px",
       className,
     )}
     {...props}

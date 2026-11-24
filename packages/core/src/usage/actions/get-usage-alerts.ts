@@ -11,6 +11,7 @@ export default defineAction({
     scope: z.enum(["user", "workspace"]).default("user"),
     appId: z.string().trim().max(200).nullable().optional(),
   }),
+  mcpTool: false,
   run: async ({ scope, appId }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     return listUsageAlerts(

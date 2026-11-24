@@ -3,7 +3,15 @@ import { createRequire } from "node:module";
 
 import { and, asc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -32,6 +40,7 @@ import {
   sessionEventFilterConditions,
   type SessionEventIndexInputRow,
 } from "./session-event-index";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 /** The index DDL comes straight from the migration so the test tracks it. */
 function sessionEventIndexMigrationSql(): string[] {
@@ -219,16 +228,20 @@ describe("session event index on Postgres", () => {
   let client: PGliteClient;
   let db: any;
 
+  beforeAll(async () => {
+    client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
   beforeEach(async () => {
     __resetSessionEventIndexForTests();
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createTables(client);
     db = drizzle(client, { schema });
     getDbMock.mockReturnValue(db);
-  });
-
-  afterEach(async () => {
-    await client.close();
   });
 
   async function addRecording(

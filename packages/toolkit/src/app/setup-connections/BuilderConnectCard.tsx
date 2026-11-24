@@ -275,6 +275,9 @@ export function BuilderConnectionMenu({
   const reconnectTarget = builderReconnectTarget(flow, scopeProp);
   const canReconnect = reconnectTarget !== null;
   const reconnectScope = reconnectTarget?.scope;
+  const reconnectExisting = scope
+    ? hasBuilderConnection(flow, scope)
+    : source === "user" || source === "org";
   const canDisconnect = scope
     ? hasBuilderConnection(flow, scope) &&
       (scope === "personal" || flow.canConnect.org)
@@ -282,6 +285,17 @@ export function BuilderConnectionMenu({
   const manageLabel = t("settings.builderConnection.manage", {
     defaultValue: "Manage Builder.io connection",
   });
+  const start = (provisionAccount: boolean) => {
+    provisionAttemptRef.current = provisionAccount;
+    setShowConnectChoices(false);
+    setOpen(false);
+    flow.start({
+      trackingSource,
+      trackingFlow,
+      provisionAccount,
+      ...(reconnectScope ? { scope: reconnectScope } : {}),
+    });
+  };
 
   useEffect(() => {
     if (!flow.connecting && flow.accountExists && provisionAttemptRef.current) {
@@ -375,42 +389,24 @@ export function BuilderConnectionMenu({
               flow.statusResolved &&
               flow.agentNativeProvisioningEnabled === true
             }
-            onCreateAndActivate={() => {
-              provisionAttemptRef.current = true;
-              setShowConnectChoices(false);
-              setOpen(false);
-              flow.start({
-                trackingSource,
-                trackingFlow,
-                provisionAccount: true,
-                ...(reconnectScope ? { scope: reconnectScope } : {}),
-              });
-            }}
-            onExistingAccount={() => {
-              setShowConnectChoices(false);
-              setOpen(false);
-              flow.start({
-                trackingSource,
-                trackingFlow,
-                provisionAccount: false,
-                ...(reconnectScope ? { scope: reconnectScope } : {}),
-              });
-            }}
+            onCreateAndActivate={() => start(true)}
+            onExistingAccount={() => start(false)}
           />
         ) : (
           <div className="space-y-0.5">
             {canReconnect ? (
               <button
                 type="button"
-                onClick={() => setShowConnectChoices(true)}
+                onClick={() =>
+                  reconnectExisting ? start(false) : setShowConnectChoices(true)
+                }
                 disabled={flow.connecting}
                 className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-xs text-foreground hover:bg-accent disabled:cursor-wait disabled:opacity-60"
               >
                 <IconRefresh size={14} />
-                {source === "env" ||
-                (scope !== undefined && !hasBuilderConnection(flow, scope))
-                  ? t("agentChat.setup.connectBuilder")
-                  : t("agentChat.recovery.reconnectBuilder")}
+                {reconnectExisting
+                  ? t("agentChat.setup.reconnectBuilder")
+                  : t("agentChat.setup.connectBuilder")}
               </button>
             ) : null}
             {canDisconnect ? (

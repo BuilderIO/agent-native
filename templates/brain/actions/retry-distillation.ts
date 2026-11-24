@@ -1,12 +1,17 @@
-import { defineAction } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, inArray, lte, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
   getAccessibleCapture,
+  nanoid,
   nowIso,
   parseJson,
   readBrainAgentGuidance,
@@ -15,7 +20,10 @@ import {
 } from "../server/lib/brain.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
-import { intelligenceDistillationInstructions } from "../shared/intelligence-distillation.js";
+import {
+  intelligenceDistillationInstructions,
+  KNOWLEDGE_UPDATE_INSTRUCTIONS,
+} from "../shared/intelligence-distillation.js";
 import { stringArrayCliSchema } from "./_schemas.js";
 
 const STALE_PROCESSING_MS = 15 * 60 * 1000;
@@ -62,8 +70,9 @@ async function writeDistillationRequest(values: {
       `validation, extract only durable company knowledge with exact ` +
       `evidence quotes. ` +
       intelligenceDistillationInstructions(values.captureId) +
-      `Call write-knowledge for other supported durable entries, ` +
-      `then call mark-capture-distilled when finished. If the ` +
+      `Call write-knowledge for other supported durable entries. ` +
+      KNOWLEDGE_UPDATE_INSTRUCTIONS +
+      `Call mark-capture-distilled when finished. If the ` +
       `capture is personal or out of scope, call mark-capture-distilled with ` +
       `status ignored.`,
   });
@@ -169,6 +178,9 @@ async function findAllRetryableQueues(args: {
       payloadJson: schema.brainIngestQueue.payloadJson,
       error: schema.brainIngestQueue.error,
       runAfter: schema.brainIngestQueue.runAfter,
+      dedupeKey: schema.brainIngestQueue.dedupeKey,
+      leaseToken: schema.brainIngestQueue.leaseToken,
+      leaseExpiresAt: schema.brainIngestQueue.leaseExpiresAt,
       createdAt: schema.brainIngestQueue.createdAt,
       updatedAt: schema.brainIngestQueue.updatedAt,
     })
@@ -185,7 +197,7 @@ async function findAllRetryableQueues(args: {
     .orderBy(desc(schema.brainIngestQueue.updatedAt))
     .limit(args.limit);
 
-  return rows as QueueRow[];
+  return rows;
 }
 
 async function retryQueue(
@@ -205,7 +217,8 @@ async function retryQueue(
     throw new Error("Queue item has no capture to retry.");
   }
 
-  const access = await getAccessibleCapture(queue.captureId);
+  const captureId = queue.captureId;
+  const access = await getAccessibleCapture(captureId);
   if (!access) throw new Error(`No access to capture ${queue.captureId}`);
   await assertAccess("brain-source", access.capture.sourceId, "editor");
 
@@ -217,40 +230,93 @@ async function retryQueue(
   }
 
   const payload = parseJson<Record<string, unknown>>(queue.payloadJson, {});
-  await getDb()
-    .update(schema.brainIngestQueue)
-    .set({
-      status: "queued",
-      priority: args.priority ?? queue.priority,
-      payloadJson: stableJson({
-        ...payload,
-        manuallyRetriedAt: args.now,
-        retryPreviousStatus: queue.status,
-        retryReason: staleProcessing ? "stale-processing" : "failed",
-      }),
-      error: null,
-      runAfter: null,
-      updatedAt: args.now,
-    })
-    .where(eq(schema.brainIngestQueue.id, queue.id));
-  await getDb()
-    .update(schema.brainRawCaptures)
-    .set({
-      status: "distilling",
-      distilledAt: null,
-      updatedAt: args.now,
-    })
-    .where(eq(schema.brainRawCaptures.id, queue.captureId));
-
-  const instructions =
-    typeof payload.instructions === "string" ? payload.instructions : null;
-  await writeDistillationRequest({
-    captureId: queue.captureId,
-    queueId: queue.id,
-    sourceId: access.capture.sourceId,
-    requestedAt: args.now,
-    instructions,
-    guidance: args.guidance,
+  const retryPayload = stableJson({
+    ...payload,
+    manuallyRetriedAt: args.now,
+    retryId: nanoid(16),
+    retryPreviousStatus: queue.status,
+    retryReason: staleProcessing ? "stale-processing" : "failed",
+  });
+  await getDb().transaction(async (tx) => {
+    const lockedCaptures = await tx
+      .select({
+        id: schema.brainRawCaptures.id,
+        status: schema.brainRawCaptures.status,
+      })
+      .from(schema.brainRawCaptures)
+      .where(eq(schema.brainRawCaptures.id, captureId))
+      .limit(1)
+      .for("update");
+    const lockedCapture = lockedCaptures.find((row) => row.id === captureId);
+    if (
+      lockedCapture?.status === "distilled" ||
+      lockedCapture?.status === "ignored"
+    ) {
+      fail(`Capture ${captureId} is already ${lockedCapture.status}.`, {
+        errorCode: "distillation_retry_conflict",
+        statusCode: 409,
+      });
+    }
+    const otherActive = await tx
+      .select({ id: schema.brainIngestQueue.id })
+      .from(schema.brainIngestQueue)
+      .where(
+        and(
+          eq(schema.brainIngestQueue.captureId, captureId),
+          eq(schema.brainIngestQueue.operation, "distill"),
+          ne(schema.brainIngestQueue.id, queue.id),
+          inArray(schema.brainIngestQueue.status, ["queued", "processing"]),
+        ),
+      )
+      .limit(1);
+    if (otherActive.length > 0) {
+      fail("This capture already has active distillation work.", {
+        errorCode: "distillation_retry_conflict",
+        statusCode: 409,
+      });
+    }
+    const updated = await tx
+      .update(schema.brainIngestQueue)
+      .set({
+        status: "queued",
+        priority: args.priority ?? queue.priority,
+        payloadJson: retryPayload,
+        error: null,
+        runAfter: null,
+        leaseToken: null,
+        leaseExpiresAt: null,
+        updatedAt: args.now,
+      })
+      .where(
+        and(
+          eq(schema.brainIngestQueue.id, queue.id),
+          eq(schema.brainIngestQueue.status, queue.status),
+          eq(schema.brainIngestQueue.updatedAt, queue.updatedAt),
+          queue.leaseToken === null
+            ? isNull(schema.brainIngestQueue.leaseToken)
+            : eq(schema.brainIngestQueue.leaseToken, queue.leaseToken),
+        ),
+      )
+      .returning({ id: schema.brainIngestQueue.id });
+    if (updated.length === 0) {
+      fail("No failed or stale distillation queue item was found.", {
+        errorCode: "distillation_retry_conflict",
+        statusCode: 409,
+      });
+    }
+    await tx
+      .update(schema.brainRawCaptures)
+      .set({ status: "distilling", distilledAt: null, updatedAt: args.now })
+      .where(eq(schema.brainRawCaptures.id, captureId));
+    await writeDistillationRequest({
+      captureId,
+      queueId: queue.id,
+      sourceId: access.capture.sourceId,
+      requestedAt: args.now,
+      instructions:
+        typeof payload.instructions === "string" ? payload.instructions : null,
+      guidance: args.guidance,
+    });
   });
 
   const [updated] = await getDb()
@@ -490,6 +556,7 @@ export default defineAction({
       });
       return singleResponse(result, summarizeResults([result]));
     } catch (error) {
+      if (isActionContractError(error)) throw error;
       throw new Error(errorMessage(error));
     }
   },

@@ -1,15 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
-import {
-  buildBrandAnalysisResult,
-  normalizeBrandWebsiteUrl,
-} from "@agent-native/core/brand-kit";
-import { resolveAccess } from "@agent-native/core/sharing";
-import { extractRenderedDesignSystemFromUrl } from "@agent-native/creative-context/server";
+import { buildBrandAnalysisResult } from "@agent-native/core/brand-kit";
+import { extractRenderedDesignSystemFromUrl } from "@agent-native/creative-context/connectors";
 import { z } from "zod";
 
 import "../server/db/index.js";
-
-export { normalizeBrandWebsiteUrl };
 
 export default defineAction({
   description:
@@ -17,13 +11,8 @@ export default defineAction({
     "If a websiteUrl is provided, renders the page in a real browser and extracts " +
     "computed colors, typography, spacing, radii, shadows, component styles, " +
     "CSS custom properties, logo references, and a design.md-style summary. " +
-    "If a designSystemId is provided, includes its existing data. " +
-    "Returns structured data the agent can use to build or refine a design system.",
+    "Returns structured data the agent can use to build or refine a design.",
   schema: z.object({
-    designSystemId: z
-      .string()
-      .optional()
-      .describe("Existing design system ID to include its data"),
     companyName: z.string().optional().describe("Company or brand name"),
     brandNotes: z
       .string()
@@ -36,22 +25,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
-  run: async ({ designSystemId, companyName, brandNotes, websiteUrl }) => {
-    let existingDesignSystem: unknown;
-
-    if (designSystemId) {
-      const access = await resolveAccess("design-system", designSystemId);
-      if (access) {
-        const row = access.resource;
-        existingDesignSystem = {
-          id: row.id,
-          title: row.title,
-          data: row.data ? JSON.parse(row.data) : null,
-          assets: row.assets ? JSON.parse(row.assets) : null,
-        };
-      }
-    }
-
+  run: async ({ companyName, brandNotes, websiteUrl }) => {
     const websiteAnalysis = websiteUrl
       ? await extractRenderedDesignSystemFromUrl(websiteUrl)
       : undefined;
@@ -59,7 +33,6 @@ export default defineAction({
     return buildBrandAnalysisResult({
       companyName,
       brandNotes,
-      existingDesignSystem,
       websiteAnalysis,
     });
   },

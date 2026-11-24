@@ -13,6 +13,10 @@ import { z } from "zod";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { orderMigrationsByVersion } from "../lib/migration-order.js";
+import {
+  copyRecordingCommentsToReviewKit,
+  type RecordingCommentCopyReport,
+} from "../lib/recording-comment-mirror.js";
 import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import {
   uploadLeaseExpiry,
@@ -1442,9 +1446,68 @@ export const migrations = runMigrations(
       CREATE UNIQUE INDEX IF NOT EXISTS recording_tracks_recording_track_unique_idx
         ON recording_tracks (recording_id, track)`,
     },
+    {
+      version: 104,
+      name: "recording-made-by",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS made_by TEXT;
+      ALTER TABLE recordings ADD COLUMN IF NOT EXISTS made_by_agent TEXT`,
+    },
+    {
+      version: 105,
+      name: "calendar-enabled-calendars",
+      sql: `ALTER TABLE calendar_accounts ADD COLUMN IF NOT EXISTS enabled_calendar_ids_json TEXT;
+      ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS calendar_id TEXT`,
+    },
+    {
+      version: 106,
+      name: "recording-comments-copy-to-review-kit",
+      sql: {},
+      run: copyRecordingCommentsOnce,
+    },
+    {
+      version: 107,
+      name: "recording-comments-copy-to-review-kit-again",
+      sql: {},
+      run: copyRecordingCommentsOnce,
+    },
   ]),
   { table: "clips_migrations" },
 );
+
+async function copyRecordingCommentsOnce(): Promise<MigrationRunResult> {
+  let report: RecordingCommentCopyReport;
+  try {
+    report = await copyRecordingCommentsToReviewKit();
+  } catch (error) {
+    console.error(
+      "[db] Couldn't copy recording comments to the review kit; it runs again on the next start:",
+      error instanceof Error ? error.message : error,
+    );
+    return deferMigration();
+  }
+  const summary = `[db] Copied ${report.comments} comment(s) on ${report.recordings} recording(s) to the review kit: ${report.replies} replies, ${report.repliesWithoutParent} replies without a parent, ${report.resolved} resolved, ${report.reactions} reactions`;
+  if (report.kitWrittenComments.length > 0) {
+    console.warn(
+      `[db] Kept ${report.kitWrittenComments.length} recording comment(s) that were written through the review kit's own actions and aren't in Clips:`,
+      report.kitWrittenComments.slice(0, 20),
+    );
+  }
+  if (report.orphanedReplies.length > 0) {
+    console.warn(
+      `[db] Deleted ${report.orphanedReplies.length} recording comment(s) written through the review kit's own actions in a thread Clips deleted:`,
+      report.orphanedReplies.slice(0, 20),
+    );
+  }
+  if (report.differences.length > 0 || report.failedRecordings.length > 0) {
+    console.warn(
+      `${summary}; ${report.failedRecordings.length} recording(s) failed and ${report.differences.length} comment(s) still differ:`,
+      report.failedRecordings.slice(0, 20),
+      report.differences.slice(0, 20),
+    );
+    return deferMigration();
+  }
+  console.log(summary);
+}
 
 async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   const exec = getDbExec();

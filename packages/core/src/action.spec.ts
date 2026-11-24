@@ -36,6 +36,7 @@ import {
   isAgentConnectionRequiredError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  isMcpToolServed,
   preparedCallArguments,
   recordInvalidActionCall,
   runPreparedActionCall,
@@ -46,6 +47,7 @@ import {
   actionsToEngineTools,
   createPlanModeActionRegistry,
 } from "./agent/production-agent.js";
+import { createReversibleWriteApprovalPolicy } from "./approval/reversible-write-policy.js";
 import * as actionAuditRecord from "./audit/record.js";
 import { boundedJsonValueBranches } from "./json-schema/json-value.js";
 import {
@@ -426,6 +428,42 @@ describe("defineAction", () => {
     });
     expect(plain.mcpTool).toBeUndefined();
     expect(plain.deferLoading).toBeUndefined();
+
+    const unlisted = defineAction({
+      description: "read a plan's history",
+      parameters: { id: { type: "string" } },
+      mcpTool: "search",
+      run: async () => "ok",
+    });
+    expect(unlisted.mcpTool).toBe("search");
+
+    const unknown = defineAction({
+      description: "a decision this version doesn't know",
+      parameters: { id: { type: "string" } },
+      mcpTool: "listed" as never,
+      run: async () => "ok",
+    });
+    expect(unknown.mcpTool).toBeUndefined();
+  });
+
+  it("serves an action to external agents for mcpTool true or search", () => {
+    expect(isMcpToolServed(true)).toBe(true);
+    expect(isMcpToolServed("search")).toBe(true);
+    expect(isMcpToolServed(false)).toBe(false);
+    expect(isMcpToolServed(undefined)).toBe(false);
+
+    expect(
+      isActionExposedToExternalAgents({ agentTool: false, mcpTool: "search" }),
+    ).toBe(true);
+    expect(
+      isActionExposedToExternalAgents({ endsTurn: true, mcpTool: "search" }),
+    ).toBe(true);
+    expect(
+      isActionHiddenFromEveryAgentSurface({
+        agentTool: false,
+        mcpTool: "search",
+      }),
+    ).toBe(false);
   });
 
   it("keeps searchHints off the model-facing tool and through registry loading", () => {
@@ -1324,7 +1362,10 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       await withMcpClient({ pair }, async (client) => {
         const { tools } = await client.listTools();
         expect(tools.map(({ name }) => name)).toEqual(["pair"]);
-        const { inputSchema } = tools[0]!;
+        const inputSchema = tools.find(
+          ({ name }) => name === "pair",
+        )?.inputSchema;
+        if (!inputSchema) throw new Error("Expected the pair tool");
         expect(inputSchema.properties).toMatchObject({
           pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
         });
@@ -4407,6 +4448,40 @@ describe("resolveToolMaxResultChars", () => {
   });
 });
 
+describe("defineAction approvalProof", () => {
+  it("refuses review-page proof on an inline-form approval, which nothing could approve", () => {
+    expect(() =>
+      defineAction({
+        description: "Archive",
+        needsApproval: createReversibleWriteApprovalPolicy(),
+        approvalProof: "review-page",
+        run: () => null,
+      }),
+    ).toThrow(
+      'defineAction: approvalProof: "review-page" can\'t be combined with a reversible-write inline approval, which never links to the review page, so no call could be approved.',
+    );
+  });
+
+  it("keeps an inline-form approval without review-page proof, and review-page proof on another predicate", () => {
+    const inline = createReversibleWriteApprovalPolicy();
+    expect(
+      defineAction({
+        description: "Archive",
+        needsApproval: inline,
+        run: () => null,
+      }).needsApproval,
+    ).toBe(inline);
+    expect(
+      defineAction({
+        description: "Read",
+        needsApproval: () => true,
+        approvalProof: "review-page",
+        run: () => null,
+      }).approvalProof,
+    ).toBe("review-page");
+  });
+});
+
 describe("defineAction userTurn", () => {
   const predicate = () => false;
   it("keeps each declared user turn and drops an unknown one", () => {
@@ -4464,5 +4539,216 @@ describe("defineAction userTurn", () => {
         run: () => null,
       }).requiresUserTurn,
     ).toBe(true);
+  });
+});
+
+describe("defineAction — action_kind", () => {
+  async function capture(
+    name: string,
+    calls: (ctx: ActionRunContext) => Promise<unknown>,
+  ): Promise<Array<Record<string, unknown>>> {
+    const tracked: Array<Record<string, unknown>> = [];
+    const { registerTrackingProvider, unregisterTrackingProvider } =
+      await import("./tracking/registry.js");
+    registerTrackingProvider({
+      name: `action-kind-${name}`,
+      track: (event) => {
+        if (event.name === "action_completed" && event.properties) {
+          tracked.push(event.properties);
+        }
+      },
+    });
+    const { runWithRequestContext } =
+      await import("./server/request-context.js");
+    try {
+      await runWithRequestContext({ appPageRequest: true }, () =>
+        calls({ caller: "frontend", actionName: name }),
+      );
+    } finally {
+      unregisterTrackingProvider(`action-kind-${name}`);
+    }
+    return tracked;
+  }
+
+  it("labels automatic, read, and write calls, a planMode read first", async () => {
+    const settings = defineAction({
+      description: "Read or change a setting.",
+      schema: z.object({ set: z.boolean().optional() }),
+      planMode: {
+        effect: (args) => (args.set === undefined ? "read" : "write"),
+      },
+      automatic: true,
+      run: async () => ({ ok: true }),
+    });
+    const create = defineAction({
+      description: "Create a note.",
+      schema: z.object({}),
+      run: async () => ({ ok: true }),
+    });
+    const events = await capture("kind-precedence", async (ctx) => {
+      await settings.run({}, ctx);
+      await settings.run({ set: true }, ctx);
+      await create.run({}, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "read",
+      "automatic",
+      "write",
+    ]);
+    expect(settings.automatic).toBe(true);
+    expect(create.automatic).toBeUndefined();
+  });
+
+  it("ignores an automatic option that is neither a boolean nor a predicate", async () => {
+    const save = defineAction({
+      description: "Save a position.",
+      schema: z.object({}),
+      automatic: "yes" as never,
+      run: async () => ({ ok: true }),
+    });
+    const events = await capture("kind-invalid-option", async (ctx) => {
+      await save.run({}, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual(["write"]);
+    expect(save.automatic).toBeUndefined();
+  });
+
+  it("asks a predicate with a copy of the arguments and the call's context", async () => {
+    const received: number[] = [];
+    const sync = defineAction({
+      description: "Sync the inbox.",
+      schema: z.object({ at: z.date(), force: z.boolean().optional() }),
+      automatic: (input, ctx) => {
+        input.at.setTime(0);
+        return ctx.actionName === "kind-predicate" && !input.force;
+      },
+      run: async (args) => {
+        received.push(args.at.getTime());
+        return { ok: true };
+      },
+    });
+    const events = await capture("kind-predicate", async (ctx) => {
+      await sync.run({ at: new Date(1_000) }, ctx);
+      await sync.run({ at: new Date(1_000), force: true }, ctx);
+      await sync.run({ at: new Date(1_000) }, { ...ctx, actionName: "other" });
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "automatic",
+      "write",
+      "write",
+    ]);
+    expect(received).toEqual([1_000, 1_000, 1_000]);
+  });
+
+  it("counts a frontend call the action route did not see from the app page as a write", async () => {
+    const refresh = defineAction({
+      description: "Refresh a sync status.",
+      schema: z.object({}),
+      automatic: true,
+      run: async () => ({ ok: true }),
+    });
+    const { runWithRequestContext } =
+      await import("./server/request-context.js");
+    const events = await capture("kind-unproven", async (ctx) => {
+      await runWithRequestContext({ appPageRequest: false }, () =>
+        refresh.run({}, ctx),
+      );
+      await refresh.run({}, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "write",
+      "automatic",
+    ]);
+  });
+
+  it("counts a call from anything but the app's own UI as a write", async () => {
+    const refresh = defineAction({
+      description: "Refresh a sync status.",
+      schema: z.object({}),
+      automatic: true,
+      run: async () => ({ ok: true }),
+    });
+    const callers = [
+      "tool",
+      "mcp",
+      "cli",
+      "a2a",
+      "http",
+      "automation",
+    ] as const;
+    const events = await capture("kind-callers", async (ctx) => {
+      await refresh.run({}, ctx);
+      for (const caller of callers) await refresh.run({}, { ...ctx, caller });
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "automatic",
+      ...callers.map(() => "write"),
+    ]);
+  });
+
+  it("counts a call whose arguments cannot be copied as a write", async () => {
+    const save = defineAction({
+      description: "Save a position.",
+      schema: z.object({}),
+      automatic: () => true,
+      run: async () => ({ ok: true }),
+    });
+    const args = Object.defineProperty({}, "position", {
+      enumerable: true,
+      get: () => 1,
+    });
+    const events = await capture("kind-uncopyable", async (ctx) => {
+      await save.run(args, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual(["write"]);
+  });
+
+  it("labels a call from the arguments validation hands the handler", async () => {
+    const settings = defineAction({
+      description: "Read or change a setting.",
+      schema: z.object({ mode: z.enum(["read", "write"]).default("read") }),
+      planMode: {
+        effect: (args) => (args.mode === "read" ? "read" : "write"),
+      },
+      run: async () => ({ ok: true }),
+    });
+    const sync = defineAction({
+      description: "Sync the inbox.",
+      schema: z.object({ force: z.boolean().default(false) }),
+      automatic: (input) => input.force === false,
+      run: async () => ({ ok: true }),
+    });
+    const events = await capture("kind-validated", async (ctx) => {
+      await settings.run({}, ctx);
+      await settings.run({ mode: "write" }, ctx);
+      await sync.run({}, ctx);
+      await sync.run({ force: true }, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "read",
+      "write",
+      "automatic",
+      "write",
+    ]);
+  });
+
+  it("names the output only for an action kept in chat history", async () => {
+    const shared = defineAction({
+      description: "Create a clip.",
+      schema: z.object({}),
+      run: async () => ({ id: "clip-1" }),
+    });
+    const hidden = defineAction({
+      description: "Create a private clip.",
+      schema: z.object({}),
+      persistInChatHistory: false,
+      run: async () => ({ id: "clip-2" }),
+    });
+    const events = await capture("kind-output-id", async (ctx) => {
+      await shared.run({}, ctx);
+      await hidden.run({}, ctx);
+    });
+    expect(events[0]).toMatchObject({ output_id: "clip-1" });
+    expect(events[1]).not.toHaveProperty("output_id");
   });
 });

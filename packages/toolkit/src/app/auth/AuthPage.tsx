@@ -20,6 +20,7 @@ import { whenConsentDecided } from "@agent-native/core/client/consent";
 import { startMobileGoogleAuth } from "@agent-native/core/client/mobile-auth";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import { navigateForSession } from "@agent-native/core/client/use-session";
+import { consentBannerMessagesForLocale } from "@agent-native/core/localization/privacy-choice-messages";
 import { normalizeLocaleCode } from "@agent-native/core/localization/shared";
 import { canonicalTrackingEvent } from "@agent-native/core/shared/analytics-events";
 import { getAppStatus } from "@agent-native/core/shared/app-status";
@@ -44,6 +45,7 @@ import { AuthForm } from "@agent-native/toolkit/onboarding";
 import { IconLoader2 } from "@tabler/icons-react";
 import * as React from "react";
 
+import { ConsentBannerPanel } from "../shared/ConsentBanner.js";
 import { WaveBackground } from "../shared/WaveBackground.js";
 
 export type {
@@ -467,17 +469,37 @@ function builderPreviewReturnOrigin(): string {
   return "";
 }
 
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "[::1]" ||
+      /^127(?:\.\d{1,3}){3}$/.test(hostname)
+    );
+  } catch {
+    // coercion-ok: an unreadable origin is treated as hosted.
+    return false;
+  }
+}
+
 export function resolveOAuthReturnOrigin(input: {
   previewOrigin: string;
   workspaceGatewayReturnOrigin: string;
   userAgent: string;
+  currentOrigin?: string;
 }): string {
+  const currentOrigin =
+    input.currentOrigin ??
+    (typeof window === "undefined" ? "" : window.location.origin);
+  const desktopGatewayReturn =
+    (isAgentNativeDesktop(input.userAgent) ||
+      isBuilderDesktop(input.userAgent)) &&
+    isLoopbackOrigin(currentOrigin);
   return (
     input.previewOrigin ||
     input.workspaceGatewayReturnOrigin ||
-    (isAgentNativeDesktop(input.userAgent) || isBuilderDesktop(input.userAgent)
-      ? BUILDER_DESKTOP_RETURN_ORIGIN
-      : "")
+    (desktopGatewayReturn ? BUILDER_DESKTOP_RETURN_ORIGIN : "")
   );
 }
 
@@ -485,12 +507,14 @@ export function oauthReturnTarget(
   target: string,
   workspaceGatewayReturnOrigin: string,
   userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
+  currentOrigin = typeof window === "undefined" ? "" : window.location.origin,
 ): string {
   const path = normalizeOAuthReturnPath(target);
   const origin = resolveOAuthReturnOrigin({
     previewOrigin: builderPreviewReturnOrigin(),
     workspaceGatewayReturnOrigin,
     userAgent,
+    currentOrigin,
   });
   return origin ? origin + path : path;
 }
@@ -713,7 +737,8 @@ export function AuthPage(props: AuthPageProps) {
   React.useEffect(() => {
     if (
       builderSignup?.status !== "assigned" ||
-      !["signup", "magicLink", "googleOnly"].includes(view) ||
+      (!["signup", "magicLink", "googleOnly"].includes(view) &&
+        !(view === "login" && showGoogle)) ||
       builderSignupExposure.current === builderSignup.id
     )
       return;
@@ -724,12 +749,11 @@ export function AuthPage(props: AuthPageProps) {
       experiment_variant: builderSignup.variant,
       assignment_id: builderSignup.id,
     };
-    trackAuth(
-      trackingApp,
-      "auth.builder_signup_experiment_exposed",
-      builderSignupTelemetry,
-    );
-  }, [builderSignup, trackingApp, view]);
+    trackAuth(trackingApp, "auth.builder_signup_experiment_exposed", {
+      ...builderSignupTelemetry,
+      exposure_view: view,
+    });
+  }, [builderSignup, showGoogle, trackingApp, view]);
 
   const [messages, setMessages] = React.useState<Record<string, Notice>>({});
   const [submitting, setSubmitting] = React.useState<string | null>(null);
@@ -1118,8 +1142,10 @@ export function AuthPage(props: AuthPageProps) {
         basePath: runtimeAppBasePath,
         homePath,
       }).resumeHref;
+      const landing = new URL(resumeHref, window.location.origin);
       captureAttribution({
-        landingPath: new URL(resumeHref, window.location.origin).pathname,
+        landingPath: landing.pathname,
+        landingSearch: landing.search,
       });
     }
     const identity = normalizeEmail(signupEmail);
@@ -1529,7 +1555,7 @@ export function AuthPage(props: AuthPageProps) {
       if (
         builderSignup?.status !== "assigned" ||
         builderSignup.variant !== "automatic" ||
-        view === "login"
+        (view === "login" && method !== "google")
       )
         return undefined;
       try {
@@ -1600,32 +1626,45 @@ export function AuthPage(props: AuthPageProps) {
       stopNativeOAuth();
     }
     const authUrl = googleAuthUrlPath();
-    const mobileAuth = startMobileGoogleAuth(authUrl, oauthTarget);
-    if (mobileAuth) {
-      stopOAuthPolling();
-      const showRetry = () => {
-        if (flowId !== oauthFlowId.current) return;
-        setGoogleBusy(false);
-        setNotice("google", { kind: "error", text: t("googleNeverFinished") });
-      };
-      oauthBusyBoundTimer.current = window.setTimeout(
-        showRetry,
-        OAUTH_EXCHANGE_BUSY_BOUND_MS,
+    if (typeof window !== "undefined" && window.__agentNativeMobileOAuth) {
+      const attemptId = await prepareBuilderSignup("google", undefined, flowId);
+      const mobileAuthUrl = new URL(authUrl, window.location.origin);
+      if (attemptId) {
+        mobileAuthUrl.searchParams.set("builder_signup_attempt", attemptId);
+      }
+      const mobileAuth = startMobileGoogleAuth(
+        mobileAuthUrl.toString(),
+        oauthTarget,
       );
-      try {
-        const result = await mobileAuth;
-        if (flowId !== oauthFlowId.current) return;
-        if (result === "signed-in") finishOAuthExchange(target);
-        else {
+      if (mobileAuth) {
+        stopOAuthPolling();
+        const showRetry = () => {
+          if (flowId !== oauthFlowId.current) return;
+          setGoogleBusy(false);
+          setNotice("google", {
+            kind: "error",
+            text: t("googleNeverFinished"),
+          });
+        };
+        oauthBusyBoundTimer.current = window.setTimeout(
+          showRetry,
+          OAUTH_EXCHANGE_BUSY_BOUND_MS,
+        );
+        try {
+          const result = await mobileAuth;
+          if (flowId !== oauthFlowId.current) return;
+          if (result === "signed-in") finishOAuthExchange(target);
+          else {
+            stopOAuthPolling();
+            showRetry();
+          }
+        } catch {
+          if (flowId !== oauthFlowId.current) return;
           stopOAuthPolling();
           showRetry();
         }
-      } catch {
-        if (flowId !== oauthFlowId.current) return;
-        stopOAuthPolling();
-        showRetry();
+        return;
       }
-      return;
     }
     if (flow === "redirect" && !nativeDesktop) {
       const params = new URLSearchParams({
@@ -2490,11 +2529,15 @@ export function AuthPage(props: AuthPageProps) {
     </div>
   ) : null;
   const builderLegalNote =
-    view !== "login" &&
+    (view !== "login" || showGoogle) &&
     builderSignup?.status === "assigned" &&
     builderSignup.variant === "automatic" ? (
       <span>
-        {t("builderSignupDisclosure")}{" "}
+        {t(
+          view === "login"
+            ? "builderSignupNewAccountDisclosure"
+            : "builderSignupDisclosure",
+        )}{" "}
         <a
           href="https://www.builder.io/legal/terms"
           target="_blank"
@@ -3114,6 +3157,9 @@ export function AuthPage(props: AuthPageProps) {
               </button>
             </p>
           ) : null}
+          {view === "login" && showGoogle && builderLegalNote ? (
+            <p className="legal-note">{builderLegalNote}</p>
+          ) : null}
         </form>
         <form
           id="forgot-form"
@@ -3237,12 +3283,16 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   ) : null;
+  const consentBanner = (
+    <ConsentBannerPanel messages={consentBannerMessagesForLocale(locale)} />
+  );
   const marketingSurface = marketingCopy ? (
     <main className="auth-marketing-home" data-agent-native-marketing-home>
       <div className="auth-marketing-shell">
         <div className="split auth-marketing-layout">
           <aside className="form-panel w-full max-w-md justify-self-end">
             {authCard}
+            {consentBanner}
           </aside>
           <section className="marketing-panel">
             <div className="auth-marketing-visual">{marketingContent}</div>
@@ -3251,7 +3301,10 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </main>
   ) : (
-    <div className="auth-centered">{authCard}</div>
+    <div className="auth-centered">
+      {authCard}
+      {consentBanner}
+    </div>
   );
   const localePicker = (
     <div className="locale-picker">
@@ -3325,7 +3378,10 @@ export function AuthPage(props: AuthPageProps) {
       <div className="auth-page-content">
         {localePicker}
         {initialPrompt ? (
-          <div className="auth-centered">{authCard}</div>
+          <div className="auth-centered">
+            {authCard}
+            {consentBanner}
+          </div>
         ) : (
           marketingSurface
         )}

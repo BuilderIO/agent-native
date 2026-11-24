@@ -44,17 +44,10 @@ function threadPopover(page: Page) {
     .last();
 }
 
-/**
- * Opens the left rail's Threads panel. A reload can restore it already open, and
- * the rail item toggles, so it is clicked only while the panel is closed.
- */
 async function openThreadsPanel(page: Page): Promise<void> {
-  const threadsItem = page.getByRole("button", {
-    name: "Threads",
-    exact: true,
-  });
-  if ((await threadsItem.getAttribute("aria-current")) !== "page") {
-    await threadsItem.click();
+  const commentsToggle = page.locator("[data-design-comments-toggle]");
+  if ((await commentsToggle.getAttribute("aria-pressed")) !== "true") {
+    await commentsToggle.click();
   }
   await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
 }

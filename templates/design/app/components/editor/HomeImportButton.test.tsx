@@ -375,7 +375,6 @@ describe("home Figma import", () => {
     expect(mocks.create).toHaveBeenCalledExactlyOnceWith({
       title: "example",
       projectType: "prototype",
-      designSystemId: null,
       creationMethod: "import_figma",
     });
     expect(readPendingDesignImport("file-design")).toMatchObject({

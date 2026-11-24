@@ -21,6 +21,17 @@ export const authConfig = z.object({
     env: "AGENT_NATIVE_OWNER_EMAIL",
     doc: "Owner email used to scope static-token MCP requests when no per-caller identity is available.",
   }),
+  runnerSessionSecret: z.string().min(32).optional().meta({
+    env: "RUNNER_SESSION_SECRET",
+    doc: "Shared secret that signs requests to the automated test-runner sign-in route. The route stays off unless this and an email allowlist are both set. At least 32 characters.",
+  }),
+  runnerSessionAllowedEmails: z
+    .array(z.string().trim().toLowerCase().email())
+    .default([])
+    .meta({
+      env: "RUNNER_SESSION_ALLOWED_EMAILS",
+      doc: "Comma-separated existing accounts the automated test-runner sign-in route may sign in. Empty keeps the route off.",
+    }),
   requireEmailVerification: z.boolean().optional().meta({
     env: "AUTH_REQUIRE_EMAIL_VERIFICATION",
     doc: "Whether password signup must verify email before a session. Unset: hosted deployments verify with a provider and skip verification without one; local development skips it. Setting false accepts unverified email in production. Email remains optional.",

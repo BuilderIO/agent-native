@@ -24,12 +24,15 @@ import {
   AGENT_AUTHOR_NAME,
   commentAuthorKind,
 } from "../../shared/comment-author.js";
+import {
+  DECK_REVIEW_RESOURCE,
+  SLIDE_POINT_ANCHOR,
+} from "../../shared/deck-review.js";
 import { slideCommentAnchorSchema } from "../../shared/slide-comment-anchor.js";
 import type { SlideCommentReaction } from "../../shared/slide-comment-reactions.js";
 import { withUniqueSlideIds } from "../../shared/slide-ids.js";
 
-export const DECK_REVIEW_RESOURCE = "deck";
-export const SLIDE_POINT_ANCHOR = "slide-point";
+export { DECK_REVIEW_RESOURCE, SLIDE_POINT_ANCHOR };
 
 export function slideReviewContext(
   ctx: ActionRunContext | undefined,

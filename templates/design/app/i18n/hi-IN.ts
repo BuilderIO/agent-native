@@ -1,4 +1,7 @@
 export default {
+  responseGuard: {
+    noDesignChangesSaved: "इस बार डिज़ाइन में कोई बदलाव सहेजा नहीं गया।",
+  },
   journeyCanvas: {
     observedSessionReference: "देखे गए सत्र का संदर्भ",
     sessionsOfAll: "{count} सत्र · कुल का {percent}",
@@ -72,146 +75,6 @@ export default {
     htmlLanguage: "hi-IN",
   },
   composer: { menu: { integrations: "इंटीग्रेशन" } },
-  creativeContext: {
-    title: "लाइब्रेरी",
-    description:
-      "दोबारा इस्तेमाल होने वाला क्रिएटिव कॉन्टेक्स्ट जो काम में निरंतरता रखता है।",
-    modeLabel: "क्रिएटिव कॉन्टेक्स्ट इस्तेमाल करें",
-    automatic: "ऑटोमैटिक",
-    automaticDescription: "एजेंट को सबसे प्रासंगिक स्रोत और कॉन्टेक्स्ट पैक चुनने दें।",
-    off: "बंद",
-    offDescription: "सेव किया हुआ क्रिएटिव कॉन्टेक्स्ट लागू किए बिना बनाएँ।",
-    activePack: "मौजूदा कॉन्टेक्स्ट पैक",
-    noActivePack: "इस सेशन में अभी कोई कॉन्टेक्स्ट पैक इस्तेमाल नहीं हुआ है।",
-    pinned: "पिन किया गया",
-    pin: "पिन करें",
-    unpin: "पिन हटाएँ",
-    sourcesTitle: "स्रोत",
-    sourcesDescription: "दोबारा इस्तेमाल के लिए उपलब्ध संदर्भ, दस्तावेज़ और पुराना काम।",
-    searchTitle: "कॉन्टेक्स्ट खोजें",
-    searchDescription:
-      "किसी दावे, शैली या फैसले को दोबारा इस्तेमाल करने से पहले सटीक जानकारी खोजें।",
-    searchPlaceholder: "क्रिएटिव कॉन्टेक्स्ट खोजें",
-    searchPrompt: "इस लाइब्रेरी के स्रोतों में खोजें।",
-    noResults: "कोई मिलता-जुलता कॉन्टेक्स्ट नहीं मिला।",
-    resultsLabel: "नतीजे: {{count}}",
-    noSourcesTitle: "अभी कोई क्रिएटिव कॉन्टेक्स्ट नहीं है",
-    noSourcesDescription:
-      "कोई स्रोत जोड़ें या एजेंट से भविष्य के लिए कॉन्टेक्स्ट सहेजने को कहें।",
-    connectSources: "कनेक्शन खोलें",
-    refresh: "रिफ्रेश करें",
-    refreshing: "रिफ्रेश हो रहा है…",
-    refreshed: "रिफ्रेश शुरू हुआ",
-    refreshFailed: "यह स्रोत रिफ्रेश नहीं हो सका।",
-    itemsLabel: "आइटम: {{count}}",
-    discoveredItems: "मिले: {{count}}",
-    selectedItems: "चुने गए: {{count}}",
-    selectAll: "सभी चुनें",
-    clearSelection: "साफ़ करें",
-    packsTitle: "कॉन्टेक्स्ट पैक",
-    noPacks: "अभी कोई कॉन्टेक्स्ट पैक नहीं बनाया गया है।",
-    loading: "क्रिएटिव कॉन्टेक्स्ट लोड हो रहा है…",
-    unavailable: "क्रिएटिव कॉन्टेक्स्ट अभी उपलब्ध नहीं है।",
-    stateSaveFailed: "क्रिएटिव कॉन्टेक्स्ट की पसंद सेव नहीं हो सकी।",
-    sourceError: "ध्यान देने की ज़रूरत है",
-    personal: "व्यक्तिगत",
-    organization: "संगठन",
-    addSource: "स्रोत जोड़ें",
-    addToContext: "कॉन्टेक्स्ट में जोड़ें…",
-    sourceName: "स्रोत का नाम",
-    sourceReference: "स्रोत संदर्भ",
-    preview: "पूर्वावलोकन",
-    startImport: "आयात शुरू करें",
-    importing: "आयात हो रहा है…",
-    importComplete: "आयात पूरा हुआ",
-    importFailed: "आयात विफल हुआ",
-    brandDnaTitle: "अनुमानित ब्रांड संदर्भ",
-    publishedBrandContext: "प्रकाशित ब्रांड संदर्भ",
-    applyBrandContext: "मेरे ब्रांड संदर्भ के रूप में लागू करें",
-    applyingBrandContext: "ब्रांड संदर्भ लागू हो रहा है…",
-    brandContextPublished: "ब्रांड संदर्भ प्रकाशित हुआ",
-    restrictedItems: "प्रतिबंधित आइटम: {{count}}",
-    unknownAccess: "ऐक्सेस अज्ञात",
-    reviewRestricted: "प्रतिबंधित आइटम की समीक्षा करें",
-    approve: "स्वीकृत करें",
-    exclude: "बाहर रखें",
-    packDetails: "विवरण",
-    influence: "प्रभाव",
-    cancel: "बंद करें",
-    saveFailed: "इन बदलावों को सहेजा नहीं जा सका।",
-    updateAvailable: "अपडेट उपलब्ध है",
-    submitUpdate: "अपडेट सबमिट करें",
-    submittingUpdate: "सबमिट हो रहा है…",
-    submitUpdateTitle: "नवीनतम संस्करण सबमिट करें?",
-    submitUpdateDescription:
-      "“{{name}}” का मौजूदा संस्करण कैप्चर करके इस कॉन्टेक्स्ट की स्वीकृति नीति के अनुसार सबमिट करें। यह बड़े दर्शक वर्ग के लिए प्रकाशित हो सकता है।",
-    submitUpdateFailed: "नवीनतम संस्करण सबमिट नहीं किया जा सका।",
-    chooseFiles: "फ़ाइलें चुनें",
-    chooseFolder: "फ़ोल्डर चुनें",
-    dropFiles: "PPTX, DOCX, PDF या इमेज फ़ाइलें यहाँ छोड़ें।",
-    promoteToOrganization: "संगठन के साथ साझा करें",
-    promotionDescription:
-      "इस नियंत्रित प्रति को साझा करने से पहले सटीक कंटेनर और आयातित सूची की पुष्टि करें।",
-    promotionComplete: "संगठन के साथ साझा किया गया।",
-    manage: "स्रोत प्रबंधित करें",
-    pause: "रोकें",
-    restore: "पुनर्स्थापित करें",
-    delete: "हटाएँ",
-    sourcePaused: "स्रोत रोक दिया गया।",
-    sourceRestored: "स्रोत पुनर्स्थापित किया गया।",
-    deleteSourceTitle: "स्रोत हटाएँ?",
-    deleteSourceDescription:
-      "{{name}} तुरंत गायब हो जाएगा। आयातित संदर्भ पृष्ठभूमि में हटाया जाएगा।",
-    deletionQueued: "स्रोत हटा दिया गया। आयातित संदर्भ हटाया जा रहा है।",
-    curateItems: "आइटम चुनें",
-    exemplar: "उदाहरण",
-    ignore: "नज़रअंदाज़ करें",
-    deprecated: "अप्रचलित",
-    star: "तारांकित करें",
-    unstar: "तारांकन हटाएँ",
-    deprecate: "अप्रचलित करें",
-    colors: "रंग",
-    fonts: "फ़ॉन्ट",
-    layouts: "लेआउट उदाहरण",
-    voice: "वाणी",
-    generateWithContext: "इस संदर्भ के साथ जनरेट करें",
-    chooseConnection: "वर्कस्पेस कनेक्शन चुनें",
-    setupConnection: "स्रोत आयात करने से पहले इस प्रदाता को कनेक्ट करें।",
-    connectProvider: "प्रदाता कनेक्ट करें",
-    choosePresentations: "प्रेज़ेंटेशन चुनें",
-    googlePickerDescription:
-      "इस लाइब्रेरी कनेक्शन के लिए प्रेज़ेंटेशन चुनें। पूरे Drive की अनुमति नहीं मांगी जाती।",
-    suggestions: "सुझावों की समीक्षा करें",
-    logo: "मानक लोगो",
-    share: {
-      title: "क्रिएटिव संदर्भ",
-      documentation: "Creative Context दस्तावेज़",
-      tabLabel: "संदर्भ",
-      pendingResource: "लंबित संसाधन",
-      publishedResource: "प्रकाशित संसाधन",
-      canonical: "कैनोनिकल",
-      reference: "संदर्भ",
-      pendingReview: "समीक्षा लंबित",
-      published: "प्रकाशित",
-      withdraw: "वापस लें",
-      requestChanges: "बदलाव का अनुरोध करें",
-      remove: "हटाएँ",
-      chooseContext: "संदर्भ चुनें",
-      selectedResources: "{{count}} संसाधन चुने गए",
-      noContexts: "अभी कोई संदर्भ उपलब्ध नहीं है।",
-      purpose: "उद्देश्य",
-      reviewerNote: "समीक्षकों के लिए नोट",
-      submit: "जमा करें",
-      broaderPublication:
-        "यह संदर्भ इस संसाधन से अधिक व्यापक रूप से साझा किया जाता है। प्रकाशित करने पर संदर्भ के दर्शकों के लिए एक नियंत्रित प्रति बनाई जाती है।",
-      newContextName: "नए संदर्भ का नाम",
-      new: "नया",
-      partialSubmission:
-        "{{submitted}} जमा किए गए; {{failed}} जमा नहीं किए जा सके।",
-      resourceSubmitted: "{{count}} संसाधन जमा किया गया।",
-      resourcesSubmitted: "{{count}} संसाधन जमा किए गए।",
-    },
-  },
   root: {
     commandActions: "क्रियाएं",
     commandSearch: "खोजें",
@@ -223,8 +86,6 @@ export default {
     brand: "Design",
     home: "होम",
     templates: "टेम्पलेट",
-    designSystems: "डिज़ाइन सिस्टम",
-    setupDesignSystem: "डिज़ाइन सिस्टम सेट करें",
     agent: "एजेंट",
     settings: "सेटिंग्स",
     openNavigation: "नेविगेशन खोलें",
@@ -241,7 +102,6 @@ export default {
     retry: "फिर कोशिश करें",
     steps: {
       createDesign: "अपना पहला डिज़ाइन बनाएँ",
-      addBrand: "अपना ब्रांड जोड़ें",
       useRealData: "अपना असली डेटा इस्तेमाल करें",
       shareFeedback: "फ़ीडबैक के लिए शेयर करें",
       inviteTeammate: "टीम के किसी सदस्य को आमंत्रित करें",
@@ -397,7 +257,7 @@ export default {
     pageHelpDescription:
       "टाइपोग्राफी, रिक्ति, आकार, सीमाएँ संपादित करें और जो भी आप चुनें उसे भरें। पृष्ठ डिफ़ॉल्ट नीचे है.",
     sections: {
-      page: "स्क्रीन",
+      page: "पेज",
       canvas: "कैनवास",
       typography: "टाइपोग्राफी",
       autoLayout: "ऑटो लेआउट",
@@ -554,7 +414,7 @@ export default {
       addRecordRow: "{{item}} जोड़ें",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "{{item}} {{index}} हटाएँ",
-      selectElementFirst: "पहले एक स्क्रीन तत्व चुनें",
+      selectElementFirst: "पहले पेज पर कोई एलिमेंट चुनें",
       selectCanvasElementFirst: "पहले कैनवास पर एक तत्व चुनें",
       saveFailed: "शेडर सहेजा नहीं जा सका",
       custom: "कस्टम",
@@ -974,11 +834,11 @@ export default {
     screenSource: {
       title: "स्रोत",
       url: "URL",
-      urlLabel: "स्क्रीन URL",
+      urlLabel: "पेज URL",
       urlPlaceholder: "/plans या http://localhost:5173/plans",
       update: "अपडेट करें",
       chooseLocalApp: "लोकल ऐप चुनें",
-      remove: "स्क्रीन हटाएं",
+      remove: "पेज हटाएं",
     },
     borderStyleOptions: {
       none: "कोई नहीं",
@@ -1053,7 +913,7 @@ export default {
       original: "मूल पेज आज़माएँ",
     },
 
-    sourceLoadFailed: "यह स्क्रीन लोड नहीं हो सकी।",
+    sourceLoadFailed: "यह पेज लोड नहीं हो सका।",
     selectionPublishFailed:
       "एजेंट शायद आपका नवीनतम चयन नहीं देख पाएगा। उसे फिर से चुनें।",
     liveCollaboration: {
@@ -1166,6 +1026,19 @@ export default {
       collapse: "साइडबार समेटें",
       expand: "साइडबार फैलाएँ",
     },
+    leftTabs: {
+      label: "साइड पैनल",
+      agent: "एजेंट",
+      file: "फ़ाइल",
+      library: "लाइब्रेरी",
+    },
+    columnHead: {
+      comments: "टिप्पणियाँ",
+      unreadComments: "अपठित टिप्पणियाँ",
+      resizeLeftPanel: "बायाँ पैनल का आकार बदलें",
+      resizeInspector: "इंस्पेक्टर का आकार बदलें",
+      whatsNew: "नया क्या है",
+    },
     breakpointBar: {
       base: "आधार",
       editBaseWidth: "आधार चौड़ाई संपादित करें",
@@ -1198,7 +1071,7 @@ export default {
       themeSystem: "सिस्टम",
       themeSystemHint:
         "डिज़ाइन को जैसा बनाया गया है वैसा ही दिखाता है (सिस्टम सेटिंग का उपयोग करता है)",
-      screen: "स्क्रीन",
+      screen: "पेज",
       back: "पीछे",
       forward: "आगे",
       reload: "पूर्वावलोकन रीलोड करें",
@@ -1209,8 +1082,8 @@ export default {
       zoomFit: "कैनवास के अनुसार स्केल किया गया",
       zoomFitOption: "फ़िट",
       exit: "रिस्पॉन्सिव पूर्वावलोकन से बाहर निकलें",
-      noScreens: "इस डिज़ाइन में पूर्वावलोकन के लिए कोई स्क्रीन नहीं है।",
-      unknownScreen: "वह स्क्रीन इस डिज़ाइन का हिस्सा नहीं है।",
+      noScreens: "इस डिज़ाइन में प्रीव्यू के लिए कोई पेज नहीं है।",
+      unknownScreen: "वह पेज इस डिज़ाइन का हिस्सा नहीं है।",
     },
     applyToSource: "स्रोत पर लागू करें",
     applyToSourcePath: "स्रोत पर लागू करें ({{path}})",
@@ -1270,7 +1143,7 @@ export default {
     },
     import: {
       description:
-        "Figma clipboard HTML या standalone HTML को Design screens के रूप में लाएँ।",
+        "Figma क्लिपबोर्ड HTML या स्टैंडअलोन HTML को Design पेज के रूप में लाएं।",
       figmaUrlLabel: "Figma frame या file URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
       figmaTokenLabel: "Figma एक्सेस टोकन",
@@ -1334,10 +1207,10 @@ export default {
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       htmlDescription:
-        "Standalone HTML paste या upload करें। Design इसे नए screen के रूप में save करता है, editor UI में inject नहीं करता।",
+        "स्टैंडअलोन HTML पेस्ट या अपलोड करें। Design इसे इस एडिटर UI में डाले बिना नए पेज के रूप में सहेजता है।",
       allSupportedFiles: "सभी समर्थित फ़ाइलें",
       githubDescription:
-        "जल्द आ रहा है: repository से screens और components सीधे import करें।",
+        "जल्द आ रहा है: किसी रिपॉज़िटरी से सीधे पेज और कंपोनेंट इंपोर्ट करें।",
       localDescription: "/visual-edit से किसी भी चल रहे local app को connect करें।",
       warningsToast: "Import warnings के साथ पूरा हुआ",
       pasteUnreadable: "कॉपी की गई लेयर पढ़ी नहीं जा सकीं।",
@@ -1351,8 +1224,7 @@ export default {
       pasteImagesUnsaved:
         "वे छवियाँ जो सहेजे जाने की पुष्टि न होने के कारण लोड होना बंद कर सकती हैं: {{count}}",
       pasteNeedsEditAccess: "इस डिज़ाइन में पेस्ट करने के लिए संपादन की अनुमति चाहिए।",
-      pastePartialImport:
-        "पेस्ट विफल रहा और कुछ स्क्रीन बन गई हो सकती हैं। अपनी स्क्रीन जाँचें।",
+      pastePartialImport: "पेस्ट विफल रहा और कुछ पेज बन गए होंगे। अपने पेज जांचें।",
       figmaSuccess: "Figma paste import हो गया",
       htmlSuccess: "HTML import हो गया",
       uploadSuccess: "File import हो गई",
@@ -1400,16 +1272,17 @@ export default {
     retryAccessCheck: "फिर कोशिश करें",
     saveAsTemplate: "टेम्पलेट के रूप में सहेजें…",
     saveTemplateDescription:
-      "मौजूदा स्क्रीन, आकार, डिफ़ॉल्ट और लॉक की गई लेयर को दोबारा उपयोग होने वाले शुरुआती बिंदु के रूप में सहेजें।",
+      "मौजूदा पेज, आयाम, डिफ़ॉल्ट और लॉक की गई लेयर को दोबारा इस्तेमाल होने वाले शुरुआती बिंदु के रूप में सहेजें।",
     templateName: "टेम्पलेट का नाम",
     templateDescription: "विवरण",
     templateCategory: "श्रेणी",
     templateSnapshotSummary:
-      "{{screens}} स्क्रीन · {{locks}} लॉक लेयर सुरक्षित रहेंगी",
+      "{{screens}} पेज · {{locks}} लॉक की गई लेयर सुरक्षित रहेंगी",
     saveTemplate: "टेम्पलेट सहेजें",
     templateSaved: "टेम्पलेट लाइब्रेरी में सहेजा गया",
     templateSaveFailed: "यह टेम्पलेट सहेजा नहीं जा सका",
     appMenu: {
+      backToDashboard: "डैशबोर्ड पर वापस जाएँ",
       file: "फ़ाइल",
       preferences: "प्राथमिकताएँ",
       newDesign: "नया डिज़ाइन",
@@ -1454,7 +1327,7 @@ export default {
       comment: "टिप्पणी",
       edit: "संपादन करना",
       interact: "Interact",
-      screens: "स्क्रीन",
+      screens: "पेज",
     },
     topBar: {
       modeDesign: "डिज़ाइन",
@@ -1465,7 +1338,7 @@ export default {
     tools: {
       move: "Move",
       frame: "Frame",
-      screen: "Screen",
+      screen: "पेज",
       shapes: "आकृतियाँ",
       rect: "Rectangle",
       line: "रेखा",
@@ -1488,7 +1361,7 @@ export default {
       categoriesLabel: "शॉर्टकट श्रेणियाँ",
       empty: "“{{query}}” से मेल खाने वाला कोई शॉर्टकट नहीं",
       codeContext: "कोड",
-      screenContext: "स्क्रीन",
+      screenContext: "पेज",
       nudgeAmount: {
         title: "नज की दूरी",
         small: "छोटी नज",
@@ -1574,8 +1447,8 @@ export default {
         enterSelection: "चयन",
         nextSibling: "चयन →",
         previousSibling: "← चयन",
-        nextScreen: "स्क्रीन →",
-        previousScreen: "← स्क्रीन",
+        nextScreen: "अगला पेज",
+        previousScreen: "पिछला पेज",
         toggleLayoutGrids: "लेआउट ग्रिड दिखाएँ या छिपाएँ",
         toggleRulers: "रूलर दिखाएँ या छिपाएँ",
         nudge: "Move",
@@ -1628,10 +1501,10 @@ export default {
     duplicate: "Duplicate",
     delete: "Delete",
     view: "View",
-    returnToCurrentScreen: "वर्तमान स्क्रीन पर लौटें",
-    openScreenOverview: "स्क्रीन अवलोकन खोलें",
-    currentScreen: "वर्तमान स्क्रीन",
-    screenOverview: "स्क्रीन अवलोकन",
+    returnToCurrentScreen: "मौजूदा पेज पर लौटें",
+    openScreenOverview: "पेज ओवरव्यू खोलें",
+    currentScreen: "मौजूदा पेज",
+    screenOverview: "पेज ओवरव्यू",
     devicePreview: "डिवाइस पूर्वावलोकन",
     devices: {
       responsive: "उत्तरदायी",
@@ -1660,7 +1533,7 @@ export default {
     downloadSvg: "SVG डाउनलोड करें",
     downloadFigmaSvg: "Figma के लिए डाउनलोड करें (SVG)",
     downloadZip: "ZIP डाउनलोड करें",
-    downloadPdfAllScreens: "PDF डाउनलोड करें (सभी स्क्रीन)",
+    downloadPdfAllScreens: "PDF डाउनलोड करें (सभी पेज)",
     publishApp: "ऐप प्रकाशित करें",
     exportOptions: "निर्यात विकल्प",
     exportHtml: "HTML निर्यात करें",
@@ -1728,13 +1601,14 @@ export default {
       verified: "स्रोत लेखन सत्यापित; rollback उपलब्ध",
       rollback: "वापस लें",
       keep: "रखें",
-      selectorMissing: "चुना गया तत्व अब इस स्क्रीन में नहीं है।",
+      selectorMissing:
+        "चुने गए एलिमेंट का इस पेज के सोर्स में कोई संपादन योग्य मिलान नहीं है। अगर कोई कंपोनेंट इसे रेंडर करता है, तो बदलाव एजेंट के ज़रिए लागू करें।",
       noRenderedBox:
         "चयनित लेयर में रेंडर किया गया बॉक्स नहीं है, इसलिए शैली परिवर्तन लागू नहीं किया गया।",
       clientRenderedShell:
-        "यह स्क्रीन क्लाइंट पर रेंडर होती है, इसलिए इसके HTML में पैच करने योग्य ऐप मार्कअप नहीं है। एजेंट से इस बदलाव को कंपोनेंट सोर्स में लागू करने के लिए कहें।",
+        "यह पेज क्लाइंट पर रेंडर होता है, इसलिए इसके HTML में पैच करने के लिए कोई ऐप मार्कअप नहीं है। एजेंट से यह बदलाव कंपोनेंट सोर्स में लागू करने को कहें।",
       snapshotNotLoaded:
-        "इस स्क्रीन का सोर्स अभी लोड नहीं हुआ है, इसलिए संपादन लिखा नहीं गया। स्क्रीन के लोड होने की प्रतीक्षा करें और फिर से कोशिश करें।",
+        "इस पेज का सोर्स अभी लोड नहीं हुआ है, इसलिए बदलाव नहीं लिखा गया। पेज के पूरी तरह लोड होने तक रुकें और फिर से कोशिश करें।",
       selectorAmbiguous:
         "यह तत्व सोर्स में {{count}} समान इंस्टेंस में से एक है, इसलिए बदलाव लिखा नहीं गया। एजेंट से इसे इसी इंस्टेंस तक सीमित करने के लिए कहें।",
       status: {
@@ -1787,17 +1661,16 @@ export default {
       leave: "बिना लागू किए छोड़ें",
     },
     addLocalhostScreen: {
-      title: "अपनी app से screen जोड़ें",
+      title: "अपने ऐप से पेज जोड़ें",
       description: "नए frame के रूप में जोड़ने के लिए एक route चुनें, या path टाइप करें।",
       searchPlaceholder: "Routes खोजें…",
       noRoutes: "कोई मेल खाता route नहीं मिला",
-      noDiscoveredRoutes:
-        "इस app में कोई route नहीं मिला। स्क्रीन जोड़ने के लिए कोई path टाइप करें।",
+      noDiscoveredRoutes: "इस ऐप में कोई रूट नहीं मिला। पेज जोड़ने के लिए पाथ लिखें।",
       useCustomPath: '"{{path}}" जोड़ें',
       viewportDesktop: "Desktop",
       viewportMobile: "Mobile",
-      added: "Screen जोड़ी गई",
-      addFailed: "Screen नहीं जोड़ी जा सकी",
+      added: "पेज जोड़ा गया",
+      addFailed: "पेज नहीं जोड़ा जा सका",
     },
     localhostConsent: {
       approvedTitle: "स्वीकृत — संपादन फिर से चलाएँ",
@@ -1879,7 +1752,7 @@ export default {
       zipCreateError: "ZIP डाउनलोड नहीं बनाया जा सका",
       zipDownloaded: "ZIP डाउनलोड हुआ",
       zipExportError: "ZIP निर्यात नहीं किया जा सका",
-      openScreenPng: "PNG निर्यात करने से पहले कोई स्क्रीन खोलें",
+      openScreenPng: "PNG एक्सपोर्ट करने से पहले कोई पेज खोलें",
       pngCreateError: "PNG डाउनलोड नहीं बनाया जा सका",
       pngDownloaded: "PNG डाउनलोड हुआ",
       pngCopied: "PNG क्लिपबोर्ड पर कॉपी हुआ",
@@ -1903,8 +1776,8 @@ export default {
         "रेंडरर शुरू न हो पाने के कारण निर्यात उपलब्ध नहीं है। बाद में फिर कोशिश करें।",
       pdfExportError: "PDF निर्यात नहीं किया जा सका",
       pdfDownloaded: "PDF डाउनलोड किया गया",
-      pdfAllScreensDownloaded: "PDF डाउनलोड किया गया (सभी स्क्रीन)",
-      openScreenSvg: "SVG निर्यात करने से पहले कोई स्क्रीन खोलें",
+      pdfAllScreensDownloaded: "PDF डाउनलोड हुई (सभी पेज)",
+      openScreenSvg: "SVG एक्सपोर्ट करने से पहले कोई पेज खोलें",
       svgDownloaded: "SVG डाउनलोड हुआ",
       svgExportError: "SVG निर्यात नहीं किया जा सका",
       figmaSvgCopied: "Figma SVG के रूप में कॉपी हुआ",
@@ -1915,16 +1788,16 @@ export default {
       figmaSvgWriteError: "SVG को क्लिपबोर्ड पर कॉपी नहीं किया जा सका",
       figmaSvgRenderError: "Figma SVG नहीं बनाया जा सका",
       figmaSvgExportError: "Figma SVG निर्यात नहीं किया जा सका",
-      screenDuplicated: "स्क्रीन डुप्लिकेट हुई",
-      screenDuplicateError: "स्क्रीन डुप्लिकेट नहीं हो सकी",
+      screenDuplicated: "पेज की कॉपी बनाई गई",
+      screenDuplicateError: "पेज की कॉपी नहीं बन सकी",
       copied: "Copied",
       pasted: "Pasted",
       deleted: "Deleted",
       propsCopied: "गुण कॉपी किए गए",
       propsPasted: "गुण चिपकाए गए",
-      primitiveInsertFailed: "उस परत को स्क्रीन में नहीं जोड़ा जा सका",
+      primitiveInsertFailed: "वह लेयर पेज में नहीं जोड़ी जा सकी",
       designStateLiveScreen:
-        "लाइव स्क्रीन पर डिज़ाइन स्टेट का पूर्वावलोकन नहीं हो सकता — इसकी सामग्री चल रहा ऐप है, दस्तावेज़ नहीं।",
+        "लाइव पेज पर डिज़ाइन स्टेट का प्रीव्यू नहीं हो सकता: उसका कंटेंट चल रहा ऐप है, कोई दस्तावेज़ नहीं।",
       layerMoveFailed: "उस परत को स्थानांतरित नहीं किया जा सका",
       groupFillApplyFailed: "यह भराव समूह की सभी परतों पर लागू नहीं किया जा सका।",
       layerMoveRedirected:
@@ -1949,11 +1822,11 @@ export default {
         "पूर्ववत करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
       redoSkippedConcurrentEdit:
         "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
-      saveConflict: "यह स्क्रीन कहीं और बदल गई। आपका पिछला संपादन सहेजा नहीं गया।",
+      saveConflict: "यह पेज कहीं और बदला गया। आपका पिछला बदलाव सहेजा नहीं गया।",
       versionHistoryUnavailable:
         "इस डिज़ाइन के लिए वर्शन हिस्ट्री उपलब्ध नहीं है। आपका संपादन फिर भी सहेजा गया।",
       removeAutoLayoutFailed: "ऑटो लेआउट हटाया नहीं जा सका",
-      autoLayoutScreensUnsupported: "ऑटो लेआउट जोड़ें स्क्रीन पर लागू नहीं होता",
+      autoLayoutScreensUnsupported: "ऑटो लेआउट जोड़ना पेज पर लागू नहीं होता",
       booleanSubtractUnsupported:
         "घटाने के लिए पास-पास रखे ठोस रंग वाले आयत या दीर्घवृत्त चुनें।",
       booleanSubtractFailed: "चुनी गई परतों को घटाया नहीं जा सका।",
@@ -1962,8 +1835,8 @@ export default {
       reactSourceAnchorsUnavailable:
         "यह ऐप एडिटर को सोर्स लोकेशन नहीं देता, इसलिए इस लेयर को किसी लाइन से नहीं जोड़ा जा सकता। यह बदलाव एजेंट से कराएँ।",
       sourceLocationSnapshotFailed: "इस पूर्वावलोकन के स्रोत स्थान जाँचे नहीं जा सके।",
-      screenSourceUpdated: "स्क्रीन स्रोत अपडेट किया गया",
-      screenSourceUpdateFailed: "स्क्रीन स्रोत अपडेट नहीं किया जा सका",
+      screenSourceUpdated: "पेज सोर्स अपडेट हुआ",
+      screenSourceUpdateFailed: "पेज सोर्स अपडेट नहीं हो सका",
       vectorEditUnsupported: "इस आकार या रूपांतरण के लिए वेक्टर संपादन उपलब्ध नहीं है।",
       imageUploading: "छवि अपलोड हो रही है…",
       pasteReplaceFailed: "उस परत को बदला नहीं जा सका",
@@ -1974,7 +1847,7 @@ export default {
       swapFillStrokeLayeredFill:
         "एक से ज़्यादा फ़िल या इमेज फ़िल अभी स्ट्रोक में नहीं बदल सकते",
       alignNeedsTwoLayers: "संरेखित करने के लिए दो या अधिक परतें चुनें",
-      alignNeedsTwoScreens: "संरेखित करने के लिए दो या अधिक स्क्रीन चुनें",
+      alignNeedsTwoScreens: "संरेखित करने के लिए दो या अधिक पेज चुनें",
       layoutUnmeasurable:
         "चुनी गई किसी परत को मापा नहीं जा सका। पक्का करें कि वह कैनवस पर दिख रही है, फिर से कोशिश करें।",
       layoutAutoLayoutChildren:
@@ -2022,11 +1895,10 @@ export default {
   },
   layersPanel: {
     title: "परतें",
-    screens: "स्क्रीन",
-    resizeScreens: "स्क्रीन अनुभाग का आकार बदलें",
-    allScreens: "सभी स्क्रीन",
+    screens: "पेज",
+    resizeScreens: "पेज सेक्शन का आकार बदलें",
     thumbnail: "थंबनेल",
-    addScreen: "स्क्रीन जोड़ें",
+    addScreen: "पेज जोड़ें",
     searchPlaceholder: "परतें खोजें",
     empty: "कोई परत नहीं",
     noMatches: "कोई मेल खाती परत नहीं",
@@ -2075,7 +1947,7 @@ export default {
         "कई कोशिशों के बाद भी लाइव एडिटर ब्रिज ने कनेक्शन की पुष्टि नहीं की।",
       connectionNotConfirmed:
         "लाइव एडिटर ब्रिज ने कनेक्शन की पुष्टि नहीं की। क्या लोकल डेवलपमेंट सर्वर अभी भी चल रहा है?",
-      permissionPromptTitle: "अपनी लोकल स्क्रीन कनेक्ट करें",
+      permissionPromptTitle: "अपने लोकल पेज कनेक्ट करें",
       permissionPromptDescription:
         "लाइव एडिटिंग चालू करने के लिए Chrome के प्रॉम्प्ट में “अनुमति दें” चुनें।",
       permissionPromptNoPrompt: "Chrome का प्रॉम्प्ट नहीं दिख रहा?",
@@ -2084,15 +1956,14 @@ export default {
       permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
       previewCredentialsUnavailableTitle: "लोकल प्रीव्यू क्रेडेंशियल उपलब्ध नहीं हैं",
       previewCredentialsUnavailableDescription:
-        "इंस्पेक्टर में इस स्क्रीन का localhost कनेक्शन फिर से जोड़ें, फिर दोबारा कोशिश करें।",
+        "इंस्पेक्टर में इस पेज का localhost कनेक्शन फिर से जोड़ें, फिर दोबारा कोशिश करें।",
       publicPreviewUnavailableDescription:
-        "लोकलहोस्ट प्रीव्यू सार्वजनिक दर्शकों के साथ साझा नहीं किए जाते। इस स्क्रीन को देखने के लिए इस डिज़ाइन को सहयोगी के रूप में खोलें।",
+        "localhost प्रीव्यू सार्वजनिक दर्शकों के साथ साझा नहीं होते। यह पेज देखने के लिए इस Design को सहयोगी के रूप में खोलें।",
       previewCredentialsRetry: "क्रेडेंशियल फिर से आज़माएँ",
     },
   },
   multiScreenCanvas: {
-    addBreakpointToAllScreens:
-      "सभी स्क्रीन में {{label}} ब्रेकपॉइंट ({{width}}px) जोड़ें",
+    addBreakpointToAllScreens: "सभी पेज में {{label}} ब्रेकपॉइंट ({{width}}px) जोड़ें",
     preparingLiveEditor: "लाइव एडिटर तैयार किया जा रहा है…",
     duplicate: "डुप्लिकेट",
     fork: "फोर्क",
@@ -2184,11 +2055,6 @@ export default {
     startWithAi: "AI से शुरू करें",
     startWithAiHint: "पेज बताइए और संपादन योग्य पहला ड्राफ़्ट पाइए।",
     startBlankCanvasHint: "फ़्रेम, आकृतियों और टेक्स्ट से स्वयं बनाइए।",
-    designSystem: "Design प्रणाली",
-    noDesignSystem: "कोई डिज़ाइन प्रणाली नहीं",
-    designSystemIndexing: "इंडेक्स हो रहा है…",
-    newDesignSystem: "नया",
-    createDesignSystem: "डिज़ाइन सिस्टम बनाएँ",
     template: "टेम्पलेट",
     blank: "खाली",
     builtIn: "अंतर्निहित",
@@ -2198,8 +2064,6 @@ export default {
     yourTemplates: "आपके टेम्पलेट",
     builtInTemplates: "अंतर्निहित टेम्पलेट",
     templatePromptPlaceholder: "बताएँ कि {{title}} को कैसे बदलना है...",
-    reskinTemplatePrompt:
-      "संरचना और लॉक लेयर सुरक्षित रखते हुए {{system}} डिज़ाइन सिस्टम को {{title}} पर लागू करें।",
     addAttachment: "जोड़ें",
     removeAttachment: "{{name}} हटाएँ",
     uploadFile: "फ़ाइल अपलोड करें",
@@ -2274,22 +2138,16 @@ export default {
     invalidFigmaUrl: "figma.com फ़्रेम या फ़ाइल का मान्य URL दर्ज करें।",
     tooMany: "अधिकतम 20 संदर्भ चुनें।",
     invalidWebsiteUrl: "मान्य HTTP या HTTPS URL दर्ज करें।",
-    createSystem: "डिज़ाइन सिस्टम बनाएँ",
-    noSystems:
-      "आपके पास अभी कोई डिज़ाइन सिस्टम नहीं है। वेबसाइट, फ़ाइलों या Figma से एक बनाएँ।",
-    searchSystems: "डिज़ाइन सिस्टम खोजें…",
     searchDesigns: "डिज़ाइन खोजें…",
     searchPresentations: "प्रस्तुतियाँ खोजें…",
     searchPages: "पेज खोजें…",
     searchDesign: "डिज़ाइन खोजें…",
-    useDesignSystem: "डिज़ाइन सिस्टम का उपयोग करें",
     notReady:
       "प्रॉम्प्ट अभी भेजने के लिए तैयार नहीं है। चुना गया संदर्भ और कनेक्शन जाँचें, फिर प्रयास करें।",
     search: "संदर्भ खोजें…",
     loadFailed: "यह संदर्भ लोड नहीं हो सका।",
     retry: "फिर प्रयास करें",
     empty: "कोई मिलते-जुलते संदर्भ नहीं हैं।",
-    none: "कोई नहीं",
     design: "डिज़ाइन संदर्भ",
     slides: "स्लाइड",
     referenceDesign: "डिज़ाइन को संदर्भ बनाएँ",
@@ -2346,8 +2204,6 @@ export default {
       design: {
         portfolioHome:
           "संक्षिप्त परिचय, केस स्टडी ग्रिड, प्रोफ़ाइल और संपर्क वाला डिज़ाइन पोर्टफ़ोलियो बनाएं, जिसका अंदाज़ सधा हुआ संपादकीय हो।",
-        designSystem:
-          "रंग और टाइपोग्राफ़ी टोकन, कंपोनेंट गैलरी और उपयोग नोट वाला डिज़ाइन सिस्टम संदर्भ पेज बनाएं, जिसका अंदाज़ सटीक हो।",
         bankingApp:
           "बैलेंस, लेनदेन और बचत लक्ष्यों वाला मोबाइल बैंकिंग होम स्क्रीन बनाएं, जिसका अंदाज़ शांत और भरोसेमंद हो।",
         travelBooking:
@@ -2565,7 +2421,6 @@ export default {
       },
       design: {
         portfolioHome: "संक्षिप्त परिचय केस स्टडी",
-        designSystem: "डिज़ाइन सिस्टम",
         bankingApp: "बैलेंस लेनदेन",
         travelBooking: "गंतव्य फ़िल्टर यात्रा कार्ड",
         coffeeShop: "चुनी हुई कॉफ़ी उत्पत्ति",
@@ -2644,10 +2499,10 @@ export default {
     openDesign: "Design खोलें",
     templatesCta: "Templates देखें",
     previewLabel: "स्थानीय पूर्वावलोकन",
-    layoutLabel: "Screen layout save करने के लिए ready",
+    layoutLabel: "पेज लेआउट सहेजने के लिए तैयार है",
   },
   templatesPage: {
-    previewEmpty: "इस टेम्पलेट में पूर्वावलोकन के लिए कोई स्क्रीन नहीं है।",
+    previewEmpty: "इस टेम्पलेट में प्रीव्यू करने लायक कोई पेज नहीं है।",
     loading: "टेम्पलेट लोड हो रहे हैं",
     title: "टेम्पलेट",
     description:
@@ -2694,8 +2549,6 @@ export default {
   },
   routeTitles: {
     notFound: "नहीं मिला - Design",
-    designSystems: "डिज़ाइन सिस्टम",
-    designSystemSetup: "डिज़ाइन सिस्टम सेटअप",
     designEditor: "Design संपादक",
     designTemplates: "Design टेम्प्लेट",
     toolDesign: "टूल — Design",
@@ -2706,266 +2559,13 @@ export default {
     teamDesign: "टीम - Design",
     visualEdit: "विजुअल एडिट - Design",
   },
-  designSystemSetup: {
-    importedBrand: "आयातित ब्रांड",
-    figmaCreateSuccess: "Figma से डिज़ाइन सिस्टम बनाया गया",
-    figmaCreateError: "डिज़ाइन सिस्टम नहीं बनाया जा सका",
-    backToDesignSystems: "डिज़ाइन सिस्टम पर वापस जाएँ",
-    otherSources: "अन्य",
-    otherSourcesDescription:
-      "वेबसाइट, कोड, फ़ाइलों या मौजूदा डिज़ाइन सिस्टम से कनेक्ट करें।",
-    chooseSourcePrompt: "कॉन्फ़िगर करने के लिए एक स्रोत चुनें",
-    continue: "पीढ़ी तक जारी रखें",
-    starting: "शुरू हो रहा है…",
-    githubIndexStarted: "GitHub इंडेक्सिंग शुरू हो गई",
-    designMdIndexStarted: "design.md इंडेक्सिंग शुरू हो गई",
-    designMdUpload: "design.md आयात करें",
-    designMdHelp: "design.md मार्गदर्शन को Builder DSI में आयात करें",
-    title: "अपना डिज़ाइन सिस्टम सेट करें",
-    description:
-      "Figma, कोड और वैकल्पिक design.md मार्गदर्शन को Builder DSI से कनेक्ट करें. अधिक संदर्भ एजेंट को अधिक सटीक सिस्टम देता है.",
-    figmaParsingTitle: "Builder DSI indexing शुरू की जा रही है...",
-    figmaParsingDescription:
-      "Builder टोकन, कंपोनेंट, एसेट और उपयोग मार्गदर्शन निकालेगा",
-    figmaDecodeFailed: "डिकोडिंग विफल: {{error}}",
-    uploadFig: "Figma .fig फ़ाइल कनेक्ट करें",
-    figmaSaveLocalCopy: "Figma स्थानीय कॉपी अपलोड करें: File -> Save local copy",
-    websiteUrl: "वेबसाइट URL",
-    add: "जोड़ना",
-    githubRepository: "GitHub रिपॉजिटरी",
-    githubRef: "ब्रांच, टैग या कमिट (वैकल्पिक)",
-    githubPaths: "फ़ाइलें या फ़ोल्डर, कॉमा से अलग (वैकल्पिक)",
-    privateRepoPrefix:
-      "निजी रेपो को एक बढ़िया टोकन के रूप में सहेजे जाने की आवश्यकता होती है",
-    privateRepoSuffix: "सामग्री पढ़ने की पहुंच के साथ।",
-    localCodeFiles: "कोड फ़ाइलें कनेक्ट करें",
-    dropCodeFiles: "CSS, Tailwind कॉन्फ़िग, थीम फ़ाइलें या design.md यहां छोड़ें",
-    codeFilePatterns:
-      "फ़ाइल प्रकार: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
-    documents: "दस्तावेज़ एवं प्रस्तुतियाँ",
-    documentsHelp: "PPTX, DOCX, PDF, XLSX - ब्रांड गाइड, पिच डेक, स्टाइल डॉक्स",
-    visualReferences: "स्क्रीनशॉट और दृश्य संदर्भ",
-    visualReferencesHelp: "उत्पाद स्क्रीनशॉट, मूड बोर्ड, प्रेरणा चित्र",
-    assets: "लोगो, फ़ॉन्ट और अन्य संपत्तियाँ",
-    assetsHelp: "SVG लोगो,.woff2 फ़ॉन्ट, ब्रांड संपत्ति फ़ाइलें",
-    designSystem: "डिज़ाइन प्रणाली",
-    designProject: "डिज़ाइन परियोजना",
-    companyPlaceholder: "जैसे एक्मे कॉर्प - हम आधुनिक टीमों के लिए डेवलपर टूल बनाते हैं...",
-    notesPlaceholder:
-      "जैसे हम उच्च कंट्रास्ट वाली डार्क थीम पसंद करते हैं। हमारा ब्रांड शीर्षकों के लिए Poppins और मुख्य भाग के लिए DM Sans का उपयोग करता है। कोनों को 12px पर गोल रखें...",
-    customInstructionsPlaceholder:
-      "जैसे हमेशा एक स्टिकी टॉप नेवी शामिल करें। नायक आँकड़ों के स्थान पर संपादकीय पुल उद्धरणों को प्राथमिकता दें। कभी भी ग्रेडिएंट पृष्ठभूमि का उपयोग न करें. लोगो हमेशा नीचे-बाएँ जाते हैं...",
-    designSystemName: "डिज़ाइन सिस्टम का नाम",
-    brandNamePlaceholder: "ब्रांड का नाम",
-    extractedSummary:
-      "{{nodes}} नोड्स, {{gradients}} ग्रेडिएंट्स, {{images}} छवियों से निकाला गया",
-    previewColors: "रंग",
-    signatureGradients: "हस्ताक्षर ग्रेडियेंट",
-    previewTypography: "टाइपोग्राफी",
-    headingsLabel: "शीर्षक:",
-    bodyLabel: "शरीर:",
-    brandBrief: "ब्रांड संक्षिप्त",
-    brandBriefHelp:
-      "यह इस प्रणाली से उत्पन्न प्रत्येक डिज़ाइन का मार्गदर्शन करता है। बनाने के बाद इसे कभी भी परिष्कृत करें।",
-    creating: "बनाया जा रहा है...",
-    createDesignSystem: "डिज़ाइन सिस्टम बनाएं",
-    chooseDifferentFile: "कोई भिन्न फ़ाइल चुनें",
-    figmaThumbnailAlt: "Figma फ़ाइल थंबनेल",
-    errors: {
-      chooseFig: "कृपया एक.fig फ़ाइल चुनें (Figma में: फ़ाइल -> स्थानीय प्रतिलिपि सहेजें)।",
-      parseFig: "उस Figma file के लिए Builder indexing शुरू नहीं हो सकी।",
-      enterWebsite: "इसे जोड़ने से पहले एक वेबसाइट URL दर्ज करें।",
-      websiteProtocol: "वेबसाइट URLs http:// या https:// से शुरू होनी चाहिए।",
-      enterGithub: "इसे जोड़ने से पहले एक GitHub रिपॉजिटरी URL दर्ज करें।",
-      githubUrl:
-        "https://github.com/org/repo जैसे पूर्ण GitHub रिपॉजिटरी URL का उपयोग करें।",
-      githubIndex:
-        "GitHub इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन और रिपॉजिटरी एक्सेस जाँचें।",
-      nameConflict:
-        "इस नाम का डिज़ाइन सिस्टम पहले से मौजूद है। कोई दूसरा नाम चुनकर फिर कोशिश करें।",
-      chooseDesignMd: "कृपया Markdown (.md या .mdx) फ़ाइल चुनें।",
-      readDesignMd: "वह Markdown फ़ाइल पढ़ी नहीं जा सकी।",
-      designMdTooLarge: "Markdown फ़ाइल 2 MB या उससे छोटी होनी चाहिए।",
-      designMdIndex: "design.md इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन जाँचें।",
-      noSources: "डिज़ाइन सिस्टम तैयार करने से पहले कम से कम एक स्रोत जोड़ें।",
-    },
-    sections: {
-      figma: {
-        title: "Figma कनेक्ट करें",
-        description:
-          ".fig अपलोड करें और Builder DSI टोकन, कंपोनेंट, एसेट और ब्रांड मार्गदर्शन को पुन: उपयोग योग्य डिज़ाइन सिस्टम में index करेगा.",
-      },
-      company: {
-        title: "कंपनी/ब्रांड",
-        description: "नाम, विवरण और वेबसाइट",
-      },
-      code: {
-        title: "कोड कनेक्ट करें",
-        description:
-          "GitHub रिपॉज़िटरी, स्थानीय कोड फ़ाइलें या design.md Builder DSI से index होते हैं.",
-      },
-      designMd: {
-        title: "design.md आयात करें",
-        description: "डिज़ाइन सिस्टम के स्रोत के रूप में design.md फ़ाइल का उपयोग करें",
-      },
-      designFiles: {
-        title: "संदर्भ फ़ाइलें",
-        description:
-          "दस्तावेज़, स्क्रीनशॉट और ब्रांड एसेट Builder DSI संदर्भ को मजबूत करते हैं",
-      },
-      importExisting: {
-        title: "मौजूदा से आयात करें",
-        description:
-          "किसी डिज़ाइन सिस्टम को फोर्क करना या किसी प्रोजेक्ट से टोकन निकालना",
-      },
-      notes: {
-        title: "अतिरिक्त टिप्पणी",
-        description: "डिज़ाइन प्राथमिकताएँ, बाधाएँ, ब्रांड दिशानिर्देश",
-      },
-      customInstructions: {
-        title: "कस्टम निर्देश",
-        description:
-          "डिज़ाइन सिस्टम के साथ सहेजा गया. हर बार डिज़ाइन तैयार करने के लिए एजेंट द्वारा इसका उपयोग करने पर इसे दोबारा लागू किया जाता है।",
-      },
-    },
-    colorLabels: {
-      accent: "लहज़ा",
-      primary: "प्राथमिक",
-      secondary: "माध्यमिक",
-      background: "पृष्ठभूमि",
-      surface: "सतह",
-      text: "मूलपाठ",
-      muted: "म्यूट किए गए",
-    },
-    codeIndexingEnterpriseOnly:
-      "कोड और रिपॉज़िटरी इंडेक्सिंग के लिए Builder Enterprise योजना आवश्यक है",
-  },
-  designSystems: {
-    comingSoonTitle: "डिज़ाइन सिस्टम जल्द आ रहे हैं",
-    waitlist: {
-      join: "प्रतीक्षा सूची में शामिल हों",
-      joining: "शामिल हो रहे हैं…",
-      joined: "आप प्रतीक्षा सूची में हैं",
-      error: "प्रतीक्षा सूची में शामिल नहीं हो सके। कृपया फिर से कोशिश करें।",
-      unavailable:
-        "प्रतीक्षा सूची में शामिल होना अभी उपलब्ध नहीं है। कृपया बाद में फिर से कोशिश करें।",
-    },
-    deleteError: "डिज़ाइन सिस्टम को हटाया नहीं जा सका",
-    updateSuccess: "डिज़ाइन सिस्टम अपडेट किया गया",
-    updateError: "डिज़ाइन सिस्टम अपडेट नहीं किया जा सका",
-    bulkDeleteError: "चयनित डिज़ाइन सिस्टम को हटाया नहीं जा सका",
-    selectedLabel: "चयनित",
-    yoursTitle: "आपके डिज़ाइन सिस्टम",
-    newCardDescription: "अपना ब्रांड स्थापित करें",
-    defaultBadge: "गलती करना",
-    selectAria: "{{title}} चुनें",
-    currentlyDefault: "वर्तमान में डिफ़ॉल्ट",
-    moreActionsAria: "{{title}} के लिए और अधिक कार्रवाइयां",
-    showcase: {
-      title: "प्रोडक्शन के लिए तैयार शुरुआती बिंदु",
-      description:
-        "स्थापित सार्वजनिक डिज़ाइन सिस्टम की स्रोत-लिंक्ड कॉपी उपयोग करें। हर कॉपी में वास्तविक टोकन, टाइप स्केल, स्पेसिंग, आकार, स्टेट मार्गदर्शन और श्रेय शामिल हैं।",
-      useTemplate: "इस सिस्टम का उपयोग करें",
-      adding: "जोड़ा जा रहा है...",
-      openSource: "{{title}} का स्रोत दस्तावेज़ खोलें",
-      license: "स्रोत लाइसेंस: {{license}}",
-      addSuccess: "डिज़ाइन सिस्टम जोड़ा गया",
-      addError: "डिज़ाइन सिस्टम नहीं जोड़ा जा सका",
-      descriptions: {
-        material3:
-          "Google की बेसलाइन लाइट भूमिकाएँ, Roboto टाइप स्केल, 4 dp स्पेसिंग और Material आकार सिस्टम।",
-        carbon:
-          "IBM Carbon v11 White थीम, IBM Plex, एंटरप्राइज़ रंग भूमिकाएँ और 2/4/8 स्पेसिंग।",
-        primer:
-          "GitHub Primer लाइट टोकन, Mona Sans, कॉम्पैक्ट डेवलपर-टूल घनत्व और रिस्पॉन्सिव स्पेसिंग।",
-      },
-    },
-    actions: {
-      done: "हो गया",
-      select: "चुनना",
-      new: "नई डिज़ाइन प्रणाली",
-      clearAll: "सभी डिज़ाइन सिस्टम साफ़ करें",
-      selectAll: "सभी डिज़ाइन सिस्टम का चयन करें",
-      clearSelection: "स्पष्ट चयन",
-      delete: "मिटाना",
-      setDefault: "डिफाल्ट के रूप में सेट",
-      cancel: "रद्द करना",
-    },
-    deleteDialog: {
-      title: "डिज़ाइन सिस्टम हटाएँ?",
-      description:
-        "यह इस डिज़ाइन सिस्टम को स्थायी रूप से हटा देगा और इसका उपयोग करने वाले किसी भी डिज़ाइन से इसे अनलिंक कर देगा। इस एक्शन को वापस नहीं किया जा सकता।",
-      bulkTitle: "{{count}} डिज़ाइन सिस्टम हटाएं?",
-      bulkDescription:
-        "यह {{count}} डिज़ाइन सिस्टम को स्थायी रूप से हटा देगा और उनका उपयोग करने वाले किसी भी डिज़ाइन से उन्हें अनलिंक कर देगा। इस एक्शन को वापस नहीं किया जा सकता।",
-    },
-    details: {
-      description:
-        "सहेजे गए टोकन की समीक्षा करें और इस डिज़ाइन प्रणाली को लागू करते समय एजेंटों द्वारा उपयोग किए जाने वाले विवरण को अपडेट करें।",
-      titleLabel: "शीर्षक",
-      descriptionLabel: "विवरण",
-      customInstructionsTitle: "कस्टम निर्देश",
-      customInstructionsDescription:
-        "जब भी यह सिस्टम किसी डिज़ाइन से जुड़ा होता है तो एजेंट टिकाऊ मार्गदर्शन का पुन: उपयोग करता है।",
-      noCustomInstructions: "अभी तक कोई कस्टम निर्देश सहेजा नहीं गया है.",
-      useAsStartingPoint: "आरंभिक बिंदु के रूप में उपयोग करें",
-      saving: "सहेजा जा रहा है...",
-      saveChanges: "परिवर्तनों को सुरक्षित करें",
-    },
-    preview: {
-      title: "पूर्वावलोकन",
-      description:
-        "इस डिज़ाइन सिस्टम को Builder डिज़ाइन सिस्टम इंटेलिजेंस द्वारा प्रबंधित किया जाता है। सभी टोकन, घटकों और उपयोग मार्गदर्शन सहित पूरा डिज़ाइन सिस्टम देखने के लिए लिंक की गई परियोजना खोलें।",
-    },
-    tokenPreview: {
-      title: "टोकन पूर्वावलोकन",
-      description: "वर्तमान में संग्रहीत रंग, प्रकार, रिक्ति और संपत्तियों का एक स्नैपशॉट।",
-      colors: "रंग",
-      noColors: "कोई रंग टोकन सहेजा नहीं गया.",
-      typography: "टाइपोग्राफी",
-      details: "विवरण",
-      spacing: "अंतर",
-      borders: "सीमाएँ",
-      defaults: "चूक",
-      logos: "लोगो",
-      assets: "संपत्ति",
-      savedCount: "{{count}} सहेजा गया",
-      namedTokens: "नामित टोकन",
-      colorLabels: {
-        primary: "प्राथमिक",
-        secondary: "माध्यमिक",
-        accent: "लहज़ा",
-        background: "पृष्ठभूमि",
-        surface: "सतह",
-        text: "मूलपाठ",
-        mutedText: "म्यूट किया गया पाठ",
-      },
-      typeLabels: {
-        headingFont: "शीर्षक फ़ॉन्ट",
-        bodyFont: "शरीर का अगला हिस्सा",
-        headingWeight: "शीर्षक भार",
-        bodyWeight: "शरीर का वजन",
-      },
-    },
-    empty: {
-      title: "अपना पहला डिज़ाइन सिस्टम बनाएं",
-      description:
-        "साझा रंगों, टाइपोग्राफी और संपत्तियों के साथ अपने सभी डिज़ाइनों में लगातार ब्रांडिंग बनाए रखें।",
-    },
-    tierLimitTitle: "डिज़ाइन सिस्टम की सीमा पूरी हो गई",
-    tierLimitDescription:
-      "आपने अपनी Builder योजना की डिज़ाइन सिस्टम सीमा पूरी कर ली है। नया बनाने के लिए अपनी Builder Builder योजना अपग्रेड करें।",
-    tierLimitDescriptionWithCount:
-      "आप अपनी Builder {{plan}} योजना में {{max}} में से {{current}} डिज़ाइन सिस्टम का उपयोग कर रहे हैं। नया बनाने के लिए अपग्रेड करें।",
-    tierLimitUpgrade: "योजना अपग्रेड करें",
-  },
   review: {
     comments: "टिप्पणियाँ",
     commentsTab: "टिप्पणियाँ · {{count}}",
     commentsTitle: "समीक्षा टिप्पणियाँ",
     commentNumber: "समीक्षा टिप्पणी {{count}}",
-    thisScreen: "यह स्क्रीन",
-    allScreens: "सभी स्क्रीन",
+    thisScreen: "यह पेज",
+    allScreens: "सभी पेज",
     signInToComment: "टिप्पणी करने के लिए साइन इन करें",
     panelTitle: "प्रतिक्रिया",
     placeholder: "अपनी प्रतिक्रिया दें…",
@@ -3112,7 +2712,7 @@ export default {
         permission: "अब आपके पास संपादन की पहुँच नहीं है",
         threadUnavailable: "यह थ्रेड अब खुला नहीं है",
         targetChanged: "एजेंट के काम करते समय डिज़ाइन बदल गया",
-        applyUnavailable: "एजेंट इस स्क्रीन को संपादित नहीं कर सकता",
+        applyUnavailable: "एजेंट इस पेज को संपादित नहीं कर सकता",
         applyIncomplete:
           "डिज़ाइन बदल दिया गया, पर थ्रेड हल नहीं हुआ। बदलाव की समीक्षा करें।",
         cancelledAfterEdit:

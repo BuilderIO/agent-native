@@ -1,7 +1,3 @@
-import {
-  setAgentChatContextItem,
-  removeAgentChatContextItem,
-} from "@agent-native/core/client/agent-chat";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { ReviewComment } from "@agent-native/core/review";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
@@ -83,6 +79,7 @@ import {
   getCreatedScreenNavigationPlan,
 } from "../created-screen-navigation";
 import { resolveUrlScreen } from "../derive/url-screen";
+import { pageHasWebMcpHost } from "../design-editor-shared";
 import {
   EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS,
   EMPTY_TEXT_CLEANUP_RETRY_MS,
@@ -94,7 +91,6 @@ import {
   summarizeAgentSelectionScreens,
   type ScreenFrameTypeCache,
 } from "../effects/publish-agent-selection-context";
-import { loadDesignSystemGenerationContext } from "../generation-prompt-directives";
 import {
   captureContentUndoStackTop,
   captureYjsUndoHistoryUpdate,
@@ -103,6 +99,8 @@ import {
   type ContentUndoStackTop,
 } from "../history";
 import { resolveScreenTitle } from "../interact-routes";
+import { agentPanelAvailable, visibleLeftPanel } from "../left-panel-tabs";
+import { isCommentsPanelShown } from "../minimal-inspector";
 import { getScreenFrameOriginCanvas } from "../overview-camera";
 import { blurActiveDesignEditableTarget } from "../png-export-render";
 import {
@@ -197,10 +195,17 @@ export function useEditorToolsAndVectors({
     setHoveredElement,
     activeFileId,
     setActiveFileId,
+    hostOwnsChrome,
+    hostEmbeddedEditor,
+    isVisualEditSurface,
   } = editorCore;
   const {
     activeLeftPanel,
     setActiveLeftPanel,
+    commentsPanelOpen,
+    designLeftPanel,
+    minimalUi,
+    isMobileViewport,
     selectedLayerIdsState,
     setSelectedLayerIdsState,
     codeLayerOwnerByNodeIdRef,
@@ -277,11 +282,13 @@ export function useEditorToolsAndVectors({
     zoom,
     activeProjectionContent,
     selectedCodeLayerNode,
+    initialGenerationChromeLimited,
   } = editorLiveEditsAndPresence;
   const {
     applyLocalContentUpdate,
     applyFileContentUpdate,
     contentHistorySelectionAfterRef,
+    uiHidden,
   } = editorContentAndComponents;
 
   const [shapeTool, setShapeTool] = useState<ShapeTool>("rect");
@@ -1648,6 +1655,26 @@ export function useEditorToolsAndVectors({
     ],
   );
 
+  const canChatWithAgent =
+    canEditDesign && (isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost());
+  const shownLeftPanel = visibleLeftPanel(
+    mode,
+    designLeftPanel,
+    agentPanelAvailable({
+      hostEmbeddedEditor,
+      isVisualEditSurface,
+      canChatWithAgent,
+    }),
+  );
+  const commentsPanelShown = isCommentsPanelShown({
+    commentsPanelOpen,
+    commentsAvailable: reviewCommentsPanelProps !== undefined,
+    hostOwnsChrome,
+    isMobileViewport,
+    uiHidden,
+    initialGenerationChromeLimited,
+    minimalUi,
+  });
   const selectionPublishFailedLabel = t("designEditor.selectionPublishFailed");
   const screenFrameTypeCacheRef = useRef<ScreenFrameTypeCache>(new Map());
   const agentSelectionScreens = useMemo(
@@ -1664,7 +1691,8 @@ export function useEditorToolsAndVectors({
       runPublishAgentSelectionContext({
         activeBreakpointWidthState,
         activeFile,
-        activeLeftPanel,
+        activeLeftPanel: shownLeftPanel,
+        commentsPanelShown,
         activeTool,
         design,
         designDataJson,
@@ -1704,7 +1732,8 @@ export function useEditorToolsAndVectors({
       hoveredElement,
       mode,
       activeTool,
-      activeLeftPanel,
+      shownLeftPanel,
+      commentsPanelShown,
       overviewSelectedScreenIds,
       viewMode,
       zoom,
@@ -1754,31 +1783,6 @@ export function useEditorToolsAndVectors({
     ],
   );
 
-  useEffect(() => {
-    const key = "design:design-system";
-    if (!isSignedIn) return;
-    const designSystemId = design?.designSystemId;
-    if (!designSystemId) {
-      removeAgentChatContextItem(key);
-      return;
-    }
-
-    let cancelled = false;
-    void loadDesignSystemGenerationContext(designSystemId).then((context) => {
-      if (cancelled || !context.trim()) return;
-      setAgentChatContextItem({
-        key,
-        title: "Selected design system" /* i18n-ignore agent context label */,
-        context,
-        openSidebar: false,
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      removeAgentChatContextItem(key);
-    };
-  }, [design?.designSystemId, isSignedIn]);
   // PF8: rare, discrete interactions (add/activate a breakpoint) — not a
   // per-frame gesture path. addBreakpointMutation/setActiveBreakpointMutation
   // are useActionMutation(...) results (packages/core/src/client/use-action.ts),
@@ -1902,6 +1906,9 @@ export function useEditorToolsAndVectors({
     handleDispatchCommentToAgent,
     handleSendReviewThreadToAgent,
     reviewCommentsPanelProps,
+    canChatWithAgent,
+    shownLeftPanel,
+    commentsPanelShown,
     handleCreatePrimitive,
     handlePrimitiveCreated,
     handleOverviewCreatePrimitive,

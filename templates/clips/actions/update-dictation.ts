@@ -44,6 +44,7 @@ export default defineAction({
       .optional(),
     targetApp: z.string().nullable().optional(),
   }),
+  mcpTool: "search",
   run: async (args) => {
     if (
       args.cleanedText === null &&

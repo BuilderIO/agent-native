@@ -1,5 +1,11 @@
+import { createHash } from "node:crypto";
+
 import { withoutWriteObservation } from "../action-frame.js";
 import { readBoundedResponseBytes } from "../ingestion/index.js";
+import type {
+  ProviderBudgetPolicy,
+  ProviderConnectionScope,
+} from "../provider-api/provider-budget.js";
 import {
   getBuilderEmbeddingsBaseUrl,
   prefetchSecrets,
@@ -46,6 +52,18 @@ export interface EmbeddingFamily {
    * before it, so callers that keep progress send at most this many a call.
    */
   inputsPerRequest?: number;
+  /**
+   * How many `document` calls these credentials may make, shared by every
+   * server, and the account the provider counts them against. Indexing waits
+   * when it's spent, so searches keep the rest of the provider's rate limit,
+   * and a search the provider refuses for its rate limit holds indexing back
+   * for a while. Each `embed` call counts as one. Unset, indexing is paced
+   * only by the provider's refusals.
+   */
+  documentBudget?: {
+    scope: ProviderConnectionScope;
+    policy: ProviderBudgetPolicy;
+  };
   embed(
     inputs: readonly MultimodalEmbeddingInput[],
     purpose: EmbeddingInputPurpose,
@@ -62,6 +80,10 @@ export const DEFAULT_EMBEDDING_DIMENSIONS = 1024;
  */
 const VOYAGE_MULTIMODAL_MIN_SIMILARITY = 0.3;
 const BUILDER_EMBEDDING_MODEL = "builder-multimodal-embedding";
+const BUILDER_DOCUMENT_BUDGET: ProviderBudgetPolicy = {
+  capacity: 2,
+  windowMs: 60_000,
+};
 const BUILDER_EMBEDDING_BATCH_LIMIT = 32;
 const BUILDER_EMBEDDING_INPUT_TEXT_LIMIT = 32_000;
 const BUILDER_EMBEDDING_INPUT_IMAGE_LIMIT = 6;
@@ -148,6 +170,7 @@ export class EmbeddingProviderError extends Error {
     readonly status: number,
     /** How long the provider's Retry-After asked callers to wait. */
     readonly retryAfterMs?: number,
+    readonly code?: string,
   ) {
     super(message);
     this.name = "EmbeddingProviderError";
@@ -161,6 +184,32 @@ function retryAfterMs(header: string | null): number | undefined {
   if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
   const at = Date.parse(header);
   return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
+}
+
+async function providerErrorCode(
+  response: Response,
+): Promise<string | undefined> {
+  let body: unknown;
+  try {
+    const bytes = await readBoundedResponseBytes(response, 16_000);
+    body = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    if (response.body && !response.body.locked)
+      void response.body.cancel().catch(() => undefined);
+    // coercion-ok: an unreadable reply only loses its code; the status still throws
+    return undefined;
+  }
+  const nested =
+    body && typeof body === "object"
+      ? (body as { error?: unknown }).error
+      : undefined;
+  const source = nested && typeof nested === "object" ? nested : body;
+  if (!source || typeof source !== "object") return undefined;
+  const { code, type } = source as { code?: unknown; type?: unknown };
+  return [code, type].find(
+    (value): value is string =>
+      typeof value === "string" && /^[\w.-]{1,80}$/.test(value),
+  );
 }
 
 async function postJson(
@@ -186,18 +235,21 @@ async function postJson(
         signal,
       }),
     );
-    if (!response.ok)
+    if (!response.ok) {
       throw new EmbeddingProviderError(
         `Embedding provider ${providerModel} failed with status ${response.status}.`,
         response.status,
         retryAfterMs(response.headers.get("retry-after")),
+        await providerErrorCode(response),
       );
+    }
     const bytes = await readBoundedResponseBytes(response, 1_000_000);
     return JSON.parse(new TextDecoder().decode(bytes)) as Record<
       string,
       unknown
     >;
   } catch (error) {
+    if (error instanceof EmbeddingProviderError) throw error;
     if (options?.signal?.aborted) throw options.signal.reason ?? error;
     if (controller.signal.aborted)
       throw new Error(`Embedding provider ${providerModel} timed out.`);
@@ -415,6 +467,17 @@ export function createBuilderEmbeddingFamily(
       "image/webp",
       "image/gif",
     ],
+    documentBudget: {
+      scope: {
+        providerId: "builder-embeddings",
+        tenantId: auth.spaceId ?? "builder",
+        connectionId: createHash("sha256")
+          .update(auth.authorization)
+          .digest("hex")
+          .slice(0, 24),
+      },
+      policy: BUILDER_DOCUMENT_BUDGET,
+    },
     async embed(inputs, purpose, options) {
       const vectors: number[][] = [];
       const baseUrl = getBuilderEmbeddingsBaseUrl().replace(/\/$/, "");

@@ -21,6 +21,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     await assertReviewCommentAccess(
       args.resourceType,

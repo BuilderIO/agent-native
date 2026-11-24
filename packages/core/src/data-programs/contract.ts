@@ -102,6 +102,17 @@ function byteLength(value: string): number {
   return Buffer.byteLength(value, "utf8");
 }
 
+function isJson(value: string | null): boolean {
+  if (value === null) return false;
+  try {
+    JSON.parse(value);
+    return true;
+    // coercion-ok: a payload that doesn't parse is exactly what isJson reports as false
+  } catch {
+    return false;
+  }
+}
+
 function extractSentinelLine(stdout: string): string | null {
   const lines = stdout.split("\n");
   for (let i = lines.length - 1; i >= 0; i -= 1) {
@@ -116,6 +127,8 @@ function extractSentinelLine(stdout: string): string | null {
 export interface ParseDataProgramResultOptions {
   maxRows: number;
   maxBytes: number;
+  /** The sandbox cut stdout off at its output cap. */
+  outputTruncated?: boolean;
 }
 
 export type ParseDataProgramResultOutcome =
@@ -127,6 +140,15 @@ export function parseDataProgramResult(
   options: ParseDataProgramResultOptions,
 ): ParseDataProgramResultOutcome {
   const sentinelPayload = extractSentinelLine(stdout);
+  if (options.outputTruncated && !isJson(sentinelPayload)) {
+    return {
+      ok: false,
+      error: {
+        code: "result_too_large",
+        message: `The program printed more than the sandbox keeps, so emit()'s result was cut off. Emit fewer or smaller rows (results are capped at ${options.maxBytes} bytes), or log less.`,
+      },
+    };
+  }
   if (sentinelPayload === null) {
     return {
       ok: false,

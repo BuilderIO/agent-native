@@ -1,4 +1,8 @@
 export default {
+  responseGuard: {
+    noDesignChangesSaved:
+      "In diesem Durchgang wurden keine Designänderungen gespeichert.",
+  },
   journeyCanvas: {
     observedSessionReference: "Beobachtete Sitzungsreferenz",
     sessionsOfAll: "{count} Sitzungen · {percent} aller",
@@ -75,149 +79,6 @@ export default {
     htmlLanguage: "de-DE",
   },
   composer: { menu: { integrations: "Integrationen" } },
-  creativeContext: {
-    title: "Bibliothek",
-    description:
-      "Wiederverwendbarer kreativer Kontext für konsistente Ergebnisse.",
-    modeLabel: "Kreativen Kontext verwenden",
-    automatic: "Automatisch",
-    automaticDescription:
-      "Der Agent wählt die relevantesten Quellen und das passende Kontextpaket.",
-    off: "Aus",
-    offDescription: "Ohne gespeicherten kreativen Kontext erstellen.",
-    activePack: "Aktuelles Kontextpaket",
-    noActivePack: "In dieser Sitzung wurde noch kein Kontextpaket verwendet.",
-    pinned: "Angeheftet",
-    pin: "Anheften",
-    unpin: "Lösen",
-    sourcesTitle: "Quellen",
-    sourcesDescription:
-      "Referenzen, Dokumente und frühere Arbeiten zur kreativen Wiederverwendung.",
-    searchTitle: "Kontext durchsuchen",
-    searchDescription:
-      "Genaue Details finden, bevor Aussagen, Stile oder Entscheidungen wiederverwendet werden.",
-    searchPlaceholder: "Kreativen Kontext durchsuchen",
-    searchPrompt: "Durchsuche die Quellen in dieser Bibliothek.",
-    noResults: "Kein passender Kontext gefunden.",
-    resultsLabel: "Ergebnisse: {{count}}",
-    noSourcesTitle: "Noch kein kreativer Kontext",
-    noSourcesDescription:
-      "Verbinde eine Quelle oder bitte den Agenten, wiederverwendbaren Kontext zu erfassen.",
-    connectSources: "Verbindungen öffnen",
-    refresh: "Aktualisieren",
-    refreshing: "Wird aktualisiert…",
-    refreshed: "Aktualisierung gestartet",
-    refreshFailed: "Diese Quelle konnte nicht aktualisiert werden.",
-    itemsLabel: "Elemente: {{count}}",
-    discoveredItems: "Gefunden: {{count}}",
-    selectedItems: "Ausgewählt: {{count}}",
-    selectAll: "Alle auswählen",
-    clearSelection: "Leeren",
-    packsTitle: "Kontextpakete",
-    noPacks: "Es wurden noch keine Kontextpakete zusammengestellt.",
-    loading: "Kreativer Kontext wird geladen…",
-    unavailable: "Kreativer Kontext ist derzeit nicht verfügbar.",
-    stateSaveFailed:
-      "Die Einstellung für kreativen Kontext konnte nicht gespeichert werden.",
-    sourceError: "Aktion erforderlich",
-    personal: "Persönlich",
-    organization: "Organisation",
-    addSource: "Quelle hinzufügen",
-    addToContext: "Zum Kontext hinzufügen…",
-    sourceName: "Quellenname",
-    sourceReference: "Quellenreferenz",
-    preview: "Vorschau",
-    startImport: "Import starten",
-    importing: "Wird importiert…",
-    importComplete: "Import abgeschlossen",
-    importFailed: "Import fehlgeschlagen",
-    brandDnaTitle: "Abgeleiteter Markenkontext",
-    publishedBrandContext: "Veröffentlichter Markenkontext",
-    applyBrandContext: "Als meinen Markenkontext anwenden",
-    applyingBrandContext: "Markenkontext wird angewendet…",
-    brandContextPublished: "Markenkontext veröffentlicht",
-    restrictedItems: "Eingeschränkte Elemente: {{count}}",
-    unknownAccess: "Zugriff unbekannt",
-    reviewRestricted: "Eingeschränkte Elemente prüfen",
-    approve: "Genehmigen",
-    exclude: "Ausschließen",
-    packDetails: "Details",
-    influence: "Einfluss",
-    cancel: "Schließen",
-    saveFailed: "Diese Änderungen konnten nicht gespeichert werden.",
-    updateAvailable: "Aktualisierung verfügbar",
-    submitUpdate: "Aktualisierung einreichen",
-    submittingUpdate: "Wird eingereicht…",
-    submitUpdateTitle: "Neueste Version einreichen?",
-    submitUpdateDescription:
-      "Erfassen Sie die aktuelle Version von „{{name}}“ und reichen Sie sie gemäß der Freigaberichtlinie dieses Kontexts ein. Dadurch kann sie für ein größeres Publikum veröffentlicht werden.",
-    submitUpdateFailed: "Die neueste Version konnte nicht eingereicht werden.",
-    chooseFiles: "Dateien auswählen",
-    chooseFolder: "Ordner auswählen",
-    dropFiles: "PPTX-, DOCX-, PDF- oder Bilddateien hier ablegen.",
-    promoteToOrganization: "Mit Organisation teilen",
-    promotionDescription:
-      "Bestätige den genauen Container und den importierten Bestand, bevor diese verwaltete Kopie geteilt wird.",
-    promotionComplete: "Mit der Organisation geteilt.",
-    manage: "Quelle verwalten",
-    pause: "Pausieren",
-    restore: "Wiederherstellen",
-    delete: "Löschen",
-    sourcePaused: "Quelle pausiert.",
-    sourceRestored: "Quelle wiederhergestellt.",
-    deleteSourceTitle: "Quelle löschen?",
-    deleteSourceDescription:
-      "{{name}} wird sofort entfernt. Der importierte Kontext wird im Hintergrund gelöscht.",
-    deletionQueued: "Quelle entfernt. Der importierte Kontext wird gelöscht.",
-    curateItems: "Elemente kuratieren",
-    exemplar: "Musterbeispiel",
-    ignore: "Ignorieren",
-    deprecated: "Veraltet",
-    star: "Markieren",
-    unstar: "Markierung entfernen",
-    deprecate: "Als veraltet markieren",
-    colors: "Farben",
-    fonts: "Schriften",
-    layouts: "Layoutbeispiele",
-    voice: "Tonalität",
-    generateWithContext: "Mit diesem Kontext generieren",
-    chooseConnection: "Arbeitsbereichsverbindung auswählen",
-    setupConnection: "Verbinde diesen Anbieter vor dem Import einer Quelle.",
-    connectProvider: "Anbieter verbinden",
-    choosePresentations: "Präsentationen auswählen",
-    googlePickerDescription:
-      "Wähle die Präsentationen für diese Bibliotheksverbindung aus. Es wird kein Zugriff auf das gesamte Drive angefordert.",
-    suggestions: "Vorschläge prüfen",
-    logo: "Kanonisches Logo",
-    share: {
-      title: "Kreativer Kontext",
-      documentation: "Creative-Context-Dokumentation",
-      tabLabel: "Kontext",
-      pendingResource: "Ausstehende Ressource",
-      publishedResource: "Veröffentlichte Ressource",
-      canonical: "Kanonisch",
-      reference: "Referenz",
-      pendingReview: "Prüfung ausstehend",
-      published: "Veröffentlicht",
-      withdraw: "Zurückziehen",
-      requestChanges: "Änderungen anfordern",
-      remove: "Entfernen",
-      chooseContext: "Kontext auswählen",
-      selectedResources: "{{count}} ausgewählte Ressourcen",
-      noContexts: "Noch keine Kontexte verfügbar.",
-      purpose: "Zweck",
-      reviewerNote: "Notiz für Prüfer",
-      submit: "Senden",
-      broaderPublication:
-        "Dieser Kontext wird umfassender geteilt als diese Ressource. Beim Veröffentlichen wird eine verwaltete Kopie für die Zielgruppe des Kontexts erstellt.",
-      newContextName: "Name des neuen Kontexts",
-      new: "Neu",
-      partialSubmission:
-        "{{submitted}} gesendet; {{failed}} konnten nicht gesendet werden.",
-      resourceSubmitted: "{{count}} Ressource gesendet.",
-      resourcesSubmitted: "{{count}} Ressourcen gesendet.",
-    },
-  },
   root: {
     commandActions: "Aktionen",
     commandSearch: "Suchen",
@@ -229,8 +90,6 @@ export default {
     brand: "Design",
     home: "Startseite",
     templates: "Vorlagen",
-    designSystems: "Designsysteme",
-    setupDesignSystem: "Designsystem einrichten",
     agent: "Agent",
     settings: "Einstellungen",
     openNavigation: "Navigation öffnen",
@@ -247,7 +106,6 @@ export default {
     retry: "Erneut versuchen",
     steps: {
       createDesign: "Erstelle dein erstes Design",
-      addBrand: "Füge deine Marke hinzu",
       useRealData: "Nutze deine echten Daten",
       shareFeedback: "Für Feedback teilen",
       inviteTeammate: "Teammitglied einladen",
@@ -410,7 +268,7 @@ export default {
     pageHelpDescription:
       "Bearbeiten Sie Typografie, Abstände, Größen, Ränder und Füllung für alles, was Sie auswählen. Seitenstandards unten.",
     sections: {
-      page: "Screen",
+      page: "Seite",
       canvas: "Arbeitsfläche",
       typography: "Typografie",
       autoLayout: "Auto-Layout",
@@ -567,7 +425,7 @@ export default {
       addRecordRow: "{{item}} hinzufügen",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "{{item}} {{index}} entfernen",
-      selectElementFirst: "Wähle zuerst ein Bildschirmelement aus",
+      selectElementFirst: "Wähle zuerst ein Element auf der Seite aus",
       selectCanvasElementFirst: "Wähle zuerst ein Element auf der Leinwand aus",
       saveFailed: "Shader konnte nicht gespeichert werden",
       custom: "Benutzerdefiniert",
@@ -993,11 +851,11 @@ export default {
     screenSource: {
       title: "Quelle",
       url: "URL",
-      urlLabel: "Screen-URL",
+      urlLabel: "Seiten-URL",
       urlPlaceholder: "/plans oder http://localhost:5173/plans",
       update: "Aktualisieren",
       chooseLocalApp: "Lokale App auswählen",
-      remove: "Screen entfernen",
+      remove: "Seite entfernen",
     },
     borderStyleOptions: {
       none: "Keine",
@@ -1077,7 +935,7 @@ export default {
       original: "Originalseite versuchen",
     },
 
-    sourceLoadFailed: "Dieser Bildschirm konnte nicht geladen werden.",
+    sourceLoadFailed: "Diese Seite konnte nicht geladen werden.",
     selectionPublishFailed:
       "Der Agent sieht deine neueste Auswahl möglicherweise nicht. Wähle sie erneut aus.",
     liveCollaboration: {
@@ -1194,6 +1052,19 @@ export default {
       collapse: "Seitenleiste einklappen",
       expand: "Seitenleiste ausklappen",
     },
+    leftTabs: {
+      label: "Seitenleiste",
+      agent: "Agent",
+      file: "Datei",
+      library: "Bibliothek",
+    },
+    columnHead: {
+      comments: "Kommentare",
+      unreadComments: "Ungelesene Kommentare",
+      resizeLeftPanel: "Linkes Panel anpassen",
+      resizeInspector: "Inspektor anpassen",
+      whatsNew: "Neuigkeiten",
+    },
     breakpointBar: {
       base: "Basis",
       editBaseWidth: "Basisbreite bearbeiten",
@@ -1226,7 +1097,7 @@ export default {
       themeSystem: "System",
       themeSystemHint:
         "Zeigt das Design wie erstellt (nutzt die Systemeinstellung)",
-      screen: "Screen",
+      screen: "Seite",
       back: "Zurück",
       forward: "Weiter",
       reload: "Vorschau neu laden",
@@ -1237,8 +1108,8 @@ export default {
       zoomFit: "An die Zeichenfläche angepasst",
       zoomFitOption: "Anpassen",
       exit: "Responsive-Vorschau verlassen",
-      noScreens: "Dieses Design hat keine Screens für die Vorschau.",
-      unknownScreen: "Dieser Screen gehört nicht zu diesem Design.",
+      noScreens: "Dieses Design hat keine Seiten für die Vorschau.",
+      unknownScreen: "Diese Seite gehört nicht zu diesem Design.",
     },
     applyToSource: "Auf Quelle anwenden",
     applyToSourcePath: "Auf Quelle anwenden ({{path}})",
@@ -1299,7 +1170,7 @@ export default {
     },
     import: {
       description:
-        "Bringe Figma-Zwischenablage-HTML oder eigenständiges HTML als Design-Bildschirme hinein.",
+        "Füge HTML aus der Figma-Zwischenablage oder eigenständiges HTML als Design-Seiten ein.",
       figmaUrlLabel: "Figma-Frame- oder Datei-URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
       figmaTokenLabel: "Figma-Zugriffstoken",
@@ -1364,10 +1235,10 @@ export default {
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       htmlDescription:
-        "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neuen Bildschirm, ohne es in diese Editor-UI einzufügen.",
+        "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neue Seite, ohne es in diese Editor-Oberfläche einzufügen.",
       allSupportedFiles: "Alle unterstützten Dateien",
       githubDescription:
-        "Demnächst: Bildschirme und Komponenten direkt aus einem Repository importieren.",
+        "Demnächst: Seiten und Komponenten direkt aus einem Repository importieren.",
       localDescription: "Verbinde jede laufende lokale App mit /visual-edit.",
       warningsToast: "Import mit Warnungen abgeschlossen",
       pasteUnreadable: "Die kopierten Ebenen konnten nicht gelesen werden.",
@@ -1383,7 +1254,7 @@ export default {
       pasteNeedsEditAccess:
         "Zum Einfügen in dieses Design brauchst du Bearbeitungszugriff.",
       pastePartialImport:
-        "Das Einfügen ist fehlgeschlagen, und einige Screens wurden möglicherweise erstellt. Prüfe deine Screens.",
+        "Das Einfügen ist fehlgeschlagen, einige Seiten wurden möglicherweise erstellt. Prüfe deine Seiten.",
       figmaSuccess: "Figma-Einfügung importiert",
       htmlSuccess: "HTML importiert",
       uploadSuccess: "Datei importiert",
@@ -1436,16 +1307,17 @@ export default {
     retryAccessCheck: "Erneut versuchen",
     saveAsTemplate: "Als Vorlage speichern…",
     saveTemplateDescription:
-      "Aktuelle Screens, Abmessungen, Standardwerte und gesperrte Ebenen als wiederverwendbaren Ausgangspunkt sichern.",
+      "Speichere die aktuellen Seiten, Abmessungen, Standardwerte und gesperrten Ebenen als wiederverwendbaren Ausgangspunkt.",
     templateName: "Vorlagenname",
     templateDescription: "Beschreibung",
     templateCategory: "Kategorie",
     templateSnapshotSummary:
-      "{{screens}} Screen(s) · {{locks}} gesperrte Ebene(n) werden beibehalten",
+      "{{screens}} Seite(n) · {{locks}} gesperrte Ebene(n) bleiben erhalten",
     saveTemplate: "Vorlage speichern",
     templateSaved: "Vorlage in der Bibliothek gespeichert",
     templateSaveFailed: "Diese Vorlage konnte nicht gespeichert werden",
     appMenu: {
+      backToDashboard: "Zurück zum Dashboard",
       file: "Datei",
       preferences: "Einstellungen",
       newDesign: "Neues Design",
@@ -1492,7 +1364,7 @@ export default {
       comment: "Kommentar",
       edit: "Bearbeiten",
       interact: "Interact",
-      screens: "Bildschirme",
+      screens: "Seiten",
     },
     topBar: {
       modeDesign: "Design",
@@ -1503,7 +1375,7 @@ export default {
     tools: {
       move: "Move",
       frame: "Frame",
-      screen: "Screen",
+      screen: "Seite",
       shapes: "Formen",
       rect: "Rectangle",
       line: "Linie",
@@ -1526,7 +1398,7 @@ export default {
       categoriesLabel: "Kategorien der Tastenkürzel",
       empty: "Keine Tastenkürzel passen zu „{{query}}“",
       codeContext: "Code",
-      screenContext: "Screens",
+      screenContext: "Seite",
       nudgeAmount: {
         title: "Verschiebeschrittweite",
         small: "Kleiner Schritt",
@@ -1612,8 +1484,8 @@ export default {
         enterSelection: "Auswahl",
         nextSibling: "Auswahl →",
         previousSibling: "← Auswahl",
-        nextScreen: "Screens →",
-        previousScreen: "← Screens",
+        nextScreen: "Nächste Seite",
+        previousScreen: "Vorherige Seite",
         toggleLayoutGrids: "Layoutraster ein- oder ausblenden",
         toggleRulers: "Lineale ein- oder ausblenden",
         nudge: "Move",
@@ -1666,10 +1538,10 @@ export default {
     duplicate: "Duplicate",
     delete: "Delete",
     view: "View",
-    returnToCurrentScreen: "Zum aktuellen Bildschirm zurückkehren",
-    openScreenOverview: "Bildschirmübersicht öffnen",
-    currentScreen: "Aktueller Bildschirm",
-    screenOverview: "Bildschirmübersicht",
+    returnToCurrentScreen: "Zur aktuellen Seite zurück",
+    openScreenOverview: "Seitenübersicht öffnen",
+    currentScreen: "Aktuelle Seite",
+    screenOverview: "Seitenübersicht",
     devicePreview: "Gerätevorschau",
     devices: {
       responsive: "Reaktionsschnell",
@@ -1699,7 +1571,7 @@ export default {
     downloadSvg: "SVG herunterladen",
     downloadFigmaSvg: "Für Figma herunterladen (SVG)",
     downloadZip: "ZIP herunterladen",
-    downloadPdfAllScreens: "Laden Sie PDF herunter (Alle Screens)",
+    downloadPdfAllScreens: "PDF herunterladen (alle Seiten)",
     publishApp: "App veröffentlichen",
     exportOptions: "Exportoptionen",
     exportHtml: "HTML exportieren",
@@ -1771,13 +1643,13 @@ export default {
       rollback: "Zurückrollen",
       keep: "Behalten",
       selectorMissing:
-        "Das ausgewählte Element existiert in diesem Screen nicht mehr.",
+        "Das ausgewählte Element hat keine bearbeitbare Entsprechung im Quellcode dieser Seite. Wenn eine Komponente es rendert, wende die Änderung über den Agenten an.",
       noRenderedBox:
         "Die ausgewählte Ebene hat keine gerenderte Box, daher wurde die Stiländerung nicht angewendet.",
       clientRenderedShell:
-        "Dieser Screen wird clientseitig gerendert. Daher enthält das bereitgestellte HTML kein App-Markup, das gepatcht werden kann. Bitte den Agenten, diese Änderung am Komponentenquellcode vorzunehmen.",
+        "Diese Seite wird clientseitig gerendert, daher enthält das ausgelieferte HTML kein App-Markup zum Patchen. Bitte den Agenten, die Änderung im Komponenten-Quellcode vorzunehmen.",
       snapshotNotLoaded:
-        "Der Quellcode dieses Screens wurde noch nicht geladen, daher wurde die Änderung nicht geschrieben. Warte, bis der Screen vollständig geladen ist, und versuche es erneut.",
+        "Der Quellcode dieser Seite wurde noch nicht geladen, daher wurde die Änderung nicht geschrieben. Warte, bis die Seite fertig geladen ist, und versuche es erneut.",
       selectorAmbiguous:
         "Dieses Element ist eine von {{count}} identischen Instanzen im Quellcode, daher wurde die Änderung nicht geschrieben. Bitte den Agenten, sie auf diese Instanz zu beschränken.",
       status: {
@@ -1833,18 +1705,18 @@ export default {
       leave: "Ohne Anwenden verlassen",
     },
     addLocalhostScreen: {
-      title: "Einen Screen aus deiner App hinzufügen",
+      title: "Seite aus deiner App hinzufügen",
       description:
         "Wähle eine Route als neuen Rahmen aus oder gib einen Pfad ein.",
       searchPlaceholder: "Routen durchsuchen…",
       noRoutes: "Keine passenden Routen",
       noDiscoveredRoutes:
-        "Für diese App wurden keine Routen gefunden. Gib einen Pfad ein, um einen Screen hinzuzufügen.",
+        "Für diese App wurden keine Routen gefunden. Gib einen Pfad ein, um eine Seite hinzuzufügen.",
       useCustomPath: "„{{path}}“ hinzufügen",
       viewportDesktop: "Desktop",
       viewportMobile: "Mobil",
-      added: "Screen hinzugefügt",
-      addFailed: "Screen konnte nicht hinzugefügt werden",
+      added: "Seite hinzugefügt",
+      addFailed: "Seite konnte nicht hinzugefügt werden",
     },
     localhostConsent: {
       approvedTitle: "Genehmigt – führe die Änderung erneut aus",
@@ -1927,7 +1799,7 @@ export default {
       zipCreateError: "ZIP-Download konnte nicht erstellt werden",
       zipDownloaded: "ZIP heruntergeladen",
       zipExportError: "ZIP konnte nicht exportiert werden",
-      openScreenPng: "Öffnen Sie vor dem PNG-Export einen Bildschirm",
+      openScreenPng: "Öffne eine Seite, bevor du PNG exportierst",
       pngCreateError: "PNG-Download konnte nicht erstellt werden",
       pngDownloaded: "PNG heruntergeladen",
       pngCopied: "PNG in die Zwischenablage kopiert",
@@ -1955,8 +1827,8 @@ export default {
         "Der Export ist nicht verfügbar, weil der Renderer nicht gestartet werden konnte. Versuchen Sie es später erneut.",
       pdfExportError: "PDF konnte nicht exportiert werden",
       pdfDownloaded: "PDF heruntergeladen",
-      pdfAllScreensDownloaded: "PDF heruntergeladen (Alle Screens)",
-      openScreenSvg: "Öffnen Sie vor dem SVG-Export einen Bildschirm",
+      pdfAllScreensDownloaded: "PDF heruntergeladen (alle Seiten)",
+      openScreenSvg: "Öffne eine Seite, bevor du SVG exportierst",
       svgDownloaded: "SVG heruntergeladen",
       svgExportError: "SVG konnte nicht exportiert werden",
       figmaSvgCopied: "Als Figma-SVG kopiert",
@@ -1969,17 +1841,17 @@ export default {
         "SVG konnte nicht in die Zwischenablage kopiert werden",
       figmaSvgRenderError: "Figma-SVG konnte nicht erstellt werden",
       figmaSvgExportError: "Figma-SVG konnte nicht exportiert werden",
-      screenDuplicated: "Screen dupliziert",
-      screenDuplicateError: "Screen konnte nicht dupliziert werden",
+      screenDuplicated: "Seite dupliziert",
+      screenDuplicateError: "Seite konnte nicht dupliziert werden",
       copied: "Copied",
       pasted: "Pasted",
       deleted: "Deleted",
       propsCopied: "Eigenschaften kopiert",
       propsPasted: "Eigenschaften eingefügt",
       primitiveInsertFailed:
-        "Diese Ebene konnte nicht zur Ansicht hinzugefügt werden",
+        "Diese Ebene konnte der Seite nicht hinzugefügt werden",
       designStateLiveScreen:
-        "Design-Zustände lassen sich in einem Live-Screen nicht vorschauen — sein Inhalt ist die laufende App, kein Dokument.",
+        "Designzustände können auf einer Live-Seite nicht in der Vorschau angezeigt werden: ihr Inhalt ist die laufende App, kein Dokument.",
       layerMoveFailed: "Diese Ebene konnte nicht verschoben werden",
       groupFillApplyFailed:
         "Diese Füllung konnte nicht auf alle Ebenen der Gruppe angewendet werden.",
@@ -2010,12 +1882,12 @@ export default {
       redoSkippedConcurrentEdit:
         "Wiederholen übersprungen – jemand anderes hat das verschoben",
       saveConflict:
-        "Dieser Screen wurde anderswo geändert. Deine letzte Änderung wurde nicht gespeichert.",
+        "Diese Seite wurde an anderer Stelle geändert. Deine letzte Änderung wurde nicht gespeichert.",
       versionHistoryUnavailable:
         "Der Versionsverlauf ist für dieses Design nicht verfügbar. Deine Änderung wurde trotzdem gespeichert.",
       removeAutoLayoutFailed: "Auto-Layout konnte nicht entfernt werden",
       autoLayoutScreensUnsupported:
-        "Auto-Layout hinzufügen gilt nicht für Bildschirme",
+        "Auto-Layout hinzufügen gilt nicht für Seiten",
       booleanSubtractUnsupported:
         "Wähle benachbarte Rechtecke oder Ellipsen mit einfarbiger Füllung aus, um sie zu subtrahieren.",
       booleanSubtractFailed: "Diese Ebenen konnten nicht subtrahiert werden.",
@@ -2025,9 +1897,8 @@ export default {
         "Diese App stellt dem Editor keine Quellcode-Positionen bereit, daher lässt sich diese Ebene keiner Zeile zuordnen. Lass die Änderung vom Agenten vornehmen.",
       sourceLocationSnapshotFailed:
         "Quellcode-Positionen für diese Vorschau konnten nicht geprüft werden.",
-      screenSourceUpdated: "Screen-Quelle aktualisiert",
-      screenSourceUpdateFailed:
-        "Screen-Quelle konnte nicht aktualisiert werden",
+      screenSourceUpdated: "Seitenquelle aktualisiert",
+      screenSourceUpdateFailed: "Seitenquelle konnte nicht aktualisiert werden",
       vectorEditUnsupported:
         "Vektorbearbeitung ist für diese Form oder Transformation nicht verfügbar.",
       imageUploading: "Bild wird hochgeladen…",
@@ -2043,7 +1914,7 @@ export default {
       alignNeedsTwoLayers:
         "Wähle zwei oder mehr Ebenen aus, um sie auszurichten",
       alignNeedsTwoScreens:
-        "Wähle zwei oder mehr Screens aus, um sie auszurichten",
+        "Wähle zwei oder mehr Seiten aus, um sie auszurichten",
       layoutUnmeasurable:
         "Eine ausgewählte Ebene konnte nicht gemessen werden. Prüfe, ob sie auf der Arbeitsfläche sichtbar ist, und versuche es erneut.",
       layoutAutoLayoutChildren:
@@ -2093,11 +1964,10 @@ export default {
   },
   layersPanel: {
     title: "Ebenen",
-    screens: "Screens",
-    resizeScreens: "Größe des Bildschirmbereichs ändern",
-    allScreens: "Alle Screens",
+    screens: "Seiten",
+    resizeScreens: "Größe des Seitenbereichs ändern",
     thumbnail: "Miniaturansicht",
-    addScreen: "Screen hinzufügen",
+    addScreen: "Seite hinzufügen",
     searchPlaceholder: "Ebenen suchen",
     empty: "Keine Ebenen",
     noMatches: "Keine passenden Ebenen",
@@ -2146,7 +2016,7 @@ export default {
         "Die Live-Editor-Bridge hat die Verbindung auch nach mehreren Versuchen nicht bestätigt.",
       connectionNotConfirmed:
         "Die Live-Editor-Bridge hat die Verbindung nicht bestätigt. Läuft der lokale Entwicklungsserver noch?",
-      permissionPromptTitle: "Lokale Bildschirme verbinden",
+      permissionPromptTitle: "Lokale Seiten verbinden",
       permissionPromptDescription:
         "Wähle in der Chrome-Abfrage „Zulassen“, um die Live-Bearbeitung zu aktivieren.",
       permissionPromptNoPrompt: "Keine Chrome-Abfrage?",
@@ -2156,15 +2026,15 @@ export default {
       previewCredentialsUnavailableTitle:
         "Anmeldedaten für die lokale Vorschau sind nicht verfügbar",
       previewCredentialsUnavailableDescription:
-        "Verbinde die Localhost-Verbindung dieses Screens im Inspektor erneut und versuche es dann noch einmal.",
+        "Verbinde die Localhost-Verbindung dieser Seite im Inspektor neu und versuche es dann erneut.",
       publicPreviewUnavailableDescription:
-        "Localhost-Vorschauen werden nicht mit öffentlichen Betrachtern geteilt. Öffne dieses Design als Mitwirkender, um diesen Screen zu sehen.",
+        "Localhost-Vorschauen werden nicht mit öffentlichen Betrachtern geteilt. Öffne dieses Design als Mitarbeiter, um diese Seite zu sehen.",
       previewCredentialsRetry: "Anmeldedaten erneut abrufen",
     },
   },
   multiScreenCanvas: {
     addBreakpointToAllScreens:
-      "{{label}}-Breakpoint ({{width}}px) zu allen Screens hinzufügen",
+      "Breakpoint {{label}} ({{width}}px) zu allen Seiten hinzufügen",
     preparingLiveEditor: "Live-Editor wird vorbereitet…",
     duplicate: "Duplizieren",
     fork: "Abzweigen",
@@ -2257,11 +2127,6 @@ export default {
     startWithAiHint:
       "Beschreibe eine Seite und erhalte einen bearbeitbaren Entwurf.",
     startBlankCanvasHint: "Zeichne selbst mit Rahmen, Formen und Text.",
-    designSystem: "Design-System",
-    noDesignSystem: "Kein Designsystem",
-    designSystemIndexing: "Wird indiziert…",
-    newDesignSystem: "Neu",
-    createDesignSystem: "Designsystem erstellen",
     template: "Vorlage",
     blank: "Leer",
     builtIn: "Integriert",
@@ -2272,8 +2137,6 @@ export default {
     builtInTemplates: "Integrierte Vorlagen",
     templatePromptPlaceholder:
       "Beschreibe, wie {{title}} angepasst werden soll...",
-    reskinTemplatePrompt:
-      "Wende das Designsystem {{system}} auf {{title}} an und erhalte Struktur und gesperrte Ebenen.",
     addAttachment: "Hinzufügen",
     removeAttachment: "Entfernen Sie {{name}}",
     uploadFile: "Datei hochladen",
@@ -2354,22 +2217,16 @@ export default {
       "Gib eine gültige Frame- oder Datei-URL von figma.com ein.",
     tooMany: "Wähle bis zu 20 Referenzen.",
     invalidWebsiteUrl: "Gib eine gültige HTTP- oder HTTPS-URL ein.",
-    createSystem: "Designsystem erstellen",
-    noSystems:
-      "Du hast noch kein Designsystem. Erstelle eines aus einer Website, Dateien oder Figma.",
-    searchSystems: "Designsysteme suchen…",
     searchDesigns: "Designs suchen…",
     searchPresentations: "Präsentationen suchen…",
     searchPages: "Seiten suchen…",
     searchDesign: "Design suchen…",
-    useDesignSystem: "Ein Designsystem verwenden",
     notReady:
       "Die Anfrage ist noch nicht bereit. Prüfe den ausgewählten Kontext und die Verbindung und versuche es erneut.",
     search: "Kontext suchen…",
     loadFailed: "Diese Referenz konnte nicht geladen werden.",
     retry: "Erneut versuchen",
     empty: "Keine passenden Referenzen.",
-    none: "Keine",
     design: "Designreferenzen",
     slides: "Folien",
     referenceDesign: "Ein Design als Referenz verwenden",
@@ -2427,8 +2284,6 @@ export default {
       design: {
         portfolioHome:
           "Gestalte die Startseite eines Design-Portfolios mit Kurzvorstellung, Projektübersicht, Profil und Kontakt in einem sorgfältigen Editorial-Ton.",
-        designSystem:
-          "Erstelle eine Designsystem-Referenz mit Farb- und Typografie-Tokens, Komponentenübersicht und Nutzungshinweisen in einem präzisen Dokumentationston.",
         bankingApp:
           "Erstelle den Startbildschirm einer Mobile-Banking-App mit Kontostand, Umsätzen und Sparzielen in einem ruhigen, vertrauenswürdigen Ton.",
         travelBooking:
@@ -2647,7 +2502,6 @@ export default {
       },
       design: {
         portfolioHome: "Startseite eines Design-Portfolios",
-        designSystem: "Designsystem-Referenz",
         bankingApp: "Startbildschirm einer Mobile-Banking-App",
         travelBooking: "Reisesuche",
         coffeeShop: "Kaffeeshop",
@@ -2726,10 +2580,10 @@ export default {
     openDesign: "Design oeffnen",
     templatesCta: "Vorlagen durchsuchen",
     previewLabel: "Lokale Vorschau",
-    layoutLabel: "Bildschirm-Layout bereit zum Speichern",
+    layoutLabel: "Seitenlayout bereit zum Speichern",
   },
   templatesPage: {
-    previewEmpty: "Diese Vorlage enthält keine Vorschauseiten.",
+    previewEmpty: "Diese Vorlage enthält keine Seiten mit Vorschau.",
     loading: "Vorlagen werden geladen",
     title: "Vorlagen",
     description:
@@ -2779,8 +2633,6 @@ export default {
   },
   routeTitles: {
     notFound: "Nicht gefunden - Design",
-    designSystems: "Designsysteme",
-    designSystemSetup: "Designsystem einrichten",
     designEditor: "Design-Editor",
     designTemplates: "Designvorlagen",
     toolDesign: "Werkzeug — Design",
@@ -2791,280 +2643,13 @@ export default {
     teamDesign: "Team - Design-App",
     visualEdit: "Visuelle Bearbeitung - Design",
   },
-  designSystemSetup: {
-    importedBrand: "Importierte Marke",
-    figmaCreateSuccess: "Designsystem erstellt aus Figma",
-    figmaCreateError: "Das Designsystem konnte nicht erstellt werden",
-    backToDesignSystems: "Zurück zu Designsystemen",
-    otherSources: "Andere",
-    otherSourcesDescription:
-      "Von einer Website, Code, Dateien oder einem vorhandenen Designsystem verbinden.",
-    chooseSourcePrompt: "Quelle zum Konfigurieren auswählen",
-    continue: "Weiter zur Generation",
-    starting: "Wird gestartet…",
-    githubIndexStarted: "GitHub-Indizierung gestartet",
-    designMdIndexStarted: "design.md-Indizierung gestartet",
-    designMdUpload: "design.md importieren",
-    designMdHelp: "design.md-Anweisungen in Builder DSI importieren",
-    title: "Richten Sie Ihr Designsystem ein",
-    description:
-      "Verbinde Figma, Code und optionale design.md-Anweisungen über Builder DSI. Mehr Kontext gibt dem Agenten ein genaueres System.",
-    figmaParsingTitle: "Builder-DSI-Indizierung wird gestartet...",
-    figmaParsingDescription:
-      "Builder extrahiert Tokens, Komponenten, Assets und Nutzungsanweisungen",
-    figmaDecodeFailed: "Dekodierung fehlgeschlagen: {{error}}",
-    uploadFig: "Figma mit einer .fig-Datei verbinden",
-    figmaSaveLocalCopy:
-      "Lade eine lokale Figma-Kopie hoch: File -> Save local copy",
-    websiteUrl: "Website URL",
-    add: "Hinzufügen",
-    githubRepository: "GitHub-Repository",
-    githubRef: "Branch, Tag oder Commit (optional)",
-    githubPaths: "Dateien oder Ordner, durch Kommas getrennt (optional)",
-    privateRepoPrefix:
-      "Private Repos benötigen einen feinkörnigen Token, der unter gespeichert wird",
-    privateRepoSuffix: "mit Lesezugriff auf Inhalte.",
-    localCodeFiles: "Code-Dateien verbinden",
-    dropCodeFiles:
-      "CSS, Tailwind-Konfiguration, Theme-Dateien oder design.md hier ablegen",
-    codeFilePatterns:
-      "Dateitypen: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
-    documents: "Dokumente und Präsentationen",
-    documentsHelp:
-      "PPTX, DOCX, PDF, XLSX – Markenführer, Pitchdecks, Stildokumente",
-    visualReferences: "Screenshots und visuelle Referenzen",
-    visualReferencesHelp: "Produkt-Screenshots, Moodboards, Inspirationsbilder",
-    assets: "Logos, Schriftarten und andere Assets",
-    assetsHelp: "SVG-Logos,.woff2-Schriftarten, Marken-Asset-Dateien",
-    designSystem: "Designsystem",
-    designProject: "Designprojekt",
-    companyPlaceholder:
-      "z.B. Acme Corp – Wir entwickeln Entwicklertools für moderne Teams...",
-    notesPlaceholder:
-      "z.B. Wir bevorzugen ein dunkles Thema mit hohem Kontrast. Unsere Marke verwendet Poppins für Überschriften und DM Sans für Text. Halten Sie die Ecken bei 12 Pixel abgerundet...",
-    customInstructionsPlaceholder:
-      "z.B. Fügen Sie immer ein selbstklebendes Top-Navigationssystem hinzu. Bevorzugen Sie redaktionelle Zitate gegenüber Heldenstatistiken. Verwenden Sie niemals Hintergründe mit Farbverlauf. Logos erscheinen immer unten links...",
-    designSystemName: "Name des Designsystems",
-    brandNamePlaceholder: "Markenname",
-    extractedSummary:
-      "Extrahiert aus {{nodes}}-Knoten, {{gradients}}-Verläufen und {{images}}-Bildern",
-    previewColors: "Farben",
-    signatureGradients: "Signaturverläufe",
-    previewTypography: "Typografie",
-    headingsLabel: "Überschriften:",
-    bodyLabel: "Körper:",
-    brandBrief: "Markenbrief",
-    brandBriefHelp:
-      "Dies leitet jedes Design, das mit diesem System erstellt wurde. Sie können es nach der Erstellung jederzeit verfeinern.",
-    creating: "Erstellen...",
-    createDesignSystem: "Designsystem erstellen",
-    chooseDifferentFile: "Wählen Sie eine andere Datei",
-    figmaThumbnailAlt: "Miniaturansicht der Figma-Datei",
-    errors: {
-      chooseFig:
-        "Bitte wählen Sie eine.fig-Datei (in Figma: Datei -> Lokale Kopie speichern).",
-      parseFig:
-        "Die Builder-Indizierung für diese Figma-Datei konnte nicht gestartet werden.",
-      enterWebsite: "Geben Sie eine Website URL ein, bevor Sie sie hinzufügen.",
-      websiteProtocol:
-        "Die Website URLs muss mit http:// oder https:// beginnen.",
-      enterGithub:
-        "Geben Sie ein GitHub-Repository URL ein, bevor Sie es hinzufügen.",
-      githubUrl:
-        "Verwenden Sie ein vollständiges GitHub-Repository URL, wie https://github.com/org/repo.",
-      githubIndex:
-        "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
-      nameConflict:
-        "Ein Designsystem mit diesem Namen existiert bereits. Wähle einen anderen Namen und versuche es erneut.",
-      chooseDesignMd: "Wählen Sie eine Markdown-Datei (.md oder .mdx) aus.",
-      readDesignMd: "Diese Markdown-Datei konnte nicht gelesen werden.",
-      designMdTooLarge: "Die Markdown-Datei darf höchstens 2 MB groß sein.",
-      designMdIndex:
-        "Die design.md-Indizierung konnte nicht gestartet werden. Prüfen Sie die Builder-Verbindung.",
-      noSources:
-        "Fügen Sie mindestens eine Quelle hinzu, bevor Sie ein Designsystem erstellen.",
-    },
-    sections: {
-      figma: {
-        title: "Figma verbinden",
-        description:
-          "Lade eine .fig hoch und Builder DSI indexiert Tokens, Komponenten, Assets und Markenanweisungen als wiederverwendbares Designsystem.",
-      },
-      company: {
-        title: "Unternehmen / Marke",
-        description: "Name, Beschreibung und Website",
-      },
-      code: {
-        title: "Code verbinden",
-        description:
-          "GitHub-Repositories, lokale Code-Dateien oder design.md werden mit Builder DSI indexiert.",
-      },
-      designMd: {
-        title: "design.md importieren",
-        description:
-          "Eine design.md-Datei als Quelle für das Designsystem verwenden",
-      },
-      designFiles: {
-        title: "Referenzdateien",
-        description:
-          "Dokumente, Screenshots und Markenassets ergänzen den Builder-DSI-Kontext",
-      },
-      importExisting: {
-        title: "Aus vorhandenem importieren",
-        description:
-          "Forken Sie ein Designsystem oder extrahieren Sie Token aus einem Projekt",
-      },
-      notes: {
-        title: "Zusätzliche Hinweise",
-        description: "Designpräferenzen, Einschränkungen, Markenrichtlinien",
-      },
-      customInstructions: {
-        title: "Benutzerdefinierte Anweisungen",
-        description:
-          "Mit dem Designsystem gespeichert. Wird jedes Mal erneut angewendet, wenn der Agent es zum Generieren eines Designs verwendet.",
-      },
-    },
-    colorLabels: {
-      accent: "Akzent",
-      primary: "Primär",
-      secondary: "Sekundär",
-      background: "Hintergrund",
-      surface: "Oberfläche",
-      text: "Text",
-      muted: "Stummgeschaltet",
-    },
-    codeIndexingEnterpriseOnly:
-      "Code- und Repository-Indizierung erfordert den Builder Enterprise-Plan",
-  },
-  designSystems: {
-    comingSoonTitle: "Designsysteme kommen bald",
-    waitlist: {
-      join: "Warteliste beitreten",
-      joining: "Wird eingetragen…",
-      joined: "Sie stehen auf der Warteliste",
-      error:
-        "Sie konnten nicht zur Warteliste hinzugefügt werden. Bitte versuchen Sie es erneut.",
-      unavailable:
-        "Die Anmeldung zur Warteliste ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.",
-    },
-    deleteError: "Das Designsystem konnte nicht gelöscht werden",
-    updateSuccess: "Designsystem aktualisiert",
-    updateError: "Das Designsystem konnte nicht aktualisiert werden",
-    bulkDeleteError: "Ausgewählte Designsysteme konnten nicht gelöscht werden",
-    selectedLabel: "ausgewählt",
-    yoursTitle: "Ihre Designsysteme",
-    newCardDescription: "Richten Sie Ihre Marke ein",
-    defaultBadge: "Standard",
-    selectAria: "Wählen Sie {{title}}",
-    currentlyDefault: "Derzeit Standard",
-    moreActionsAria: "Weitere Aktionen für {{title}}",
-    showcase: {
-      title: "Produktionsreife Ausgangspunkte",
-      description:
-        "Nutzen Sie eine mit Quellen verknüpfte Kopie eines etablierten öffentlichen Designsystems. Jede Kopie enthält echte Tokens, Typografieskalen, Abstände, Formen, Zustände und Quellenangaben.",
-      useTemplate: "Dieses System verwenden",
-      adding: "Wird hinzugefügt...",
-      openSource: "Quelldokumentation für {{title}} öffnen",
-      license: "Quelllizenz: {{license}}",
-      addSuccess: "Designsystem hinzugefügt",
-      addError: "Designsystem konnte nicht hinzugefügt werden",
-      descriptions: {
-        material3:
-          "Googles helle Basisrollen, Roboto-Typografieskala, 4-dp-Abstände und Material-Formensystem.",
-        carbon:
-          "IBM Carbon v11 White Theme, IBM Plex, Farbrollen für Unternehmenssoftware und 2/4/8-Abstände.",
-        primer:
-          "GitHub Primer Light Tokens, Mona Sans, kompakte Werkzeugdichte und responsive Abstände.",
-      },
-    },
-    actions: {
-      done: "Erledigt",
-      select: "Wählen",
-      new: "Neues Designsystem",
-      clearAll: "Löschen Sie alle Designsysteme",
-      selectAll: "Wählen Sie alle Designsysteme aus",
-      clearSelection: "Klare Auswahl",
-      delete: "Löschen",
-      setDefault: "Als Standard festlegen",
-      cancel: "Stornieren",
-    },
-    deleteDialog: {
-      title: "Designsystem löschen?",
-      description:
-        "Dadurch wird dieses Designsystem dauerhaft gelöscht und die Verknüpfung mit allen Designs, die es verwenden, wird aufgehoben. Diese Aktion kann nicht rückgängig gemacht werden.",
-      bulkTitle: "{{count}} Design Systems löschen?",
-      bulkDescription:
-        "Dadurch werden {{count}}-Designsysteme dauerhaft gelöscht und die Verknüpfung mit allen Designs, die sie verwenden, wird aufgehoben. Diese Aktion kann nicht rückgängig gemacht werden.",
-    },
-    details: {
-      description:
-        "Überprüfen Sie die gespeicherten Token und aktualisieren Sie die Details, die Agenten verwenden, wenn sie dieses Designsystem anwenden.",
-      titleLabel: "Titel",
-      descriptionLabel: "Beschreibung",
-      customInstructionsTitle: "Benutzerdefinierte Anweisungen",
-      customInstructionsDescription:
-        "Dauerhafte Anleitung, die der Agent immer dann wiederverwendet, wenn dieses System mit einem Design verknüpft wird.",
-      noCustomInstructions:
-        "Noch keine benutzerdefinierten Anweisungen gespeichert.",
-      useAsStartingPoint: "Als Ausgangspunkt verwenden",
-      saving: "Sparen...",
-      saveChanges: "Änderungen speichern",
-    },
-    preview: {
-      title: "Vorschau",
-      description:
-        "Dieses Designsystem wird von Builder Design System Intelligence verwaltet. Öffnen Sie das verknüpfte Projekt, um das vollständige Designsystem einzusehen, einschließlich aller Tokens, Komponenten und Nutzungshinweise.",
-    },
-    tokenPreview: {
-      title: "Token-Vorschau",
-      description:
-        "Eine Momentaufnahme der Farben, des Typs, der Abstände und der aktuell gespeicherten Elemente.",
-      colors: "Farben",
-      noColors: "Keine Farbtokens gespeichert.",
-      typography: "Typografie",
-      details: "Details",
-      spacing: "Abstand",
-      borders: "Grenzen",
-      defaults: "Standardeinstellungen",
-      logos: "Logos",
-      assets: "Vermögenswerte",
-      savedCount: "{{count}} gespeichert",
-      namedTokens: "Benannte Tokens",
-      colorLabels: {
-        primary: "Primär",
-        secondary: "Sekundär",
-        accent: "Akzent",
-        background: "Hintergrund",
-        surface: "Oberfläche",
-        text: "Text",
-        mutedText: "Stummgeschalteter Text",
-      },
-      typeLabels: {
-        headingFont: "Schriftart der Überschrift",
-        bodyFont: "Körperschrift",
-        headingWeight: "Überschriftsgewicht",
-        bodyWeight: "Körpergewicht",
-      },
-    },
-    empty: {
-      title: "Erstellen Sie Ihr erstes Designsystem",
-      description:
-        "Sorgen Sie für ein einheitliches Branding aller Ihrer Designs mit gemeinsamen Farben, Typografie und Assets.",
-    },
-    tierLimitTitle: "Limit für Designsysteme erreicht",
-    tierLimitDescription:
-      "Du hast das Limit für Designsysteme deines Builder-Plans erreicht. Upgrade deinen Builder-Plan, um ein weiteres zu erstellen.",
-    tierLimitDescriptionWithCount:
-      "Du nutzt {{current}} von {{max}} Designsystemen in deinem Builder-Plan {{plan}}. Upgrade deinen Builder-Plan, um ein weiteres zu erstellen.",
-    tierLimitUpgrade: "Builder-Plan upgraden",
-  },
   review: {
     comments: "Kommentare",
     commentsTab: "Kommentare · {{count}}",
     commentsTitle: "Prüfkommentare",
     commentNumber: "Prüfkommentar {{count}}",
-    thisScreen: "Dieser Bildschirm",
-    allScreens: "Alle Bildschirme",
+    thisScreen: "Diese Seite",
+    allScreens: "Alle Seiten",
     signInToComment: "Zum Kommentieren anmelden",
     panelTitle: "Feedback",
     placeholder: "Feedback hinterlassen…",
@@ -3214,7 +2799,7 @@ export default {
         permission: "Du hast keinen Bearbeitungszugriff mehr",
         threadUnavailable: "Dieser Thread ist nicht mehr geöffnet",
         targetChanged: "Das Design wurde geändert, während der Agent arbeitete",
-        applyUnavailable: "Ein Agent kann diesen Bildschirm nicht bearbeiten",
+        applyUnavailable: "Ein Agent kann diese Seite nicht bearbeiten",
         applyIncomplete:
           "Das Design wurde bearbeitet, der Thread wurde aber nicht erledigt. Prüfe die Änderung.",
         cancelledAfterEdit:

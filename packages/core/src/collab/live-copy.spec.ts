@@ -165,7 +165,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`
     CREATE TABLE _collab_docs (
       doc_id TEXT PRIMARY KEY,

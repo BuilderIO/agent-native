@@ -2,6 +2,7 @@ import type { IconValue } from "@agent-native/core/icons";
 
 import type { AgentLevel } from "./agent-level";
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
+import type { BuilderBodyDiff } from "./builder-body-diff";
 import type { GitHubPullRequestsProblemCode } from "./github-pull-requests";
 import type {
   GitHubSourceProblemCode,
@@ -14,6 +15,7 @@ import type {
   DocumentPropertyValue,
   DocumentPropertyVisibility,
 } from "./properties";
+import type { TableCollectionSeed } from "./table-collection-seed";
 
 export type DocumentAccessRole =
   | "owner"
@@ -165,6 +167,7 @@ export interface DocumentUpdateRequest {
   editorSnapshotTitle?: string;
   editorSnapshotTitleBase?: string;
   editorSnapshotContent?: string;
+  editorBlockIds?: { shape: string; idsByPath: Record<string, string> };
   description?: string;
   icon?: IconValue | string | null;
   isFavorite?: boolean;
@@ -222,6 +225,7 @@ export interface ContentNavigationPathEntry {
   databaseId: string | null;
   databaseDocumentId: string | null;
   isFavorite: boolean;
+  canMove?: boolean;
   /**
    * Whether the Files tree draws children under this page, by the rule its
    * own navigation row follows. Absent outside a Files database.
@@ -337,6 +341,7 @@ export interface DocumentProperty {
   definition: DocumentPropertyDefinition;
   value: DocumentPropertyValue;
   editable: boolean;
+  sourceWriteback?: boolean;
   blocksField?: BlocksFieldIdentity;
   /**
    * Relation properties only: the linked rows this viewer may see, in value
@@ -390,11 +395,8 @@ export interface DocumentPropertiesResponse {
   canManageSchema?: boolean;
   /** Full access to the collection: column rules, such as a tab's freeze, are theirs to set. */
   canManageColumnRules?: boolean;
-  /**
-   * False where schema rights can't add a property: a system collection such
-   * as Files keeps only the ones the app gives it.
-   */
   canAddProperties?: boolean;
+  addablePropertyTypes?: DocumentPropertyType[];
   properties: DocumentProperty[];
 }
 
@@ -422,11 +424,16 @@ export interface SetDocumentPropertyRequest {
   propertyId: string;
   value: DocumentPropertyValue;
   expectedBlocksFieldRevision?: number;
+  expectedGeneration?: number;
   /**
    * Client-only hint: titles for relation IDs, shown until the server's
    * resolved targets arrive. The action ignores it.
    */
   relationTargets?: DocumentPropertyRelationTarget[];
+}
+
+export interface SetDocumentPropertyResponse extends DocumentPropertiesResponse {
+  generation?: number;
 }
 
 export interface DuplicateDocumentPropertyRequest {
@@ -827,6 +834,7 @@ export interface ContentDatabaseRowMutationReceipt {
     result: "applied" | "replayed";
     payloadDigest: string;
   };
+  replay?: ContentDatabaseReceiptReplay;
   revisions: { before: string | null; after: string };
   readback: {
     verified: true;
@@ -837,6 +845,12 @@ export interface ContentDatabaseRowMutationReceipt {
     /** Absent on receipts stored before change IDs existed. */
     propertyChangeIds?: Record<string, number | null>;
   };
+}
+
+export interface ContentDatabaseReceiptReplay {
+  readback: "historical";
+  recordedAt: string;
+  freshRead: { action: "get-content-database"; databaseId: string };
 }
 
 export interface ContentDatabaseRowMutationResult {
@@ -871,6 +885,7 @@ export interface ContentDatabaseRowPatchBatchResult {
       result: "applied" | "replayed";
       payloadDigest: string;
     };
+    replay?: ContentDatabaseReceiptReplay;
     counts: { requested: number; updated: number; unchanged: number };
     rows: ContentDatabaseRowPatchReceipt[];
   };
@@ -1030,6 +1045,7 @@ export interface ContentDatabaseSourceBodyChange {
   proposedBlocksJson?: string | null;
   sidecarsJson?: string | null;
   warnings?: string[];
+  textOnly?: boolean;
 }
 
 export interface ContentDatabaseSourceReviewEvent {
@@ -1369,10 +1385,11 @@ export interface ContentDatabaseNavigationItem {
   parentId: string | null;
   title: string;
   icon: string | null;
-  type: "page" | "database";
+  type: "page" | "database" | "folder";
   hasChildren: boolean;
   spaceId: string | null;
   sourceKind: string | null;
+  canMove?: boolean;
   isFavorite: boolean;
   canEdit: boolean;
   canManage: boolean;
@@ -1398,13 +1415,23 @@ export interface ContentDatabaseNavigationPageResponse {
    * their own pages.
    */
   branchesTruncated?: boolean;
+  groups?: ContentDatabaseNavigationGroup[];
+  locatedGroupIds?: string[];
 }
 
 /** One Files navigation page on its own, without expanded folders. */
 export type ContentDatabaseNavigationPage = Omit<
   ContentDatabaseNavigationPageResponse,
-  "branches" | "branchesTruncated"
+  "branches" | "branchesTruncated" | "groups" | "locatedGroupIds"
 >;
+
+export interface ContentDatabaseNavigationGroup {
+  id: string;
+  label: string;
+  unset: boolean;
+  count: number;
+  page: ContentDatabaseNavigationPage;
+}
 
 export interface BuilderActionTiming {
   name: string;
@@ -1448,6 +1475,7 @@ export interface CreateInlineDatabaseRequest {
   description?: string;
   newDocumentId?: string;
   ownerBlockId?: string;
+  table?: TableCollectionSeed;
 }
 
 export interface CreateInlineDatabaseResponse {
@@ -1528,6 +1556,7 @@ export interface UpdateDatabaseItemsResponse {
     itemId: string;
     documentId: string;
     success: boolean;
+    generation?: number;
     error?: string;
   }>;
 }
@@ -1647,6 +1676,17 @@ export interface ListContentDatabasesResponse {
   databases: ContentDatabaseSummary[];
   pagination: DocumentDiscoveryPagination;
   systemCollections?: ContentSystemCollectionSummary[];
+}
+
+export interface ContentDatabaseRowSearchResponse {
+  databaseId: string;
+  databaseDocumentId: string;
+  rowCreation: {
+    target: ContentDatabaseMutationTarget;
+    schemaRevision: string;
+  } | null;
+  rows: Array<{ documentId: string; title: string; icon: string | null }>;
+  pagination: DocumentDiscoveryPagination;
 }
 
 export interface TrashedContentDatabaseSummary {
@@ -1940,6 +1980,56 @@ export function isBuilderCmsWriteEffect(
   return (BUILDER_CMS_WRITE_EFFECTS as readonly unknown[]).includes(value);
 }
 
+export function builderEntryEditorUrl(entryId: string) {
+  return `https://builder.io/content/${encodeURIComponent(entryId)}`;
+}
+
+export type BuilderArticleAutosaveState =
+  | "idle"
+  | "saving"
+  | "saved"
+  | "waiting"
+  | "failed"
+  | "review";
+
+export type BuilderArticleAutosaveReason =
+  | "builder_editor_changes"
+  | "checking_last_save"
+  | "another_save_running"
+  | "published"
+  | "needs_review"
+  | "edit_conflict"
+  | "builder_changed"
+  | "save_failed"
+  | "unconfirmed_save";
+
+export interface BuilderArticleAutosaveStatus {
+  enabled: boolean;
+  state: BuilderArticleAutosaveState;
+  reason: BuilderArticleAutosaveReason | null;
+  error: string | null;
+  lastSavedAt: string | null;
+  due: boolean;
+  dueSoon: boolean;
+  canSave: boolean;
+}
+
+export interface BuilderArticleRowStatus {
+  documentId: string;
+  databaseId: string;
+  sourceId: string;
+  databaseItemId: string;
+  entryId: string | null;
+  builderUrl: string | null;
+  autosave: BuilderArticleAutosaveStatus | null;
+}
+
+export interface ListBuilderArticleAutosavesResponse {
+  databaseId: string | null;
+  sourceId: string | null;
+  rows: BuilderArticleRowStatus[];
+}
+
 export interface ContentDatabaseSourceReviewRowSummary {
   changeSetId: string;
   databaseItemId: string | null;
@@ -1948,6 +2038,7 @@ export interface ContentDatabaseSourceReviewRowSummary {
   targetEntryId?: string | null;
   fieldChanges: ContentDatabaseSourceFieldChange[];
   bodyChange: ContentDatabaseSourceBodyChange | null;
+  bodyDiff?: BuilderBodyDiff | null;
   riskLevel: ContentDatabaseSourceRiskLevel;
   riskReasons: string[];
   conflictState: ContentDatabaseSourceConflictState;
@@ -1988,6 +2079,8 @@ export interface PreviewBuilderSourceReviewRequest {
   sourceId?: string;
   scope?: "selected" | "all";
   documentIds?: string[];
+  bodyComparison?: "text" | "blocks";
+  batchSize?: number;
 }
 
 export interface PreviewBuilderSourceReviewResponse {
@@ -1995,6 +2088,11 @@ export interface PreviewBuilderSourceReviewResponse {
   sourceTable: string;
   changeSetIds: string[];
   review: ContentDatabaseSourceReviewPayload | null;
+  bodyComparison?: "text" | "blocks";
+  documentIds?: string[];
+  remainingDocumentIds?: string[];
+  blocksCheckDocumentIds?: string[];
+  timings?: BuilderActionTiming[];
 }
 
 export interface PrepareBuilderSourceReviewResponse {
@@ -2003,6 +2101,7 @@ export interface PrepareBuilderSourceReviewResponse {
     requestedChangeSetId: string;
     preparedChangeSetId: string;
   }>;
+  unchangedChangeSetIds?: string[];
   timings?: BuilderActionTiming[];
 }
 

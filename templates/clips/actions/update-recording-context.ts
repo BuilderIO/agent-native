@@ -80,6 +80,7 @@ export default defineAction({
     height: z.number().int().positive().optional(),
     error: z.string().min(1).optional(),
   }),
+  mcpTool: false,
   run: async (args) => {
     const item = await loadOwnedRecordingContextItem(args.id);
     const { status, mediaRecordingId } = args;

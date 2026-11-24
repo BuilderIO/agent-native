@@ -1,4 +1,8 @@
 export default {
+  responseGuard: {
+    noDesignChangesSaved:
+      "このターンではデザインの変更は保存されませんでした。",
+  },
   journeyCanvas: {
     observedSessionReference: "観測されたセッションの参照",
     sessionsOfAll: "{count} セッション · 全体の {percent}",
@@ -73,152 +77,6 @@ export default {
     htmlLanguage: "ja-JP",
   },
   composer: { menu: { integrations: "連携" } },
-  creativeContext: {
-    title: "ライブラリ",
-    description:
-      "作業をまたいで一貫性を保つ、再利用可能なクリエイティブコンテキストです。",
-    modeLabel: "クリエイティブコンテキストを使用",
-    automatic: "自動",
-    automaticDescription:
-      "エージェントが最も関連性の高いソースとコンテキストパックを選びます。",
-    off: "オフ",
-    offDescription:
-      "保存済みのクリエイティブコンテキストを適用せずに作成します。",
-    activePack: "現在のコンテキストパック",
-    noActivePack:
-      "このセッションではまだコンテキストパックが使われていません。",
-    pinned: "固定済み",
-    pin: "固定",
-    unpin: "固定解除",
-    sourcesTitle: "ソース",
-    sourcesDescription:
-      "再利用できる参考資料、ドキュメント、過去の成果物です。",
-    searchTitle: "コンテキストを検索",
-    searchDescription:
-      "主張、スタイル、判断を再利用する前に正確な詳細を確認します。",
-    searchPlaceholder: "クリエイティブコンテキストを検索",
-    searchPrompt: "このライブラリのソースを検索します。",
-    noResults: "一致するコンテキストが見つかりません。",
-    resultsLabel: "結果: {{count}}",
-    noSourcesTitle: "クリエイティブコンテキストはまだありません",
-    noSourcesDescription:
-      "ソースを接続するか、今後使えるコンテキストをエージェントに保存させてください。",
-    connectSources: "接続を開く",
-    refresh: "更新",
-    refreshing: "更新中…",
-    refreshed: "更新を開始しました",
-    refreshFailed: "このソースを更新できませんでした。",
-    itemsLabel: "項目: {{count}}",
-    discoveredItems: "検出済み: {{count}}",
-    selectedItems: "選択済み: {{count}}",
-    selectAll: "すべて選択",
-    clearSelection: "クリア",
-    packsTitle: "コンテキストパック",
-    noPacks: "コンテキストパックはまだ作成されていません。",
-    loading: "クリエイティブコンテキストを読み込み中…",
-    unavailable: "現在クリエイティブコンテキストを利用できません。",
-    stateSaveFailed: "クリエイティブコンテキストの設定を保存できませんでした。",
-    sourceError: "確認が必要",
-    personal: "個人",
-    organization: "組織",
-    addSource: "ソースを追加",
-    addToContext: "コンテキストに追加…",
-    sourceName: "ソース名",
-    sourceReference: "ソース参照",
-    preview: "プレビュー",
-    startImport: "インポートを開始",
-    importing: "インポート中…",
-    importComplete: "インポート完了",
-    importFailed: "インポートに失敗しました",
-    brandDnaTitle: "推論されたブランドコンテキスト",
-    publishedBrandContext: "公開済みブランドコンテキスト",
-    applyBrandContext: "ブランドコンテキストとして適用",
-    applyingBrandContext: "ブランドコンテキストを適用中…",
-    brandContextPublished: "ブランドコンテキストを公開しました",
-    restrictedItems: "制限付き項目: {{count}}",
-    unknownAccess: "アクセス権限不明",
-    reviewRestricted: "制限付き項目を確認",
-    approve: "承認",
-    exclude: "除外",
-    packDetails: "詳細",
-    influence: "影響",
-    cancel: "閉じる",
-    saveFailed: "変更を保存できませんでした。",
-    updateAvailable: "更新があります",
-    submitUpdate: "更新を送信",
-    submittingUpdate: "送信中…",
-    submitUpdateTitle: "最新バージョンを送信しますか？",
-    submitUpdateDescription:
-      "「{{name}}」の現在のバージョンを取得し、このコンテキストの承認ポリシーに従って送信します。より広い対象に公開される場合があります。",
-    submitUpdateFailed: "最新バージョンを送信できませんでした。",
-    chooseFiles: "ファイルを選択",
-    chooseFolder: "フォルダを選択",
-    dropFiles: "PPTX、DOCX、PDF、画像ファイルをここにドロップします。",
-    promoteToOrganization: "組織と共有",
-    promotionDescription:
-      "この管理対象コピーを共有する前に、正確なコンテナとインポート一覧を確認してください。",
-    promotionComplete: "組織と共有しました。",
-    manage: "ソースを管理",
-    pause: "一時停止",
-    restore: "復元",
-    delete: "削除",
-    sourcePaused: "ソースを一時停止しました。",
-    sourceRestored: "ソースを復元しました。",
-    deleteSourceTitle: "ソースを削除しますか？",
-    deleteSourceDescription:
-      "{{name}} はすぐに非表示になり、インポート済みのコンテキストはバックグラウンドで削除されます。",
-    deletionQueued:
-      "ソースを削除しました。インポート済みのコンテキストを削除しています。",
-    curateItems: "項目を整理",
-    exemplar: "模範例",
-    ignore: "無視",
-    deprecated: "非推奨",
-    star: "スターを付ける",
-    unstar: "スターを外す",
-    deprecate: "非推奨にする",
-    colors: "カラー",
-    fonts: "フォント",
-    layouts: "レイアウト例",
-    voice: "トーン",
-    generateWithContext: "このコンテキストで生成",
-    chooseConnection: "ワークスペース接続を選択",
-    setupConnection:
-      "ソースをインポートする前にプロバイダーを接続してください。",
-    connectProvider: "プロバイダーに接続",
-    choosePresentations: "プレゼンテーションを選択",
-    googlePickerDescription:
-      "このライブラリ接続で利用するプレゼンテーションを選択します。Drive 全体への権限は要求しません。",
-    suggestions: "候補を確認",
-    logo: "正式ロゴ",
-    share: {
-      title: "クリエイティブコンテキスト",
-      documentation: "Creative Context のドキュメント",
-      tabLabel: "コンテキスト",
-      pendingResource: "保留中のリソース",
-      publishedResource: "公開済みリソース",
-      canonical: "標準",
-      reference: "参照",
-      pendingReview: "レビュー待ち",
-      published: "公開済み",
-      withdraw: "取り下げ",
-      requestChanges: "変更をリクエスト",
-      remove: "削除",
-      chooseContext: "コンテキストを選択",
-      selectedResources: "{{count}}件のリソースを選択",
-      noContexts: "利用できるコンテキストはまだありません。",
-      purpose: "目的",
-      reviewerNote: "レビュアーへのメモ",
-      submit: "送信",
-      broaderPublication:
-        "このコンテキストはこのリソースより広く共有されます。公開すると、コンテキストの対象者が利用できる管理対象コピーが作成されます。",
-      newContextName: "新しいコンテキスト名",
-      new: "新規",
-      partialSubmission:
-        "{{submitted}}件を送信しました。{{failed}}件は送信できませんでした。",
-      resourceSubmitted: "{{count}}件のリソースを送信しました。",
-      resourcesSubmitted: "{{count}}件のリソースを送信しました。",
-    },
-  },
   root: {
     commandActions: "操作",
     commandSearch: "検索",
@@ -230,8 +88,6 @@ export default {
     brand: "Design",
     home: "ホーム",
     templates: "テンプレート",
-    designSystems: "デザインシステム",
-    setupDesignSystem: "デザインシステムを設定",
     agent: "エージェント",
     settings: "設定",
     openNavigation: "ナビゲーションを開く",
@@ -248,7 +104,6 @@ export default {
     retry: "再試行",
     steps: {
       createDesign: "最初のデザインを作成",
-      addBrand: "ブランドを追加",
       useRealData: "実際のデータを使う",
       shareFeedback: "フィードバックのために共有",
       inviteTeammate: "チームメイトを招待",
@@ -409,7 +264,7 @@ export default {
     pageHelpDescription:
       "選択した内容のタイポグラフィ、間隔、サイズ、境界線、塗りつぶしを編集します。ページのデフォルトは以下です。",
     sections: {
-      page: "画面",
+      page: "ページ",
       canvas: "キャンバス",
       typography: "タイポグラフィ",
       autoLayout: "オートレイアウト",
@@ -565,7 +420,7 @@ export default {
       addRecordRow: "{{item}}を追加",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "{{item}} {{index}}を削除",
-      selectElementFirst: "まず画面上の要素を選択してください",
+      selectElementFirst: "先にページ上の要素を選択してください",
       selectCanvasElementFirst: "まずキャンバス上の要素を選択してください",
       saveFailed: "シェーダーを保存できませんでした",
       custom: "カスタム",
@@ -988,11 +843,11 @@ export default {
     screenSource: {
       title: "ソース",
       url: "URL",
-      urlLabel: "画面 URL",
+      urlLabel: "ページの URL",
       urlPlaceholder: "/plans または http://localhost:5173/plans",
       update: "更新",
       chooseLocalApp: "ローカルアプリを選択",
-      remove: "画面を削除",
+      remove: "ページを削除",
     },
     borderStyleOptions: {
       none: "なし",
@@ -1073,7 +928,7 @@ export default {
       original: "元のページを試す",
     },
 
-    sourceLoadFailed: "この画面を読み込めませんでした。",
+    sourceLoadFailed: "このページを読み込めませんでした。",
     selectionPublishFailed:
       "エージェントが最新の選択範囲を認識していない可能性があります。もう一度選択してください。",
     liveCollaboration: {
@@ -1188,6 +1043,19 @@ export default {
       collapse: "サイドバーを折りたたむ",
       expand: "サイドバーを展開",
     },
+    leftTabs: {
+      label: "サイドパネル",
+      agent: "エージェント",
+      file: "ファイル",
+      library: "ライブラリ",
+    },
+    columnHead: {
+      comments: "コメント",
+      unreadComments: "未読のコメント",
+      resizeLeftPanel: "左パネルのサイズを変更",
+      resizeInspector: "インスペクターのサイズを変更",
+      whatsNew: "新機能",
+    },
     breakpointBar: {
       base: "ベース",
       editBaseWidth: "ベース幅を編集",
@@ -1219,7 +1087,7 @@ export default {
         "このデザインにはダークスタイルがありません。「ダーク」を選ぶと、エージェントに追加を依頼できます。",
       themeSystem: "システム",
       themeSystemHint: "デザインを作成時のまま表示します（システム設定を使用）",
-      screen: "画面",
+      screen: "ページ",
       back: "戻る",
       forward: "進む",
       reload: "プレビューを再読み込み",
@@ -1230,8 +1098,8 @@ export default {
       zoomFit: "キャンバスに合わせて拡大縮小",
       zoomFitOption: "フィット",
       exit: "レスポンシブプレビューを終了",
-      noScreens: "このデザインにはプレビューできる画面がありません。",
-      unknownScreen: "その画面はこのデザインに含まれていません。",
+      noScreens: "このデザインにはプレビューできるページがありません。",
+      unknownScreen: "そのページはこのデザインに含まれていません。",
     },
     applyToSource: "ソースに適用",
     applyToSourcePath: "ソースに適用（{{path}}）",
@@ -1292,7 +1160,7 @@ export default {
     },
     import: {
       description:
-        "Figma のクリップボード HTML または単体 HTML を Design の画面として取り込みます。",
+        "Figma のクリップボード HTML や単体の HTML を Design のページとして取り込みます。",
       figmaUrlLabel: "Figma フレームまたはファイル URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
       figmaTokenLabel: "Figma アクセストークン",
@@ -1357,10 +1225,10 @@ export default {
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       htmlDescription:
-        "単体 HTML を貼り付けるかアップロードします。Design はこのエディター UI に注入せず、新しい画面として保存します。",
+        "単体の HTML を貼り付けるかアップロードします。Design はこのエディター UI に挿入せず、新しいページとして保存します。",
       allSupportedFiles: "対応しているすべてのファイル",
       githubDescription:
-        "近日対応: リポジトリから画面とコンポーネントを直接インポートします。",
+        "近日公開: リポジトリからページとコンポーネントを直接インポートできます。",
       localDescription:
         "/visual-edit で任意の実行中ローカル app に接続します。",
       warningsToast: "警告付きでインポートが完了しました",
@@ -1376,7 +1244,7 @@ export default {
         "保存を確認できず、表示されなくなる可能性のある画像: {{count}}",
       pasteNeedsEditAccess: "このデザインに貼り付けるには編集権限が必要です。",
       pastePartialImport:
-        "貼り付けに失敗しました。一部の画面が作成された可能性があります。画面を確認してください。",
+        "貼り付けに失敗し、一部のページが作成された可能性があります。ページを確認してください。",
       figmaSuccess: "Figma 貼り付けをインポートしました",
       htmlSuccess: "HTML をインポートしました",
       uploadSuccess: "ファイルをインポートしました",
@@ -1427,16 +1295,17 @@ export default {
     retryAccessCheck: "再試行",
     saveAsTemplate: "テンプレートとして保存…",
     saveTemplateDescription:
-      "現在の画面、寸法、既定値、ロックされたレイヤーを再利用可能な開始点として保存します。",
+      "現在のページ、サイズ、デフォルト、ロックされたレイヤーを再利用できる出発点として保存します。",
     templateName: "テンプレート名",
     templateDescription: "説明",
     templateCategory: "カテゴリー",
     templateSnapshotSummary:
-      "{{screens}} 画面 · {{locks}} 個のロックされたレイヤーを保持します",
+      "{{screens}} ページ · {{locks}} 個のロックされたレイヤーが保持されます",
     saveTemplate: "テンプレートを保存",
     templateSaved: "テンプレートをライブラリに保存しました",
     templateSaveFailed: "このテンプレートを保存できませんでした",
     appMenu: {
+      backToDashboard: "ダッシュボードに戻る",
       file: "ファイル",
       preferences: "環境設定",
       newDesign: "新規デザイン",
@@ -1482,7 +1351,7 @@ export default {
       comment: "コメント",
       edit: "編集",
       interact: "Interact",
-      screens: "画面",
+      screens: "ページ",
     },
     topBar: {
       modeDesign: "デザイン",
@@ -1493,7 +1362,7 @@ export default {
     tools: {
       move: "Move",
       frame: "Frame",
-      screen: "Screen",
+      screen: "ページ",
       shapes: "シェイプ",
       rect: "Rectangle",
       line: "線",
@@ -1516,7 +1385,7 @@ export default {
       categoriesLabel: "ショートカットのカテゴリ",
       empty: "「{{query}}」に一致するショートカットはありません",
       codeContext: "コード",
-      screenContext: "画面",
+      screenContext: "ページ",
       nudgeAmount: {
         title: "移動量",
         small: "小さい移動量",
@@ -1602,8 +1471,8 @@ export default {
         enterSelection: "選択",
         nextSibling: "選択 →",
         previousSibling: "← 選択",
-        nextScreen: "画面 →",
-        previousScreen: "← 画面",
+        nextScreen: "次のページ",
+        previousScreen: "前のページ",
         toggleLayoutGrids: "レイアウトグリッドの表示を切り替え",
         toggleRulers: "定規の表示を切り替え",
         nudge: "Move",
@@ -1656,10 +1525,10 @@ export default {
     duplicate: "Duplicate",
     delete: "Delete",
     view: "View",
-    returnToCurrentScreen: "現在の画面に戻る",
-    openScreenOverview: "画面概要を開く",
-    currentScreen: "現在の画面",
-    screenOverview: "画面概要",
+    returnToCurrentScreen: "現在のページに戻る",
+    openScreenOverview: "ページの概要を開く",
+    currentScreen: "現在のページ",
+    screenOverview: "ページの概要",
     devicePreview: "デバイスプレビュー",
     devices: {
       responsive: "レスポンシブ",
@@ -1689,7 +1558,7 @@ export default {
     downloadSvg: "SVG をダウンロード",
     downloadFigmaSvg: "Figma 用にダウンロード（SVG）",
     downloadZip: "ZIP をダウンロード",
-    downloadPdfAllScreens: "PDFをダウンロード（すべての画面）",
+    downloadPdfAllScreens: "PDF をダウンロード（全ページ）",
     publishApp: "アプリを公開",
     exportOptions: "エクスポートオプション",
     exportHtml: "エクスポート HTML",
@@ -1759,13 +1628,14 @@ export default {
       verified: "ソース書き込み確認済み、ロールバック可能",
       rollback: "戻す",
       keep: "保持",
-      selectorMissing: "選択した要素はこの画面に存在しません。",
+      selectorMissing:
+        "選択した要素には、このページのソース内に編集可能な対応箇所がありません。コンポーネントが描画している場合は、エージェントで変更を適用してください。",
       noRenderedBox:
         "選択したレイヤーには描画されたボックスがないため、スタイル変更は適用されませんでした。",
       clientRenderedShell:
-        "この画面はクライアント側でレンダリングされるため、配信される HTML にはパッチ可能なアプリのマークアップが含まれていません。エージェントに、この変更をコンポーネントのソースへ適用するよう依頼してください。",
+        "このページはクライアントで描画されるため、配信される HTML にはパッチを当てるアプリのマークアップがありません。コンポーネントのソースにこの変更を適用するようエージェントに依頼してください。",
       snapshotNotLoaded:
-        "この画面のソースはまだ読み込まれていないため、編集内容は書き込まれませんでした。画面の読み込みが完了してから、もう一度お試しください。",
+        "このページのソースがまだ読み込まれていないため、編集は書き込まれませんでした。ページの読み込みが終わるまで待ってから、もう一度お試しください。",
       selectorAmbiguous:
         "この要素はソース内にある {{count}} 個の同一インスタンスの 1 つであるため、変更は書き込まれませんでした。エージェントに、このインスタンスだけを対象にするよう依頼してください。",
       status: {
@@ -1821,18 +1691,18 @@ export default {
       leave: "適用せずに離れる",
     },
     addLocalhostScreen: {
-      title: "アプリから画面を追加",
+      title: "アプリからページを追加",
       description:
         "新しいフレームとして追加するルートを選ぶか、パスを入力してください。",
       searchPlaceholder: "ルートを検索…",
       noRoutes: "一致するルートがありません",
       noDiscoveredRoutes:
-        "このアプリでルートが見つかりません。画面を追加するにはパスを入力してください。",
+        "このアプリでルートが見つかりませんでした。パスを入力してページを追加してください。",
       useCustomPath: "「{{path}}」を追加",
       viewportDesktop: "デスクトップ",
       viewportMobile: "モバイル",
-      added: "画面を追加しました",
-      addFailed: "画面を追加できませんでした",
+      added: "ページを追加しました",
+      addFailed: "ページを追加できませんでした",
     },
     localhostConsent: {
       approvedTitle: "承認済み — 編集をもう一度実行してください",
@@ -1911,7 +1781,7 @@ export default {
       zipCreateError: "ZIP ダウンロードを作成できませんでした",
       zipDownloaded: "ZIP をダウンロードしました",
       zipExportError: "ZIP をエクスポートできませんでした",
-      openScreenPng: "PNG をエクスポートする前に画面を開いてください",
+      openScreenPng: "PNG をエクスポートする前にページを開いてください",
       pngCreateError: "PNG ダウンロードを作成できませんでした",
       pngDownloaded: "PNG をダウンロードしました",
       pngCopied: "PNG をクリップボードにコピーしました",
@@ -1938,8 +1808,8 @@ export default {
         "レンダラーを起動できないため、エクスポートを利用できません。しばらくしてからもう一度お試しください。",
       pdfExportError: "PDF をエクスポートできませんでした",
       pdfDownloaded: "PDF をダウンロードしました",
-      pdfAllScreensDownloaded: "PDFがダウンロードされました（すべての画面）",
-      openScreenSvg: "SVG をエクスポートする前に画面を開いてください",
+      pdfAllScreensDownloaded: "PDF をダウンロードしました（全ページ）",
+      openScreenSvg: "SVG をエクスポートする前にページを開いてください",
       svgDownloaded: "SVG をダウンロードしました",
       svgExportError: "SVG をエクスポートできませんでした",
       figmaSvgCopied: "Figma SVG としてコピーしました",
@@ -1951,16 +1821,16 @@ export default {
       figmaSvgWriteError: "SVG をクリップボードにコピーできませんでした",
       figmaSvgRenderError: "Figma SVG を作成できませんでした",
       figmaSvgExportError: "Figma SVG をエクスポートできませんでした",
-      screenDuplicated: "画面を複製しました",
-      screenDuplicateError: "画面を複製できません",
+      screenDuplicated: "ページを複製しました",
+      screenDuplicateError: "ページを複製できませんでした",
       copied: "Copied",
       pasted: "Pasted",
       deleted: "Deleted",
       propsCopied: "プロパティをコピーしました",
       propsPasted: "プロパティを貼り付けました",
-      primitiveInsertFailed: "そのレイヤーを画面に追加できませんでした",
+      primitiveInsertFailed: "そのレイヤーをページに追加できませんでした",
       designStateLiveScreen:
-        "ライブ画面ではデザイン状態をプレビューできません。その内容はドキュメントではなく実行中のアプリです。",
+        "ライブページではデザイン状態をプレビューできません。その内容はドキュメントではなく、実行中のアプリです。",
       layerMoveFailed: "そのレイヤーを移動できませんでした",
       groupFillApplyFailed:
         "この塗りをグループ内のすべてのレイヤーに適用できませんでした。",
@@ -1987,12 +1857,12 @@ export default {
       redoSkippedConcurrentEdit:
         "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
       saveConflict:
-        "この画面は別の場所で変更されました。最後の編集は保存されませんでした。",
+        "このページは別の場所で変更されました。最後の編集は保存されませんでした。",
       versionHistoryUnavailable:
         "このデザインではバージョン履歴を利用できません。編集内容は保存されました。",
       removeAutoLayoutFailed: "オートレイアウトを削除できませんでした",
       autoLayoutScreensUnsupported:
-        "オートレイアウトの追加は画面には適用されません",
+        "オートレイアウトの追加はページには適用されません",
       booleanSubtractUnsupported:
         "減算するには、隣接する単色塗りの長方形または楕円を選択してください。",
       booleanSubtractFailed: "選択したレイヤーを減算できませんでした。",
@@ -2002,8 +1872,8 @@ export default {
         "このアプリはエディターにソース位置を提供していないため、このレイヤーを行にひも付けできません。エージェントに変更を依頼してください。",
       sourceLocationSnapshotFailed:
         "このプレビューのソース位置を確認できませんでした。",
-      screenSourceUpdated: "画面ソースを更新しました",
-      screenSourceUpdateFailed: "画面ソースを更新できませんでした",
+      screenSourceUpdated: "ページのソースを更新しました",
+      screenSourceUpdateFailed: "ページのソースを更新できませんでした",
       vectorEditUnsupported:
         "この形状または変形はベクター編集に対応していません。",
       imageUploading: "画像をアップロード中…",
@@ -2017,7 +1887,7 @@ export default {
       swapFillStrokeLayeredFill:
         "複数の塗りや画像の塗りはまだ線に移動できません",
       alignNeedsTwoLayers: "整列するには2つ以上のレイヤーを選択してください",
-      alignNeedsTwoScreens: "整列するには2つ以上の画面を選択してください",
+      alignNeedsTwoScreens: "整列するには 2つ以上のページを選択してください",
       layoutUnmeasurable:
         "選択したレイヤーを測定できませんでした。キャンバス上に表示されていることを確認して、もう一度お試しください。",
       layoutAutoLayoutChildren:
@@ -2066,11 +1936,10 @@ export default {
   },
   layersPanel: {
     title: "レイヤー",
-    screens: "画面",
-    resizeScreens: "画面セクションのサイズを変更",
-    allScreens: "すべての画面",
+    screens: "ページ",
+    resizeScreens: "ページセクションのサイズを変更",
     thumbnail: "サムネイル",
-    addScreen: "画面を追加",
+    addScreen: "ページを追加",
     searchPlaceholder: "レイヤーを検索",
     empty: "レイヤーがありません",
     noMatches: "一致するレイヤーがありません",
@@ -2119,7 +1988,7 @@ export default {
         "数回試行しましたが、ライブエディターブリッジから確認応答がありませんでした。",
       connectionNotConfirmed:
         "ライブエディターブリッジが接続を確認できませんでした。ローカル開発サーバーはまだ実行中ですか？",
-      permissionPromptTitle: "ローカル画面を接続",
+      permissionPromptTitle: "ローカルページを接続",
       permissionPromptDescription:
         "ライブ編集を有効にするには、Chrome のプロンプトで「許可」を選択してください。",
       permissionPromptNoPrompt: "Chrome のプロンプトが表示されませんか？",
@@ -2129,15 +1998,15 @@ export default {
       previewCredentialsUnavailableTitle:
         "ローカルプレビューの認証情報を利用できません",
       previewCredentialsUnavailableDescription:
-        "インスペクターでこの画面の localhost 接続を再接続してから、もう一度お試しください。",
+        "インスペクターでこのページの localhost 接続を再接続してから、もう一度お試しください。",
       publicPreviewUnavailableDescription:
-        "localhost のプレビューは公開ユーザーには共有されません。この画面を見るには、共同編集者としてこのデザインを開いてください。",
+        "localhost のプレビューは公開閲覧者には共有されません。このページを表示するには、共同編集者としてこの Design を開いてください。",
       previewCredentialsRetry: "認証情報を再取得",
     },
   },
   multiScreenCanvas: {
     addBreakpointToAllScreens:
-      "すべての画面に {{label}} ブレークポイント（{{width}}px）を追加",
+      "すべてのページに {{label}} ブレークポイント（{{width}}px）を追加",
     preparingLiveEditor: "ライブエディターを準備しています…",
     duplicate: "複製",
     fork: "分岐",
@@ -2229,11 +2098,6 @@ export default {
     startWithAi: "AI で始める",
     startWithAiHint: "ページを説明すると、編集できる下書きが作成されます。",
     startBlankCanvasHint: "フレーム・図形・テキストで自分で描きます。",
-    designSystem: "Designシステム",
-    noDesignSystem: "デザインシステムがない",
-    designSystemIndexing: "インデックス作成中…",
-    newDesignSystem: "新しい",
-    createDesignSystem: "デザインシステムを作成",
     template: "テンプレート",
     blank: "空白",
     builtIn: "組み込み",
@@ -2243,8 +2107,6 @@ export default {
     yourTemplates: "自分のテンプレート",
     builtInTemplates: "組み込みテンプレート",
     templatePromptPlaceholder: "「{{title}}」の調整内容を説明...",
-    reskinTemplatePrompt:
-      "構造とロックされたレイヤーを保ったまま、「{{title}}」に {{system}} デザインシステムを適用します。",
     addAttachment: "追加",
     removeAttachment: "{{name}} を削除",
     uploadFile: "ファイルをアップロードする",
@@ -2319,22 +2181,16 @@ export default {
       "有効なfigma.comのフレームまたはファイルのURLを入力してください。",
     tooMany: "参照は20件まで選択できます。",
     invalidWebsiteUrl: "有効なHTTPまたはHTTPSのURLを入力してください。",
-    createSystem: "デザインシステムを作成",
-    noSystems:
-      "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",
-    searchSystems: "デザインシステムを検索…",
     searchDesigns: "デザインを検索…",
     searchPresentations: "プレゼンテーションを検索…",
     searchPages: "ページを検索…",
     searchDesign: "デザインを検索…",
-    useDesignSystem: "デザインシステムを使用",
     notReady:
       "まだ送信できません。選択したコンテキストと接続を確認して、再試行してください。",
     search: "コンテキストを検索…",
     loadFailed: "この参照を読み込めませんでした。",
     retry: "再試行",
     empty: "一致する参照がありません。",
-    none: "なし",
     design: "デザインの参照",
     slides: "スライド",
     referenceDesign: "デザインを参照",
@@ -2393,8 +2249,6 @@ export default {
       design: {
         portfolioHome:
           "短い紹介、事例グリッド、プロフィール、連絡先を備えたデザイナーポートフォリオを、洗練された編集調でデザインしてください。",
-        designSystem:
-          "カラーと文字のトークン、コンポーネント一覧、利用メモを備えたデザインシステム資料を、正確な文書調で作成してください。",
         bankingApp:
           "残高、取引一覧、貯蓄目標を備えたモバイル銀行アプリのホーム画面を、穏やかで信頼感のあるトーンでデザインしてください。",
         travelBooking:
@@ -2612,7 +2466,6 @@ export default {
       },
       design: {
         portfolioHome: "短い紹介、事例グリッド",
-        designSystem: "カラー、文字、コンポーネント",
         bankingApp: "残高、取引一覧",
         travelBooking: "目的地フィルター、旅程カード",
         coffeeShop: "おすすめの豆、産地紹介",
@@ -2691,10 +2544,10 @@ export default {
     openDesign: "Design を開く",
     templatesCta: "テンプレートを見る",
     previewLabel: "ローカルプレビュー",
-    layoutLabel: "保存できる画面レイアウト",
+    layoutLabel: "ページのレイアウトを保存できます",
   },
   templatesPage: {
-    previewEmpty: "このテンプレートにはプレビューできる画面がありません。",
+    previewEmpty: "このテンプレートにはプレビューできるページがありません。",
     loading: "テンプレートを読み込み中",
     title: "テンプレート",
     description:
@@ -2743,8 +2596,6 @@ export default {
   },
   routeTitles: {
     notFound: "見つかりません - Design",
-    designSystems: "デザインシステム",
-    designSystemSetup: "デザインシステム設定",
     designEditor: "Design エディター",
     designTemplates: "Design テンプレート",
     toolDesign: "ツール — Design",
@@ -2755,277 +2606,13 @@ export default {
     teamDesign: "チーム - Design",
     visualEdit: "ビジュアル編集 - Design",
   },
-  designSystemSetup: {
-    importedBrand: "インポートブランド",
-    figmaCreateSuccess: "Figma から作成されたデザインシステム",
-    figmaCreateError: "デザインシステムを作成できませんでした",
-    backToDesignSystems: "設計システムに戻る",
-    otherSources: "その他",
-    otherSourcesDescription:
-      "Webサイト、コード、ファイル、または既存のデザインシステムから接続します。",
-    chooseSourcePrompt: "設定するソースを選択",
-    continue: "世代を継続する",
-    starting: "開始中…",
-    githubIndexStarted: "GitHub のインデックス作成を開始しました",
-    designMdIndexStarted: "design.md のインデックス作成を開始しました",
-    designMdUpload: "design.md をインポート",
-    designMdHelp: "design.md ガイドを Builder DSI にインポートします",
-    title: "デザインシステムをセットアップする",
-    description:
-      "Figma、コード、任意の design.md ガイドを Builder DSI で接続します。コンテキストが多いほど、エージェントのシステムは正確になります。",
-    figmaParsingTitle: "Builder DSI のインデックス作成を開始しています...",
-    figmaParsingDescription:
-      "Builder がトークン、コンポーネント、アセット、利用ガイドを抽出します",
-    figmaDecodeFailed: "デコードに失敗しました: {{error}}",
-    uploadFig: "Figma .fig ファイルを接続",
-    figmaSaveLocalCopy:
-      "Figma のローカルコピーをアップロード: File -> Save local copy",
-    websiteUrl: "ウェブサイト URL",
-    add: "追加",
-    githubRepository: "GitHub リポジトリ",
-    githubRef: "ブランチ、タグ、コミット（任意）",
-    githubPaths: "ファイルまたはフォルダー（カンマ区切り、任意）",
-    privateRepoPrefix:
-      "プライベート リポジトリには、次のように保存されたきめ細かいトークンが必要です。",
-    privateRepoSuffix: "コンテンツ読み取りアクセス付き。",
-    localCodeFiles: "コードファイルを接続",
-    dropCodeFiles:
-      "CSS、Tailwind 設定、テーマファイル、design.md をここにドロップ",
-    codeFilePatterns:
-      "ファイル形式: .css、.scss、tailwind.config.*、theme.*、tokens.*、design.md、package.json",
-    documents: "ドキュメントとプレゼンテーション",
-    documentsHelp:
-      "PPTX、DOCX、PDF、XLSX - ブランド ガイド、提案資料、スタイル ドキュメント",
-    visualReferences: "スクリーンショットとビジュアルリファレンス",
-    visualReferencesHelp:
-      "製品のスクリーンショット、ムードボード、インスピレーション画像",
-    assets: "ロゴ、フォント、その他のアセット",
-    assetsHelp: "SVG ロゴ、.woff2 フォント、ブランド資産ファイル",
-    designSystem: "デザインシステム",
-    designProject: "デザインプロジェクト",
-    companyPlaceholder:
-      "例えばAcme Corp - 当社は現代のチーム向けの開発者ツールを構築しています...",
-    notesPlaceholder:
-      "例えばコントラストの高い暗いテーマを好みます。当ブランドでは見出しにPoppins、本文にDM Sansを使用しています。 12pxで角を丸く保ちます...",
-    customInstructionsPlaceholder:
-      "例えば常にスティッキートップナビゲーションを含めてください。ヒーローの統計情報よりも、編集者の引用文を優先します。グラデーションの背景は決して使用しないでください。ロゴは常に左下にあります...",
-    designSystemName: "デザインシステム名",
-    brandNamePlaceholder: "ブランド名",
-    extractedSummary:
-      "{{nodes}} ノード、{{gradients}} グラデーション、{{images}} 画像から抽出",
-    previewColors: "色",
-    signatureGradients: "特徴的なグラデーション",
-    previewTypography: "タイポグラフィ",
-    headingsLabel: "見出し:",
-    bodyLabel: "体：",
-    brandBrief: "ブランド概要",
-    brandBriefHelp:
-      "これは、このシステムで生成されるすべてのデザインのガイドとなります。作成後いつでも修正できます。",
-    creating: "作成...",
-    createDesignSystem: "デザインシステムの作成",
-    chooseDifferentFile: "別のファイルを選択してください",
-    figmaThumbnailAlt: "Figma ファイルのサムネイル",
-    errors: {
-      chooseFig:
-        ".fig ファイルを選択してください (Figma の場合: [ファイル] -> [ローカル コピーを保存])。",
-      parseFig:
-        "その Figma ファイルの Builder インデックス作成を開始できませんでした。",
-      enterWebsite: "追加する前に、Web サイト URL を入力してください。",
-      websiteProtocol:
-        "ウェブサイト URLs は http:// または https:// で始まる必要があります。",
-      enterGithub: "追加する前に、GitHub リポジトリ URL を入力します。",
-      githubUrl:
-        "https://github.com/org/repo など、完全な GitHub リポジトリ URL を使用します。",
-      githubIndex:
-        "GitHub のインデックス作成を開始できませんでした。Builder の接続とリポジトリへのアクセスを確認してください。",
-      nameConflict:
-        "この名前のデザインシステムは既に存在します。別の名前に変更して再試行してください。",
-      chooseDesignMd: "Markdown（.md または .mdx）ファイルを選択してください。",
-      readDesignMd: "その Markdown ファイルを読み込めませんでした。",
-      designMdTooLarge: "Markdown ファイルは 2 MB 以下にしてください。",
-      designMdIndex:
-        "design.md のインデックス作成を開始できませんでした。Builder の接続を確認してください。",
-      noSources:
-        "デザイン システムを生成する前に、少なくとも 1 つのソースを追加します。",
-    },
-    sections: {
-      figma: {
-        title: "Figma を接続",
-        description:
-          ".fig をアップロードすると、Builder DSI がトークン、コンポーネント、アセット、ブランドガイドを再利用可能なデザインシステムにインデックス化します。",
-      },
-      company: {
-        title: "会社・ブランド",
-        description: "名前、説明、Web サイト",
-      },
-      code: {
-        title: "コードを接続",
-        description:
-          "GitHub リポジトリ、ローカルコードファイル、design.md は Builder DSI でインデックス化されます。",
-      },
-      designMd: {
-        title: "design.md をインポート",
-        description: "design.md ファイルをデザインシステムのソースとして使用",
-      },
-      designFiles: {
-        title: "参照ファイル",
-        description:
-          "ドキュメント、スクリーンショット、ブランドアセットが Builder DSI のコンテキストを補足します",
-      },
-      importExisting: {
-        title: "既存からインポート",
-        description:
-          "デザインシステムをフォークするか、プロジェクトからトークンを抽出します",
-      },
-      notes: {
-        title: "追加の注意事項",
-        description: "デザインの好み、制約、ブランドのガイドライン",
-      },
-      customInstructions: {
-        title: "カスタム命令",
-        description:
-          "デザインシステムで保存されます。エージェントがデザインを生成するために使用するたびに再適用されます。",
-      },
-    },
-    colorLabels: {
-      accent: "アクセント",
-      primary: "主要な",
-      secondary: "二次",
-      background: "背景",
-      surface: "表面",
-      text: "文章",
-      muted: "ミュート",
-    },
-    codeIndexingEnterpriseOnly:
-      "コードとリポジトリのインデックス作成にはBuilder Enterpriseプランが必要です",
-  },
-  designSystems: {
-    comingSoonTitle: "デザインシステムは近日公開予定です",
-    waitlist: {
-      join: "ウェイトリストに登録",
-      joining: "登録中…",
-      joined: "ウェイトリストに登録されました",
-      error: "ウェイトリストに登録できませんでした。もう一度お試しください。",
-      unavailable:
-        "ウェイトリストへの登録は現在利用できません。後でもう一度お試しください。",
-    },
-    deleteError: "デザインシステムを削除できませんでした",
-    updateSuccess: "デザインシステムが更新されました",
-    updateError: "デザインシステムを更新できませんでした",
-    bulkDeleteError: "選択したデザイン システムを削除できませんでした",
-    selectedLabel: "選択された",
-    yoursTitle: "あなたのデザインシステム",
-    newCardDescription: "ブランドを設定する",
-    defaultBadge: "デフォルト",
-    selectAria: "{{title}}を選択します",
-    currentlyDefault: "現在のデフォルト",
-    moreActionsAria: "{{title}} のその他のアクション",
-    showcase: {
-      title: "本番対応の出発点",
-      description:
-        "確立された公開デザインシステムの、出典付きスナップショットを使用できます。各コピーには実際のトークン、書体、間隔、形状、状態ガイド、出典が含まれます。",
-      useTemplate: "このシステムを使用",
-      adding: "追加中...",
-      openSource: "{{title}} の公式ドキュメントを開く",
-      license: "ソースライセンス: {{license}}",
-      addSuccess: "デザインシステムを追加しました",
-      addError: "デザインシステムを追加できませんでした",
-      descriptions: {
-        material3:
-          "Google の基準ライトロール、Roboto タイプスケール、4 dp 間隔、Material シェイプシステム。",
-        carbon:
-          "IBM Carbon v11 White テーマ、IBM Plex、業務向けカラー役割、2/4/8 間隔。",
-        primer:
-          "GitHub Primer のライトトークン、Mona Sans、開発ツール向けの密度、レスポンシブ間隔。",
-      },
-    },
-    actions: {
-      done: "終わり",
-      select: "選択",
-      new: "新しいデザインシステム",
-      clearAll: "すべてのデザインシステムをクリアする",
-      selectAll: "すべてのデザインシステムを選択してください",
-      clearSelection: "選択をクリア",
-      delete: "消去",
-      setDefault: "デフォルトとして設定",
-      cancel: "キャンセル",
-    },
-    deleteDialog: {
-      title: "デザインシステムを削除しますか?",
-      description:
-        "これにより、このデザイン システムが完全に削除され、それを使用するデザインからのリンクが解除されます。この操作は元に戻すことができません。",
-      bulkTitle: "{{count}} デザイン システムを削除しますか?",
-      bulkDescription:
-        "これにより、{{count}} デザイン システムが完全に削除され、それらを使用するデザインからのリンクが解除されます。この操作は元に戻すことができません。",
-    },
-    details: {
-      description:
-        "保存されたトークンを確認し、エージェントがこの設計システムを適用するときに使用する詳細を更新します。",
-      titleLabel: "タイトル",
-      descriptionLabel: "説明",
-      customInstructionsTitle: "カスタム命令",
-      customInstructionsDescription:
-        "このシステムが設計にリンクされるたびに、エージェントが再利用する永続的なガイダンス。",
-      noCustomInstructions: "カスタム命令はまだ保存されていません。",
-      useAsStartingPoint: "出発点として使用する",
-      saving: "保存中...",
-      saveChanges: "変更を保存する",
-    },
-    preview: {
-      title: "プレビュー",
-      description:
-        "このデザインシステムは Builder Design System Intelligence によって管理されています。リンクされたプロジェクトを開くと、すべてのトークン、コンポーネント、使用ガイダンスを含む完全なデザインシステムを確認できます。",
-    },
-    tokenPreview: {
-      title: "トークンのプレビュー",
-      description:
-        "現在保存されている色、タイプ、間隔、アセットのスナップショット。",
-      colors: "色",
-      noColors: "カラートークンは保存されません。",
-      typography: "タイポグラフィ",
-      details: "詳細",
-      spacing: "間隔",
-      borders: "国境",
-      defaults: "デフォルト",
-      logos: "ロゴ",
-      assets: "資産",
-      savedCount: "{{count}} 保存しました",
-      namedTokens: "名前付きトークン",
-      colorLabels: {
-        primary: "主要な",
-        secondary: "二次",
-        accent: "アクセント",
-        background: "背景",
-        surface: "表面",
-        text: "文章",
-        mutedText: "ミュートされたテキスト",
-      },
-      typeLabels: {
-        headingFont: "見出しフォント",
-        bodyFont: "本文フォント",
-        headingWeight: "見出し重量",
-        bodyWeight: "体重",
-      },
-    },
-    empty: {
-      title: "初めてのデザインシステムを作成する",
-      description:
-        "共有の色、タイポグラフィー、アセットを使用して、すべてのデザインで一貫したブランドを維持します。",
-    },
-    tierLimitTitle: "デザインシステムの上限に達しました",
-    tierLimitDescription:
-      "現在のBuilderプランのデザインシステム上限に達しました。BuilderBuilderプランをアップグレードして新しく作成してください。",
-    tierLimitDescriptionWithCount:
-      "Builderの{{plan}}プランでデザインシステムを{{current}}/{{max}}件使用しています。アップグレードして新しく作成してください。",
-    tierLimitUpgrade: "プランをアップグレード",
-  },
   review: {
     comments: "コメント",
     commentsTab: "コメント · {{count}}",
     commentsTitle: "レビューコメント",
     commentNumber: "レビューコメント {{count}}",
-    thisScreen: "この画面",
-    allScreens: "すべての画面",
+    thisScreen: "このページ",
+    allScreens: "すべてのページ",
     signInToComment: "コメントするにはサインイン",
     panelTitle: "フィードバック",
     placeholder: "フィードバックを入力…",
@@ -3168,7 +2755,7 @@ export default {
         permission: "編集権限がなくなりました",
         threadUnavailable: "このスレッドはもう開けません",
         targetChanged: "エージェントの作業中にデザインが変更されました",
-        applyUnavailable: "エージェントはこの画面を編集できません",
+        applyUnavailable: "エージェントはこのページを編集できません",
         applyIncomplete:
           "デザインは編集されましたが、スレッドは解決されませんでした。変更を確認してください。",
         cancelledAfterEdit:

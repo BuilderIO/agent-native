@@ -191,7 +191,8 @@ export function useEditorSourceAndSync({
     clearPendingLiveEditState,
     clearPendingLiveEditStateRef,
     clearReloadedPendingLiveEdits,
-    activeLeftPanel,
+    commentsPanelOpen,
+    designLeftPanel,
     setExpandedLayerIds,
     revealLayerIds,
     selectedLayerIdsState,
@@ -232,7 +233,6 @@ export function useEditorSourceAndSync({
   } = editorGenerationAndAccess;
   const {
     navigate,
-    selectedPromptDesignSystemId,
     files,
     handleToggleLayoutGrids,
     overviewFiles,
@@ -1350,9 +1350,6 @@ export function useEditorSourceAndSync({
         await applyTemplate.mutateAsync({
           templateId,
           targetDesignId: id,
-          ...(selectedPromptDesignSystemId
-            ? { designSystemId: selectedPromptDesignSystemId }
-            : {}),
         });
         await queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
@@ -1363,13 +1360,7 @@ export function useEditorSourceAndSync({
         setApplyingTemplateId(null);
       }
     },
-    [
-      applyTemplate,
-      applyingTemplateId,
-      id,
-      queryClient,
-      selectedPromptDesignSystemId,
-    ],
+    [applyTemplate, applyingTemplateId, id, queryClient],
   );
   canEditSelectedLiveLayerRef.current = canEditSelectedLiveLayer;
 
@@ -1482,7 +1473,7 @@ export function useEditorSourceAndSync({
       currentSearch: location.search,
       viewMode,
       screenId: activeFileId ?? activeFile?.id,
-      leftPanel: activeLeftPanel,
+      leftPanel: commentsPanelOpen ? "threads" : designLeftPanel,
       selectionId:
         selectedUrlSelectionId ??
         (preserveInitialRouteSelection
@@ -1533,7 +1524,8 @@ export function useEditorSourceAndSync({
   }, [
     activeFile?.id,
     activeFileId,
-    activeLeftPanel,
+    commentsPanelOpen,
+    designLeftPanel,
     activeTool,
     codeLayerOwnerByNodeId.size,
     fileIdentityKey,

@@ -445,13 +445,25 @@ const messages = {
     manualSync: "手動同步",
     manualImportTitle: "將文件匯入 {{source}}",
     manualImportDescription:
-      "選取 Markdown 或純文字的資料夾或檔案。每個檔案都會成為可搜尋的文件，並遵循此來源的存取設定。",
+      "選取 Markdown 或純文字檔案。匯入內容遵循此來源的存取設定。",
+    manualImportKind: "匯入類型",
+    manualImportDocument: "文件",
+    manualImportTranscript: "會議逐字稿",
     chooseMarkdownFolder: "選取資料夾",
     importMarkdownFiles: "匯入文件",
+    manualImportConcurrent: "匯入時擷取內容已變更。請重新匯入。",
+    manualImportScreeningUnavailable:
+      "Brain 無法檢查這次匯入。內容未儲存，也未加入佇列。請在檢查服務可用後重試。",
+    distillationHandoffCancelled: "蒸餾任務交接已在送達前取消。",
+    distillationDeliveryUnknown:
+      "蒸餾任務是否送達尚未確認。重試前請檢查是否已有部分工作。",
     companyContextUpload: "上傳公司脈絡",
     companyContextAdminOnly: "只有組織擁有者和管理員可以上傳公司脈絡。",
     companyContextOpenFailed: "無法開啟公司脈絡上傳。請再試一次。",
     manualImportNoFiles: "未選取文件",
+    importCaptureTime: "記錄時間（選填）",
+    importTranscript: "此檔案是逐字稿",
+    importParticipants: "參與者，以逗號分隔（僅儲存人數，不授予存取權）",
     manualImportFilesSelected: "已選取 {{count}} 份文件",
     manualImportFileLimit:
       "支援 .md、.markdown 和 .txt。每次匯入上限為 100 個檔案和 400 萬個字元。",

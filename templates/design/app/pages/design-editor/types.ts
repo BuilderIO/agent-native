@@ -28,7 +28,7 @@ export type DesignLeftPanel =
   | "agent"
   | "assets"
   | "tools"
-  | "tokens"
+  | "library"
   | "threads";
 
 const designSecondaryLeftPanelsSetting =
@@ -48,7 +48,7 @@ export function isDesignLeftPanelEnabled(
     value !== "agent" &&
     value !== "assets" &&
     value !== "tools" &&
-    value !== "tokens" &&
+    value !== "library" &&
     value !== "threads"
   ) {
     return false;
@@ -89,7 +89,6 @@ export interface DesignData {
   updatedAt: string;
   description?: string;
   projectType: string;
-  designSystemId?: string | null;
   liveCollaborationEnabled?: boolean;
   visibility?: "private" | "org" | "public";
   data?: string | null;

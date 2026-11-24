@@ -260,6 +260,7 @@ describe("Calendar direct MCP writes", () => {
       "ask_app",
       "ask_app_status",
       "create-event",
+      "delete-event",
       "list-events",
       "list_apps",
       "manage-event-draft",
@@ -267,7 +268,12 @@ describe("Calendar direct MCP writes", () => {
       "respond-to-event",
       "update-event",
     ]);
-    for (const name of ["create-event", "update-event", "respond-to-event"]) {
+    for (const name of [
+      "create-event",
+      "update-event",
+      "respond-to-event",
+      "delete-event",
+    ]) {
       expect(
         tools.find((tool) => tool.name === name)?.annotations,
       ).toMatchObject({
