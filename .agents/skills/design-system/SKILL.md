@@ -130,7 +130,8 @@ the shared lists.
    (soft, gray) keep today's look, so most call sites need no props.
 
 Details: `references/model.md` (headless model, part sets, equivalence and
-row style checks), `references/parts.md` (part anatomy and CSS contract),
+row style checks), `references/app-shell.md` (shell model, frames, shell
+behaviour hooks and snapshot checks), `references/parts.md` (part anatomy and CSS contract),
 `references/tokens.md` (tiers, names, presets, generation),
 `references/themes.md` (app themes), `references/translating.md` (mapping an
 existing screen onto parts).
