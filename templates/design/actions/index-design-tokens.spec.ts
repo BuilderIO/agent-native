@@ -279,3 +279,44 @@ describe("index-design-tokens", () => {
     });
   });
 });
+
+describe("index-design-tokens compact", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function runWith(compact?: boolean) {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: { id: "design_1", data: JSON.stringify({}) },
+    });
+    mockFrom.mockReturnValue({
+      where: () =>
+        Promise.resolve([
+          { filename: "a.html", content: ":root { --brand: #111111; }" },
+          { filename: "b.html", content: ":root { --brand: #222222; }" },
+        ]),
+    });
+    return action.run({ designId: "design_1", compact });
+  }
+
+  it("lists every contributing file by default", async () => {
+    const result = await runWith();
+
+    expect(result.tokens[0]).toMatchObject({
+      cssVar: "--brand",
+      sources: ["a.html", "b.html"],
+      sourceValues: { "a.html": "#111111", "b.html": "#222222" },
+    });
+  });
+
+  it("leaves out the per-file lists but keeps the token and its groups", async () => {
+    const result = await runWith(true);
+
+    expect(result.tokens[0]).not.toHaveProperty("sources");
+    expect(result.tokens[0]).not.toHaveProperty("sourceValues");
+    expect(result.tokens[0]).toMatchObject({ cssVar: "--brand" });
+    expect(result.tokenCount).toBe(1);
+    expect(result.groups.flatMap((group) => group.tokens)).toHaveLength(1);
+  });
+});

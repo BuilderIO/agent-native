@@ -949,6 +949,9 @@ const editor = {
     imageUploadsFailed:
       "{{failed}} images sur {{total}} n'ont pas pu être importées.",
     imageView: "Vue des images",
+    imagePosition: "{{current}} sur {{total}}",
+    nextImage: "Image suivante",
+    previousImage: "Image précédente",
     keptYourAltText: "Votre texte alternatif a été conservé.",
     link: "Lien",
     loadingAssetsPicker: "Chargement du sélecteur d'actifs",

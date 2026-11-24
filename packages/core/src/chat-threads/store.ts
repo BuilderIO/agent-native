@@ -4073,6 +4073,17 @@ export async function mutateThreadQueuedMessages(
                 (message) => message.id === mutation.messageId,
               );
               if (!selected) {
+                const consumedRunId = submittedQueuedMessageRunId(
+                  repository,
+                  mutation.messageId,
+                );
+                if (consumedRunId) {
+                  response = {
+                    alreadySubmitted: true,
+                    submittedRunId: consumedRunId,
+                  };
+                  break;
+                }
                 throw new Error(
                   `Unknown queued message: ${mutation.messageId}`,
                 );
@@ -4188,6 +4199,17 @@ export async function mutateThreadQueuedMessages(
                 (message) => message.id === mutation.messageId,
               );
               if (index < 0) {
+                const consumedRunId = submittedQueuedMessageRunId(
+                  repository,
+                  mutation.messageId,
+                );
+                if (consumedRunId) {
+                  response = {
+                    alreadySubmitted: true,
+                    submittedRunId: consumedRunId,
+                  };
+                  break;
+                }
                 throw new Error(
                   `Unknown queued message: ${mutation.messageId}`,
                 );

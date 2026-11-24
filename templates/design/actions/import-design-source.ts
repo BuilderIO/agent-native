@@ -8,10 +8,7 @@ import uploadImage, {
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import {
-  checkpointSkippedResultField,
-  snapshotDesignBeforeAgentEdit,
-} from "../server/lib/design-versions.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { saveFigmaPasteHtmlFallback } from "../server/lib/figma-paste-fallback.js";
 import {
   findImportedDesignFilesByOperationSourcePrefix,
@@ -122,13 +119,9 @@ async function importFigFrames(args: {
   });
 
   let saved: Awaited<ReturnType<typeof saveImportedDesignFiles>> | undefined;
-  let checkpoint: Awaited<ReturnType<typeof snapshotDesignBeforeAgentEdit>> =
-    null;
   if (pending.length > 0) {
     if (landed.length === 0) {
-      checkpoint = await snapshotDesignBeforeAgentEdit(designId, args.context, {
-        allowCheckpointFailureSkip: true,
-      });
+      await snapshotDesignBeforeAgentEdit(designId, args.context);
     }
     saved = await saveImportedDesignFiles({
       designId,
@@ -179,7 +172,6 @@ async function importFigFrames(args: {
     overview: true,
     urlPath: `/design/${designId}`,
     stats: { sourceKind: "fig-frame", frameCount: files.length },
-    ...checkpointSkippedResultField(checkpoint),
   };
 }
 
@@ -272,11 +264,7 @@ export default defineAction({
 
     const html = requireContent(content);
     if (sourceType === "html-string") {
-      const htmlCheckpoint = await snapshotDesignBeforeAgentEdit(
-        resolvedDesignId,
-        context,
-        { allowCheckpointFailureSkip: true },
-      );
+      await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
       const saved = await saveImportedDesignFiles({
         designId: resolvedDesignId,
         sourceType: "html-import",
@@ -300,15 +288,10 @@ export default defineAction({
             }
           : {}),
         stats: { sourceKind: "html-string", frameCount: saved.files.length },
-        ...checkpointSkippedResultField(htmlCheckpoint),
       };
     }
 
-    const figmaPasteCheckpoint = await snapshotDesignBeforeAgentEdit(
-      resolvedDesignId,
-      context,
-      { allowCheckpointFailureSkip: true },
-    );
+    await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
     const figmaPasteResult = await saveFigmaPasteHtmlFallback({
       designId: resolvedDesignId,
       clipboardHtml: html,
@@ -324,7 +307,6 @@ export default defineAction({
             ),
           }
         : {}),
-      ...checkpointSkippedResultField(figmaPasteCheckpoint),
     };
   },
   link: ({ result }) => {

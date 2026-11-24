@@ -180,6 +180,7 @@ import {
   WorkspaceAppFrame,
   type WorkspaceAppViewReader,
   WorkspaceAppKeepAlive,
+  useWorkspaceAppChildBrowserTab,
 } from "../workspace-app-host";
 import {
   AppNotice,
@@ -1703,6 +1704,7 @@ function DispatchLayout({
     tabId: string;
   } | null>(null);
   const turnViewportLockRef = useRef(createTurnViewportLock());
+  const workspaceAppChildTab = useWorkspaceAppChildBrowserTab();
   const previousChatFirstSurfaceScopeRef = useRef(chatFirstSurfaceScope);
   const previousChatFirstSurfaceTabCountRef = useRef<number | null>(null);
   const activeChatFirstSurfaceTab = useMemo(
@@ -3060,9 +3062,12 @@ function DispatchLayout({
           appName={workspaceAppChatRegistration.name ?? workspaceAppId}
           agentPageHref={agentPageHref}
           onFullscreenRequest={openAskAgentFullscreen}
+          browserTabId={workspaceAppChildTab.browserTabId}
         >
           <WorkspaceAppKeepAlive
             activeAppId={workspaceAppId}
+            claimBrowserTab
+            onViewReaderChange={workspaceAppChildTab.onViewReaderChange}
             {...(workspaceAppDeepPath
               ? { initialPath: workspaceAppDeepPath }
               : {})}
