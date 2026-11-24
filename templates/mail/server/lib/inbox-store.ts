@@ -224,7 +224,9 @@ function toInboxThreadRow(
       row.isAutomated === 1
         ? true
         : row.isAutomated === 2 ||
-            (row.isAutomated === 0 && labelIds.includes("CATEGORY_PERSONAL"))
+            (row.isAutomated === 0 &&
+              row.messageCount === 1 &&
+              labelIds.includes("CATEGORY_PERSONAL"))
           ? false
           : null,
     latestDate: row.latestDate,
@@ -430,7 +432,7 @@ export async function readInboxTabWindows(params: {
     // guard:allow-unbounded-read — the owner/account scope bounds the keys CTE, and only the top rows of each group (at most 4 × rankLimit) return to JS
     sql: `
       WITH keys AS (
-        SELECT t.id, t.latest_date, t.latest_message_id, t.is_automated, t.unread_count, t.label_ids_json
+        SELECT t.id, t.latest_date, t.latest_message_id, t.is_automated, t.unread_count, t.label_ids_json, t.message_count
         FROM mail_inbox_threads t
         WHERE t.owner_email = ${ownerParam} AND t.in_inbox = 1
           AND t.account_email IN (${accountParams.join(", ")})
@@ -438,7 +440,7 @@ export async function readInboxTabWindows(params: {
       ordered AS (
         SELECT k.id,
           row_number() OVER (ORDER BY k.latest_date DESC, k.latest_message_id DESC, k.id DESC) AS r,
-          (CASE WHEN k.is_automated = 2 OR (k.is_automated = 0 AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(k.label_ids_json, '[]')::jsonb) AS label(value) WHERE label.value = 'CATEGORY_PERSONAL')) THEN 0 ELSE ${AUTOMATED_GROUP_BIT} END
+          (CASE WHEN k.is_automated = 2 OR (k.is_automated = 0 AND k.message_count = 1 AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(k.label_ids_json, '[]')::jsonb) AS label(value) WHERE label.value = 'CATEGORY_PERSONAL')) THEN 0 ELSE ${AUTOMATED_GROUP_BIT} END
             + CASE WHEN coalesce(k.unread_count, 0) > 0 THEN ${UNREAD_GROUP_BIT} ELSE 0 END) AS grp
         FROM keys k
       ),

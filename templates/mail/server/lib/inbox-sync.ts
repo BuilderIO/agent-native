@@ -287,7 +287,11 @@ function deriveRowFromThread(
   const classifiedHeaders = classified.payload?.headers || [];
   const from = parseEmailAddress(getHeader(classifiedHeaders, "From"));
   const to = parseAddressList(getHeader(classifiedHeaders, "To"));
-  const selfAddressed = relevant.every((message) => {
+  const inboxMessages = relevant.filter((message) => {
+    const labels = messageLabels(message);
+    return labels.includes("INBOX") && !labels.includes("TRASH");
+  });
+  const classifications = inboxMessages.map((message) => {
     const headers = message.payload?.headers || [];
     const sender = parseEmailAddress(
       getHeader(headers, "From"),
@@ -295,21 +299,24 @@ function deriveRowFromThread(
     const recipients = ["To", "Cc", "Bcc"].flatMap((name) =>
       parseAddressList(getHeader(headers, name)),
     );
-    return (
+    const selfAddressed =
       connectedEmailsLower.has(sender) &&
-      recipients.length > 0 &&
-      recipients.every((recipient) =>
+      recipients.some((recipient) =>
         connectedEmailsLower.has(recipient.email.toLowerCase()),
-      )
-    );
+      );
+    return classifyAutomated({
+      headers,
+      labelIds: messageLabels(message),
+      fromEmail: sender,
+      selfAddressed,
+    });
   });
   const isAutomated = automationFlag(
-    classifyAutomated({
-      headers: classifiedHeaders,
-      labelIds: [...labelSet],
-      fromEmail: from.email,
-      selfAddressed,
-    }),
+    classifications.includes("automated")
+      ? "automated"
+      : classifications.includes("personal")
+        ? "personal"
+        : "unclassified",
   );
 
   const hasAttachments = relevant.some((m) =>

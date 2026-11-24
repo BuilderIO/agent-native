@@ -349,6 +349,33 @@ function routeHistory(...inboxPages: unknown[]) {
 }
 
 describe("syncInboxAccount — full sync", () => {
+  it("does not classify inbox mail from an archived message's category", async () => {
+    currentRow = baseRow();
+    const message = thread("mixed", {
+      from: "sender@example.test",
+      labelIds: ["CATEGORY_PERSONAL"],
+      internalDate: "100",
+    });
+    const current = thread("mixed", {
+      from: "sender@example.test",
+      labelIds: ["INBOX"],
+      internalDate: "200",
+    });
+    message.messages.push(...current.messages);
+    mocks.gmailGetProfile.mockResolvedValue({ historyId: "9000" });
+    mocks.gmailListThreads.mockResolvedValue({ threads: [{ id: "mixed" }] });
+    mocks.gmailBatchGetThreads.mockResolvedValue([
+      { id: "mixed", data: message },
+    ]);
+    await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      connectedAccountEmails: [ACCOUNT],
+    });
+    expect(mocks.upsertInboxThreadRows).toHaveBeenCalledWith(
+      [expect.objectContaining({ threadId: "mixed", isAutomated: null })],
+      expect.anything(),
+    );
+  });
   it("classifies a self-addressed inbox conversation as personal", async () => {
     currentRow = baseRow();
     const message = thread("self", { from: ACCOUNT, labelIds: ["INBOX"] });

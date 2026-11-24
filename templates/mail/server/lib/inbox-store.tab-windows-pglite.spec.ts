@@ -97,11 +97,27 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
       ]);
     await initializeMailDb({});
 
-    const rows = syntheticRows(240);
+    const rows = syntheticRows(240).map((row, index) =>
+      index === 1
+        ? {
+            ...row,
+            inInbox: 1,
+            isAutomated: 0,
+            messageCount: 2,
+            labelIdsJson: JSON.stringify(["INBOX", "CATEGORY_PERSONAL"]),
+          }
+        : row,
+    );
     expect(
       rows.some((row) => row.labelIdsJson.includes("CATEGORY_PERSONAL")),
     ).toBe(true);
     await getDb().insert(schema.mailInboxThreads).values(rows);
+    const storedRows = await store.readInboxThreads(OWNER, {
+      accountEmails: ACCOUNTS,
+    });
+    expect(
+      storedRows.find((row) => row.threadId === "thread-1")?.isAutomated,
+    ).toBeNull();
 
     const labelMapByAccount = new Map<string, Map<string, string>>([
       [
