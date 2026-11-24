@@ -17,6 +17,7 @@ import {
 } from "@agent-native/core/settings";
 
 import { HOSTED_APPS_SETTINGS_INVALID_ERROR_CODE } from "../../shared/hosted-apps-settings.js";
+import { hostedCatalogEnabled } from "./dispatch-config.js";
 
 export const HOSTED_APPS_SETTINGS_KEY = "dispatch-hosted-apps-settings";
 
@@ -64,6 +65,9 @@ function hostedAppsSettingsScope() {
 export async function readHostedAppsSettings(): Promise<
   HostedAppsSettings & { invalid: boolean }
 > {
+  if (!hostedCatalogEnabled()) {
+    return { showHostedApps: false, invalid: false };
+  }
   const scope = hostedAppsSettingsScope();
   // No org and no user means there is nowhere the setting could be stored.
   if (!scope) return { showHostedApps: true, invalid: false };
