@@ -21,7 +21,8 @@ interface SkillEntry {
 
 export function buildSkill(name: string, skillMd: string) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(skillMd);
-  const frontmatter = match ? parseYaml(match[1]) : null;
+  const yamlText = match?.at(1);
+  const frontmatter = yamlText === undefined ? null : parseYaml(yamlText);
   if (
     !frontmatter ||
     typeof frontmatter !== "object" ||
