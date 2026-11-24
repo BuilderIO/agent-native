@@ -294,14 +294,17 @@ async function statementsDuring(read: () => Promise<unknown>) {
     this: unknown,
     run: (tx: { query: (...args: unknown[]) => unknown }) => Promise<unknown>,
   ) {
-    return transaction.call(this, (tx: { query: (...args: unknown[]) => unknown }) => {
-      const query = tx.query.bind(tx);
-      tx.query = (...args: unknown[]) => {
-        statements.push(String(args[0]));
-        return query(...args);
-      };
-      return run(tx);
-    });
+    return transaction.call(
+      this,
+      (tx: { query: (...args: unknown[]) => unknown }) => {
+        const query = tx.query.bind(tx);
+        tx.query = (...args: unknown[]) => {
+          statements.push(String(args[0]));
+          return query(...args);
+        };
+        return run(tx);
+      },
+    );
   });
   try {
     await read();

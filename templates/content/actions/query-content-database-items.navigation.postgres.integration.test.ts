@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 
@@ -49,7 +50,7 @@ function instrument(client: PgClient): PgClient {
             const isPage =
               text.includes("navigation_favorite_memberships") &&
               text.includes(" limit ");
-            if (interleave && isPage) await folderFinished;
+            if (folderFinished && isPage) await folderFinished;
             const result =
               mode === "values" ? await query.values() : await query;
             if (interleave && isFolder) {
@@ -166,18 +167,16 @@ async function fixture(id: string, sourcePath: string) {
         updatedAt: stamp,
       },
     ]);
-  await getDb()
-    .insert(schema.contentSpaces)
-    .values({
-      id: space,
-      name: space,
-      kind: "personal",
-      ownerEmail: owner,
-      filesDatabaseId: database,
-      createdBy: owner,
-      createdAt: stamp,
-      updatedAt: stamp,
-    });
+  await getDb().insert(schema.contentSpaces).values({
+    id: space,
+    name: space,
+    kind: "personal",
+    ownerEmail: owner,
+    filesDatabaseId: database,
+    createdBy: owner,
+    createdAt: stamp,
+    updatedAt: stamp,
+  });
   await getDb()
     .insert(schema.contentDatabases)
     .values({
@@ -259,11 +258,12 @@ function navigate(databaseId: string, cursor?: string) {
   ) as Promise<ContentDatabaseNavigationPageResponse>;
 }
 
-for (const [id, before, after, expected] of [
+for (const [direction, before, after, expected] of [
   ["folder-to-root", "folder/a.md", "a.md", "folder"],
   ["root-to-folder", "a.md", "folder/a.md", "A"],
 ] as const) {
-  it(`keeps ${id} and its cursor on one snapshot`, async () => {
+  it(`keeps ${direction} and its cursor on one snapshot`, async () => {
+    const id = `${direction}-${randomUUID()}`;
     const database = await fixture(id, before);
     folderFinished = new Promise((resolve) => {
       finishFolder = resolve;
