@@ -72,6 +72,14 @@ async function connect(
 const call = (client: Client, method: string, params: object = {}) =>
   client.request({ method, params }, z.looseObject({}));
 
+type SkillsList = {
+  skills: {
+    uri: string;
+    frontmatter: { name?: unknown; description?: unknown };
+    resources: unknown[];
+  }[];
+};
+
 describe("MCP skills extension", () => {
   it("advertises the extension and resources only when opted in", async () => {
     const on = await connect({ servesAnSkill: true });
@@ -88,16 +96,17 @@ describe("MCP skills extension", () => {
 
   it("lists the an skill with digests of the bytes it serves", async () => {
     const client = await connect({ servesAnSkill: true });
-    const list: any = await call(client, "skills/list");
+    const list = (await call(client, "skills/list")) as SkillsList;
     expect(list.skills).toHaveLength(1);
     const [skill] = list.skills;
     expect(skill.uri).toBe("skill://an/SKILL.md");
     expect(skill.frontmatter.name).toBe("an");
     expect(typeof skill.frontmatter.description).toBe("string");
-    const read: any = await client.readResource({ uri: "skill://an/SKILL.md" });
-    const text = read.contents[0].text as string;
+    const read = await client.readResource({ uri: "skill://an/SKILL.md" });
+    const [first] = read.contents;
+    const text = "text" in first ? first.text : undefined;
     expect(text).toBe(AN_SKILL_MD);
-    const bytes = Buffer.from(text, "utf8");
+    const bytes = Buffer.from(text ?? "", "utf8");
     expect(skill.resources).toEqual([
       {
         uri: "skill://an/SKILL.md",
@@ -109,10 +118,10 @@ describe("MCP skills extension", () => {
 
   it("returns an entry from skills/get and -32602 for unknown uris", async () => {
     const client = await connect({ servesAnSkill: true });
-    const list: any = await call(client, "skills/list");
-    const got: any = await call(client, "skills/get", {
+    const list = (await call(client, "skills/list")) as SkillsList;
+    const got = (await call(client, "skills/get", {
       uri: "skill://an/SKILL.md",
-    });
+    })) as { skill: unknown };
     expect(got.skill).toEqual(list.skills[0]);
     for (const attempt of [
       call(client, "skills/get", { uri: "skill://nope/SKILL.md" }),

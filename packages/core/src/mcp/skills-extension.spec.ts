@@ -39,7 +39,7 @@ describe("skills-extension", () => {
         },
       ],
     });
-    expect(typeof listed.skills[0]!.frontmatter.description).toBe("string");
+    expect(typeof listed.skills[0]?.frontmatter.description).toBe("string");
   });
 
   it("gets the skill only by its exact uri", () => {
@@ -81,7 +81,7 @@ describe("skills-extension", () => {
       digest: sha(md),
       size: Buffer.byteLength(md, "utf8"),
     });
-    expect(entry.resources[0]!.size).toBeGreaterThan(md.length);
+    expect(entry.resources[0]?.size).toBeGreaterThan(md.length);
     expect(files).toEqual([
       { uri: "skill://demo/SKILL.md", text: md, mimeType: "text/markdown" },
     ]);

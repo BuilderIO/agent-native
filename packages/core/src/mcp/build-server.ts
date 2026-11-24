@@ -3936,7 +3936,6 @@ export async function createMCPServerForRequest(
     scriptCatalogOffered && !scriptCatalog
       ? await scriptCatalogForPointer()
       : undefined;
-  // Only an authenticated connection sees the skill, as with tools/list.
   const servesSkills =
     config.servesAnSkill === true && Boolean(effectiveIdentity?.userEmail);
   const server = new Server(mcpServerInfo(config, requestMeta), {
@@ -5239,12 +5238,15 @@ export async function createMCPServerForRequest(
       server.setRequestHandler("resources/list", async () => ({
         resources: [],
       }));
-      server.setRequestHandler("resources/read", async (request: any) => {
-        await resolveServiceGrant("mcp:resources/read");
-        const skillFile = readMcpSkillFile(request.params?.uri);
-        if (!skillFile) throw notFound(request.params?.uri);
-        return skillFile;
-      });
+      server.setRequestHandler(
+        "resources/read",
+        async (request: { params?: { uri?: unknown } }) => {
+          await resolveServiceGrant("mcp:resources/read");
+          const skillFile = readMcpSkillFile(request.params?.uri);
+          if (!skillFile) throw notFound(request.params?.uri);
+          return skillFile;
+        },
+      );
     }
   }
 

@@ -21,7 +21,7 @@ interface SkillEntry {
 
 export function buildSkill(name: string, skillMd: string) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(skillMd);
-  const frontmatter = match ? parseYaml(match[1] ?? "") : null;
+  const frontmatter = match ? parseYaml(match[1]) : null;
   if (
     !frontmatter ||
     typeof frontmatter !== "object" ||
@@ -32,15 +32,14 @@ export function buildSkill(name: string, skillMd: string) {
       `Skill ${name} needs frontmatter with its name and description`,
     );
   }
-  const files: ServedFile[] = [
-    {
-      uri: `skill://${name}/SKILL.md`,
-      text: skillMd,
-      mimeType: "text/markdown",
-    },
-  ];
+  const skillFile: ServedFile = {
+    uri: `skill://${name}/SKILL.md`,
+    text: skillMd,
+    mimeType: "text/markdown",
+  };
+  const files = [skillFile];
   const entry: SkillEntry = {
-    uri: files[0]!.uri,
+    uri: skillFile.uri,
     frontmatter,
     resources: files.map((file) => {
       const bytes = Buffer.from(file.text, "utf8");
