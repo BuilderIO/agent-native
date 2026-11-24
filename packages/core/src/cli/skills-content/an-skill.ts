@@ -21,11 +21,15 @@ app id: \`/an slides\` opens the Slides editor.
 ## Pick the app
 
 Use the app the user names. Otherwise call \`list_apps\` and pick the granted app
-whose name and description fit the request, using its exact id. When a request fits
-more than one app or none, ask one short question rather than guessing. If the
-app is not listed, explain that it must be granted in Dispatch's Agents access
-settings. Do not invent a URL, use a localhost URL, or route around the
-Dispatch grant.
+whose name fits the request, and whose description fits too when the result
+shows one. Use its exact id. When a request fits more than one app or none, ask
+one short question rather than guessing.
+
+If the app you need is not listed and \`degradedSources\` is not empty, say that
+Dispatch could not check every app and call \`list_apps\` once more. Otherwise say
+that it may need a grant in Dispatch's Agents access settings, or that the
+organization may hide Agent-Native's hosted apps. Do not invent a URL, use a
+localhost URL, or route around the Dispatch grant.
 
 ## Open the app
 
@@ -104,10 +108,10 @@ expect:
 - One authorization covers every app. The host asks them once to authorize the
   Agent-Native connector; after that, every app granted to them works with no
   new authorization in the host.
-- Each app's inline view signs in on its own the first time it opens. On its
-  sign-in page, **Continue with Agent-Native** uses their Dispatch account
-  instead of a new password. Without an active Dispatch session, Dispatch asks
-  them to sign in there first.
+- Each app's inline view signs in on its own the first time it opens. When its
+  sign-in page offers **Continue with Agent-Native**, that uses their Dispatch
+  account instead of a new password. Without an active Dispatch session,
+  Dispatch asks them to sign in there first.
 
 Let the user complete sign-in in the rendered Agent-Native browser surface.
 Never request, copy, or store passwords, OAuth codes, cookies, or access tokens.
