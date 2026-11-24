@@ -512,7 +512,7 @@ describe("private media references", () => {
     redirects.add(id);
     const stored = vi
       .spyOn(globalThis, "fetch")
-      .mockImplementation(async () => new Response(new Uint8Array([7, 8])));
+      .mockImplementation(async () => new Response(new Uint8Array([7, 8, 9])));
     try {
       expect((await get(id, OTHER, "?bytes=1")).status).toBe(404);
       expect(stored).not.toHaveBeenCalled();
@@ -521,12 +521,16 @@ describe("private media references", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toBe("image/png");
       expect(response.headers.get("cache-control")).toBe("private, no-store");
-      expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([7, 8]);
+      expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([
+        7, 8, 9,
+      ]);
       expect(stored.mock.calls.map(([url]) => url)).toEqual([
         "https://storage.test/signed",
       ]);
 
       stored.mockResolvedValueOnce(new Response(null, { status: 403 }));
+      expect((await get(id, OWNER, "?bytes=1")).status).toBe(502);
+      stored.mockResolvedValueOnce(new Response(new Uint8Array([7, 8])));
       expect((await get(id, OWNER, "?bytes=1")).status).toBe(502);
     } finally {
       stored.mockRestore();

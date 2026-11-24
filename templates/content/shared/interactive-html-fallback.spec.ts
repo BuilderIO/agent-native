@@ -224,6 +224,14 @@ describe("a body read back from a service that keeps only the link", () => {
     ).toBe(`New first line\n${BODY.replace("- item", "- changed")}`);
   });
 
+  it("has its blocks again when Content is served under a path", () => {
+    const linked = interactiveHtmlAsLinks(BODY, url);
+    const underPath = linked.split("/page/").join("/apps/content/page/");
+
+    expect(underPath).not.toBe(linked);
+    expect(keep(BODY, underPath, ids)).toBe(BODY);
+  });
+
   describe("with two blocks of the same title", () => {
     const first = block("<title>T</title>1");
     const second = block("<title>T</title>2");

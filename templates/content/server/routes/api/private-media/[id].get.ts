@@ -84,14 +84,15 @@ export default defineEventHandler(async (event) => {
       const stored = await fetch(opened.url, {
         signal: AbortSignal.timeout(STORAGE_TIMEOUT_MS),
       });
-      if (!stored.ok) {
+      const data = stored.ok ? Buffer.from(await stored.arrayBuffer()) : null;
+      if (data?.byteLength !== opened.media.size) {
         throw createError({
           statusCode: 502,
-          statusMessage: "Image storage did not answer",
+          statusMessage: "Image storage did not answer with the image",
           headers: RESPONSE_HEADERS,
         });
       }
-      return Buffer.from(await stored.arrayBuffer());
+      return data;
     },
   );
 });

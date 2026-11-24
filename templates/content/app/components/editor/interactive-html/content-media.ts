@@ -7,6 +7,9 @@ import {
 } from "@shared/private-media";
 import { useEffect, useState } from "react";
 
+const MAX_INLINED_IMAGES_LENGTH = 40_000_000;
+const IMAGES_AT_ONCE = 4;
+
 type LoadedImages = Map<string, Promise<string | null>>;
 
 async function readAsDataUrl(id: string): Promise<string> {
@@ -37,6 +40,34 @@ function imageDataUrl(
   return read;
 }
 
+export async function imageDataUrls(
+  images: LoadedImages,
+  ids: readonly string[],
+  stopped: () => boolean,
+): Promise<Map<string, string>> {
+  const urls = new Map<string, string>();
+  let room = MAX_INLINED_IMAGES_LENGTH;
+  for (let at = 0; at < ids.length && !stopped(); at += IMAGES_AT_ONCE) {
+    const loaded = await Promise.all(
+      ids
+        .slice(at, at + IMAGES_AT_ONCE)
+        .map(async (id) => [id, await imageDataUrl(images, id)] as const),
+    );
+    for (const [id, url] of loaded) {
+      if (!url) continue;
+      room -= url.length;
+      if (room < 0) {
+        console.warn(
+          "[content] an interactive block's images are too large to show together",
+        );
+        return urls;
+      }
+      urls.set(id, url);
+    }
+  }
+  return urls;
+}
+
 export function useContentMediaWrittenIn(source: string): string | null {
   const [written, setWritten] = useState<{
     source: string;
@@ -51,11 +82,8 @@ export function useContentMediaWrittenIn(source: string): string | null {
       0,
       MAX_INTERACTIVE_HTML_IMAGES,
     );
-    void Promise.all(
-      ids.map(async (id) => [id, await imageDataUrl(images, id)] as const),
-    ).then((loaded) => {
+    void imageDataUrls(images, ids, () => cancelled).then((urls) => {
       if (cancelled) return;
-      const urls = new Map(loaded);
       setWritten({
         source,
         html: replacePrivateMediaLinks(
