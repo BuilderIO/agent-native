@@ -1,6 +1,10 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
-import { getUserSetting } from "@agent-native/core/settings";
+import { ensureSettingsStore } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
@@ -10,10 +14,7 @@ import type {
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
 import { compactContentDatabaseResponse } from "../shared/database-row-properties.js";
-import {
-  personalDatabaseViewSettingKey,
-  readPersonalDatabaseViewOverrides,
-} from "./_content-database-personal-view.js";
+import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
 import {
   getContentDatabaseNavigationPage,
   MAX_NAVIGATION_EXPAND_IDS,
@@ -146,50 +147,50 @@ export default defineAction({
       });
     }
     if (navigation) {
-      // The settings store may initialize its schema lazily, which cannot run
-      // inside a read-only transaction. The value is read again in the snapshot.
-      const [settingsReady] = await Promise.allSettled(
-        userEmail
-          ? [
-              getUserSetting(
-                userEmail,
-                personalDatabaseViewSettingKey(databaseId ?? documentId ?? ""),
-                { bypassCache: true },
-              ),
-            ]
-          : [],
-      );
-      return getDb().transaction(
+      // Store readiness must finish before the snapshot: initialization can
+      // require DDL and a separate transaction in local and self-hosted mode.
+      const [settingsReady] = await Promise.allSettled([ensureSettingsStore()]);
+      const result = await getDb().transaction(
         async () => {
-          const resolved = await resolveContentDatabaseRead({
-            databaseId,
-            documentId,
-          });
-          if (!resolved.available) return resolved;
-          if (!userEmail) throw new Error("Not authenticated.");
-          if (settingsReady?.status === "rejected") throw settingsReady.reason;
-          const overrides = await readPersonalDatabaseViewOverrides(
-            userEmail,
-            resolved.database.id,
-            { transaction: getDbExec(), bypassCache: true },
-          );
-          return getContentDatabaseNavigationPage({
-            database: resolved.database,
-            userEmail,
-            overrides,
-            parentId: navigation.parentId,
-            sort: navigation.sort,
-            viewId: navigation.viewId,
-            limit: limit ?? 20,
-            cursor: navigation.cursor,
-            expand: navigation.expand,
-            pagesOnly: navigation.pagesOnly ?? false,
-            group: navigation.group,
-            locate: navigation.locate,
-          });
+          try {
+            const resolved = await resolveContentDatabaseRead({
+              databaseId,
+              documentId,
+            });
+            if (!resolved.available) return { value: resolved } as const;
+            if (!userEmail) throw new Error("Not authenticated.");
+            if (settingsReady?.status === "rejected")
+              throw settingsReady.reason;
+            const overrides = await readPersonalDatabaseViewOverrides(
+              userEmail,
+              resolved.database.id,
+              { transaction: getDbExec(), bypassCache: true },
+            );
+            const value = await getContentDatabaseNavigationPage({
+              database: resolved.database,
+              userEmail,
+              overrides,
+              parentId: navigation.parentId,
+              sort: navigation.sort,
+              viewId: navigation.viewId,
+              limit: limit ?? 20,
+              cursor: navigation.cursor,
+              expand: navigation.expand,
+              pagesOnly: navigation.pagesOnly ?? false,
+              group: navigation.group,
+              locate: navigation.locate,
+            });
+            return { value } as const;
+          } catch (error) {
+            // Federation can persist a revocation before an access refusal.
+            if (isActionContractError(error)) return { error } as const;
+            throw error;
+          }
         },
-        { isolationLevel: "repeatable read", accessMode: "read only" },
+        { isolationLevel: "repeatable read" },
       );
+      if ("error" in result) throw result.error;
+      return result.value;
     }
 
     const resolved = await resolveContentDatabaseRead({

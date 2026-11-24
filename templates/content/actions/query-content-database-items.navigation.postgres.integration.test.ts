@@ -258,6 +258,109 @@ function navigate(databaseId: string, cursor?: string) {
   ) as Promise<ContentDatabaseNavigationPageResponse>;
 }
 
+it.each([true, false])(
+  "enforces federated membership present=%s while reading Files",
+  async (memberPresent) => {
+    const id = `federated-${randomUUID()}`;
+    const orgId = `${id}-org`;
+    const databaseId = await fixture(id, "folder/a.md");
+    await writer`CREATE TABLE IF NOT EXISTS organizations (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL, identity_authority TEXT, identity_id TEXT)`;
+    await writer`CREATE TABLE IF NOT EXISTS org_members (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL, federation_removal_pending_at BIGINT)`;
+    await writer`INSERT INTO organizations (id, name, created_by, created_at, identity_authority, identity_id) VALUES (${orgId}, ${"Test organization"}, ${"owner@example.test"}, ${0}, ${"http://localhost:43191"}, ${orgId})`;
+    await writer`INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (${`${id}-member`}, ${orgId}, ${owner}, ${"member"}, ${0})`;
+    await writer`UPDATE content_spaces SET org_id = ${orgId}, owner_email = ${"owner@example.test"}, kind = ${"organization"} WHERE id = ${`${id}-space`}`;
+    await writer`UPDATE content_databases SET org_id = ${orgId}, owner_email = ${"owner@example.test"} WHERE id = ${databaseId}`;
+    await writer`UPDATE documents SET org_id = ${orgId}, owner_email = ${"owner@example.test"}, visibility = ${"org"} WHERE space_id = ${`${id}-space`}`;
+    const { registerFeatureFlags } =
+      await import("@agent-native/core/feature-flags");
+    const { CROSS_APP_ORG_FEDERATION_FLAG } =
+      await import("@agent-native/core/org");
+    registerFeatureFlags([CROSS_APP_ORG_FEDERATION_FLAG]);
+    const { putOrgSetting } = await import("@agent-native/core/settings");
+    await putOrgSetting(
+      orgId,
+      "feature-flag:organization.cross-app-federation",
+      {
+        version: 1,
+        mode: "on",
+        emails: [],
+        orgIds: [],
+        percentage: 0,
+        updatedAt: null,
+        updatedBy: null,
+      },
+    );
+    vi.stubEnv("AGENT_NATIVE_IDENTITY_HUB_URL", "http://localhost:43191");
+    vi.stubEnv(
+      "AGENT_NATIVE_IDENTITY_FEDERATION_SECRET",
+      "not-a-real-secret-for-test",
+    );
+    const authority = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            orgId,
+            memberEmail: owner,
+            memberPresent,
+            memberRole: "admin",
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", authority);
+    try {
+      const read = () =>
+        runWithRequestContext(
+          { userEmail: owner, orgId, requestOrigin: "http://localhost:3000" },
+          () =>
+            action.run(
+              { databaseId, navigation: { parentId: null, sort: "name" } },
+              { userEmail: owner },
+            ),
+        );
+      if (memberPresent) {
+        await expect(read()).resolves.toMatchObject({
+          items: expect.any(Array),
+        });
+      } else {
+        await expect(read()).rejects.toMatchObject({
+          errorCode: "DATABASE_NOT_FOUND",
+        });
+      }
+      expect(authority).toHaveBeenCalled();
+      const rows =
+        (await writer`SELECT role FROM org_members WHERE id = ${`${id}-member`}`) as unknown as Array<{
+          role: string;
+        }>;
+      expect(rows.map((row) => row.role)).toEqual(
+        memberPresent ? ["admin"] : [],
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  },
+);
+
+it("reads only the resolved database's personal view and propagates its parse errors", async () => {
+  const id = `personal-${randomUUID()}`;
+  const databaseId = await fixture(id, "folder/a.md");
+  const documentId = `${id}-database-page`;
+  const key = (target: string) =>
+    `u:${owner}:content-database-personal-view:${target}`;
+  await writer`INSERT INTO settings (key, value, updated_at) VALUES (${key(documentId)}, ${"{"}, ${0})`;
+  const read = () =>
+    runWithRequestContext({ userEmail: owner }, () =>
+      action.run(
+        { documentId, navigation: { parentId: null, sort: "name" } },
+        { userEmail: owner },
+      ),
+    );
+  await expect(read()).resolves.toMatchObject({ items: expect.any(Array) });
+  await writer`INSERT INTO settings (key, value, updated_at) VALUES (${key(databaseId)}, ${"{"}, ${0})`;
+  await expect(read()).rejects.toBeInstanceOf(SyntaxError);
+});
+
 for (const [direction, before, after, expected] of [
   ["folder-to-root", "folder/a.md", "a.md", "folder"],
   ["root-to-folder", "a.md", "folder/a.md", "A"],

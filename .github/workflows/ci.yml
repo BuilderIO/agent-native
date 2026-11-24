@@ -166,6 +166,19 @@ jobs:
     if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.lint == 'true' || needs.change-scope.outputs.has_reports == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: content_navigation_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d content_navigation_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Require a successful change scope
         env:
@@ -243,6 +256,7 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CONTENT_NAVIGATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_navigation_test
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/feedback-proof-gate"
@@ -1213,6 +1227,7 @@ jobs:
         run: |
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_row_mutation_test"
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_block_action_test"
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_navigation_test"
 
       - name: Run Content DB tests
         run: pnpm test:content-db
@@ -1241,11 +1256,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           pnpm test:content-db-postgres
+          pnpm --filter content exec vitest run actions/query-content-database-items.navigation.postgres.integration.test.ts
           pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
           pnpm --filter content exec vitest --run actions/patch-database-items.db.test.ts --config vitest.config.ts
           pnpm test:content-db-two-connections
         env:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
+          CONTENT_NAVIGATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_navigation_test
           CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
           CONTENT_BLOCK_ACTION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_block_action_test
 

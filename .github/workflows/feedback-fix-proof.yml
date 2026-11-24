@@ -19,6 +19,19 @@ jobs:
     name: Feedback fix proof
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: content_navigation_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d content_navigation_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       # fix-proof checks out each fix commit and its parent, so it needs the
       # PR's real history, not the default merge commit.
@@ -67,6 +80,7 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CONTENT_NAVIGATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_navigation_test
         run: |
           rm -rf "$RUNNER_TEMP/gate" && mkdir "$RUNNER_TEMP/gate"
           for f in feedback-fix-proof.ts fix-proof.ts; do

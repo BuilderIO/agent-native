@@ -1,6 +1,10 @@
 import type { EventEmitter } from "node:events";
 
-import { getDbExec, type DbExec } from "../db/client.js";
+import {
+  getDbExec,
+  getEnclosingTransactionDbExec,
+  type DbExec,
+} from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -85,10 +89,11 @@ async function readSettingRaw(
   key: string,
   options?: StoreReadOptions,
 ): Promise<string | null> {
-  const cache = options?.transaction ? null : requestSettingsCache();
+  const transaction = options?.transaction ?? getEnclosingTransactionDbExec();
+  const cache = transaction ? null : requestSettingsCache();
   if (!options?.bypassCache && cache?.has(key)) return cache.get(key) ?? null;
-  if (!options?.transaction) await ensureTable();
-  const client = options?.transaction ?? getDbExec();
+  if (!transaction) await ensureTable();
+  const client = transaction ?? getDbExec();
   const table = settingsTable();
   const { rows } = await client.execute({
     sql: `SELECT value FROM ${table} WHERE key = ?`,
@@ -160,7 +165,8 @@ export async function getSettingsRaw(
   const result = new Map<string, string | null>();
   if (uniqueKeys.length === 0) return result;
 
-  const cache = options?.transaction ? null : requestSettingsCache();
+  const transaction = options?.transaction ?? getEnclosingTransactionDbExec();
+  const cache = transaction ? null : requestSettingsCache();
   const misses: string[] = [];
   for (const key of uniqueKeys) {
     if (!options?.bypassCache && cache?.has(key)) {
@@ -171,8 +177,8 @@ export async function getSettingsRaw(
   }
   if (misses.length === 0) return result;
 
-  if (!options?.transaction) await ensureTable();
-  const client = options?.transaction ?? getDbExec();
+  if (!transaction) await ensureTable();
+  const client = transaction ?? getDbExec();
   const table = settingsTable();
   const rawByKey = new Map<string, string>();
   for (let i = 0; i < misses.length; i += SETTINGS_IN_LIST_CHUNK_SIZE) {
