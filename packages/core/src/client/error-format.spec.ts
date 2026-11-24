@@ -219,6 +219,24 @@ describe("formatChatErrorText", () => {
     );
   });
 
+  it.each(["api_error", "internal_server_error"])(
+    "shows a readable message for a %s provider payload",
+    (type) => {
+      const raw = JSON.stringify({
+        type: "error",
+        error: { type, message: "Internal server error" },
+        request_id: "req_example",
+      });
+      expect(normalizeChatError(raw)).toEqual({
+        message: "Internal server error",
+        details: raw,
+      });
+      expect(formatChatErrorText(raw, undefined, type)).toBe(
+        "Error: Internal server error",
+      );
+    },
+  );
+
   it("normalizes a bare-403 transient rejection instead of the credential-rejected copy", () => {
     const normalized = normalizeChatError(
       "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying.",
