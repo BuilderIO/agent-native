@@ -112,7 +112,6 @@ export default defineAction({
           context,
         );
       } catch (error) {
-        // The target is already there, which is the outcome the user asked for.
         if (!targetAlreadyExists(error)) throw error;
       }
       return { suggestionId, status: "accepted", outcome: "action-completed" };
