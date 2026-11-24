@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import React, { act } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import {
   afterEach,
@@ -2493,6 +2494,142 @@ describe("useChatThreads", () => {
         expect(hook!.activeThreadId).toBe("forked-thread");
         expect(window.localStorage.getItem(key)).toBe("forked-thread");
       }
+    },
+  );
+
+  it("preserves a transition selection across an unrelated synchronous render", async () => {
+    const key = "agent-chat-active-thread:concurrent:tab:tab-1";
+    window.localStorage.setItem(key, "old-thread");
+    let resolveLookup!: (response: Response) => void;
+    const pendingLookup = new Promise<Response>((resolve) => {
+      resolveLookup = resolve;
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "/chat/threads") return jsonResponse({ threads: [] });
+      if (url === "/chat/threads/old-thread") return pendingLookup;
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    let urgentUpdate!: React.Dispatch<React.SetStateAction<number>>;
+    function Harness() {
+      const [count, setCount] = React.useState(0);
+      urgentUpdate = setCount;
+      hook = useChatThreads("/chat", "concurrent", null, {
+        browserTabId: "tab-1",
+      });
+      return <span>{count}</span>;
+    }
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(hook!.activeThreadId).toBe("old-thread");
+
+    await act(async () => {
+      React.startTransition(() => hook!.switchThread("new-thread"));
+      flushSync(() => urgentUpdate(1));
+      expect(container.textContent).toBe("1");
+      expect(hook!.activeThreadId).toBe("old-thread");
+      resolveLookup(new Response(null, { status: 404 }));
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    });
+    expect(hook!.isLoading).toBe(false);
+    expect(hook!.activeThreadId).toBe("new-thread");
+    expect(window.localStorage.getItem(key)).toBe("new-thread");
+  });
+
+  it.each([false, true])(
+    "keeps a committed-scope restore when a different scope render suspends (route: %s)",
+    async (route) => {
+      const key =
+        "agent-chat-active-thread:design:scope:design:design-1:tab:tab-1";
+      window.localStorage.setItem(key, "old-thread");
+      let resolveLookup!: (response: Response) => void;
+      const pendingLookup = new Promise<Response>((resolve) => {
+        resolveLookup = resolve;
+      });
+      const never = new Promise<void>(() => {});
+      const fetchMock = vi.fn(async (url: string) => {
+        if (url === "/chat/threads?scopeType=design&scopeId=design-1") {
+          return jsonResponse({ threads: [] });
+        }
+        if (
+          url === "/chat/threads/old-thread?scopeType=design&scopeId=design-1"
+        ) {
+          return pendingLookup;
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      let hook: ReturnType<typeof useChatThreads> | null = null;
+      let setDesignId!: React.Dispatch<React.SetStateAction<string>>;
+      let attemptedSecondScope = false;
+      function ThreadView({ designId }: { designId: string }) {
+        hook = useChatThreads(
+          "/chat",
+          "design",
+          { type: "design", id: designId },
+          {
+            browserTabId: "tab-1",
+            isolateHistoryByScope: true,
+            ...(route ? { routeThreadId: "old-thread" } : {}),
+          },
+        );
+        if (designId === "design-2") {
+          attemptedSecondScope = true;
+          throw never;
+        }
+        return (
+          <span
+            data-thread={hook.activeThreadId ?? ""}
+            data-loading={String(hook.isLoading)}
+            data-confirmed={String(hook.isThreadPersisted("old-thread"))}
+          >
+            {designId}
+          </span>
+        );
+      }
+      function Harness() {
+        const [designId, setId] = React.useState("design-1");
+        setDesignId = setId;
+        return (
+          <React.Suspense fallback={<span>pending</span>}>
+            <ThreadView designId={designId} />
+          </React.Suspense>
+        );
+      }
+      await act(async () => {
+        root.render(<Harness />);
+      });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      await act(async () => {
+        React.startTransition(() => setDesignId("design-2"));
+      });
+      expect(attemptedSecondScope).toBe(true);
+      expect(container.textContent).toBe("design-1");
+      await act(async () => {
+        resolveLookup(
+          jsonResponse({
+            id: "old-thread",
+            title: "Saved thread",
+            preview: "Saved message",
+            messageCount: 1,
+            createdAt: 1,
+            updatedAt: 1,
+            scope: { type: "design", id: "design-1" },
+            threadData: JSON.stringify({ messages: [{ id: "message-1" }] }),
+          }),
+        );
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      });
+      expect(container.textContent).toBe("design-1");
+      const committed = container.querySelector("span");
+      expect(committed?.getAttribute("data-loading")).toBe("false");
+      expect(committed?.getAttribute("data-thread")).toBe("old-thread");
+      expect(committed?.getAttribute("data-confirmed")).toBe("true");
     },
   );
 

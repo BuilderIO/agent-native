@@ -1,4 +1,11 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 
 import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
 import { agentNativePath } from "./api-path.js";
@@ -634,7 +641,6 @@ export function useChatThreads(
     ? `${historyScope.type}:${historyScope.id}`
     : null;
   const historyScopeKeyRef = useRef(historyScopeKey);
-  historyScopeKeyRef.current = historyScopeKey;
   const routeControlsActiveThread = options?.routeThreadId !== undefined;
   const routeThreadId = normalizeThreadId(options?.routeThreadId);
   const routeThreadLookupKey =
@@ -642,7 +648,6 @@ export function useChatThreads(
       ? JSON.stringify([apiUrl, historyScopeKey, routeThreadId])
       : null;
   const routeThreadLookupKeyRef = useRef(routeThreadLookupKey);
-  routeThreadLookupKeyRef.current = routeThreadLookupKey;
   const initialRouteConfirmationPendingRef = useRef(routeThreadLookupKey);
   const activeThreadKey = useMemo(() => {
     return activeThreadStorageKey(storageKey, scope, browserTabId);
@@ -775,7 +780,6 @@ export function useChatThreads(
   }, []);
 
   const scopeRef = useRef<ChatThreadScope | null | undefined>(scope);
-  scopeRef.current = scope;
 
   const readKnownThreadScope = useCallback(
     (id: string): ChatThreadScope | null | undefined => {
@@ -818,11 +822,17 @@ export function useChatThreads(
   const [activeThreadId, setActiveThreadIdState] = useState<string | null>(
     initialActiveThreadRef.current.id,
   );
+  // A render may still show older state after a selection has been requested.
   const activeThreadIdRef = useRef(activeThreadId);
-  activeThreadIdRef.current = activeThreadId;
   const activeThreadKeyRef = useRef(activeThreadKey);
-  activeThreadKeyRef.current = activeThreadKey;
   const initialActiveThreadKeyRef = useRef(activeThreadKey);
+  // Suspended renders must not change the scope of in-flight restores.
+  useLayoutEffect(() => {
+    historyScopeKeyRef.current = historyScopeKey;
+    routeThreadLookupKeyRef.current = routeThreadLookupKey;
+    scopeRef.current = scope;
+    activeThreadKeyRef.current = activeThreadKey;
+  }, [historyScopeKey, routeThreadLookupKey, scope, activeThreadKey]);
   // Restore can settle before React commits a newer selection.
   const activeThreadSelectionRevisionRef = useRef(0);
   const setActiveThreadId = useCallback((id: string | null) => {
