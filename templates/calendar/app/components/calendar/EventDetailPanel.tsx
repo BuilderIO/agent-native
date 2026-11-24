@@ -150,9 +150,10 @@ export function EventDetailPanel({
   const [editDescription, setEditDescription] = useState(
     event?.description || "",
   );
-  const saveBase = useEventAtEditStart(
+  const titleBase = useEventAtEditStart(event, isEditingTitle ? "title" : null);
+  const descriptionBase = useEventAtEditStart(
     event,
-    isEditingTitle || isEditingDescription,
+    isEditingDescription ? "description" : null,
   );
   const titleInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -298,7 +299,7 @@ export function EventDetailPanel({
           return;
         }
         updateEvent.mutate(
-          saveBase ?? event,
+          descriptionBase ?? event,
           {
             ...updates,
             ...guestNotification,
@@ -313,7 +314,13 @@ export function EventDetailPanel({
       })();
     }
     setIsEditingDescription(false);
-  }, [editDescription, event, saveBase, promptGuestNotification, updateEvent]);
+  }, [
+    editDescription,
+    event,
+    descriptionBase,
+    promptGuestNotification,
+    updateEvent,
+  ]);
 
   const handleUnpin = () => {
     setEventDetailSidebar(false);
@@ -544,7 +551,7 @@ export function EventDetailPanel({
                           trimmed &&
                           trimmed !== getEditableEventTitle(event)
                         ) {
-                          onTitleSave?.(saveBase ?? event, trimmed);
+                          onTitleSave?.(titleBase ?? event, trimmed);
                         }
                         setIsEditingTitle(false);
                       } else if (e.key === "Escape") {
@@ -556,7 +563,7 @@ export function EventDetailPanel({
                     onBlur={() => {
                       const trimmed = editingTitle.trim();
                       if (trimmed && trimmed !== getEditableEventTitle(event)) {
-                        onTitleSave?.(saveBase ?? event, trimmed);
+                        onTitleSave?.(titleBase ?? event, trimmed);
                       }
                       setIsEditingTitle(false);
                     }}

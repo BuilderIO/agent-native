@@ -47,15 +47,15 @@ describe("useEventAtEditStart", () => {
 
   function EditStartHarness(props: {
     current: CalendarEvent;
-    editing: boolean;
+    editor: string | null;
   }) {
-    shown = useEventAtEditStart(props.current, props.editing);
+    shown = useEventAtEditStart(props.current, props.editor);
     return null;
   }
 
-  function show(current: CalendarEvent, editing: boolean) {
+  function show(current: CalendarEvent, editor: string | null) {
     act(() => {
-      root?.render(<EditStartHarness current={current} editing={editing} />);
+      root?.render(<EditStartHarness current={current} editor={editor} />);
     });
   }
 
@@ -63,15 +63,42 @@ describe("useEventAtEditStart", () => {
     const read = event();
     const refreshed = event({ title: "Retro", revision: '"2"' });
 
-    show(read, true);
-    show(refreshed, true);
+    show(read, "title");
+    show(refreshed, "title");
     expect(shown).toBe(read);
 
-    show(refreshed, false);
+    show(refreshed, null);
     expect(shown).toBe(refreshed);
 
-    show(refreshed, true);
+    show(refreshed, "title");
     expect(shown).toBe(refreshed);
+  });
+
+  it("starts over when the person moves straight to another editor", () => {
+    const read = event();
+    const refreshed = event({ location: "Room B", revision: '"2"' });
+
+    show(read, "attachments");
+    show(refreshed, "attachments");
+    expect(shown).toBe(read);
+
+    show(refreshed, "location");
+    expect(shown).toBe(refreshed);
+    show(event({ location: "Room C", revision: '"3"' }), "location");
+    expect(shown).toBe(refreshed);
+  });
+
+  it("holds the event again after its id or account changes mid-edit", () => {
+    show(event({ id: "temp-1" }), "title");
+    const saved = event({ revision: '"2"' });
+    show(saved, "title");
+    expect(shown).toBe(saved);
+    show(event({ title: "Retro", revision: '"3"' }), "title");
+    expect(shown).toBe(saved);
+
+    const moved = event({ accountEmail: "other@example.com" });
+    show(moved, "title");
+    expect(shown).toBe(moved);
   });
 });
 
@@ -81,5 +108,7 @@ describe("eventAsShown", () => {
     expect(eventAsShown(read, event({ revision: '"2"' }))).toBe(read);
     const replaced = event({ id: "google-event-2" });
     expect(eventAsShown(read, replaced)).toBe(replaced);
+    const moved = event({ accountEmail: "other@example.com" });
+    expect(eventAsShown(read, moved)).toBe(moved);
   });
 });

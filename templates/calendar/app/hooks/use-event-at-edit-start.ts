@@ -1,23 +1,35 @@
 import type { CalendarEvent } from "@shared/api";
 import { useEffect, useState } from "react";
 
+function sameEvent(a: CalendarEvent | null, b: CalendarEvent | null) {
+  return !!a && !!b && a.id === b.id && a.accountEmail === b.accountEmail;
+}
+
 export function eventAsShown(
   shown: CalendarEvent,
   current: CalendarEvent,
 ): CalendarEvent {
-  return shown.id === current.id && shown.accountEmail === current.accountEmail
-    ? shown
-    : current;
+  return sameEvent(shown, current) ? shown : current;
 }
 
 export function useEventAtEditStart<E extends CalendarEvent | null>(
   event: E,
-  editing: boolean,
+  editor: string | null,
 ): E {
-  const [atStart, setAtStart] = useState<{ event: E } | null>(null);
+  const [atStart, setAtStart] = useState<{ editor: string; event: E } | null>(
+    null,
+  );
   useEffect(() => {
-    setAtStart((held) => (editing ? (held ?? { event }) : null));
-  }, [editing, event]);
-  const held = atStart?.event;
-  return editing && held && event && held.id === event.id ? held : event;
+    setAtStart((held) => {
+      if (editor === null) return null;
+      return held && held.editor === editor && sameEvent(held.event, event)
+        ? held
+        : { editor, event };
+    });
+  }, [editor, event]);
+  return editor !== null &&
+    atStart?.editor === editor &&
+    sameEvent(atStart.event, event)
+    ? atStart.event
+    : event;
 }

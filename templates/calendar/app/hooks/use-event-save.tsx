@@ -186,8 +186,22 @@ function sameWhen(a: unknown, b: unknown) {
   );
 }
 
+function remindersOf(value: unknown) {
+  const record = asRecord(value);
+  const useDefault =
+    record.remindersUseDefault ?? record.reminders === undefined;
+  if (useDefault === true) return { useDefault: true };
+  return {
+    useDefault: false,
+    reminders: isEmptyValue(record.reminders) ? [] : record.reminders,
+  };
+}
+
 export function sameEventEditValue(path: string, a: unknown, b: unknown) {
   if (path === "when") return sameWhen(a, b);
+  if (path === "reminders") {
+    return isSameRecord(remindersOf(a), remindersOf(b));
+  }
   if (isEmptyValue(a) && isEmptyValue(b)) return true;
   return isSameRecord(a, b);
 }
@@ -373,6 +387,7 @@ export function EventSaveProvider({ children }: { children: ReactNode }) {
         attempts: number;
         result?: UpdateEventResult;
         current?: UpdateEventResult;
+        sent?: Record<string, unknown>;
       } = { attempts: 0 };
       await saveWithMerge<EventEdit>({
         base: { value: base, revision: startedFrom.revision ?? null },
@@ -412,6 +427,7 @@ export function EventSaveProvider({ children }: { children: ReactNode }) {
             withCalendarEventSourceIdentity(input, event),
           );
           outcome.result = result;
+          outcome.sent = body;
           return {
             value: eventEditOf(asRecord(result), paths),
             revision: result.revision ?? null,
@@ -419,15 +435,14 @@ export function EventSaveProvider({ children }: { children: ReactNode }) {
         },
       });
       const { result } = outcome;
-      if (
-        outcome.attempts === 1 &&
-        result?.id === event.id &&
-        !result.replacedId &&
-        event.revision
-      ) {
+      if (result?.id === event.id && !result.replacedId && event.revision) {
         queue.last = {
           readRevision: event.revision,
-          saved: { ...carried, ...appliedFields(request), ...asRecord(result) },
+          saved: {
+            ...(outcome.attempts === 1 ? carried : outcome.current),
+            ...appliedFields(outcome.sent ?? request),
+            ...asRecord(result),
+          },
         };
       }
       return result ?? outcome.current ?? {};

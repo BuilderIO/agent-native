@@ -509,10 +509,8 @@ export function EventDetailPopover({
   const editableLocationValue = event.location || "";
 
   const [editingField, setEditingField] = useState<string | null>(null);
-  const saveBase = useEventAtEditStart(
-    event,
-    isEditingTitle || editingField !== null,
-  );
+  const titleBase = useEventAtEditStart(event, isEditingTitle ? "title" : null);
+  const fieldBase = useEventAtEditStart(event, editingField);
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const [editDescription, setEditDescription] = useState(
@@ -818,7 +816,7 @@ export function EventDetailPopover({
             return;
           }
           updateEvent.mutate(
-            saveBase,
+            fieldBase,
             {
               ...updates,
               ...guestNotification,
@@ -836,7 +834,7 @@ export function EventDetailPopover({
     },
     [
       event,
-      saveBase,
+      fieldBase,
       isDraft,
       isRecurringEvent,
       beginAction,
@@ -1583,7 +1581,7 @@ export function EventDetailPopover({
         let savedPendingChange = false;
         if (isEditingTitle) {
           if (trimmedTitle) {
-            onTitleSave?.(saveBase, trimmedTitle);
+            onTitleSave?.(titleBase, trimmedTitle);
             isNewEventRef.current = false;
             savedPendingChange = true;
           }
@@ -1619,7 +1617,7 @@ export function EventDetailPopover({
       isEditingTitle,
       editingTitle,
       event,
-      saveBase,
+      titleBase,
       onTitleSave,
       onDismissNew,
       editingField,
@@ -1779,7 +1777,7 @@ export function EventDetailPopover({
                       e.preventDefault();
                       const trimmed = editingTitle.trim();
                       if (trimmed) {
-                        onTitleSave?.(saveBase, trimmed);
+                        onTitleSave?.(titleBase, trimmed);
                         isNewEventRef.current = false;
                       }
                       setIsEditingTitle(false);
@@ -1805,7 +1803,7 @@ export function EventDetailPopover({
                   onBlur={() => {
                     const trimmed = editingTitle.trim();
                     if (trimmed && trimmed !== getEditableEventTitle(event)) {
-                      onTitleSave?.(saveBase, trimmed);
+                      onTitleSave?.(titleBase, trimmed);
                       isNewEventRef.current = false;
                     }
                     setIsEditingTitle(false);

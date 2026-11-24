@@ -49,6 +49,7 @@ import {
   EventSaveProvider,
   eventRequestFields,
   mergeEventEdits,
+  sameEventEditValue,
   useEventSave,
 } from "./use-event-save";
 
@@ -228,6 +229,35 @@ describe("mergeEventEdits", () => {
       ok: true,
       merged: { description: "Notes", recurrence: [] },
     });
+  });
+});
+
+describe("sameEventEditValue", () => {
+  it("compares reminders as Google keeps them", () => {
+    expect(
+      sameEventEditValue(
+        "reminders",
+        {
+          remindersUseDefault: true,
+          reminders: [{ method: "popup", minutes: 10 }],
+        },
+        { remindersUseDefault: true },
+      ),
+    ).toBe(true);
+    expect(
+      sameEventEditValue(
+        "reminders",
+        { remindersUseDefault: false, reminders: [] },
+        { remindersUseDefault: false },
+      ),
+    ).toBe(true);
+    expect(
+      sameEventEditValue(
+        "reminders",
+        { remindersUseDefault: false, reminders: [] },
+        { remindersUseDefault: true },
+      ),
+    ).toBe(false);
   });
 });
 
@@ -511,6 +541,38 @@ describe("useEventSave", () => {
       accountEmail: "agent@example.com",
       location: "Room C",
       expectedRevision: '"2"',
+    });
+  });
+
+  it("starts a queued edit from a first save that merged on its retry", async () => {
+    updateEventMutateAsync
+      .mockRejectedValueOnce(
+        conflict(event({ location: "Room B", revision: '"2"' })),
+      )
+      .mockResolvedValueOnce({ id: "google-event-1", revision: '"3"' })
+      .mockRejectedValueOnce(
+        conflict(
+          event({ title: "Roadmap", location: "Room C", revision: '"4"' }),
+        ),
+      )
+      .mockResolvedValueOnce({ id: "google-event-1", revision: '"5"' });
+
+    await act(async () => {
+      await rendered().mutateAsync(event(), { title: "Roadmap" });
+      await rendered().mutateAsync(event(), { title: "Retro" });
+    });
+
+    expect(resolveOverlap).not.toHaveBeenCalled();
+    expect(updateEventMutateAsync).toHaveBeenCalledTimes(4);
+    expect(updateEventMutateAsync.mock.calls[2]?.[0]).toMatchObject({
+      title: "Retro",
+      expectedRevision: '"3"',
+    });
+    expect(updateEventMutateAsync).toHaveBeenLastCalledWith({
+      id: "google-event-1",
+      accountEmail: "agent@example.com",
+      title: "Retro",
+      expectedRevision: '"4"',
     });
   });
 
