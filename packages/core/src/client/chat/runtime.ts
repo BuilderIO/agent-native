@@ -16,6 +16,7 @@ import {
   AGENT_CALL_APPROVAL_WIDGET_KIND,
   ASSISTANT_RUN_DURATION_METADATA_KEY,
   normalizeAgentActionScope,
+  UNKNOWN_TOOL_ERROR_CODE,
   type A2APeerApproval,
   type AgentActionScope,
   type AgentChatStructuredContentPart,
@@ -4637,6 +4638,9 @@ function mapAgentNativeEvent(
       delete storedToolCall.approvalPauseCandidate;
       delete storedToolCall.approvalResumeCandidate;
       storedToolCall.isError = ev.isError === true || Boolean(ev.error);
+      if (ev.errorCode === UNKNOWN_TOOL_ERROR_CODE) {
+        storedToolCall.errorCode = ev.errorCode;
+      }
       storedToolCall.completedSideEffect = ev.completedSideEffect === true;
       if (ev.mcpApp) storedToolCall.mcpApp = ev.mcpApp;
       if (ev.chatUI) storedToolCall.chatUI = ev.chatUI;
