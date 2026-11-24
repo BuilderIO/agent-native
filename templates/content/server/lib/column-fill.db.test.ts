@@ -24,6 +24,7 @@ const agents = vi.hoisted(() => ({
   spawned: [] as Array<Record<string, unknown>>,
   statuses: new Map<string, TaskStatus>(),
   aiReady: true,
+  threads: new Map<string, unknown>(),
   onSpawn: undefined as
     | ((options: Record<string, unknown>) => Promise<void>)
     | undefined,
@@ -38,6 +39,7 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
       const index = agents.spawned.push(options);
       const taskId = `task-${index}`;
       agents.statuses.set(taskId, "running");
+      agents.threads.set(`thread-${index}`, options.scope);
       await agents.onSpawn?.(options);
       return {
         taskId,
@@ -61,6 +63,9 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
           }
         : undefined;
     }),
+    getThread: vi.fn(async (id: string) =>
+      agents.threads.has(id) ? { id, scope: agents.threads.get(id) } : null,
+    ),
     isAgentChatAiSetupReady: vi.fn(async () => agents.aiReady),
   };
 });
@@ -109,6 +114,7 @@ afterAll(() => {
 beforeEach(() => {
   agents.spawned.length = 0;
   agents.statuses.clear();
+  agents.threads.clear();
   agents.aiReady = true;
   agents.onSpawn = undefined;
 });
@@ -238,7 +244,7 @@ describe("Fill with AI", () => {
       quiet: true,
       parentDelegationDepth: 0,
       allowedActionNames: ["get-document", "fill-column-cell"],
-      scope: { type: "content-column-fill", id: fill.id },
+      scope: { type: "content-column-fill", id: `${fill.id}:${ids.row(2)}` },
     });
     let statuses = await cells(fill.id);
     expect(running(statuses)).toHaveLength(5);
@@ -432,6 +438,24 @@ describe("Fill with AI", () => {
     expect(otherRun.status).toBe("running");
     expect(await cellValue(ids.row(0), ids.summary)).toBeNull();
 
+    await getDb()
+      .update(schema.contentColumnFillCells)
+      .set({ agentThreadId: null })
+      .where(
+        and(
+          eq(schema.contentColumnFillCells.fillId, fill.id),
+          eq(schema.contentColumnFillCells.documentId, ids.row(0)),
+        ),
+      );
+    const beforeLinked = await asOwner(() =>
+      columnFill.fillColumnCell(
+        { fillId: fill.id, documentId: ids.row(0), value: "Not mine" },
+        run(2),
+      ),
+    );
+    expect(beforeLinked.status).toBe("running");
+    expect(await cellValue(ids.row(0), ids.summary)).toBeNull();
+
     await asOwner(() =>
       setProperty.run({
         documentId: ids.row(1),
@@ -459,11 +483,13 @@ describe("Fill with AI", () => {
   it("links a row's chat even when its run saves before it is recorded", async () => {
     const ids = await fixture(1);
     agents.onSpawn = async (options) => {
-      const scope = options.scope as { id: string };
-      await getDb()
-        .update(schema.contentColumnFillCells)
-        .set({ status: "filled" })
-        .where(eq(schema.contentColumnFillCells.fillId, scope.id));
+      const [fillId, documentId] = (options.scope as { id: string }).id.split(
+        ":",
+      ) as [string, string];
+      await columnFill.fillColumnCell(
+        { fillId, documentId, value: "Quick" },
+        run(agents.spawned.length),
+      );
     };
     const fill = await asOwner(() =>
       columnFill.startColumnFill({
@@ -478,6 +504,97 @@ describe("Fill with AI", () => {
       status: "filled",
       agentThreadId: "thread-1",
     });
+    expect(await cellValue(ids.row(0), ids.summary)).toBe("Quick");
+  });
+
+  it("lets a retried run save before it is recorded", async () => {
+    const ids = await fixture(1);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    agents.statuses.set("task-1", "errored");
+    await columnFill.sweepColumnFills({ deadlineAt: Date.now() + 10_000 });
+    expect((await cells(fill.id)).get(ids.row(0))).toBe("failed");
+
+    agents.onSpawn = async () => {
+      await columnFill.fillColumnCell(
+        { fillId: fill.id, documentId: ids.row(0), value: "Second run" },
+        run(agents.spawned.length),
+      );
+    };
+    const retried = await asOwner(() =>
+      columnFill.retryColumnFillCell({
+        fillId: fill.id,
+        documentId: ids.row(0),
+      }),
+    );
+    expect(retried.cells[0]).toMatchObject({
+      status: "filled",
+      agentThreadId: "thread-2",
+    });
+    expect(await cellValue(ids.row(0), ids.summary)).toBe("Second run");
+  });
+
+  it("keeps a newer run's chat link when an older run's start returns late", async () => {
+    const ids = await fixture(1);
+    let retried = false;
+    agents.onSpawn = async (options) => {
+      if (retried) return;
+      retried = true;
+      const [fillId, documentId] = (options.scope as { id: string }).id.split(
+        ":",
+      ) as [string, string];
+      await columnFill.fillColumnCell(
+        { fillId, documentId, value: null, reason: "Empty page" },
+        run(1),
+      );
+      await columnFill.retryColumnFillCell({ fillId, documentId });
+    };
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    expect(agents.spawned).toHaveLength(2);
+    expect(fill.cells[0]).toMatchObject({
+      status: "running",
+      agentThreadId: "thread-2",
+    });
+  });
+
+  it("stops saving to a row the person can no longer edit", async () => {
+    const ids = await fixture(2);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    await getDb()
+      .update(schema.documents)
+      .set({ ownerEmail: "someone-else@example.com", visibility: "public" })
+      .where(eq(schema.documents.id, ids.row(0)));
+    const saved = await asOwner(() =>
+      columnFill.fillColumnCell(
+        { fillId: fill.id, documentId: ids.row(0), value: "Not allowed" },
+        run(1),
+      ),
+    );
+    expect(saved.status).toBe("failed");
+    expect(await cellValue(ids.row(0), ids.summary)).toBeNull();
   });
 
   it("leaves out rows the person can't edit", async () => {

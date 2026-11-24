@@ -4,6 +4,7 @@ import { isUniqueViolation } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getTask,
+  getThread,
   isAgentChatAiSetupReady,
   runWithRequestContext,
   spawnTask,
@@ -13,6 +14,7 @@ import {
   accessFilter,
   assertAccess,
   currentAccess,
+  ForbiddenError,
 } from "@agent-native/core/sharing";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 
@@ -57,6 +59,20 @@ type PropertyDefinitionRow =
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function cellScopeId(fillId: string, documentId: string) {
+  return `${fillId}:${documentId}`;
+}
+
+async function canEditRow(documentId: string): Promise<boolean> {
+  try {
+    await assertAccess("document", documentId, "editor");
+    return true;
+  } catch (error) {
+    if (error instanceof ForbiddenError) return false;
+    throw error;
+  }
 }
 
 function alreadyFilling(): ActionContractError {
@@ -402,7 +418,7 @@ async function startCellAgents(fill: FillRow, cells: CellRow[]) {
         name: `Fill ${definition.name}`,
         scope: {
           type: COLUMN_FILL_SCOPE_TYPE,
-          id: fill.id,
+          id: cellScopeId(fill.id, cell.documentId),
           label: definition.name,
         },
         quiet: true,
@@ -410,11 +426,21 @@ async function startCellAgents(fill: FillRow, cells: CellRow[]) {
         parentSourceAppId: "content",
         parentDelegationDepth: 0,
       });
-      await setCell(fill.id, cell.documentId, {
-        taskId: task.taskId,
-        agentThreadId: task.threadId,
-        runId: task.runId ?? null,
-      });
+      await getDb()
+        .update(schema.contentColumnFillCells)
+        .set({
+          taskId: task.taskId,
+          agentThreadId: task.threadId,
+          runId: task.runId ?? null,
+          updatedAt: nowIso(),
+        })
+        .where(
+          and(
+            eq(schema.contentColumnFillCells.fillId, fill.id),
+            eq(schema.contentColumnFillCells.documentId, cell.documentId),
+            isNull(schema.contentColumnFillCells.taskId),
+          ),
+        );
     } catch (error) {
       await setCell(
         fill.id,
@@ -689,6 +715,7 @@ export async function retryColumnFillCell(args: {
             status: "waiting",
             error: null,
             taskId: null,
+            agentThreadId: null,
             runId: null,
             baseGeneration: generations.of(cell.documentId, fill.propertyId),
             updatedAt: stamp,
@@ -737,15 +764,18 @@ export async function fillColumnCell(
   );
   if (!cell) throw fillNotFound();
   const status = cell.status as ColumnFillCellStatus;
-  if (
-    ctx?.threadId &&
-    cell.agentThreadId &&
-    ctx.threadId !== cell.agentThreadId
-  ) {
-    return {
-      status,
-      message: "This cell belongs to another run, so nothing was saved.",
-    };
+  if (ctx?.threadId) {
+    const thread = await getThread(ctx.threadId);
+    if (
+      thread?.scope?.type !== COLUMN_FILL_SCOPE_TYPE ||
+      thread.scope.id !== cellScopeId(fill.id, cell.documentId) ||
+      (cell.agentThreadId && ctx.threadId !== cell.agentThreadId)
+    ) {
+      return {
+        status,
+        message: "This cell belongs to another run, so nothing was saved.",
+      };
+    }
   }
   if (status === "waiting" || status === "skipped") {
     return {
@@ -798,6 +828,18 @@ export async function fillColumnCell(
   }
 
   const value = columnFillValue(definition, args.value);
+  if (!(await canEditRow(cell.documentId))) {
+    const message = "You can no longer edit this row, so nothing was saved.";
+    if (followUp || status !== "running") return { status, message };
+    await setCell(
+      fill.id,
+      cell.documentId,
+      { status: "failed", error: "You can no longer edit this row." },
+      "running",
+    );
+    await advanceColumnFill(fill.id);
+    return { status: "failed", message };
+  }
   try {
     await setDocumentProperty.run(
       {
