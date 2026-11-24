@@ -795,11 +795,15 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
 
   const { data, isLoading, refetch } = useActionQuery<IndexDesignTokensResult>(
     "index-design-tokens",
-    { designId },
+    { designId, compact: true },
   );
 
   const queryClient = useQueryClient();
-  const tokensQueryKey = ["action", "index-design-tokens", { designId }];
+  const tokensQueryKey = [
+    "action",
+    "index-design-tokens",
+    { designId, compact: true },
+  ];
   const applyMutation = useActionMutation("apply-design-token-edit");
   const importMutation = useActionMutation("import-design-tokens");
 
