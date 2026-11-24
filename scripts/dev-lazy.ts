@@ -13,7 +13,7 @@ import {
   normalizeOrigin,
   rewriteRedirectLocation,
 } from "../packages/core/src/cli/gateway-helpers.ts";
-import { pnpmCommand } from "./lib/pnpm-command.ts";
+import { pnpmCommand, stopProcessTree } from "./lib/pnpm-command.ts";
 
 interface TemplateApp {
   id: string;
@@ -133,7 +133,8 @@ Start a lazy template gateway for framework repo development.
 
 When agent-native.json declares deployment.workspace, runs
 \`agent-native workspace-dev\` for that workspace's apps instead, unless
---apps, --all, --desktop, --electron or --dry-run is passed.
+--apps, --all, --desktop, --electron, --dry-run or --watch-core-dist is
+passed.
 
 Usage:
   node scripts/dev-lazy.ts [options]
@@ -1892,6 +1893,7 @@ const DEV_LAZY_ONLY_FLAGS = [
   "--desktop",
   "--electron",
   "--dry-run",
+  "--watch-core-dist",
 ];
 
 export function shouldUseWorkspaceDev(root: string, args: string[]): boolean {
@@ -1915,6 +1917,8 @@ function runWorkspaceDev(): void {
     "packages/core/src/cli/index.ts",
     "workspace-dev",
     ...argv,
+    // workspace-dev opens a browser by default; dev-lazy only opens on request.
+    ...(shouldOpen ? [] : ["--no-open"]),
   ]);
   const child = spawn(pnpm.command, pnpm.args, {
     cwd: ROOT,
@@ -1922,7 +1926,7 @@ function runWorkspaceDev(): void {
     stdio: "inherit",
   });
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.once(sig, () => child.kill(sig));
+    process.once(sig, () => stopProcessTree(child, sig));
   }
   child.on("exit", (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
 }

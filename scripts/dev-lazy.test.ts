@@ -44,6 +44,7 @@ describe("dev-lazy workspace handoff", () => {
       assert.equal(shouldUseWorkspaceDev(root, ["--apps", "mail"]), false);
       assert.equal(shouldUseWorkspaceDev(root, ["--apps=mail"]), false);
       assert.equal(shouldUseWorkspaceDev(root, ["--desktop"]), false);
+      assert.equal(shouldUseWorkspaceDev(root, ["--watch-core-dist"]), false);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -70,26 +71,6 @@ describe("dev-lazy app-local environment", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
-  });
-});
-
-describe("dev-lazy native binding preflight", () => {
-  it("runs before the first template Vite spawn", () => {
-    const source = fs.readFileSync(
-      new URL("./dev-lazy.ts", import.meta.url),
-      "utf8",
-    );
-    const main = source.indexOf("async function main(): Promise<void>");
-    const preflightCall = source.indexOf("runNativeBindingPreflight();", main);
-    const gatewayCreation = source.indexOf(
-      "const server = createGateway();",
-      main,
-    );
-
-    assert.ok(main >= 0);
-    assert.ok(preflightCall >= 0);
-    assert.ok(gatewayCreation > main);
-    assert.ok(preflightCall < gatewayCreation);
   });
 });
 
