@@ -2225,8 +2225,8 @@ describe("AgentKitAssistantChat host behavior", () => {
             admission.reject(new Error("History unavailable"));
           else admission.resolve(outcome === "accept" ? release : null);
           const result = await submission;
-          if (outcome === "accept") expect(result).toBeUndefined();
-          else expect(result).toBeInstanceOf(Error);
+          expect(result === undefined).toBe(outcome === "accept");
+          expect(result instanceof Error).toBe(outcome !== "accept");
         });
       }
       await act(async () => {
