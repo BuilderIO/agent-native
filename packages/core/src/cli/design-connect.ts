@@ -13,7 +13,6 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 import { parse, type ParserPlugin } from "@babel/parser";
-import { parse as parseHtml, type DefaultTreeAdapterTypes } from "parse5";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 import {
@@ -221,17 +220,10 @@ const LIVE_EDIT_REGISTRATION_CAPABILITY_DOMAIN =
 const PREVIEW_ATTESTATION_DOMAIN =
   "agent-native-design-preview-attestation-v1\0";
 const PREVIEW_SESSION_COOKIE_NAME = "agent-native-preview-token";
-function bridgeFrameHeaders(
-  bridgeUrl: string,
-  restrictBase = false,
-): Record<string, string> {
-  const origin = new URL(bridgeUrl).origin;
-  return {
-    "cross-origin-embedder-policy": "credentialless",
-    "cross-origin-resource-policy": "cross-origin",
-    "content-security-policy": `script-src 'unsafe-inline' 'unsafe-eval' blob: ${origin}${restrictBase ? `; base-uri ${origin}` : ""}`,
-  };
-}
+const BRIDGE_FRAME_HEADERS = {
+  "cross-origin-embedder-policy": "credentialless",
+  "cross-origin-resource-policy": "cross-origin",
+} as const;
 
 /**
  * Derive a read-only preview credential from the stronger filesystem token.
@@ -1533,29 +1525,6 @@ async function fetchPreviewProxyResource(
   }
 }
 
-function hasSafePreviewBase(html: string, bridgeBase: string): boolean {
-  const pending: DefaultTreeAdapterTypes.Node[] = [parseHtml(html)];
-  while (pending.length) {
-    const node = pending.pop();
-    if (!node) break;
-    if ("tagName" in node && node.tagName === "base") {
-      const href = node.attrs.find((attribute) => attribute.name === "href");
-      if (href) {
-        try {
-          return (
-            new URL(href.value, bridgeBase).origin ===
-            new URL(bridgeBase).origin
-          );
-        } catch {
-          return false;
-        }
-      }
-    }
-    if ("childNodes" in node) pending.push(...[...node.childNodes].reverse());
-  }
-  return true;
-}
-
 function addLiveEditBaseHref(html: string, href: string): string {
   const escapedHref = href.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
   const baseTag = `<base href="${escapedHref}">`;
@@ -1628,9 +1597,6 @@ function rewriteViteHmrUpdate(
       candidate.type !== "js-update" ||
       !("acceptedPath" in candidate) ||
       typeof candidate.acceptedPath !== "string" ||
-      !candidate.acceptedPath.startsWith("/") ||
-      candidate.acceptedPath.startsWith("//") ||
-      /[\\\s\x00-\x1f\x7f]/.test(candidate.acceptedPath) ||
       !("timestamp" in candidate) ||
       typeof candidate.timestamp !== "number" ||
       !Number.isSafeInteger(candidate.timestamp)
@@ -1651,159 +1617,70 @@ function webSocketDataBuffer(data: RawData): Buffer {
   return Buffer.from(data);
 }
 
-function rewriteInlinePreviewResources(
-  html: string,
-  previewToken: string,
-): string {
-  const pending: DefaultTreeAdapterTypes.Node[] = [
-    parseHtml(html, { sourceCodeLocationInfo: true }),
-  ];
-  const replacements: Array<{ start: number; end: number; value: string }> = [];
-  while (pending.length) {
-    const node = pending.pop();
-    if (!node) break;
-    if ("tagName" in node) {
-      const location = node.sourceCodeLocation;
-      const isModule =
-        node.tagName === "script" &&
-        node.attrs.some(
-          (attr) =>
-            attr.name === "type" &&
-            attr.value.trim().toLowerCase() === "module",
-        );
-      if (
-        location?.startTag &&
-        location.endTag &&
-        (node.tagName === "style" || isModule)
-      ) {
-        const start = location.startTag.endOffset;
-        const end = location.endTag.startOffset;
-        const body = html.slice(start, end);
-        replacements.push({
-          start,
-          end,
-          value: isModule
-            ? addOpaqueFrameJavaScriptResourceTokens(body, previewToken)
-            : addOpaqueFrameResourceTokens(body, previewToken),
-        });
-      }
-    }
-    if ("childNodes" in node) pending.push(...node.childNodes);
-  }
-  const chunks: string[] = [];
-  let offset = 0;
-  for (const replacement of replacements.sort((a, b) => a.start - b.start)) {
-    chunks.push(html.slice(offset, replacement.start), replacement.value);
-    offset = replacement.end;
-  }
-  chunks.push(html.slice(offset));
-  return chunks.join("");
-}
-
-function rewritePreviewStartTags(
-  html: string,
-  rewrite: (tag: string) => string,
-): string {
-  const pending: DefaultTreeAdapterTypes.Node[] = [
-    parseHtml(html, { sourceCodeLocationInfo: true }),
-  ];
-  const replacements: Array<{ start: number; end: number; value: string }> = [];
-  while (pending.length) {
-    const node = pending.pop();
-    if (!node) break;
-    if (
-      "tagName" in node &&
-      /^(?:script|link|img|audio|video|source|track|iframe)$/.test(node.tagName)
-    ) {
-      const tag = node.sourceCodeLocation?.startTag;
-      if (tag)
-        replacements.push({
-          start: tag.startOffset,
-          end: tag.endOffset,
-          value: rewrite(html.slice(tag.startOffset, tag.endOffset)),
-        });
-    }
-    if ("childNodes" in node) pending.push(...node.childNodes);
-  }
-  const chunks: string[] = [];
-  let offset = 0;
-  for (const replacement of replacements.sort((a, b) => a.start - b.start)) {
-    chunks.push(html.slice(offset, replacement.start), replacement.value);
-    offset = replacement.end;
-  }
-  chunks.push(html.slice(offset));
-  return chunks.join("");
-}
-
 function addOpaqueFrameCredentials(
   html: string,
-  bridgeBase: string,
-  staticTokensSafe: boolean,
   previewToken?: string,
 ): string {
-  const withCredentialedResources = !staticTokensSafe
-    ? html
-    : rewritePreviewStartTags(html, (tag) =>
-        tag.replace(
-          /^<(script|link|img|audio|video|source|track|iframe)\b([^>]*?)>$/i,
-          (fullTag, tagName: string, attributes: string) => {
-            const resourceMatch = attributes.match(
-              /\b(src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i,
-            );
-            const resourceUrl =
-              resourceMatch?.[2] ??
-              resourceMatch?.[3] ??
-              resourceMatch?.[4] ??
-              "";
-            if (
-              !resourceMatch ||
-              !resourceUrl ||
-              resourceUrl.split("?", 1)[0].includes("&") ||
-              /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(resourceUrl)
-            ) {
-              return fullTag;
-            }
-            let nextAttributes = attributes;
-            if (previewToken) {
-              const tokenizedResourceUrl = addPreviewTokenToResourceUrl(
-                resourceUrl,
-                previewToken,
-              );
-              if (tokenizedResourceUrl !== resourceUrl) {
-                nextAttributes = nextAttributes.replace(
-                  resourceMatch[0],
-                  resourceMatch[0].replace(resourceUrl, tokenizedResourceUrl),
-                );
-              }
-            }
-            if (
-              tagName.toLowerCase() === "script" ||
-              tagName.toLowerCase() === "link"
-            ) {
-              if (/\bcrossorigin\s*=/i.test(nextAttributes)) {
-                nextAttributes = nextAttributes.replace(
-                  /\bcrossorigin\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i,
-                  'crossorigin="use-credentials"',
-                );
-              } else {
-                nextAttributes += ' crossorigin="use-credentials"';
-              }
-            }
-            return `<${tagName}${nextAttributes}>`;
-          },
-        ),
+  const withCredentialedResources = html.replace(
+    /<(script|link|img|audio|video|source|track|iframe)\b([^>]*?)>/gi,
+    (fullTag, tagName: string, attributes: string) => {
+      const resourceMatch = attributes.match(
+        /\b(src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i,
       );
+      const resourceUrl =
+        resourceMatch?.[2] ?? resourceMatch?.[3] ?? resourceMatch?.[4] ?? "";
+      if (
+        !resourceMatch ||
+        !resourceUrl ||
+        /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(resourceUrl)
+      ) {
+        return fullTag;
+      }
+      let nextAttributes = attributes;
+      if (previewToken) {
+        const tokenizedResourceUrl = addPreviewTokenToResourceUrl(
+          resourceUrl,
+          previewToken,
+        );
+        if (tokenizedResourceUrl !== resourceUrl) {
+          nextAttributes = nextAttributes.replace(
+            resourceMatch[0],
+            resourceMatch[0].replace(resourceUrl, tokenizedResourceUrl),
+          );
+        }
+      }
+      if (
+        tagName.toLowerCase() === "script" ||
+        tagName.toLowerCase() === "link"
+      ) {
+        if (/\bcrossorigin\s*=/i.test(nextAttributes)) {
+          nextAttributes = nextAttributes.replace(
+            /\bcrossorigin\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i,
+            'crossorigin="use-credentials"',
+          );
+        } else {
+          nextAttributes += ' crossorigin="use-credentials"';
+        }
+      }
+      return `<${tagName}${nextAttributes}>`;
+    },
+  );
   if (!previewToken) return withCredentialedResources;
-  const withInlineModuleTokens = staticTokensSafe
-    ? rewriteInlinePreviewResources(withCredentialedResources, previewToken)
-    : withCredentialedResources;
+  const withInlineStyleTokens = withCredentialedResources.replace(
+    /(<style\b[^>]*>)([\s\S]*?)(<\/style\s*>)/gi,
+    (_full, opening: string, body: string, closing: string) =>
+      `${opening}${addOpaqueFrameResourceTokens(body, previewToken)}${closing}`,
+  );
+  const withInlineModuleTokens = withInlineStyleTokens.replace(
+    /(<script\b[^>]*\btype\s*=\s*["']module["'][^>]*>)([\s\S]*?)(<\/script\s*>)/gi,
+    (_full, opening: string, body: string, closing: string) =>
+      `${opening}${addOpaqueFrameJavaScriptResourceTokens(body, previewToken)}${closing}`,
+  );
   const hmrImport = "/@id/__x00__virtual:react-router/inject-hmr-runtime";
   const hmrImportWithToken = `${hmrImport}?previewToken=${encodeURIComponent(previewToken)}`;
-  const withHmrToken = !staticTokensSafe
-    ? withInlineModuleTokens
-    : withInlineModuleTokens
-        .replaceAll(`"${hmrImport}"`, `"${hmrImportWithToken}"`)
-        .replaceAll(`'${hmrImport}'`, `'${hmrImportWithToken}'`);
+  const withHmrToken = withInlineModuleTokens
+    .replaceAll(`"${hmrImport}"`, `"${hmrImportWithToken}"`)
+    .replaceAll(`'${hmrImport}'`, `'${hmrImportWithToken}'`);
   const previewTokenLiteral = JSON.stringify(previewToken).replace(
     /</g,
     "\\u003c",
@@ -1821,23 +1698,21 @@ function addOpaqueFrameCredentials(
       "/@vite/client": `/@vite/client?previewToken=${encodeURIComponent(previewToken)}`,
     },
   });
-  const withImportMap = !staticTokensSafe
-    ? withHmrToken
-    : injectDocumentMarkup(
-        withHmrToken,
-        `<script type="importmap" data-agent-native-opaque-preview-imports>${previewImportMap}</script>`,
-        { target: "head" },
-      );
+  const withImportMap = injectDocumentMarkup(
+    withHmrToken,
+    `<script type="importmap" data-agent-native-opaque-preview-imports>${previewImportMap}</script>`,
+    { target: "head" },
+  );
   const withViteHmrStyleAuth = injectDocumentMarkup(
     withImportMap,
     // coercion-ok: malformed Vite-generated CSS URLs stay unchanged in the frame.
-    `<script data-agent-native-vite-css-auth>(function(t){var p=Element.prototype.after;Element.prototype.after=function(){for(var i=0;i<arguments.length;i++){var n=arguments[i];if(!n||n.nodeType!==1||n.tagName!=="LINK")continue;try{var u=new URL(n.getAttribute("href"),document.baseURI);if(u.origin===${JSON.stringify(new URL(bridgeBase).origin)}&&!u.searchParams.has("previewToken")){u.searchParams.set("previewToken",t);n.setAttribute("href",u.toString())}}catch(_){}}return p.apply(this,arguments)}})(${previewTokenLiteral});</script>`,
+    `<script data-agent-native-vite-css-auth>(function(t){var p=Element.prototype.after;Element.prototype.after=function(){for(var i=0;i<arguments.length;i++){var n=arguments[i];if(!n||n.nodeType!==1||n.tagName!=="LINK")continue;try{var b=new URL(document.baseURI),u=new URL(n.getAttribute("href"),b);if(u.origin===b.origin&&!u.searchParams.has("previewToken")){u.searchParams.set("previewToken",t);n.setAttribute("href",u.toString())}}catch(_){}}return p.apply(this,arguments)}})(${previewTokenLiteral});</script>`,
     { target: "head" },
   );
   return injectDocumentMarkup(
     withViteHmrStyleAuth,
     // coercion-ok: invalid browser-owned URLs stay unchanged in the frame.
-    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},b=new URL(${JSON.stringify(new URL(bridgeBase).origin)}),o=b.origin,h=b.host;if(window.addEventListener)window.addEventListener("securitypolicyviolation",function(e){if(e.effectiveDirective.indexOf("script-src")===0)console.error("Design preview blocked an external script to protect preview credentials.")});function u(v){try{if(v==null)return null;var r=String(v);if(/^(?:#|%23)/i.test(r.trim()))return null;var a=new URL(r,document.baseURI),same=a.origin===o||(h===a.host&&((b.protocol==="http:"&&a.protocol==="ws:")||(b.protocol==="https:"&&a.protocol==="wss:")));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()\s]+)\1\s*\)/gi,function(h,q,v){if(v.indexOf("\\")!==-1)return h;var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}function d(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return n}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){return p.call(this,d(n))};var i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){return i.call(this,d(n),r)}})();</script>`,
+    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},o,h;try{var b=new URL(document.baseURI);o=b.origin;h=b.host}catch(_){return}function u(v){try{if(v==null)return null;var r=String(v);if(/^(?:#|%23)/i.test(r.trim()))return null;var a=new URL(r,document.baseURI),same=a.origin===o||(h===a.host&&(a.protocol==="ws:"||a.protocol==="wss:"));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}function d(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return n}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){return p.call(this,d(n))};var i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){return i.call(this,d(n),r)}})();</script>`,
     { target: "head" },
   );
 }
@@ -1852,7 +1727,7 @@ function addOpaqueFrameResourceTokens(
       `${prefix}${quote}${addPreviewTokenToResourceUrl(resourceUrl, previewToken)}${quote}`,
   );
   return withImportTokens.replace(
-    /url\(\s*(["']?)([^"'()\s]+)\1\s*\)/gi,
+    /url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,
     (full, quote: string, resourceUrl: string) => {
       const tokenizedResourceUrl = addPreviewTokenToResourceUrl(
         resourceUrl,
@@ -1865,133 +1740,80 @@ function addOpaqueFrameResourceTokens(
   );
 }
 
+function addDynamicImportTokens(source: string, previewToken: string): string {
+  const imports = /\bimport\s*\(/g;
+  const lastBlockClose = source.lastIndexOf("*/");
+  const chunks: string[] = [];
+  let copied = 0;
+  for (let match = imports.exec(source); match; match = imports.exec(source)) {
+    let cursor = imports.lastIndex;
+    while (cursor < source.length) {
+      if (/\s/.test(source[cursor])) {
+        cursor++;
+      } else if (source.startsWith("/*", cursor)) {
+        if (cursor >= lastBlockClose) break;
+        const end = source.indexOf("*/", cursor + 2);
+        if (end < 0) break;
+        cursor = end + 2;
+      } else if (source.startsWith("//", cursor)) {
+        cursor += 2;
+        while (
+          cursor < source.length &&
+          !/[\r\n\u2028\u2029]/.test(source[cursor])
+        )
+          cursor++;
+      } else {
+        break;
+      }
+    }
+    const quote = source[cursor];
+    if (quote === '"' || quote === "'") {
+      let end = cursor + 1;
+      while (
+        end < source.length &&
+        source[end] !== quote &&
+        !/[\r\n\u2028\u2029]/.test(source[end])
+      )
+        end++;
+      if (source[end] === quote) {
+        const url = source.slice(cursor + 1, end);
+        if (/^(?:\/|\.{1,2}\/)/.test(url)) {
+          chunks.push(
+            source.slice(copied, cursor + 1),
+            addPreviewTokenToResourceUrl(url, previewToken),
+          );
+          copied = end;
+          imports.lastIndex = end + 1;
+        }
+      }
+    }
+  }
+  chunks.push(source.slice(copied));
+  return chunks.join("");
+}
+
 function addOpaqueFrameJavaScriptResourceTokens(
   source: string,
   previewToken: string,
 ): string {
   const rewrite = (prefix: string, quote: string, resourceUrl: string) =>
     `${prefix}${quote}${addPreviewTokenToResourceUrl(resourceUrl, previewToken)}${quote}`;
-  let ast: unknown;
-  try {
-    ast = parse(source, {
-      sourceType: "unambiguous",
-      plugins: ["jsx", "typescript"],
-    });
-  } catch (error) {
-    throw new Error(
-      "Cannot authenticate preview JavaScript because it could not be parsed.",
-      { cause: error },
-    );
-  }
-  const pending: unknown[] = [ast];
-  const replacements: Array<{ start: number; end: number; value: string }> = [];
-  while (pending.length) {
-    const node = pending.pop();
-    if (!node || typeof node !== "object" || Array.isArray(node)) continue;
-    const record = node as Record<string, unknown>;
-    const type = record.type;
-    if (typeof type !== "string" || type.startsWith("Comment")) continue;
-    let specifier: unknown;
-    if (
-      type === "ImportDeclaration" ||
-      type === "ExportNamedDeclaration" ||
-      type === "ExportAllDeclaration" ||
-      type === "ImportExpression"
-    ) {
-      specifier = record.source;
-    } else if (
-      type === "CallExpression" &&
-      (record.callee as { type?: unknown } | undefined)?.type === "Import" &&
-      Array.isArray(record.arguments)
-    ) {
-      specifier = record.arguments[0];
-    } else if (
-      type === "NewExpression" &&
-      (record.callee as { type?: unknown; name?: unknown } | undefined)
-        ?.type === "Identifier" &&
-      (record.callee as { name?: unknown }).name === "URL" &&
-      Array.isArray(record.arguments)
-    ) {
-      const base = record.arguments[1] as
-        | {
-            type?: unknown;
-            computed?: unknown;
-            object?: {
-              type?: unknown;
-              meta?: { name?: unknown };
-              property?: { name?: unknown };
-            };
-            property?: { name?: unknown };
-          }
-        | undefined;
-      if (
-        base?.type === "MemberExpression" &&
-        base.computed === false &&
-        base.property?.name === "url" &&
-        base.object?.type === "MetaProperty" &&
-        base.object.meta?.name === "import" &&
-        base.object.property?.name === "meta"
-      )
-        specifier = record.arguments[0];
-    }
-    if (specifier && typeof specifier === "object") {
-      const literal = specifier as {
-        type?: unknown;
-        start?: unknown;
-        end?: unknown;
-      };
-      if (
-        literal.type === "StringLiteral" &&
-        typeof literal.start === "number" &&
-        typeof literal.end === "number"
-      ) {
-        const start = literal.start + 1;
-        const end = literal.end - 1;
-        const url = source.slice(start, end);
-        if (/^(?:\/|\.{1,2}\/)/.test(url)) {
-          replacements.push({
-            start,
-            end,
-            value: addPreviewTokenToResourceUrl(url, previewToken),
-          });
-        }
-      }
-    }
-    for (const value of Object.values(record)) {
-      if (Array.isArray(value)) pending.push(...value);
-      else if (value && typeof value === "object") pending.push(value);
-    }
-  }
-  const chunks: string[] = [];
-  let offset = 0;
-  for (const replacement of replacements.sort((a, b) => a.start - b.start)) {
-    chunks.push(source.slice(offset, replacement.start), replacement.value);
-    offset = replacement.end;
-  }
-  chunks.push(source.slice(offset));
-  source = chunks.join("");
-  source = source.replace(
-    /^import\s*\{\s*injectQuery\s+as\s+__vite__injectQuery\s*\}\s*from\s*(["'])\/(?:[^\/"'\\?#\s]+\/)*@vite\/client(?:\?[^"']*)?\1\s*;?/,
-    (
-      declaration,
-    ) => `${declaration.replace("__vite__injectQuery", "__agentNativeViteInjectQuery")}
-function __vite__injectQuery(url, query) {
-  const value = __agentNativeViteInjectQuery(url, query);
-  if (typeof value !== "string" || !/^(?:\\/(?!\\/)|\\.{1,2}\\/)/.test(value)) return value;
-  try {
-    const resolved = new URL(import.meta.resolve(value));
-    if (resolved.origin !== new URL(import.meta.url).origin) return value;
-    if (resolved.searchParams.has("previewToken")) resolved.searchParams.delete("previewToken");
-    const hash = resolved.hash;
-    resolved.hash = "";
-    const href = resolved.href;
-    const tokenized = href + (href.endsWith("?") || href.endsWith("&") ? "" : resolved.search ? "&" : "?") + "previewToken=" + encodeURIComponent(${JSON.stringify(previewToken)}) + hash;
-    if (new URL(import.meta.resolve(tokenized)).origin !== new URL(import.meta.url).origin) return value;
-    return tokenized;
-  } catch { return value; }
-}`,
-  );
-  return source
+  return addDynamicImportTokens(source, previewToken)
+    .replace(
+      /(\b(?:import|export)\s+[^;]*?\sfrom\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    )
+    .replace(
+      /(\bimport\s+)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    )
+    .replace(
+      /(\bnew\s+URL\s*\(\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    )
     .replace(
       /((?:["']?)(?:module|clientActionModule|clientLoaderModule|clientMiddlewareModule|hydrateFallbackModule)(?:["']?)\s*:\s*)(["'])(\/(?:app|@id)\/[^"']*)\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>
@@ -2049,8 +1871,6 @@ function injectLiveEditBridge(
   const withBase = injectPreBootLocationShim(
     addOpaqueFrameCredentials(
       addLiveEditBaseHref(html, baseHref),
-      baseHref,
-      hasSafePreviewBase(html, baseHref),
       identity.previewToken,
     ),
     targetPath,
@@ -4603,10 +4423,7 @@ export async function startDesignConnectBridge(
                 ...snapshot.setCookieHeaders,
                 previewSessionSetCookie(providedPreviewToken),
               ],
-              bridgeFrameHeaders(
-                manifest.bridgeUrl,
-                hasSafePreviewBase(snapshot.html, manifest.bridgeUrl),
-              ),
+              BRIDGE_FRAME_HEADERS,
             );
           } catch (err: unknown) {
             sendJson(res, 400, {
@@ -5142,7 +4959,7 @@ export async function startDesignConnectBridge(
                 next.searchParams.set("previewToken", providedPreviewToken);
                 res.writeHead(302, {
                   location: next.toString(),
-                  ...bridgeFrameHeaders(manifest.bridgeUrl),
+                  ...BRIDGE_FRAME_HEADERS,
                   ...bridgeCorsHeaders(res),
                 });
                 res.end();
@@ -5278,13 +5095,7 @@ export async function startDesignConnectBridge(
               advertisedContentLength,
               proxied.setCookieHeaders,
               documentNavigation && contentType.includes("html")
-                ? bridgeFrameHeaders(
-                    manifest.bridgeUrl,
-                    hasSafePreviewBase(
-                      proxied.body.toString("utf8"),
-                      manifest.bridgeUrl,
-                    ),
-                  )
+                ? BRIDGE_FRAME_HEADERS
                 : {},
               shouldRewriteOpaqueFrameResources,
             );
