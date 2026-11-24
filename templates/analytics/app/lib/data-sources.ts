@@ -901,7 +901,8 @@ export const dataSources: DataSource[] = [
       },
       {
         title: "Enter your API key",
-        description: "Paste the API key.",
+        description:
+          "Paste the API key. Then ask the agent to turn on YouTube collection for the Content dashboard and name your channels, for example @Builderio. It takes an organization owner or admin.",
         inputKey: "YOUTUBE_API_KEY",
         inputLabel: "API Key",
         inputPlaceholder: "AIza...",

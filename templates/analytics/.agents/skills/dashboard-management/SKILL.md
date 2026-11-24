@@ -232,7 +232,9 @@ lists and `IS DISTINCT FROM`: list fixed rows with `SELECT … UNION ALL` and
 compare with `COALESCE(x, '') <> …`. Its daily signups chart uses wide
 rows (`yKeys`), not `pivot`: a pivot fills a missing series with 0, so an
 uncollected day would draw as a zero instead of a gap. Pivot only where a
-missing row is a real zero, like an author's week without signups. Each daily
+missing row is a real zero, like an author's week without signups. A pivoted
+daily line or area is also filled through today; the YouTube chart is stacked
+bars, which aren't filled, because its days end before today. Each daily
 chart's "Since collection began" starts at the first day of its own metric, so
 16 months of search history doesn't stretch the signups charts. Its Search tab
 has clicks per full month since collection began, each article's clicks

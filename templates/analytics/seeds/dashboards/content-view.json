@@ -609,7 +609,7 @@
     {
       "id": "youtube-views-per-day",
       "title": "YouTube views gained per day",
-      "chartType": "line",
+      "chartType": "bar",
       "source": "first-party",
       "width": 6,
       "tab": "YouTube",
@@ -623,7 +623,8 @@
           "seriesKey": "channel",
           "valueKey": "views"
         },
-        "description": "YouTube reports each video's views to date, read once a day; a day's views are what that count gained by the next day's read, so a missed read folds two days into one. A channel draws 0 before its first read. A video published after it counts from 0. A channel that shares its name with another is labeled with its channel ID too. Only channels the newest read covered are drawn, so a channel taken off the list drops off."
+        "stacked": true,
+        "description": "YouTube reports each video's views to date, read once a day; a day's views are what that count gained by the next day's read, so a missed read leaves a day without a bar and folds its views into the next one. A video published after its channel's first read counts from 0. A channel that shares its name with another is labeled with its channel ID too. Bars end the day before the newest read. Only channels the newest read covered are drawn, so a channel taken off the list drops off."
       }
     },
     {
@@ -652,7 +653,7 @@
           {
             "key": "channel",
             "label": "Channel",
-            "width": 120
+            "width": 160
           },
           {
             "key": "published",
@@ -684,7 +685,7 @@
             "format": "number"
           }
         ],
-        "description": "Views gained in the time range, then each video's views, likes and comments as of the latest read. A blank count is one the channel hides. Only videos the newest read covered are listed."
+        "description": "Views gained in the time range, then each video's views, likes and comments as of the latest read. A blank count is one the channel hides. Only videos the newest read covered are listed. Empty until YouTube is set up under Data Sources."
       }
     },
     {

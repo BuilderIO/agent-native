@@ -510,6 +510,22 @@ describe("Content view dashboard", () => {
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
 
+  it("draws only the days a read covered, so a day without one has no bar rather than a zero", async () => {
+    await insertVideos();
+    const panel = contentView().panels.find(
+      (candidate) => candidate.id === "youtube-views-per-day",
+    );
+    if (!panel) throw new Error("no YouTube views panel");
+    const plan = planPanelRender(await runPanel(panel.id, "7d"), panel, {
+      timeRange: 7,
+    });
+    expect(plan.rows.map((row) => row.date)).toEqual([
+      daysAgo(3),
+      daysAgo(2),
+      daysAgo(1),
+    ]);
+  });
+
   it("lists videos by views gained in the time range, with their counts to date", async () => {
     await insertVideos();
     expect(await runPanel("youtube-videos")).toEqual([
