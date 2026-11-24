@@ -2198,6 +2198,50 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBeNull();
   });
 
+  it.each(["accept", "refuse", "reject"] as const)(
+    "shows pending feedback while submission admission waits and cleans up on %s",
+    async (outcome) => {
+      const admission = Promise.withResolvers<(() => void) | null>();
+      const release = vi.fn();
+      chatMocks.history = {
+        beginSubmission: vi.fn(() => admission.promise),
+      };
+      await mount(baseProps());
+      let submission: Promise<unknown> | undefined;
+      try {
+        await act(async () => {
+          submission = chatMocks.composerProps
+            .onSubmit("Rewrite the intro", [], [], { intent: "immediate" })
+            .catch((error: unknown) => error);
+        });
+        expect(container.textContent).toContain("Rewrite the intro");
+        expect(container.querySelector('[role="status"]')?.textContent).toBe(
+          "agentChat.status.thinking",
+        );
+        expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+      } finally {
+        await act(async () => {
+          if (outcome === "reject")
+            admission.reject(new Error("History unavailable"));
+          else admission.resolve(outcome === "accept" ? release : null);
+          const result = await submission;
+          expect(result === undefined).toBe(outcome === "accept");
+          expect(result instanceof Error).toBe(outcome !== "accept");
+        });
+      }
+      await act(async () => {
+        await vi.waitFor(() =>
+          expect(container.textContent).not.toContain("Rewrite the intro"),
+        );
+      });
+      expect(container.querySelector('[role="status"]')).toBeNull();
+      expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(
+        outcome === "accept" ? 1 : 0,
+      );
+      expect(release).toHaveBeenCalledTimes(outcome === "accept" ? 1 : 0);
+    },
+  );
+
   it("shows the submitted message and Thinking before the agent client accepts the send", async () => {
     let acceptSend: () => void = () => undefined;
     chatMocks.control.sendMessage.mockImplementationOnce(
