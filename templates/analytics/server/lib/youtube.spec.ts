@@ -97,7 +97,7 @@ describe("YouTube Data API client", () => {
     });
 
     const result = await listYouTubeChannelVideos(["@Builderio"], {
-      maxVideosPerChannel: 100,
+      maxVideos: 100,
     });
 
     expect(result.channels).toEqual([
@@ -145,7 +145,7 @@ describe("YouTube Data API client", () => {
     const requests = serve(() => ({ body: { items: [] } }));
     await expect(
       listYouTubeChannelVideos(["UC80PWRj_ZU8Zu0HSMNVwKWw"], {
-        maxVideosPerChannel: 100,
+        maxVideos: 100,
       }),
     ).rejects.toMatchObject({ errorCode: "youtube_channel_not_found" });
     expect(requests.map((url) => url.searchParams.get("id"))).toEqual([
@@ -176,7 +176,7 @@ describe("YouTube Data API client", () => {
 
     const result = await listYouTubeChannelVideos(
       ["@Builderio", "UCAN7TYzCJm1yd-QXbwKfoOg", "@Builderio"],
-      { maxVideosPerChannel: 100 },
+      { maxVideos: 100 },
     );
 
     expect(result.channels.map((channel) => channel.id)).toEqual([
@@ -192,7 +192,50 @@ describe("YouTube Data API client", () => {
     ]);
   });
 
-  it("refuses a partial list from a channel past the upload cap", async () => {
+  it("refuses a partial list once the channels together pass the upload cap", async () => {
+    const requests = serve((url) => {
+      const channelId = url.searchParams.get("id") ?? "";
+      if (url.pathname.endsWith("/channels")) {
+        return {
+          body: {
+            items: [
+              {
+                id: channelId,
+                snippet: { title: channelId },
+                contentDetails: {
+                  relatedPlaylists: { uploads: `UU${channelId}` },
+                },
+              },
+            ],
+          },
+        };
+      }
+      if (url.pathname.endsWith("/playlistItems")) {
+        return {
+          body: {
+            items: Array.from({ length: 40 }, (_, index) => ({
+              contentDetails: {
+                videoId: `${url.searchParams.get("playlistId")}-${index}`,
+              },
+            })),
+          },
+        };
+      }
+      return { body: { items: [] } };
+    });
+    await expect(
+      listYouTubeChannelVideos(["UCone", "UCtwo"], { maxVideos: 60 }),
+    ).rejects.toMatchObject({ errorCode: "youtube_too_many_videos" });
+    expect(requests.map((url) => url.pathname.split("/").pop())).toEqual([
+      "channels",
+      "playlistItems",
+      "videos",
+      "channels",
+      "playlistItems",
+    ]);
+  });
+
+  it("stops paging a channel past the upload cap", async () => {
     serve((url) =>
       url.pathname.endsWith("/channels")
         ? {
@@ -216,14 +259,14 @@ describe("YouTube Data API client", () => {
           },
     );
     await expect(
-      listYouTubeChannelVideos(["@huge"], { maxVideosPerChannel: 60 }),
+      listYouTubeChannelVideos(["@huge"], { maxVideos: 60 }),
     ).rejects.toMatchObject({ errorCode: "youtube_too_many_videos" });
   });
 
   it("names a missing key as not set up and a refused key or spent quota as failures", async () => {
     credential.key = null;
     await expect(
-      listYouTubeChannelVideos(["@Builderio"], { maxVideosPerChannel: 100 }),
+      listYouTubeChannelVideos(["@Builderio"], { maxVideos: 100 }),
     ).rejects.toMatchObject({
       errorCode: "youtube_api_key_missing",
       statusCode: 424,

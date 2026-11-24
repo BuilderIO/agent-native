@@ -685,7 +685,7 @@
             "format": "number"
           }
         ],
-        "description": "Views gained in the time range, then each video's views, likes and comments as of the latest read. A blank count is one the channel hides. Only videos the newest read covered are listed. Empty until YouTube is set up under Data Sources."
+        "description": "Views gained in the time range, then each video's views, likes and comments as of the latest read. A blank count is one the channel hides. Only videos the newest read covered are listed."
       }
     },
     {

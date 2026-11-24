@@ -105,7 +105,7 @@ export default defineAction({
       .max(20)
       .optional()
       .describe(
-        'YouTube channels to collect, replacing the saved list, each a channel ID or @handle, e.g. ["@Builderio"].',
+        'YouTube channels to collect, replacing the saved list, each a channel ID or @handle, e.g. ["@Builderio"]. A run reads at most 10,000 videos in all.',
       ),
   }),
   run: async (

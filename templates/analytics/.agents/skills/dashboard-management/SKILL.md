@@ -215,7 +215,8 @@ channel taken off `youtube.channels` or a deleted video drops off while its
 rows stay stored. It needs
 `YOUTUBE_API_KEY` under Data Sources → YouTube, stays off until turned on,
 reports `not_configured` without channels or a key, and costs about one
-quota unit per 25 videos of the key's free 10,000 a day.
+quota unit per 25 videos of the key's free 10,000 a day. A run whose channels
+have more than 10,000 videos in all fails rather than storing part of them.
 
 The catalog's "Content" dashboard (`content-view`) is the reference for these
 tables: start from its panels before writing new content SQL. Its Missing

@@ -2961,7 +2961,7 @@ describe("content collection", () => {
       ]);
       expect(mocks.listYouTubeChannelVideos).toHaveBeenCalledWith(
         ["@Builderio", "UC80PWRj_ZU8Zu0HSMNVwKWw"],
-        expect.objectContaining({ maxVideosPerChannel: 10_000 }),
+        expect.objectContaining({ maxVideos: 10_000 }),
       );
       expect(mocks.contexts).toEqual([
         { userEmail: "alice@example.test", orgId: "org_a" },

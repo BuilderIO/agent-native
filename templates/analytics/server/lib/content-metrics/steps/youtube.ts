@@ -10,7 +10,7 @@ export const YOUTUBE_METRICS = {
   comments: "youtube_comments",
 } as const;
 
-const MAX_VIDEOS_PER_CHANNEL = 10_000;
+const MAX_VIDEOS = 10_000;
 
 export function youtubeVideoItem(video: YouTubeVideo): ContentItemInput {
   return {
@@ -41,7 +41,7 @@ export const youtubeStep: ContentStep = {
       });
     }
     const result = await listYouTubeChannelVideos(channels, {
-      maxVideosPerChannel: MAX_VIDEOS_PER_CHANNEL,
+      maxVideos: MAX_VIDEOS,
       ...(signal ? { signal } : {}),
     });
     const readDate = utcDate(now);

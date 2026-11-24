@@ -112,12 +112,13 @@ function count(value: string | undefined): number | null {
 
 export async function listYouTubeChannelVideos(
   channels: string[],
-  options: { maxVideosPerChannel: number; signal?: AbortSignal },
+  options: { maxVideos: number; signal?: AbortSignal },
 ): Promise<{ channels: YouTubeChannel[]; videos: YouTubeVideo[] }> {
   const key = await apiKey();
   const signal = options.signal;
   const found: YouTubeChannel[] = [];
   const videos: YouTubeVideo[] = [];
+  let listed = 0;
   for (const channel of channels) {
     const lookup: Record<string, string> = channel.startsWith("@")
       ? { forHandle: channel }
@@ -167,14 +168,15 @@ export async function listYouTubeChannelVideos(
           ids.push(entry.contentDetails.videoId);
         }
       }
-      if (ids.length > options.maxVideosPerChannel) {
+      if (listed + ids.length > options.maxVideos) {
         throw youtubeError(
-          `${resolved.title} has more than ${options.maxVideosPerChannel} uploads; refusing a partial video list.`,
+          `The collection's YouTube channels have more than ${options.maxVideos} uploads in all; refusing a partial video list.`,
           "youtube_too_many_videos",
         );
       }
       pageToken = page.nextPageToken;
     } while (pageToken);
+    listed += ids.length;
 
     for (let start = 0; start < ids.length; start += YOUTUBE_PAGE_SIZE) {
       const batch = ids.slice(start, start + YOUTUBE_PAGE_SIZE);
