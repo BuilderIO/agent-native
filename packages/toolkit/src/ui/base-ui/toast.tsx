@@ -3,6 +3,7 @@ import {
   type ToastOwnProps,
   toastProps,
 } from "@agent-native/design-system";
+import { useDirection } from "@base-ui/react/direction-provider";
 import {
   Toast as BaseToast,
   type ToastManagerAddOptions,
@@ -19,9 +20,12 @@ import {
 import * as React from "react";
 
 import { Button, type ButtonProps, IconButton } from "./button.js";
+import { scopePortal } from "./overlay-scope.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 import { Spinner } from "./spinner.js";
+
+const ToastPortal = scopePortal(BaseToast.Portal);
 
 type Clearable<T> = { [K in keyof T]?: T[K] | undefined };
 
@@ -316,10 +320,17 @@ export interface ToastRootProps
  */
 const ToastRoot = React.forwardRef<HTMLDivElement, ToastRootProps>(
   (props, ref) => {
-    const [attributes, { className, ...rest }] = splitProps(toastProps, props);
+    const direction = useDirection();
+    const [attributes, { className, swipeDirection, ...rest }] = splitProps(
+      toastProps,
+      props,
+    );
     return (
       <BaseToast.Root
         ref={ref}
+        swipeDirection={
+          swipeDirection ?? ["down", direction === "rtl" ? "left" : "right"]
+        }
         {...rest}
         {...attributes}
         className={partClassName("toast", className)}
@@ -487,10 +498,11 @@ function useAnchor(container: ToastContainer | undefined): HTMLElement | null {
     noAnchor,
   );
   const [fromRef, setFromRef] = React.useState<HTMLElement | null>(null);
-  const isRef = container != null && !(container instanceof HTMLElement);
-  React.useLayoutEffect(() => {
-    setFromRef(isRef ? container.current : null);
-  }, [container, isRef]);
+  const isRef = container != null && "current" in container;
+  React.useEffect(() => {
+    const next = isRef ? container.current : null;
+    if (next !== fromRef) setFromRef(next);
+  });
   if (container === undefined) return registered;
   return isRef ? fromRef : container;
 }
@@ -506,17 +518,23 @@ function useVisibleRect(
       return undefined;
     }
     let frame = 0;
+    let previous: React.CSSProperties | undefined;
     const measure = () => {
       frame = 0;
       const box = anchor.getBoundingClientRect();
       const left = Math.max(box.left, 0);
       const top = Math.max(box.top, 0);
-      setRect({
-        left,
-        top,
-        width: Math.max(Math.min(box.right, win.innerWidth) - left, 0),
-        height: Math.max(Math.min(box.bottom, win.innerHeight) - top, 0),
-      });
+      const width = Math.max(Math.min(box.right, win.innerWidth) - left, 0);
+      const height = Math.max(Math.min(box.bottom, win.innerHeight) - top, 0);
+      if (
+        previous?.left === left &&
+        previous.top === top &&
+        previous.width === width &&
+        previous.height === height
+      )
+        return;
+      previous = { left, top, width, height };
+      setRect(previous);
     };
     const schedule = () => {
       if (frame === 0) frame = win.requestAnimationFrame(measure);
@@ -621,7 +639,7 @@ function Toaster({
   return (
     <BaseToast.Provider toastManager={manager} limit={limit}>
       {children}
-      <BaseToast.Portal
+      <ToastPortal
         className="toast-portal"
         {...(anchor === null
           ? {}
@@ -633,7 +651,7 @@ function Toaster({
           {...(variant === undefined ? {} : { variant })}
           {...(highContrast === undefined ? {} : { highContrast })}
         />
-      </BaseToast.Portal>
+      </ToastPortal>
     </BaseToast.Provider>
   );
 }
@@ -646,11 +664,7 @@ type ToastRegionProps = Pick<
 function coversFocus(viewport: HTMLElement): boolean {
   const doc = viewport.ownerDocument;
   const focused = doc.activeElement;
-  if (
-    !(focused instanceof HTMLElement) ||
-    focused === doc.body ||
-    viewport.contains(focused)
-  ) {
+  if (focused === null || focused === doc.body || viewport.contains(focused)) {
     return false;
   }
   const target = focused.getBoundingClientRect();

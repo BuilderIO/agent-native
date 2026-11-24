@@ -3,13 +3,14 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { Badge } from "../../../src/ui/base-ui/badge.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./badge.docs.md?raw";
 
 const controls = propControls(badgeProps);
 
 const meta = {
   title: "Components/Badge",
   component: Badge,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, children: "Beta" },
   argTypes: controls.argTypes,
 } satisfies Meta<typeof Badge>;

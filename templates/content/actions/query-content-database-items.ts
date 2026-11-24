@@ -36,6 +36,11 @@ export default defineAction({
       .optional(),
     offset: z.coerce.number().int().min(0).optional(),
     tableQuery: contentDatabaseTableQuerySchema,
+    rowDocumentId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Read only the row whose page is this document ID"),
     navigation: z
       .object({
         parentId: z
@@ -63,6 +68,12 @@ export default defineAction({
           .optional()
           .describe(
             "Expanded document IDs, most important first; each one this read returns comes back with its first child page in branches, and branchesTruncated is true when the cap left any out",
+          ),
+        pagesOnly: z
+          .boolean()
+          .optional()
+          .describe(
+            "true leaves out a linked local folder's subfolder rows, for a picker that only takes pages",
           ),
         group: z
           .string()
@@ -100,6 +111,7 @@ export default defineAction({
       limit,
       offset,
       tableQuery,
+      rowDocumentId,
       navigation,
       compactRows,
     },
@@ -109,7 +121,12 @@ export default defineAction({
     | ContentDatabaseUnavailableResponse
     | ContentDatabaseNavigationPageResponse
   > => {
-    if (navigation && (offset !== undefined || tableQuery !== undefined)) {
+    if (
+      navigation &&
+      (offset !== undefined ||
+        tableQuery !== undefined ||
+        rowDocumentId !== undefined)
+    ) {
       fail("Files navigation does not support offset or table constraints.", {
         errorCode: "unsupported_navigation_query",
         statusCode: 400,
@@ -154,6 +171,7 @@ export default defineAction({
         limit: limit ?? 20,
         cursor: navigation.cursor,
         expand: navigation.expand,
+        pagesOnly: navigation.pagesOnly ?? false,
         group: navigation.group,
         locate: navigation.locate,
       });
@@ -171,6 +189,7 @@ export default defineAction({
       limit: limit ?? 100,
       offset,
       tableQuery,
+      ...(rowDocumentId ? { documentIds: [rowDocumentId] } : {}),
       database,
     });
     const rows = {

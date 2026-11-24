@@ -791,6 +791,158 @@ describe("background agent sessions through the agent-chat plugin", () => {
     ]);
   });
 
+  it("records a claimed queued message refused for a missing credential in its thread", async () => {
+    const threadId = "refused-queued-promotion-thread";
+    const queuedId = "refused-queued-message";
+    const claimId = "refused-queued-claim";
+    const turnId = `queue-${queuedId}`;
+    const keylessEngine = "refused-queued-keyless";
+    registerAgentEngine({
+      name: keylessEngine,
+      label: "Keyless",
+      description: "An engine whose key is never set, so its turns are refused",
+      capabilities: scriptedEngine.capabilities,
+      defaultModel: scriptedEngine.defaultModel,
+      supportedModels: scriptedEngine.supportedModels,
+      requiredEnvVars: ["REFUSED_QUEUED_PROMOTION_TEST_API_KEY"],
+      // The credential check looks the engine up by its own name.
+      create: () => ({ ...scriptedEngine, name: keylessEngine }),
+    });
+    const reports: CaptureErrorContext[] = [];
+    const unregisterCapture = registerErrorCaptureProvider(
+      "refused-queued-promotion-spec",
+      (_error, context) => {
+        reports.push(context);
+      },
+    );
+    const engineCallsBefore = engineMessages.length;
+
+    try {
+      await createThread(OWNER, {
+        id: threadId,
+        source: { appId: BACKGROUND_APP_ID },
+      });
+      await mutateThreadQueuedMessages(threadId, {
+        type: "append",
+        message: {
+          id: queuedId,
+          text: "Queued while a reply ran",
+          threadId,
+          metadata: { engine: keylessEngine },
+        },
+      });
+      // The chat client claims a queued message before it sends it.
+      await mutateThreadQueuedMessages(threadId, {
+        type: "claim",
+        messageId: queuedId,
+        claimId,
+      });
+
+      const response = await fetch("/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "Queued while a reply ran",
+          queuedMessageId: queuedId,
+          queuedMessageClaimId: claimId,
+          threadId,
+          turnId,
+          history: [],
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain(
+        '"errorCode":"missing_credentials"',
+      );
+      // Recorded like a refused direct send: the prompt with its retry
+      // marker, and a failed run carrying the refusal.
+      expect(await userMessagesFor(threadId, queuedId)).toEqual([
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            custom: expect.objectContaining({
+              submittedRunId: turnId,
+              agentNativeRunNotStarted: true,
+            }),
+          }),
+        }),
+      ]);
+      const repo = JSON.parse((await getThread(threadId))?.threadData || "{}");
+      expect(repo.agentKit?.runs).toEqual([
+        expect.objectContaining({
+          id: turnId,
+          status: "failed",
+          error: expect.objectContaining({ code: "missing_credentials" }),
+        }),
+      ]);
+      expect(repo.queuedMessages ?? []).not.toContainEqual(
+        expect.objectContaining({ id: queuedId }),
+      );
+      expect(
+        reports.filter(
+          (context) => context.tags?.failureClass === "unstarted-turn-persist",
+        ),
+      ).toEqual([]);
+      expect(engineMessages).toHaveLength(engineCallsBefore);
+    } finally {
+      unregisterCapture();
+      unregisterAgentEngine(keylessEngine);
+    }
+  });
+
+  it("keeps a queued message when a refused request carries its claim with different text", async () => {
+    const threadId = "unadmitted-queued-promotion-thread";
+    const queuedId = "unadmitted-queued-message";
+    const claimId = "unadmitted-queued-claim";
+    await createThread(OWNER, {
+      id: threadId,
+      source: { appId: BACKGROUND_APP_ID },
+    });
+    await mutateThreadQueuedMessages(threadId, {
+      type: "append",
+      message: { id: queuedId, text: "The queued prompt", threadId },
+    });
+    await mutateThreadQueuedMessages(threadId, {
+      type: "claim",
+      messageId: queuedId,
+      claimId,
+    });
+    // The text doesn't match the queue entry, so the promotion isn't admitted
+    // and the request meets the setup gate like a direct send.
+    harness.requireAgentChatAiSetup.mockRejectedValueOnce(
+      Object.assign(new Error("Connect AI first"), {
+        statusCode: 403,
+        data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+      }),
+    );
+
+    const response = await fetch("/_agent-native/agent-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: "Some other text",
+        queuedMessageId: queuedId,
+        queuedMessageClaimId: claimId,
+        threadId,
+        turnId: `queue-${queuedId}`,
+        history: [],
+        engine: ENGINE_NAME,
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(harness.requireAgentChatAiSetup).toHaveBeenCalled();
+    expect(await userMessagesFor(threadId, queuedId)).toHaveLength(0);
+    const repo = JSON.parse((await getThread(threadId))?.threadData || "{}");
+    expect(repo.queuedMessages).toEqual([
+      expect.objectContaining({
+        id: queuedId,
+        text: "The queued prompt",
+        promotionClaim: expect.objectContaining({ id: claimId }),
+      }),
+    ]);
+  });
+
   it("allows an anonymous read-only visitor to queue a prompt without a user AI identity", async () => {
     const threadId = "anonymous-queued-thread";
     await createThread("anonymous-owner@example.com", {

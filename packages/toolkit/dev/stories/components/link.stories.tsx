@@ -5,13 +5,14 @@ import { Callout, CalloutText } from "../../../src/ui/base-ui/callout.js";
 import { Link } from "../../../src/ui/base-ui/link.js";
 import { Text } from "../../../src/ui/base-ui/text.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./link.docs.md?raw";
 
 const controls = propControls(linkProps);
 
 const meta = {
   title: "Components/Link",
   component: Link,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, href: "#", children: "Read the release notes" },
   argTypes: controls.argTypes,
 } satisfies Meta<typeof Link>;

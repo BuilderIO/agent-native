@@ -105,7 +105,8 @@ try {
     logLevel: "silent",
     define: { __AGENT_NATIVE_APP_CONFIG__: process.argv[1] },
     resolve: { alias: [
-      { find: "@agent-native/toolkit/app/providers", replacement: path.resolve("src/app/providers/AppProviders.tsx") },
+      { find: /^@agent-native\\/toolkit\\/app\\/providers$/, replacement: path.resolve("src/app/providers/AppProviders.tsx") },
+      { find: /^@agent-native\\/toolkit\\/app\\/providers\\/theme-choice$/, replacement: path.resolve("src/app/providers/theme-choice.tsx") },
       { find: "@", replacement: path.join(mail, "app") },
     ] },
     plugins: [{

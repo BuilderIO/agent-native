@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 
 import { AgentConnectionRequiredError, fail } from "../action.js";
 import {
-  getWorkspaceConnectionOAuth,
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionTemplateUse,
 } from "../connections/catalog.js";
@@ -5170,7 +5169,9 @@ async function resolveRequiredCredential(options: {
     });
   }
   throw new Error(
-    `${options.key} not configured${scopeGap ? `. ${scopeGap}` : ""}`,
+    scopeGap
+      ? `${options.provider} credential not configured. ${scopeGap} Tried: ${options.key}`
+      : `${options.key} not configured`,
   );
 }
 
@@ -6041,10 +6042,6 @@ async function resolvePersonalProviderOAuthAccess(options: {
     : options.tokens;
   const accessToken = tokens.access_token;
   const heldScopes = oauthTokenScopes(tokens);
-  const allowedScopes =
-    getWorkspaceConnectionOAuth(
-      getWorkspaceConnectionProvider(options.provider),
-    )?.scopes ?? [];
   if (
     !tokens.personalProviderOAuth ||
     !accessToken ||
@@ -6053,11 +6050,7 @@ async function resolvePersonalProviderOAuthAccess(options: {
       (!Number.isFinite(tokens.expiry_date) ||
         tokens.expiry_date <= Date.now())) ||
     !heldScopes.length ||
-    options.requiredScopes?.some((scope) => !heldScopes.includes(scope)) ||
-    heldScopes.some(
-      (scope) =>
-        !allowedScopes.includes(scope) && !(slack && scope === "identify"),
-    )
+    options.requiredScopes?.some((scope) => !heldScopes.includes(scope))
   ) {
     throw new PersonalOAuthReauthorizationError(
       `${label} OAuth credential is expired or missing required access.`,

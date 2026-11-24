@@ -176,6 +176,7 @@ export const radiusProp: EnumPropDef<Radius> = enumProp<Radius>(
 
 /** The data attribute a prop is written to: `highContrast` is `data-high-contrast`. */
 export function propAttribute(name: string): string {
+  if (!/[A-Z]/.test(name)) return `data-${name}`;
   return `data-${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
 }
 
@@ -189,11 +190,15 @@ export function propAttributes(
   defs: PropDefs,
   props: object,
 ): Record<string, string | undefined> {
-  const values: Readonly<Record<string, unknown>> = { ...props };
+  const values = props as Readonly<Record<string, unknown>>;
   const attributes: Record<string, string | undefined> = {};
   for (const [name, def] of Object.entries(defs)) {
+    if (def.type !== "enum" && def.type !== "boolean") continue;
+    const given = Object.prototype.propertyIsEnumerable.call(values, name)
+      ? values[name]
+      : undefined;
     if (def.type === "enum") {
-      const value = values[name] ?? def.default;
+      const value = given ?? def.default;
       if (value === undefined) continue;
       if (typeof value !== "string" || !def.values.includes(value)) {
         throw new TypeError(
@@ -201,8 +206,8 @@ export function propAttributes(
         );
       }
       attributes[propAttribute(name)] = value;
-    } else if (def.type === "boolean") {
-      if (values[name] === true) attributes[propAttribute(name)] = "";
+    } else if (given === true) {
+      attributes[propAttribute(name)] = "";
     }
   }
   return attributes;

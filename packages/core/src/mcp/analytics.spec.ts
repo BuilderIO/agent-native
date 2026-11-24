@@ -10,6 +10,7 @@ import {
 import type { TrackingEvent } from "../tracking/types.js";
 import {
   detectVendorClient,
+  mcpToolResultSize,
   readClientInfoFromRequest,
   vendorForRedirectHost,
 } from "./analytics.js";
@@ -29,7 +30,7 @@ function config(): MCPConfig {
       "list-messages": {
         tool: { description: "List messages", parameters: undefined },
         readOnly: true,
-        run: async () => [{ id: "m1" }],
+        run: async () => [{ id: "m1", subject: "Quarterly plan draft" }],
       } as any,
       "send-message": {
         tool: { description: "Send a message", parameters: undefined },
@@ -117,6 +118,51 @@ describe("MCP analytics events", () => {
     expect(props.$mcp_is_error).toBe(false);
     expect(props.$mcp_parameters).toBeUndefined();
     expect(props.$mcp_error_type).toBeUndefined();
+  });
+
+  it("reports how big the result the client got is, never its text", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "list-messages",
+      arguments: {},
+    });
+
+    const props = eventNamed("$mcp_tool_call")?.properties;
+    expect(props).toBeDefined();
+    const text = (result.content as Array<{ type: string; text?: string }>)
+      .filter((block) => block.type === "text")
+      .map((block) => block.text ?? "")
+      .join("");
+    expect(text).toContain("Quarterly plan draft");
+    expect(props?.$mcp_response_text_chars).toBe(text.length);
+    expect(result.structuredContent).toBeDefined();
+    expect(props?.$mcp_response_structured_chars).toBe(
+      JSON.stringify(result.structuredContent).length,
+    );
+    expect(JSON.stringify(props)).not.toContain("Quarterly plan draft");
+  });
+
+  it("counts a result's text blocks and leaves out structured content it lacks", () => {
+    expect(
+      mcpToolResultSize({
+        content: [
+          { type: "text", text: "Two parts" },
+          { type: "image", data: "aGVsbG8=", mimeType: "image/png" },
+          { type: "text", text: ", one size." },
+        ],
+      }),
+    ).toEqual({ resultTextChars: 20 });
+    expect(
+      mcpToolResultSize({
+        content: [{ type: "text", text: "{}" }],
+        structuredContent: { items: ["a"] },
+      }),
+    ).toEqual({ resultTextChars: 2, resultStructuredChars: 15 });
+    expect(mcpToolResultSize({ structuredContent: null })).toEqual({
+      resultTextChars: 0,
+      resultStructuredChars: 4,
+    });
+    expect(mcpToolResultSize(undefined)).toEqual({});
   });
 
   it("includes redacted $mcp_parameters only when opted in", async () => {

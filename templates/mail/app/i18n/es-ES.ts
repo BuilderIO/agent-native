@@ -202,9 +202,19 @@ const messages = {
       markRead: "Marcar como leído",
       markUnread: "Marcar como no leído",
       moveTo: "Mover a",
+      labelAs: "Etiquetar como",
+      newLabel: "Nueva etiqueta…",
       moveToTrash: "Mover a la papelera",
       star: "Marcar con estrella",
       unstar: "Quitar estrella",
+    },
+    labels: {
+      labelAsPlaceholder: "Etiquetar como…",
+      moveToPlaceholder: "Mover a…",
+      newLabelPlaceholder: "Nombre de la nueva etiqueta",
+      create: "Crear la etiqueta «{{name}}»",
+      empty: "Aún no hay etiquetas. Escribe un nombre para crear una.",
+      alreadyExists: "«{{name}}» ya existe.",
     },
     compose: {
       addImage: "Añadir una imagen",
@@ -476,6 +486,14 @@ const messages = {
         "Se movieron {{succeeded}} de {{total}} conversaciones; {{failed}} fallaron.",
       moveSucceeded: "Movido a {{label}}.",
       moveManySucceeded: "Se movieron {{count}} conversaciones a {{label}}.",
+      labelSucceeded: "Se añadió la etiqueta {{label}}.",
+      labelManySucceeded:
+        "Se añadió la etiqueta {{label}} a {{count}} conversaciones.",
+      labelPartialFailed:
+        "Se etiquetaron {{succeeded}} de {{total}} conversaciones; {{failed}} fallaron.",
+      labelFailed: "No se pudo añadir la etiqueta.",
+      labelCreated: "Se creó la etiqueta {{label}}.",
+      createLabelFailed: "No se pudo crear la etiqueta.",
       trashed: "Movido a la papelera.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programado enviado.",
@@ -652,7 +670,7 @@ const messages = {
       instructionsTitle: "Instrucciones",
       instructionCount: "{{count}} instrucción(es)",
       instructionPlaceholder:
-        "p. ej. Los asuntos como «question for you, Steve» no son deseados",
+        "p. ej. Los asuntos como «quick question for you» no son deseados",
       addInstruction: "Añadir",
       noInstructions: "Aún no hay instrucciones.",
       instructionExample:
@@ -926,6 +944,7 @@ const messages = {
     autocomplete: "Autocompletar",
     sendAndMarkDone: "Enviar y marcar como hecho",
     autocompleteSaveFailed: "No se pudo guardar el ajuste de autocompletado.",
+    signaturePlaceholder: "Saludos,\nTu nombre",
     writingStylePlaceholder:
       "Breve, específico y cálido. Evita relleno formal.",
     saveDraftingSettings: "Guardar ajustes de redacción",

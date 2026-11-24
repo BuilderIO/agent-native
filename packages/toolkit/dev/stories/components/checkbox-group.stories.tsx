@@ -8,6 +8,7 @@ import {
 import { Checkbox } from "../../../src/ui/base-ui/checkbox.js";
 import { Field, FieldLabel } from "../../../src/ui/base-ui/field.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./checkbox-group.docs.md?raw";
 
 const controls = propControls(checkboxGroupProps);
 
@@ -30,7 +31,7 @@ function Channels(props: CheckboxGroupProps) {
 const meta = {
   title: "Components/Checkbox Group",
   component: CheckboxGroup,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, disabled: false },
   argTypes: controls.argTypes,
   render: (args) => <Channels {...args} />,

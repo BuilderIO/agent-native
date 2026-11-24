@@ -20,7 +20,7 @@
  * Toasts stack at the bottom right: the newest in front, the older ones
  * peeking above it, shrunk and clamped to its height with their content
  * hidden. Hovering or focusing the viewport fans them out. A swipe down or
- * right dismisses one, and it leaves the way it was swiped. Base UI writes
+ * toward the inline end dismisses one, and it leaves the way it was swiped. Base UI writes
  * the index, offsets and swipe movement as `--toast-*` variables. A new
  * toast slides up a step and fades in; under reduced motion it only fades.
  *
@@ -69,11 +69,14 @@
       var(--_toast-offset) + var(--_toast-lift) +
         env(safe-area-inset-bottom, 0px)
     );
-    inset-inline-end: calc(
-      var(--_toast-offset) + env(safe-area-inset-right, 0px)
-    );
+    inset-inline-end: var(--_toast-offset);
+    margin-left: env(safe-area-inset-left, 0px);
+    margin-right: env(safe-area-inset-right, 0px);
     width: 360px;
-    max-width: calc(100% - 2 * var(--_toast-offset));
+    max-width: calc(
+      100% - 2 * var(--_toast-offset) - env(safe-area-inset-left, 0px) -
+        env(safe-area-inset-right, 0px)
+    );
     outline: none;
     pointer-events: auto;
   }
@@ -151,7 +154,6 @@
   .toast[data-starting-style],
   .toast[data-ending-style] {
     opacity: 0;
-    transform: translateY(var(--space-4));
   }
 
   .toast[data-ending-style] {
@@ -162,22 +164,29 @@
     opacity: 0;
   }
 
-  .toast[data-ending-style][data-swipe-direction="up"] {
-    transform: translateY(calc(var(--toast-swipe-movement-y) - 150%));
-  }
+  @media (prefers-reduced-motion: no-preference) {
+    .toast[data-starting-style],
+    .toast[data-ending-style] {
+      transform: translateY(var(--space-4));
+    }
 
-  .toast[data-ending-style][data-swipe-direction="down"] {
-    transform: translateY(calc(var(--toast-swipe-movement-y) + 150%));
-  }
+    .toast[data-ending-style][data-swipe-direction="up"] {
+      transform: translateY(calc(var(--toast-swipe-movement-y) - 150%));
+    }
 
-  .toast[data-ending-style][data-swipe-direction="left"] {
-    transform: translateX(calc(var(--toast-swipe-movement-x) - 150%))
-      translateY(var(--toast-expanded-y));
-  }
+    .toast[data-ending-style][data-swipe-direction="down"] {
+      transform: translateY(calc(var(--toast-swipe-movement-y) + 150%));
+    }
 
-  .toast[data-ending-style][data-swipe-direction="right"] {
-    transform: translateX(calc(var(--toast-swipe-movement-x) + 150%))
-      translateY(var(--toast-expanded-y));
+    .toast[data-ending-style][data-swipe-direction="left"] {
+      transform: translateX(calc(var(--toast-swipe-movement-x) - 150%))
+        translateY(var(--toast-expanded-y));
+    }
+
+    .toast[data-ending-style][data-swipe-direction="right"] {
+      transform: translateX(calc(var(--toast-swipe-movement-x) + 150%))
+        translateY(var(--toast-expanded-y));
+    }
   }
 
   .toast[data-swiping] {

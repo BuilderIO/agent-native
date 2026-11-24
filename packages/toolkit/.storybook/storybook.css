@@ -39,3 +39,14 @@ body {
   color: var(--fg-default);
   font-family: var(--font-family-sans);
 }
+
+/* Resolve the tree's spacing tokens to CSS pixels for the canvas, even with no rows mounted. */
+@property --sb-layer-column-step {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+[data-storybook-stage] .design-file-panel {
+  --sb-layer-column-step: calc(var(--control-height-1) + var(--space-2));
+}

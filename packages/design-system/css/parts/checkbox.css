@@ -110,4 +110,35 @@
   .checkbox[data-disabled][data-variant="surface"] {
     box-shadow: inset 0 0 0 1px var(--gray-a6);
   }
+  @media (forced-colors: active) {
+    .checkbox[data-variant] {
+      forced-color-adjust: none;
+      border: 1px solid ButtonText;
+      color: ButtonText;
+      background-color: Canvas;
+      box-shadow: none;
+    }
+
+    .checkbox[data-variant]:is([data-checked], [data-indeterminate]) {
+      border-color: Highlight;
+      color: HighlightText;
+      background-color: Highlight;
+    }
+
+    .checkbox[data-variant][data-disabled] {
+      border-color: GrayText;
+      color: GrayText;
+      background-color: Canvas;
+      box-shadow: none;
+    }
+
+    .checkbox[data-invalid][data-unchecked] {
+      border-style: dashed;
+      box-shadow: none;
+    }
+
+    .checkbox:focus-visible {
+      outline-color: Highlight;
+    }
+  }
 }

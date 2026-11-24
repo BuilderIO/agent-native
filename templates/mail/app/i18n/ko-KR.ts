@@ -190,9 +190,19 @@ const messages = {
       markRead: "읽음으로 표시",
       markUnread: "읽지 않음으로 표시",
       moveTo: "이동",
+      labelAs: "라벨 지정",
+      newLabel: "새 라벨…",
       moveToTrash: "휴지통으로 이동",
       star: "별표 표시",
       unstar: "별표 제거",
+    },
+    labels: {
+      labelAsPlaceholder: "라벨 지정…",
+      moveToPlaceholder: "이동할 위치…",
+      newLabelPlaceholder: "새 라벨 이름",
+      create: "'{{name}}' 라벨 만들기",
+      empty: "아직 라벨이 없습니다. 이름을 입력해 새로 만드세요.",
+      alreadyExists: "'{{name}}' 라벨이 이미 있습니다.",
     },
     compose: {
       addImage: "이미지 추가",
@@ -462,6 +472,13 @@ const messages = {
         "{{total}}개 중 {{succeeded}}개의 대화를 이동했고 {{failed}}개가 실패했습니다.",
       moveSucceeded: "{{label}}(으)로 이동했습니다.",
       moveManySucceeded: "{{count}}개의 대화를 {{label}}(으)로 이동했습니다.",
+      labelSucceeded: "{{label}} 라벨을 지정했습니다.",
+      labelManySucceeded: "{{count}}개의 대화에 {{label}} 라벨을 지정했습니다.",
+      labelPartialFailed:
+        "{{total}}개 중 {{succeeded}}개의 대화에 라벨을 지정했습니다. {{failed}}개는 실패했습니다.",
+      labelFailed: "라벨을 지정하지 못했습니다.",
+      labelCreated: "{{label}} 라벨을 만들었습니다.",
+      createLabelFailed: "라벨을 만들지 못했습니다.",
       trashed: "휴지통으로 이동했습니다.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "예약 이메일을 보냈습니다.",
@@ -636,7 +653,7 @@ const messages = {
       instructionsTitle: "지침",
       instructionCount: "지침 {{count}}개",
       instructionPlaceholder:
-        "예: “question for you, Steve” 같은 제목은 원하지 않음",
+        "예: “quick question for you” 같은 제목은 원하지 않음",
       addInstruction: "추가",
       noInstructions: "아직 지침이 없습니다.",
       instructionExample:
@@ -895,6 +912,7 @@ const messages = {
     autocomplete: "자동 완성",
     sendAndMarkDone: "보내고 완료로 표시",
     autocompleteSaveFailed: "자동 완성 설정을 저장하지 못했습니다.",
+    signaturePlaceholder: "감사합니다.\n이름",
     writingStylePlaceholder:
       "짧고 구체적이며 따뜻하게. 형식적인 군더더기는 피하세요.",
     saveDraftingSettings: "작성 설정 저장",

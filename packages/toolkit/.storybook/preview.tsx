@@ -1,4 +1,5 @@
 import {
+  type AppThemeName,
   createPalette,
   DENSITIES,
   paletteCss,
@@ -7,6 +8,9 @@ import {
 } from "@agent-native/design-system";
 import type { Decorator, Preview } from "@storybook/react-vite";
 import * as React from "react";
+
+import { ThemeProvider } from "../src/ui/base-ui/theme-provider.js";
+import { PanelSpacing } from "./panel-spacing.js";
 
 import "./storybook.css";
 
@@ -37,30 +41,54 @@ function globalString(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
 }
 
-const withStage: Decorator = (Story, { globals }) => {
-  const theme = globalString(globals.theme, "agent-native");
-  const appearance = globalString(globals.appearance, "light");
-  const density = globalString(globals.density, "default");
-  const radius = globalString(globals.radius, "theme");
-  const corners = globalString(globals.corners, "round");
+function isAppTheme(value: unknown): value is AppThemeName {
+  return THEMES.some((theme) => theme.name === value);
+}
+
+const withStage: Decorator = (
+  Story,
+  { globals, parameters, viewMode, title },
+) => {
+  const theme = isAppTheme(globals.theme) ? globals.theme : "agent-native";
+  const appearance = globals.appearance === "dark" ? "dark" : "light";
+  const density =
+    DENSITIES.find((value) => value === globals.density) ?? "default";
+  const radius = RADIUS_PRESETS.find((value) => value === globals.radius);
+  const corners = globals.corners === "squircle" ? "squircle" : "round";
   const brandKey = globalString(globals.palette, "none");
+  const spacing = parameters.stage === "editor" && globals.spacing === "on";
   const brand = BRANDS[brandKey] ?? null;
   return (
     <>
       <PaletteStyle brand={brand} />
-      <div
-        className={`${appearance} min-h-screen bg-surface-canvas text-fg`}
-        data-app-theme={theme}
-        data-density={density}
-        data-radius={radius === "theme" ? undefined : radius}
-        data-corners={corners}
-        data-palette={brand ? PALETTE_ID : undefined}
+      <ThemeProvider
+        render={
+          viewMode === "story" && title.startsWith("Components/") ? (
+            <main />
+          ) : undefined
+        }
+        appearance={appearance}
+        dir={globals.direction === "rtl" ? "rtl" : "ltr"}
+        className={`${viewMode === "docs" ? "" : "min-h-screen"} bg-surface-canvas text-fg`}
+        appTheme={theme}
+        density={density}
+        radius={radius}
+        corners={corners}
+        palette={brand ? PALETTE_ID : undefined}
         data-storybook-stage=""
       >
-        <div className="mx-auto max-w-[1120px] px-8 py-10">
+        <div
+          style={spacing ? { position: "relative" } : undefined}
+          className={
+            parameters.stage === "editor"
+              ? undefined
+              : "mx-auto max-w-[1120px] px-8 py-10"
+          }
+        >
           <Story />
+          {spacing && <PanelSpacing />}
         </div>
-      </div>
+      </ThemeProvider>
     </>
   );
 };
@@ -86,9 +114,16 @@ function toolbar(
   };
 }
 
+const ReferencePage = React.lazy(() => import("./reference-page.js"));
+
 const preview: Preview = {
   decorators: [withStage],
   globalTypes: {
+    spacing: {
+      description: "Measure the Design panel grid",
+      defaultValue: "off",
+      toolbar: { title: "Panel spacing", icon: "grid", items: ["off", "on"] },
+    },
     theme: toolbar(
       "Theme",
       "paintbrush",
@@ -96,6 +131,7 @@ const preview: Preview = {
       "agent-native",
     ),
     appearance: toolbar("Appearance", "contrast", ["light", "dark"], "light"),
+    direction: toolbar("Direction", "transfer", ["ltr", "rtl"], "ltr"),
     density: toolbar("Density", "component", DENSITIES, "default"),
     radius: toolbar(
       "Radius",
@@ -107,6 +143,13 @@ const preview: Preview = {
     palette: toolbar("Palette", "starhollow", Object.keys(BRANDS), "none"),
   },
   parameters: {
+    docs: {
+      page: () => (
+        <React.Suspense>
+          <ReferencePage />
+        </React.Suspense>
+      ),
+    },
     a11y: {
       test: "error",
       context: { exclude: ["[data-base-ui-focus-guard]"] },
@@ -133,6 +176,7 @@ const preview: Preview = {
           "Typography",
           ["Text", "Heading", "Code", "Kbd", "Blockquote"],
           "Components",
+          ["Overview", "*"],
           "Patterns",
         ],
       },

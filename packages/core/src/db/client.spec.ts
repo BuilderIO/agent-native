@@ -2895,6 +2895,79 @@ describe("retryOnConnectionError budget", () => {
     expect(value).toBe("ok");
     expect(attempt).toHaveBeenCalledTimes(3);
   });
+
+  it.each(["57P03", "08001", "08004", "ECONNREFUSED", "EAI_AGAIN"])(
+    "retries a connection the database refused before any statement ran: %s",
+    async (code) => {
+      vi.useFakeTimers();
+      vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+      const { retryOnConnectionError } = await import("./client.js");
+      const attempt = vi
+        .fn<() => Promise<string>>()
+        .mockRejectedValueOnce(
+          Object.assign(new Error("the database system is starting up"), {
+            code,
+          }),
+        )
+        .mockResolvedValue("ok");
+
+      const { value } = await runUntilSettled(() =>
+        retryOnConnectionError(attempt),
+      );
+
+      expect(value).toBe("ok");
+      expect(attempt).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("fails with the same transient error when the database keeps refusing", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+    const { isTransientDatabaseError, retryOnConnectionError } =
+      await import("./client.js");
+    const refusal = Object.assign(
+      new Error("the database system is starting up"),
+      { code: "57P03" },
+    );
+    const attempt = vi.fn<() => Promise<string>>().mockRejectedValue(refusal);
+
+    const { error } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(error).toBe(refusal);
+    expect(attempt).toHaveBeenCalledTimes(3);
+    expect(isTransientDatabaseError(error)).toBe(true);
+  });
+
+  it.each([
+    {
+      code: "23505",
+      message:
+        'duplicate key value violates unique constraint "connection_closed_events_pkey"',
+    },
+    { code: "57014", message: "canceling statement due to statement timeout" },
+    {
+      code: "57P01",
+      message: "terminating connection due to administrator command",
+    },
+  ])(
+    "does not retry a $code error a retry could repeat or make worse",
+    async ({ code, message }) => {
+      vi.useFakeTimers();
+      vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+      const { retryOnConnectionError } = await import("./client.js");
+      const failure = Object.assign(new Error(message), { code });
+      const attempt = vi.fn<() => Promise<string>>().mockRejectedValue(failure);
+
+      const { error } = await runUntilSettled(() =>
+        retryOnConnectionError(attempt),
+      );
+
+      expect(error).toBe(failure);
+      expect(attempt).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 
 describe("isUniqueViolation", () => {

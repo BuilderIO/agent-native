@@ -667,3 +667,56 @@ describe("list-recordings Library source", () => {
     });
   });
 });
+
+describe("list-recordings search", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("matches titles, descriptions, and transcripts case-insensitively", async () => {
+    await action.run(
+      action.schema.parse({
+        view: "library",
+        search: "  ONBOARDING  ",
+        countOnly: true,
+      }),
+    );
+
+    const whereArg = mockCountWhere.mock.calls[0]?.[0] as {
+      conditions: Array<{ kind: string; text?: string }>;
+    };
+    const searchSql = whereArg.conditions.find(
+      (c) => c.kind === "sql" && c.text?.includes("LIKE"),
+    );
+    expect(searchSql?.text).toContain("lower(");
+    expect(searchSql?.text).toContain("recording_id");
+    expect(whereArg.conditions).not.toContainEqual({
+      kind: "is-null",
+      column: "recordings.folderId",
+    });
+  });
+
+  it("keeps root folderId IS NULL scope when searching screenshots (kind=image)", async () => {
+    await action.run(
+      action.schema.parse({
+        view: "library",
+        kind: "image",
+        search: "onboarding",
+        countOnly: true,
+      }),
+    );
+
+    const whereArg = mockCountWhere.mock.calls[0]?.[0] as {
+      conditions: Array<{ kind: string; column?: string }>;
+    };
+    expect(whereArg.conditions).toContainEqual({
+      kind: "is-null",
+      column: "recordings.folderId",
+    });
+  });
+
+  it("points agents at navigate for showing filtered Library results", () => {
+    expect(action.tool.description).toMatch(/navigate/i);
+    expect(action.tool.description).toMatch(/search/i);
+  });
+});

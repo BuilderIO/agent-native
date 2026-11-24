@@ -111,10 +111,11 @@ export function renderProjectMenu({
           ref={projectMenuTriggerRef}
           variant="ghost"
           size="icon-sm"
-          className="shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-[calc(var(--spacing)*5.5)]"
+          data-design-app-menu-trigger
+          className="design-focus-ring shrink-0 cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-4"
           aria-label={t("designEditor.more")}
         >
-          <AgentNativeMenuMark className="size-[calc(var(--spacing)*5.5)] text-foreground dark:text-white" />
+          <AgentNativeMenuMark className="size-4 text-foreground dark:text-white" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -132,6 +133,10 @@ export function renderProjectMenu({
           </DropdownMenuItem>
         ))}
         {getDesignHostMenuItems().length > 0 ? <DropdownMenuSeparator /> : null}
+        <DropdownMenuItem asChild>
+          <Link to="/home">{t("designEditor.appMenu.backToDashboard")}</Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             {t("designEditor.appMenu.file")}

@@ -3,13 +3,14 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { Separator } from "../../../src/ui/base-ui/separator.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./separator.docs.md?raw";
 
 const controls = propControls(separatorProps);
 
 const meta = {
   title: "Components/Separator",
   component: Separator,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: controls.args,
   argTypes: controls.argTypes,
   decorators: [

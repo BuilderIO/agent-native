@@ -167,6 +167,7 @@ export interface DocumentUpdateRequest {
   editorSnapshotTitle?: string;
   editorSnapshotTitleBase?: string;
   editorSnapshotContent?: string;
+  editorBlockIds?: { shape: string; idsByPath: Record<string, string> };
   description?: string;
   icon?: IconValue | string | null;
   isFavorite?: boolean;
@@ -224,6 +225,7 @@ export interface ContentNavigationPathEntry {
   databaseId: string | null;
   databaseDocumentId: string | null;
   isFavorite: boolean;
+  canMove?: boolean;
   /**
    * Whether the Files tree draws children under this page, by the rule its
    * own navigation row follows. Absent outside a Files database.
@@ -339,6 +341,7 @@ export interface DocumentProperty {
   definition: DocumentPropertyDefinition;
   value: DocumentPropertyValue;
   editable: boolean;
+  sourceWriteback?: boolean;
   blocksField?: BlocksFieldIdentity;
   /**
    * Relation properties only: the linked rows this viewer may see, in value
@@ -392,11 +395,8 @@ export interface DocumentPropertiesResponse {
   canManageSchema?: boolean;
   /** Full access to the collection: column rules, such as a tab's freeze, are theirs to set. */
   canManageColumnRules?: boolean;
-  /**
-   * False where schema rights can't add a property: a system collection such
-   * as Files keeps only the ones the app gives it.
-   */
   canAddProperties?: boolean;
+  addablePropertyTypes?: DocumentPropertyType[];
   properties: DocumentProperty[];
 }
 
@@ -1385,10 +1385,11 @@ export interface ContentDatabaseNavigationItem {
   parentId: string | null;
   title: string;
   icon: string | null;
-  type: "page" | "database";
+  type: "page" | "database" | "folder";
   hasChildren: boolean;
   spaceId: string | null;
   sourceKind: string | null;
+  canMove?: boolean;
   isFavorite: boolean;
   canEdit: boolean;
   canManage: boolean;

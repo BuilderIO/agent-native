@@ -4,13 +4,14 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Avatar, AvatarFallback } from "../../../src/ui/base-ui/avatar.js";
 import { Skeleton } from "../../../src/ui/base-ui/skeleton.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./skeleton.docs.md?raw";
 
 const controls = propControls(skeletonProps);
 
 const meta = {
   title: "Components/Skeleton",
   component: Skeleton,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, children: "Ada Lovelace" },
   argTypes: controls.argTypes,
 } satisfies Meta<typeof Skeleton>;
@@ -57,5 +58,23 @@ export const States: Story = {
         </Skeleton>
       </div>
     </div>
+  ),
+};
+
+export const Image: Story = {
+  render: ({ loading }) => (
+    <Skeleton loading={loading}>
+      <img
+        width={300}
+        height={239}
+        alt="Layered cut-paper artwork"
+        src={
+          new URL(
+            "../../../../../templates/assets/public/library-presets/prismatic-paper-cut/kirigami.webp",
+            import.meta.url,
+          ).href
+        }
+      />
+    </Skeleton>
   ),
 };

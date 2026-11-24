@@ -85,6 +85,40 @@ describe("alert dialog part", () => {
     ).toBe(true);
   });
 
+  it("resolves both backdrop customizations against the current dialog state", async () => {
+    const view = (open: boolean) => (
+      <AlertDialog open={open}>
+        <AlertDialogPopup
+          keepMounted
+          className={(state) => (state.open ? "pane-open" : "pane-closed")}
+          backdropProps={{
+            className: ({ open }) => (open ? "base-open" : "base-closed"),
+            style: ({ open }) => ({ opacity: open ? 0.8 : 0, zIndex: 10 }),
+          }}
+          backdropClassName={({ open }) => (open ? "overlay-open" : undefined)}
+          backdropStyle={{ zIndex: 20 }}
+        >
+          <AlertDialogTitle>Delete project</AlertDialogTitle>
+        </AlertDialogPopup>
+      </AlertDialog>
+    );
+    const { rerender } = render(view(true));
+    const popup = await screen.findByRole("alertdialog");
+    const backdrop = document.querySelector<HTMLElement>(
+      ".alert-dialog-backdrop",
+    );
+    expect(popup.classList.contains("pane-open")).toBe(true);
+    expect(backdrop?.classList.contains("base-open")).toBe(true);
+    expect(backdrop?.classList.contains("overlay-open")).toBe(true);
+    expect(backdrop?.style.opacity).toBe("0.8");
+    expect(backdrop?.style.zIndex).toBe("20");
+    rerender(view(false));
+    expect(popup.classList.contains("pane-closed")).toBe(true);
+    expect(backdrop?.classList.contains("base-closed")).toBe(true);
+    expect(backdrop?.classList.contains("overlay-open")).toBe(false);
+    expect(backdrop?.style.opacity).toBe("0");
+  });
+
   it("draws Action as a solid button and Cancel as a gray surface button", async () => {
     render(<Confirm />);
     press(screen.getByRole("button", { name: "Delete" }));

@@ -14,6 +14,7 @@ export default defineAction({
     "Install the built-in private Node Exporter demo dashboard for the current Analytics user. " +
     "The dashboard is generated from the Node Exporter Full template and uses the built-in public demo Prometheus endpoint, or an ANALYTICS_DEMO_PROMETHEUS_URL override, without consuming the user's Prometheus credential slot. " +
     "Use reset=true only when the user explicitly asks to restore/reinstall a deleted demo dashboard.",
+  automatic: (input) => !input.reset,
   schema: z.object({
     reset: cliBoolean
       .optional()
