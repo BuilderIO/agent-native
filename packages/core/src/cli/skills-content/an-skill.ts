@@ -25,11 +25,12 @@ whose name fits the request, and whose description fits too when the result
 shows one. Use its exact id. When a request fits more than one app or none, ask
 one short question rather than guessing.
 
-If the app you need is not listed and \`degradedSources\` is not empty, say that
-Dispatch could not check every app and call \`list_apps\` once more. Otherwise say
-that it may need a grant in Dispatch's Agents access settings, or that the
-organization may hide Agent-Native's hosted apps. Do not invent a URL, use a
-localhost URL, or route around the Dispatch grant.
+If the app you need is not listed and \`degradedSources\` is not empty, call
+\`list_apps\` once more. If it is still missing, say which reasons could apply:
+Dispatch could not check every app (only when \`degradedSources\` is not empty),
+the app needs a grant in Dispatch's Agents access settings, or the organization
+hides Agent-Native's hosted apps. Do not invent a URL, use a localhost URL, or
+route around the Dispatch grant.
 
 ## Open the app
 
