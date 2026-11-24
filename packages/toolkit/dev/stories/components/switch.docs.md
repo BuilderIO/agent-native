@@ -13,4 +13,14 @@ import { Switch } from "@agent-native/toolkit/ui/base-ui/switch";
 
 Pass a `SwitchThumb` as the child to customize the thumb. Its `className`, `style`, and `render` callbacks receive the switch state.
 
+To customize a group of switches, set a styling input on their container. This changes the unchecked soft track. Checked and disabled switches retain their own colors.
+
+```css
+[data-app-theme="design"] {
+  --switch-soft-track-color: var(--gray-a6);
+}
+```
+
+The Switch entry in the parts catalog lists all 15 inputs and their defaults.
+
 [Base UI behavior and API](https://base-ui.com/react/components/switch)
