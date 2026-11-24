@@ -2893,11 +2893,9 @@ describe("agentNative Vite plugin preset", () => {
             port: 0,
             fs: {
               allow: [appRoot, path.dirname(path.dirname(discoveryPath))],
-              deny: agentNativeStateFsDeny(
-                appRoot,
-                ["."],
-                "pglite:./db/custom",
-              ),
+              deny: agentNativeStateFsDeny(appRoot, ["."], {
+                databaseUrl: "pglite:./db/custom",
+              }),
             },
           },
         });
@@ -2929,7 +2927,50 @@ describe("agentNative Vite plugin preset", () => {
           }
         } finally {
           await server.close();
+          fs.rmSync(discoveryPath, { force: true });
         }
+      }
+
+      const appRoot = path.join(home, "nested-root-app");
+      const viteRoot = path.join(appRoot, "web");
+      fs.mkdirSync(path.join(viteRoot, ".agent-native"), { recursive: true });
+      fs.writeFileSync(
+        path.join(viteRoot, ".agent-native", "state.json"),
+        "secret",
+      );
+      fs.writeFileSync(path.join(viteRoot, "public.txt"), "visible");
+      const server = await createServer({
+        configFile: false,
+        root: viteRoot,
+        logLevel: "silent",
+        server: {
+          host: "127.0.0.1",
+          port: 0,
+          fs: {
+            allow: ["."],
+            deny: agentNativeStateFsDeny(appRoot, ["."], { root: "web" }),
+          },
+        },
+      });
+      try {
+        await server.listen();
+        const address = server.httpServer?.address();
+        if (!address || typeof address !== "object") {
+          throw new Error("Vite did not bind a port.");
+        }
+        const get = (pathname: string) =>
+          fetch(`http://127.0.0.1:${address.port}${encodeURI(pathname)}`);
+        expect(await (await get("/public.txt?raw")).text()).toContain(
+          "visible",
+        );
+        for (const pathname of [
+          "/.agent-native/state.json?raw",
+          `/@fs${viteRoot}/.agent-native/state.json?raw`,
+        ]) {
+          expect(await (await get(pathname)).text()).not.toContain("secret");
+        }
+      } finally {
+        await server.close();
       }
     } finally {
       fs.rmSync(home, { recursive: true, force: true });

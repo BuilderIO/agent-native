@@ -3290,10 +3290,17 @@ function literalDirectoryGlob(directory: string): string {
 export function agentNativeStateFsDeny(
   cwd: string,
   allowRoots: readonly string[],
-  databaseUrl = "pglite:./data/pglite",
+  {
+    databaseUrl = "pglite:./data/pglite",
+    root = ".",
+  }: { databaseUrl?: string; root?: string } = {},
 ): string[] {
+  const viteRoot = path.resolve(cwd, root);
   const directories = [
-    ...allowRoots.map((root) => path.resolve(cwd, root, ".agent-native")),
+    ...[".", ...allowRoots].flatMap((allowed) => [
+      path.resolve(cwd, allowed, ".agent-native"),
+      path.resolve(viteRoot, allowed, ".agent-native"),
+    ]),
     path.dirname(devActionDiscoveryFilePath(cwd)),
     path.resolve(cwd, "data", "pglite"),
   ];
@@ -5343,11 +5350,10 @@ function createAgentNativeConfig(
           ".env.*",
           "*.{crt,pem}",
           "**/.git/**",
-          ...agentNativeStateFsDeny(
-            cwd,
-            fsAllow,
-            getRuntimeDatabaseUrl("pglite:./data/pglite"),
-          ),
+          ...agentNativeStateFsDeny(cwd, fsAllow, {
+            databaseUrl: getRuntimeDatabaseUrl("pglite:./data/pglite"),
+            ...(userConfig.root ? { root: userConfig.root } : {}),
+          }),
           ...(userConfig.server?.fs?.deny ?? []),
           ...(options.fsDeny ?? []),
         ],
