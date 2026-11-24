@@ -1848,7 +1848,10 @@ export interface SpawnTaskOptions {
   scope?: ChatThreadScope | null;
   /** Keeps the task out of the runs tray. */
   quiet?: boolean;
-  /** The only actions the sub-agent may call. */
+  /**
+   * The only actions the sub-agent may call. Required without `parentSend`;
+   * inside a run that has its own allowlist, names outside it are dropped.
+   */
   allowedActionNames?: readonly string[];
   parentThreadId?: string;
   parentSourceAppId?: string | null;
@@ -1870,6 +1873,12 @@ export class SubagentDelegationDepthError extends Error {
 }
 
 export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
+  if (!opts.parentSend && opts.allowedActionNames === undefined) {
+    throw new Error(
+      "spawnTask needs allowedActionNames when no chat is waiting on the task.",
+    );
+  }
+  const parentAllowedActionNames = getRequestRunContext()?.allowedActionNames;
   const parentDepth =
     typeof opts.parentDelegationDepth === "number"
       ? opts.parentDelegationDepth
@@ -1953,8 +1962,14 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     ...(opts.parentRunId ? { parentRunId: opts.parentRunId } : {}),
     ...(opts.name ? { name: opts.name } : {}),
     ...(opts.allowedActionNames !== undefined
-      ? { allowedActionNames: [...opts.allowedActionNames] }
-      : getRequestRunContext()?.allowedActionNames !== undefined
+      ? {
+          allowedActionNames: opts.allowedActionNames.filter(
+            (name) =>
+              parentAllowedActionNames === undefined ||
+              parentAllowedActionNames.includes(name),
+          ),
+        }
+      : parentAllowedActionNames !== undefined
         ? { allowedActionNames: Object.keys(opts.actions ?? {}) }
         : {}),
     turnId: runId,
