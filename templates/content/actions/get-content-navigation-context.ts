@@ -323,7 +323,8 @@ export default defineAction({
         schema.documents,
         eq(schema.documents.id, sql`navigation_chain.id`),
       )
-      .orderBy(sql`navigation_chain.depth`);
+      .orderBy(sql`navigation_chain.depth`)
+      .limit(MAX_ANCESTORS + 1);
     if (!chain.length)
       throw Object.assign(new Error(`Document "${id}" not found`), {
         statusCode: 404,
