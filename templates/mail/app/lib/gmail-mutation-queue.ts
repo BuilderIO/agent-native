@@ -47,7 +47,7 @@ function targetKey(
   kind: GmailMutationKind,
   target: GmailMutationTarget,
 ): string {
-  return `${kind}:${target.id}:${target.removeLabel ?? ""}`;
+  return `${kind}:${target.accountEmail ?? ""}:${target.id}:${target.removeLabel ?? ""}`;
 }
 
 function bulkArgs(targets: GmailMutationTarget[]) {

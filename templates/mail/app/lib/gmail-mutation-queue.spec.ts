@@ -132,6 +132,29 @@ describe("gmailMutationQueue", () => {
     },
   );
 
+  it("keeps the same message ID in two accounts apart", async () => {
+    const pending = [
+      { accountEmail: "a@x.com", flag: false },
+      { accountEmail: "b@x.com", flag: true },
+    ].map((target) =>
+      gmailMutationQueue.enqueue("mark-read", { id: "m1", ...target }),
+    );
+
+    await vi.advanceTimersByTimeAsync(200);
+    await Promise.all(pending);
+
+    expect(callAction.mock.calls).toEqual([
+      [
+        "mark-read",
+        expect.objectContaining({ accountEmails: "a@x.com", unread: true }),
+      ],
+      [
+        "mark-read",
+        expect.objectContaining({ accountEmails: "b@x.com", unread: false }),
+      ],
+    ]);
+  });
+
   it("forwards every selected message ID when marking a multi-message thread read", async () => {
     const pending = ["m1", "m2", "m3"].map((id) =>
       gmailMutationQueue.enqueue("mark-read", {
