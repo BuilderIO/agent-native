@@ -8,7 +8,8 @@
  */
 
 @layer components {
-  .spinner {
+  .spinner,
+  :is(.button, .icon-button)[data-loading]::after {
     display: inline-block;
     flex-shrink: 0;
     box-sizing: border-box;
@@ -22,7 +23,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .spinner {
+    .spinner,
+    :is(.button, .icon-button)[data-loading]::after {
       animation: spinner-pulse 1.4s var(--ease-standard) infinite;
     }
   }

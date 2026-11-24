@@ -12,6 +12,7 @@ import {
   PreviewCardTrigger,
 } from "../../../src/ui/base-ui/preview-card.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./preview-card.docs.md?raw";
 
 type PreviewCardProps = PreviewCardPopupOwnProps;
 
@@ -53,7 +54,11 @@ function Parts(props: PreviewCardProps) {
 
 const meta = {
   title: "Components/Preview Card",
-  parameters: { layout: "fullscreen" },
+  component: PreviewCardPopup,
+  parameters: {
+    docs: { description: { component: guide } },
+    layout: "fullscreen",
+  },
   args: controls.args,
   argTypes: controls.argTypes,
 } satisfies Meta<PreviewCardProps>;

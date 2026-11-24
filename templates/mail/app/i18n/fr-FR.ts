@@ -205,9 +205,19 @@ const messages = {
       markRead: "Marquer comme lu",
       markUnread: "Marquer comme non lu",
       moveTo: "Déplacer vers",
+      labelAs: "Ajouter le libellé",
+      newLabel: "Nouveau libellé…",
       moveToTrash: "Déplacer vers la corbeille",
       star: "Ajouter une étoile",
       unstar: "Retirer l’étoile",
+    },
+    labels: {
+      labelAsPlaceholder: "Ajouter le libellé…",
+      moveToPlaceholder: "Déplacer vers…",
+      newLabelPlaceholder: "Nom du nouveau libellé",
+      create: "Créer le libellé « {{name}} »",
+      empty: "Aucun libellé pour l’instant. Saisissez un nom pour en créer un.",
+      alreadyExists: "« {{name}} » existe déjà.",
     },
     compose: {
       addImage: "Ajouter une image",
@@ -480,6 +490,13 @@ const messages = {
       moveSucceeded: "Déplacement vers {{label}} terminé.",
       moveManySucceeded:
         "Déplacement de {{count}} conversations vers {{label}} terminé.",
+      labelSucceeded: "Libellé {{label}} ajouté.",
+      labelManySucceeded: "Libellé {{label}} ajouté à {{count}} conversations.",
+      labelPartialFailed:
+        "Libellé ajouté à {{succeeded}} conversations sur {{total}} ; {{failed}} en échec.",
+      labelFailed: "Impossible d’ajouter le libellé.",
+      labelCreated: "Libellé {{label}} créé.",
+      createLabelFailed: "Impossible de créer le libellé.",
       trashed: "Déplacé vers la corbeille.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programmé envoyé.",
@@ -659,7 +676,7 @@ const messages = {
       instructionsTitle: "Instructions",
       instructionCount: "{{count}} instruction(s)",
       instructionPlaceholder:
-        "ex. Les objets comme « question pour vous, Steve » ne sont pas souhaités",
+        "ex. Les objets comme « petite question pour vous » ne sont pas souhaités",
       addInstruction: "Ajouter",
       noInstructions: "Aucune instruction pour le moment.",
       instructionExample:
@@ -935,6 +952,7 @@ const messages = {
     sendAndMarkDone: "Envoyer et marquer comme terminé",
     autocompleteSaveFailed:
       "Impossible d’enregistrer le réglage de saisie automatique.",
+    signaturePlaceholder: "Cordialement,\nVotre nom",
     writingStylePlaceholder:
       "Court, précis, chaleureux. Évitez le remplissage formel.",
     saveDraftingSettings: "Enregistrer les paramètres de rédaction",

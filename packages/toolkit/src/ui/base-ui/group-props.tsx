@@ -9,6 +9,7 @@ import * as React from "react";
  * fills in its own definition's defaults.
  */
 export function createGroupProps<D extends PropDefs>(defs: D) {
+  const names = Object.keys(defs);
   const Context = React.createContext<PropsOf<D>>({});
 
   function GroupProps({
@@ -19,26 +20,37 @@ export function createGroupProps<D extends PropDefs>(defs: D) {
     children?: React.ReactNode;
   }) {
     const values: Record<string, unknown> = value;
-    const given: Record<string, unknown> = {};
-    for (const name of Object.keys(defs)) {
-      if (values[name] !== undefined) given[name] = values[name];
+    const pick = () =>
+      Object.fromEntries(
+        names
+          .filter((name) => values[name] !== undefined)
+          .map((name) => [name, values[name]]),
+      ) as PropsOf<D>;
+    const [previous, setPrevious] = React.useState(pick);
+    let given = previous;
+    if (
+      names.some(
+        (name) =>
+          !Object.is((previous as Record<string, unknown>)[name], values[name]),
+      )
+    ) {
+      given = pick();
+      setPrevious(given);
     }
-    return (
-      <Context.Provider value={given as PropsOf<D>}>
-        {children}
-      </Context.Provider>
-    );
+    return <Context.Provider value={given}>{children}</Context.Provider>;
   }
 
   function useGroupProps<P extends object>(props: P): P {
     const group: Record<string, unknown> = React.useContext(Context);
-    const merged: Record<string, unknown> = Object.fromEntries(
-      Object.entries(props),
-    );
-    for (const [name, value] of Object.entries(group)) {
-      if (merged[name] === undefined) merged[name] = value;
+    const own = props as Record<string, unknown>;
+    let merged: Record<string, unknown> | undefined;
+    for (const name in group) {
+      if (own[name] === undefined) {
+        merged ??= { ...own };
+        merged[name] = group[name];
+      }
     }
-    return merged as P;
+    return merged ? (merged as P) : props;
   }
 
   return { GroupProps, useGroupProps };

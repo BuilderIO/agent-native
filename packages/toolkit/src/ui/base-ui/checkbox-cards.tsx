@@ -45,7 +45,11 @@ const CheckboxCards = React.forwardRef<HTMLDivElement, CheckboxCardsProps>(
 );
 CheckboxCards.displayName = "CheckboxCards";
 
-export type CheckboxCardsItemProps = Omit<BaseCheckbox.Root.Props, "color">;
+export interface CheckboxCardsItemProps
+  extends Omit<BaseCheckbox.Root.Props, "color">, CheckboxCardsOwnProps {
+  /** Replaces the trailing checkbox. Use CheckboxIndicator for a custom selection mark. */
+  indicator?: React.ReactNode;
+}
 
 /**
  * One card: a checkbox whose content is its name, so the whole card is the hit
@@ -54,37 +58,43 @@ export type CheckboxCardsItemProps = Omit<BaseCheckbox.Root.Props, "color">;
  * @import import { CheckboxCardsItem } from "@agent-native/toolkit/ui/base-ui/checkbox-cards";
  */
 const CheckboxCardsItem = React.forwardRef<HTMLElement, CheckboxCardsItemProps>(
-  ({ className, children, ...props }, ref) => {
-    const group = checkboxCardsItemProps.useGroupProps<CheckboxCardsOwnProps>(
-      {},
-    );
-    const [attributes] = splitProps(checkboxCardsProps, group);
+  (props, ref) => {
+    const merged = checkboxCardsItemProps.useGroupProps(props);
+    const [attributes, { className, children, indicator, ...rest }] =
+      splitProps(checkboxCardsProps, merged);
     const [boxAttributes] = splitProps(checkboxProps, {
-      ...group,
+      color: merged.color,
+      highContrast: merged.highContrast,
       variant: "surface",
     });
     return (
       <BaseCheckbox.Root
         ref={ref}
-        {...props}
+        {...rest}
         {...attributes}
         className={partClassName("checkbox-cards-item", className)}
       >
         {children}
-        <BaseCheckbox.Indicator
-          keepMounted
-          {...boxAttributes}
-          className="checkbox checkbox-cards-checkbox"
-          render={(indicatorProps, state) => (
-            <span {...indicatorProps} aria-hidden>
-              {state.checked || state.indeterminate ? (
-                <span className="checkbox-indicator">
-                  {state.indeterminate ? <IconMinus /> : <IconCheck />}
-                </span>
-              ) : null}
-            </span>
-          )}
-        />
+        {indicator === undefined ? (
+          <BaseCheckbox.Indicator
+            keepMounted
+            {...boxAttributes}
+            className="checkbox checkbox-cards-checkbox"
+            render={(indicatorProps, state) => (
+              <span {...indicatorProps} aria-hidden>
+                {state.checked || state.indeterminate ? (
+                  <span className="checkbox-indicator">
+                    {state.indeterminate ? <IconMinus /> : <IconCheck />}
+                  </span>
+                ) : null}
+              </span>
+            )}
+          />
+        ) : indicator == null ? null : (
+          <span className="checkbox-cards-mark" aria-hidden>
+            {indicator}
+          </span>
+        )}
       </BaseCheckbox.Root>
     );
   },

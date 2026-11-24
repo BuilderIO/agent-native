@@ -52,8 +52,10 @@ import type { FilterText } from "./text.js";
 
 export interface FilterNouns {
   items: string;
-  matchCount: (count: number) => string;
-  showCount: (count: number) => string;
+  /** Shown with `counts.matching`; leave it out when the app passes no counts. */
+  matchCount?: ((count: number) => string) | undefined;
+  /** The phone sheet's done button with `counts.matching`. */
+  showCount?: ((count: number) => string) | undefined;
 }
 
 export interface FilterControlProps {
@@ -63,10 +65,12 @@ export interface FilterControlProps {
   counts?: FilterCounts | undefined;
   /** Lets a group hold groups of its own, one level down, as Content's saved views do. */
   nestedGroups?: boolean | undefined;
+  /** How a group added from these controls starts matching its rules; `"or"` unless set. */
+  groupMode?: FilterMode | undefined;
 }
 
 export const FILTER_POPOVER_CLASS =
-  "max-h-[var(--radix-popover-content-available-height)] w-[min(20rem,calc(100vw-1rem))] overflow-y-auto overflow-x-hidden p-0";
+  "flex max-h-[var(--radix-popover-content-available-height)] w-[min(20rem,calc(100vw-1rem))] flex-col overflow-y-auto overflow-x-hidden p-0";
 
 export function FilterModeSwitch({
   mode,
@@ -160,12 +164,14 @@ export function FilterAddPopover({
   counts,
   text,
   onAdd,
+  modal,
   children,
 }: {
   fields: readonly FilterField<never>[];
   counts?: FilterCounts | undefined;
   text: FilterText;
   onAdd: (rule: FilterRule) => void;
+  modal?: boolean | undefined;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -191,6 +197,7 @@ export function FilterAddPopover({
   const draftField = draft ? findFilterField(fields, draft.field) : undefined;
   return (
     <Popover
+      modal={modal}
       open={open}
       onOpenChange={(next) => {
         if (next) setOpen(true);
@@ -209,7 +216,7 @@ export function FilterAddPopover({
         }}
       >
         {draft && draftField ? (
-          <div className="flex min-w-0 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-col">
             <div className="flex min-w-0 items-center gap-1 border-b px-1 py-1">
               <Button
                 type="button"
@@ -520,6 +527,7 @@ export function FilterGroupBlock({
   onChange,
   counts,
   nestedGroups,
+  groupMode,
   nested = false,
   text,
 }: FilterControlProps & {
@@ -572,6 +580,7 @@ export function FilterGroupBlock({
             state={state}
             onChange={onChange}
             counts={counts}
+            groupMode={groupMode}
             nested
             text={text}
           />
@@ -601,7 +610,11 @@ export function FilterGroupBlock({
             text={text}
             onAdd={(rule) =>
               onChange(
-                addFilterGroup(state, createFilterGroup([rule]), group.id),
+                addFilterGroup(
+                  state,
+                  createFilterGroup([rule], groupMode),
+                  group.id,
+                ),
               )
             }
           >

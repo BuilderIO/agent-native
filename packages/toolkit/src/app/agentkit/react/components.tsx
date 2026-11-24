@@ -3024,12 +3024,14 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   });
   const toolFor = (id: string): AgentToolCall | undefined =>
     toolMap.get(id) ?? thread.tools[id];
+  const widgetById = (id: string) =>
+    id in thread.widgets ? thread.widgets[id] : undefined;
   // A result whose widget shows on its message already appears there, as it
   // does after a reload; drawing it here too would show a live run's card
   // twice. A widget with no message or nothing to draw it leaves the card here.
   const showsAsMessageWidget = (tool: AgentToolCall) =>
     [`${tool.id}:chat-ui`, `${tool.id}:mcp-app`].some((id) => {
-      const widget = id in thread.widgets ? thread.widgets[id] : undefined;
+      const widget = widgetById(id);
       const messageId =
         id in thread.widgetMessageIds ? thread.widgetMessageIds[id] : undefined;
       if (!widget || !messageId || !messagesById.has(messageId)) return false;
@@ -3040,21 +3042,32 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
         registry.messageParts,
       );
     });
+  const durableToolResult = (tool: AgentToolCall) => {
+    const Renderer = registry.tools?.[tool.name];
+    if (Renderer) {
+      return <Renderer key={tool.id} value={tool} threadId={threadId} />;
+    }
+    if (!(tool.metadata?.chatUI || tool.metadata?.mcpApp)) return null;
+    if (showsAsMessageWidget(tool)) return null;
+    const ToolRenderer = slots.tool;
+    if (ToolRenderer) {
+      return <ToolRenderer key={tool.id} value={tool} threadId={threadId} />;
+    }
+    const widget =
+      widgetById(`${tool.id}:chat-ui`) ?? widgetById(`${tool.id}:mcp-app`);
+    const WidgetRenderer =
+      widget && (registry.widgets?.[widget.kind] ?? slots.widget);
+    return widget && WidgetRenderer ? (
+      <WidgetRenderer key={tool.id} value={widget} threadId={threadId} />
+    ) : null;
+  };
   const durableToolResults = items.flatMap((activity) => {
     const tool = toolMap.get(activity.id);
-    const Renderer = tool ? registry.tools?.[tool.name] : undefined;
     if (!tool || tool.status === "running") return [];
-    if (Renderer) return [{ tool, Renderer }];
-    if (tool.metadata?.chatUI || tool.metadata?.mcpApp) {
-      return slots.tool && !showsAsMessageWidget(tool)
-        ? [{ tool, Renderer: slots.tool }]
-        : [];
-    }
-    return [];
+    const node = durableToolResult(tool);
+    return node ? [{ id: tool.id, node }] : [];
   });
-  const durableToolResultIds = new Set(
-    durableToolResults.map(({ tool }) => tool.id),
-  );
+  const durableToolResultIds = new Set(durableToolResults.map(({ id }) => id));
   const activityItems = items.filter(
     (activity) =>
       !durableToolResultIds.has(activity.id) && !isInternalActivity(activity),
@@ -3143,9 +3156,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   const resultCards =
     durableToolResults.length && part !== "row" ? (
       <div data-agentkit-tool-results="true">
-        {durableToolResults.map(({ tool, Renderer }) => (
-          <Renderer key={tool.id} value={tool} threadId={threadId} />
-        ))}
+        {durableToolResults.map(({ node }) => node)}
       </div>
     ) : null;
   const workCall = (activity: AgentActivity): AgentWorkCall[] => {
@@ -3240,6 +3251,19 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   const currentActivityLabel = currentActivity
     ? activityLabel(currentActivity, labels.working)
     : undefined;
+  const groupToolCount = timeline.filter(
+    (entry) => entry.type === "call" && toolMap.has(entry.id),
+  ).length;
+  const liveToolCount =
+    groupToolCount > 0 ? (
+      <span
+        className="agentkit-activity-cluster-count"
+        title={labels.runToolCalls}
+      >
+        <span className="agentkit-visually-hidden">{labels.runToolCalls} </span>
+        {groupToolCount.toLocaleString()}
+      </span>
+    ) : null;
   const workItems = activityItems.map((activity): AgentWorkItem => {
     const entry = reasoningEntries.get(activity.id);
     if (entry) {
@@ -3352,6 +3376,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
                 <span className="agentkit-activities-current-label agent-running-shimmer">
                   {currentActivityLabel}
                 </span>
+                {liveToolCount}
               </span>
             ) : null
           }
@@ -3365,6 +3390,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
                 <span className="agentkit-activities-current-label agent-running-shimmer">
                   {currentActivityLabel}
                 </span>
+                {liveToolCount}
               </span>
             ) : null
           }
@@ -7472,6 +7498,11 @@ export interface AgentKitComposerProps extends Omit<
   initialTextKey?: string | number | undefined;
   /** Override the default AgentKit submit path when the host owns send options. */
   onSubmit?: PromptComposerProps["onSubmit"];
+  /**
+   * Set false when the host `onSubmit` never starts an agent run (for example
+   * a keyword search box), so a submit is not refused for missing AI setup.
+   */
+  submitRequiresAiSetup?: boolean;
   /** Opt in to Agent-Native provider UI when this host owns that setup flow. */
   requireAgentEngine?: boolean;
   beforeSend?: (submission: AgentKitComposerSubmission) => void | Promise<void>;
@@ -7578,6 +7609,7 @@ export function AgentKitComposer({
   onRemoveContextItem,
   extraActionButton,
   onSubmit: onSubmitOverride,
+  submitRequiresAiSetup = true,
   onSubmissionPendingChange,
   onAttachmentError,
   onAttachmentsChange,
@@ -7976,11 +8008,14 @@ export function AgentKitComposer({
       }
     }
     if (!editingMessage && onSubmitOverride) {
-      const readinessEngine = options.engine ?? selectedEngine;
-      await controller.assertAiSetupReady({
-        engine:
-          typeof readinessEngine === "string" ? readinessEngine : undefined,
-      });
+      if (submitRequiresAiSetup) {
+        const readinessEngine = options.engine ?? selectedEngine;
+        await controller.assertAiSetupReady(
+          typeof readinessEngine === "string"
+            ? { engine: readinessEngine }
+            : {},
+        );
+      }
       const submitOptions = {
         ...(suggestion ? { ...options, suggestion } : options),
         onLocalSubmit,

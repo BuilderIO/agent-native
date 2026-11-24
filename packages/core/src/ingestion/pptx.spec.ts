@@ -879,6 +879,33 @@ describe("parsePptxPresentation", () => {
     });
   });
 
+  it("keeps a picture's alt text from its description", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [
+          pictureSlideXml(' descr="Revenue bar chart showing 42% YoY"'),
+          pictureSlideXml(' descr="  "'),
+          pictureSlideXml(),
+        ],
+        slideRels: [
+          { id: "rId9", type: "image", target: "../media/image1.png" },
+        ],
+        files: { "ppt/media/image1.png": TINY_PNG },
+      }),
+    );
+
+    const [described, blank, plain] = presentation.slides;
+    expect(described.images[0].altText).toBe(
+      "Revenue bar chart showing 42% YoY",
+    );
+    expect(described.elements[0]).toMatchObject({
+      kind: "image",
+      image: { altText: "Revenue bar chart showing 42% YoY" },
+    });
+    expect(blank.images[0]).not.toHaveProperty("altText");
+    expect(plain.images[0]).not.toHaveProperty("altText");
+  });
+
   it.each([
     ["per-image", 2, 100, [pictureSlideXml()], "per-image"],
     ["aggregate", 3, 5, [pictureSlideXml(), pictureSlideXml()], "aggregate"],
@@ -1603,11 +1630,11 @@ function textSlideXml(
   </p:sld>`;
 }
 
-function pictureSlideXml(): string {
+function pictureSlideXml(cNvPrAttributes = ""): string {
   return `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
     <p:cSld><p:spTree>
       <p:pic>
-        <p:nvPicPr><p:cNvPr id="3" name="Image"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+        <p:nvPicPr><p:cNvPr id="3" name="Image"${cNvPrAttributes}/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
         <p:blipFill><a:blip r:embed="rId9"/></p:blipFill>
         <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr>
       </p:pic>

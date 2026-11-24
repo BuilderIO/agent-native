@@ -3,13 +3,14 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { Kbd } from "../../../src/ui/base-ui/kbd.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./kbd.docs.md?raw";
 
 const controls = propControls(kbdProps);
 
 const meta = {
   title: "Typography/Kbd",
   component: Kbd,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, children: "⇧⌘P" },
   argTypes: controls.argTypes,
 } satisfies Meta<typeof Kbd>;

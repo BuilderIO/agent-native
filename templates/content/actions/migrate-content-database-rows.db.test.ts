@@ -14,6 +14,8 @@ import {
   vi,
 } from "vitest";
 
+import { analyticsChartBlockRaw } from "../shared/analytics-chart-block.js";
+
 const beforeRowLock = vi.hoisted(() => ({
   run: null as null | ((tx: unknown) => Promise<unknown>),
 }));
@@ -113,7 +115,7 @@ afterAll(() => {
   expect(existsSync(TEST_DB_PATH)).toBe(false);
 });
 
-async function fixture(rowCount = 20) {
+async function fixture(rowCount = 20, firstRowBody?: string) {
   const db = getDb();
   const stamp = now();
   const key = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -167,7 +169,10 @@ async function fixture(rowCount = 20) {
       spaceId: "synthetic_space",
       parentId: databaseDocumentId,
       title: `Synthetic ${index}`,
-      content: `# Synthetic heading ${index % 5}`,
+      content:
+        index === 0 && firstRowBody !== undefined
+          ? firstRowBody
+          : `# Synthetic heading ${index % 5}`,
       visibility: "private",
       hideFromSearch: 1,
       position: index,
@@ -1383,6 +1388,85 @@ describe("migrate-content-database-rows", () => {
           ),
         ),
     ).toHaveLength(input.legacyPropertyIds.length);
+  });
+
+  it("keeps a row's chart citations in step through apply and rollback", async () => {
+    const db = getDb();
+    const chart = (dashboardId: string) =>
+      analyticsChartBlockRaw(`analytics-chart-${dashboardId}`, {
+        dashboard: {
+          id: dashboardId,
+          title: dashboardId,
+          url: `https://analytics.example.test/dashboards/${dashboardId}`,
+          visibility: "org",
+        },
+        panel: {
+          id: "wau",
+          title: "Weekly active users",
+          type: "line",
+          fingerprint: "0123456789ab",
+          url: `https://analytics.example.test/dashboards/${dashboardId}?tile=wau`,
+        },
+        filters: {},
+        columns: ["week", "Users"],
+        rows: [["2026-10-05", 120]],
+        chart: {},
+        truncated: false,
+        capturedAt: "2026-11-07T16:40:00.000Z",
+      });
+    const seed = await fixture(1, `# Before\n\n${chart("dash_before")}`);
+    const [row] = seed.rows;
+    await db.insert(schema.analyticsChartCitations).values({
+      documentId: row.documentId,
+      dashboardId: "dash_before",
+    });
+    const cited = async (documentId: string) =>
+      (
+        await db
+          .select({ dashboardId: schema.analyticsChartCitations.dashboardId })
+          .from(schema.analyticsChartCitations)
+          .where(eq(schema.analyticsChartCitations.documentId, documentId))
+      ).map(({ dashboardId }: { dashboardId: string }) => dashboardId);
+    const migrationPlan = plan(seed);
+    const applied = (await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: migrationPlan }),
+    )) as { postDigest: string };
+    expect(await cited(row.documentId)).toEqual([]);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      terminalAction.run({
+        phase: "rollback",
+        databaseId: seed.databaseId,
+        idempotencyKey: migrationPlan.idempotencyKey,
+        expectedPostDigest: applied.postDigest,
+      }),
+    );
+    expect(await cited(row.documentId)).toEqual(["dash_before"]);
+
+    const added = await fixture(1);
+    const [addedRow] = added.rows;
+    const addedPlan = {
+      ...plan(added),
+      rows: [
+        {
+          ...addedRow,
+          content: `${addedRow.content}\n\n${chart("dash_added")}`,
+        },
+      ],
+    };
+    const addedApplied = (await runWithRequestContext(
+      { userEmail: OWNER },
+      () => action.run({ phase: "apply", plan: addedPlan }),
+    )) as { postDigest: string };
+    expect(await cited(addedRow.documentId)).toEqual(["dash_added"]);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      terminalAction.run({
+        phase: "rollback",
+        databaseId: added.databaseId,
+        idempotencyKey: addedPlan.idempotencyKey,
+        expectedPostDigest: addedApplied.postDigest,
+      }),
+    );
+    expect(await cited(addedRow.documentId)).toEqual([]);
   });
 
   it("performs guarded rollback/finalize and refuses drift", async () => {

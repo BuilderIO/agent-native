@@ -8,13 +8,14 @@ import {
   AvatarImage,
 } from "../../../src/ui/base-ui/avatar.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./avatar.docs.md?raw";
 
 const controls = propControls(avatarProps);
 
 const meta = {
   title: "Components/Avatar",
   component: Avatar,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: {
     ...controls.args,
     children: <AvatarFallback>AL</AvatarFallback>,

@@ -61,6 +61,45 @@
           "library": {
             "route": "/library",
             "action": "show-docs"
+          },
+          "doc": {
+            "route": "/docs/:deckId",
+            "action": "show-docs",
+            "supportsViewOverlay": true
+          }
+        },
+        "entities": {
+          "deck": {
+            "screen": "doc",
+            "route": "/docs/:deckId",
+            "idParam": "deckId",
+            "label": "Deck"
+          }
+        },
+        "viewPolicy": {
+          "defaultMode": "reveal",
+          "allowBackgroundNavigation": false
+        },
+        "supportsViewOverlay": true
+      }
+    }
+  },
+  "version3": {
+    "tools": [
+      {
+        "name": "show-docs",
+        "inputSchema": {
+          "type": "object"
+        }
+      }
+    ],
+    "_meta": {
+      "agent-native/app-capabilities": {
+        "version": 3,
+        "screens": {
+          "library": {
+            "route": "/library",
+            "action": "show-docs"
           }
         }
       }

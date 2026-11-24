@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { isTransientDatabaseError } from "../../db/errors.js";
 import { getLabForLegacyFlag } from "../../labs/registry.js";
 import { getUserLabStates } from "../../labs/store.js";
 import { captureError } from "../../server/capture-error.js";
@@ -30,6 +31,7 @@ export default defineAction({
       definitions.map(({ key }) => key),
       scope,
     ).catch(async (error) => {
+      if (isTransientDatabaseError(error, { source: "database" })) throw error;
       captureError(error, {
         tags: { source: "feature-flags", op: "get-feature-flags" },
       });
@@ -43,7 +45,9 @@ export default defineAction({
                 await readFeatureFlagRuleLayers(key, scope),
               ),
             );
-          } catch {
+          } catch (error) {
+            if (isTransientDatabaseError(error, { source: "database" }))
+              throw error;
             // coercion-ok: this flag's own read also failed; it evaluates
             // off below, the same false-on-error outcome evaluateFeatureFlag
             // gives any other caller.
@@ -69,7 +73,9 @@ export default defineAction({
       .map(({ key }) => key)
       .filter((key) => getLabForLegacyFlag(key));
     if (migratedKeys.length === 0 || !scope.userEmail) return values;
-    const labStates = await getUserLabStates(scope.userEmail, scope);
+    const labStates = await getUserLabStates(scope.userEmail, scope, {
+      propagateTransientErrors: true,
+    });
     for (const key of migratedKeys) {
       const lab = getLabForLegacyFlag(key);
       if (!lab) continue;

@@ -27,7 +27,11 @@ import type {
   UpdateDatabaseItemsRequest,
   UpdateDatabaseItemsResponse,
 } from "@shared/api";
-import type { BlocksFieldFreezeRule } from "@shared/properties";
+import {
+  addablePropertyTypes,
+  type BlocksFieldFreezeRule,
+  type DocumentPropertyType,
+} from "@shared/properties";
 import {
   useInfiniteQuery,
   useQueryClient,
@@ -445,25 +449,24 @@ export function documentPropertiesPlaceholder(
   };
 }
 
-// A system collection such as Files refuses new properties. A view has read
-// its collection before it draws an Add property button, so the cached read
-// answers here.
-export function useCollectionRefusesNewProperties(
+export function useCollectionAddablePropertyTypes(
   databaseDocumentId: string,
   databaseId: string,
-) {
+  known?: readonly DocumentPropertyType[],
+): readonly DocumentPropertyType[] {
   const queryClient = useQueryClient();
-  return queryClient
-    .getQueriesData<ContentDatabaseResponse>(
-      contentDatabaseQueryFilter(databaseDocumentId),
+  if (known) return known;
+  for (const [, value] of queryClient.getQueriesData<ContentDatabaseResponse>(
+    contentDatabaseQueryFilter(databaseDocumentId),
+  )) {
+    if (
+      value &&
+      !isContentDatabaseUnavailable(value) &&
+      value.database.id === databaseId
     )
-    .some(
-      ([, value]) =>
-        !!value &&
-        !isContentDatabaseUnavailable(value) &&
-        value.database.id === databaseId &&
-        value.database.systemRole != null,
-    );
+      return addablePropertyTypes(value.database.systemRole);
+  }
+  return addablePropertyTypes(null);
 }
 
 export function useConfigureDocumentProperty(

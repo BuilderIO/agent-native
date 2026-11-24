@@ -297,11 +297,13 @@ export const parityMatrix: ParityRow[] = [
       "append-to-document",
       "convert-page-to-live-copy-if-due",
       "edit-document",
+      "get-body-block-ids",
       "get-document-save-attempt",
       "pull-document",
       "record-editor-merge",
       "record-editor-mount",
       "record-live-body-parity",
+      "resolve-block-link",
       "seed-document-collab",
       "set-image-alt-text",
       "set-live-body-switch",
@@ -309,7 +311,7 @@ export const parityMatrix: ParityRow[] = [
       "update-document",
     ],
     exception:
-      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open, and the block menu's Move to, which adds a block to the end of another page before the editor removes it, are browser-only editor support actions hidden from agent tools with agentTool: false.",
+      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open, the block menu's Move to, which adds a block to the end of another page before the editor removes it, and Copy link's reads of the IDs a page's blocks hold and of where a linked block is now are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -327,6 +329,11 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/VisualEditor.mount-telemetry.test.tsx",
       "server/live-copy/live-copy.test.ts",
       "server/live-copy/backfill.db.test.ts",
+      "actions/block-links.db.test.ts",
+      "app/components/editor/block-links.test.tsx",
+      "app/components/editor/extensions/BlockIdentityIds.test.ts",
+      "server/live-copy/block-ids.test.ts",
+      "shared/block-identity-ids.spec.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
   },
@@ -487,15 +494,16 @@ export const parityMatrix: ParityRow[] = [
       "app/routes/p.$id.tsx",
     ],
     durableEffect:
-      "The page body stores an AnalyticsChart tag holding the panel's numbers as Analytics ran them for the editor who added or refreshed it, plus the dashboard's sharing at that moment. Readers see only those numbers; Content never queries a data source.",
+      "The page body stores an AnalyticsChart tag holding the panel's numbers as Analytics ran them for the editor who added or refreshed it, plus the dashboard's sharing at that moment. Readers see only those numbers; Content never queries a data source. A citation row per page and dashboard lets the dashboard list the pages that hold its charts.",
     uiImplementation:
-      "Pasting a panel link reads where Analytics lives through get-analytics-links, then capture-analytics-chart checks edit access and has Analytics run the panel as the editor; the editor confirms first when more people can open the page than the dashboard. Refresh calls capture-analytics-chart again and replaces the block's data. get-analytics-chart-status reads each dashboard's sharing and panel fingerprints for the editor's changed mark. Sharing a page with charts from narrower dashboards asks first; making it public also weighs the charts in the sub-pages that go public with it, read through list-sub-page-analytics-charts. A table never goes wider than its dashboard, in the page or its sub-pages. Agents call capture-analytics-chart and write the returned tag with edit-document.",
+      "Pasting a panel link reads where Analytics lives through get-analytics-links, then capture-analytics-chart checks edit access and has Analytics run the panel as the editor; the editor confirms first when more people can open the page than the dashboard. Refresh calls capture-analytics-chart again and replaces the block's data. get-analytics-chart-status reads each dashboard's sharing and panel fingerprints for the editor's changed mark. Sharing a page with charts from narrower dashboards asks first; making it public also weighs the charts in the sub-pages that go public with it, read through list-sub-page-analytics-charts. A table never goes wider than its dashboard, in the page or its sub-pages. Every save of a page body records which dashboards its charts come from; Analytics' Cited in list reads list-analytics-chart-citations as the signed-in person, which keeps only pages they can open that still hold a chart from the dashboard. Agents call capture-analytics-chart and write the returned tag with edit-document.",
     status: "action-backed",
     actions: [
       "get-analytics-links",
       "capture-analytics-chart",
       "get-analytics-chart-status",
       "list-sub-page-analytics-charts",
+      "list-analytics-chart-citations",
     ],
     exception:
       "get-analytics-links, get-analytics-chart-status and list-sub-page-analytics-charts are hidden with agentTool: false because they serve the editor's paste handler, changed mark and share dialog; agents read the chart's numbers from the AnalyticsChart tag with get-document and refresh it with capture-analytics-chart.",
@@ -509,6 +517,7 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/analytics-chart/AnalyticsChartBlock.test.tsx",
       "app/components/editor/analytics-chart/analytics-chart-paste.test.ts",
       "app/components/editor/analytics-chart/analytics-chart-share.test.ts",
+      "actions/analytics-chart-citations.db.test.ts",
     ],
   },
   {
@@ -545,6 +554,35 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/design-screen/DesignScreenBlock.test.tsx",
       "app/components/editor/design-screen/design-screen-paste.test.ts",
       "app/components/editor/design-screen/design-screen-share.test.ts",
+    ],
+  },
+  {
+    id: "editor.link-cards",
+    surface: "editor",
+    label:
+      "Turn a pasted Design, Slides or Clips link into a card that shows the item's title to readers who can open it",
+    uiEntrypoints: [
+      "app/components/editor/link-card/link-card-paste.ts",
+      "app/components/editor/link-card/LinkCardBlock.tsx",
+      "app/routes/p.$id.tsx",
+    ],
+    durableEffect:
+      "The page body stores a LinkCard tag naming only the owning app and the link, never the title. Markdown, HTML and PDF exports carry the plain link.",
+    uiImplementation:
+      "Pasting a link alone on a line reads where the apps live through get-link-card-origins and swaps the line for the card as its own undo step; a link that carries a token or key stays a plain link. Each card asks read-link-summaries, which asks the owning app's read-link-summary as the signed-in reader and returns the title only when that reader can open the item; signed-out readers make no call. Agents write the same LinkCard tag with edit-document.",
+    status: "action-backed",
+    actions: ["get-link-card-origins", "read-link-summaries"],
+    exception:
+      "get-link-card-origins and read-link-summaries are hidden with agentTool: false because they serve the editor's paste handler and each reader's card; agents read and write the LinkCard tag with get-document and edit-document.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/link-card-actions.test.ts",
+      "shared/link-card-block.spec.ts",
+      "app/components/editor/link-card/LinkCardBlock.test.tsx",
+      "app/components/editor/link-card/link-card-paste.test.ts",
     ],
   },
   {
@@ -610,6 +648,32 @@ export const parityMatrix: ParityRow[] = [
     spinePriority: "P1",
     testCoverage: "none",
     followUpPR: null,
+  },
+  {
+    id: "editor.inline-table-structure",
+    surface: "editor",
+    label:
+      "Change an inline table's rows, columns, cells, headers, page width and colours",
+    uiEntrypoints: [
+      "app/components/editor/TableHoverControls.tsx",
+      "app/components/editor/BlockActionsMenu.tsx",
+      "app/components/editor/table-commands.ts",
+    ],
+    durableEffect:
+      "The page body's table changes: rows and columns inserted, deleted, moved, duplicated or cleared, cell text, the header row and column, fit to page width, and row, column and cell colours.",
+    uiImplementation:
+      "The row, column and block menus and the drag handles change the table in the editor transaction, which the document save row persists; agents call edit-table, which changes only that table's lines through the revisioned edit-document mutation.",
+    status: "action-backed",
+    actions: ["edit-table"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "shared/table-edits.spec.ts",
+      "actions/edit-table.db.test.ts",
+    ],
   },
   {
     id: "editor.agent-assist-prompts",

@@ -202,9 +202,19 @@ const messages = {
       markRead: "Marcar como lido",
       markUnread: "Marcar como não lido",
       moveTo: "Mover para",
+      labelAs: "Marcar com",
+      newLabel: "Novo marcador…",
       moveToTrash: "Mover para a lixeira",
       star: "Marcar com estrela",
       unstar: "Remover estrela",
+    },
+    labels: {
+      labelAsPlaceholder: "Marcar com…",
+      moveToPlaceholder: "Mover para…",
+      newLabelPlaceholder: "Nome do novo marcador",
+      create: "Criar o marcador “{{name}}”",
+      empty: "Ainda não há marcadores. Digite um nome para criar um.",
+      alreadyExists: "“{{name}}” já existe.",
     },
     compose: {
       addImage: "Adicionar uma imagem",
@@ -475,6 +485,14 @@ const messages = {
         "{{succeeded}} de {{total}} conversas movidas; {{failed}} falharam.",
       moveSucceeded: "Movido para {{label}}.",
       moveManySucceeded: "{{count}} conversas movidas para {{label}}.",
+      labelSucceeded: "Marcador {{label}} adicionado.",
+      labelManySucceeded:
+        "Marcador {{label}} adicionado a {{count}} conversas.",
+      labelPartialFailed:
+        "{{succeeded}} de {{total}} conversas marcadas; {{failed}} falharam.",
+      labelFailed: "Não foi possível adicionar o marcador.",
+      labelCreated: "Marcador {{label}} criado.",
+      createLabelFailed: "Não foi possível criar o marcador.",
       trashed: "Movido para a lixeira.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email agendado enviado.",
@@ -648,7 +666,7 @@ const messages = {
       instructionsTitle: "Instruções",
       instructionCount: "{{count}} instrução(ões)",
       instructionPlaceholder:
-        "ex. Assuntos como “question for you, Steve” são indesejados",
+        "ex. Assuntos como “quick question for you” são indesejados",
       addInstruction: "Adicionar",
       noInstructions: "Nenhuma instrução ainda.",
       instructionExample:
@@ -926,6 +944,7 @@ const messages = {
     sendAndMarkDone: "Enviar e marcar como concluído",
     autocompleteSaveFailed:
       "Não foi possível salvar a configuração de autocompletar.",
+    signaturePlaceholder: "Abraços,\nSeu nome",
     writingStylePlaceholder:
       "Curto, específico e acolhedor. Evite formalidades vazias.",
     saveDraftingSettings: "Salvar configurações de rascunho",

@@ -9,13 +9,17 @@ describe("run preparation source contract", () => {
       new URL("./production-agent.ts", import.meta.url),
       "utf8",
     );
-    const preparation = source.slice(
-      source.indexOf("if (options.onRunPrepared"),
-      source.indexOf("// ─── Durable-background dispatch decision"),
+    const start = source.indexOf("async function runOnRunPreparedHook()");
+    const end = source.indexOf(
+      "async function dispatchDurableBackgroundRun()",
+      start,
     );
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const preparation = source.slice(start, end);
 
     expect(preparation).toContain("await options.onRunPrepared");
-    expect(preparation).toContain("if (foregroundRunRowInserted)");
+    expect(preparation).toContain("if (runRowState.foregroundInserted)");
     expect(preparation).toContain('updateRunStatusIfRunning(runId, "errored")');
     expect(preparation).toContain(
       'setRunTerminalReason(runId, "run_preparation_failed")',

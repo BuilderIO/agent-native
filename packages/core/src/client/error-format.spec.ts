@@ -177,6 +177,17 @@ describe("formatChatErrorText", () => {
     expect(normalized.message).toMatch(/was not retried/i);
   });
 
+  it("explains a request the model did not read and keeps the gateway text as details", () => {
+    const raw =
+      'Model "gpt-test" did not read the request (the provider reported no input tokens). Retrying the same request will not help; reduce the request size, for example the number or size of tool definitions.';
+    const normalized = normalizeChatError(raw, "request_not_read");
+
+    expect(normalized.message).toBe(
+      "The model could not read this request because it was too large or complex, for example too many tools, so it was not retried. Start a new chat or pick a different model.",
+    );
+    expect(normalized.details).toBe(raw);
+  });
+
   it("normalizes provider rate limits without exposing raw status-only text", () => {
     const normalized = normalizeChatError(
       "429 status code (no body)",
@@ -218,6 +229,24 @@ describe("formatChatErrorText", () => {
       "Error: The model provider is overloaded right now. Wait a moment, then retry.",
     );
   });
+
+  it.each(["api_error", "internal_server_error"])(
+    "shows a readable message for a %s provider payload",
+    (type) => {
+      const raw = JSON.stringify({
+        type: "error",
+        error: { type, message: "Internal server error" },
+        request_id: "req_example",
+      });
+      expect(normalizeChatError(raw)).toEqual({
+        message: "Internal server error",
+        details: raw,
+      });
+      expect(formatChatErrorText(raw, undefined, type)).toBe(
+        "Error: Internal server error",
+      );
+    },
+  );
 
   it("normalizes a bare-403 transient rejection instead of the credential-rejected copy", () => {
     const normalized = normalizeChatError(

@@ -3,13 +3,14 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { Switch } from "../../../src/ui/base-ui/switch.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./switch.docs.md?raw";
 
 const controls = propControls(switchProps);
 
 const meta = {
   title: "Components/Switch",
   component: Switch,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, defaultChecked: true, disabled: false },
   argTypes: controls.argTypes,
 } satisfies Meta<typeof Switch>;

@@ -128,4 +128,9 @@
     outline: var(--focus-ring-width) solid var(--line-focus);
     outline-offset: var(--focus-ring-offset);
   }
+  @media (forced-colors: active) {
+    .card[data-variant="surface"]::after {
+      border: var(--_card-border-width) solid CanvasText;
+    }
+  }
 }

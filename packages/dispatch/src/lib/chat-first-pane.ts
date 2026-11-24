@@ -69,11 +69,82 @@ export function delegatedAppFromToolStart(
   if (!key) return null;
   const input = detail.input;
   if (!input || typeof input !== "object") return null;
-  const value = (input as Record<string, unknown>)[
-    key === "agent" ? "agent" : "app"
-  ];
+  const record = input as Record<string, unknown>;
+  if (
+    typeof record.viewportMode === "string" &&
+    record.viewportMode.trim().toLowerCase() === "background"
+  ) {
+    return null;
+  }
+  const value = record[key === "agent" ? "agent" : "app"];
   if (typeof value !== "string") return null;
   const id = value.trim().toLowerCase();
   if (!APP_ID_PATTERN.test(id) || id === "dispatch") return null;
   return id;
+}
+
+export interface TurnViewportLockEvaluation {
+  allowed: boolean;
+  lockedAppId: string | null;
+}
+
+export interface TurnViewportLock {
+  beginTurn: (turnKey?: string) => void;
+  clear: () => void;
+  getLockedAppId: () => string | null;
+  evaluate: (request: {
+    appId: string;
+    focus?: boolean | undefined;
+    turnKey?: string | undefined;
+    viewportMode?: "foreground" | "background" | undefined;
+  }) => TurnViewportLockEvaluation;
+}
+
+/**
+ * Turn-scoped foreground viewport lock: once a turn commits a foreground app,
+ * secondary or background lookups targeting another app cannot overwrite the
+ * visible pane unless `focus: true` is explicitly passed.
+ */
+export function createTurnViewportLock(): TurnViewportLock {
+  let currentTurnKey: string | null = null;
+  let lockedAppId: string | null = null;
+
+  return {
+    beginTurn(turnKey?: string) {
+      currentTurnKey = turnKey ?? null;
+      lockedAppId = null;
+    },
+    clear() {
+      currentTurnKey = null;
+      lockedAppId = null;
+    },
+    getLockedAppId() {
+      return lockedAppId;
+    },
+    evaluate(request) {
+      const normalizedAppId = request.appId.trim().toLowerCase();
+      if (!normalizedAppId) {
+        return { allowed: false, lockedAppId };
+      }
+      if (request.viewportMode === "background") {
+        return { allowed: false, lockedAppId };
+      }
+      if (request.turnKey !== undefined && request.turnKey !== currentTurnKey) {
+        currentTurnKey = request.turnKey;
+        lockedAppId = null;
+      }
+      if (lockedAppId === null) {
+        lockedAppId = normalizedAppId;
+        return { allowed: true, lockedAppId };
+      }
+      if (lockedAppId === normalizedAppId) {
+        return { allowed: true, lockedAppId };
+      }
+      if (request.focus === true) {
+        lockedAppId = normalizedAppId;
+        return { allowed: true, lockedAppId };
+      }
+      return { allowed: false, lockedAppId };
+    },
+  };
 }

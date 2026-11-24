@@ -23,6 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./dialog.js";
+import { OverlayScope } from "./overlay-scope.js";
 
 function press(element: Element) {
   fireEvent.pointerDown(element, { pointerType: "mouse", button: 0 });
@@ -83,7 +84,8 @@ describe("dialog parts", () => {
         <DialogPopup
           data-testid="popup"
           motion="instant"
-          backdropStyle={{ opacity: 0.5 }}
+          backdropClassName={({ open }) => (open ? "dimmed" : undefined)}
+          backdropStyle={({ open }) => ({ opacity: open ? 0.5 : 0 })}
         >
           <DialogTitle>Instant</DialogTitle>
         </DialogPopup>
@@ -93,6 +95,7 @@ describe("dialog parts", () => {
     const backdrop = document.querySelector<HTMLElement>(".dialog-backdrop");
     expect(popup.dataset.motion).toBe("instant");
     expect(backdrop?.dataset.motion).toBe("instant");
+    expect(backdrop?.classList.contains("dimmed")).toBe(true);
     expect(backdrop?.style.opacity).toBe("0.5");
   });
 
@@ -139,6 +142,57 @@ describe("dialog parts", () => {
     const overlay = await screen.findByTestId("overlay");
     expect(overlay.classList.contains("dialog-backdrop")).toBe(true);
     expect(overlay.dataset.motion).toBe("instant");
+  });
+
+  it.each(["explicit", "scope"] as const)(
+    "resolves a same-commit %s container ref before mounting its children",
+    async (source) => {
+      const container = React.createRef<HTMLDivElement>();
+      const hosts: (HTMLElement | null)[] = [];
+      render(
+        <div data-testid="host" ref={container}>
+          <OverlayScope container={source === "scope" ? container : undefined}>
+            <Dialog defaultOpen>
+              <DialogPopup
+                container={source === "explicit" ? container : undefined}
+                aria-describedby={undefined}
+              >
+                <DialogTitle
+                  ref={(node) => {
+                    if (node) hosts.push(node.closest('[data-testid="host"]'));
+                  }}
+                >
+                  Settings
+                </DialogTitle>
+              </DialogPopup>
+            </Dialog>
+          </OverlayScope>
+        </div>,
+      );
+      const popup = await screen.findByRole("dialog", { name: "Settings" });
+      expect(container.current?.contains(popup)).toBe(true);
+      expect(hosts.length).toBeGreaterThan(0);
+      expect(hosts.every((host) => host === container.current)).toBe(true);
+    },
+  );
+
+  it("waits for an explicitly null mount point and honors its target above the enclosing scope", async () => {
+    const scope = document.body.appendChild(document.createElement("div"));
+    const external = document.body.appendChild(document.createElement("div"));
+    const dialog = (container: HTMLElement | null) => (
+      <OverlayScope container={scope}>
+        <Dialog open>
+          <DialogPopup container={container} aria-describedby={undefined}>
+            <DialogTitle>Frame settings</DialogTitle>
+          </DialogPopup>
+        </Dialog>
+      </OverlayScope>
+    );
+    const { rerender } = render(dialog(null));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    rerender(dialog(external));
+    expect(external.contains(await screen.findByRole("dialog"))).toBe(true);
+    expect(scope.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it("keeps the popup in the page while closed with keepMounted", async () => {
