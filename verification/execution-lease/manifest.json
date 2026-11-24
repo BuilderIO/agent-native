@@ -78,7 +78,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "49ac6f19559096a310db77550dd53f6506258951",
+    "syncCommit": "e0992d882fd775e4c0672665611c5d6bbd756482",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -148,7 +148,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "updateRunAborted",
-        "sha256": "34303f17ade3a74ef977841622fa7490e66a11690220ed17636dfeb69757e2da"
+        "sha256": "16c9b7bbad101afb547b6bb9447aab90931bfe94781caf5ad2057cc934f1efb1"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -163,7 +163,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "reapSingleStaleRun",
-        "sha256": "723c3b8e0e0b71bfa6890cf4121fe8ea4eb4a938935f92991a4d6f4c7fbecf03"
+        "sha256": "a275bf98c65610718f2fc60ef3ef35ebfbb4de5ae3ae55658e47c8905f967582"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -280,7 +280,7 @@
       {
         "file": "packages/core/src/action.ts",
         "name": "actionCallIntent",
-        "sha256": "f0d484133f61dedfd2aa2f518ac29100d50bd4d76933b034d2efb2b0dd6b145e"
+        "sha256": "02c950638cce4ee7c8266d545cc667d8baed0940bfe2fa1d6c69ac8df368dced"
       },
       {
         "file": "packages/core/src/action.ts",

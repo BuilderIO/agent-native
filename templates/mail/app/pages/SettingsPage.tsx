@@ -1168,7 +1168,7 @@ function DraftingSection() {
           end: event.currentTarget.selectionEnd,
         };
       }}
-      placeholder={"Best,\nSteve"}
+      placeholder={t("settings.signaturePlaceholder")}
       rows={5}
       className="resize-none px-3 py-2 text-[13px] placeholder:text-muted-foreground/40"
     />

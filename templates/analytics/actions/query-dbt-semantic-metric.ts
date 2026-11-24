@@ -989,9 +989,7 @@ export default defineAction({
       nextPage: z
         .string()
         .max(2_048)
-        .regex(
-          /^(?:metric-metadata-v2\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43}|metric-results-v5\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43})$/,
-        )
+        .regex(/^(?:metric-metadata-v2|metric-results-v5)\.[A-Za-z0-9_.-]+$/)
         .optional()
         .describe(
           "Continue an exact-name metadata search or metric result page; signed cursors preserve the search or query, connection, environment, grouping, and time scope",

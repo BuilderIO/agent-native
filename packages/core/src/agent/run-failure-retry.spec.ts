@@ -6,6 +6,7 @@ describe("isRunFailureRetryable", () => {
   it.each([
     "error:invalid_request",
     "error:invalid_request_error",
+    "error:request_not_read",
     "error:credits-limit-daily",
     "error:credits-limit-monthly",
     "error:http_402",

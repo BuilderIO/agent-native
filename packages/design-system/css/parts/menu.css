@@ -1,0 +1,347 @@
+/*
+ * Part: menu (and the context menu and menubar, whose popups and rows are
+ * these)
+ *
+ *   <div class="menu-positioner">               Base UI Menu.Positioner
+ *     <div class="menu-popup" data-side         Menu.Popup
+ *          data-variant="soft|solid"
+ *          data-color="gray|accent|danger|warning|success|info"
+ *          [data-high-contrast]>
+ *       <div class="menu-group-label">
+ *       <div class="menu-item"                  [data-color] [data-highlighted] [data-disabled]
+ *         <span class="menu-item-leading">      icon, or the check or dot of a checkbox/radio item
+ *         label                                 the row's children
+ *         <span class="menu-item-trailing">     shortcut, chevron or other trailing content
+ *           <span class="menu-shortcut">
+ *       <div class="menu-checkbox-item">        leading slot holds the check
+ *       <div class="menu-radio-item">           [data-indicator="circle|check"]
+ *       <div class="menu-submenu-trigger">      [data-popup-open]; same slots as an item
+ *       <div class="menu-separator">
+ *
+ * Menu actions follow the system’s 32px row grid. The variant decides how
+ * the highlighted row fills:
+ * soft (the default, in gray) is the scale's a3 tint under the row's own
+ * text, solid is the scale's solid fill under its contrast text. The scale
+ * is the popup's `data-color`; an item's own `data-color` re-binds it for
+ * that row, so a destructive row (`data-color="danger"`) reads in the danger
+ * text at rest and highlights in danger. A submenu's popup repeats its
+ * menu's attributes.
+ *
+ * The popup, its rows and its submenus are shared by the context menu and the
+ * menubar. Alignment is the popup's job. When any row in a popup has a leading
+ * slot, every other row and every group label reserves that column, so labels
+ * share one start edge. A submenu popup aligns on its own rows.
+ */
+
+@layer components {
+  .menu-positioner {
+    /* A modal still open underneath sets the body to pointer-events: none
+       and re-enables only its own layers. */
+    pointer-events: auto;
+    z-index: var(--layer-popup);
+    outline: none;
+  }
+
+  .menu-popup {
+    --_slide-x: 0px;
+    --_slide-y: 0px;
+    --_leading-column: 0px;
+
+    box-sizing: border-box;
+    z-index: var(--layer-popup);
+    min-width: min(var(--menu-min-width, 10rem), var(--available-width, 100vi));
+    max-width: var(--available-width, 100vi);
+    max-height: var(--available-height, 100vb);
+    overflow: auto;
+    overflow-wrap: anywhere;
+    padding: var(--space-1);
+    border: 0;
+    border-radius: calc(var(--shape-popup) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--surface-raised);
+    color: var(--fg-default);
+    box-shadow: var(--shadow-4);
+    transform-origin: var(--transform-origin);
+    transition-property: opacity, scale, translate;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-enter);
+    outline: none;
+  }
+
+  .menu-popup[data-side="bottom"] {
+    --_slide-y: calc(var(--space-1) * -1);
+  }
+  .menu-popup[data-side="top"] {
+    --_slide-y: var(--space-1);
+  }
+  .menu-popup[data-side="left"] {
+    --_slide-x: var(--space-1);
+  }
+  .menu-popup[data-side="right"] {
+    --_slide-x: calc(var(--space-1) * -1);
+  }
+  .menu-popup[data-side="inline-start"] {
+    --_slide-x: calc(var(--space-1) * var(--_inline-direction, 1));
+  }
+  .menu-popup[data-side="inline-end"] {
+    --_slide-x: calc(var(--space-1) * var(--_inline-direction, 1) * -1);
+  }
+
+  .menu-popup[data-starting-style] {
+    opacity: 0;
+    scale: 0.95;
+    translate: var(--_slide-x) var(--_slide-y);
+  }
+
+  .menu-popup[data-ending-style] {
+    opacity: 0;
+    scale: 0.95;
+    transition-duration: var(--duration-1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .menu-popup {
+      transition-property: none;
+    }
+  }
+
+  /* ---- rows ---- */
+
+  .menu-item,
+  .menu-checkbox-item,
+  .menu-radio-item,
+  .menu-submenu-trigger {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--control-gap);
+    box-sizing: border-box;
+    min-height: var(--_row-height);
+    padding: 0 var(--space-2);
+    /* Concentric with the popup: its radius less its padding. */
+    border-radius: max(
+      0px,
+      calc(var(--shape-popup) * var(--corner-scale, 1) - var(--space-1))
+    );
+    corner-shape: var(--corner-shape, round);
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+    color: var(--fg-default);
+    cursor: default;
+    -webkit-user-select: none;
+    user-select: none;
+    outline-style: none;
+    transition-property: color, background-color;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  a.menu-item {
+    text-decoration: none;
+  }
+
+  /* ---- sizes ---- */
+
+  .menu-popup {
+    --_row-height: var(--menu-row-height, var(--size-4));
+    --_icon-size: var(--control-icon-size-3);
+  }
+
+  /* The leading column: one icon wide, then the row gap. */
+  .menu-popup:has(.menu-item-leading) {
+    --_leading-column: calc(var(--_icon-size) + var(--control-gap));
+  }
+
+  /* A row without a leading element starts where the labels start. */
+  .menu-popup:has(.menu-item-leading)
+    :is(
+      .menu-item,
+      .menu-checkbox-item,
+      .menu-radio-item,
+      .menu-submenu-trigger
+    ):not(:has(> .menu-item-leading)) {
+    padding-inline-start: calc(var(--space-2) + var(--_leading-column));
+  }
+
+  .menu-popup:has(.menu-item-leading) .menu-group-label {
+    padding-inline-start: calc(var(--space-2) + var(--_leading-column));
+  }
+
+  /* ---- color ---- */
+
+  .menu-item[data-color]:not([data-disabled]) {
+    color: var(--accent-text);
+  }
+
+  .menu-popup[data-high-contrast] .menu-item[data-color]:not([data-disabled]) {
+    color: var(--accent-12);
+  }
+
+  /* ---- highlight: solid ---- */
+
+  .menu-popup[data-variant="solid"] .menu-submenu-trigger[data-popup-open] {
+    background-color: var(--gray-a3);
+  }
+
+  .menu-popup[data-variant="solid"]
+    :is(
+      .menu-item,
+      .menu-checkbox-item,
+      .menu-radio-item,
+      .menu-submenu-trigger
+    )[data-highlighted]:not([data-disabled]) {
+    background-color: var(--accent-solid);
+    color: var(--accent-contrast);
+  }
+
+  .menu-popup[data-variant="solid"][data-high-contrast]
+    :is(
+      .menu-item,
+      .menu-checkbox-item,
+      .menu-radio-item,
+      .menu-submenu-trigger
+    ):not([data-color])[data-highlighted]:not([data-disabled]) {
+    background-color: var(--accent-12);
+    color: var(--accent-1);
+  }
+
+  /* ---- highlight: soft ---- */
+
+  /* The tint alone: the row keeps its own text color, so a gray popup
+     highlights in gray-a3 under the default text, and a colored row in its
+     own tint under its own text. */
+  .menu-popup[data-variant="soft"] .menu-submenu-trigger[data-popup-open] {
+    background-color: var(--accent-a3);
+  }
+
+  .menu-popup[data-variant="soft"]
+    :is(
+      .menu-item,
+      .menu-checkbox-item,
+      .menu-radio-item,
+      .menu-submenu-trigger
+    )[data-highlighted]:not([data-disabled]) {
+    background-color: var(--accent-a3);
+  }
+
+  .menu-popup[data-variant="soft"][data-high-contrast]
+    :is(
+      .menu-item,
+      .menu-checkbox-item,
+      .menu-radio-item,
+      .menu-submenu-trigger
+    )[data-highlighted]:not([data-disabled]) {
+    color: var(--accent-12);
+  }
+
+  /* The shortcut takes the row's color while it is highlighted, so it stays
+     legible on a solid fill. */
+  :is(
+      .menu-item,
+      .menu-checkbox-item,
+      .menu-radio-item,
+      .menu-submenu-trigger
+    ):is([data-highlighted], [data-popup-open])
+    .menu-shortcut {
+    color: inherit;
+  }
+
+  /* ---- disabled ---- */
+
+  .menu-popup
+    :is(
+      .menu-item,
+      .menu-checkbox-item,
+      .menu-radio-item,
+      .menu-submenu-trigger
+    )[data-disabled] {
+    pointer-events: none;
+    color: var(--fg-disabled);
+  }
+
+  .menu-popup
+    :is(
+      .menu-item,
+      .menu-checkbox-item,
+      .menu-radio-item,
+      .menu-submenu-trigger
+    )[data-disabled]
+    .menu-shortcut {
+    color: inherit;
+  }
+
+  .menu-item-leading {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: var(--_icon-size);
+    height: var(--_icon-size);
+  }
+
+  .menu-item-leading svg {
+    display: block;
+    flex-shrink: 0;
+    width: var(--_icon-size);
+    height: var(--_icon-size);
+  }
+
+  .menu-radio-item[data-indicator="circle"] .menu-item-leading svg {
+    width: var(--space-2);
+    height: var(--space-2);
+    fill: currentColor;
+  }
+
+  .menu-shortcut {
+    display: inline-flex;
+    flex-shrink: 0;
+    justify-content: center;
+    min-width: var(--_icon-size);
+    margin-inline-start: auto;
+    font-size: var(--font-size-1);
+    line-height: var(--line-height-1);
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-muted);
+  }
+
+  .menu-item-trailing {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: var(--control-gap);
+    margin-inline-start: auto;
+    padding-inline-start: var(--space-2);
+  }
+
+  .menu-item-trailing svg {
+    flex-shrink: 0;
+    width: var(--_icon-size);
+    height: var(--_icon-size);
+  }
+
+  .menu-item-trailing svg[data-direction-aware] {
+    scale: var(--_inline-direction, 1) 1;
+  }
+
+  .menu-group-label {
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--font-size-1);
+    line-height: var(--line-height-1);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg-muted);
+  }
+
+  .menu-separator {
+    height: 1px;
+    /* Include the hairline in the two spacing steps between groups. */
+    margin-block: var(--space-1) calc(var(--space-1) - 1px);
+    margin-inline: calc(var(--space-2) + var(--_leading-column)) var(--space-2);
+    background-color: var(--line-subtle);
+  }
+  @media (forced-colors: active) {
+    .menu-popup {
+      outline: 1px solid CanvasText;
+    }
+  }
+}

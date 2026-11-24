@@ -346,11 +346,34 @@ describe("the prior connection read on a fresh thread", () => {
 
   it("is not read again by the foreground of a run handed to the background worker", async () => {
     mockDurable.enabled = true;
+    const runStore = await import("./run-store.js");
+    const runManager = await import("./run-manager.js");
+    const readClaim = vi
+      .spyOn(runStore, "readBackgroundRunClaim")
+      .mockResolvedValue({
+        dispatchMode: "background-claimed",
+        status: "running",
+        diagStage: "claimed",
+        workerStage: "streaming",
+        lastLivenessAt: Date.now(),
+      });
+    const subscribe = vi.spyOn(runManager, "subscribeToRun").mockReturnValue(
+      new ReadableStream<Uint8Array>({
+        start: (controller) => controller.close(),
+      }),
+    );
 
-    await turn();
+    try {
+      await turn();
 
-    expect(mockDispatch).toHaveBeenCalledTimes(1);
-    expect(mockPriorNote.spy).not.toHaveBeenCalled();
+      expect(mockDispatch).toHaveBeenCalledTimes(1);
+      expect(readClaim).toHaveBeenCalled();
+      expect(subscribe).toHaveBeenCalled();
+      expect(mockPriorNote.spy).not.toHaveBeenCalled();
+    } finally {
+      readClaim.mockRestore();
+      subscribe.mockRestore();
+    }
   });
 });
 

@@ -172,6 +172,7 @@ export type EngineEvent =
         | "tool_use"
         | "max_tokens"
         | "stop_sequence"
+        | "refusal"
         | "error";
       error?: string;
       errorCode?: string;
@@ -190,6 +191,10 @@ export interface EngineRequestShape {
   payloadBytes: number;
   toolCount: number;
   messageCount: number;
+  toolBytes?: number;
+  systemBytes?: number;
+  maxOutputTokens?: number;
+  reasoningEffort?: ReasoningEffort | null;
 }
 
 export interface EngineCapabilities {

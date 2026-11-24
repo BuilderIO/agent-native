@@ -146,6 +146,7 @@ const triggerQueueMocks = vi.hoisted(() => {
       });
       return { id, inserted: true };
     }),
+    nextDueAt: vi.fn(async (_appId?: string | null) => null as number | null),
     ready: vi.fn(
       async (
         appId?: string | null,
@@ -374,6 +375,7 @@ vi.mock("./event-queue.js", () => ({
   hasPendingStaleAutomationTriggerEvents: triggerQueueMocks.hasPendingStale,
   getAutomationTriggerSweepCursor: triggerQueueMocks.getSweepCursor,
   listReadyAutomationTriggerIds: triggerQueueMocks.ready,
+  nextAutomationTriggerEventDueAt: triggerQueueMocks.nextDueAt,
   purgeExpiredAutomationTriggerEvents: triggerQueueMocks.purge,
   reserveAutomationTriggerEventPurge: triggerQueueMocks.reservePurge,
   retryAutomationTriggerEvent: triggerQueueMocks.retry,
@@ -1655,6 +1657,24 @@ Respond to the event.`,
 
     expect(triggerQueueMocks.ready).toHaveBeenCalledTimes(readyScans);
     expect(triggerQueueMocks.claim).toHaveBeenCalledOnce();
+  });
+
+  it("tells an idle Netlify app when its next queued trigger event is due", async () => {
+    triggerQueueMocks.nextDueAt.mockResolvedValueOnce(45_000);
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const options = [...registerRecurringSweepHandlerMock.mock.calls]
+      .reverse()
+      .find(([id]) => id === "automation-trigger-queue")?.[2] as
+      | { nextDueAt?: () => Promise<number | null> }
+      | undefined;
+
+    await expect(options?.nextDueAt?.()).resolves.toBe(45_000);
+    expect(triggerQueueMocks.nextDueAt).toHaveBeenCalledWith("mail");
   });
 
   it("stops the event-queue recovery interval on shutdown", async () => {

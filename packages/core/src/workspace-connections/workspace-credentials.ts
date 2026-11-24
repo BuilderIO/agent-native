@@ -873,6 +873,13 @@ export function createWorkspaceCredentialService(
   });
 }
 
+function withoutUsage<T extends { lastUsedAt?: string | null }>(
+  row: T,
+): Omit<T, "lastUsedAt"> {
+  const { lastUsedAt: _usage, ...stable } = row;
+  return stable;
+}
+
 export interface WorkspaceCredentialProfile {
   profile: "workspace-v1";
   active: boolean;
@@ -929,7 +936,13 @@ export async function readWorkspaceCredentialProfile(input: {
         c,
         native,
         revision: g ? credentialRevision(c, g) : null,
-        pin: JSON.stringify([c, g]),
+        pin: JSON.stringify([
+          withoutUsage({
+            ...c,
+            explicitGrant: c.explicitGrant && withoutUsage(c.explicitGrant),
+          }),
+          g && withoutUsage(g),
+        ]),
       };
     }
     try {

@@ -1,0 +1,52 @@
+@import "tailwindcss";
+/* The design system on its own: apps don't load it until toolkit's styles do. */
+@import "@agent-native/design-system/tokens.css";
+@import "@agent-native/design-system/main.css";
+@import "@agent-native/design-system/styles.css";
+@import "@agent-native/design-system/themes/agent-native.css";
+@import "@agent-native/design-system/appearances.css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist";
+/* Every theme, after the default one toolkit loads, so the toolbar can pick any. */
+@import "@agent-native/design-system/themes/analytics.css";
+@import "@agent-native/design-system/themes/assets.css";
+@import "@agent-native/design-system/themes/baseline.css";
+@import "@agent-native/design-system/themes/brain.css";
+@import "@agent-native/design-system/themes/calendar.css";
+@import "@agent-native/design-system/themes/chat.css";
+@import "@agent-native/design-system/themes/clips.css";
+@import "@agent-native/design-system/themes/content.css";
+@import "@agent-native/design-system/themes/crm.css";
+@import "@agent-native/design-system/themes/design.css";
+@import "@agent-native/design-system/themes/desktop.css";
+@import "@agent-native/design-system/themes/dispatch.css";
+@import "@agent-native/design-system/themes/docs.css";
+@import "@agent-native/design-system/themes/factory.css";
+@import "@agent-native/design-system/themes/forms.css";
+@import "@agent-native/design-system/themes/mail.css";
+@import "@agent-native/design-system/themes/plan.css";
+@import "@agent-native/design-system/themes/slides.css";
+@import "@agent-native/design-system/themes/tasks.css";
+
+@source "../src/ui/base-ui";
+@source "../dev/stories";
+@source "../dev/foundations";
+
+html,
+body {
+  margin: 0;
+  background: var(--surface-canvas);
+  color: var(--fg-default);
+  font-family: var(--font-family-sans);
+}
+
+/* Resolve the tree's spacing tokens to CSS pixels for the canvas, even with no rows mounted. */
+@property --sb-layer-column-step {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+[data-storybook-stage] .design-file-panel {
+  --sb-layer-column-step: calc(var(--control-height-1) + var(--space-2));
+}

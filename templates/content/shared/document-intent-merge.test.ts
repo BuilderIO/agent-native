@@ -761,6 +761,42 @@ describe("document body intent merge", () => {
     );
     expect(bodyHoldsChanges(base, "Alpha.\nBravo.", accepted)).toBe(false);
   });
+
+  it.each([
+    [
+      "the server's answer merged another writer's edit into the save",
+      "Typed. Alpha paragraph.\nBravo paragraph.\nCharlie paragraph, revised.",
+      true,
+    ],
+    [
+      "the editor typed on after the words the save sent",
+      "Typed. More. Alpha paragraph.\nBravo paragraph.\nCharlie paragraph.",
+      true,
+    ],
+    [
+      "the editor typed before the words the save sent",
+      "More. Typed. Alpha paragraph.\nBravo paragraph.\nCharlie paragraph.",
+      false,
+    ],
+    [
+      "the server's answer dropped the words the save sent",
+      "Alpha paragraph.\nBravo paragraph.\nCharlie paragraph, revised.",
+      false,
+    ],
+    [
+      "the editor never held the words the save sent",
+      "Alpha paragraph.\nNow. Bravo paragraph.\nCharlie paragraph.",
+      false,
+    ],
+  ])("tells whether a body holds a save's words when %s", (_, holder, held) => {
+    expect(
+      bodyHoldsChanges(
+        "Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+        holder,
+        "Typed. Alpha paragraph.\nBravo paragraph.\nCharlie paragraph.",
+      ),
+    ).toBe(held);
+  });
 });
 
 describe("Blocks field edit merge", () => {

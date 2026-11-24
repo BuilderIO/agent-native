@@ -16,7 +16,9 @@ export const CONTENT_COLLECTION_STEPS = [
   "builder_blog",
   "ga4",
   "search_console",
+  "search_console_queries",
   "signups",
+  "agent_native_signups",
 ] as const;
 export type ContentCollectionStepId = (typeof CONTENT_COLLECTION_STEPS)[number];
 
@@ -41,6 +43,14 @@ export const storedSearchConsoleSiteSchema = z.object({
   pathPrefix: z.string().trim().startsWith("/").optional(),
 });
 
+export const searchConsoleHistoryMonthsSchema = z.number().int().min(1).max(16);
+
+export const searchConsoleQueriesPerPageSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(100);
+
 // Existing configs must stay readable so admins can correct or disable them.
 export const searchConsoleSiteSchema = storedSearchConsoleSiteSchema.extend({
   siteUrl: storedSearchConsoleSiteSchema.shape.siteUrl.superRefine(
@@ -61,7 +71,7 @@ const bigQueryTableSchema = z
   .string()
   .trim()
   .regex(
-    /^[A-Za-z0-9_-]+.[A-Za-z0-9_]+.[A-Za-z0-9_]+$/,
+    /^[A-Za-z0-9_-]+\.[A-Za-z0-9_]+\.[A-Za-z0-9_]+$/,
     "Use project.dataset.table",
   );
 
@@ -112,6 +122,23 @@ export const signupsSettingsUpdateSchema = z.object({
 });
 export type SignupsConfig = z.infer<typeof signupsConfigSchema>;
 
+const maxBytesBilledSchema = z.number().int().positive().max(750_000_000_000);
+
+export const agentNativeSignupsConfigSchema = z.object({
+  enabled: z.boolean(),
+  eventsTable: bigQueryTableSchema.nullable().default(null),
+  maxBytesBilled: maxBytesBilledSchema.nullable().default(null),
+});
+
+export const agentNativeSignupsSettingsUpdateSchema = z.object({
+  enabled: z.boolean().optional(),
+  eventsTable: bigQueryTableSchema.nullable().optional(),
+  maxBytesBilled: maxBytesBilledSchema.nullable().optional(),
+});
+export type AgentNativeSignupsConfig = z.infer<
+  typeof agentNativeSignupsConfigSchema
+>;
+
 export const contentCollectionConfigSchema = z.object({
   builderBlog: stepToggleSchema.default({ enabled: true }),
   ga4: ga4ConfigSchema.default({ enabled: true, propertyId: null }),
@@ -120,14 +147,23 @@ export const contentCollectionConfigSchema = z.object({
   searchConsole: stepToggleSchema
     .extend({
       sites: z.array(storedSearchConsoleSiteSchema).max(20).default([]),
+      historyMonths: searchConsoleHistoryMonthsSchema.default(16),
     })
-    .default({ enabled: false, sites: [] }),
+    .default({ enabled: false, sites: [], historyMonths: 16 }),
+  searchConsoleQueries: stepToggleSchema
+    .extend({ perPage: searchConsoleQueriesPerPageSchema.default(25) })
+    .default({ enabled: true, perPage: 25 }),
   signups: signupsConfigSchema.default({
     enabled: false,
     signupEventsTable: null,
     firstPageviewsTable: null,
     signupSource: null,
     signupsSince: null,
+    maxBytesBilled: null,
+  }),
+  agentNativeSignups: agentNativeSignupsConfigSchema.default({
+    enabled: false,
+    eventsTable: null,
     maxBytesBilled: null,
   }),
 });
@@ -151,8 +187,14 @@ export function stepEnabled(
       return config.ga4.enabled;
     case "search_console":
       return config.searchConsole.enabled;
+    case "search_console_queries":
+      return (
+        config.searchConsole.enabled && config.searchConsoleQueries.enabled
+      );
     case "signups":
       return config.signups.enabled;
+    case "agent_native_signups":
+      return config.agentNativeSignups.enabled;
   }
 }
 
@@ -164,16 +206,34 @@ export function ga4ConfigFingerprint(propertyId: string): string {
   return sha256(propertyId);
 }
 
+export function agentNativeSignupsConfigFingerprint(
+  eventsTable: string,
+): string {
+  return sha256(eventsTable);
+}
+
+const SEARCH_CONSOLE_DATA_VERSION = 2;
+
 export function searchConsoleConfigFingerprint(
   sites: ContentCollectionConfig["searchConsole"]["sites"],
 ): string {
   return sha256(
-    JSON.stringify(
+    JSON.stringify([
+      SEARCH_CONSOLE_DATA_VERSION,
       sites.map((site) => [
         normalizeSearchConsoleProperty(site.siteUrl),
         site.pathPrefix?.trim() ?? "",
       ]),
-    ),
+    ]),
+  );
+}
+
+export function searchConsoleQueriesConfigFingerprint(
+  sites: ContentCollectionConfig["searchConsole"]["sites"],
+  perPage: number,
+): string {
+  return sha256(
+    JSON.stringify([searchConsoleConfigFingerprint(sites), perPage]),
   );
 }
 
@@ -192,6 +252,17 @@ export function contentStepConfigFingerprint(
         : null;
     case "search_console":
       return searchConsoleConfigFingerprint(config.searchConsole.sites);
+    case "search_console_queries":
+      return searchConsoleQueriesConfigFingerprint(
+        config.searchConsole.sites,
+        config.searchConsoleQueries.perPage,
+      );
+    case "agent_native_signups":
+      return config.agentNativeSignups.eventsTable
+        ? agentNativeSignupsConfigFingerprint(
+            config.agentNativeSignups.eventsTable,
+          )
+        : null;
     case "builder_blog":
     case "signups":
       return null;

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { aiFilterRuleMode } from "@shared/ai-filter-rules.js";
 import {
@@ -28,6 +28,8 @@ export default defineAction({
     comment: z.string().max(500).optional(),
   }),
   agentTool: true,
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Unauthenticated");

@@ -76,15 +76,19 @@ describe("useBrowserTabUse", () => {
     );
   });
 
-  it("doesn't record a tab opened in the background until it gains focus", async () => {
+  it("records an unfocused visible tab on mount and when it becomes visible again", async () => {
     focused = false;
     await renderUse(["/a"]);
-    expect(records()).toBe(0);
-
-    focused = true;
-    window.dispatchEvent(new Event("focus"));
-
     expect(records()).toBe(1);
+
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    visibility.mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(records()).toBe(2);
   });
 
   it("records again when focus comes back from elsewhere, not from the page's own frames", async () => {
@@ -105,16 +109,17 @@ describe("useBrowserTabUse", () => {
     expect(records()).toBe(2);
   });
 
-  it("refreshes the record on a route change at most once a minute", async () => {
+  it("records route changes while visible and unfocused", async () => {
+    focused = false;
     const { render } = await renderUse(["/a"]);
-
-    now += 30_000;
+    now += 10;
     await render("/b");
-    expect(records()).toBe(1);
-
-    now += 30_000;
-    await render("/c");
     expect(records()).toBe(2);
+    expect(setClientAppState).toHaveBeenLastCalledWith(
+      "browser-tab-used",
+      { usedAt: now },
+      { requestSource: "tab-1" },
+    );
   });
 
   it("forgets the tab when the page goes away and records it again when restored from the back-forward cache", async () => {

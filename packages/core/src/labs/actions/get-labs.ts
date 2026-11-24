@@ -8,6 +8,7 @@ export default defineAction({
     "Return every registered lab and the current user's effective enabled state. Unset preferences inherit declared legacy flags or use the app-defined default.",
   schema: z.object({}),
   http: { method: "GET" },
+  mcpTool: false,
   run: async (_args, ctx) => {
     const email = ctx?.userEmail;
     if (!email) fail("Not authenticated.", { statusCode: 401 });

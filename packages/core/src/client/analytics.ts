@@ -744,16 +744,36 @@ function scrubReferrerHost(referrer: string | undefined): string {
   }
 }
 
+function hasLandingSource(params: URLSearchParams): boolean {
+  return [
+    ...FIRST_TOUCH_QUERY_FIELDS,
+    ...Object.keys(FORWARDED_LAST_TOUCH_FIELDS),
+  ].some((field) => truncateFirstTouchField(params.get(field)));
+}
+
+function readLandingParams(landingSearch: string | undefined): {
+  params: URLSearchParams | null;
+  continued: boolean;
+} {
+  try {
+    const own = new URLSearchParams(window.location.search);
+    if (landingSearch === undefined || hasLandingSource(own)) {
+      return { params: own, continued: false };
+    }
+    const continued = new URLSearchParams(landingSearch);
+    return hasLandingSource(continued)
+      ? { params: continued, continued: true }
+      : { params: own, continued: false };
+  } catch {
+    return { params: null, continued: false };
+  }
+}
+
 function buildFirstTouchAttribution(
   landingPathname: string,
+  params: URLSearchParams | null,
 ): FirstTouchAttribution {
   const attribution: FirstTouchAttribution = {};
-  let params: URLSearchParams | null = null;
-  try {
-    params = new URLSearchParams(window.location.search);
-  } catch {
-    params = null;
-  }
   if (params) {
     for (const field of FIRST_TOUCH_QUERY_FIELDS) {
       const value = truncateFirstTouchField(params.get(field));
@@ -1035,17 +1055,19 @@ function captureFirstTouchAttribution(
   if (typeof window === "undefined") return;
   try {
     // Read the visit now: the URL can change before the visitor consents.
+    const { params, continued } = readLandingParams(options.landingSearch);
     const current = buildFirstTouchAttribution(
       options.landingPath ?? window.location.pathname,
+      params,
     );
-    const forwarded = readForwardedLastTouch();
-    const forwardedAt = readForwardedLastTouchAt();
+    const forwarded = readForwardedLastTouch(params);
+    const forwardedAt = readForwardedLastTouchAt(params);
     // Where the banner applies, nothing is stored until the visitor accepts
     // targeting cookies, and a later "reject" clears it again.
     whenConsentAllows(
       "targeting",
       () => storeTouches(current, forwarded, forwardedAt),
-      { optimistic: true, revoke: clearStoredAttribution },
+      { optimistic: !continued, revoke: clearStoredAttribution },
     );
   } catch {
     // coercion-ok: attribution is best-effort telemetry; never let it break
@@ -1116,18 +1138,20 @@ function captureLastTouchAttribution(
   storeAttribution(LAST_TOUCH_STORAGE_KEY, LAST_TOUCH_COOKIE, lastTouch);
 }
 
-function readForwardedLastTouchAt(): string | undefined {
-  const raw = new URLSearchParams(window.location.search).get(
-    FORWARDED_LAST_TOUCH_AT_PARAM,
-  );
+function readForwardedLastTouchAt(
+  params: URLSearchParams | null,
+): string | undefined {
+  const raw = params?.get(FORWARDED_LAST_TOUCH_AT_PARAM);
   const time = Date.parse(raw ?? "");
   // A visit can't be in the future; a bad clock or value means "now".
   if (!Number.isFinite(time) || time > Date.now()) return undefined;
   return new Date(time).toISOString();
 }
 
-function readForwardedLastTouch(): LastTouchAttribution | null {
-  const params = new URLSearchParams(window.location.search);
+function readForwardedLastTouch(
+  params: URLSearchParams | null,
+): LastTouchAttribution | null {
+  if (!params) return null;
   const forwarded: LastTouchAttribution = {};
   for (const [param, field] of Object.entries(FORWARDED_LAST_TOUCH_FIELDS)) {
     const value = truncateFirstTouchField(params.get(param));
@@ -1204,6 +1228,13 @@ export interface CaptureAttributionOptions {
    * must name that path, not the sign-in page.
    */
   landingPath?: string;
+  /**
+   * That path's query string. A visitor sent to the sign-in page brings the
+   * query of the page they asked for, with its `utm_*` fields, only inside
+   * the continuation. It is read only when the page's own query has no source
+   * field, so a link straight to the sign-in page keeps its own.
+   */
+  landingSearch?: string;
 }
 
 /**
@@ -2983,6 +3014,31 @@ export function trackLifecycleEvent(
   trackEvent(name, params);
 }
 
-export function trackSessionStatus(signedIn: boolean): void {
-  trackEvent("session status", { signed_in: signedIn });
+/**
+ * What made the tab read the session: its first read in the page (`"load"`,
+ * which the page's first answer always says, even when it comes on a retry, a
+ * later return to the tab, or a read a sign-in change or 401 started), a
+ * return to the tab, by focus or by becoming visible, once the answer was
+ * stale (`"focus"`), a component mounting after the answer expired
+ * (`"expired"`), a sign-in, sign-out, or account or organization switch in
+ * this tab or another (`"auth_change"`), a request answered 401
+ * (`"unauthorized"`), or requests moving to another transport, such as an
+ * embed's token arriving (`"transport_change"`). Only `"load"` is a page load.
+ */
+export type SessionStatusTrigger =
+  | "load"
+  | "focus"
+  | "expired"
+  | "auth_change"
+  | "unauthorized"
+  | "transport_change";
+
+export function trackSessionStatus(
+  signedIn: boolean,
+  trigger?: SessionStatusTrigger,
+): void {
+  trackEvent("session status", {
+    signed_in: signedIn,
+    ...(trigger !== undefined ? { trigger } : {}),
+  });
 }

@@ -80,6 +80,7 @@ import {
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_HEADERS,
+  IMMUTABLE_ASSET_PATH_PATTERN,
 } from "./immutable-assets.js";
 import {
   SERVED_APP_BUILD_ID_HEADER,
@@ -1051,10 +1052,7 @@ function writeVercelBuildConfig(
   rootTarget: string,
   sweepCrons: Array<{ path: string; schedule: string }>,
 ): void {
-  const routes: Array<Record<string, any>> = [
-    ...vercelImmutableAssetHeaderRoutes(outputDir, apps),
-    { handle: "filesystem" },
-  ];
+  const routes: Array<Record<string, unknown>> = [{ handle: "filesystem" }];
 
   routes.push(
     ...apps.flatMap((app) =>
@@ -1120,6 +1118,8 @@ function writeVercelBuildConfig(
     routes.push({ src: `/${app}/(.*)`, dest: `/${app}-server` });
   }
 
+  routes.push(...vercelImmutableAssetHeaderRoutes(outputDir, apps));
+
   const config = {
     version: 3,
     routes,
@@ -1135,21 +1135,22 @@ function vercelImmutableAssetHeaderRoutes(
   outputDir: string,
   apps: string[],
 ): Array<Record<string, any>> {
-  return apps.flatMap((app) => {
+  const routes = apps.flatMap((app) => {
     const staticDir = path.join(outputDir, "static", app);
-    const assetPaths = collectImmutableAssetPaths(staticDir);
-    if (assetPaths.length === 0) return [];
+    if (collectImmutableAssetPaths(staticDir).length === 0) return [];
 
     return [
       {
-        src: `^(?:${assetPaths
-          .map((assetPath) => vercelRouteSrc(`/${app}${assetPath}`))
-          .join("|")})$`,
+        src: IMMUTABLE_ASSET_PATH_PATTERN.replace(
+          /^\^/,
+          () => `^${vercelRouteSrc(`/${app}`)}`,
+        ),
         headers: IMMUTABLE_ASSET_CACHE_HEADERS,
         continue: true,
       },
     ];
   });
+  return routes.length > 0 ? [{ handle: "hit" }, ...routes] : [];
 }
 
 function vercelRouteSrc(pathname: string): string {

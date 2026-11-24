@@ -240,6 +240,7 @@ export function CommentEntry({
   const visibleAuthor = aiAuthored
     ? modelDisplayName(comment.author_model)
     : (comment.author_name ?? comment.author_email.split("@")[0]);
+  const aiSource = getAiCommentSource(comment.submission_source);
   const identity: CommentIdentity = aiAuthored
     ? {
         kind: "agent",
@@ -253,6 +254,17 @@ export function CommentEntry({
             currentUserEmail.toLowerCase() ===
               comment.author_email.toLowerCase(),
         },
+        ...(aiSource
+          ? {
+              onBehalfOf: {
+                name:
+                  comment.author_name ??
+                  comment.author_email.replace(/@.*$/, ""),
+                source: aiSource,
+                client: comment.author_client,
+              },
+            }
+          : {}),
       }
     : {
         kind: "person",
@@ -599,7 +611,9 @@ export function CommentEntry({
       }
       name={visibleAuthor}
       identity={identity}
-      badge={<CommentAttributionBadge comment={comment} />}
+      badge={
+        aiAuthored ? undefined : <CommentAttributionBadge comment={comment} />
+      }
       timestamp={{ ...time, dateTime: comment.created_at }}
       actions={
         (!feedLayout && addReaction) || menu || headerActions ? (

@@ -1,0 +1,127 @@
+/*
+ * Part: alert-dialog
+ *
+ *   <div class="alert-dialog-backdrop" data-open|data-closed>
+ *   <div class="alert-dialog-popup" role="alertdialog"
+ *        data-open|data-closed [data-starting-style] [data-ending-style]>
+ *     <div class="alert-dialog-header">
+ *       <h2 class="alert-dialog-title"> <p class="alert-dialog-description">
+ *     <div class="alert-dialog-footer">
+ *       <button class="button">   (AlertDialogAction / AlertDialogCancel)
+ *
+ * An alert dialog is the dialog that must be answered, so it stacks above
+ * dialogs and drawers on its own layers; a popup opened inside it stacks
+ * above it.
+ * Its padding, gap and type are the dialog's.
+ * Action and Cancel are the button part.
+ */
+
+@layer components {
+  .alert-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--layer-alert-dialog-backdrop);
+    background-color: var(--surface-overlay);
+    -webkit-backdrop-filter: blur(1px);
+    backdrop-filter: blur(1px);
+    transition-property: opacity;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .alert-dialog-popup:where(:not([hidden])) {
+    display: grid;
+  }
+
+  .alert-dialog-popup {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    z-index: var(--layer-alert-dialog);
+    gap: var(--space-4);
+    box-sizing: border-box;
+    width: calc(100vw - var(--space-3) * 2);
+    max-width: 32rem;
+    max-height: min(760px, calc(100vh - var(--space-6)));
+    overflow-x: hidden;
+    overflow-y: auto;
+    translate: -50% -50%;
+    padding: var(--space-5);
+    border: 0;
+    border-radius: calc(var(--shape-dialog) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--surface-raised);
+    color: var(--fg-default);
+    box-shadow: var(--shadow-5);
+    outline-style: none;
+    transition-property: opacity, scale;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .alert-dialog-backdrop[data-starting-style],
+  .alert-dialog-backdrop[data-ending-style] {
+    opacity: 0;
+  }
+
+  .alert-dialog-popup[data-starting-style],
+  .alert-dialog-popup[data-ending-style] {
+    opacity: 0;
+    scale: 0.95;
+  }
+
+  .alert-dialog-backdrop[data-ending-style],
+  .alert-dialog-popup[data-ending-style] {
+    transition-duration: var(--duration-2);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .alert-dialog-backdrop,
+    .alert-dialog-popup {
+      transition-property: none;
+    }
+  }
+
+  .alert-dialog-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    text-align: center;
+  }
+
+  .alert-dialog-footer {
+    display: flex;
+    flex-direction: column;
+    min-inline-size: 0;
+    gap: var(--space-2);
+  }
+
+  @media (min-width: 40rem) {
+    .alert-dialog-header {
+      text-align: start;
+    }
+
+    .alert-dialog-footer {
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+  }
+
+  .alert-dialog-title {
+    margin: 0;
+    font-size: var(--font-size-4);
+    line-height: var(--line-height-4);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--letter-spacing-4);
+    color: var(--fg-default);
+  }
+
+  .alert-dialog-description {
+    margin: 0;
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    color: var(--fg-muted);
+  }
+  /* ---- sizes: padding, gap and type step together ---- */
+}

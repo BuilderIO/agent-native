@@ -57,7 +57,7 @@ const {
 } = await import("./store.js");
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetStoreLedgerSnapshotForTests();
   rawClient.execute.mockClear();
   __resetReviewInitForTests();

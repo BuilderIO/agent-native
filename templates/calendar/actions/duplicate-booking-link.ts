@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
@@ -96,6 +97,13 @@ async function uniqueSlug(base: string): Promise<string> {
 }
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   description:
     "Duplicate an existing booking link into one or more new booking links. Use this for requests like making 45 min, 1 hour, or multi-choice copies.",
   schema: z.object({
@@ -177,6 +185,7 @@ export default defineAction({
           hosts: source.hosts,
           customFields: source.customFields,
           conferencing: source.conferencing,
+          reminderMinutes: source.reminderMinutes,
           color: source.color,
           isActive: source.isActive,
           ownerEmail,

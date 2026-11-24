@@ -6,8 +6,12 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT, useFormatters } from "@agent-native/core/client/i18n";
 import {
+  IconAlertTriangle,
   IconArrowRight,
   IconCheck,
+  IconCircleCheck,
+  IconCircleOff,
+  IconDotsVertical,
   IconEdit,
   IconPlus,
   IconTrash,
@@ -19,6 +23,19 @@ import { LoadingRows, PageHeader } from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -31,7 +48,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
-import type { IntelligenceItem } from "../../shared/intelligence";
+import {
+  verificationReminderDays,
+  type IntelligenceItem,
+} from "../../shared/intelligence";
 
 interface Recipe {
   id: string;
@@ -73,6 +93,7 @@ function Failure({ error }: { error: unknown }) {
 
 function Evidence({ evidence }: { evidence: IntelligenceItem["evidence"] }) {
   const t = useT();
+  const format = useFormatters();
   return (
     <details className="mt-3 text-sm">
       <summary className="cursor-pointer text-muted-foreground">
@@ -94,8 +115,24 @@ function Evidence({ evidence }: { evidence: IntelligenceItem["evidence"] }) {
                 {item.captureTitle}
               </a>
             ) : (
-              <span className="font-medium">{item.captureTitle}</span>
+              <Link
+                className="text-primary underline-offset-4 hover:underline"
+                to={`/search?captureId=${encodeURIComponent(item.captureId)}`}
+              >
+                {item.captureTitle}
+              </Link>
             )}
+            {item.capturedAt && !Number.isNaN(Date.parse(item.capturedAt)) ? (
+              <time
+                className="ms-2 text-muted-foreground"
+                dateTime={item.capturedAt}
+              >
+                {format.formatDate(item.capturedAt, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
+              </time>
+            ) : null}
             <blockquote className="mt-1 whitespace-pre-wrap text-muted-foreground">
               {item.quote}
             </blockquote>
@@ -106,11 +143,263 @@ function Evidence({ evidence }: { evidence: IntelligenceItem["evidence"] }) {
   );
 }
 
+interface VerifyKnowledgeMutation {
+  isPending: boolean;
+  mutate: (
+    variables: {
+      knowledgeId: string;
+      state: "verified" | "deprecated" | "unverified";
+      attested: true;
+      expectedRevision: string;
+      remindInDays?: (typeof verificationReminderDays)[number];
+    },
+    options?: { onSuccess?: () => void },
+  ) => void;
+}
+
+function VerificationControls({
+  item,
+  verify,
+}: {
+  item: IntelligenceItem;
+  verify: VerifyKnowledgeMutation;
+}) {
+  const t = useT();
+  const [confirmAction, setConfirmAction] = useState<
+    "verified" | "deprecated" | null
+  >(null);
+  const [remindInDays, setRemindInDays] = useState<string>("90");
+
+  const currentState = item.verification.state;
+  const clearStateLabel =
+    currentState === "verified"
+      ? t("intelligence.verification.verified").toLowerCase()
+      : t("intelligence.verification.deprecated").toLowerCase();
+
+  function submitConfirm() {
+    if (!confirmAction) return;
+    verify.mutate(
+      {
+        knowledgeId: item.id,
+        state: confirmAction,
+        attested: true,
+        expectedRevision: item.revision,
+        ...(confirmAction === "verified"
+          ? {
+              remindInDays: Number(
+                remindInDays,
+              ) as (typeof verificationReminderDays)[number],
+            }
+          : {}),
+      },
+      {
+        onSuccess: () => setConfirmAction(null),
+      },
+    );
+  }
+
+  return (
+    <>
+      {currentState === "unverified" ? (
+        <>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={verify.isPending}
+            onClick={() => {
+              setRemindInDays("90");
+              setConfirmAction("verified");
+            }}
+          >
+            {t("intelligence.verify")}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            disabled={verify.isPending}
+            onClick={() => setConfirmAction("deprecated")}
+          >
+            {t("intelligence.deprecate")}
+          </Button>
+        </>
+      ) : (
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-8"
+              aria-label={t("intelligence.verificationActions")}
+              disabled={verify.isPending}
+            >
+              <IconDotsVertical className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={verify.isPending}
+              onSelect={() =>
+                verify.mutate({
+                  knowledgeId: item.id,
+                  state: "deprecated",
+                  attested: true,
+                  expectedRevision: item.revision,
+                })
+              }
+            >
+              <IconAlertTriangle className="size-4 shrink-0" />
+              <div className="flex flex-col">
+                <span className="font-medium">
+                  {t("intelligence.deprecate")}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {t("intelligence.deprecateSubtitle")}
+                </span>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={verify.isPending}
+              onSelect={() => {
+                if (currentState === "deprecated") {
+                  setRemindInDays("90");
+                  setConfirmAction("verified");
+                  return;
+                }
+                verify.mutate({
+                  knowledgeId: item.id,
+                  state: "verified",
+                  attested: true,
+                  expectedRevision: item.revision,
+                });
+              }}
+            >
+              <IconCircleCheck className="size-4 shrink-0" />
+              <div className="flex flex-col">
+                <span className="font-medium">{t("intelligence.verify")}</span>
+                <span className="text-xs text-muted-foreground">
+                  {t("intelligence.verifySubtitle")}
+                </span>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={verify.isPending}
+              onSelect={() =>
+                verify.mutate({
+                  knowledgeId: item.id,
+                  state: "unverified",
+                  attested: true,
+                  expectedRevision: item.revision,
+                })
+              }
+            >
+              <IconCircleOff className="size-4 shrink-0" />
+              <div className="flex flex-col">
+                <span className="font-medium">
+                  {t("intelligence.clearStatus")}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {t("intelligence.clearStatusSubtitle", {
+                    state: clearStateLabel,
+                  })}
+                </span>
+              </div>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <Dialog
+        open={confirmAction !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmAction(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {confirmAction === "verified" ? (
+                <>
+                  {t("intelligence.verifyDialogTitle")}
+                  <IconCircleCheck className="size-4 text-primary" />
+                </>
+              ) : (
+                t("intelligence.deprecateDialogTitle")
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {confirmAction === "verified" ? (
+            <div className="space-y-4 text-sm">
+              <p>{t("intelligence.verifyDialogBody", { title: item.title })}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Label htmlFor={`verify-reminder-${item.id}`}>
+                  {t("intelligence.verifyReminderLabel")}
+                </Label>
+                <Select value={remindInDays} onValueChange={setRemindInDays}>
+                  <SelectTrigger
+                    id={`verify-reminder-${item.id}`}
+                    className="w-36"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {verificationReminderDays.map((days) => (
+                      <SelectItem key={days} value={String(days)}>
+                        {t(`intelligence.reminder.${days}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3 text-sm">
+              <p>
+                {t("intelligence.deprecateDialogBody", { title: item.title })}
+              </p>
+              <p className="text-muted-foreground">
+                {t("intelligence.deprecateDialogNote")}
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmAction(null)}
+            >
+              {t("intelligence.cancel")}
+            </Button>
+            <Button
+              type="button"
+              variant={
+                confirmAction === "deprecated" ? "destructive" : "default"
+              }
+              disabled={verify.isPending}
+              onClick={submitConfirm}
+            >
+              {confirmAction === "deprecated"
+                ? t("intelligence.deprecate")
+                : t("intelligence.verify")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function IntelligenceRow({ item }: { item: IntelligenceItem }) {
   const t = useT();
   const format = useFormatters();
   const write = useActionMutation("write-intelligence");
   const verify = useActionMutation("verify-knowledge");
+  const remindAtMs =
+    item.verification.state === "verified" && item.verification.remindAt
+      ? Date.parse(item.verification.remindAt)
+      : Number.NaN;
+  const hasValidReminder = Number.isFinite(remindAtMs);
+  const verificationDue = hasValidReminder && remindAtMs <= Date.now();
   return (
     <li className="border-b border-border py-5 last:border-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -130,6 +419,14 @@ function IntelligenceRow({ item }: { item: IntelligenceItem }) {
                 {t(`intelligence.verification.${item.verification.state}`)}
               </Badge>
             )}
+            {verificationDue && (
+              <Badge
+                variant="outline"
+                className="border-destructive/40 text-destructive"
+              >
+                {t("intelligence.reviewDue")}
+              </Badge>
+            )}
           </div>
           <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
             {item.body}
@@ -140,14 +437,31 @@ function IntelligenceRow({ item }: { item: IntelligenceItem }) {
               ? ` · ${format.formatDate(new Date(`${item.dueDate}T12:00:00`), { dateStyle: "medium" })}`
               : ""}
           </p>
-          {item.verification.state === "verified" &&
+          {item.verification.state !== "unverified" &&
             item.verification.verifiedBy && (
               <p className="mt-1 text-xs text-muted-foreground">
-                {t("intelligence.verifiedBy", {
-                  name: item.verification.verifiedBy,
-                })}
+                {t(
+                  item.verification.state === "deprecated"
+                    ? "intelligence.deprecatedBy"
+                    : "intelligence.verifiedBy",
+                  {
+                    name: item.verification.verifiedBy,
+                  },
+                )}
                 {item.verification.verifiedAt
                   ? ` · ${format.formatDate(item.verification.verifiedAt, { dateStyle: "medium" })}`
+                  : ""}
+                {hasValidReminder && item.verification.remindAt
+                  ? ` · ${t(
+                      verificationDue
+                        ? "intelligence.reviewDueOn"
+                        : "intelligence.reviewScheduledOn",
+                      {
+                        date: format.formatDate(item.verification.remindAt, {
+                          dateStyle: "medium",
+                        }),
+                      },
+                    )}`
                   : ""}
               </p>
             )}
@@ -226,43 +540,7 @@ function IntelligenceRow({ item }: { item: IntelligenceItem }) {
                 : "intelligence.reopen",
             )}
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={verify.isPending}
-            onClick={() =>
-              verify.mutate({
-                knowledgeId: item.id,
-                state: "deprecated",
-                attested: true,
-                expectedRevision: item.revision,
-              })
-            }
-          >
-            {t("intelligence.deprecate")}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={verify.isPending}
-            onClick={() =>
-              verify.mutate({
-                knowledgeId: item.id,
-                state:
-                  item.verification.state === "verified"
-                    ? "unverified"
-                    : "verified",
-                attested: true,
-                expectedRevision: item.revision,
-              })
-            }
-          >
-            {t(
-              item.verification.state === "verified"
-                ? "intelligence.unverify"
-                : "intelligence.verify",
-            )}
-          </Button>
+          <VerificationControls item={item} verify={verify} />
         </div>
       </div>
       <Evidence evidence={item.evidence} />

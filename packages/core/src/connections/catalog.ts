@@ -23,6 +23,7 @@ export type WorkspaceConnectionTemplateUse =
 
 export type WorkspaceConnectionProviderId =
   | "slack"
+  | "zoom"
   | "github"
   | "figma"
   | "notion"
@@ -73,7 +74,21 @@ export interface WorkspaceConnectionProvider {
     tokenUrl: string;
     refreshUrl?: string;
     scopes: readonly string[];
+    /**
+     * Scopes a connection must hold to count as connected. Defaults to
+     * `scopes`. Leave out a scope added to `scopes` later for one feature, or
+     * every connection made before it becomes `needs_reauth`.
+     */
+    requiredScopes?: readonly string[];
   };
+  /** User consent for providers that also support legacy credential setup. */
+  personalOAuth?: WorkspaceConnectionProvider["oauth"];
+}
+
+export function getWorkspaceConnectionOAuth(
+  provider: WorkspaceConnectionProvider | undefined,
+): WorkspaceConnectionProvider["oauth"] {
+  return provider?.personalOAuth ?? provider?.oauth;
 }
 
 export interface ListWorkspaceConnectionProvidersOptions {
@@ -115,6 +130,11 @@ function googleOAuth(scopes: readonly string[], provider = "google") {
   return { ...GOOGLE_OAUTH_BASE, provider, scopes };
 }
 
+export const SLACK_PUBLIC_HISTORY_OAUTH_SCOPES = [
+  "channels:read",
+  "channels:history",
+] as const;
+
 const GOOGLE_IDENTITY_SCOPES = ["openid", "email", "profile"] as const;
 
 export const WORKSPACE_CONNECTION_PROVIDERS = [
@@ -132,8 +152,39 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
         required: true,
       },
     ],
+    personalOAuth: {
+      provider: "slack",
+      authorizationUrl: "https://slack.com/oauth/v2/authorize",
+      tokenUrl: "https://slack.com/api/oauth.v2.access",
+      scopes: [...SLACK_PUBLIC_HISTORY_OAUTH_SCOPES, "search:read.public"],
+      requiredScopes: [],
+    },
     capabilities: ["search", "import", "messages"],
     recommendedTemplateUses: ["brain", "dispatch", "analytics", "factory"],
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "zoom",
+    label: "Zoom",
+    description: "Personal access to your hosted cloud recordings.",
+    credentialKeys: [],
+    oauth: {
+      provider: "zoom",
+      authorizationUrl: "https://zoom.us/oauth/authorize",
+      tokenUrl: "https://zoom.us/oauth/token",
+      scopes: [
+        "user:read:user",
+        "user:read:email",
+        "meeting:read:list_meetings",
+        "meeting:read:meeting",
+        "meeting:update:meeting",
+        "cloud_recording:read:list_user_recordings",
+        "cloud_recording:read:list_recording_files",
+        "cloud_recording:read:meeting_transcript",
+      ],
+      requiredScopes: [],
+    },
+    capabilities: ["meetings", "import"],
+    recommendedTemplateUses: ["brain"],
   }),
   defineWorkspaceConnectionProvider({
     id: "github",
@@ -235,11 +286,19 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     credentialKeys: GOOGLE_CREDENTIAL_KEYS,
     capabilities: ["search", "import", "meetings"],
     recommendedTemplateUses: ["calendar", "brain", "dispatch", "mail"],
-    oauth: googleOAuth([
-      ...GOOGLE_IDENTITY_SCOPES,
-      "https://www.googleapis.com/auth/calendar.readonly",
-      "https://www.googleapis.com/auth/calendar.events",
-    ]),
+    oauth: {
+      ...googleOAuth([
+        ...GOOGLE_IDENTITY_SCOPES,
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar.calendarlist",
+      ]),
+      requiredScopes: [
+        ...GOOGLE_IDENTITY_SCOPES,
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/calendar.events",
+      ],
+    },
   }),
   defineWorkspaceConnectionProvider({
     id: "bigquery",
