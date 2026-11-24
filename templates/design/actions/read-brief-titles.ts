@@ -39,6 +39,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   agentTool: false,
+  persistInBrowser: false,
   run: async ({ ids }) => {
     const unavailable = {
       summaries: ids.map(() => UNAVAILABLE_LINK_SUMMARY),

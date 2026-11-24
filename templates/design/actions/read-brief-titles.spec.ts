@@ -209,6 +209,10 @@ describe("read-brief-titles", () => {
     });
   });
 
+  it("keeps titles out of the browser's saved results", () => {
+    expect(readBriefTitles.persistInBrowser).toBe(false);
+  });
+
   it("refuses more pages than a design keeps", () => {
     const ids = Array.from({ length: 6 }, (_, index) => `page-${index}`);
     expect(readBriefTitles.schema.safeParse({ ids }).success).toBe(false);
