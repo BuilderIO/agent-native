@@ -45,17 +45,21 @@ export function resolveTokenValue(
   return null;
 }
 
-export function unitlessTokenValue(value: string): string {
-  return value
-    .trim()
-    .replace(/^(-?(?:\d+\.?\d*|\.\d+))(?:px|em|rem)$/i, "$1")
-    .replace(/^(-?(?:\d+\.?\d*|\.\d+))deg$/i, "$1°");
+export function unitlessTokenValue(value: string, fieldUnit = "px"): string {
+  const trimmed = value.trim();
+  const match = /^(-?(?:\d+\.?\d*|\.\d+))([a-z%]*)$/i.exec(trimmed);
+  const number = match?.[1];
+  if (number === undefined) return trimmed;
+  const unit = (match?.[2] ?? "").toLowerCase();
+  if (unit === "deg") return `${number}°`;
+  return unit === fieldUnit.toLowerCase() ? number : trimmed;
 }
 
 export function buildTokenFieldGroups(
   tokens: readonly DesignToken[],
   accepts: readonly DesignTokenType[],
   query = "",
+  fieldUnit = "px",
 ): TokenFieldGroup[] {
   const byVar = new Map(tokens.map((token) => [token.cssVar, token]));
   const needle = query.trim().replace(/^--/, "").toLowerCase();
@@ -70,7 +74,7 @@ export function buildTokenFieldGroups(
       const option = {
         cssVar: token.cssVar,
         name: tokenFieldName(token.cssVar),
-        value: unitlessTokenValue(resolved),
+        value: unitlessTokenValue(resolved, fieldUnit),
         resolved,
       };
       if (

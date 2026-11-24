@@ -47,8 +47,11 @@ describe("buildTokenFieldGroups", () => {
         },
       ],
     });
+    expect(
+      buildTokenFieldGroups(TOKENS, ["letter-spacing"], "", "em"),
+    ).toMatchObject([{ options: [{ value: "-0.02" }] }]);
     expect(buildTokenFieldGroups(TOKENS, ["letter-spacing"])).toMatchObject([
-      { options: [{ value: "-0.02" }] },
+      { options: [{ value: "-0.02em" }] },
     ]);
   });
 
@@ -102,7 +105,9 @@ describe("field helpers", () => {
 
   it("drops px and em, keeps %, and shows degrees as °", () => {
     expect(unitlessTokenValue("640px")).toBe("640");
-    expect(unitlessTokenValue("1.5em")).toBe("1.5");
+    expect(unitlessTokenValue("1rem")).toBe("1rem");
+    expect(unitlessTokenValue("1.5em", "em")).toBe("1.5");
+    expect(unitlessTokenValue("1.5em")).toBe("1.5em");
     expect(unitlessTokenValue("40%")).toBe("40%");
     expect(unitlessTokenValue("90deg")).toBe("90°");
   });

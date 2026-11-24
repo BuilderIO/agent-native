@@ -201,7 +201,7 @@ function TokenCombobox({
 
   const sections = useMemo<Section[]>(() => {
     const groups: TokenFieldGroup[] = tokens
-      ? buildTokenFieldGroups(tokens, binding.accepts, query)
+      ? buildTokenFieldGroups(tokens, binding.accepts, query, props.unit)
       : [];
     const withTokens: Section[] = groups.map((group) => ({
       key: `${group.type}:${group.tier}`,
@@ -246,6 +246,7 @@ function TokenCombobox({
   }, [
     tokens,
     binding.accepts,
+    props.unit,
     binding.extraGroups,
     query,
     boundVar,
