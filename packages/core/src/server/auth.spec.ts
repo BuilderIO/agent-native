@@ -8885,7 +8885,19 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getDbExec: () => ({
+          // The schema probe sees every auth table, so this stays a generic failure.
+          execute: vi.fn(async (query: { sql?: string } | string) =>
+            typeof query !== "string" &&
+            query.sql?.includes("information_schema.tables")
+              ? {
+                  rows: ["user", "account", "session", "verification"].map(
+                    (table_name) => ({ table_name }),
+                  ),
+                }
+              : { rows: [] },
+          ),
+        }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));

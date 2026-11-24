@@ -137,7 +137,7 @@ function toWebRequest(event: H3Event): Request {
 type H3App = H3AppShim;
 import { getDbExec, describeDbError, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
-import { defineStore } from "../db/store-registry.js";
+import { defineStore, SchemaNotMigratedError } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
@@ -2197,6 +2197,66 @@ function publicAuthErrorFromPayload(
         ? payloadError
         : undefined;
   return publicAuthError({ code, message }, fallback);
+}
+
+const AUTH_SCHEMA_NOT_MIGRATED_CODE = "AUTH_SCHEMA_NOT_MIGRATED";
+const AUTH_CORE_TABLES = ["user", "account", "session", "verification"];
+
+async function findMissingAuthTables(): Promise<string[] | "unknown"> {
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT table_name FROM information_schema.tables
+            WHERE table_schema = current_schema()
+              AND table_name IN (${AUTH_CORE_TABLES.map(() => "?").join(", ")})`,
+      args: AUTH_CORE_TABLES,
+    });
+    const present = new Set(rows.map((row) => String(row.table_name)));
+    return AUTH_CORE_TABLES.filter((name) => !present.has(name));
+  } catch {
+    // coercion-ok: an unreadable catalog is reported as unknown, not as healthy.
+    return "unknown";
+  }
+}
+
+/**
+ * Better Auth swallows the underlying database error and answers a generic
+ * 5xx whose cause the client and logs never see. A database the release step
+ * never migrated is the one cause we can name after the fact: answer a 503
+ * with a stable code and report it, rather than a bare server error.
+ */
+async function namedBetterAuthServerError(
+  response: Response,
+  request: { path: string; method: string },
+): Promise<Response> {
+  const missing = await findMissingAuthTables();
+  if (missing === "unknown" || missing.length === 0) return response;
+  console.error("[agent-native][auth] auth schema is not migrated", {
+    status: response.status,
+    missingTables: missing,
+    path: request.path,
+    method: request.method,
+  });
+  captureAuthError(
+    new SchemaNotMigratedError(
+      "better_auth",
+      missing,
+      `missing tables: ${missing.join(", ")}`,
+    ),
+    { route: "better-auth", path: request.path },
+  );
+  const message =
+    "Sign-in is temporarily unavailable while this deployment finishes setup. Please try again shortly.";
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  headers.set("content-type", "application/json");
+  return new Response(
+    JSON.stringify({
+      error: message,
+      message,
+      code: AUTH_SCHEMA_NOT_MIGRATED_CODE,
+    }),
+    { status: 503, headers },
+  );
 }
 
 function betterAuthErrorFallback(path: string): string {
@@ -7687,6 +7747,18 @@ async function mountBetterAuthRoutes(
             response as Response,
           );
         }
+      }
+
+      if (
+        isResponse &&
+        (response as Response).status >= 500 &&
+        (reqPath.includes("/sign-in/email") ||
+          reqPath.includes("/sign-up/email"))
+      ) {
+        response = await namedBetterAuthServerError(response as Response, {
+          path: reqPath,
+          method: getMethod(event),
+        });
       }
 
       // After email verification, add ?verified=1 to the redirect so the
