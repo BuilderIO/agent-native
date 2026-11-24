@@ -10,12 +10,12 @@ import {
 
 vi.mock("./connect-localhost.js", () => ({
   default: {
-    run: async () => ({
+    run: vi.fn(async () => ({
       id: "connection_1",
       bridgeUrl: "http://127.0.0.1:7331",
       rootPath: "/example/app",
       routes: [],
-    }),
+    })),
   },
   DEFAULT_BRIDGE_URL: "http://127.0.0.1:7331",
 }));
@@ -40,6 +40,9 @@ import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
 import { applicationStateStore } from "../../../packages/core/src/application-state/store.js";
+import { linkVisualEditBoardConnections } from "../server/lib/visual-edit-capability.js";
+import connectLocalhostAction from "./connect-localhost.js";
+import createDesignAction from "./create-design.js";
 import action from "./open-visual-edit.js";
 
 const userEmail = "owner@example.com";
@@ -57,7 +60,11 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await runWithRequestContext({ userEmail }, () => deleteAppState("navigate"));
+  vi.clearAllMocks();
+  await runWithRequestContext({ userEmail }, async () => {
+    await deleteAppState("navigate");
+    await deleteAppState("visual-edit");
+  });
 });
 
 afterAll(async () => {
@@ -102,7 +109,17 @@ describe("open-visual-edit navigation guard", () => {
         code: "agent_navigation_refused",
         reason,
       });
+      await expect(
+        action.run(
+          { devServerUrl: args.devServerUrl, newDesign: true, ...extra },
+          context,
+        ),
+      ).rejects.toMatchObject({ code: "agent_navigation_refused", reason });
       expect(await readAppState("navigate")).toBeNull();
+      expect(await readAppState("visual-edit")).toBeNull();
+      expect(connectLocalhostAction.run).not.toHaveBeenCalled();
+      expect(createDesignAction.run).not.toHaveBeenCalled();
+      expect(linkVisualEditBoardConnections).not.toHaveBeenCalled();
     });
   });
 });
