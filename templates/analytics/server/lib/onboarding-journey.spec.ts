@@ -2646,7 +2646,7 @@ describe("getOnboardingJourney", () => {
         incompleteReason: "followup_aggregate_query_timeout",
       });
       expect(
-        summary.followUp?.coverage.followupAggregateRead,
+        summary.followUp.coverage.followupAggregateRead,
       ).not.toHaveProperty("stoppedQuery");
       expect(summary.notes).toEqual([
         expect.stringMatching(
