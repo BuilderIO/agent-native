@@ -120,7 +120,7 @@ export default defineAction({
       brandColor: row?.brandColor ?? "#18181B",
       brandLogoUrl: row?.brandLogoUrl ?? null,
       defaultVisibility: row?.defaultVisibility ?? "public",
-      enforceDefaultVisibility: row?.enforceDefaultVisibility ?? false,
+      enforceDefaultVisibility: row.enforceDefaultVisibility,
       updatedAt: row?.updatedAt ?? nowIso,
     };
   },

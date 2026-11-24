@@ -93,16 +93,14 @@ export function resolveRecordingVisibility(
 }
 
 export interface OrganizationVisibilityPolicy {
-  /** The organization's saved default, or null when it never set one. */
   defaultVisibility: RecordingVisibility | null;
-  /** When true, members' personal defaults are ignored. */
   enforced: boolean;
 }
 
 export async function readOrganizationVisibilityPolicy(
   organizationId: string,
 ): Promise<OrganizationVisibilityPolicy> {
-  const [row] = await getDb()
+  const rows = await getDb()
     .select({
       defaultVisibility: schema.organizationSettings.defaultVisibility,
       enforced: schema.organizationSettings.enforceDefaultVisibility,
@@ -110,6 +108,7 @@ export async function readOrganizationVisibilityPolicy(
     .from(schema.organizationSettings)
     .where(eq(schema.organizationSettings.organizationId, organizationId))
     .limit(1);
+  const row = rows.at(0);
   return {
     defaultVisibility: isRecordingVisibility(row?.defaultVisibility)
       ? row.defaultVisibility
@@ -118,7 +117,6 @@ export async function readOrganizationVisibilityPolicy(
   };
 }
 
-/** The organization's saved default, or null when it never set one. */
 export async function readOrganizationDefaultVisibility(
   organizationId: string,
 ): Promise<RecordingVisibility | null> {
@@ -126,7 +124,6 @@ export async function readOrganizationDefaultVisibility(
     .defaultVisibility;
 }
 
-/** The active organization's policy; no default and not enforced with no org. */
 export async function readActiveOrganizationVisibilityPolicy(): Promise<OrganizationVisibilityPolicy> {
   const organizationId = await getActiveOrganizationId();
   return organizationId

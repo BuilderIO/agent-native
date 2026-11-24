@@ -7,7 +7,7 @@
  *   pnpm action update-clips-recording-defaults '{"defaultRecordingVisibility":null}'
  */
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { mutateUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
@@ -54,8 +54,9 @@ export default defineAction({
       policy.enforced &&
       typeof args.defaultRecordingVisibility === "string"
     ) {
-      throw new Error(
+      fail(
         "Your organization enforces its default recording visibility, so you can't set your own. Change visibility on an individual recording from its Share dialog instead.",
+        { errorCode: "forbidden", statusCode: 403 },
       );
     }
 

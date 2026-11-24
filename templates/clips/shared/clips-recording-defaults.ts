@@ -36,10 +36,6 @@ export interface ClipsRecordingDefaults {
   defaultRecordingVisibility: ClipsDefaultVisibility | null;
   /** The organization's saved default, or null when it never set one. */
   organizationDefaultVisibility: ClipsDefaultVisibility | null;
-  /**
-   * True when the organization enforces its default: a personal choice is
-   * ignored and cannot be set.
-   */
   organizationVisibilityEnforced: boolean;
   /** The visibility a recording created now gets. */
   effectiveRecordingVisibility: ClipsDefaultVisibility;

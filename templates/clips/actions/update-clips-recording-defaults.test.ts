@@ -9,6 +9,9 @@ const state = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
+  fail: (message: string, details: Record<string, unknown>) => {
+    throw Object.assign(new Error(message), details);
+  },
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -112,7 +115,10 @@ describe("Clips recording defaults actions", () => {
 
     await expect(
       update.run({ defaultRecordingVisibility: "public" }),
-    ).rejects.toThrow(/enforces/);
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/enforces/),
+      statusCode: 403,
+    });
     expect(state.stored).toBeNull();
   });
 

@@ -1,8 +1,3 @@
-/**
- * "Countdown before recording" preference. Stored in localStorage (all Clips
- * windows share the tauri://localhost origin); the countdown is on unless the
- * user turned it off.
- */
 export const COUNTDOWN_STORAGE_KEY = "clips:recording-countdown";
 export const COUNTDOWN_CHANGED_EVENT = "clips:recording-countdown-changed";
 
