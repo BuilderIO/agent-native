@@ -1907,6 +1907,7 @@ export function useActionQuery<
      * than waiting on the other reads in their batch.
      */
     batchRefetches?: boolean;
+    batchInitial?: boolean;
     /** Captures a local projection fence before the authorized read starts. */
     onRequestStart?: () => unknown;
     /** Receives canonical responses only, never optimistic query-cache writes. */
@@ -1927,6 +1928,7 @@ export function useActionQuery<
     queryKeyScope,
     resources,
     batchRefetches,
+    batchInitial,
     onRequestStart,
     onServerResult,
     onServerError,
@@ -2016,7 +2018,10 @@ export function useActionQuery<
               visibleOnly: !restOptions.refetchIntervalInBackground,
               uiOnly: uiOnly || interactive,
               ...(retryUiCapability === undefined ? {} : { retryUiCapability }),
-              batch: method === "GET" && canBatchActionQueryFetch(query),
+              batch:
+                method === "GET" &&
+                ((batchInitial === true && query?.state.data === undefined) ||
+                  canBatchActionQueryFetch(query)),
               onResponse: (response) => {
                 lastResponse = response;
                 onResponse(response);

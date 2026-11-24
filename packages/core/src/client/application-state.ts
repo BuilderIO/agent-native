@@ -4,6 +4,10 @@ import {
   APP_STATE_WRITER_HEADER,
   TAB_SCOPED_APP_STATE_KEYS,
 } from "../shared/app-state-routes.js";
+import {
+  readSessionInvalidationMarker,
+  SESSION_BOOTSTRAP_INVALIDATION_GLOBAL,
+} from "../shared/ssr-session-bootstrap.js";
 import { agentNativePath } from "./api-path.js";
 import { assertAgentNativeApiEnabled } from "./api-surface.js";
 import {
@@ -18,6 +22,7 @@ import { recordStateWrite } from "./recorder.js";
 import {
   currentSessionIdentity,
   currentSessionScope,
+  subscribeSessionInvalidation,
   subscribeSessionScope,
 } from "./session-identity.js";
 
@@ -47,6 +52,36 @@ const beforeTurnContexts = new WeakMap<
 const mutationRevisions = new Map<string, number>();
 const requestSessionIds = new WeakMap<object, number>();
 let nextRequestSessionId = 0;
+let appStateSessionScope = currentSessionScope();
+let awaitingInitialSession = currentSessionIdentity() === undefined;
+const initialInvalidationMarker =
+  typeof window === "undefined"
+    ? undefined
+    : (window[SESSION_BOOTSTRAP_INVALIDATION_GLOBAL] ??
+      readSessionInvalidationMarker());
+if (
+  typeof window === "undefined" ||
+  typeof window.addEventListener === "function"
+) {
+  subscribeSessionInvalidation(() => {
+    if (awaitingInitialSession) {
+      awaitingInitialSession = false;
+      appStateSessionScope = {};
+    }
+  });
+}
+subscribeSessionScope(() => {
+  const identity = currentSessionIdentity();
+  if (
+    !awaitingInitialSession ||
+    identity === undefined ||
+    (initialInvalidationMarker !== undefined &&
+      initialInvalidationMarker !== readSessionInvalidationMarker())
+  ) {
+    appStateSessionScope = currentSessionScope();
+  }
+  if (identity !== undefined) awaitingInitialSession = false;
+});
 
 export interface ClientAppStateReadOptions {
   signal?: AbortSignal;
@@ -124,7 +159,7 @@ function browserTabHeaders(): Record<string, string> | undefined {
 // Identifies the server row a key reaches, so writes and reads through
 // `navigation` and through `navigation:<this tab>` wait on each other.
 function requestKey(key: string): string {
-  const session = currentSessionScope();
+  const session = appStateSessionScope;
   let sessionId = requestSessionIds.get(session);
   if (sessionId === undefined) {
     sessionId = ++nextRequestSessionId;
@@ -149,7 +184,7 @@ function appStateTurnScope(): string {
 }
 
 function currentBeforeTurnContext(): BeforeTurnContext {
-  const session = currentSessionScope();
+  const session = appStateSessionScope;
   let contexts = beforeTurnContexts.get(session);
   if (!contexts) {
     contexts = new Map();
@@ -968,8 +1003,12 @@ export async function readClientAppStateMany(
 ): Promise<ClientAppStateBatch> {
   assertAgentNativeApiEnabled(`read application state [${keys.join(", ")}]`);
   const context = currentBeforeTurnContext();
+  const session = currentSessionScope();
   const assertScope = () => {
-    if (currentBeforeTurnContext() !== context) {
+    if (
+      currentBeforeTurnContext() !== context ||
+      currentSessionScope() !== session
+    ) {
       throw new AppStateScopeChangedError();
     }
   };
@@ -1040,12 +1079,14 @@ let pendingBatch:
       keys: Set<string>;
       promise: Promise<ClientAppStateBatch>;
       context: BeforeTurnContext;
+      session: object;
     }
   | undefined;
 
 function scheduleBatchedRead(key: string): Promise<ClientAppStateBatch> {
   const context = currentBeforeTurnContext();
-  if (pendingBatch?.context === context) {
+  const session = currentSessionScope();
+  if (pendingBatch?.context === context && pendingBatch.session === session) {
     pendingBatch.keys.add(key);
     return pendingBatch.promise;
   }
@@ -1053,14 +1094,17 @@ function scheduleBatchedRead(key: string): Promise<ClientAppStateBatch> {
   const promise = new Promise<ClientAppStateBatch>((resolve, reject) => {
     setTimeout(() => {
       if (pendingBatch?.promise === promise) pendingBatch = undefined;
-      if (currentBeforeTurnContext() !== context) {
+      if (
+        currentBeforeTurnContext() !== context ||
+        currentSessionScope() !== session
+      ) {
         reject(new AppStateScopeChangedError());
         return;
       }
       readClientAppStateMany([...keys]).then(resolve, reject);
     }, 0);
   });
-  pendingBatch = { keys, promise, context };
+  pendingBatch = { keys, promise, context, session };
   return promise;
 }
 
