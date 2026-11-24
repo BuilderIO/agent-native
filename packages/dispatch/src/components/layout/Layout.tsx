@@ -180,6 +180,7 @@ import {
   WorkspaceAppFrame,
   type WorkspaceAppViewReader,
   WorkspaceAppKeepAlive,
+  useWorkspaceAppChildBrowserTab,
 } from "../workspace-app-host";
 import {
   AppNotice,
@@ -3052,6 +3053,7 @@ function DispatchLayout({
         location.hash,
       )
     : undefined;
+  const workspaceAppChildTab = useWorkspaceAppChildBrowserTab();
   const workspaceAppContent =
     workspaceAppRouteActive && workspaceAppId ? (
       workspaceAppChatRegistration ? (
@@ -3060,9 +3062,12 @@ function DispatchLayout({
           appName={workspaceAppChatRegistration.name ?? workspaceAppId}
           agentPageHref={agentPageHref}
           onFullscreenRequest={openAskAgentFullscreen}
+          browserTabId={workspaceAppChildTab.browserTabId}
         >
           <WorkspaceAppKeepAlive
             activeAppId={workspaceAppId}
+            claimBrowserTab
+            onViewReaderChange={workspaceAppChildTab.onViewReaderChange}
             {...(workspaceAppDeepPath
               ? { initialPath: workspaceAppDeepPath }
               : {})}
