@@ -18,6 +18,10 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
+import {
+  SidebarPageActionsProvider,
+  type SidebarPageActions,
+} from "@/components/sidebar/SidebarRowActions";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   MOVE_DOCUMENT_MUTATION_KEY,
@@ -86,8 +90,10 @@ function Harness({
   initiallyExpanded = [],
   branchPlaceholders,
   onBranchShown,
+  pageActions = null,
   queryClient: providedQueryClient,
 }: {
+  pageActions?: SidebarPageActions | null;
   activeDocumentId?: string;
   activePathDocuments?: ActivePathDocument[];
   onDeleteItem?: (item: ContentDatabaseItem) => void;
@@ -120,28 +126,32 @@ function Harness({
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
           <TooltipProvider>
-            <PagedContentFilesSidebarView
-              databaseId="files"
-              activeDocumentId={activeDocumentId}
-              expandedDocumentIds={expanded}
-              onDocumentExpandedChange={(id, open) =>
-                setExpanded((current) => {
-                  const next = new Set(current);
-                  if (open) next.add(id);
-                  else next.delete(id);
-                  return next;
-                })
-              }
-              documentMetadata={new Map()}
-              activePathDocuments={activePathDocuments}
-              onCreateChildPage={() => {}}
-              onDeleteItem={onDeleteItem}
-              onToggleFavorite={onToggleFavorite}
-              navigationLabel="Files"
-              untitledLabel="Untitled"
-              branchPlaceholders={branchPlaceholders}
-              onBranchShown={onBranchShown}
-            />
+            <SidebarPageActionsProvider value={pageActions}>
+              <PagedContentFilesSidebarView
+                databaseId="files"
+                {...(activeDocumentId === undefined
+                  ? {}
+                  : { activeDocumentId })}
+                {...(activePathDocuments ? { activePathDocuments } : {})}
+                {...(onDeleteItem ? { onDeleteItem } : {})}
+                {...(onToggleFavorite ? { onToggleFavorite } : {})}
+                {...(branchPlaceholders ? { branchPlaceholders } : {})}
+                {...(onBranchShown ? { onBranchShown } : {})}
+                expandedDocumentIds={expanded}
+                onDocumentExpandedChange={(id, open) =>
+                  setExpanded((current) => {
+                    const next = new Set(current);
+                    if (open) next.add(id);
+                    else next.delete(id);
+                    return next;
+                  })
+                }
+                documentMetadata={new Map()}
+                onCreateChildPage={() => {}}
+                navigationLabel="Files"
+                untitledLabel="Untitled"
+              />
+            </SidebarPageActionsProvider>
           </TooltipProvider>
         </MemoryRouter>
       </QueryClientProvider>
@@ -1234,5 +1244,180 @@ describe("PagedContentFilesSidebarView", () => {
     expect(links()).toEqual(["/page/draft-1", "/page/draft-2", "/page/none-1"]);
 
     await act(async () => root.unmount());
+  });
+
+  describe("a linked local folder", () => {
+    const notes = "local-source-directory:vault:notes";
+
+    function folderItem(
+      id: string,
+      title: string,
+      parentId: string | null = null,
+    ): ContentDatabaseNavigationItem {
+      return {
+        ...navigationItem(id, parentId, true),
+        membershipId: id,
+        title,
+        type: "folder",
+        sourceKind: "folder",
+        canEdit: false,
+        canManage: false,
+      };
+    }
+
+    function serveFolderTree() {
+      useFilesNavigationPage.mockImplementation((args) => ({
+        data:
+          args.navigation.parentId === notes
+            ? page([navigationItem("today", notes)])
+            : page([folderItem(notes, "notes"), navigationItem("readme")]),
+        isLoading: false,
+        isError: false,
+        isFetching: false,
+        refetch: vi.fn(),
+      }));
+    }
+
+    const pageActions: SidebarPageActions = {
+      renamePage: vi.fn(async () => {}),
+      duplicatePage: vi.fn(),
+      movePage: vi.fn(),
+    };
+
+    const menuItems = () =>
+      Array.from(document.body.querySelectorAll('[role="menuitem"]')).map(
+        (item) => item.textContent,
+      );
+
+    async function openMenuOf(container: HTMLElement, documentId: string) {
+      const row = container
+        .querySelector(`a[href="/page/${documentId}"]`)
+        ?.closest(".group");
+      const trigger = row?.querySelector<HTMLButtonElement>(
+        'button[aria-haspopup="menu"]:not([data-sidebar-add-child])',
+      );
+      expect(trigger).toBeTruthy();
+      await act(async () => {
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        trigger?.click();
+      });
+    }
+
+    it("draws as a folder that opens to its files, never as a page", async () => {
+      serveFolderTree();
+      const { container, root } = await renderHarness({
+        onDeleteItem: vi.fn(),
+        onToggleFavorite: vi.fn(),
+      });
+
+      const folder = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Expand notes"]',
+      );
+      expect(folder?.tagName).toBe("BUTTON");
+      expect(folder?.getAttribute("aria-expanded")).toBe("false");
+      expect(container.querySelector(`a[href="/page/${notes}"]`)).toBeNull();
+      expect(
+        folder?.closest(".group")?.querySelector('[aria-haspopup="menu"]'),
+      ).toBeNull();
+      expect(container.querySelector('a[href="/page/today"]')).toBeNull();
+
+      await act(async () => folder?.click());
+
+      expect(folder?.getAttribute("aria-expanded")).toBe("true");
+      expect(container.querySelector('a[href="/page/today"]')).not.toBeNull();
+      expect(useFilesNavigationPage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          navigation: expect.objectContaining({ parentId: notes }),
+        }),
+        new Set([notes]),
+      );
+
+      await act(async () => root.unmount());
+    });
+
+    it("offers no Move for a page inside it, so its file never looks moved", async () => {
+      serveFolderTree();
+      const inside = await renderHarness({
+        pageActions,
+        onDeleteItem: vi.fn(),
+        onToggleFavorite: vi.fn(),
+        initiallyExpanded: [notes],
+      });
+      await openMenuOf(inside.container, "today");
+      expect(menuItems()).toContain("Rename");
+      expect(menuItems()).not.toContain("Move to");
+      await act(async () => inside.root.unmount());
+
+      const top = await renderHarness({
+        pageActions,
+        onDeleteItem: vi.fn(),
+        onToggleFavorite: vi.fn(),
+      });
+      await openMenuOf(top.container, "readme");
+      expect(menuItems()).toContain("Move to");
+      await act(async () => top.root.unmount());
+    });
+
+    it("reveals the open page inside its folder when the folder isn't on the loaded page", async () => {
+      useFilesNavigationPage.mockImplementation((args) => ({
+        data:
+          args.navigation.parentId === notes
+            ? page([])
+            : page([navigationItem("first-root")], "next-root-page"),
+        isLoading: false,
+        isError: false,
+        isFetching: false,
+        refetch: vi.fn(),
+      }));
+      const folderDocument = {
+        id: notes,
+        parentId: null,
+        title: "notes",
+        content: "",
+        icon: null,
+        position: 0,
+        isFavorite: false,
+        hideFromSearch: false,
+        canEdit: false,
+        canManage: false,
+        source: { mode: "local-files", kind: "folder" },
+        hasChildren: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      } satisfies ActivePathDocument;
+      const { source: _folderSource, ...pageFields } = folderDocument;
+      const activeDocument = {
+        ...pageFields,
+        id: "today",
+        parentId: notes,
+        title: "Today",
+        canEdit: true,
+        canManage: true,
+        hasChildren: false,
+      } satisfies ActivePathDocument;
+      const { container, root } = await renderHarness({
+        activeDocumentId: activeDocument.id,
+        activePathDocuments: [folderDocument, activeDocument],
+        initiallyExpanded: [notes],
+      });
+
+      expect(
+        container.querySelector('[aria-label="Collapse notes"]')?.tagName,
+      ).toBe("BUTTON");
+      expect(container.querySelector(`a[href="/page/${notes}"]`)).toBeNull();
+      const links = Array.from(
+        container.querySelectorAll<HTMLAnchorElement>("a"),
+      ).map((link) => link.getAttribute("href"));
+      expect(links).toEqual(["/page/first-root", "/page/today"]);
+      expect(container.querySelector('[aria-current="page"]')).not.toBeNull();
+
+      await act(async () => root.unmount());
+    });
   });
 });
