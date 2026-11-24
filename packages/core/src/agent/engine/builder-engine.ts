@@ -51,6 +51,7 @@ import {
   isContextOverflowCode,
   isContextOverflowMessage,
   isCreditsLimitErrorCode,
+  isExplicitCreditsLimitErrorCode,
   isGenericInternalServerErrorMessage,
   isProviderConnectionErrorMessage,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
@@ -155,10 +156,6 @@ async function notifyBuilderCreditLimit(): Promise<void> {
     }
   }
   await promise;
-}
-
-function isExplicitBuilderCreditsLimitCode(errorCode?: string): boolean {
-  return errorCode?.trim().toLowerCase().startsWith("credits-limit") === true;
 }
 
 async function clearBuilderCreditLimitAfterSuccess(
@@ -865,7 +862,8 @@ function gatewayErrorStop(
           ...(errorCode ? { errorCode } : {}),
           ...(upgradeUrl ? { upgradeUrl } : {}),
         }),
-    ...(isContextOverflowMessage(error) || isContextOverflowCode(errorCode)
+    ...(!isCreditsLimitErrorCode(errorCode) &&
+    (isContextOverflowMessage(error) || isContextOverflowCode(errorCode))
       ? { contextOverflow: true }
       : {}),
     ...(requestShape ? { requestShape } : {}),
@@ -879,12 +877,15 @@ function gatewayErrorStop(
  * canonical status (when one is known) is retained; no raw code, message,
  * request id, upgrade url, or request shape ever crosses this boundary.
  */
-function builderPrivateStop(status?: number): EngineEvent {
-  return (
+function builderPrivateStop(status?: number, terminal = false): EngineEvent {
+  const stop = (
     status !== undefined
       ? new PrivateCompletionError("builder", { status })
       : new PrivateCompletionError("builder")
   ).stopEvent();
+  return stop.type === "stop" && (terminal || status === 402)
+    ? { ...stop, providerRetryable: false }
+    : stop;
 }
 
 /** Canonical auth failure stop for a private completion (preserves 401). */
@@ -1028,7 +1029,7 @@ async function* emitHttpError(
   const quotaErrorCode =
     status === 402 && !isCreditsLimitErrorCode(code) ? "http_402" : code;
   if (isCreditsLimitErrorCode(code) || status === 402) {
-    if (isExplicitBuilderCreditsLimitCode(quotaErrorCode)) {
+    if (isExplicitCreditsLimitErrorCode(quotaErrorCode)) {
       await notifyBuilderCreditLimit();
     }
     yield stop({
@@ -1398,6 +1399,20 @@ async function* parseJsonlStream(
             return;
           }
           const reason = event.reason ?? "end_turn";
+          const explicitCreditsCode = [event.errorCode, event.code].find(
+            (code): code is string =>
+              typeof code === "string" && isExplicitCreditsLimitErrorCode(code),
+          );
+          const creditsErrorCode =
+            explicitCreditsCode ??
+            (event.statusCode === 402 ||
+            [event.errorCode, event.code].some(
+              (code) =>
+                typeof code === "string" &&
+                code.trim().toLowerCase() === "http_402",
+            )
+              ? "http_402"
+              : undefined);
           if (
             reason === "refusal" ||
             reason === "content-filter" ||
@@ -1414,9 +1429,11 @@ async function* parseJsonlStream(
             reason !== "max_tokens" &&
             reason !== "stop_sequence"
           ) {
-            yield builderPrivateStop(
-              privateStatusForStopReason(reason, event.statusCode),
-            );
+            yield creditsErrorCode && event.statusCode !== 402
+              ? builderPrivateStop(undefined, true)
+              : builderPrivateStop(
+                  privateStatusForStopReason(reason, event.statusCode),
+                );
             return;
           }
           flushPending();
@@ -1433,10 +1450,9 @@ async function* parseJsonlStream(
             (reason === "error" ||
               reason === "invalid_request" ||
               reason === "rate_limited") &&
-            typeof reportedAuthCode === "string" &&
-            isExplicitBuilderCreditsLimitCode(reportedAuthCode)
+            creditsErrorCode !== undefined
           ) {
-            await notifyBuilderCreditLimit();
+            if (explicitCreditsCode) await notifyBuilderCreditLimit();
             yield stop({
               error: String(
                 event.error ||
@@ -1444,7 +1460,7 @@ async function* parseJsonlStream(
                   event.detail ||
                   "Gateway error (no detail)",
               ),
-              errorCode: reportedAuthCode,
+              errorCode: creditsErrorCode,
               upgradeUrl: await buildUpgradeUrl(),
               ...(typeof event.requestId === "string"
                 ? { requestId: event.requestId }

@@ -81,9 +81,15 @@ export const PROVIDER_TRANSIENT_REJECTION_ERROR_CODE =
 
 export const PROVIDER_RATE_LIMITED_ERROR_CODE = "provider_rate_limited";
 
+export function isExplicitCreditsLimitErrorCode(errorCode?: string): boolean {
+  return errorCode?.trim().toLowerCase().startsWith("credits-limit") === true;
+}
+
 export function isCreditsLimitErrorCode(errorCode?: string): boolean {
-  const code = errorCode?.trim().toLowerCase();
-  return code === "http_402" || code?.startsWith("credits-limit") === true;
+  return (
+    errorCode?.trim().toLowerCase() === "http_402" ||
+    isExplicitCreditsLimitErrorCode(errorCode)
+  );
 }
 
 /**
