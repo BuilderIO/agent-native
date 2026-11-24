@@ -1,4 +1,4 @@
-import { listAppState } from "@agent-native/core/application-state";
+import { readAppState } from "@agent-native/core/application-state";
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
@@ -8,10 +8,7 @@ import {
   AUTO_REPLACEABLE_TITLE_SOURCES,
   DEFAULT_RECORDING_TITLE,
 } from "../../shared/title-source.js";
-import {
-  isUnsuccessfulTitleStatus,
-  titleTerminalKey,
-} from "./ai-request-status.js";
+import { titleTerminalKey } from "./ai-request-status.js";
 import { transcriptHasTextSql } from "./transcript-text.js";
 
 export const AUTO_TITLE_CANDIDATE_LIMIT = 50;
@@ -25,22 +22,14 @@ export async function listAutoTitleCandidates(
 ): Promise<AutoTitleCandidate[]> {
   const r = schema.recordings;
   const t = schema.recordingTranscripts;
-  const markerPrefix = titleTerminalKey("");
-  const statusPrefix = "clips-ai-request-status-";
-  const [markers, statuses] = await Promise.all([
-    listAppState(markerPrefix),
-    listAppState(statusPrefix),
-  ]);
-  const suppressedIds = new Set([
-    ...markers
-      .filter(({ value }) => value.suppressed === true)
-      .map(({ key }) => key.slice(markerPrefix.length)),
-    ...statuses
-      .filter(({ value }) => isUnsuccessfulTitleStatus(value))
-      .map(({ key }) => key.slice(statusPrefix.length)),
-  ]);
+  // Ensure the framework store exists before joining it on a cold database.
+  await readAppState(titleTerminalKey(""));
   return getDb()
-    .select({ id: r.id, createdAt: r.createdAt })
+    .select({
+      id: r.id,
+      createdAt: r.createdAt,
+      transcriptRevision: sql<string>`md5(${t.fullText} || chr(31) || ${t.segmentsJson})`,
+    })
     .from(r)
     .innerJoin(t, eq(t.recordingId, r.id))
     .where(
@@ -55,9 +44,30 @@ export async function listAutoTitleCandidates(
         ),
         eq(t.status, "ready"),
         transcriptHasTextSql(t),
-        suppressedIds.size
-          ? sql`${r.id} NOT IN (SELECT jsonb_array_elements_text(${JSON.stringify([...suppressedIds])}::jsonb))`
-          : undefined,
+        sql`NOT EXISTS (
+          SELECT 1 FROM application_state marker
+          WHERE marker.session_id = ${ownerEmail}
+            AND marker.key = ${titleTerminalKey("")} || ${r.id}
+            AND marker.value::jsonb ->> 'suppressed' = 'true'
+            AND (marker.value::jsonb ->> 'transcriptRevision' IS NULL OR
+                 marker.value::jsonb ->> 'transcriptRevision' = md5(${t.fullText} || chr(31) || ${t.segmentsJson}))
+        )`,
+        sql`NOT EXISTS (
+          SELECT 1 FROM application_state request_status
+          WHERE request_status.session_id = ${ownerEmail}
+            AND request_status.key = ${"clips-ai-request-status-"} || ${r.id}
+            AND request_status.value::jsonb ->> 'kind' IN ('regenerate-title', 'generate-metadata')
+            AND request_status.value::jsonb ->> 'status' IN ('failed', 'truncated', 'cancelled')
+            AND (request_status.value::jsonb ->> 'transcriptRevision' IS NULL OR
+                 request_status.value::jsonb ->> 'transcriptRevision' = md5(${t.fullText} || chr(31) || ${t.segmentsJson}))
+            AND NOT EXISTS (
+              SELECT 1 FROM application_state cleared
+              WHERE cleared.session_id = ${ownerEmail}
+                AND cleared.key = ${titleTerminalKey("")} || ${r.id}
+                AND cleared.value::jsonb ->> 'suppressed' = 'false'
+                AND cleared.value::jsonb -> 'supersededStatus' = request_status.value::jsonb
+            )
+        )`,
       ),
     )
     .orderBy(desc(r.createdAt))

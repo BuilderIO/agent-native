@@ -1,22 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
-import {
-  compareAndSetAppState,
-  compareAndSetManyAppState,
-  listAppState,
-  readAppState,
-} from "@agent-native/core/application-state";
-import { normalizeChatError } from "@agent-native/core/client/chat-errors";
-import {
-  callerHasThreadAccess,
-  getCurrentTurnRunEventsForThread,
-  getCurrentTurnRunIdsForThread,
-  getRunStatus,
-  getRunTurnRef,
-} from "@agent-native/core/server";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
+import { listAppState } from "@agent-native/core/application-state";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
@@ -25,7 +9,6 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import { CLIPS_AI_REQUEST_KINDS } from "../shared/ai-request-status.js";
-import { titleTerminalKey } from "./lib/ai-request-status.js";
 import { listAutoTitleCandidates } from "./lib/auto-title-candidates.js";
 
 const REQUEST_PREFIX = "clips-ai-request-";
@@ -67,120 +50,6 @@ function requestSession(
   }
   return { ...value, recordingId } as ActiveAiRequestSession &
     Record<string, unknown>;
-}
-
-async function reconcileRequestSession(
-  session: ActiveAiRequestSession,
-  expected: Record<string, unknown>,
-  requesterEmail: string,
-): Promise<ActiveAiRequestSession | null> {
-  if (!session.threadId.trim() || !session.turnId.trim()) return session;
-  if (
-    !(await callerHasThreadAccess(
-      requesterEmail,
-      session.threadId,
-      "owner",
-      { orgId: getRequestOrgId() },
-      { sourceAppId: "clips" },
-    ))
-  )
-    return session;
-  if (
-    session.runId !== undefined &&
-    (typeof session.runId !== "string" || !session.runId.trim())
-  ) {
-    return session;
-  }
-  if (session.runId) {
-    const ref = await getRunTurnRef(session.runId);
-    if (
-      !ref ||
-      ref.threadId !== session.threadId ||
-      ref.turnId !== session.turnId
-    ) {
-      return session;
-    }
-  }
-  const runs = await getCurrentTurnRunIdsForThread(
-    session.threadId,
-    session.turnId,
-  );
-  if (session.runId && !runs.includes(session.runId)) return session;
-  const latestRunId = runs[runs.length - 1];
-  if (!latestRunId) return session;
-  const runStatus = await getRunStatus(latestRunId);
-  if (runStatus !== "completed" && runStatus !== "errored") return session;
-
-  // A chunk's status can precede its continuation event; an error is final
-  // only when the producer explicitly rules out server-side recovery.
-  const events = await getCurrentTurnRunEventsForThread(
-    session.threadId,
-    session.turnId,
-  );
-  const lastEvent = events
-    .filter((event) => event.runId === latestRunId)
-    .pop()?.event;
-  const completed =
-    runStatus === "completed" &&
-    lastEvent?.type === "done" &&
-    lastEvent.reason !== "user";
-  const verificationFailure =
-    runStatus === "errored" &&
-    lastEvent?.type === "error" &&
-    lastEvent.errorCode === "email_verification_required" &&
-    (lastEvent.recoverable === false ||
-      lastEvent.providerRetryable === false) &&
-    lastEvent.recoverable !== true &&
-    lastEvent.providerRetryable !== true;
-  if (!completed && !verificationFailure) return session;
-
-  // A receipt may name an earlier chunk; a same-turn successor owns the outcome.
-  const currentRuns = await getCurrentTurnRunIdsForThread(
-    session.threadId,
-    session.turnId,
-  );
-  if (
-    currentRuns[currentRuns.length - 1] !== latestRunId ||
-    (session.runId && !currentRuns.includes(session.runId)) ||
-    (await getRunStatus(latestRunId)) !== runStatus
-  )
-    return session;
-  const key = `${STATUS_PREFIX}${session.recordingId}`;
-  const next = {
-    ...expected,
-    status: verificationFailure ? "failed" : "completed",
-    ...(verificationFailure
-      ? {
-          message: normalizeChatError(
-            "error:email_verification_required",
-            "email_verification_required",
-          ).message,
-        }
-      : {}),
-    runId: latestRunId,
-    updatedAt: new Date().toISOString(),
-  };
-  const isTitle =
-    session.kind === "regenerate-title" || session.kind === "generate-metadata";
-  const markerKey = titleTerminalKey(session.recordingId);
-  const saved =
-    verificationFailure && isTitle
-      ? await compareAndSetManyAppState([
-          { key, expectedValue: expected, nextValue: next },
-          {
-            key: markerKey,
-            expectedValue: await readAppState(markerKey),
-            nextValue: {
-              kind: session.kind,
-              status: "failed",
-              requestedAt: session.requestedAt,
-              suppressed: true,
-            },
-          },
-        ])
-      : await compareAndSetAppState(key, expected, next);
-  if (saved) return null;
-  return requestSession(session.recordingId, await readAppState(key));
 }
 
 async function listQueuedRequests(requesterEmail?: string | null): Promise<{
@@ -308,40 +177,6 @@ async function listQueuedRequests(requesterEmail?: string | null): Promise<{
     );
 
   const titles = new Map(accessible.map((r) => [r.id, r.title]));
-  const visibleRequestSessions = requestSessions.filter((session) =>
-    titles.has(session.recordingId),
-  );
-  const editorRecordingIds = visibleRequestSessions.map(
-    (session) => session.recordingId,
-  );
-  const editable = editorRecordingIds.length
-    ? await db
-        .select({ id: schema.recordings.id })
-        .from(schema.recordings)
-        .where(
-          and(
-            accessFilter(
-              schema.recordings,
-              schema.recordingShares,
-              undefined,
-              "editor",
-            ),
-            inArray(schema.recordings.id, editorRecordingIds),
-            eq(schema.recordings.status, "ready"),
-            recordingExpiryQuery(getRequestUserEmail()).available,
-          ),
-        )
-    : [];
-  const editableIds = new Set(editable.map((recording) => recording.id));
-  const reconciled = await Promise.all(
-    visibleRequestSessions.map((session) => {
-      const expected = statusByRecordingId.get(session.recordingId);
-      return requesterEmail && editableIds.has(session.recordingId) && expected
-        ? reconcileRequestSession(session, expected, requesterEmail)
-        : session;
-    }),
-  );
-
   // Not every request kind stores `currentTitle` when queued; fill it from the
   // recording so every delivered request tells the agent what the clip is.
   return {
@@ -351,12 +186,9 @@ async function listQueuedRequests(requesterEmail?: string | null): Promise<{
         ...request,
         currentTitle: request.currentTitle ?? titles.get(request.recordingId),
       })),
-    activeSessions: [
-      ...reconciled.filter(
-        (session): session is ActiveAiRequestSession => session !== null,
-      ),
-      ...workflowSessions.filter((session) => titles.has(session.recordingId)),
-    ],
+    activeSessions: activeSessions.filter((session) =>
+      titles.has(session.recordingId),
+    ),
   };
 }
 
@@ -368,8 +200,10 @@ export default defineAction({
   mcpTool: "search",
   run: async () => {
     const email = getRequestUserEmail();
-    const { requests, activeSessions } = await listQueuedRequests(email);
-    const titleCandidates = email ? await listAutoTitleCandidates(email) : [];
+    const [{ requests, activeSessions }, titleCandidates] = await Promise.all([
+      listQueuedRequests(email),
+      email ? listAutoTitleCandidates(email) : [],
+    ]);
     return { requests, activeSessions, titleCandidates };
   },
 });

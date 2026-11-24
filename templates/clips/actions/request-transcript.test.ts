@@ -581,8 +581,42 @@ describe("requestTranscript regeneration", () => {
       recordingId: "rec_native",
       status: "ready",
       cleanupQueued: false,
-      titleQueued: true,
+      titleQueued: false,
       summaryQueued: true,
+    });
+  });
+
+  it("does not report suppressed metadata as queued", async () => {
+    mockRegenerateTitleRun.mockResolvedValue({
+      skipped: true,
+      reason: "title_request_unsuccessful",
+    });
+    mockSelectRows.queue = [
+      [
+        {
+          status: "ready",
+          fullText: "Saved transcript.",
+          segmentsJson: existingSegments,
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [
+        {
+          title: "Untitled recording",
+          titleSource: "default",
+          description: "Saved",
+          durationMs: 1200,
+        },
+      ],
+    ];
+    await expect(
+      requestTranscript.run({ recordingId: "rec_native" }),
+    ).resolves.toMatchObject({
+      status: "ready",
+      titleQueued: false,
+      summaryQueued: false,
     });
   });
 

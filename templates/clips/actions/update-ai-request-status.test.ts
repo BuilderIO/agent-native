@@ -67,6 +67,35 @@ describe("update-ai-request-status", () => {
     },
   );
 
+  it("records the revision used by a failed title request", async () => {
+    const current = {
+      kind: "generate-metadata",
+      status: "working",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+      transcriptRevision: "old-revision",
+    };
+    mockReadAppState.mockImplementation(async (key: string) =>
+      key === "clips-ai-request-status-rec_123" ? current : null,
+    );
+    await action.run(
+      action.schema.parse({
+        recordingId: "rec_123",
+        kind: "generate-metadata",
+        requestedAt: current.requestedAt,
+        status: "failed",
+      }),
+    );
+    expect(mockCompareAndSetManyAppState).toHaveBeenCalledWith([
+      expect.objectContaining({ expectedValue: current }),
+      expect.objectContaining({
+        nextValue: expect.objectContaining({
+          suppressed: true,
+          transcriptRevision: "old-revision",
+        }),
+      }),
+    ]);
+  });
+
   it("does not mark a stale title failure", async () => {
     mockReadAppState.mockResolvedValue({
       kind: "regenerate-title",
@@ -218,6 +247,61 @@ describe("update-ai-request-status", () => {
     ).rejects.toThrow("changed before the update");
     expect(mockCompareAndSetManyAppState).toHaveBeenCalledOnce();
     expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("clears a failure marker atomically when a title retry completes", async () => {
+    const current = {
+      kind: "regenerate-title",
+      status: "working",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+    };
+    const marker = {
+      suppressed: true,
+      status: "failed",
+      requestedAt: "2026-09-04T11:00:00.000Z",
+    };
+    mockReadAppState.mockImplementation(async (key: string) =>
+      key === "clips-ai-request-status-rec_123" ? current : marker,
+    );
+    await action.run(
+      action.schema.parse({
+        recordingId: "rec_123",
+        kind: "regenerate-title",
+        requestedAt: current.requestedAt,
+        status: "completed",
+      }),
+    );
+    expect(mockCompareAndSetManyAppState).toHaveBeenCalledWith([
+      expect.objectContaining({
+        key: "clips-ai-request-status-rec_123",
+        expectedValue: current,
+        nextValue: expect.objectContaining({ status: "completed" }),
+      }),
+      expect.objectContaining({
+        key: "clips-ai-title-terminal-rec_123",
+        expectedValue: marker,
+        nextValue: expect.objectContaining({ suppressed: false }),
+      }),
+    ]);
+  });
+
+  it("does not clear a marker for a stale title completion", async () => {
+    mockReadAppState.mockResolvedValue({
+      kind: "regenerate-title",
+      status: "working",
+      requestedAt: "2026-09-04T12:01:00.000Z",
+    });
+    await expect(
+      action.run(
+        action.schema.parse({
+          recordingId: "rec_123",
+          kind: "regenerate-title",
+          requestedAt: "2026-09-04T12:00:00.000Z",
+          status: "completed",
+        }),
+      ),
+    ).rejects.toThrow("stale");
+    expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
   });
 
   it("does not create a failure marker on title completion", async () => {

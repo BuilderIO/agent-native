@@ -803,15 +803,20 @@ async function generateRecordingMetadata({
   transcriptText: string;
 }): Promise<{ titleQueued: boolean; summaryQueued: boolean }> {
   if (isAutoTitleReplaceable(title, titleSource)) {
-    await regenerateTitle.run({
+    const result = await regenerateTitle.run({
       recordingId,
       transcriptText,
       includeSummary: !description?.trim(),
       automatic: true,
     });
     return {
-      titleQueued: true,
-      summaryQueued: !description?.trim(),
+      titleQueued: "queued" in result && result.queued === true,
+      summaryQueued:
+        ("summaryQueued" in result && result.summaryQueued === true) ||
+        ("queued" in result &&
+          result.queued === true &&
+          "kind" in result &&
+          result.kind === "generate-metadata"),
     };
   }
 

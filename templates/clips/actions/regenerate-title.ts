@@ -1,5 +1,11 @@
+import { createHash } from "node:crypto";
+
 import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
+import {
+  compareAndSetManyAppState,
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
 import { resolveChatModelAvailability } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
@@ -20,7 +26,9 @@ import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import {
   assertAiModelAvailable,
   hasUnsuccessfulTitleRequest,
+  isUnsuccessfulTitleStatus,
   queueAiRequest,
+  titleTerminalKey,
   withAiRequestStatusInstructions,
 } from "./lib/ai-request-status.js";
 import { clearBuilderCreditsExhausted } from "./lib/builder-credits-state.js";
@@ -75,6 +83,7 @@ export async function queueTitleRegenerationRequest({
   includeFullVideoInAi,
   includeSummary = false,
   automatic = false,
+  transcriptRevision,
 }: {
   recordingId: string;
   currentTitle: string | null | undefined;
@@ -86,6 +95,7 @@ export async function queueTitleRegenerationRequest({
   includeFullVideoInAi?: boolean;
   includeSummary?: boolean;
   automatic?: boolean;
+  transcriptRevision?: string | null;
 }) {
   const agentsContext = await loadAgentsMdContext({
     ownerEmail,
@@ -115,6 +125,7 @@ export async function queueTitleRegenerationRequest({
     transcriptStatus,
     transcriptText,
     segmentsJson: segmentsJson ?? "[]",
+    transcriptRevision,
     agentsContext,
     includeFullVideoInAi: useVideo,
     includeSummary,
@@ -189,16 +200,14 @@ export default defineAction({
       await assertAccess("recording", args.recordingId, "editor"),
     );
 
-    if (
-      args.automatic &&
-      (await hasUnsuccessfulTitleRequest(args.recordingId))
-    ) {
-      return queueRefusedResult(args.recordingId, "title_request_unsuccessful");
-    }
-
     // A manual request cannot succeed without a model, and the local fallback
     // below writes a title: refuse before that write, not after it.
     if (!args.automatic) await assertAiModelAvailable();
+    const statusKey = `clips-ai-request-status-${args.recordingId}`;
+    const markerKey = titleTerminalKey(args.recordingId);
+    const [priorMarker, priorStatus] = args.automatic
+      ? [null, null]
+      : await Promise.all([readAppState(markerKey), readAppState(statusKey)]);
 
     const db = getDb();
     // Read before anything the model sees: a removal after this read fails the
@@ -259,6 +268,20 @@ export default defineAction({
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
 
+    const transcriptRevision = transcript
+      ? createHash("md5")
+          .update(
+            `${transcript.fullText ?? ""}\x1f${transcript.segmentsJson ?? "[]"}`,
+          )
+          .digest("hex")
+      : null;
+    if (
+      args.automatic &&
+      (await hasUnsuccessfulTitleRequest(args.recordingId, transcriptRevision))
+    ) {
+      return queueRefusedResult(args.recordingId, "title_request_unsuccessful");
+    }
+
     const transcriptText =
       args.transcriptText?.trim() ||
       transcript?.fullText?.trim() ||
@@ -289,6 +312,7 @@ export default defineAction({
         ownerEmail: getRequestUserEmail() ?? transcript?.ownerEmail,
         includeFullVideoInAi: true,
         includeSummary: args.includeSummary,
+        transcriptRevision,
       });
       if (!queuedRequest)
         return queueRefusedResult(args.recordingId, queueRefusal);
@@ -318,6 +342,7 @@ export default defineAction({
     }
 
     let builderCreditsPaused = false;
+    let titleWritten = false;
 
     const writeTitleIfUnchanged = async (
       fresh: Pick<
@@ -401,6 +426,33 @@ export default defineAction({
               recordingId: args.recordingId,
             };
           }
+          titleWritten = true;
+          if (
+            !args.automatic &&
+            (priorMarker?.suppressed === true ||
+              isUnsuccessfulTitleStatus(priorStatus))
+          ) {
+            const cleared = await compareAndSetManyAppState([
+              ...(priorStatus
+                ? [
+                    {
+                      key: statusKey,
+                      expectedValue: priorStatus,
+                      nextValue: priorStatus,
+                    },
+                  ]
+                : []),
+              {
+                key: markerKey,
+                expectedValue: priorMarker,
+                nextValue: { suppressed: false, supersededStatus: priorStatus },
+              },
+            ]);
+            if (!cleared)
+              throw new Error(
+                "Title saved, but the title request status changed before suppression could be cleared.",
+              );
+          }
           await writeAppState("refresh-signal", { ts: Date.now() });
           if (result.provider === "builder") {
             await clearBuilderCreditsExhausted();
@@ -452,7 +504,7 @@ export default defineAction({
         );
       }
     } catch (err) {
-      if (err instanceof ForbiddenError) throw err;
+      if (err instanceof ForbiddenError || titleWritten) throw err;
       builderCreditsPaused = isBuilderCreditsExhaustedMessage(
         (err as Error)?.message ?? String(err),
       );
@@ -512,6 +564,7 @@ export default defineAction({
           ownerEmail: getRequestUserEmail() ?? transcript?.ownerEmail,
           includeFullVideoInAi: false,
           includeSummary: args.includeSummary,
+          transcriptRevision,
         });
         if (!queuedRequest) {
           return {
@@ -568,6 +621,7 @@ export default defineAction({
       ownerEmail: getRequestUserEmail() ?? transcript?.ownerEmail,
       includeFullVideoInAi: false,
       includeSummary: args.includeSummary,
+      transcriptRevision,
     });
     if (!queuedRequest)
       return queueRefusedResult(args.recordingId, queueRefusal);

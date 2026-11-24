@@ -211,6 +211,38 @@ describe("auto-title fallback", () => {
     },
   );
 
+  it("allows a new transcript revision after an earlier candidate was suppressed", async () => {
+    vi.useFakeTimers();
+    let revision = "old";
+    mocks.callAction.mockImplementation(async (name: string) =>
+      name === "list-ai-requests"
+        ? {
+            requests: [],
+            titleCandidates: [
+              {
+                ...candidate("rec_old", 5 * 60_000),
+                transcriptRevision: revision,
+              },
+            ],
+          }
+        : revision === "old"
+          ? { skipped: true, reason: "title_request_unsuccessful" }
+          : { updated: true },
+    );
+    container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<TestBridge />);
+    });
+    expect(regenerateTitleCalls()).toHaveLength(1);
+    revision = "new";
+    await act(async () => {
+      window.dispatchEvent(new Event("clips-test-change-version"));
+      await Promise.resolve();
+    });
+    expect(regenerateTitleCalls()).toHaveLength(2);
+  });
+
   it("does not retry a suppression error", async () => {
     vi.useFakeTimers();
     const snapshot = {

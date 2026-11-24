@@ -78,6 +78,57 @@ describe("AI request status lifecycle", () => {
     },
   );
 
+  it("does not revive a failure superseded by a manual title success", async () => {
+    const status = {
+      kind: "regenerate-title",
+      status: "failed",
+      requestedAt: "old",
+    };
+    const marker = { suppressed: false, supersededStatus: status };
+    mocks.readAppState.mockImplementation(async (key: string) =>
+      key === "clips-ai-title-terminal-rec_123"
+        ? marker
+        : key === "clips-ai-request-status-rec_123"
+          ? status
+          : null,
+    );
+    await expect(
+      queueAiRequest({
+        recordingId: "rec_123",
+        kind: "regenerate-title",
+        requestedAt: "2026-09-04T12:00:00.000Z",
+        request: { transcriptRevision: "current" },
+        automaticTitle: true,
+      }),
+    ).resolves.toBeUndefined();
+    expect(mocks.compareAndSetManyAppState).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        {
+          key: "clips-ai-title-terminal-rec_123",
+          expectedValue: marker,
+          nextValue: marker,
+        },
+      ]),
+    );
+  });
+
+  it("allows automatic title generation for a newer transcript revision", async () => {
+    mocks.readAppState.mockImplementation(async (key: string) =>
+      key === "clips-ai-title-terminal-rec_123"
+        ? { suppressed: true, status: "failed", transcriptRevision: "old" }
+        : null,
+    );
+    await expect(
+      queueAiRequest({
+        recordingId: "rec_123",
+        kind: "regenerate-title",
+        requestedAt: "2026-09-04T12:00:00.000Z",
+        request: { transcriptRevision: "new" },
+        automaticTitle: true,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it.each(["failed", "truncated", "cancelled"])(
     "preserves legacy %s before unrelated work replaces its status",
     async (status) => {
@@ -106,6 +157,41 @@ describe("AI request status lifecycle", () => {
       );
     },
   );
+
+  it("preserves the latest legacy failure instead of an older marker", async () => {
+    const old = {
+      suppressed: true,
+      requestedAt: "old",
+      transcriptRevision: "old-revision",
+    };
+    const latest = {
+      kind: "regenerate-title",
+      status: "failed",
+      requestedAt: "new",
+    };
+    mocks.readAppState.mockImplementation(async (key: string) =>
+      key === "clips-ai-title-terminal-rec_123"
+        ? old
+        : key === "clips-ai-request-status-rec_123"
+          ? latest
+          : null,
+    );
+    await queueAiRequest({
+      recordingId: "rec_123",
+      kind: "regenerate-summary",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+      request: {},
+    });
+    expect(mocks.compareAndSetManyAppState).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        {
+          key: "clips-ai-title-terminal-rec_123",
+          expectedValue: old,
+          nextValue: { ...latest, suppressed: true },
+        },
+      ]),
+    );
+  });
 
   it("allows manual title retries without clearing the failure marker", async () => {
     const marker = { suppressed: true, status: "failed" };

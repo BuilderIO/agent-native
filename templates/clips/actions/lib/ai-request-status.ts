@@ -26,12 +26,43 @@ export function isUnsuccessfulTitleStatus(
   );
 }
 
-export async function hasUnsuccessfulTitleRequest(recordingId: string) {
+function isSupersededTitleStatus(
+  marker: Record<string, unknown> | null,
+  status: Record<string, unknown> | null,
+) {
+  return (
+    marker?.suppressed === false &&
+    marker.supersededStatus !== undefined &&
+    JSON.stringify(marker.supersededStatus) === JSON.stringify(status)
+  );
+}
+
+export function isCurrentTitleFailure(
+  marker: Record<string, unknown> | null,
+  status: Record<string, unknown> | null,
+  transcriptRevision: string | null,
+) {
+  const current = (value: Record<string, unknown>) =>
+    typeof value.transcriptRevision !== "string" ||
+    value.transcriptRevision === transcriptRevision;
+  return (
+    (marker?.suppressed === true && current(marker)) ||
+    (!!status &&
+      !isSupersededTitleStatus(marker, status) &&
+      isUnsuccessfulTitleStatus(status) &&
+      current(status))
+  );
+}
+
+export async function hasUnsuccessfulTitleRequest(
+  recordingId: string,
+  transcriptRevision: string | null,
+) {
   const [marker, status] = await Promise.all([
     readAppState(titleTerminalKey(recordingId)),
     readAppState(`${STATUS_KEY_PREFIX}${recordingId}`),
   ]);
-  return marker?.suppressed === true || isUnsuccessfulTitleStatus(status);
+  return isCurrentTitleFailure(marker, status, transcriptRevision);
 }
 
 export function withAiRequestStatusInstructions({
@@ -118,6 +149,9 @@ export async function queueBackgroundAiRequest({
     message: null,
     requestedAt,
     updatedAt: requestedAt,
+    ...(typeof request.transcriptRevision === "string"
+      ? { transcriptRevision: request.transcriptRevision }
+      : {}),
   };
 
   assertRecordingNotExpired(
@@ -129,8 +163,19 @@ export async function queueBackgroundAiRequest({
       readAppState(requestKey),
       readAppState(titleTerminalKey(recordingId)),
     ]);
-    const legacyFailure = isUnsuccessfulTitleStatus(status);
-    if (automaticTitle && (marker?.suppressed === true || legacyFailure)) {
+    const legacyFailure =
+      isUnsuccessfulTitleStatus(status) &&
+      !isSupersededTitleStatus(marker, status);
+    if (
+      automaticTitle &&
+      isCurrentTitleFailure(
+        marker,
+        status,
+        typeof request.transcriptRevision === "string"
+          ? request.transcriptRevision
+          : null,
+      )
+    ) {
       fail(
         "Automatic title generation stopped after an unsuccessful request.",
         {
@@ -162,7 +207,9 @@ export async function queueBackgroundAiRequest({
           expectedValue: previousRequest,
           nextValue: request,
         },
-        ...(legacyFailure && marker?.suppressed !== true
+        ...(legacyFailure &&
+        (marker?.suppressed !== true ||
+          marker.requestedAt !== status?.requestedAt)
           ? [
               {
                 key: titleTerminalKey(recordingId),
