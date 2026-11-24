@@ -167,6 +167,7 @@ export interface DocumentUpdateRequest {
   editorSnapshotTitle?: string;
   editorSnapshotTitleBase?: string;
   editorSnapshotContent?: string;
+  editorBlockIds?: { shape: string; idsByPath: Record<string, string> };
   description?: string;
   icon?: IconValue | string | null;
   isFavorite?: boolean;

@@ -56,8 +56,13 @@ const appId = "brain-2";
 const slackScopes = ["channels:read", "channels:history"];
 const zoomScopes = [
   "user:read:user",
+  "user:read:email",
+  "meeting:read:list_meetings",
+  "meeting:read:meeting",
+  "meeting:update:meeting",
   "cloud_recording:read:list_user_recordings",
   "cloud_recording:read:list_recording_files",
+  "cloud_recording:read:meeting_transcript",
 ];
 const fixture = {
   access_token: "synthetic-access",
@@ -182,6 +187,13 @@ describe("workspace OAuth consent", () => {
       [...slackScopes, "search:read.public"].join(","),
     );
     expect(slack.searchParams.has("scope")).toBe(false);
+    const defaultZoom = new URL(
+      buildWorkspaceProviderAuthorizationUrl({
+        ...input,
+        provider: zoomProvider,
+      }),
+    );
+    expect(defaultZoom.searchParams.get("scope")).toBe(zoomScopes.join(" "));
     const zoom = new URL(
       buildWorkspaceProviderAuthorizationUrl({
         ...input,
@@ -313,13 +325,7 @@ describe("workspace OAuth consent", () => {
   });
 
   it("accepts additional Zoom scopes while recording only the requested scopes", async () => {
-    const extraScopes = [
-      "meeting:update:meeting",
-      "meeting:read:meeting",
-      "meeting:read:list_meetings",
-      "cloud_recording:read:meeting_transcript",
-      "user:read:email",
-    ];
+    const extraScopes = ["user:read:extra"];
     fetchMock
       .mockResolvedValueOnce(
         Response.json({

@@ -780,6 +780,15 @@ const editor = {
       "移動する前にブロックが変更されたため、何も移動しませんでした。",
     moveFailed: "ブロックを {{title}} に移動できませんでした",
     openPage: "開く",
+    copyLink: "リンクをコピー",
+    linkCopied: "リンクをコピーしました",
+    copyLinkFailed: "リンクをコピーできませんでした",
+    linkNotReady:
+      "このブロックのリンクはまだ準備できていません。少し待ってからもう一度お試しください。",
+    linkedBlockDeleted: "このリンク先のブロックは削除されました。",
+    linkedBlockMissing: "このリンク先のブロックが見つかりませんでした。",
+    linkedBlockLookupFailed:
+      "このリンク先のブロックを開けませんでした。ページを再読み込みしてもう一度お試しください。",
   },
   noDocumentSelected: "ドキュメントが選択されていません",
   registryBlockLoadError:
