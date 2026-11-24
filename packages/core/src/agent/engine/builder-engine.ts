@@ -53,6 +53,7 @@ import {
   isCreditsLimitErrorCode,
   isGenericInternalServerErrorMessage,
   isProviderConnectionErrorMessage,
+  isRejectedRequestErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./error-detail.js";
 import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
@@ -396,6 +397,11 @@ class BuilderEngine implements AgentEngine {
           ? mapReasoningEffort(thinkingBudget)
           : undefined),
     );
+    const maxOutputTokens = resolveMaxOutputTokensForEngine(
+      this.name,
+      opts.maxOutputTokens,
+      model,
+    );
 
     const cacheEnabled =
       opts.providerOptions?.anthropic?.cacheControl !== false;
@@ -457,11 +463,7 @@ class BuilderEngine implements AgentEngine {
       messages: cachedMessages,
       ...(systemValue !== undefined ? { system: systemValue } : {}),
       ...(cachedTools.length > 0 ? { tools: cachedTools } : {}),
-      max_tokens: resolveMaxOutputTokensForEngine(
-        this.name,
-        opts.maxOutputTokens,
-        model,
-      ),
+      max_tokens: maxOutputTokens,
       ...(samplingAllowed && typeof opts.temperature === "number"
         ? { temperature: opts.temperature }
         : {}),
@@ -469,11 +471,22 @@ class BuilderEngine implements AgentEngine {
     };
 
     const payload = JSON.stringify(body);
+    const encoder = new TextEncoder();
     const requestShape: EngineRequestShape = {
       model,
-      payloadBytes: new TextEncoder().encode(payload).length,
+      payloadBytes: encoder.encode(payload).length,
       toolCount: cachedTools.length,
       messageCount: cachedMessages.length,
+      toolBytes:
+        cachedTools.length > 0
+          ? encoder.encode(JSON.stringify(cachedTools)).length
+          : 0,
+      systemBytes:
+        systemValue !== undefined
+          ? encoder.encode(JSON.stringify(systemValue)).length
+          : 0,
+      maxOutputTokens,
+      reasoningEffort: reasoningEffort ?? null,
     };
 
     const gatewayBaseUrl = getBuilderGatewayBaseUrl();
@@ -486,7 +499,7 @@ class BuilderEngine implements AgentEngine {
     const tStart = Date.now();
     if (!privateContent) {
       console.log(
-        `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${model} tools=${tools.length} effort=${reasoningEffort ?? "unset"} org=${orgLabel}`,
+        `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${model} tools=${tools.length} maxOutputTokens=${maxOutputTokens} effort=${reasoningEffort ?? "unset"} org=${orgLabel}`,
       );
     }
 
@@ -1146,6 +1159,7 @@ async function* parseJsonlStream(
   const parts: EngineContentPart[] = [];
   let pendingText = "";
   let pendingThinking: { text: string; signature?: string } | null = null;
+  let reportedOutputTokens: number | undefined;
 
   const flushPendingText = () => {
     if (pendingText) {
@@ -1289,6 +1303,13 @@ async function* parseJsonlStream(
         }
 
         case "usage": {
+          if (
+            typeof event.outputTokens === "number" &&
+            Number.isFinite(event.outputTokens) &&
+            event.outputTokens >= 0
+          ) {
+            reportedOutputTokens = event.outputTokens;
+          }
           const cacheWrite =
             (event.cacheCreatedTokens ?? 0) + (event.cacheCreated1hTokens ?? 0);
           if (
@@ -1378,6 +1399,15 @@ async function* parseJsonlStream(
           }
           const reason = event.reason ?? "end_turn";
           if (
+            reason === "refusal" ||
+            reason === "content-filter" ||
+            ((reason === "error" || reason === "invalid_request") &&
+              reportedAuthCode === "content_filter")
+          ) {
+            yield { type: "stop", reason: "refusal" };
+            return;
+          }
+          if (
             captureContext.privateContent === true &&
             reason !== "end_turn" &&
             reason !== "tool_use" &&
@@ -1448,6 +1478,7 @@ async function* parseJsonlStream(
               ...(isCreditsLimitErrorCode(errCode)
                 ? { upgradeUrl: await buildUpgradeUrl() }
                 : {}),
+              ...(gatewayRequestId ? { requestId: gatewayRequestId } : {}),
             });
           } else if (reason === "error") {
             const explicitErrMsg = event.error || event.message || event.detail;
@@ -1496,9 +1527,7 @@ async function* parseJsonlStream(
             const gatewayRequestId = isAuthenticationFailure
               ? undefined
               : rawGatewayRequestId;
-            const isInvalidRequest =
-              gatewayErrCode === "invalid_request" ||
-              gatewayErrCode === "invalid_request_error";
+            const isInvalidRequest = isRejectedRequestErrorCode(gatewayErrCode);
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${safeErrCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} providerMessagePresent=${Boolean(explicitErrMsg)}`,
             );
@@ -1551,6 +1580,19 @@ async function* parseJsonlStream(
             reason === "max_tokens" ||
             reason === "stop_sequence"
           ) {
+            if (
+              !captureContext.privateContent &&
+              (reason === "end_turn" || reason === "max_tokens") &&
+              !parts.some(
+                (part) =>
+                  part.type === "tool-call" ||
+                  (part.type === "text" && part.text.trim()),
+              )
+            ) {
+              console.warn(
+                `[builder-engine] empty stop reason=${reason} requestShape=${JSON.stringify(captureContext.requestShape)} outputTokens=${reportedOutputTokens ?? "(unreported)"}`,
+              );
+            }
             await clearBuilderCreditLimitAfterSuccess(
               captureContext.privateContent === true,
             );

@@ -28,6 +28,7 @@ export default defineAction({
       .optional()
       .describe("How confident this correction is (0..1)"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {

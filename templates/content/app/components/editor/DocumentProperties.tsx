@@ -154,7 +154,7 @@ import {
 import {
   documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
-  useCollectionRefusesNewProperties,
+  useCollectionAddablePropertyTypes,
   useConfigureDocumentProperty,
   useContentDatabaseRowSearch,
   useDeleteDocumentProperty,
@@ -166,6 +166,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
+import { BuilderArticleAutosavePanel } from "./database-sources/BuilderArticleAutosave";
 import { ColumnPresentationMenuItems } from "./database/DatabaseColumnPresentation";
 import {
   clearDatabaseFiltersForColumn,
@@ -1210,6 +1211,7 @@ export function DocumentProperties({
             databaseDocumentId={databaseDocumentId ?? documentId}
             documentId={documentId}
             databaseId={databaseId}
+            propertyTypes={loaded ? data.addablePropertyTypes : undefined}
             popoversPortalled={popoversPortalled}
             popoverContainer={popoverContainer}
           />
@@ -1445,10 +1447,28 @@ function PropertyRow({
       )}
     </div>
   );
-  if (!commentState.enabled || !commentState.inlineThreads) return row;
+  const builderAutosave =
+    property.definition.systemRole === "builder_status" ? (
+      <BuilderArticleAutosavePanel
+        documentId={documentId}
+        databaseId={property.definition.databaseId}
+        canEdit={canEditValues}
+      />
+    ) : null;
+  if (!commentState.enabled || !commentState.inlineThreads) {
+    return builderAutosave ? (
+      <>
+        {row}
+        {builderAutosave}
+      </>
+    ) : (
+      row
+    );
+  }
   return (
     <>
       {row}
+      {builderAutosave}
       <PropertyThreadsBox propertyId={property.definition.id}>
         {commentState.inlineThreads}
       </PropertyThreadsBox>
@@ -1659,6 +1679,11 @@ export function PropertyManagementPopover({
     documentId,
     databaseId,
   );
+  const addableTypes = useCollectionAddablePropertyTypes(
+    databaseDocumentId,
+    databaseId,
+    propertiesData?.addablePropertyTypes,
+  );
   const bindSourceField = useContentActionMutation<
     ContentDatabaseResponsePayload,
     BindContentDatabaseSourceFieldRequest
@@ -1848,13 +1873,10 @@ export function PropertyManagementPopover({
     await configureProperty({ description: nextDescription });
   }
 
-  async function updateType(nextType: DocumentPropertyType) {
+  function updateType(nextType: DocumentPropertyType) {
     if (nextType === property.definition.type) return;
-    await configureProperty({
-      type: nextType,
-      options: defaultPropertyOptions(nextType),
-    });
-    setOpen(false);
+    const label = t("editor.properties.typeChangeUnavailable");
+    reportWriteFailure(new Error(label), { label });
   }
 
   async function updateVisibility(nextVisibility: DocumentPropertyVisibility) {
@@ -2203,8 +2225,9 @@ export function PropertyManagementPopover({
                     // Converting into a relation needs a target database;
                     // relations are added from "Add property" instead.
                     (propertyType) =>
-                      propertyType !== "relation" ||
-                      property.definition.type === "relation",
+                      propertyType === property.definition.type ||
+                      (propertyType !== "relation" &&
+                        addableTypes.includes(propertyType)),
                   ).map((propertyType) => {
                     const selected = property.definition.type === propertyType;
                     const disabled = typeIsLocked && !selected;
@@ -2214,7 +2237,7 @@ export function PropertyManagementPopover({
                         disabled={disabled}
                         onSelect={(event) => {
                           event.preventDefault();
-                          void updateType(propertyType);
+                          updateType(propertyType);
                         }}
                       >
                         <span className="flex-1">
@@ -3512,9 +3535,13 @@ function FilesMediaValueEditor({
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  const singleLink = property.sourceWriteback === true;
+
   function addItem(value: string) {
     if (!isValidFilesMediaLink(value)) return;
-    setItems((current) => mergeFilesMediaItems(current, value));
+    setItems((current) =>
+      mergeFilesMediaItems(singleLink ? [] : current, value),
+    );
     setLinkValue("");
   }
 
@@ -3596,7 +3623,12 @@ function FilesMediaValueEditor({
           linkInputRef.current?.reportValidity();
           return;
         }
-        void save(mergeFilesMediaItems(items, linkValue));
+        void save(
+          mergeFilesMediaItems(
+            singleLink && linkValue.trim() ? [] : items,
+            linkValue,
+          ),
+        );
       }}
     >
       <div className="grid max-h-48 gap-1 overflow-auto">
@@ -3667,15 +3699,17 @@ function FilesMediaValueEditor({
           {t("editor.properties.add")}
         </Button>
       </div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        disabled={!fileStorageConfigured}
-        className="sr-only"
-        onChange={(event) => void uploadFiles(event.currentTarget.files)}
-      />
+      {singleLink ? null : (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          disabled={!fileStorageConfigured}
+          className="sr-only"
+          onChange={(event) => void uploadFiles(event.currentTarget.files)}
+        />
+      )}
       <FileStorageStatusGate
         status={fileUploadStatus}
         open={storageSetupOpen}
@@ -3687,22 +3721,24 @@ function FilesMediaValueEditor({
         }}
       />
       <div className="flex justify-end gap-2">
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            if (fileStorageConfigured) {
-              fileInputRef.current?.click();
-            } else {
-              setStorageSetupOpen(true);
-            }
-          }}
-          disabled={mutation.isPending || uploading}
-        >
-          <IconUpload className="size-3.5" />
-          {t("editor.properties.upload")}
-        </Button>
+        {singleLink ? null : (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              if (fileStorageConfigured) {
+                fileInputRef.current?.click();
+              } else {
+                setStorageSetupOpen(true);
+              }
+            }}
+            disabled={mutation.isPending || uploading}
+          >
+            <IconUpload className="size-3.5" />
+            {t("editor.properties.upload")}
+          </Button>
+        )}
         <Button
           type="button"
           variant="ghost"
@@ -3969,18 +4005,24 @@ function DateValueEditor({
           onSelect={(_selected, day) => pickDay(day)}
         />
       )}
-      <div className="grid grid-cols-2 gap-2">
-        <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
-          <input
-            type="checkbox"
-            checked={showEnd}
-            onChange={(event) => {
-              setShowEnd(event.target.checked);
-              if (!event.target.checked) setEndValue("");
-            }}
-          />
-          {t("database.endDate")}
-        </label>
+      <div
+        className={
+          property.sourceWriteback ? "grid gap-2" : "grid grid-cols-2 gap-2"
+        }
+      >
+        {property.sourceWriteback ? null : (
+          <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={showEnd}
+              onChange={(event) => {
+                setShowEnd(event.target.checked);
+                if (!event.target.checked) setEndValue("");
+              }}
+            />
+            {t("database.endDate")}
+          </label>
+        )}
         <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
           <input
             name="property-include-time"
@@ -4288,7 +4330,8 @@ function OptionValueEditor({
   const [optionQuery, setOptionQuery] = useState("");
   const filteredOptions = filterPropertyOptions(options, optionQuery);
   const firstFilteredOption = firstMatchingPropertyOption(options, optionQuery);
-  const canCreateOption = canCreatePropertyOption(options, optionQuery);
+  const canCreateOption =
+    !property.sourceWriteback && canCreatePropertyOption(options, optionQuery);
   const optionSearchInputRef = useRef<HTMLInputElement>(null);
   const currentSelectedIds = useMemo(() => {
     if (property.definition.type === "multi_select") {
@@ -4446,13 +4489,24 @@ function OptionValueEditor({
   );
 }
 
-/** Nothing on a system collection such as Files, which refuses new properties. */
-export function AddProperty(props: ComponentProps<typeof AddPropertyPicker>) {
-  const refused = useCollectionRefusesNewProperties(
+export function AddProperty({
+  propertyTypes,
+  ...props
+}: ComponentProps<typeof AddPropertyPicker>) {
+  const types = useCollectionAddablePropertyTypes(
     props.databaseDocumentId ?? props.documentId,
     props.databaseId,
+    propertyTypes,
   );
-  return refused ? null : <AddPropertyPicker {...props} />;
+  if (types.length === 0) return null;
+  const partial = types.length < CREATABLE_DOCUMENT_PROPERTY_TYPES.length;
+  return (
+    <AddPropertyPicker
+      {...props}
+      {...(partial ? { source: null, sources: [] } : {})}
+      propertyTypes={types}
+    />
+  );
 }
 
 function AddPropertyPicker({
@@ -4468,6 +4522,7 @@ function AddPropertyPicker({
   onConnectSource,
   openRequestId = 0,
   onOpenRequestHandled,
+  propertyTypes,
 }: {
   documentId: string;
   databaseDocumentId?: string;
@@ -4481,6 +4536,7 @@ function AddPropertyPicker({
   onConnectSource?: () => void;
   openRequestId?: number;
   onOpenRequestHandled?: (requestId: number) => void;
+  propertyTypes?: readonly DocumentPropertyType[];
 }) {
   const t = useT();
   const configure = useConfigureDocumentProperty(
@@ -4494,7 +4550,10 @@ function AddPropertyPicker({
   const [sourceHandoffClosing, setSourceHandoffClosing] = useState(false);
   const handledOpenRequestId = useRef(0);
   const [typeQuery, setTypeQuery] = useState("");
-  const filteredPropertyTypes = filterDocumentPropertyTypes(typeQuery);
+  const filteredPropertyTypes = filterDocumentPropertyTypes(
+    typeQuery,
+    propertyTypes,
+  );
   const firstFilteredPropertyType = filteredPropertyTypes[0] ?? null;
   const allSources =
     sources && sources.length > 0 ? sources : source ? [source] : [];
@@ -4618,7 +4677,16 @@ function AddPropertyPicker({
       setRelationDatabaseQuery("");
       setOpen(false);
     } catch (error) {
-      setAddPropertyError(error instanceof Error ? error.message : "");
+      setAddPropertyError(
+        (error as { errorCode?: unknown } | null)?.errorCode ===
+          "SYSTEM_DATABASE_UNSUPPORTED"
+          ? t("editor.properties.addPropertyTypeUnsupported", {
+              type: t(`editor.propertyTypes.${type}`),
+            })
+          : error instanceof Error
+            ? error.message
+            : "",
+      );
     } finally {
       setPendingPropertyType(null);
     }

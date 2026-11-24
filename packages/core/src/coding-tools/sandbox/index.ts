@@ -30,6 +30,7 @@ export {
   type SandboxExecutionRunOutput,
 } from "./background.js";
 export {
+  discardSandboxExecutionOutput,
   getSandboxExecutionForOwner,
   type SandboxExecutionRow,
   type SandboxExecutionStatus,

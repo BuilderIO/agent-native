@@ -47,26 +47,6 @@ vi.mock("./analytics.js", async (importOriginal) => {
   };
 });
 
-// People who turned on the "App cards in chat apps" lab. Other labs read the
-// real store.
-const appCardsLab = vi.hoisted(() => ({ optedIn: new Set<string>() }));
-
-vi.mock("../labs/store.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../labs/store.js")>();
-  return {
-    ...actual,
-    getUserLabEnabled: vi.fn(
-      async (...args: Parameters<typeof actual.getUserLabEnabled>) => {
-        const [email, lab] = args;
-        const key = typeof lab === "string" ? lab : lab.key;
-        return key === "mcp-app-cards"
-          ? appCardsLab.optedIn.has(email)
-          : actual.getUserLabEnabled(...args);
-      },
-    ),
-  };
-});
-
 vi.mock("../tracking/registry.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../tracking/registry.js")>()),
   track: (name: string, properties: unknown) => {
@@ -721,7 +701,6 @@ describe("direct tools/call wire output", () => {
     vi.setSystemTime(NOW);
     process.env.ACCESS_TOKEN = "test-access-token";
     process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
-    appCardsLab.optedIn = new Set(["oauth@example.com"]);
     delete process.env.A2A_SECRET;
     delete process.env.AGENT_NATIVE_OWNER_EMAIL;
     delete process.env.AGENT_NATIVE_AUDIT_ENABLED;
@@ -733,7 +712,6 @@ describe("direct tools/call wire output", () => {
     vi.useRealTimers();
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
-    appCardsLab.optedIn.clear();
   });
 
   it("keeps MCP location hints request-scoped without changing the authenticated identity", async () => {
@@ -1353,13 +1331,11 @@ describe("direct tools/call embed credential redaction", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
-    appCardsLab.optedIn = new Set(["oauth@example.com"]);
     trace.length = 0;
   });
   afterEach(() => {
     vi.useRealTimers();
     delete process.env.BETTER_AUTH_SECRET;
-    appCardsLab.optedIn.clear();
   });
 
   // An embed start URL inside another URL, where its own path is never the
@@ -1933,13 +1909,11 @@ describe("direct tools/call after the action has run", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
-    appCardsLab.optedIn = new Set(["oauth@example.com"]);
     trace.length = 0;
   });
   afterEach(() => {
     vi.useRealTimers();
     delete process.env.BETTER_AUTH_SECRET;
-    appCardsLab.optedIn.clear();
   });
 
   // Valid base64 as well as a ticket, so it can stand in for image data.
@@ -3000,9 +2974,7 @@ describe("direct tools/call after the action has run", () => {
       result = await call({ run: async () => ({ id: "written" }) });
     });
     expect(result.isError).toBeUndefined();
-    expect(lines.join("\n")).toContain(
-      "Could not write the action-change marker",
-    );
+    expect(lines.join("\n")).toContain("action_change_marker_failed");
     expect(lines.join("\n")).not.toContain(ticket);
   });
 
@@ -3233,7 +3205,6 @@ describe("direct tools/call full-app embeds", () => {
     vi.setSystemTime(NOW);
     process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
     process.env.ACCESS_TOKEN = "test-access-token";
-    appCardsLab.optedIn = new Set(["oauth@example.com"]);
     trace.length = 0;
   });
   afterEach(() => {
@@ -3241,7 +3212,6 @@ describe("direct tools/call full-app embeds", () => {
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.ACCESS_TOKEN;
     delete process.env.AGENT_NATIVE_OWNER_EMAIL;
-    appCardsLab.optedIn.clear();
   });
 
   const fullApp = {

@@ -1,5 +1,6 @@
 import { ActionContractError } from "@agent-native/core/action";
-import { and, eq, inArray } from "drizzle-orm";
+import { alias } from "@agent-native/core/db/schema";
+import { and, eq, exists, inArray, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import type { DocumentSourceInfo } from "../shared/api.js";
@@ -18,6 +19,43 @@ interface DocumentSourceColumns {
   sourceAbsolutePath?: string | null;
   sourceRootPath?: string | null;
   sourceUpdatedAt?: string | null;
+}
+
+export function linkedNestedLocalFile(
+  db: ReturnType<typeof getDb>,
+  databaseId?: string,
+) {
+  const items = alias(schema.contentDatabaseItems, "linked_local_file_items");
+  const rows = schema.contentDatabaseSourceRows;
+  const sources = schema.contentDatabaseSources;
+  return sql<boolean>`coalesce(${and(
+    eq(schema.documents.sourceMode, "local-files"),
+    eq(schema.documents.sourceKind, "file"),
+    sql`${schema.documents.sourcePath} ~ ${"^[^/]+(/[^/]+)+$"}`,
+    sql`${schema.documents.sourcePath} !~ ${"(^|/)[.][.]?(/|$)"}`,
+    exists(
+      db
+        .select({ id: rows.id })
+        .from(rows)
+        .innerJoin(sources, eq(sources.id, rows.sourceId))
+        .innerJoin(
+          items,
+          and(
+            eq(items.id, rows.databaseItemId),
+            eq(items.documentId, rows.documentId),
+            eq(items.databaseId, sources.databaseId),
+          ),
+        )
+        .where(
+          and(
+            eq(rows.documentId, schema.documents.id),
+            eq(sources.sourceType, "local-folder"),
+            eq(sources.sourceTable, schema.documents.sourceRootPath),
+            databaseId ? eq(sources.databaseId, databaseId) : undefined,
+          ),
+        ),
+    ),
+  )}, false)`;
 }
 
 export function serializeDocumentSource(

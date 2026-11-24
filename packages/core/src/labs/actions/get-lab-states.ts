@@ -10,6 +10,7 @@ export default defineAction({
     "Return each registered lab's effective state, including whether it comes from a saved choice or inherited feature flags.",
   schema: z.object({}),
   http: { method: "GET" },
+  mcpTool: false,
   run: async (_args, ctx) => {
     const { email, scope } = labsCaller(ctx);
     const states = await getUserLabStates(email, scope);

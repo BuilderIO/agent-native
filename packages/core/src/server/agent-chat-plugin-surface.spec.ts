@@ -273,7 +273,7 @@ describe("request-scoped action surface", () => {
     });
 
     expect(source).toMatch(
-      /await seedBackgroundAgentRunOwnerContext\(event, prepared\.runId\)/,
+      /await seedBackgroundAgentRunOwnerContext\(\s*event,\s*prepared\.runId,\s*preparedMarkerRecord\?\.\[\s*AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD\s*\],?\s*\)/,
     );
   });
 

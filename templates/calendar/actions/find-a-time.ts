@@ -162,6 +162,7 @@ function projectTimeChoice(result: unknown) {
 }
 
 export default defineAction({
+  mcpTool: true,
   description:
     "Find shared available time slots for a calendar event organizer and attendees using Google free/busy plus local calendar conflicts.",
   schema: z.object({

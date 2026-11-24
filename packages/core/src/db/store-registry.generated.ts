@@ -393,6 +393,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       ),
   ],
   [
+    "runner_session_nonces",
+    () =>
+      import("../server/runner-session.js").then(
+        (m) => m.runnerSessionNoncesStore,
+      ),
+  ],
+  [
     "sandbox_executions",
     () =>
       import("../coding-tools/sandbox/executions-store.js").then(

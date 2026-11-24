@@ -72,6 +72,28 @@ export const CREATABLE_DOCUMENT_PROPERTY_TYPES = [
   "last_edited_by",
 ] as const satisfies readonly DocumentPropertyType[];
 
+export const FILES_PROPERTY_TYPES = [
+  "text",
+  "number",
+  "select",
+  "multi_select",
+  "status",
+  "date",
+  "person",
+  "place",
+  "checkbox",
+  "url",
+  "email",
+  "phone",
+] as const satisfies readonly DocumentPropertyType[];
+
+export function addablePropertyTypes(
+  systemRole: string | null | undefined,
+): readonly DocumentPropertyType[] {
+  if (!systemRole) return CREATABLE_DOCUMENT_PROPERTY_TYPES;
+  return systemRole === "files" ? FILES_PROPERTY_TYPES : [];
+}
+
 export type EditableDocumentPropertyType =
   (typeof EDITABLE_DOCUMENT_PROPERTY_TYPES)[number];
 
@@ -452,6 +474,14 @@ export function documentPropertyDatePart(
   if (part === "end") return "";
   if (typeof value === "string") return value.trim();
   return "";
+}
+
+export function documentPropertyDateTimestamp(start: string) {
+  const trimmed = start.trim();
+  const zoneless = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(
+    trimmed,
+  );
+  return new Date(zoneless ? `${trimmed}Z` : trimmed).getTime();
 }
 
 export function documentPropertyDateIncludesTime(value: unknown) {

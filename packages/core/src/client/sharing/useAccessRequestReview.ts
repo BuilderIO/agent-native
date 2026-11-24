@@ -1,6 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
 
-import { useActionMutation, useActionQuery } from "../use-action.js";
+import {
+  actionErrorMessage,
+  useActionMutation,
+  useActionQuery,
+} from "../use-action.js";
 import type { ResourceAccessRequestFailure } from "./useResourceAccessGate.js";
 
 export type AccessRequestRole = "viewer" | "commenter" | "editor" | "admin";
@@ -26,8 +30,8 @@ export interface AccessRequestReview {
 
 export interface AccessRequestDecisionFailure extends ResourceAccessRequestFailure {
   /**
-   * Why the server refused, such as a sharing rule. Absent for unexpected
-   * failures, whose server message isn't meant for people.
+   * Catalog explanation for a refusal, such as a sharing rule. The UI uses its
+   * own localized fallback when the app has no catalog entry for that code.
    */
   message: string | null;
 }
@@ -52,16 +56,12 @@ function decisionFailure(error: unknown): AccessRequestDecisionFailure | null {
   const failure = error as Error & {
     status?: unknown;
     errorCode?: unknown;
-    actionMessage?: unknown;
     details?: { retryAt?: unknown };
   };
   const refused = failure.status === 400 || failure.status === 403;
   return {
     errorCode: typeof failure.errorCode === "string" ? failure.errorCode : null,
-    message:
-      refused && typeof failure.actionMessage === "string"
-        ? failure.actionMessage
-        : null,
+    message: refused ? (actionErrorMessage(error) ?? null) : null,
     retryAt:
       typeof failure.details?.retryAt === "string"
         ? failure.details.retryAt

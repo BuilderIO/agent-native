@@ -121,8 +121,8 @@ describe("technical plan HTML examples", () => {
   it("returns complete technical HTML examples without replacing the embedded plan", () => {
     const html = buildPlanHtml(technicalPlanBundles.completeHtml);
 
+    expectTermsIgnoringCase(html, ["<!doctype html>"]);
     expectTerms(html, [
-      "<!doctype html>",
       'data-complete-technical-plan="true"',
       'data-plan-section-id="api-docs"',
       'data-plan-diagram="architecture"',

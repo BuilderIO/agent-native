@@ -277,3 +277,7 @@ describe("get-usage-metrics action", () => {
     expect(firstSentence).toContain("describe-workspace-apps");
   });
 });
+
+it("keeps get-usage-metrics in the app, off MCP", () => {
+  expect(getUsageMetrics.mcpTool).toBe(false);
+});

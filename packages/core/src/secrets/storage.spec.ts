@@ -17,7 +17,7 @@ beforeAll(async () => {
 });
 
 async function createPgliteExec() {
-  const pglite = await createTestPglite();
+  const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   return {
     pglite,
     exec: {

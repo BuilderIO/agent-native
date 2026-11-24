@@ -283,6 +283,71 @@ describe("a Files read", () => {
     ).toBeUndefined();
   });
 
+  it("does not clear a newer sibling read when an older read is unavailable", async () => {
+    const folder = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: "folder",
+    });
+    let finishRoot!: (value: unknown) => void;
+    callActionWithRetry.mockImplementation(
+      async (_action, params: typeof ROOT) =>
+        params.navigation.parentId === null
+          ? new Promise((resolve) => {
+              finishRoot = resolve;
+            })
+          : { ...empty(), items: [{ documentId: "fresh", type: "page" }] },
+    );
+    function FolderReader() {
+      useFilesNavigationPage(folder);
+      return null;
+    }
+    await mountBreadcrumb();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <BreadcrumbReader />
+          <FolderReader />
+        </QueryClientProvider>,
+      );
+    });
+    await vi.waitFor(() =>
+      expect(
+        queryClient.getQueryData(filesNavigationQueryKey(folder)),
+      ).toMatchObject({ items: [{ documentId: "fresh" }] }),
+    );
+    await act(async () =>
+      finishRoot({ available: false, reason: "deleted", databaseId: FILES }),
+    );
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(folder)),
+    ).toMatchObject({ items: [{ documentId: "fresh" }] });
+  });
+
+  it("clears sibling data without stamping an unavailable response as fresh", async () => {
+    const folder = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: "folder",
+    });
+    queryClient.setQueryData(filesNavigationQueryKey(folder), empty());
+    callActionWithRetry.mockResolvedValue({
+      available: false,
+      reason: "deleted",
+      databaseId: FILES,
+    });
+    await mountBreadcrumb();
+    await vi.waitFor(() =>
+      expect(
+        queryClient.getQueryData(filesNavigationQueryKey(ROOT)),
+      ).toMatchObject({ available: false }),
+    );
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(folder)),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryState(filesNavigationQueryKey(folder))?.dataUpdatedAt,
+    ).toBe(0);
+  });
+
   it("isn't made while the app's API is off", async () => {
     setAgentNativeApiDisabled("builder shell canvas");
     await mountBreadcrumb();

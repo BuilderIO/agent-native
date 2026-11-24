@@ -25,6 +25,7 @@ import {
   noteCreateStep,
   type CreateProjectKind,
 } from "./activation-telemetry.js";
+import { wireChatStarterContract } from "./app-quality-scaffold.js";
 import type { CreateStartKind } from "./create-tui.js";
 import { releasedFrameworkPackageVersion } from "./framework-package-versions.js";
 import {
@@ -745,6 +746,7 @@ async function createWorkspaceInteractive(
       });
       _addConfiguredFeatureDependencies(appDir, targetDir);
       ensureGuardedScaffold(appDir);
+      ensureAppQualityScaffold(appDir, appName, templateName);
       fixWebManifestName(
         appDir,
         appName,
@@ -1101,6 +1103,7 @@ async function scaffoldOneAppIntoWorkspace(
     _addConfiguredFeatureDependencies(appDir, workspace.workspaceRoot);
     ensureScaffoldEmailBrandingConfig(appDir, appName, templateName);
     ensureGuardedScaffold(appDir);
+    ensureAppQualityScaffold(appDir, appName, templateName);
     fixWebManifestName(
       appDir,
       appName,
@@ -2131,6 +2134,53 @@ const GUARDED_VERIFICATION_MARKER = "Guarded verification";
 const GUARDED_VERIFICATION_GUIDANCE =
   "- Guarded verification: run `pnpm agent-native:doctor`; fix findings before done.\n";
 
+function ensureAppQualityScaffold(
+  appDir: string,
+  appName: string,
+  templateName: string | undefined,
+): void {
+  if (!fs.existsSync(path.join(appDir, "app"))) return;
+
+  const designPath = path.join(appDir, "DESIGN.md");
+  if (!fs.existsSync(designPath)) {
+    fs.writeFileSync(
+      designPath,
+      [
+        `# ${appTitleForScaffold(appName)} design contract`,
+        "",
+        "Start with the scaffold's semantic tokens, typography, and spacing.",
+        "Record the selected patterns, interaction and route map, shortcuts,",
+        "and populated, empty, pending, narrow, error, and offline states.",
+        "",
+        "## UX decisions",
+        "",
+        "Compare two or three concrete options. Record the chosen direction,",
+        "rejected alternatives, and how the riskiest assumption will be checked.",
+        "",
+      ].join("\n"),
+    );
+  }
+
+  const agentsPath = path.join(appDir, "AGENTS.md");
+  if (isChatOnRampTemplate(templateName)) {
+    const instructions = fs.readFileSync(agentsPath, "utf8");
+    fs.writeFileSync(
+      agentsPath,
+      instructions.replace(
+        /^Use `adding-a-feature` for functional .*Skip production build and extra test suites\.$/m,
+        "Use `adding-a-feature` for functional changes and `frontend-design` for user-facing screens. Run typecheck and doctor before the app quality walkthrough.",
+      ),
+    );
+    wireChatStarterContract(appDir, appName, appTitleForScaffold(appName));
+  }
+  fs.appendFileSync(
+    agentsPath,
+    "\n## App quality\n\nApply the five stages in `app-quality-bar` before presenting changed workflows as ready. " +
+      "Keep the design decisions in `DESIGN.md` and routing and actions in `app.manifest.ts`. " +
+      "Use the 12-row blind visual review and 60-second Playwright walkthrough against the running app.\n",
+  );
+}
+
 function ensureGuardedScaffold(appDir: string): void {
   const packagePath = path.join(appDir, "package.json");
   if (!fs.existsSync(packagePath)) return;
@@ -2240,6 +2290,7 @@ function postProcessStandalone(
   });
   ensureScaffoldEmailBrandingConfig(targetDir, name, templateName);
   ensureGuardedScaffold(targetDir);
+  ensureAppQualityScaffold(targetDir, name, templateName);
   fixWebManifestName(targetDir, name, templateName, resolution?.sourceIdentity);
   rewriteNetlifyToml(targetDir, name, "standalone");
 
@@ -3912,6 +3963,13 @@ function getLocalFrameworkPackageOverrides(): Record<string, string> {
   if (localAgentKit) {
     overrides['"@agent-native/agentkit"'] = JSON.stringify(
       localPackageTarball(localAgentKit),
+    );
+  }
+
+  const localDesignSystem = findLocalPackage("design-system");
+  if (localDesignSystem) {
+    overrides['"@agent-native/design-system"'] = JSON.stringify(
+      localPackageTarball(localDesignSystem),
     );
   }
 

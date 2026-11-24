@@ -374,6 +374,25 @@ describe("AgentKitChat", () => {
     expect(html).toContain("Review release summary");
   });
 
+  it("lets a failed source wrap to its whole reason instead of clipping it", () => {
+    const styles = readFileSync(
+      new URL("./styles.css", import.meta.url),
+      "utf8",
+    )
+      .replace(/\r\n/g, "\n")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = Array.from(styles.matchAll(/([^{}]+)\{([^{}]*)\}/g));
+    const rule = (selector: string) =>
+      rules.find(
+        (match) => match[1]?.trim().replace(/\s+/g, " ") === selector,
+      )?.[2];
+    const text = rule(".agentkit-work-source-failure-text");
+
+    expect(text).toContain("overflow-wrap: anywhere;");
+    expect(text).not.toContain("line-clamp");
+    expect(text).not.toContain("overflow: hidden");
+  });
+
   it("ships standalone fallbacks for every internally rendered Toolkit surface", () => {
     const styles = readFileSync(
       new URL("./styles.css", import.meta.url),

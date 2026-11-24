@@ -265,7 +265,7 @@ function IntegrationDetail({
       const action = serverStatus?.enabled ? "disable" : "enable";
       const res = await fetch(
         agentNativePath(`/_agent-native/integrations/${platform.id}/${action}`),
-        { method: "POST" },
+        { method: "POST", headers: { "X-Agent-Native-CSRF": "1" } },
       );
       if (res.ok) {
         onRefresh();

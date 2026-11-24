@@ -11,6 +11,7 @@ export default defineAction({
     id: z.string().describe("Message ID (Gmail message ID) of a sent email"),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const owner = await resolveOwnerEmail();
     const stats = await getTrackingStats(args.id, owner);

@@ -166,6 +166,7 @@ import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
 import { useAnnotationEditing } from "./annotation-editing";
+import { CitedInMenu } from "./CitedInMenu";
 import {
   canPersistDashboardFilterPreference,
   dashboardFilterParams,
@@ -2309,13 +2310,18 @@ function SqlDashboardPageContent({
 
   const shownFilters = useMemo(
     () =>
-      dashboardFiltersWithTraffic(dashboard?.filters, dashboard?.panels ?? [], {
-        label: t("sessions.traffic"),
-        all: t("sessions.allTraffic"),
-        production: t("sessions.productionTraffic"),
-        beta: t("sessions.betaTraffic"),
-      }),
-    [dashboard?.filters, dashboard?.panels, t],
+      dashboardFiltersWithTraffic(
+        dashboard?.filters,
+        dashboard?.panels ?? [],
+        {
+          label: t("sessions.traffic"),
+          all: t("sessions.allTraffic"),
+          production: t("sessions.productionTraffic"),
+          beta: t("sessions.betaTraffic"),
+        },
+        dashboard?.variables,
+      ),
+    [dashboard?.filters, dashboard?.panels, dashboard?.variables, t],
   );
 
   const vars = useMemo<Record<string, string>>(() => {
@@ -2866,6 +2872,7 @@ function SqlDashboardPageContent({
           <ViewsMenu dashboardId={dashboardId} canEdit={canEdit} />
         )}
         {annotationEditing.menu}
+        {dashboardId && <CitedInMenu dashboardId={dashboardId} />}
         {dashboardId && !builtinDashboard ? (
           <ShareButton
             resourceType="dashboard"

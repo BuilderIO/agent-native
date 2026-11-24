@@ -118,3 +118,7 @@ describe("get-builder-credit-usage action", () => {
     expect(getBuilderCreditUsageMock).not.toHaveBeenCalled();
   });
 });
+
+it("keeps get-builder-credit-usage in the app, off MCP", () => {
+  expect(getBuilderCreditUsage.mcpTool).toBe(false);
+});

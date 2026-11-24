@@ -22,7 +22,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@tanstack/react-query", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-query")>()),
-  useQueryClient: () => ({ invalidateQueries }),
+  useQueryClient: () => ({
+    invalidateQueries,
+    getQueryCache: () => ({ findAll: () => [] }),
+  }),
 }));
 
 vi.mock("./use-documents", () => ({

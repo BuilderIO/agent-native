@@ -1,0 +1,123 @@
+@layer components {
+  .dock-workspace,
+  .dock-workspace-split,
+  .dock-workspace-surface,
+  .dock-workspace-group,
+  [data-dock-slot] > div {
+    block-size: 100%;
+    min-block-size: 0;
+    min-inline-size: 0;
+  }
+  .dock-workspace-surface {
+    position: relative;
+    --_dock-preview-start: 0px;
+  }
+  .dock-workspace {
+    background: var(--surface-canvas);
+  }
+  .dock-workspace-group.tabs {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: var(--control-height-4) minmax(0, 1fr);
+    --_tabs-default-frame: var(--surface-nav);
+  }
+  .dock-workspace-group.tabs > .tabs-list {
+    z-index: 1;
+    border-start-end-radius: 0;
+  }
+  .dock-workspace-actions {
+    display: grid;
+    place-items: center;
+    padding-inline: var(--space-1);
+    background: var(--tabs-frame-rail, var(--gray-4));
+    box-shadow: inset 0
+      calc((var(--control-height-3) - var(--control-height-4)) / 2)
+      var(--_frame);
+  }
+  .dock-workspace-group > .tabs-panel {
+    grid-column: 1/-1;
+    min-block-size: 0;
+    overflow: auto;
+  }
+  [data-dock-tab] {
+    max-inline-size: 100%;
+    touch-action: pinch-zoom;
+    cursor: grab;
+  }
+  [data-dock-tab]:active {
+    cursor: grabbing;
+  }
+  [data-dock-tab] > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  [data-dock-tab] > span::before {
+    content: "";
+    position: absolute;
+    inset-block: calc(-1 * var(--_rail-inset));
+    inset-inline: 0;
+  }
+  [data-dock-insert] > span::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    inset-block: 0;
+    border-inline-start: var(--focus-ring-width) solid
+      var(--dock-preview-line, var(--line-focus));
+  }
+  [data-dock-insert="before"] > span::after {
+    inset-inline-start: 0;
+  }
+  [data-dock-insert="after"] > span::after {
+    inset-inline-end: 0;
+  }
+  :is(.dock-workspace-group, .dock-workspace-surface):is(
+      [data-dock-drop="start"],
+      [data-dock-drop="end"],
+      [data-dock-drop="above"],
+      [data-dock-drop="below"]
+    )::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    z-index: 2;
+    inset: var(--_dock-preview-start, var(--control-height-4)) 0 0;
+    border: var(--focus-ring-width) solid
+      var(--dock-preview-line, var(--line-focus));
+    background: var(--dock-preview-fill, var(--accent-a3));
+  }
+  :is(
+      .dock-workspace-group,
+      .dock-workspace-surface
+    )[data-dock-drop="start"]::after {
+    inset-inline-end: 50%;
+  }
+  :is(
+      .dock-workspace-group,
+      .dock-workspace-surface
+    )[data-dock-drop="end"]::after {
+    inset-inline-start: 50%;
+  }
+  :is(
+      .dock-workspace-group,
+      .dock-workspace-surface
+    )[data-dock-drop="above"]::after {
+    inset-block-end: 50%;
+  }
+  :is(
+      .dock-workspace-group,
+      .dock-workspace-surface
+    )[data-dock-drop="below"]::after {
+    inset-block-start: 50%;
+  }
+  @media (forced-colors: active) {
+    [data-dock-insert] > span::after,
+    :is(.dock-workspace-group, .dock-workspace-surface)[data-dock-drop]::after {
+      forced-color-adjust: none;
+      border-color: Highlight;
+      background: transparent;
+    }
+  }
+}

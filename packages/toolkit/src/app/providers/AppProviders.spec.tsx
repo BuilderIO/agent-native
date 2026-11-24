@@ -42,7 +42,13 @@ vi.mock("@agent-native/toolkit/ui/sonner", () => ({
   ),
 }));
 
+import { openConsentSettings } from "@agent-native/core/client/consent";
 import { useLocale } from "@agent-native/core/client/i18n";
+import {
+  EMBEDDED_THEME_CHANGE_EVENT,
+  THEME_STORAGE_KEY_ATTRIBUTE,
+  buildEmbeddedThemeUpdate,
+} from "@agent-native/core/client/theme";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { encodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import { SsrSessionBootstrapContext } from "@agent-native/core/shared/ssr-session-bootstrap-slot";
@@ -50,6 +56,7 @@ import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
 import { AppProviders } from "./AppProviders.js";
+import { useThemeChoice } from "./theme-choice.js";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -168,6 +175,7 @@ function renderProviders(props: {
   enableThemeFamily?: boolean;
   holdThemeFamilyUntilResolved?: boolean;
   disableWebMcp?: boolean;
+  automaticConsentPrompt?: boolean;
   children?: React.ReactNode;
 }) {
   const { children, ...providerProps } = props;
@@ -234,6 +242,39 @@ const SIGNED_IN_SESSION = {
   status: "authenticated" as const,
 };
 
+it("keeps automatic consent on public pages and opens private consent on request", async () => {
+  useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+  window.sessionStorage.setItem("an_consent_region", "consent");
+  const banner = () =>
+    container.querySelector("[data-agent-native-consent-banner]");
+
+  try {
+    renderProviders({ isPublicPath: true, automaticConsentPrompt: false });
+    expect(banner()?.textContent).toContain("Accept all");
+
+    renderProviders({ automaticConsentPrompt: false, disableWebMcp: true });
+    expect(
+      container.querySelector('[data-testid="app-content"]'),
+    ).not.toBeNull();
+    expect(banner()).toBeNull();
+
+    await act(async () => openConsentSettings());
+    expect(banner()?.textContent).toContain("Reject all");
+    const reject = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Reject all",
+    );
+    await act(async () => reject?.click());
+    expect(banner()).toBeNull();
+  } finally {
+    window.sessionStorage.removeItem("an_consent_region");
+    document.cookie = "an_consent=; path=/; max-age=0";
+    Reflect.deleteProperty(
+      globalThis,
+      Symbol.for("agent-native.client.consent"),
+    );
+  }
+});
+
 function LocaleToaster() {
   const { locale } = useLocale();
   return <div data-testid="locale-toaster">{locale}</div>;
@@ -247,6 +288,11 @@ function LocaleControl() {
 function ThemeChoice() {
   const { theme, setTheme } = useTheme();
   return <button onClick={() => setTheme("light")}>{theme}</button>;
+}
+
+function SavedThemeChoice() {
+  const { choice, setChoice } = useThemeChoice();
+  return <button onClick={() => setChoice("light")}>{choice}</button>;
 }
 
 describe("AppProviders theme storage", () => {
@@ -318,6 +364,109 @@ describe("AppProviders theme storage", () => {
         delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
           .__AGENT_NATIVE_CONFIG__;
       }
+    }
+  });
+
+  async function renderThemeApp() {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    await act(async () => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          i18n={false}
+          sessionBypass
+          themeStorageKey="crm:theme"
+          disableWebMcp
+          enableThemeFamily={false}
+        >
+          <ThemeChoice />
+        </AppProviders>,
+      );
+    });
+  }
+
+  it("shows a host's theme without saving it as the visitor's choice", async () => {
+    window.localStorage.setItem("crm:theme", "system");
+    await renderThemeApp();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent(EMBEDDED_THEME_CHANGE_EVENT, {
+          detail: buildEmbeddedThemeUpdate("dark"),
+        }),
+      );
+    });
+
+    expect(container.querySelector("button")?.textContent).toBe("dark");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(window.localStorage.getItem("crm:theme")).toBe("system");
+  });
+
+  it("keeps the visitor's own choice while a host's theme is on screen", async () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    window.localStorage.setItem("crm:theme", "system");
+    await act(async () => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          i18n={false}
+          sessionBypass
+          themeStorageKey="crm:theme"
+          disableWebMcp
+          enableThemeFamily={false}
+        >
+          <SavedThemeChoice />
+        </AppProviders>,
+      );
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent(EMBEDDED_THEME_CHANGE_EVENT, {
+          detail: buildEmbeddedThemeUpdate("dark", {
+            "--background": "0 0% 0%",
+          }),
+        }),
+      );
+    });
+
+    const html = document.documentElement;
+    const button = container.querySelector("button");
+    expect(html.classList.contains("dark")).toBe(true);
+    expect(button?.textContent).toBe("system");
+
+    await act(async () => button?.click());
+    expect(button?.textContent).toBe("light");
+    expect(html.classList.contains("light")).toBe(true);
+    expect(html.style.getPropertyValue("--background")).toBe("");
+    expect(window.localStorage.getItem("crm:theme")).toBe("light");
+  });
+
+  it("leaves the head script's key alone when the app has no saved choice", async () => {
+    document.documentElement.setAttribute(THEME_STORAGE_KEY_ATTRIBUTE, "theme");
+    window.localStorage.setItem("theme", "dark");
+    try {
+      await renderThemeApp();
+      expect(window.localStorage.getItem("crm:theme")).toBeNull();
+      expect(window.localStorage.getItem("theme")).toBe("dark");
+    } finally {
+      document.documentElement.removeAttribute(THEME_STORAGE_KEY_ATTRIBUTE);
+    }
+  });
+
+  it("copies the saved choice to the key the early head script reads", async () => {
+    document.documentElement.setAttribute(THEME_STORAGE_KEY_ATTRIBUTE, "theme");
+    window.localStorage.setItem("crm:theme", "dark");
+    window.localStorage.setItem("theme", "system");
+    try {
+      await renderThemeApp();
+      expect(window.localStorage.getItem("theme")).toBe("dark");
+
+      await act(async () => container.querySelector("button")?.click());
+      expect(window.localStorage.getItem("crm:theme")).toBe("light");
+      expect(window.localStorage.getItem("theme")).toBe("light");
+    } finally {
+      document.documentElement.removeAttribute(THEME_STORAGE_KEY_ATTRIBUTE);
     }
   });
 });
@@ -1072,6 +1221,7 @@ describe("AppProviders session gate", () => {
       configurable: true,
       value: parent,
     });
+    window.localStorage.setItem("theme", "system");
 
     renderProviders({ isPublicPath: true });
 
@@ -1105,7 +1255,7 @@ describe("AppProviders session gate", () => {
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(document.documentElement.classList.contains("light")).toBe(false);
     expect(document.documentElement.style.colorScheme).toBe("dark");
-    expect(window.localStorage.getItem("theme")).toBe("dark");
+    expect(window.localStorage.getItem("theme")).toBe("system");
 
     await act(async () => {
       window.dispatchEvent(
@@ -1121,7 +1271,7 @@ describe("AppProviders session gate", () => {
 
     expect(document.documentElement.classList.contains("dark")).toBe(false);
     expect(document.documentElement.classList.contains("light")).toBe(true);
-    expect(window.localStorage.getItem("theme")).toBe("light");
+    expect(window.localStorage.getItem("theme")).toBe("system");
   });
 
   it("repairs structured route titles before they reach the browser tab", async () => {

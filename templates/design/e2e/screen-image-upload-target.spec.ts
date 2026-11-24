@@ -137,7 +137,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     "the versioned mirror-only save intentionally returns a conflict",
   );
   app.allowFailure(
-    /^error toast This screen changed elsewhere\. Your last edit was not saved\.$/,
+    /^error toast This page changed elsewhere\. Your last edit was not saved\.$/,
     "the conflict is reported to the user",
   );
   const uploadTimeline: Array<Record<string, unknown>> = [];
@@ -405,7 +405,8 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       has: page.getByRole("textbox", { name: "Image URL" }),
     });
     await expect(imagePicker).toBeVisible();
-    await page.getByRole("heading", { name: "Layers", exact: true }).click();
+    // oracle-change: the Layers heading is now a collapse toggle, so clicking it would hide the tree; Escape closes the picker without touching the Layers tree.
+    await page.keyboard.press("Escape");
     await expect(imagePicker).toBeHidden();
     const screenBRow = await selectScreen("Screen B");
     const screenBHtmlBefore = await readScreenHtml(page, designId, screenBId);
@@ -507,7 +508,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     }
     await expect(
       page.getByText(
-        "This screen changed elsewhere. Your last edit was not saved.",
+        "This page changed elsewhere. Your last edit was not saved.",
         { exact: true },
       ),
     ).toBeVisible();
@@ -707,7 +708,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
     "the versioned mirror-only save intentionally returns a conflict",
   );
   app.allowFailure(
-    /^error toast This screen changed elsewhere\. Your last edit was not saved\.$/,
+    /^error toast This page changed elsewhere\. Your last edit was not saved\.$/,
     "the conflict is reported to the user",
   );
   const marker = "Screen A source updated during active upload";
@@ -909,7 +910,8 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       has: page.getByRole("textbox", { name: "Image URL" }),
     });
     await expect(imagePicker).toBeVisible();
-    await page.getByRole("heading", { name: "Layers", exact: true }).click();
+    // oracle-change: the Layers heading is now a collapse toggle, so clicking it would hide the tree; Escape closes the picker without touching the Layers tree.
+    await page.keyboard.press("Escape");
     await expect(imagePicker).toBeHidden();
     const screenAShell = page.locator(
       `[data-screen-shell][data-frame-id="${screenAId}"]`,
@@ -928,23 +930,21 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       screenAShell.locator("iframe[data-design-preview-iframe]").first(),
     ).toBeVisible();
     await page
-      .locator('[data-design-top-bar] [data-design-mode="interact"]')
+      .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
       .click();
     await expect(screenAShell).toHaveAttribute(
       "data-screen-interact-mode",
       "true",
     );
     // Interact has no Exit button of its own: the mode switch is the way back.
-    const modeSwitch = page.locator(
-      "[data-design-top-bar] [data-design-mode-switch]",
-    );
+    const modeSwitch = page.locator("[data-design-bottom-toolbar]");
     await expect(
-      modeSwitch.locator('[data-design-mode="interact"]'),
+      modeSwitch.locator('button[aria-label="Interact"]'),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(
-      modeSwitch.locator('[data-design-mode="edit"]'),
+      modeSwitch.locator('button[aria-label="Edit"]'),
     ).toHaveAttribute("aria-pressed", "false");
-    await expect(modeSwitch.locator('[data-design-mode="edit"]')).toBeEnabled();
+    await expect(modeSwitch.locator('button[aria-label="Edit"]')).toBeEnabled();
     await expect(
       page.locator(`[data-screen-shell][data-frame-id="${screenBId}"]`),
     ).toHaveAttribute("data-screen-interact-mode", "false");
@@ -1058,7 +1058,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
     expect(fileUpdateBody.skippedStaleMirror).not.toBe(true);
     await expect(
       page.getByText(
-        "This screen changed elsewhere. Your last edit was not saved.",
+        "This page changed elsewhere. Your last edit was not saved.",
         { exact: true },
       ),
     ).toBeVisible();
@@ -1308,14 +1308,15 @@ test("accepted Screen-root image upload persists and renders its source", async 
       has: page.getByRole("textbox", { name: "Image URL" }),
     });
     await expect(imagePicker).toBeVisible();
-    await page.getByRole("heading", { name: "Layers", exact: true }).click();
+    // oracle-change: the Layers heading is now a collapse toggle, so clicking it would hide the tree; Escape closes the picker without touching the Layers tree.
+    await page.keyboard.press("Escape");
     await expect(imagePicker).toBeHidden();
     const screenAShell = page.locator(
       `[data-screen-shell][data-frame-id="${screenAId}"]`,
     );
     await screenAShell.locator("[data-frame-title]").first().dblclick();
     await page
-      .locator('[data-design-top-bar] [data-design-mode="interact"]')
+      .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
       .click();
     await expect(screenAShell).toHaveAttribute(
       "data-screen-interact-mode",
@@ -1419,7 +1420,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
     await expect(reloadedScreenTitle).toBeVisible({ timeout: 30_000 });
     await reloadedScreenTitle.dblclick();
     await page
-      .locator('[data-design-top-bar] [data-design-mode="interact"]')
+      .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
       .click();
     const reloadedFrame = page.frameLocator(screenAIframeSelector);
     await expect

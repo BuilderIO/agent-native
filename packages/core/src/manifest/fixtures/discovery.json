@@ -1,0 +1,108 @@
+{
+  "legacy": {
+    "tools": [
+      {
+        "name": "list-docs",
+        "inputSchema": {
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "version1": {
+    "tools": [
+      {
+        "name": "list-docs",
+        "inputSchema": {
+          "type": "object"
+        }
+      },
+      {
+        "name": "show-docs",
+        "inputSchema": {
+          "type": "object"
+        }
+      },
+      {
+        "name": "save-view",
+        "inputSchema": {
+          "type": "object"
+        }
+      }
+    ],
+    "_meta": {
+      "agent-native/app-capabilities": {
+        "version": 1,
+        "screens": {
+          "library": {
+            "route": "/library",
+            "action": "show-docs"
+          }
+        },
+        "suggestions": {
+          "saved-view": "save-view"
+        }
+      }
+    }
+  },
+  "version2": {
+    "tools": [
+      {
+        "name": "show-docs",
+        "inputSchema": {
+          "type": "object"
+        }
+      }
+    ],
+    "_meta": {
+      "agent-native/app-capabilities": {
+        "version": 2,
+        "screens": {
+          "library": {
+            "route": "/library",
+            "action": "show-docs"
+          },
+          "doc": {
+            "route": "/docs/:deckId",
+            "action": "show-docs",
+            "supportsViewOverlay": true
+          }
+        },
+        "entities": {
+          "deck": {
+            "screen": "doc",
+            "route": "/docs/:deckId",
+            "idParam": "deckId",
+            "label": "Deck"
+          }
+        },
+        "viewPolicy": {
+          "defaultMode": "reveal",
+          "allowBackgroundNavigation": false
+        },
+        "supportsViewOverlay": true
+      }
+    }
+  },
+  "version3": {
+    "tools": [
+      {
+        "name": "show-docs",
+        "inputSchema": {
+          "type": "object"
+        }
+      }
+    ],
+    "_meta": {
+      "agent-native/app-capabilities": {
+        "version": 3,
+        "screens": {
+          "library": {
+            "route": "/library",
+            "action": "show-docs"
+          }
+        }
+      }
+    }
+  }
+}

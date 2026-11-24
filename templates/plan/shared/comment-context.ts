@@ -100,6 +100,38 @@ export function normalizeCommentMentions(
   return normalized;
 }
 
+function parseMentionsJson(value: string | null | undefined) {
+  if (!value) return [];
+  try {
+    return normalizeCommentMentions(JSON.parse(value));
+    // coercion-ok: a mentions column that isn't JSON has always read as no stored mentions; the message and anchor still name theirs.
+  } catch {
+    return [];
+  }
+}
+
+export function planCommentRouting(row: {
+  anchor: string | null;
+  message: string;
+  mentionsJson: string | null;
+  resolutionTarget: PlanCommentResolutionTarget | null;
+}) {
+  const anchor = parsePlanCommentAnchor(row.anchor);
+  const mentions = normalizeCommentMentions([
+    ...parseMentionsJson(row.mentionsJson),
+    ...(anchor?.mentions ?? []),
+    ...extractCommentMentions(row.message),
+  ]);
+  return {
+    mentions,
+    resolutionTarget: normalizePlanCommentResolutionTarget(
+      row.resolutionTarget ??
+        anchor?.resolutionTarget ??
+        (mentions.length > 0 ? "human" : undefined),
+    ),
+  };
+}
+
 export function extractCommentMentions(message: string): PlanCommentMention[] {
   const mentions: PlanCommentMention[] = [];
   const seen = new Set<string>();

@@ -142,7 +142,7 @@ test("Screen root min/max styles constrain inspector edits and frame resizing", 
   const homeBefore = await app.savedNodes(designId);
   const before = await readDesign(page, designId);
   const beforeIds = new Set(before.files?.map((file) => file.id));
-  await pickFrameMode(page, "Screen");
+  await pickFrameMode(page, "Page");
   const start = await emptyCanvasPoint(page);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();

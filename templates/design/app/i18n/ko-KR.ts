@@ -1,4 +1,8 @@
 export default {
+  responseGuard: {
+    noDesignChangesSaved:
+      "이번 턴에서는 디자인 변경 사항이 저장되지 않았습니다.",
+  },
   journeyCanvas: {
     observedSessionReference: "관찰된 세션 참조",
     sessionsOfAll: "세션 {count}개 · 전체의 {percent}",
@@ -256,7 +260,7 @@ export default {
     pageHelpDescription:
       "선택한 항목에 대해 타이포그래피, 간격, 크기, 테두리 및 채우기를 편집하세요. 아래는 페이지 기본값입니다.",
     sections: {
-      page: "화면",
+      page: "페이지",
       canvas: "캔버스",
       typography: "타이포그래피",
       autoLayout: "자동 레이아웃",
@@ -412,7 +416,7 @@ export default {
       addRecordRow: "{{item}} 추가",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "{{item}} {{index}} 제거",
-      selectElementFirst: "먼저 화면 요소를 선택하세요",
+      selectElementFirst: "먼저 페이지의 요소를 선택하세요",
       selectCanvasElementFirst: "먼저 캔버스에서 요소를 선택하세요",
       saveFailed: "셰이더를 저장할 수 없습니다",
       custom: "사용자 지정",
@@ -832,11 +836,11 @@ export default {
     screenSource: {
       title: "소스",
       url: "URL",
-      urlLabel: "화면 URL",
+      urlLabel: "페이지 URL",
       urlPlaceholder: "/plans 또는 http://localhost:5173/plans",
       update: "업데이트",
       chooseLocalApp: "로컬 앱 선택",
-      remove: "화면 삭제",
+      remove: "페이지 제거",
     },
     borderStyleOptions: {
       none: "없음",
@@ -912,7 +916,7 @@ export default {
       original: "원본 페이지 시도",
     },
 
-    sourceLoadFailed: "이 화면을 불러올 수 없습니다.",
+    sourceLoadFailed: "이 페이지를 불러올 수 없습니다.",
     selectionPublishFailed:
       "에이전트가 최신 선택 영역을 보지 못할 수 있습니다. 다시 선택해 주세요.",
     liveCollaboration: {
@@ -1025,6 +1029,19 @@ export default {
       collapse: "사이드바 접기",
       expand: "사이드바 펼치기",
     },
+    leftTabs: {
+      label: "사이드 패널",
+      agent: "에이전트",
+      file: "파일",
+      library: "라이브러리",
+    },
+    columnHead: {
+      comments: "댓글",
+      unreadComments: "읽지 않은 댓글",
+      resizeLeftPanel: "왼쪽 패널 크기 조정",
+      resizeInspector: "인스펙터 크기 조정",
+      whatsNew: "새로운 기능",
+    },
     breakpointBar: {
       base: "기본",
       editBaseWidth: "기본 너비 편집",
@@ -1056,7 +1073,7 @@ export default {
         "이 디자인에는 다크 스타일이 없습니다. 다크를 선택하면 에이전트에게 추가를 요청할 수 있습니다.",
       themeSystem: "시스템",
       themeSystemHint: "디자인을 작성된 그대로 표시합니다(시스템 설정 사용)",
-      screen: "화면",
+      screen: "페이지",
       back: "뒤로",
       forward: "앞으로",
       reload: "미리보기 새로고침",
@@ -1067,8 +1084,8 @@ export default {
       zoomFit: "캔버스에 맞게 조정됨",
       zoomFitOption: "맞춤",
       exit: "반응형 미리보기 종료",
-      noScreens: "이 디자인에는 미리 볼 화면이 없습니다.",
-      unknownScreen: "해당 화면은 이 디자인에 속하지 않습니다.",
+      noScreens: "이 디자인에는 미리 볼 페이지가 없습니다.",
+      unknownScreen: "해당 페이지는 이 디자인에 속하지 않습니다.",
     },
     applyToSource: "소스에 적용",
     applyToSourcePath: "소스에 적용({{path}})",
@@ -1129,7 +1146,7 @@ export default {
     },
     import: {
       description:
-        "Figma 클립보드 HTML 또는 독립 HTML을 Design 화면으로 가져옵니다.",
+        "Figma 클립보드 HTML이나 독립 실행형 HTML을 Design 페이지로 가져옵니다.",
       figmaUrlLabel: "Figma 프레임 또는 파일 URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
       figmaTokenLabel: "Figma 액세스 토큰",
@@ -1194,10 +1211,10 @@ export default {
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       htmlDescription:
-        "독립 HTML을 붙여넣거나 업로드하세요. Design은 이를 새 화면으로 저장하며 이 편집기 UI에 삽입하지 않습니다.",
+        "독립 실행형 HTML을 붙여넣거나 업로드하세요. Design은 이 편집기 UI에 삽입하지 않고 새 페이지로 저장합니다.",
       allSupportedFiles: "지원되는 모든 파일",
       githubDescription:
-        "곧 제공: 저장소에서 화면과 컴포넌트를 직접 가져옵니다.",
+        "곧 제공: 저장소에서 페이지와 컴포넌트를 바로 가져올 수 있습니다.",
       localDescription: "/visual-edit로 실행 중인 모든 로컬 app을 연결합니다.",
       warningsToast: "경고와 함께 가져오기가 완료되었습니다",
       pasteUnreadable: "복사한 레이어를 읽을 수 없습니다.",
@@ -1212,7 +1229,7 @@ export default {
         "저장이 확인되지 않아 더 이상 표시되지 않을 수 있는 이미지: {{count}}",
       pasteNeedsEditAccess: "이 디자인에 붙여넣으려면 편집 권한이 필요합니다.",
       pastePartialImport:
-        "붙여넣기에 실패했으며 일부 화면이 생성되었을 수 있습니다. 화면을 확인해 주세요.",
+        "붙여넣기에 실패했으며 일부 페이지가 생성되었을 수 있습니다. 페이지를 확인하세요.",
       figmaSuccess: "Figma 붙여넣기를 가져왔습니다",
       htmlSuccess: "HTML을 가져왔습니다",
       uploadSuccess: "파일을 가져왔습니다",
@@ -1262,16 +1279,17 @@ export default {
     retryAccessCheck: "다시 시도",
     saveAsTemplate: "템플릿으로 저장…",
     saveTemplateDescription:
-      "현재 화면, 크기, 기본값과 잠긴 레이어를 재사용 가능한 시작점으로 저장합니다.",
+      "현재 페이지, 크기, 기본값, 잠긴 레이어를 재사용 가능한 시작점으로 저장합니다.",
     templateName: "템플릿 이름",
     templateDescription: "설명",
     templateCategory: "카테고리",
     templateSnapshotSummary:
-      "화면 {{screens}}개 · 잠긴 레이어 {{locks}}개가 유지됩니다",
+      "페이지 {{screens}}개 · 잠긴 레이어 {{locks}}개가 유지됩니다",
     saveTemplate: "템플릿 저장",
     templateSaved: "템플릿을 라이브러리에 저장했습니다",
     templateSaveFailed: "이 템플릿을 저장할 수 없습니다",
     appMenu: {
+      backToDashboard: "대시보드로 돌아가기",
       file: "파일",
       preferences: "환경설정",
       newDesign: "새 디자인",
@@ -1317,7 +1335,7 @@ export default {
       comment: "논평",
       edit: "편집하다",
       interact: "Interact",
-      screens: "화면",
+      screens: "페이지",
     },
     topBar: {
       modeDesign: "디자인",
@@ -1328,7 +1346,7 @@ export default {
     tools: {
       move: "Move",
       frame: "Frame",
-      screen: "Screen",
+      screen: "페이지",
       shapes: "도형",
       rect: "Rectangle",
       line: "선",
@@ -1351,7 +1369,7 @@ export default {
       categoriesLabel: "단축키 카테고리",
       empty: "“{{query}}”와(과) 일치하는 단축키가 없습니다",
       codeContext: "코드",
-      screenContext: "화면",
+      screenContext: "페이지",
       nudgeAmount: {
         title: "이동 간격",
         small: "작은 이동",
@@ -1437,8 +1455,8 @@ export default {
         enterSelection: "선택",
         nextSibling: "선택 →",
         previousSibling: "← 선택",
-        nextScreen: "화면 →",
-        previousScreen: "← 화면",
+        nextScreen: "다음 페이지",
+        previousScreen: "이전 페이지",
         toggleLayoutGrids: "레이아웃 그리드 표시 또는 숨기기",
         toggleRulers: "눈금자 표시 또는 숨기기",
         nudge: "Move",
@@ -1491,10 +1509,10 @@ export default {
     duplicate: "Duplicate",
     delete: "Delete",
     view: "View",
-    returnToCurrentScreen: "현재 화면으로 돌아가기",
-    openScreenOverview: "화면 개요 열기",
-    currentScreen: "현재 화면",
-    screenOverview: "화면 개요",
+    returnToCurrentScreen: "현재 페이지로 돌아가기",
+    openScreenOverview: "페이지 개요 열기",
+    currentScreen: "현재 페이지",
+    screenOverview: "페이지 개요",
     devicePreview: "기기 미리보기",
     devices: {
       responsive: "반응형",
@@ -1524,7 +1542,7 @@ export default {
     downloadSvg: "SVG 다운로드",
     downloadFigmaSvg: "Figma용으로 다운로드(SVG)",
     downloadZip: "ZIP 다운로드",
-    downloadPdfAllScreens: "PDF 다운로드 (모든 화면)",
+    downloadPdfAllScreens: "PDF 다운로드 (모든 페이지)",
     publishApp: "앱 게시",
     exportOptions: "내보내기 옵션",
     exportHtml: "HTML 내보내기",
@@ -1592,13 +1610,14 @@ export default {
       verified: "소스 쓰기 확인됨; 롤백 가능",
       rollback: "롤백",
       keep: "유지",
-      selectorMissing: "선택한 요소가 이 화면에 더 이상 없습니다.",
+      selectorMissing:
+        "선택한 요소는 이 페이지 소스에서 편집 가능한 일치 항목이 없습니다. 컴포넌트가 렌더링하는 경우 에이전트를 통해 변경을 적용하세요.",
       noRenderedBox:
         "선택한 레이어에는 렌더링된 상자가 없어 스타일 변경이 적용되지 않았습니다.",
       clientRenderedShell:
-        "이 화면은 클라이언트에서 렌더링되므로 제공되는 HTML에 패치할 앱 마크업이 없습니다. 에이전트에게 이 변경 사항을 컴포넌트 소스에 적용하도록 요청하세요.",
+        "이 페이지는 클라이언트에서 렌더링되므로 제공되는 HTML에 패치할 앱 마크업이 없습니다. 에이전트에게 컴포넌트 소스에 이 변경을 적용해 달라고 요청하세요.",
       snapshotNotLoaded:
-        "이 화면의 소스가 아직 로드되지 않아 편집 내용이 기록되지 않았습니다. 화면 로드가 끝난 뒤 다시 시도하세요.",
+        "이 페이지의 소스가 아직 로드되지 않아 편집이 기록되지 않았습니다. 페이지 로드가 끝날 때까지 기다린 후 다시 시도하세요.",
       selectorAmbiguous:
         "이 요소는 소스에 있는 동일한 인스턴스 {{count}}개 중 하나이므로 변경 사항이 기록되지 않았습니다. 에이전트에게 이 인스턴스로 범위를 한정하도록 요청하세요.",
       status: {
@@ -1652,17 +1671,17 @@ export default {
       leave: "적용하지 않고 나가기",
     },
     addLocalhostScreen: {
-      title: "앱에서 화면 추가",
+      title: "앱에서 페이지 추가",
       description: "새 프레임으로 추가할 경로를 선택하거나 경로를 입력하세요.",
       searchPlaceholder: "경로 검색…",
       noRoutes: "일치하는 경로가 없습니다",
       noDiscoveredRoutes:
-        "이 앱에서 경로를 찾지 못했습니다. 화면을 추가하려면 경로를 입력하세요.",
+        "이 앱에서 발견된 경로가 없습니다. 경로를 입력해 페이지를 추가하세요.",
       useCustomPath: '"{{path}}" 추가',
       viewportDesktop: "데스크톱",
       viewportMobile: "모바일",
-      added: "화면이 추가되었습니다",
-      addFailed: "화면을 추가할 수 없습니다",
+      added: "페이지를 추가했습니다",
+      addFailed: "페이지를 추가할 수 없습니다",
     },
     localhostConsent: {
       approvedTitle: "승인됨 — 편집을 다시 실행하세요",
@@ -1740,7 +1759,7 @@ export default {
       zipCreateError: "ZIP 다운로드를 만들 수 없음",
       zipDownloaded: "ZIP 다운로드됨",
       zipExportError: "ZIP을 내보낼 수 없음",
-      openScreenPng: "PNG를 내보내기 전에 화면을 여세요",
+      openScreenPng: "PNG를 내보내기 전에 페이지를 여세요",
       pngCreateError: "PNG 다운로드를 만들 수 없음",
       pngDownloaded: "PNG 다운로드됨",
       pngCopied: "PNG가 클립보드에 복사됨",
@@ -1766,8 +1785,8 @@ export default {
         "렌더러를 시작할 수 없어 내보내기를 사용할 수 없습니다. 나중에 다시 시도하세요.",
       pdfExportError: "PDF를 내보낼 수 없습니다.",
       pdfDownloaded: "PDF 다운로드됨",
-      pdfAllScreensDownloaded: "PDF 다운로드됨 (모든 화면)",
-      openScreenSvg: "SVG를 내보내기 전에 화면을 여세요",
+      pdfAllScreensDownloaded: "PDF를 다운로드했습니다 (모든 페이지)",
+      openScreenSvg: "SVG를 내보내기 전에 페이지를 여세요",
       svgDownloaded: "SVG 다운로드됨",
       svgExportError: "SVG를 내보낼 수 없음",
       figmaSvgCopied: "Figma SVG로 복사됨",
@@ -1778,16 +1797,16 @@ export default {
       figmaSvgWriteError: "SVG를 클립보드에 복사할 수 없음",
       figmaSvgRenderError: "Figma SVG를 만들 수 없음",
       figmaSvgExportError: "Figma SVG를 내보낼 수 없음",
-      screenDuplicated: "화면이 복제됨",
-      screenDuplicateError: "화면을 복제할 수 없음",
+      screenDuplicated: "페이지를 복제했습니다",
+      screenDuplicateError: "페이지를 복제할 수 없습니다",
       copied: "Copied",
       pasted: "Pasted",
       deleted: "Deleted",
       propsCopied: "속성이 복사됨",
       propsPasted: "속성이 붙여넣어짐",
-      primitiveInsertFailed: "해당 레이어를 화면에 추가할 수 없습니다",
+      primitiveInsertFailed: "해당 레이어를 페이지에 추가할 수 없습니다",
       designStateLiveScreen:
-        "라이브 화면에서는 디자인 상태를 미리 볼 수 없습니다. 콘텐츠가 문서가 아니라 실행 중인 앱입니다.",
+        "라이브 페이지에서는 디자인 상태를 미리 볼 수 없습니다. 그 콘텐츠는 문서가 아니라 실행 중인 앱입니다.",
       layerMoveFailed: "해당 레이어를 이동할 수 없습니다",
       groupFillApplyFailed:
         "그룹의 모든 레이어에 이 채우기를 적용할 수 없습니다.",
@@ -1813,12 +1832,12 @@ export default {
       redoSkippedConcurrentEdit:
         "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
       saveConflict:
-        "이 화면이 다른 곳에서 변경되었습니다. 마지막 편집이 저장되지 않았습니다.",
+        "이 페이지가 다른 곳에서 변경되었습니다. 마지막 편집은 저장되지 않았습니다.",
       versionHistoryUnavailable:
         "이 디자인에는 버전 기록을 사용할 수 없습니다. 편집 내용은 저장되었습니다.",
       removeAutoLayoutFailed: "오토 레이아웃을 제거할 수 없습니다",
       autoLayoutScreensUnsupported:
-        "오토 레이아웃 추가는 화면에 적용되지 않습니다",
+        "자동 레이아웃 추가는 페이지에 적용되지 않습니다",
       booleanSubtractUnsupported:
         "빼기 작업을 하려면 단색으로 채워진 인접한 사각형이나 타원을 선택하세요.",
       booleanSubtractFailed: "선택한 레이어를 빼지 못했습니다.",
@@ -1828,8 +1847,8 @@ export default {
         "이 앱은 편집기에 소스 위치를 제공하지 않아 이 레이어를 코드 줄과 연결할 수 없습니다. 에이전트에게 변경을 요청하세요.",
       sourceLocationSnapshotFailed:
         "이 미리보기의 소스 위치를 확인할 수 없습니다.",
-      screenSourceUpdated: "화면 소스가 업데이트됨",
-      screenSourceUpdateFailed: "화면 소스를 업데이트할 수 없습니다",
+      screenSourceUpdated: "페이지 소스를 업데이트했습니다",
+      screenSourceUpdateFailed: "페이지 소스를 업데이트할 수 없습니다",
       vectorEditUnsupported:
         "이 도형이나 변형은 벡터 편집을 지원하지 않습니다.",
       imageUploading: "이미지 업로드 중…",
@@ -1843,7 +1862,7 @@ export default {
       swapFillStrokeLayeredFill:
         "여러 채우기나 이미지 채우기는 아직 선으로 옮길 수 없습니다",
       alignNeedsTwoLayers: "정렬하려면 레이어를 두 개 이상 선택하세요",
-      alignNeedsTwoScreens: "정렬하려면 화면을 두 개 이상 선택하세요",
+      alignNeedsTwoScreens: "정렬하려면 페이지를 두 개 이상 선택하세요",
       layoutUnmeasurable:
         "선택한 레이어를 측정할 수 없습니다. 캔버스에 표시되는지 확인한 후 다시 시도하세요.",
       layoutAutoLayoutChildren:
@@ -1892,11 +1911,10 @@ export default {
   },
   layersPanel: {
     title: "레이어",
-    screens: "화면",
-    resizeScreens: "화면 섹션 크기 조정",
-    allScreens: "모든 화면",
+    screens: "페이지",
+    resizeScreens: "페이지 섹션 크기 조정",
     thumbnail: "썸네일",
-    addScreen: "화면 추가",
+    addScreen: "페이지 추가",
     searchPlaceholder: "레이어 검색",
     empty: "레이어 없음",
     noMatches: "일치하는 레이어 없음",
@@ -1945,7 +1963,7 @@ export default {
         "여러 번 시도했지만 라이브 편집기 브리지가 연결을 확인하지 못했습니다.",
       connectionNotConfirmed:
         "라이브 편집기 브리지가 연결을 확인하지 못했습니다. 로컬 개발 서버가 아직 실행 중인가요?",
-      permissionPromptTitle: "로컬 화면 연결",
+      permissionPromptTitle: "로컬 페이지 연결",
       permissionPromptDescription:
         "실시간 편집을 사용하려면 Chrome 프롬프트에서 ‘허용’을 선택하세요.",
       permissionPromptNoPrompt: "Chrome 프롬프트가 표시되지 않나요?",
@@ -1955,14 +1973,15 @@ export default {
       previewCredentialsUnavailableTitle:
         "로컬 미리보기 자격 증명을 사용할 수 없습니다",
       previewCredentialsUnavailableDescription:
-        "검사기에서 이 화면의 localhost 연결을 다시 연결한 후 다시 시도하세요.",
+        "인스펙터에서 이 페이지의 localhost 연결을 다시 연결한 후 다시 시도하세요.",
       publicPreviewUnavailableDescription:
-        "로컬호스트 미리보기는 공개 사용자와 공유되지 않습니다. 이 화면을 보려면 공동작업자로 이 디자인을 여세요.",
+        "localhost 미리보기는 공개 뷰어와 공유되지 않습니다. 이 페이지를 보려면 공동 작업자로 이 Design을 여세요.",
       previewCredentialsRetry: "자격 증명 다시 시도",
     },
   },
   multiScreenCanvas: {
-    addBreakpointToAllScreens: "모든 화면에 {{label}} 중단점({{width}}px) 추가",
+    addBreakpointToAllScreens:
+      "모든 페이지에 {{label}} 중단점({{width}}px) 추가",
     preparingLiveEditor: "실시간 편집기를 준비하는 중…",
     duplicate: "복제",
     fork: "분기",
@@ -2497,10 +2516,10 @@ export default {
     openDesign: "Design 열기",
     templatesCta: "템플릿 둘러보기",
     previewLabel: "로컬 미리보기",
-    layoutLabel: "저장할 준비가 된 화면 레이아웃",
+    layoutLabel: "페이지 레이아웃을 저장할 준비가 되었습니다",
   },
   templatesPage: {
-    previewEmpty: "이 템플릿에는 미리 볼 수 있는 화면이 없습니다.",
+    previewEmpty: "이 템플릿에는 미리 볼 수 있는 페이지가 없습니다.",
     loading: "템플릿 로딩 중",
     title: "템플릿",
     description:
@@ -2563,8 +2582,8 @@ export default {
     commentsTab: "댓글 · {{count}}",
     commentsTitle: "검토 댓글",
     commentNumber: "검토 댓글 {{count}}",
-    thisScreen: "이 화면",
-    allScreens: "모든 화면",
+    thisScreen: "이 페이지",
+    allScreens: "모든 페이지",
     signInToComment: "댓글을 작성하려면 로그인",
     panelTitle: "피드백",
     placeholder: "피드백을 남겨 주세요…",
@@ -2707,7 +2726,7 @@ export default {
         permission: "더 이상 편집 권한이 없습니다",
         threadUnavailable: "이 스레드는 더 이상 열려 있지 않습니다",
         targetChanged: "에이전트가 작업하는 동안 디자인이 변경되었습니다",
-        applyUnavailable: "에이전트는 이 화면을 편집할 수 없습니다",
+        applyUnavailable: "에이전트가 이 페이지를 편집할 수 없습니다",
         applyIncomplete:
           "디자인은 편집되었지만 스레드는 해결되지 않았습니다. 변경 사항을 검토하세요.",
         cancelledAfterEdit:

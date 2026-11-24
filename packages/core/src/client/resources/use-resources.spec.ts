@@ -47,6 +47,15 @@ describe("resourceDownloadUrl", () => {
 });
 
 describe("resourceWriteError", () => {
+  it("preserves the reason from a structured HTTP permission error", async () => {
+    const reason = "Only organization admins can edit organization files";
+    const error = await resourceWriteError(
+      Response.json({ status: 403, message: reason }, { status: 403 }),
+      "Delete failed",
+    );
+    expect(actionErrorMessage(error)).toBe(reason);
+  });
+
   it("keeps a refusal's message and free name", async () => {
     const error = await resourceWriteError(
       new Response(

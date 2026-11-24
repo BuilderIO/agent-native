@@ -330,7 +330,7 @@ function removeSlashQuery(editor: Editor, range: { from: number; to: number }) {
   };
 }
 
-function waitForEditorUpdateFrame() {
+export function waitForEditorUpdateFrame() {
   return new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
   });

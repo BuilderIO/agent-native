@@ -25,10 +25,11 @@ import {
 } from "@/hooks/use-comments";
 
 import { AgentAvatar, modelDisplayName } from "./agent-identity";
-import { draftMention, useCommentDraft } from "./comment-drafts";
+import { draftImages, draftMention, useCommentDraft } from "./comment-drafts";
 import { CommentComposer } from "./CommentComposer";
 import { CommentConfirmDialog } from "./CommentConfirmDialog";
 import type { CommentIdentity } from "./CommentIdentity";
+import { CommentImages } from "./CommentImages";
 import { AddReactionButton, CommentReactionChips } from "./CommentReactions";
 import {
   CommentAgentBadge,
@@ -210,12 +211,14 @@ export function CommentEntry({
   );
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const savedImages = comment.attachments ?? [];
   const initialDraft = {
     text: comment.content,
     mentions: comment.mentions,
     aiDraft: null,
   };
   const draft = useCommentDraft(`edit:${comment.id}`, initialDraft);
+  const editImages = draft.draft.images ?? savedImages;
   const inputRef = useRef<TiptapComposerHandle>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   // Set once a delete lands: where focus goes when the row goes.
@@ -237,6 +240,7 @@ export function CommentEntry({
   const visibleAuthor = aiAuthored
     ? modelDisplayName(comment.author_model)
     : (comment.author_name ?? comment.author_email.split("@")[0]);
+  const aiSource = getAiCommentSource(comment.submission_source);
   const identity: CommentIdentity = aiAuthored
     ? {
         kind: "agent",
@@ -250,6 +254,17 @@ export function CommentEntry({
             currentUserEmail.toLowerCase() ===
               comment.author_email.toLowerCase(),
         },
+        ...(aiSource
+          ? {
+              onBehalfOf: {
+                name:
+                  comment.author_name ??
+                  comment.author_email.replace(/@.*$/, ""),
+                source: aiSource,
+                client: comment.author_client,
+              },
+            }
+          : {}),
       }
     : {
         kind: "person",
@@ -359,6 +374,7 @@ export function CommentEntry({
         anchorSuffix: comment.anchor_suffix ?? undefined,
         anchorStartOffset: comment.anchor_start_offset ?? undefined,
         mentions: JSON.stringify(comment.mentions),
+        attachments: comment.attachments,
       });
       setCheckedUnresolvedOperationId(null);
       onCreatedCommentConfirmed?.(operationId);
@@ -381,8 +397,12 @@ export function CommentEntry({
   };
   // Compared as a save would store them: the editor reports a mention per
   // pill, the stored comment one per name.
+  const imagesEdited =
+    draft.draft.images !== undefined &&
+    JSON.stringify(draft.draft.images) !== JSON.stringify(savedImages);
   const edited =
     draft.draft.text.trim() !== comment.content.trim() ||
+    imagesEdited ||
     commentMentionsForText(
       draft.draft.text,
       draft.draft.mentions.map(draftMention),
@@ -407,6 +427,7 @@ export function CommentEntry({
                 submitted.text,
                 submitted.mentions.map(draftMention),
               ) ?? "[]",
+            ...(imagesEdited ? { attachments: draftImages(submitted) } : {}),
           },
           {
             onSuccess: close,
@@ -590,7 +611,9 @@ export function CommentEntry({
       }
       name={visibleAuthor}
       identity={identity}
-      badge={<CommentAttributionBadge comment={comment} />}
+      badge={
+        aiAuthored ? undefined : <CommentAttributionBadge comment={comment} />
+      }
       timestamp={{ ...time, dateTime: comment.created_at }}
       actions={
         (!feedLayout && addReaction) || menu || headerActions ? (
@@ -641,6 +664,9 @@ export function CommentEntry({
             onChange={draft.setText}
             mentions={draft.draft.mentions}
             onMentionsChange={draft.setMentions}
+            images={editImages}
+            onImagesChange={draft.setImages}
+            imageDocumentId={documentId}
             onSubmit={save}
             onEscape={cancel}
             confirmEscape={edited && !edit.isPending ? "edit" : false}
@@ -651,7 +677,10 @@ export function CommentEntry({
           />
         </div>
       ) : (
-        (body ?? renderCommentBody(comment.content, comment.mentions))
+        <>
+          {body ?? renderCommentBody(comment.content, comment.mentions)}
+          <CommentImages images={savedImages} />
+        </>
       )}
     </CommentRow>
   );

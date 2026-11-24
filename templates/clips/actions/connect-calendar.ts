@@ -24,6 +24,7 @@ export default defineAction({
       .optional(),
   }),
   http: { method: "GET" },
+  mcpTool: false,
   run: async (args) => {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     if (!clientId) {

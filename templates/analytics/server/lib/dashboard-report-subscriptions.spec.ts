@@ -364,7 +364,16 @@ describe("dashboard report subscriptions", () => {
       orgId: "org_1",
     };
     const { db, set, returning } = createClaimDbMock([row]);
-    getDbMock.mockReturnValue(db);
+    const lockRow = vi.fn(async (_strength: string) => [
+      { updatedAt: row.updatedAt },
+    ]);
+    const tx = {
+      ...db,
+      select: () => ({ from: () => ({ where: () => ({ for: lockRow }) }) }),
+    };
+    getDbMock.mockReturnValue({
+      transaction: async (run: (transaction: typeof tx) => unknown) => run(tx),
+    });
 
     const queued = await queueDashboardReportSubscriptionNow(
       "sub_1",
@@ -382,6 +391,7 @@ describe("dashboard report subscriptions", () => {
       }),
     );
     expect(returning).toHaveBeenCalledTimes(1);
+    expect(lockRow).toHaveBeenCalledWith("update");
     expect(queued).toMatchObject({
       id: "sub_1",
       ownerEmail: "owner@example.com",

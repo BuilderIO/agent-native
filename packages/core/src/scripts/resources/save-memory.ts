@@ -145,6 +145,16 @@ export default async function saveMemoryScript(
       beforeWrite: options?.beforeWrite,
     });
     if (written) {
+      const unsettled = written.filter((entry) => entry.mirror !== "ok");
+      if (unsettled.length > 0) {
+        fail(
+          `save-memory committed the batch but ${unsettled
+            .map((entry) => `${entry.resource.path} (${entry.mirror})`)
+            .join(
+              ", ",
+            )} did not sync with the shared memory directory; re-read those memories and retry.`,
+        );
+      }
       if (
         written.length !== writes.length ||
         fileContents.some(

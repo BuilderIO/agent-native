@@ -67,4 +67,16 @@ describe("ReadOnlyDesignBanner", () => {
       container.querySelector("button")?.getAttribute("aria-pressed"),
     ).toBe("true");
   });
+
+  it("shows the zoom control to viewers who have no editor toolbar", () => {
+    act(() =>
+      root.render(
+        <ReadOnlyDesignBanner
+          zoomControl={<button type="button">100%</button>}
+        />,
+      ),
+    );
+
+    expect(container.querySelector("button")?.textContent).toBe("100%");
+  });
 });

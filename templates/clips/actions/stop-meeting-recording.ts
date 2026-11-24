@@ -69,6 +69,7 @@ export default defineAction({
         "Why the recording stopped, e.g. 'manual' or a native detector name. Omit to leave end_reason untouched.",
       ),
   }),
+  mcpTool: false,
   run: async (args) => {
     const access = await assertAccess("meeting", args.meetingId, "editor");
     const db = getDb();

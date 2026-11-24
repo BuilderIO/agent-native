@@ -387,22 +387,17 @@ describe("resolveA2ACallerAuth", () => {
     );
   });
 
-  it("can attach a Google token for older receiver identity fallback", async () => {
+  it("never sends the caller's Google access token to a peer", async () => {
     process.env.NODE_ENV = "production";
     process.env.A2A_SECRET = "global-a2a-secret";
 
     await runWithRequestContext(
       { userEmail: "alice+qa@agent-native.test" },
       async () => {
-        const auth = await resolveA2ACallerAuth({
-          includeGoogleToken: true,
-        });
+        const auth = await resolveA2ACallerAuth();
 
-        expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledWith(
-          "google",
-          "alice+qa@agent-native.test",
-        );
-        expect(auth.metadata.googleToken).toBe("google-access-token");
+        expect(listOAuthAccountsByOwnerMock).not.toHaveBeenCalled();
+        expect(auth.metadata).not.toHaveProperty("googleToken");
       },
     );
   });

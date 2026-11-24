@@ -1,0 +1,23 @@
+Changed files:
+  status.tsx  (badge 4)
+
+Sites transformed:
+  button     0
+  badge      4
+  input      0
+  text-area  0
+  skeleton   0
+  spinner    0
+  toast      0
+
+Shims:
+
+Not transformed (1 sites), by reason:
+  [badge] variant isn't a string literal (1)
+    dynamic.tsx:4
+
+Transformed, needs a look (1 sites), by reason:
+  [badge] className may restyle what variant and color now set (1)
+    status.tsx:11
+
+Test mocks of a legacy module (0):

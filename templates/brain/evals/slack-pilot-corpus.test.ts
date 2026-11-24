@@ -99,6 +99,7 @@ const mocks = vi.hoisted(() => {
       "tagsJson",
       "entitiesJson",
       "evidenceJson",
+      "provenanceJson",
       "publishedResourcePath",
       "supersedesId",
       "supersededById",
@@ -258,6 +259,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/settings", () => ({
   getSetting: vi.fn(async () => null),
+  getOrgSetting: vi.fn(async () => null),
   putSetting: vi.fn(),
 }));
 
@@ -297,8 +299,9 @@ vi.mock("drizzle-orm", () => ({
 
 import askBrainAction from "../actions/ask-brain.js";
 import { searchEverythingRows } from "../server/lib/search.js";
+import { bindFixtureProvenance } from "../test-utils/knowledge-provenance.js";
 
-function resetRows() {
+async function resetRows() {
   for (const values of Object.values(mocks.rows)) values.length = 0;
   const now = "2026-05-15T12:00:00.000Z";
   mocks.rows.sources.push({
@@ -385,6 +388,8 @@ function resetRows() {
       updatedAt: timestamp,
     });
   });
+  for (const row of mocks.rows.knowledge)
+    await bindFixtureProvenance(row, mocks.rows.captures);
 }
 
 beforeEach(resetRows);
