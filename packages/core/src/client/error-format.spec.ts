@@ -177,6 +177,17 @@ describe("formatChatErrorText", () => {
     expect(normalized.message).toMatch(/was not retried/i);
   });
 
+  it("explains a request the model did not read and keeps the gateway text as details", () => {
+    const raw =
+      'Model "gpt-test" did not read the request (the provider reported no input tokens). Retrying the same request will not help; reduce the request size, for example the number or size of tool definitions.';
+    const normalized = normalizeChatError(raw, "request_not_read");
+
+    expect(normalized.message).toBe(
+      "The model could not read this request because it was too large or complex, for example too many tools, so it was not retried. Start a new chat or pick a different model.",
+    );
+    expect(normalized.details).toBe(raw);
+  });
+
   it("normalizes provider rate limits without exposing raw status-only text", () => {
     const normalized = normalizeChatError(
       "429 status code (no body)",

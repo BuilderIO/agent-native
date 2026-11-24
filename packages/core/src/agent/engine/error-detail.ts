@@ -92,7 +92,11 @@ export function isCreditsLimitErrorCode(errorCode?: string): boolean {
  */
 export function isRejectedRequestErrorCode(errorCode?: string): boolean {
   const code = errorCode?.trim().toLowerCase();
-  return code === "invalid_request" || code === "invalid_request_error";
+  return (
+    code === "invalid_request" ||
+    code === "invalid_request_error" ||
+    code === "request_not_read"
+  );
 }
 
 /**
