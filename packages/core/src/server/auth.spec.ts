@@ -8886,7 +8886,6 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({
-          // The schema probe sees every auth table, so this stays a generic failure.
           execute: vi.fn(async (query: { sql?: string } | string) =>
             typeof query !== "string" &&
             query.sql?.includes("information_schema.tables")

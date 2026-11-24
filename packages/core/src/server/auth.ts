@@ -2207,7 +2207,7 @@ async function findMissingAuthTables(): Promise<string[] | "unknown"> {
     const { rows } = await getDbExec().execute({
       sql: `SELECT table_name FROM information_schema.tables
             WHERE table_schema = current_schema()
-              AND table_name IN (${AUTH_CORE_TABLES.map(() => "?").join(", ")})`,
+              AND table_name IN (?, ?, ?, ?)`,
       args: AUTH_CORE_TABLES,
     });
     const present = new Set(rows.map((row) => String(row.table_name)));
@@ -2218,12 +2218,6 @@ async function findMissingAuthTables(): Promise<string[] | "unknown"> {
   }
 }
 
-/**
- * Better Auth swallows the underlying database error and answers a generic
- * 5xx whose cause the client and logs never see. A database the release step
- * never migrated is the one cause we can name after the fact: answer a 503
- * with a stable code and report it, rather than a bare server error.
- */
 async function namedBetterAuthServerError(
   response: Response,
   request: { path: string; method: string },

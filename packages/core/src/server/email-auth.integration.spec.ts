@@ -36,7 +36,7 @@ async function post(app: H3, path: string, body: unknown) {
     }),
   );
   const text = await res.text();
-  let json: any;
+  let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
