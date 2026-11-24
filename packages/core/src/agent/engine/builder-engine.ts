@@ -1471,9 +1471,13 @@ async function* parseJsonlStream(
               );
               if (!explicitErrMsg) {
                 captureBuilderGatewayNoDetailError({
-                  requestId: gatewayRequestId,
+                  ...(gatewayRequestId !== undefined && {
+                    requestId: gatewayRequestId,
+                  }),
                   model,
-                  gatewayUrl: captureContext.gatewayUrl,
+                  ...(captureContext.gatewayUrl !== undefined && {
+                    gatewayUrl: captureContext.gatewayUrl,
+                  }),
                   errorCode: creditsErrorCode,
                 });
               }
