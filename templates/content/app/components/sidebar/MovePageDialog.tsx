@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   filesNavigationPageParams,
+  filesNavigationQueryKey,
   isFilesRowCreationPending,
   useFilesNavigationPage,
 } from "@/lib/files-navigation";
@@ -51,18 +52,66 @@ export interface MovePageDestination {
   parentId: string | null;
 }
 
+function MovePageDestinationList({
+  databaseId,
+  excludedId,
+  choose,
+}: {
+  databaseId: string;
+  excludedId: string | undefined;
+  choose: (parentId: string | null) => void;
+}) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [unavailable, setUnavailable] = useState(false);
+  const [generation, setGeneration] = useState(0);
+  function restart() {
+    setUnavailable(false);
+    setGeneration((value) => value + 1);
+    void queryClient.invalidateQueries({
+      queryKey: filesNavigationQueryKey(
+        filesNavigationPageParams({
+          databaseId,
+          parentId: null,
+          pagesOnly: true,
+        }),
+      ),
+      exact: true,
+      refetchType: "none",
+    });
+  }
+  if (unavailable)
+    return (
+      <CommandItem value="__unavailable__" onSelect={restart}>
+        {t("empty.genericError")} {t("root.searchRetry")}
+      </CommandItem>
+    );
+  return (
+    <MovePageDestinations
+      key={generation}
+      databaseId={databaseId}
+      excludedId={excludedId}
+      choose={choose}
+      precedingIds={new Set()}
+      onUnavailable={() => setUnavailable(true)}
+    />
+  );
+}
+
 function MovePageDestinations({
   databaseId,
   excludedId,
   choose,
   precedingIds,
   cursor,
+  onUnavailable,
 }: {
   databaseId: string;
   excludedId: string | undefined;
   choose: (parentId: string | null) => void;
   precedingIds: ReadonlySet<string>;
   cursor?: string;
+  onUnavailable: () => void;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -77,6 +126,16 @@ function MovePageDestinations({
     undefined,
     { refetchOnMount: "always" },
   );
+  const unavailable = Boolean(result.data && "available" in result.data);
+  const invalidCursor = Boolean(
+    cursor &&
+    (result.error as { errorCode?: unknown } | null)?.errorCode ===
+      "invalid_navigation_cursor",
+  );
+  useEffect(() => {
+    if (unavailable || invalidCursor) onUnavailable();
+  }, [unavailable, invalidCursor, onUnavailable]);
+  if (invalidCursor) return null;
   if (result.isError) {
     return (
       <CommandItem
@@ -87,7 +146,8 @@ function MovePageDestinations({
       </CommandItem>
     );
   }
-  if (!result.data || "available" in result.data) return null;
+  if (result.isFetching || !result.data || "available" in result.data)
+    return null;
   const items = result.data.items.filter(
     (item) =>
       item.type === "page" &&
@@ -104,6 +164,12 @@ function MovePageDestinations({
     : null;
   return (
     <>
+      {cursor === undefined ? (
+        <CommandItem value="__top-level__" onSelect={() => choose(null)}>
+          <IconCornerDownRight className="me-2 size-4 text-muted-foreground" />
+          {t("sidebar.topLevel")}
+        </CommandItem>
+      ) : null}
       {items.map((item) => (
         <CommandItem
           key={item.documentId}
@@ -132,6 +198,7 @@ function MovePageDestinations({
             choose={choose}
             precedingIds={seen}
             cursor={nextCursor}
+            onUnavailable={onUnavailable}
           />
         ) : (
           <CommandItem
@@ -199,7 +266,7 @@ function SearchMovePageDestinations({
         pagination: { hasMore: boolean; nextOffset: number | null };
       }
     | undefined;
-  if (!data) return null;
+  if (result.isFetching || !data) return null;
   const choices = data.documents.filter(
     (item) =>
       item.id !== excludedId &&
@@ -413,22 +480,12 @@ export function MovePageDialog({
             />
             <CommandList className="max-h-80">
               <CommandGroup>
-                {query === "" ? (
-                  <CommandItem
-                    value="__top-level__"
-                    onSelect={() => choose(null)}
-                  >
-                    <IconCornerDownRight className="me-2 size-4 text-muted-foreground" />
-                    {t("sidebar.topLevel")}
-                  </CommandItem>
-                ) : null}
                 {open && query === "" && search.trim() === query && space ? (
-                  <MovePageDestinations
+                  <MovePageDestinationList
                     key={space.id}
                     databaseId={space.filesDatabaseId}
                     excludedId={page?.documentId}
                     choose={choose}
-                    precedingIds={new Set()}
                   />
                 ) : null}
                 {open &&

@@ -32,7 +32,16 @@ export const FILES_NAVIGATION_PAGE_SIZE = 20;
 // Most expanded folders one read asks for; the server caps what it returns.
 const MAX_EXPANDED_IDS_PER_READ = 100;
 const pendingExpansionReads = new WeakMap<QueryClient, Set<string>>();
-const pendingPagesOnlyReads = new WeakMap<QueryClient, Map<string, number>>();
+type PendingPagesOnlyRead = {
+  databaseId: string;
+  parentId: string | null;
+  retained: Map<string, CreatedFilesRow>;
+  movedOut: Set<string>;
+};
+const pendingPagesOnlyReads = new WeakMap<
+  QueryClient,
+  Set<PendingPagesOnlyRead>
+>();
 
 /**
  * The folders the Files tree draws open, most important first: both caps on
@@ -252,8 +261,13 @@ export function forgetCreatedFilesRows(
   documentIds: Iterable<string>,
 ) {
   const rows = createdFilesRows.get(queryClient);
-  if (!rows) return;
-  for (const documentId of documentIds) rows.delete(documentId);
+  for (const documentId of documentIds) {
+    rows?.delete(documentId);
+    for (const read of pendingPagesOnlyReads.get(queryClient) ?? []) {
+      read.retained.delete(documentId);
+      read.movedOut.add(documentId);
+    }
+  }
 }
 
 /**
@@ -269,6 +283,12 @@ export function keepMovedFilesRow(
   if (!rows) {
     rows = new Map();
     createdFilesRows.set(queryClient, rows);
+  }
+  for (const read of pendingPagesOnlyReads.get(queryClient) ?? []) {
+    read.retained.delete(move.documentId);
+    if (read.databaseId === move.databaseId && read.parentId === move.parentId)
+      read.movedOut.delete(move.documentId);
+    else read.movedOut.add(move.documentId);
   }
   rows.set(move.documentId, {
     databaseId: move.databaseId,
@@ -333,14 +353,40 @@ function withCreatedFilesRows(
   params: FilesNavigationPageParams,
   page: ContentDatabaseNavigationPage,
   readStartMark: number,
+  pendingRead?: PendingPagesOnlyRead,
 ): ContentDatabaseNavigationPage {
-  const rows = createdFilesRows.get(queryClient);
+  if (pendingRead?.movedOut.size) {
+    page = {
+      ...page,
+      items: page.items.filter(
+        (item) => !pendingRead.movedOut.has(item.documentId),
+      ),
+    };
+  }
+  const liveRows = createdFilesRows.get(queryClient);
+  const rows = pendingRead
+    ? new Map([...pendingRead.retained, ...(liveRows ?? [])])
+    : liveRows;
   if (!rows?.size || !listsBranch(params)) return page;
   const { databaseId, navigation } = params;
-  // An older picker read still needs rows that a newer tree read can retire.
-  const canRetire =
-    !navigation.pagesOnly &&
-    !pendingPagesOnlyReads.get(queryClient)?.has(databaseId);
+  const retire = (
+    documentId: string,
+    row: CreatedFilesRow,
+    present: boolean,
+  ) => {
+    if (navigation.pagesOnly) return;
+    for (const read of pendingPagesOnlyReads.get(queryClient) ?? []) {
+      if (read.databaseId !== databaseId || read.parentId !== row.item.parentId)
+        continue;
+      if (!present) {
+        read.retained.delete(documentId);
+        read.movedOut.add(documentId);
+      } else if (!read.movedOut.has(documentId)) {
+        read.retained.set(documentId, row);
+      }
+    }
+    liveRows?.delete(documentId);
+  };
   const firstPage = navigation.cursor === undefined;
   const listed = new Set(page.items.map((item) => item.documentId));
   // A shown row keeps the title and icon given to it since it was added.
@@ -364,11 +410,11 @@ function withCreatedFilesRows(
     const readAfterCreate =
       row.confirmedMark !== null && row.confirmedMark < readStartMark;
     if (listed.has(documentId)) {
-      if (readAfterCreate && canRetire) rows.delete(documentId);
+      if (readAfterCreate) retire(documentId, row, true);
       continue;
     }
     if (readAfterCreate && !page.pagination.hasMore) {
-      if (canRetire) rows.delete(documentId);
+      retire(documentId, row, false);
       continue;
     }
     const item =
@@ -677,17 +723,21 @@ export async function readFilesNavigationPage(
     pending.add(expansionKey);
   }
   const readStartMark = nextFilesMark();
-  let pendingPageReads: Map<string, number> | undefined;
+  let pendingPageReads: Set<PendingPagesOnlyRead> | undefined;
+  let pendingRead: PendingPagesOnlyRead | undefined;
   if (pagesOnly) {
     pendingPageReads = pendingPagesOnlyReads.get(queryClient);
     if (!pendingPageReads) {
-      pendingPageReads = new Map();
+      pendingPageReads = new Set();
       pendingPagesOnlyReads.set(queryClient, pendingPageReads);
     }
-    pendingPageReads.set(
-      params.databaseId,
-      (pendingPageReads.get(params.databaseId) ?? 0) + 1,
-    );
+    pendingRead = {
+      databaseId: params.databaseId,
+      parentId: params.navigation.parentId,
+      retained: new Map(),
+      movedOut: new Set(),
+    };
+    pendingPageReads.add(pendingRead);
   }
   try {
     // Read like a `useActionQuery`: a refused read drops the rows this page
@@ -709,7 +759,15 @@ export async function readFilesNavigationPage(
     // A read stopped after its answer arrived, as when the tree's top level
     // was just refused, seeds nothing.
     signal?.throwIfAborted();
-    if ("available" in response) return response;
+    if ("available" in response) {
+      clearCachedFilesPages(
+        queryClient,
+        params.databaseId,
+        filesNavigationQueryKey(params),
+        response,
+      );
+      return response;
+    }
     // A folder left out of `branches`, whether the cap dropped it
     // (`branchesTruncated`) or it has no children to show, is not seeded as
     // empty: it reads its own page when it draws.
@@ -734,7 +792,13 @@ export async function readFilesNavigationPage(
         );
       }
     }
-    return withCreatedFilesRows(queryClient, params, page, readStartMark);
+    return withCreatedFilesRows(
+      queryClient,
+      params,
+      page,
+      readStartMark,
+      pendingRead,
+    );
   } catch (error) {
     // The server checks access to the whole Files database for every page of
     // it, and answers a folder it can't show with a 400. So a refused read of
@@ -755,11 +819,7 @@ export async function readFilesNavigationPage(
     throw error;
   } finally {
     if (expansionKey && pending) pending.delete(expansionKey);
-    if (pendingPageReads) {
-      const remaining = (pendingPageReads.get(params.databaseId) ?? 1) - 1;
-      if (remaining === 0) pendingPageReads.delete(params.databaseId);
-      else pendingPageReads.set(params.databaseId, remaining);
-    }
+    if (pendingRead) pendingPageReads?.delete(pendingRead);
   }
 }
 
@@ -767,6 +827,7 @@ function clearCachedFilesPages(
   queryClient: QueryClient,
   databaseId: string,
   refusedKey: QueryKey,
+  unavailable?: ContentDatabaseUnavailableResponse,
 ) {
   const cache = queryClient.getQueryCache();
   const refused = cache.find({ queryKey: refusedKey, exact: true });
@@ -780,7 +841,10 @@ function clearCachedFilesPages(
     if (query !== refused && query.state.fetchStatus !== "idle") {
       void query.cancel({ revert: true });
     }
-    query.setState({ data: undefined, dataUpdatedAt: 0 });
+    query.setState({
+      data: unavailable,
+      dataUpdatedAt: unavailable ? Date.now() : 0,
+    });
   }
 }
 

@@ -13,11 +13,16 @@ const { read } = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock("@agent-native/core/client/hooks", async (original) => ({
   ...(await original<typeof import("@agent-native/core/client/hooks")>()),
   callActionWithRetry: read,
-  useActionQuery: (action: string, params: object) =>
+  useActionQuery: (
+    action: string,
+    params: object,
+    options?: { refetchOnMount?: "always" },
+  ) =>
     useQuery({
       queryKey: [action, params],
       queryFn: () => read(action, params),
       retry: false,
+      ...options,
     }),
 }));
 vi.mock("@agent-native/core/client/i18n", async (original) => ({
@@ -212,6 +217,118 @@ it("starts at the first page when switching spaces", async () => {
         params.navigation.cursor === "next",
     ),
   ).toBe(false);
+});
+
+it("does not offer cached destinations while reopening is reauthorizing", async () => {
+  let answer!: (value: ReturnType<typeof response>) => void;
+  read.mockResolvedValueOnce(response([row("old")], null));
+  const render = (page: MovePageTarget | null) =>
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <MovePageDialog
+          page={page}
+          spaces={[space]}
+          onOpenChange={() => {}}
+          onMove={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+  await act(async () => render(target));
+  await vi.waitFor(() => expect(document.body.textContent).toContain("old"));
+  await act(async () => render(null));
+  read.mockReturnValueOnce(
+    new Promise((resolve) => {
+      answer = resolve;
+    }),
+  );
+  await act(async () => render(target));
+  expect(document.body.textContent).not.toContain("old");
+  await act(async () => answer(response([row("fresh")], null)));
+  await vi.waitFor(() => expect(document.body.textContent).toContain("fresh"));
+});
+
+it("restarts from the first page after a stale cursor", async () => {
+  let firstRead = true;
+  read.mockImplementation(async (_action, params) => {
+    if (params.navigation.cursor)
+      throw Object.assign(new Error("stale"), {
+        errorCode: "invalid_navigation_cursor",
+        status: 400,
+      });
+    const initial = firstRead;
+    firstRead = false;
+    return response(
+      [row(initial ? "old-first" : "new-first")],
+      initial ? "stale-cursor" : null,
+    );
+  });
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <MovePageDialog
+          page={target}
+          spaces={[space]}
+          onOpenChange={() => {}}
+          onMove={() => {}}
+        />
+      </QueryClientProvider>,
+    ),
+  );
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("old-first"),
+  );
+  const more = [
+    ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ].find((item) => item.textContent?.includes("sidebar.showMore"));
+  if (!more) throw new Error("Missing continuation");
+  await act(async () => more.click());
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("root.searchRetry"),
+  );
+  const retry = [
+    ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ].find((item) => item.textContent?.includes("root.searchRetry"));
+  if (!retry) throw new Error("Missing retry");
+  await act(async () => retry.click());
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("new-first"),
+  );
+  expect(
+    read.mock.calls.filter(
+      ([, params]) => params.navigation.cursor === "stale-cursor",
+    ),
+  ).toHaveLength(1);
+});
+
+it("withdraws all destinations when a continuation reports the database unavailable", async () => {
+  read.mockImplementation(async (_action, params) =>
+    params.navigation.cursor
+      ? { available: false, reason: "deleted", databaseId: "files" }
+      : response([row("old")], "next"),
+  );
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <MovePageDialog
+          page={target}
+          spaces={[space]}
+          onOpenChange={() => {}}
+          onMove={() => {}}
+        />
+      </QueryClientProvider>,
+    ),
+  );
+  await vi.waitFor(() => expect(document.body.textContent).toContain("old"));
+  const more = [
+    ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ].find((item) => item.textContent?.includes("sidebar.showMore"));
+  if (!more) throw new Error("Missing continuation");
+  await act(async () => more.click());
+  await vi.waitFor(() =>
+    expect(document.body.textContent).not.toContain("old"),
+  );
+  expect(document.body.textContent).not.toContain("sidebar.topLevel");
+  expect(document.body.textContent).toContain("empty.genericError");
 });
 
 it("loads later pages on request and refetches the first page on reopening", async () => {
