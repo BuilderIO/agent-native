@@ -30,6 +30,7 @@ import {
   inArray,
   isNull,
   like,
+  notLike,
   ne,
   notInArray,
   or,
@@ -1079,7 +1080,9 @@ export async function writeDesignCheckpoint(
   );
   if (
     latest &&
-    latestVersionChatContextCheck(latest, options.chatContext) === "match"
+    latestVersionChatContextCheck(latest, options.chatContext) === "match" &&
+    (options.label !== COMPONENT_DELETE_CHECKPOINT_LABEL ||
+      latest.label === COMPONENT_DELETE_CHECKPOINT_LABEL)
   ) {
     const check = latestVersionStateHashCheck(latest, stateHash);
     if (check.status === "valid" && check.matches) {
@@ -1202,10 +1205,7 @@ export async function pruneDesignVersions(designId: string): Promise<{
   await assertAccess("design", designId, "editor");
   const db = getDb();
   const recent = await db
-    .select({
-      id: schema.designVersions.id,
-      chatContext: schema.designVersions.chatContext,
-    })
+    .select({ id: schema.designVersions.id })
     .from(schema.designVersions)
     .where(eq(schema.designVersions.designId, designId))
     .orderBy(
@@ -1219,22 +1219,6 @@ export async function pruneDesignVersions(designId: string): Promise<{
   }
 
   const protectedIds = new Set(recent.map((row) => row.id));
-  for (const row of recent) {
-    let context: DesignVersionChatContext | undefined;
-    try {
-      context = parseStoredChatContext(row.chatContext);
-    } catch {
-      continue;
-    }
-    if (context?.threadId) {
-      protectedIds.add(
-        designVersionIdForIdempotencyKey(
-          designId,
-          `chat-start:${context.threadId}`,
-        ),
-      );
-    }
-  }
   const design = firstRow(
     await db
       .select({ data: schema.designs.data })
@@ -1268,6 +1252,10 @@ export async function pruneDesignVersions(designId: string): Promise<{
                 schema.designVersions.label,
                 COMPONENT_DELETE_CHECKPOINT_LABEL,
               ),
+            ),
+            or(
+              isNull(schema.designVersions.chatContext),
+              notLike(schema.designVersions.chatContext, '%"phase":"start"%'),
             ),
           ),
         )

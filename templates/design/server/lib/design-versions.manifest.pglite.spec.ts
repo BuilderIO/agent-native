@@ -6,6 +6,7 @@ import { runWithRequestContext } from "@agent-native/core/server/request-context
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
+  COMPONENT_DELETE_CHECKPOINT_LABEL,
   createDesignChatBeginningSnapshot,
   createDesignVersionSnapshot,
   readDesignVersionFile,
@@ -50,6 +51,7 @@ const screens = (count: number, size = 0) =>
   }));
 
 async function rows<T>(sql: string, args: unknown[] = []): Promise<T[]> {
+  // raw-sql-ok: spec-only fixture queries with constant SQL text and bound args.
   return (await exec.execute({ sql, args: args as never[] })).rows as T[];
 }
 
@@ -149,6 +151,28 @@ describe("a checkpoint", () => {
       await count(
         "SELECT COUNT(*) AS n FROM design_versions WHERE design_id = ?",
         ["unchanged"],
+      ),
+    ).toBe(1);
+  });
+
+  it("gives a component delete its own retained checkpoint when nothing changed", async () => {
+    await seedDesign(exec, "archive-own-row", screens(2));
+    const first = await checkpoint("archive-own-row");
+    const archive = await checkpoint(
+      "archive-own-row",
+      COMPONENT_DELETE_CHECKPOINT_LABEL,
+    );
+    const again = await checkpoint(
+      "archive-own-row",
+      COMPONENT_DELETE_CHECKPOINT_LABEL,
+    );
+
+    expect(archive.id).not.toBe(first.id);
+    expect(again.id).toBe(archive.id);
+    expect(
+      await count(
+        "SELECT COUNT(*) AS n FROM design_versions WHERE id = ? AND label = ?",
+        [archive.id, COMPONENT_DELETE_CHECKPOINT_LABEL],
       ),
     ).toBe(1);
   });
@@ -531,7 +555,7 @@ describe("retention", () => {
     await setContent("retention:index.html", "<main>v-start</main>");
     const chatStart = await asOwner(() =>
       createDesignChatBeginningSnapshot("retention", {
-        threadId: "kept-thread",
+        threadId: "older-thread",
         runId: "run",
       }),
     );
@@ -541,7 +565,7 @@ describe("retention", () => {
         createDesignVersionSnapshot("retention", {
           label: "Chat autosave",
           chatContext: {
-            threadId: "kept-thread",
+            threadId: "later-thread",
             runId: "run",
             turnId: `turn-${index}`,
             phase: "end",
