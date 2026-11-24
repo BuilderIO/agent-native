@@ -566,7 +566,9 @@ export function InboxPage() {
     (inboxThreads.isPlaceholderData ? undefined : inboxThreads.data);
   const hasOlderInbox =
     isInboxView &&
-    inboxMetadata?.accounts.some((account) => account.backfillPending) === true;
+    (inboxMetadata?.accounts.some((account) => account.backfillPending) ===
+      true ||
+      inboxThreads.data?.hasLegacyClassification === true);
   const loadOlderInbox = useCallback(async () => {
     if (loadingOlderRef.current) return;
     loadingOlderRef.current = true;

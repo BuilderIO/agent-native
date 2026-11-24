@@ -43,6 +43,7 @@ export type InboxThreadRow = {
   isStarred: boolean;
   isImportant: boolean;
   isAutomated: boolean | null;
+  classificationNeedsRefresh?: boolean;
   latestDate: number;
   latestMessageId: string | null;
   subject: string | null;
@@ -221,14 +222,8 @@ function toInboxThreadRow(
     isStarred: row.isStarred === 1,
     isImportant: row.isImportant === 1,
     isAutomated:
-      row.isAutomated === 1
-        ? true
-        : row.isAutomated === 2 ||
-            (row.isAutomated === 0 &&
-              row.messageCount === 1 &&
-              labelIds.includes("CATEGORY_PERSONAL"))
-          ? false
-          : null,
+      row.isAutomated === 1 ? true : row.isAutomated === 2 ? false : null,
+    classificationNeedsRefresh: row.isAutomated === 0,
     latestDate: row.latestDate,
     latestMessageId: row.latestMessageId,
     subject: row.subject,
@@ -359,20 +354,56 @@ export async function readInboxThreads(
   return rows.map(toInboxThreadRow);
 }
 
+export async function readRecentLegacyThreadIds(
+  ownerEmail: string,
+  accountEmail: string,
+  includeOlder = false,
+): Promise<string[]> {
+  const rows = await getDb()
+    .select({
+      threadId: schema.mailInboxThreads.threadId,
+      isAutomated: schema.mailInboxThreads.isAutomated,
+    })
+    .from(schema.mailInboxThreads)
+    .where(
+      and(
+        eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.accountEmail, accountEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.inInbox, 1),
+        ...(includeOlder ? [eq(schema.mailInboxThreads.isAutomated, 0)] : []),
+      ),
+    )
+    .orderBy(
+      desc(schema.mailInboxThreads.latestDate),
+      desc(schema.mailInboxThreads.latestMessageId),
+      desc(schema.mailInboxThreads.id),
+    )
+    .limit(includeOlder ? 50 : 74);
+  return rows
+    .filter((row) => row.isAutomated === 0)
+    .slice(0, 50)
+    .map((row) => row.threadId);
+}
+
 export type InboxTabWindowSpec = { id: string; kind: string };
 
 export type InboxTabWindows = {
   counts: Map<string, { total: number; unread: number }>;
   page: InboxThreadRow[];
   previews: Map<string, InboxThreadRow[]>;
+  hasUnclassified: boolean;
+  hasLegacyClassification: boolean;
 };
 
 const AUTOMATED_GROUP_BIT = 2;
+const UNCLASSIFIED_GROUP_BIT = 4;
+const LEGACY_GROUP_BIT = 8;
 const UNREAD_GROUP_BIT = 1;
-const GROUP_COUNT = 4;
+const GROUP_COUNT = 16;
 
 function tabAcceptsGroup(kind: string, group: number): boolean {
-  const automated = (group & AUTOMATED_GROUP_BIT) !== 0;
+  const automated =
+    (group & (AUTOMATED_GROUP_BIT | UNCLASSIFIED_GROUP_BIT)) !== 0;
   switch (kind) {
     case "all":
     case "inbox":
@@ -429,10 +460,10 @@ export async function readInboxTabWindows(params: {
 
   // raw-sql-ok: Account values and window limits use bound parameters; interpolated bits are constants.
   const { rows } = await getDbExec().execute({
-    // guard:allow-unbounded-read — the owner/account scope bounds the keys CTE, and only the top rows of each group (at most 4 × rankLimit) return to JS
+    // guard:allow-unbounded-read — the owner/account scope bounds the keys CTE, and only the top rows of each group (at most 16 × rankLimit) return to JS
     sql: `
       WITH keys AS (
-        SELECT t.id, t.latest_date, t.latest_message_id, t.is_automated, t.unread_count, t.label_ids_json, t.message_count
+        SELECT t.id, t.latest_date, t.latest_message_id, t.is_automated, t.unread_count
         FROM mail_inbox_threads t
         WHERE t.owner_email = ${ownerParam} AND t.in_inbox = 1
           AND t.account_email IN (${accountParams.join(", ")})
@@ -440,7 +471,7 @@ export async function readInboxTabWindows(params: {
       ordered AS (
         SELECT k.id,
           row_number() OVER (ORDER BY k.latest_date DESC, k.latest_message_id DESC, k.id DESC) AS r,
-          (CASE WHEN k.is_automated = 2 OR (k.is_automated = 0 AND k.message_count = 1 AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(k.label_ids_json, '[]')::jsonb) AS label(value) WHERE label.value = 'CATEGORY_PERSONAL')) THEN 0 ELSE ${AUTOMATED_GROUP_BIT} END
+          (CASE WHEN k.is_automated = 1 THEN ${AUTOMATED_GROUP_BIT} WHEN k.is_automated = 2 THEN 0 WHEN k.is_automated = 0 THEN ${UNCLASSIFIED_GROUP_BIT + LEGACY_GROUP_BIT} ELSE ${UNCLASSIFIED_GROUP_BIT} END
             + CASE WHEN coalesce(k.unread_count, 0) > 0 THEN ${UNREAD_GROUP_BIT} ELSE 0 END) AS grp
         FROM keys k
       ),
@@ -489,6 +520,12 @@ export async function readInboxTabWindows(params: {
   }
   return {
     counts,
+    hasUnclassified: [...groupTotal].some(
+      ([group, total]) => (group & UNCLASSIFIED_GROUP_BIT) !== 0 && total > 0,
+    ),
+    hasLegacyClassification: [...groupTotal].some(
+      ([group, total]) => (group & LEGACY_GROUP_BIT) !== 0 && total > 0,
+    ),
     page: windowOf(pageTab.kind, params.pageUnreadOnly).slice(
       params.pageOffset,
       params.pageOffset + params.pageLimit,
@@ -1050,6 +1087,7 @@ export function inboxRowToItem(
     unreadCount: row.unreadCount ?? 0,
     messageIds: row.messageIds,
     isAutomated: row.isAutomated,
+    classificationNeedsRefresh: row.classificationNeedsRefresh,
   };
 }
 

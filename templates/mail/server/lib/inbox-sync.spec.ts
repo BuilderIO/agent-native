@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => {
     markThreadsOutOfInboxBeforeSync: vi.fn(),
     countInboxThreads: vi.fn(),
     readInboxThreadIds: vi.fn(),
+    readRecentLegacyThreadIds: vi.fn(),
     trimInboxThreadRows: vi.fn(),
     purgeArchivedInboxThreadRows: vi.fn(),
     readSyncAccounts: vi.fn(),
@@ -114,6 +115,7 @@ vi.mock("./inbox-store.js", () => ({
   markThreadsOutOfInboxBeforeSync: mocks.markThreadsOutOfInboxBeforeSync,
   countInboxThreads: mocks.countInboxThreads,
   readInboxThreadIds: mocks.readInboxThreadIds,
+  readRecentLegacyThreadIds: mocks.readRecentLegacyThreadIds,
   INBOX_THREAD_CAP: 2_000,
   trimInboxThreadRows: mocks.trimInboxThreadRows,
   purgeArchivedInboxThreadRows: mocks.purgeArchivedInboxThreadRows,
@@ -295,6 +297,7 @@ beforeEach(() => {
   mocks.markThreadsOutOfInboxBeforeSync.mockResolvedValue(undefined);
   mocks.resetSyncAccountProgress.mockResolvedValue(true);
   mocks.readInboxPushGeneration.mockResolvedValue(0);
+  mocks.readRecentLegacyThreadIds.mockResolvedValue([]);
   mocks.gmailListLabels.mockImplementation(async () => ({
     labels: [
       {
@@ -349,6 +352,66 @@ function routeHistory(...inboxPages: unknown[]) {
 }
 
 describe("syncInboxAccount — full sync", () => {
+  it("reclassifies older cached rows only when explicitly requested", async () => {
+    currentRow = baseRow({ historyId: "9000", status: "idle" });
+    mocks.readRecentLegacyThreadIds.mockResolvedValue(["older-legacy"]);
+    mocks.gmailBatchGetThreads.mockResolvedValue([
+      {
+        id: "older-legacy",
+        data: thread("older-legacy", {
+          from: "sender@example.test",
+          labelIds: ["INBOX", "CATEGORY_PERSONAL"],
+        }),
+      },
+    ]);
+    await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      connectedAccountEmails: [ACCOUNT],
+      loadOlder: true,
+    });
+    expect(mocks.readRecentLegacyThreadIds).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      true,
+    );
+    expect(mocks.upsertInboxThreadRows).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          threadId: "older-legacy",
+          isAutomated: false,
+        }),
+      ],
+      expect.anything(),
+    );
+  });
+  it("reclassifies recent legacy rows in a bounded background batch", async () => {
+    currentRow = baseRow({ historyId: "9000", status: "idle" });
+    mocks.readRecentLegacyThreadIds.mockResolvedValue(["legacy"]);
+    mocks.gmailBatchGetThreads.mockResolvedValue([
+      {
+        id: "legacy",
+        data: thread("legacy", {
+          from: "sender@example.test",
+          labelIds: ["INBOX", "CATEGORY_PERSONAL"],
+        }),
+      },
+    ]);
+    await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      connectedAccountEmails: [ACCOUNT],
+    });
+    expect(mocks.gmailBatchGetThreads).toHaveBeenCalledWith(
+      "tok",
+      ["legacy"],
+      "metadata",
+      expect.any(Array),
+      "incremental",
+    );
+    expect(mocks.upsertInboxThreadRows).toHaveBeenCalledWith(
+      [expect.objectContaining({ threadId: "legacy", isAutomated: false })],
+      expect.anything(),
+    );
+  });
   it("does not classify inbox mail from an archived message's category", async () => {
     currentRow = baseRow();
     const message = thread("mixed", {

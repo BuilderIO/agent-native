@@ -41,6 +41,7 @@ import {
   purgeArchivedInboxThreadRows,
   readInboxPushGeneration,
   readInboxThreadIds,
+  readRecentLegacyThreadIds,
   readSyncAccounts,
   releaseSyncAccount,
   resetSyncAccountProgress,
@@ -1568,6 +1569,48 @@ export async function syncInboxAccount(
           ),
           changed: incrementalResult.changed || backfillResult.changed,
         };
+      }
+    }
+
+    if (
+      row.historyId != null &&
+      (!opts?.loadOlder || row.fullSyncPageToken == null) &&
+      !syncResult.restartedFullSync &&
+      !syncResult.changed &&
+      !hasOutstandingSyncWork(row, Date.now()) &&
+      Date.now() < deadline
+    ) {
+      const legacyIds = await readRecentLegacyThreadIds(
+        ownerEmail,
+        accountEmail,
+        opts?.loadOlder === true,
+      );
+      if (legacyIds.length > 0) {
+        const connected = await connectedEmailsLower(
+          ownerEmail,
+          accountEmail,
+          opts?.connectedAccountEmails,
+        );
+        await hydrateAndApply(
+          accessToken,
+          legacyIds,
+          ownerEmail,
+          accountEmail,
+          connected,
+          claim.claimId,
+          "incremental",
+          (skipped) =>
+            appendHydratePendingIds(
+              ownerEmail,
+              accountEmail,
+              claim.claimId,
+              skipped,
+            ),
+          () => {
+            changed = true;
+          },
+        );
+        syncResult = { ...syncResult, changed: true };
       }
     }
 

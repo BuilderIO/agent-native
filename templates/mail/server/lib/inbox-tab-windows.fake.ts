@@ -33,6 +33,10 @@ export function inMemoryTabWindows(
   const active = rowsOf(params.pageTabId);
   const pool = params.pageUnreadOnly ? unreadOf(active) : active;
   return {
+    hasUnclassified: items.some((item) => item.isAutomated === null),
+    hasLegacyClassification: items.some(
+      (item) => item.classificationNeedsRefresh === true,
+    ),
     counts: new Map(
       params.tabs.map((tab) => {
         const members = rowsOf(tab.id);

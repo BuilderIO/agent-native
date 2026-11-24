@@ -69,6 +69,7 @@ type InboxResultWindow = {
   syncing: boolean;
   accounts: InboxSyncAccountStatus[];
   backfillIncomplete: boolean;
+  hasLegacyClassification: boolean;
   // The sync stopped at the cap while Gmail has more: the visible pool is a
   // lower bound even when nothing is syncing.
   syncCapped?: boolean;
@@ -110,6 +111,7 @@ function buildInboxResult(window: InboxResultWindow): ListInboxThreadsResult {
       window.offset + window.pageItems.length >= window.activePoolLength &&
       window.activePoolLength >= (activeTab?.total ?? 0),
     hasMore: olderRows && !reachedCap,
+    hasLegacyClassification: window.hasLegacyClassification,
     reachedCap,
     syncing: window.syncing,
     accounts: window.accounts,
@@ -156,7 +158,8 @@ function buildWindowedResult(
     labels: input.labels,
     syncing: input.syncing,
     accounts: input.accounts,
-    backfillIncomplete: input.backfillIncomplete,
+    backfillIncomplete: input.backfillIncomplete || windows.hasUnclassified,
+    hasLegacyClassification: windows.hasLegacyClassification,
     syncCapped: input.syncCapped,
   });
 }
@@ -210,7 +213,11 @@ function paginateIntoResult(
     labels,
     syncing,
     accounts,
-    backfillIncomplete,
+    backfillIncomplete:
+      backfillIncomplete || items.some((item) => item.isAutomated === null),
+    hasLegacyClassification: items.some(
+      (item) => item.classificationNeedsRefresh === true,
+    ),
     syncCapped,
   });
 }

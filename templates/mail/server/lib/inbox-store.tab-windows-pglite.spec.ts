@@ -46,11 +46,11 @@ function syntheticRows(count: number) {
       accountEmail: account,
       threadId: `thread-${i}`,
       historyId: "1",
-      inInbox: next() < 0.9 ? 1 : 0,
+      inInbox: i === 0 || i === 3 || next() < 0.9 ? 1 : 0,
       isUnread: unread > 0 ? 1 : 0,
       isStarred: 0,
       isImportant: 0,
-      isAutomated: i === 0 ? 2 : next() < 0.25 ? 1 : 0,
+      isAutomated: i === 0 || i === 3 ? 2 : next() < 0.25 ? 1 : 0,
       latestDate: base + Math.floor(next() * 20) * 60_000,
       latestMessageId: `msg-${i}`,
       subject: `Subject ${i}`,
@@ -84,6 +84,37 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
     );
     vi.unstubAllEnvs();
     vi.resetModules();
+  });
+
+  it("reclassifies only legacy rows in the newest 74 inbox conversations", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    const [{ default: initializeMailDb }, { getDb, schema }, store] =
+      await Promise.all([
+        import("../plugins/db.js"),
+        import("../db/index.js"),
+        import("./inbox-store.js"),
+      ]);
+    await initializeMailDb({});
+    const rows = syntheticRows(120).map((row, index) => ({
+      ...row,
+      id: `legacy-${index}`,
+      threadId: `legacy-${index}`,
+      ownerEmail: OWNER,
+      accountEmail: "owner@example.com",
+      inInbox: 1,
+      latestDate: index,
+      isAutomated: index < 46 || index === 70 ? 0 : 2,
+    }));
+    await getDb().insert(schema.mailInboxThreads).values(rows);
+    expect(
+      await store.readRecentLegacyThreadIds(OWNER, "owner@example.com"),
+    ).toEqual(["legacy-70"]);
+    expect(
+      await store.readRecentLegacyThreadIds(OWNER, "owner@example.com", true),
+    ).toEqual([
+      "legacy-70",
+      ...Array.from({ length: 46 }, (_, i) => `legacy-${45 - i}`),
+    ]);
   });
 
   it("returns the same counts, page, and previews for every built-in tab", async () => {

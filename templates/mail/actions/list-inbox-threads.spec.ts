@@ -85,6 +85,7 @@ vi.mock("../server/lib/inbox-store.js", () => ({
     unreadCount: row.unreadCount ?? (row.isUnread ? 1 : 0),
     messageIds: row.messageIds ?? [row.latestMessageId],
     isAutomated: row.isAutomated,
+    classificationNeedsRefresh: row.classificationNeedsRefresh,
   }),
 }));
 
@@ -174,6 +175,33 @@ beforeEach(() => {
 });
 
 describe("list-inbox-threads action", () => {
+  it("offers older cached classifications for explicit loading", async () => {
+    mocks.readInboxThreads.mockResolvedValue([
+      row({
+        threadId: "legacy",
+        isAutomated: null,
+        classificationNeedsRefresh: true,
+      }),
+    ]);
+    const result = await action.run(
+      { tab: "important", limit: 50, offset: 0 },
+      undefined as unknown as Parameters<typeof action.run>[1],
+    );
+    expect(result.hasLegacyClassification).toBe(true);
+  });
+  it("marks split counts as incomplete while cached classification is unknown", async () => {
+    mocks.readInboxThreads.mockResolvedValue([
+      row({ threadId: "unknown", isAutomated: null }),
+    ]);
+    const result = await action.run(
+      { tab: "important", limit: 50, offset: 0 },
+      undefined as unknown as Parameters<typeof action.run>[1],
+    );
+    expect(result.tabs.find((tab) => tab.id === "important")).toMatchObject({
+      total: 0,
+      totalIsLowerBound: true,
+    });
+  });
   it("reports a Gmail cooldown as read state next to the rows instead of failing", async () => {
     const until = Date.now() + 40_000;
     mocks.readInboxThreads.mockResolvedValue([row({})]);
