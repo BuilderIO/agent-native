@@ -5,7 +5,8 @@ import { waitForEditorBoot } from "./editor-boot";
 import { gotoEditor } from "./helpers";
 import { INTERACT_FRAME } from "./interact-helpers";
 
-const SCREEN_CONTROL = "[data-design-top-bar] [data-design-interact-route]";
+const SCREEN_CONTROL =
+  "[data-design-interact-floating-bar] [data-design-interact-route]";
 
 // A long page with a link to each kind of target, so one run shows which
 // clicks the preview takes over and which it leaves to the page.
@@ -80,7 +81,7 @@ async function enterInteractOnHome(page: Page) {
   await gotoEditor(page, designId);
   await page.waitForURL(/editorView=overview/);
   await page
-    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
     .click();
   const screen = page.locator(SCREEN_CONTROL);
   await expect(screen).toBeVisible();
@@ -156,7 +157,9 @@ test("a link to another screen switches the preview, and nothing else is taken o
   ).toHaveText("Pricing screen");
 
   // Back to Home, then a relative file link to a different screen.
-  await page.locator("[data-design-top-bar] button[aria-label='Back']").click();
+  await page
+    .locator("[data-design-interact-floating-bar] button[aria-label='Back']")
+    .click();
   await expect(screen).toHaveText("Home");
   const home = page.locator(INTERACT_FRAME).contentFrame();
   await expect(home.locator("#title")).toHaveText("Home screen");
@@ -167,7 +170,9 @@ test("a link to another screen switches the preview, and nothing else is taken o
   ).toHaveText("Docs screen");
 
   // An in-page link stays on the screen and scrolls it, as in any page.
-  await page.locator("[data-design-top-bar] button[aria-label='Back']").click();
+  await page
+    .locator("[data-design-interact-floating-bar] button[aria-label='Back']")
+    .click();
   await expect(screen).toHaveText("Home");
   const again = page.locator(INTERACT_FRAME).contentFrame();
   await again.locator("#to-section").click();
@@ -245,7 +250,7 @@ test("a single-screen invalid transition falls back to immediate navigation", as
     0,
   );
   await page
-    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
     .click();
 
   const inner = page

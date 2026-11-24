@@ -2598,6 +2598,9 @@ function DispatchLayout({
       ].find(
         (candidate) =>
           candidate
+            .closest("[data-dispatch-workspace-app-cache-entry]")
+            ?.getAttribute("aria-hidden") !== "true" &&
+          candidate
             .closest("[data-chat-first-surface-content]")
             ?.getAttribute("aria-hidden") !== "true",
       );

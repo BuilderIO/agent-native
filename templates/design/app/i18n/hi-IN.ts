@@ -257,7 +257,7 @@ export default {
     pageHelpDescription:
       "टाइपोग्राफी, रिक्ति, आकार, सीमाएँ संपादित करें और जो भी आप चुनें उसे भरें। पृष्ठ डिफ़ॉल्ट नीचे है.",
     sections: {
-      page: "स्क्रीन",
+      page: "पेज",
       canvas: "कैनवास",
       typography: "टाइपोग्राफी",
       autoLayout: "ऑटो लेआउट",
@@ -414,7 +414,7 @@ export default {
       addRecordRow: "{{item}} जोड़ें",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "{{item}} {{index}} हटाएँ",
-      selectElementFirst: "पहले एक स्क्रीन तत्व चुनें",
+      selectElementFirst: "पहले पेज पर कोई एलिमेंट चुनें",
       selectCanvasElementFirst: "पहले कैनवास पर एक तत्व चुनें",
       saveFailed: "शेडर सहेजा नहीं जा सका",
       custom: "कस्टम",
@@ -834,11 +834,11 @@ export default {
     screenSource: {
       title: "स्रोत",
       url: "URL",
-      urlLabel: "स्क्रीन URL",
+      urlLabel: "पेज URL",
       urlPlaceholder: "/plans या http://localhost:5173/plans",
       update: "अपडेट करें",
       chooseLocalApp: "लोकल ऐप चुनें",
-      remove: "स्क्रीन हटाएं",
+      remove: "पेज हटाएं",
     },
     borderStyleOptions: {
       none: "कोई नहीं",
@@ -913,7 +913,7 @@ export default {
       original: "मूल पेज आज़माएँ",
     },
 
-    sourceLoadFailed: "यह स्क्रीन लोड नहीं हो सकी।",
+    sourceLoadFailed: "यह पेज लोड नहीं हो सका।",
     selectionPublishFailed:
       "एजेंट शायद आपका नवीनतम चयन नहीं देख पाएगा। उसे फिर से चुनें।",
     liveCollaboration: {
@@ -1026,6 +1026,19 @@ export default {
       collapse: "साइडबार समेटें",
       expand: "साइडबार फैलाएँ",
     },
+    leftTabs: {
+      label: "साइड पैनल",
+      agent: "एजेंट",
+      file: "फ़ाइल",
+      library: "लाइब्रेरी",
+    },
+    columnHead: {
+      comments: "टिप्पणियाँ",
+      unreadComments: "अपठित टिप्पणियाँ",
+      resizeLeftPanel: "बायाँ पैनल का आकार बदलें",
+      resizeInspector: "इंस्पेक्टर का आकार बदलें",
+      whatsNew: "नया क्या है",
+    },
     breakpointBar: {
       base: "आधार",
       editBaseWidth: "आधार चौड़ाई संपादित करें",
@@ -1058,7 +1071,7 @@ export default {
       themeSystem: "सिस्टम",
       themeSystemHint:
         "डिज़ाइन को जैसा बनाया गया है वैसा ही दिखाता है (सिस्टम सेटिंग का उपयोग करता है)",
-      screen: "स्क्रीन",
+      screen: "पेज",
       back: "पीछे",
       forward: "आगे",
       reload: "पूर्वावलोकन रीलोड करें",
@@ -1069,8 +1082,8 @@ export default {
       zoomFit: "कैनवास के अनुसार स्केल किया गया",
       zoomFitOption: "फ़िट",
       exit: "रिस्पॉन्सिव पूर्वावलोकन से बाहर निकलें",
-      noScreens: "इस डिज़ाइन में पूर्वावलोकन के लिए कोई स्क्रीन नहीं है।",
-      unknownScreen: "वह स्क्रीन इस डिज़ाइन का हिस्सा नहीं है।",
+      noScreens: "इस डिज़ाइन में प्रीव्यू के लिए कोई पेज नहीं है।",
+      unknownScreen: "वह पेज इस डिज़ाइन का हिस्सा नहीं है।",
     },
     applyToSource: "स्रोत पर लागू करें",
     applyToSourcePath: "स्रोत पर लागू करें ({{path}})",
@@ -1130,7 +1143,7 @@ export default {
     },
     import: {
       description:
-        "Figma clipboard HTML या standalone HTML को Design screens के रूप में लाएँ।",
+        "Figma क्लिपबोर्ड HTML या स्टैंडअलोन HTML को Design पेज के रूप में लाएं।",
       figmaUrlLabel: "Figma frame या file URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
       figmaTokenLabel: "Figma एक्सेस टोकन",
@@ -1194,10 +1207,10 @@ export default {
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       htmlDescription:
-        "Standalone HTML paste या upload करें। Design इसे नए screen के रूप में save करता है, editor UI में inject नहीं करता।",
+        "स्टैंडअलोन HTML पेस्ट या अपलोड करें। Design इसे इस एडिटर UI में डाले बिना नए पेज के रूप में सहेजता है।",
       allSupportedFiles: "सभी समर्थित फ़ाइलें",
       githubDescription:
-        "जल्द आ रहा है: repository से screens और components सीधे import करें।",
+        "जल्द आ रहा है: किसी रिपॉज़िटरी से सीधे पेज और कंपोनेंट इंपोर्ट करें।",
       localDescription: "/visual-edit से किसी भी चल रहे local app को connect करें।",
       warningsToast: "Import warnings के साथ पूरा हुआ",
       pasteUnreadable: "कॉपी की गई लेयर पढ़ी नहीं जा सकीं।",
@@ -1211,8 +1224,7 @@ export default {
       pasteImagesUnsaved:
         "वे छवियाँ जो सहेजे जाने की पुष्टि न होने के कारण लोड होना बंद कर सकती हैं: {{count}}",
       pasteNeedsEditAccess: "इस डिज़ाइन में पेस्ट करने के लिए संपादन की अनुमति चाहिए।",
-      pastePartialImport:
-        "पेस्ट विफल रहा और कुछ स्क्रीन बन गई हो सकती हैं। अपनी स्क्रीन जाँचें।",
+      pastePartialImport: "पेस्ट विफल रहा और कुछ पेज बन गए होंगे। अपने पेज जांचें।",
       figmaSuccess: "Figma paste import हो गया",
       htmlSuccess: "HTML import हो गया",
       uploadSuccess: "File import हो गई",
@@ -1260,16 +1272,17 @@ export default {
     retryAccessCheck: "फिर कोशिश करें",
     saveAsTemplate: "टेम्पलेट के रूप में सहेजें…",
     saveTemplateDescription:
-      "मौजूदा स्क्रीन, आकार, डिफ़ॉल्ट और लॉक की गई लेयर को दोबारा उपयोग होने वाले शुरुआती बिंदु के रूप में सहेजें।",
+      "मौजूदा पेज, आयाम, डिफ़ॉल्ट और लॉक की गई लेयर को दोबारा इस्तेमाल होने वाले शुरुआती बिंदु के रूप में सहेजें।",
     templateName: "टेम्पलेट का नाम",
     templateDescription: "विवरण",
     templateCategory: "श्रेणी",
     templateSnapshotSummary:
-      "{{screens}} स्क्रीन · {{locks}} लॉक लेयर सुरक्षित रहेंगी",
+      "{{screens}} पेज · {{locks}} लॉक की गई लेयर सुरक्षित रहेंगी",
     saveTemplate: "टेम्पलेट सहेजें",
     templateSaved: "टेम्पलेट लाइब्रेरी में सहेजा गया",
     templateSaveFailed: "यह टेम्पलेट सहेजा नहीं जा सका",
     appMenu: {
+      backToDashboard: "डैशबोर्ड पर वापस जाएँ",
       file: "फ़ाइल",
       preferences: "प्राथमिकताएँ",
       newDesign: "नया डिज़ाइन",
@@ -1314,7 +1327,7 @@ export default {
       comment: "टिप्पणी",
       edit: "संपादन करना",
       interact: "Interact",
-      screens: "स्क्रीन",
+      screens: "पेज",
     },
     topBar: {
       modeDesign: "डिज़ाइन",
@@ -1325,7 +1338,7 @@ export default {
     tools: {
       move: "Move",
       frame: "Frame",
-      screen: "Screen",
+      screen: "पेज",
       shapes: "आकृतियाँ",
       rect: "Rectangle",
       line: "रेखा",
@@ -1348,7 +1361,7 @@ export default {
       categoriesLabel: "शॉर्टकट श्रेणियाँ",
       empty: "“{{query}}” से मेल खाने वाला कोई शॉर्टकट नहीं",
       codeContext: "कोड",
-      screenContext: "स्क्रीन",
+      screenContext: "पेज",
       nudgeAmount: {
         title: "नज की दूरी",
         small: "छोटी नज",
@@ -1434,8 +1447,8 @@ export default {
         enterSelection: "चयन",
         nextSibling: "चयन →",
         previousSibling: "← चयन",
-        nextScreen: "स्क्रीन →",
-        previousScreen: "← स्क्रीन",
+        nextScreen: "अगला पेज",
+        previousScreen: "पिछला पेज",
         toggleLayoutGrids: "लेआउट ग्रिड दिखाएँ या छिपाएँ",
         toggleRulers: "रूलर दिखाएँ या छिपाएँ",
         nudge: "Move",
@@ -1488,10 +1501,10 @@ export default {
     duplicate: "Duplicate",
     delete: "Delete",
     view: "View",
-    returnToCurrentScreen: "वर्तमान स्क्रीन पर लौटें",
-    openScreenOverview: "स्क्रीन अवलोकन खोलें",
-    currentScreen: "वर्तमान स्क्रीन",
-    screenOverview: "स्क्रीन अवलोकन",
+    returnToCurrentScreen: "मौजूदा पेज पर लौटें",
+    openScreenOverview: "पेज ओवरव्यू खोलें",
+    currentScreen: "मौजूदा पेज",
+    screenOverview: "पेज ओवरव्यू",
     devicePreview: "डिवाइस पूर्वावलोकन",
     devices: {
       responsive: "उत्तरदायी",
@@ -1520,7 +1533,7 @@ export default {
     downloadSvg: "SVG डाउनलोड करें",
     downloadFigmaSvg: "Figma के लिए डाउनलोड करें (SVG)",
     downloadZip: "ZIP डाउनलोड करें",
-    downloadPdfAllScreens: "PDF डाउनलोड करें (सभी स्क्रीन)",
+    downloadPdfAllScreens: "PDF डाउनलोड करें (सभी पेज)",
     publishApp: "ऐप प्रकाशित करें",
     exportOptions: "निर्यात विकल्प",
     exportHtml: "HTML निर्यात करें",
@@ -1588,13 +1601,14 @@ export default {
       verified: "स्रोत लेखन सत्यापित; rollback उपलब्ध",
       rollback: "वापस लें",
       keep: "रखें",
-      selectorMissing: "चुना गया तत्व अब इस स्क्रीन में नहीं है।",
+      selectorMissing:
+        "चुने गए एलिमेंट का इस पेज के सोर्स में कोई संपादन योग्य मिलान नहीं है। अगर कोई कंपोनेंट इसे रेंडर करता है, तो बदलाव एजेंट के ज़रिए लागू करें।",
       noRenderedBox:
         "चयनित लेयर में रेंडर किया गया बॉक्स नहीं है, इसलिए शैली परिवर्तन लागू नहीं किया गया।",
       clientRenderedShell:
-        "यह स्क्रीन क्लाइंट पर रेंडर होती है, इसलिए इसके HTML में पैच करने योग्य ऐप मार्कअप नहीं है। एजेंट से इस बदलाव को कंपोनेंट सोर्स में लागू करने के लिए कहें।",
+        "यह पेज क्लाइंट पर रेंडर होता है, इसलिए इसके HTML में पैच करने के लिए कोई ऐप मार्कअप नहीं है। एजेंट से यह बदलाव कंपोनेंट सोर्स में लागू करने को कहें।",
       snapshotNotLoaded:
-        "इस स्क्रीन का सोर्स अभी लोड नहीं हुआ है, इसलिए संपादन लिखा नहीं गया। स्क्रीन के लोड होने की प्रतीक्षा करें और फिर से कोशिश करें।",
+        "इस पेज का सोर्स अभी लोड नहीं हुआ है, इसलिए बदलाव नहीं लिखा गया। पेज के पूरी तरह लोड होने तक रुकें और फिर से कोशिश करें।",
       selectorAmbiguous:
         "यह तत्व सोर्स में {{count}} समान इंस्टेंस में से एक है, इसलिए बदलाव लिखा नहीं गया। एजेंट से इसे इसी इंस्टेंस तक सीमित करने के लिए कहें।",
       status: {
@@ -1647,17 +1661,16 @@ export default {
       leave: "बिना लागू किए छोड़ें",
     },
     addLocalhostScreen: {
-      title: "अपनी app से screen जोड़ें",
+      title: "अपने ऐप से पेज जोड़ें",
       description: "नए frame के रूप में जोड़ने के लिए एक route चुनें, या path टाइप करें।",
       searchPlaceholder: "Routes खोजें…",
       noRoutes: "कोई मेल खाता route नहीं मिला",
-      noDiscoveredRoutes:
-        "इस app में कोई route नहीं मिला। स्क्रीन जोड़ने के लिए कोई path टाइप करें।",
+      noDiscoveredRoutes: "इस ऐप में कोई रूट नहीं मिला। पेज जोड़ने के लिए पाथ लिखें।",
       useCustomPath: '"{{path}}" जोड़ें',
       viewportDesktop: "Desktop",
       viewportMobile: "Mobile",
-      added: "Screen जोड़ी गई",
-      addFailed: "Screen नहीं जोड़ी जा सकी",
+      added: "पेज जोड़ा गया",
+      addFailed: "पेज नहीं जोड़ा जा सका",
     },
     localhostConsent: {
       approvedTitle: "स्वीकृत — संपादन फिर से चलाएँ",
@@ -1739,7 +1752,7 @@ export default {
       zipCreateError: "ZIP डाउनलोड नहीं बनाया जा सका",
       zipDownloaded: "ZIP डाउनलोड हुआ",
       zipExportError: "ZIP निर्यात नहीं किया जा सका",
-      openScreenPng: "PNG निर्यात करने से पहले कोई स्क्रीन खोलें",
+      openScreenPng: "PNG एक्सपोर्ट करने से पहले कोई पेज खोलें",
       pngCreateError: "PNG डाउनलोड नहीं बनाया जा सका",
       pngDownloaded: "PNG डाउनलोड हुआ",
       pngCopied: "PNG क्लिपबोर्ड पर कॉपी हुआ",
@@ -1763,8 +1776,8 @@ export default {
         "रेंडरर शुरू न हो पाने के कारण निर्यात उपलब्ध नहीं है। बाद में फिर कोशिश करें।",
       pdfExportError: "PDF निर्यात नहीं किया जा सका",
       pdfDownloaded: "PDF डाउनलोड किया गया",
-      pdfAllScreensDownloaded: "PDF डाउनलोड किया गया (सभी स्क्रीन)",
-      openScreenSvg: "SVG निर्यात करने से पहले कोई स्क्रीन खोलें",
+      pdfAllScreensDownloaded: "PDF डाउनलोड हुई (सभी पेज)",
+      openScreenSvg: "SVG एक्सपोर्ट करने से पहले कोई पेज खोलें",
       svgDownloaded: "SVG डाउनलोड हुआ",
       svgExportError: "SVG निर्यात नहीं किया जा सका",
       figmaSvgCopied: "Figma SVG के रूप में कॉपी हुआ",
@@ -1775,16 +1788,16 @@ export default {
       figmaSvgWriteError: "SVG को क्लिपबोर्ड पर कॉपी नहीं किया जा सका",
       figmaSvgRenderError: "Figma SVG नहीं बनाया जा सका",
       figmaSvgExportError: "Figma SVG निर्यात नहीं किया जा सका",
-      screenDuplicated: "स्क्रीन डुप्लिकेट हुई",
-      screenDuplicateError: "स्क्रीन डुप्लिकेट नहीं हो सकी",
+      screenDuplicated: "पेज की कॉपी बनाई गई",
+      screenDuplicateError: "पेज की कॉपी नहीं बन सकी",
       copied: "Copied",
       pasted: "Pasted",
       deleted: "Deleted",
       propsCopied: "गुण कॉपी किए गए",
       propsPasted: "गुण चिपकाए गए",
-      primitiveInsertFailed: "उस परत को स्क्रीन में नहीं जोड़ा जा सका",
+      primitiveInsertFailed: "वह लेयर पेज में नहीं जोड़ी जा सकी",
       designStateLiveScreen:
-        "लाइव स्क्रीन पर डिज़ाइन स्टेट का पूर्वावलोकन नहीं हो सकता — इसकी सामग्री चल रहा ऐप है, दस्तावेज़ नहीं।",
+        "लाइव पेज पर डिज़ाइन स्टेट का प्रीव्यू नहीं हो सकता: उसका कंटेंट चल रहा ऐप है, कोई दस्तावेज़ नहीं।",
       layerMoveFailed: "उस परत को स्थानांतरित नहीं किया जा सका",
       groupFillApplyFailed: "यह भराव समूह की सभी परतों पर लागू नहीं किया जा सका।",
       layerMoveRedirected:
@@ -1809,11 +1822,11 @@ export default {
         "पूर्ववत करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
       redoSkippedConcurrentEdit:
         "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
-      saveConflict: "यह स्क्रीन कहीं और बदल गई। आपका पिछला संपादन सहेजा नहीं गया।",
+      saveConflict: "यह पेज कहीं और बदला गया। आपका पिछला बदलाव सहेजा नहीं गया।",
       versionHistoryUnavailable:
         "इस डिज़ाइन के लिए वर्शन हिस्ट्री उपलब्ध नहीं है। आपका संपादन फिर भी सहेजा गया।",
       removeAutoLayoutFailed: "ऑटो लेआउट हटाया नहीं जा सका",
-      autoLayoutScreensUnsupported: "ऑटो लेआउट जोड़ें स्क्रीन पर लागू नहीं होता",
+      autoLayoutScreensUnsupported: "ऑटो लेआउट जोड़ना पेज पर लागू नहीं होता",
       booleanSubtractUnsupported:
         "घटाने के लिए पास-पास रखे ठोस रंग वाले आयत या दीर्घवृत्त चुनें।",
       booleanSubtractFailed: "चुनी गई परतों को घटाया नहीं जा सका।",
@@ -1822,8 +1835,8 @@ export default {
       reactSourceAnchorsUnavailable:
         "यह ऐप एडिटर को सोर्स लोकेशन नहीं देता, इसलिए इस लेयर को किसी लाइन से नहीं जोड़ा जा सकता। यह बदलाव एजेंट से कराएँ।",
       sourceLocationSnapshotFailed: "इस पूर्वावलोकन के स्रोत स्थान जाँचे नहीं जा सके।",
-      screenSourceUpdated: "स्क्रीन स्रोत अपडेट किया गया",
-      screenSourceUpdateFailed: "स्क्रीन स्रोत अपडेट नहीं किया जा सका",
+      screenSourceUpdated: "पेज सोर्स अपडेट हुआ",
+      screenSourceUpdateFailed: "पेज सोर्स अपडेट नहीं हो सका",
       vectorEditUnsupported: "इस आकार या रूपांतरण के लिए वेक्टर संपादन उपलब्ध नहीं है।",
       imageUploading: "छवि अपलोड हो रही है…",
       pasteReplaceFailed: "उस परत को बदला नहीं जा सका",
@@ -1834,7 +1847,7 @@ export default {
       swapFillStrokeLayeredFill:
         "एक से ज़्यादा फ़िल या इमेज फ़िल अभी स्ट्रोक में नहीं बदल सकते",
       alignNeedsTwoLayers: "संरेखित करने के लिए दो या अधिक परतें चुनें",
-      alignNeedsTwoScreens: "संरेखित करने के लिए दो या अधिक स्क्रीन चुनें",
+      alignNeedsTwoScreens: "संरेखित करने के लिए दो या अधिक पेज चुनें",
       layoutUnmeasurable:
         "चुनी गई किसी परत को मापा नहीं जा सका। पक्का करें कि वह कैनवस पर दिख रही है, फिर से कोशिश करें।",
       layoutAutoLayoutChildren:
@@ -1882,11 +1895,10 @@ export default {
   },
   layersPanel: {
     title: "परतें",
-    screens: "स्क्रीन",
-    resizeScreens: "स्क्रीन अनुभाग का आकार बदलें",
-    allScreens: "सभी स्क्रीन",
+    screens: "पेज",
+    resizeScreens: "पेज सेक्शन का आकार बदलें",
     thumbnail: "थंबनेल",
-    addScreen: "स्क्रीन जोड़ें",
+    addScreen: "पेज जोड़ें",
     searchPlaceholder: "परतें खोजें",
     empty: "कोई परत नहीं",
     noMatches: "कोई मेल खाती परत नहीं",
@@ -1935,7 +1947,7 @@ export default {
         "कई कोशिशों के बाद भी लाइव एडिटर ब्रिज ने कनेक्शन की पुष्टि नहीं की।",
       connectionNotConfirmed:
         "लाइव एडिटर ब्रिज ने कनेक्शन की पुष्टि नहीं की। क्या लोकल डेवलपमेंट सर्वर अभी भी चल रहा है?",
-      permissionPromptTitle: "अपनी लोकल स्क्रीन कनेक्ट करें",
+      permissionPromptTitle: "अपने लोकल पेज कनेक्ट करें",
       permissionPromptDescription:
         "लाइव एडिटिंग चालू करने के लिए Chrome के प्रॉम्प्ट में “अनुमति दें” चुनें।",
       permissionPromptNoPrompt: "Chrome का प्रॉम्प्ट नहीं दिख रहा?",
@@ -1944,15 +1956,14 @@ export default {
       permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
       previewCredentialsUnavailableTitle: "लोकल प्रीव्यू क्रेडेंशियल उपलब्ध नहीं हैं",
       previewCredentialsUnavailableDescription:
-        "इंस्पेक्टर में इस स्क्रीन का localhost कनेक्शन फिर से जोड़ें, फिर दोबारा कोशिश करें।",
+        "इंस्पेक्टर में इस पेज का localhost कनेक्शन फिर से जोड़ें, फिर दोबारा कोशिश करें।",
       publicPreviewUnavailableDescription:
-        "लोकलहोस्ट प्रीव्यू सार्वजनिक दर्शकों के साथ साझा नहीं किए जाते। इस स्क्रीन को देखने के लिए इस डिज़ाइन को सहयोगी के रूप में खोलें।",
+        "localhost प्रीव्यू सार्वजनिक दर्शकों के साथ साझा नहीं होते। यह पेज देखने के लिए इस Design को सहयोगी के रूप में खोलें।",
       previewCredentialsRetry: "क्रेडेंशियल फिर से आज़माएँ",
     },
   },
   multiScreenCanvas: {
-    addBreakpointToAllScreens:
-      "सभी स्क्रीन में {{label}} ब्रेकपॉइंट ({{width}}px) जोड़ें",
+    addBreakpointToAllScreens: "सभी पेज में {{label}} ब्रेकपॉइंट ({{width}}px) जोड़ें",
     preparingLiveEditor: "लाइव एडिटर तैयार किया जा रहा है…",
     duplicate: "डुप्लिकेट",
     fork: "फोर्क",
@@ -2488,10 +2499,10 @@ export default {
     openDesign: "Design खोलें",
     templatesCta: "Templates देखें",
     previewLabel: "स्थानीय पूर्वावलोकन",
-    layoutLabel: "Screen layout save करने के लिए ready",
+    layoutLabel: "पेज लेआउट सहेजने के लिए तैयार है",
   },
   templatesPage: {
-    previewEmpty: "इस टेम्पलेट में पूर्वावलोकन के लिए कोई स्क्रीन नहीं है।",
+    previewEmpty: "इस टेम्पलेट में प्रीव्यू करने लायक कोई पेज नहीं है।",
     loading: "टेम्पलेट लोड हो रहे हैं",
     title: "टेम्पलेट",
     description:
@@ -2553,8 +2564,8 @@ export default {
     commentsTab: "टिप्पणियाँ · {{count}}",
     commentsTitle: "समीक्षा टिप्पणियाँ",
     commentNumber: "समीक्षा टिप्पणी {{count}}",
-    thisScreen: "यह स्क्रीन",
-    allScreens: "सभी स्क्रीन",
+    thisScreen: "यह पेज",
+    allScreens: "सभी पेज",
     signInToComment: "टिप्पणी करने के लिए साइन इन करें",
     panelTitle: "प्रतिक्रिया",
     placeholder: "अपनी प्रतिक्रिया दें…",
@@ -2701,7 +2712,7 @@ export default {
         permission: "अब आपके पास संपादन की पहुँच नहीं है",
         threadUnavailable: "यह थ्रेड अब खुला नहीं है",
         targetChanged: "एजेंट के काम करते समय डिज़ाइन बदल गया",
-        applyUnavailable: "एजेंट इस स्क्रीन को संपादित नहीं कर सकता",
+        applyUnavailable: "एजेंट इस पेज को संपादित नहीं कर सकता",
         applyIncomplete:
           "डिज़ाइन बदल दिया गया, पर थ्रेड हल नहीं हुआ। बदलाव की समीक्षा करें।",
         cancelledAfterEdit:

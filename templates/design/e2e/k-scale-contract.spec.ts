@@ -847,7 +847,7 @@ test("a refused K-scale source update restores the live preview, saves nothing, 
   page,
 }) => {
   const selectorMissing =
-    "The selected element has no editable match in this screen's source. If a component renders it, apply the change through the agent.";
+    "The selected element has no editable match in this page's source. If a component renders it, apply the change through the agent.";
   app.allowFailure(
     /^error toast The selected element has no editable match/,
     "the scenario's refusal is reported",

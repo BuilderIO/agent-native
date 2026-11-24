@@ -110,31 +110,95 @@ const database = {
   githubDetailFolder: "フォルダー",
   githubDetailBranch: "ブランチ",
   githubDetailVersion: "バージョン",
-  githubDetailUpdated: "最終更新",
-  githubCheckForUpdates: "更新を確認",
+  sourceDetailUpdated: "最終更新",
   githubOpenFolder: "GitHub で開く",
-  githubUnlinkFolder: "フォルダーのリンクを解除…",
   githubUnlinkTitle: "この GitHub フォルダーのリンクを解除しますか？",
   githubUnlinkBodyOne:
     "1 ページはここに残り、編集できる通常のページになります。GitHub での変更は今後反映されません。あとでこのフォルダーをもう一度リンクするには、新しいコレクションを使います。",
   githubUnlinkBody:
     "{{count}} ページはここに残り、編集できる通常のページになります。GitHub での変更は今後反映されません。あとでこのフォルダーをもう一度リンクするには、新しいコレクションを使います。",
-  githubUnlink: "リンクを解除",
-  githubUnlinking: "リンクを解除しています…",
-  githubUnlinkedToast:
+  sourceUnlinkConfirm: "リンクを解除",
+  sourceUnlinking: "リンクを解除しています…",
+  sourceUnlinkedToast:
     "リンクを解除しました。ページはそのまま残り、編集できるようになりました。",
-  githubUnlinkFailed: "フォルダーのリンクを解除できませんでした",
+  sourceSyncNow: "今すぐ同期",
+  sourceUnlink: "リンクを解除…",
+  sourceUnlinkFailed: "リンクを解除できませんでした",
+  sourceFromBuilderModel: "Builder の {{name}} モデルから",
+  sourceDetailsFromBuilderModel: "Builder の {{name}} モデルからの詳細",
+  sourceDetailsFromNotionDatabase: "Notion の {{name}} データベースからの詳細",
+  sourceDetailModel: "モデル",
+  sourceDetailDatabase: "データベース",
+  sourceUnlinkBuilderTitle: "この Builder モデルのリンクを解除しますか？",
+  sourceUnlinkBuilderBodyOne:
+    "1 ページはここに残り、編集できる通常のページになります。Builder での変更は今後反映されません。",
+  sourceUnlinkBuilderBody:
+    "{{count}} ページはここに残り、編集できる通常のページになります。Builder での変更は今後反映されません。",
+  sourceUnlinkNotionTitle: "この Notion データベースのリンクを解除しますか？",
+  sourceUnlinkNotionBodyOne:
+    "1 ページはここに残り、引き続き編集できます。Notion からの詳細は今後反映されません。",
+  sourceUnlinkNotionBody:
+    "{{count}} ページはここに残り、引き続き編集できます。Notion からの詳細は今後反映されません。",
+  sourceProblemNotion: "Notion から更新できませんでした。",
+  sourceProblemBuilder: "Builder から更新できませんでした。",
+  sourceShowingDetailsAsOf: "{{time}}の時点の詳細を表示しています。",
+  notionSyncedToast: "Notion から更新しました。",
   githubFromFolder: "GitHub の {{folder}} フォルダーから",
   githubFromRepo: "GitHub の {{repo}} から",
-  githubUpdatedAgo: "更新：{{time}}",
-  githubJustNow: "たった今",
-  githubNotUpdatedYet: "まだ更新されていません",
+  sourceUpdatedAgo: "更新：{{time}}",
+  sourceJustNow: "たった今",
+  sourceNotUpdatedYet: "まだ更新されていません",
   githubEditOnGitHub: "GitHub で編集",
-  githubDetails: "詳細",
+  sourceDetails: "詳細",
   githubNotShownOne: "1 個のファイルは表示されていません",
   githubNotShown: "{{count}} 個のファイルは表示されていません",
   githubNotShownHeading: "表示されていないファイル",
-  githubShowingAsOf: "{{time}}の時点のページを表示しています。",
+  sourceShowingPagesAsOf: "{{time}}の時点のページを表示しています。",
+  sourcePanelFromGitHubFolder:
+    "ページは {{repo}} の {{folder}} フォルダーから取り込まれます。",
+  sourcePanelFromGitHubRepo: "ページは {{repo}} から取り込まれます。",
+  sourcePanelFromBuilderModel: "ページは {{name}} モデルから取り込まれます。",
+  sourcePanelDetailsFromBuilderModel:
+    "詳細は {{name}} モデルから取り込まれ、ここで一致するページに追加されます。",
+  sourcePanelDetailsFromNotionDatabase:
+    "詳細は {{name}} データベースから取り込まれ、ここで一致するページに追加されます。",
+  sourceUpToDate: "最新 · {{time}}に確認",
+  sourceNoDetailsChosen: "まだ詳細が選択されていません。",
+  sourceLoadingPageContent:
+    "ページの内容を読み込み中: {{total}} 件中 {{done}} 件",
+  sourceEditingGitHub:
+    "これらのページはここでは編集できません。GitHub で編集してください。",
+  sourceEditingNotion:
+    "Notion の詳細はここでは編集できません。Notion で編集してください。",
+  sourceEditingBuilderDetails:
+    "Builder の詳細はここでは編集できません。Builder で編集してください。",
+  sourceEditingBuilderReadOnly: "ここでの編集は Builder に送信されません。",
+  sourceEditingBuilderStageOnly:
+    "ここでの編集はレビュー用に Builder に保存され、公開はされません。",
+  sourceEditingBuilderPublish:
+    "ここでの編集はレビュー後に公開中のサイトに反映されます。",
+  sourceNoChangesWaiting: "保留中の変更はありません",
+  sourcePagesChangedOne: "1 ページが変更されました",
+  sourcePagesChanged: "{{count}} ページが変更されました",
+  sourceChangesCheckFailed: "変更を確認できませんでした。",
+  sourceReviewAndSend: "レビューして送信",
+  sourceMore: "詳細設定",
+  sourceBuilderEditsHeading: "編集内容の扱い",
+  sourceBuilderEditsDontSend: "送信しない",
+  sourceBuilderEditsSaveForReview: "レビュー用に Builder に保存",
+  sourceBuilderEditsPublish: "公開中のサイトに公開",
+  sourceBuilderPublishConfirmTitle: "編集内容を公開中のサイトに公開しますか？",
+  sourceBuilderPublishConfirmBody:
+    "レビュー後にここから送信した編集内容は、すぐに公開中のサイトに反映されます。",
+  sourceMatchedOn: "ページは {{field}} で照合されます。",
+  sourceMatchedOnIgnoringCase:
+    "ページは {{field}} で照合されます（大文字と小文字は区別しません）。",
+  sourceMatchedOnCustom:
+    "ページは {{field}} で独自のルールにより照合されます。",
+  sourceUnlinkKeepsPages:
+    "ページはここに残り、自由に編集できるようになります。",
+  sourceUnlinkKeepsDetailPages: "ページはここに残り、引き続き編集できます。",
+  sourceChooseDetails: "詳細を選択",
   githubSyncingProgress:
     "変更を取り込んでいます：{{total}} 個中 {{done}} 個のファイル",
   githubPicturesWaiting:
@@ -363,7 +427,6 @@ const database = {
   addProperty: "プロパティを追加",
   back: "戻る",
   builderSpace: "Builder スペース",
-  connectNotionFirst: "最初に Notion を接続",
   connected: "接続済み",
   builderBulkUpdateNotStaged: "Builder 一括更新はステージングされていません",
   builderBulkUpdateStaged: "Builder 一括更新をステージングしました",
@@ -372,8 +435,6 @@ const database = {
     "Builder の書き込みモードは変更されませんでした",
   closeDatabaseSettings: "コレクション設定を閉じる",
   closeSearch: "検索を閉じる",
-  databaseRowsAndLocalPropertiesWereKeptIntact:
-    "コレクション行とローカルプロパティは保持されました。",
   failedToAttachSource: "ソースを接続できませんでした",
   failedToCreateRow: "行を作成できませんでした",
   pageCreatedCollectionRefreshFailed:
@@ -455,8 +516,6 @@ const database = {
   searchProperties: "プロパティを検索",
   somethingWentWrong: "問題が発生しました",
   sort: "並べ替え",
-  sourceDisconnected: "ソースを切断しました",
-  sourceWasNotDisconnected: "ソースは切断されませんでした",
   sources: "ソース",
   table: "テーブル",
   tryAgain: "もう一度お試しください。",
@@ -710,6 +769,16 @@ const editor = {
   githubSourceReadOnly:
     "表示のみ。このページは GitHub のファイルに連動し、push のたびに更新されます。",
   githubSourceOpenFile: "GitHub で開く",
+  syncedPageBuilder: "このページは Builder の {{name}} モデルから来ています。",
+  syncedPageBuilderReadOnly: "ここでの編集は Builder に送信されません。",
+  syncedPageBuilderStageOnly:
+    "ここでの編集はレビュー後に Builder に保存できますが、公開されることはありません。",
+  syncedPageBuilderPublish:
+    "ここでの編集はレビュー後に Builder に公開できます。",
+  syncedPageNotion:
+    "このページの一部の詳細は Notion の {{name}} データベースから来ており、ここでは表示のみです。",
+  syncedPageSourceUnreadable: "このページの取得元を確認できませんでした。",
+  syncedPageCheckAgain: "再試行",
   textColor: "テキストの色",
   resizeColumns: "列の幅を変更",
   backgroundColor: "背景色",
@@ -1772,7 +1841,6 @@ const overrides = {
     builderRowsLoadingBackground:
       "Builder はバックグラウンドで行を読み込み続けています。",
     attachingReadOnly: "接続中 · 読み取り専用",
-    builderRowsLoadingHitSnag: "Builder 行の読み込みで問題が発生しました。",
     opening: "開いています...",
   },
   localFiles: localFiles,

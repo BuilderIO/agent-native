@@ -490,7 +490,7 @@ function BlendModeMenu({
         {BLEND_MENU_OPTIONS.map((option) => (
           <DropdownMenuItem
             key={option.value}
-            className="flex cursor-pointer items-center focus:bg-[var(--design-editor-control-bg)]"
+            className="flex cursor-pointer items-center"
             onSelect={() => onSelect(option.value)}
           >
             <span className="flex size-4 shrink-0 items-center justify-center">

@@ -13745,6 +13745,16 @@ function handleWindowOpenForContents(
     !mainWindow.webContents.isDestroyed() &&
     contents.id === mainWindow.webContents.id,
   );
+  const appId = desktopWebviewAppIds.get(contents) ?? null;
+  if (
+    contents.getType() === "webview" &&
+    appId === "decks-2" &&
+    url === "about:blank" &&
+    isTrustedPermissionRequest(contents, appId)
+  ) {
+    return { action: "allow" as const };
+  }
+
   if (isTrustedShell && handleDesktopProtocolUrl(url)) {
     return { action: "deny" as const };
   }
@@ -13859,6 +13869,12 @@ app.on("web-contents-created", (_event, contents) => {
   installDesktopWebviewHealthLogging(contents);
   installWebviewReloadGuard(contents);
   installWebviewOAuthNavigationHandler(contents);
+
+  contents.on("did-create-window", (child, details) => {
+    if (details.url !== "about:blank") return;
+    child.webContents.on("will-navigate", (event) => event.preventDefault());
+    child.webContents.on("will-redirect", (event) => event.preventDefault());
+  });
 
   contents.setWindowOpenHandler(({ url }) => {
     return handleWindowOpenForContents(contents, url);
