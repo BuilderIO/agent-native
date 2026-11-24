@@ -612,9 +612,8 @@ describe("Fill with AI", () => {
       }),
     );
     await firstStarted;
-    const fillId = (agents.spawned[0]!.scope as { id: string }).id.split(
-      ":",
-    )[0]!;
+    const scope = agents.spawned[0]?.scope as { id: string } | undefined;
+    const fillId = scope?.id.split(":")[0] ?? "";
     const readCell = async () =>
       (
         await getDb()
