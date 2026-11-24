@@ -341,3 +341,22 @@ it("shows explicit null and boolean values in the review", async () => {
   expect(dialog?.textContent).toContain("AssigneeNone");
   expect(dialog?.textContent).toContain("EnabledNo");
 });
+
+it("summarizes the action and its arguments as labeled text", async () => {
+  const thread = doneThread();
+  thread.tools.turn = {
+    id: "turn",
+    name: "propose-action-suggestions",
+    runId: "run",
+    status: "completed",
+    output: { suggestions: [automation] },
+  };
+  mocks.useThread.mockReturnValue(thread);
+  await render();
+  await act(async () => chip(automation.label)?.click());
+  const text = document.querySelector('[role="dialog"]')?.textContent ?? "";
+  expect(text).toContain("ActionCreate reminder");
+  expect(text).toContain("Appworkspace/mail");
+  expect(text).toContain("Cadencedaily");
+  expect(text).not.toMatch(/[{}"]/);
+});

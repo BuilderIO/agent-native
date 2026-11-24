@@ -18,6 +18,8 @@ export default {
       suggestionNullValue: "なし",
       suggestionYesValue: "はい",
       suggestionNoValue: "いいえ",
+      suggestionActionLabel: "アクション",
+      suggestionAppLabel: "アプリ",
       openExistingApp: "アプリを開く",
       openInBuilder: "Builder で開く",
       actionSuggestionAccepted: "提案を受け付けました。",
