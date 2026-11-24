@@ -78,6 +78,7 @@ describe("Content source field write policy", () => {
       sourceFieldKey: "data.author",
       sourceType: "builder-cms",
       sourceTable: "agent-native-blog-article-test",
+      sourceMetadataJson: "{}",
     };
     expect(contentDatabaseSourceFieldSavesEditsToSource(author)).toBe(true);
     expect(
@@ -94,6 +95,16 @@ describe("Content source field write policy", () => {
           federation: { role: "secondary" },
         }),
       },
+      {
+        ...author,
+        sourceMetadataJson: JSON.stringify({ federation: { role: "other" } }),
+      },
+      { ...author, sourceMetadataJson: JSON.stringify({ federation: {} }) },
+      { ...author, sourceMetadataJson: "not json" },
+      { ...author, sourceMetadataJson: "" },
+      { ...author, sourceMetadataJson: "null" },
+      { ...author, sourceMetadataJson: null },
+      { ...author, sourceMetadataJson: undefined },
       { ...author, sourceTable: "blog-article" },
       { ...author, sourceType: "notion-database" },
       { ...author, readOnly: 1 },
@@ -115,6 +126,7 @@ describe("Content source field write policy", () => {
       mappingType: "property",
       sourceType: "builder-cms",
       sourceTable: "agent-native-blog-article-test",
+      sourceMetadataJson: "{}",
     };
     expect(
       contentDatabaseSourceWritebackPropertyIds([

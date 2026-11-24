@@ -51,7 +51,7 @@ export function contentDatabaseSourceFieldSavesEditsToSource(field: {
   return (
     field.sourceType === "builder-cms" &&
     field.sourceTable === BUILDER_CMS_SAFE_WRITE_MODEL &&
-    !sourceIsFederationSecondary(field.sourceMetadataJson) &&
+    sourceOwnsItsRows(field.sourceMetadataJson) &&
     field.mappingType === "property" &&
     typeof field.sourceFieldKey === "string" &&
     field.sourceFieldKey.startsWith("data.") &&
@@ -61,17 +61,22 @@ export function contentDatabaseSourceFieldSavesEditsToSource(field: {
   );
 }
 
-function sourceIsFederationSecondary(metadataJson: unknown) {
-  if (typeof metadataJson !== "string" || !metadataJson.trim()) return false;
+function sourceOwnsItsRows(metadataJson: unknown) {
+  if (typeof metadataJson !== "string") return false;
   try {
     const metadata: unknown = JSON.parse(metadataJson);
-    return (
-      typeof metadata === "object" &&
-      metadata !== null &&
-      (metadata as { federation?: { role?: unknown } }).federation?.role ===
-        "secondary"
-    );
-    // coercion-ok: metadata that doesn't parse names no federation role, as the table query reads it
+    if (
+      typeof metadata !== "object" ||
+      metadata === null ||
+      Array.isArray(metadata)
+    ) {
+      return false;
+    }
+    const { federation } = metadata as {
+      federation?: { role?: unknown } | null;
+    };
+    return federation == null || federation.role === "primary";
+    // coercion-ok: metadata that doesn't parse can't show the source owns its rows, so nothing saves back
   } catch {
     return false;
   }
