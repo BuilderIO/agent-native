@@ -794,6 +794,16 @@ const editor = {
     moveChanged: "O bloco mudou antes de ser movido, então nada foi movido.",
     moveFailed: "Não foi possível mover o bloco para {{title}}",
     openPage: "Abrir",
+    copyLink: "Copiar link",
+    linkCopied: "Link copiado",
+    copyLinkFailed: "Não foi possível copiar o link",
+    linkNotReady:
+      "O link deste bloco ainda não está pronto. Tente de novo em instantes.",
+    linkedBlockDeleted: "O bloco para o qual este link aponta foi excluído.",
+    linkedBlockMissing:
+      "Não foi possível encontrar o bloco para o qual este link aponta.",
+    linkedBlockLookupFailed:
+      "Não foi possível abrir o bloco para o qual este link aponta. Recarregue a página para tentar de novo.",
   },
   noDocumentSelected: "Nenhum documento selecionado",
   registryBlockLoadError:
@@ -927,6 +937,9 @@ const editor = {
     imageUploadsFailed:
       "Não foi possível enviar {{failed}} de {{total}} imagens.",
     imageView: "Visualização de imagem",
+    imagePosition: "{{current}} de {{total}}",
+    nextImage: "Próxima imagem",
+    previousImage: "Imagem anterior",
     keptYourAltText: "Seu texto alternativo foi mantido.",
     link: "Ligação",
     loadingAssetsPicker: "Carregando seletor de ativos",

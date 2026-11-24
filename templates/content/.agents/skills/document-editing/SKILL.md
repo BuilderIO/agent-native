@@ -308,6 +308,15 @@ that changes text on both sides of a cell or frame edge, adds or removes
 table rows or cells or a column, or changes a callout's icon, a toggle's
 title, or an image, fails with `suggestion_structure_unsupported`.
 
+When an edit answers a comment, as when the user asks you to address a page's
+open comments, pass that comment's `id` from `list-comments` as `commentId`, so
+its suggestion card links to the comment. Make a separate call for each comment.
+The comment must be open and on the page body: a resolved one fails with
+`SUGGESTION_COMMENT_RESOLVED`, one on a Property or in another Blocks field tab
+with `SUGGESTION_COMMENT_NOT_ON_BODY`, and an id not on the page with
+`SUGGESTION_COMMENT_NOT_FOUND`. If the edit answers such a comment anyway, leave
+`commentId` off.
+
 Use `suggest-document-edit` for every suggested body edit. The generic
 `create-resource-suggestion` action remains for advanced proposals that build
 typed Page-body operations by hand: `resourceType: "document"`, adapter kind
@@ -600,6 +609,19 @@ Who can open the page and who can open the dashboard can differ:
 
 Analytics refusals (`analytics_refused`, such as a dashboard the person can't
 open) come back with Analytics' own reason; pass it on.
+
+### Link cards
+
+A `<LinkCard app="design" url="…" />` block shows a link to a design, a
+Slides deck, or a Clips recording (`app` is `design`, `slides` or `clips`) as
+a card. The page stores only the app and the link. Each reader's card asks the
+owning app for the item's title as that reader, so someone who can't open the
+item sees the app's name and the link, and Markdown, HTML and PDF exports
+carry the plain link. When people paste such a link alone on a line of a page
+they can edit, Content makes the card for them; a link to one Design screen
+becomes a pinned picture instead (see Design screens), and a link that carries
+a token or key, such as a Clips agent link, stays a plain link. To add a card,
+write the tag with `edit-document` as its own block; never put a title in it.
 
 ### Design screens
 

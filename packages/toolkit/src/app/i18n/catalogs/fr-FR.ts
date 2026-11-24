@@ -1467,6 +1467,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Le schéma d’un outil n’était pas valide. Le modèle a donc rejeté la demande avant son démarrage. Vous pouvez ignorer cet outil et réessayer.",
   "errorMessages.malformedRequest":
     "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
+  "errorMessages.requestNotRead":
+    "Le modèle n’a pas pu lire cette demande car elle était trop volumineuse ou trop complexe, par exemple à cause d’un trop grand nombre d’outils, elle n’a donc pas été réessayée. Démarrez une nouvelle conversation ou choisissez un autre modèle.",
   "errorMessages.requestTooLarge":
     "Cette requête a dépassé la limite de taille du serveur (HTTP 413). Démarrez un nouveau chat ou supprimez les pièces jointes ou références volumineuses, puis réessayez.",
   "errorMessages.capabilityUnavailable":

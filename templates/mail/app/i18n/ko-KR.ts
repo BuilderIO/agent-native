@@ -653,7 +653,7 @@ const messages = {
       instructionsTitle: "지침",
       instructionCount: "지침 {{count}}개",
       instructionPlaceholder:
-        "예: “question for you, Steve” 같은 제목은 원하지 않음",
+        "예: “quick question for you” 같은 제목은 원하지 않음",
       addInstruction: "추가",
       noInstructions: "아직 지침이 없습니다.",
       instructionExample:
@@ -912,6 +912,7 @@ const messages = {
     autocomplete: "자동 완성",
     sendAndMarkDone: "보내고 완료로 표시",
     autocompleteSaveFailed: "자동 완성 설정을 저장하지 못했습니다.",
+    signaturePlaceholder: "감사합니다.\n이름",
     writingStylePlaceholder:
       "짧고 구체적이며 따뜻하게. 형식적인 군더더기는 피하세요.",
     saveDraftingSettings: "작성 설정 저장",

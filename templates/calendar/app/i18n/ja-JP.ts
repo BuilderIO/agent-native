@@ -572,6 +572,12 @@ export default {
     custom: "カスタム",
     customLink: "カスタムリンク",
     customLinkDescription: "会議 URL を貼り付けます",
+    reminderEmail: "リマインダーメール",
+    reminderEmailDescription:
+      "予約した人と、その人が追加したゲストに送信されます。",
+    reminderOff: "リマインダーなし",
+    reminderOneHour: "1時間前",
+    reminderOneDay: "1日前",
     date: "日付",
     dateAndTime: "日時",
     dateSelection: "日付選択",

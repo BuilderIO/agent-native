@@ -4045,20 +4045,20 @@ const AgentKitAssistantChatBody = forwardRef<
       );
       const announced = announceComposerSubmit(text, runWasActiveAtSubmit);
       setContinueSubmissionFailed(false);
-      const release = await acquireSubmission();
-      if (!release) {
-        withdrawAgentChatComposerSubmit(announced);
-        throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
-      }
-      noticeAttempt.promote();
       const pending =
         !runWasActiveAtSubmit && !composerOptions.submissionId
           ? beginSubmittedMessage(text, files)
           : undefined;
-      if (pending) {
-        composerOptions = { ...composerOptions, submissionId: pending.id };
-      }
+      let release: (() => void) | null = null;
       try {
+        release = await acquireSubmission();
+        if (!release) {
+          throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
+        }
+        noticeAttempt.promote();
+        if (pending) {
+          composerOptions = { ...composerOptions, submissionId: pending.id };
+        }
         const preparedOptions = prepare
           ? { ...(await prepare()), submissionId: composerOptions.submissionId }
           : composerOptions;
