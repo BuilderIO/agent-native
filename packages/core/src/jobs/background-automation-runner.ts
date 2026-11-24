@@ -1500,7 +1500,7 @@ async function surfaceAutomationActions(
   run: {
     automation: BackgroundAutomationContext;
     ownerEmail: string;
-    orgId?: string;
+    orgId?: string | undefined;
   },
 ): Promise<Record<string, ActionEntry>> {
   if (!deps.resolveActionSurface) return actions;

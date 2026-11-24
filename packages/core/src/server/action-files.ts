@@ -1,9 +1,6 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 
-// Marked like ActionDefinitionError so discovery rethrows it instead of
-// downgrading it to a warning. Not imported: this file loads in vite config,
-// where action.ts's runtime graph must stay out.
 class ActionNameCollisionError extends TypeError {
   readonly actionDefinitionError = true;
   constructor(message: string) {

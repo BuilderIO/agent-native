@@ -259,8 +259,6 @@ export function searchToolRegistry(
           message: [output.message, truncationNote].filter(Boolean).join(" "),
         }
       : output;
-  // A query that is only known action names (`list-projects, get-project`) is
-  // an exact lookup, not a capability search that would rank near-matches.
   const exactNames = [...names];
   const fuzzyQueries: string[] = [];
   for (const query of queries) {
@@ -319,7 +317,7 @@ function knownActionNames(
   if (words.length === 0) return undefined;
   const byLowerName = new Map<string, string>();
   for (const [name, entry] of Object.entries(registry)) {
-    if (entry?.tool && name !== TOOL_SEARCH_ACTION_NAME) {
+    if (name !== TOOL_SEARCH_ACTION_NAME) {
       byLowerName.set(name.toLowerCase(), name);
     }
   }
