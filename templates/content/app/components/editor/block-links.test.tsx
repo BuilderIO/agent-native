@@ -364,6 +364,30 @@ describe("block links", () => {
     expect(target.state.doc.child(1).attrs[BLOCK_IDENTITY_ATTR]).toBeNull();
   });
 
+  it("reads no ID after a save that couldn't reach the server", async () => {
+    const target = open("Apples\nPears");
+    const { shape } = editorDocBlockIds(target.state.doc);
+    const save = vi.fn(async () => false);
+    hooks.callAction
+      .mockResolvedValueOnce({ ids: null })
+      .mockResolvedValueOnce({
+        ids: { shape, idsByPath: { "0": "block_apples", "1": "block_pears" } },
+      });
+
+    await expect(
+      blockLinkId({
+        editor: target,
+        block: blockAt(target, 1),
+        documentId: "doc-1",
+        save,
+        stamp: true,
+      }),
+    ).resolves.toBeNull();
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(hooks.callAction).toHaveBeenCalledTimes(1);
+    expect(editorDocBlockIds(target.state.doc).idsByPath).toEqual({});
+  });
+
   it("gives no ID for a block deleted while the save runs", async () => {
     const target = open("Apples\nPears");
     const block = blockAt(target, 1);

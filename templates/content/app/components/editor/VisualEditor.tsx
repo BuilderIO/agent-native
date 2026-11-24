@@ -5119,10 +5119,13 @@ export function VisualEditor({
         save: canWrite
           ? async () => {
               if (bodyIsLiveCopy) {
-                if (flushCollabUpdates)
-                  await flushBeforeSave(() =>
+                if (
+                  flushCollabUpdates &&
+                  !(await flushBeforeSave(() =>
                     flushCollabUpdates({ editsSoFar: true }),
-                  );
+                  ))
+                )
+                  return false;
                 await requestCollabSync?.();
               } else {
                 await persistEditorContent(editor, {
@@ -5130,6 +5133,7 @@ export function VisualEditor({
                   userInitiated: true,
                 });
               }
+              return true;
             }
           : undefined,
       }).then(copy, () =>

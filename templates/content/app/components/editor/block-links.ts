@@ -287,7 +287,7 @@ export async function blockLinkId(args: {
     for (const step of args.save ? [null, args.save] : [null]) {
       const id = held();
       if (id) return id;
-      if (step) await step();
+      if (step && (await step()) === false) return null;
       const doc = editor.state.doc;
       const { ids } = await readBodyBlockIds(documentId);
       if (!ids || editor.isDestroyed) continue;
