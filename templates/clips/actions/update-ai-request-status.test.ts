@@ -249,7 +249,7 @@ describe("update-ai-request-status", () => {
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
-  it("clears a failure marker atomically when a title retry completes", async () => {
+  it("keeps a failure marker when an agent run completes without proof of a title write", async () => {
     const current = {
       kind: "regenerate-title",
       status: "working",
@@ -271,18 +271,12 @@ describe("update-ai-request-status", () => {
         status: "completed",
       }),
     );
-    expect(mockCompareAndSetManyAppState).toHaveBeenCalledWith([
-      expect.objectContaining({
-        key: "clips-ai-request-status-rec_123",
-        expectedValue: current,
-        nextValue: expect.objectContaining({ status: "completed" }),
-      }),
-      expect.objectContaining({
-        key: "clips-ai-title-terminal-rec_123",
-        expectedValue: marker,
-        nextValue: expect.objectContaining({ suppressed: false }),
-      }),
-    ]);
+    expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
+      "clips-ai-request-status-rec_123",
+      current,
+      expect.objectContaining({ status: "completed" }),
+    );
+    expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
   });
 
   it("does not clear a marker for a stale title completion", async () => {

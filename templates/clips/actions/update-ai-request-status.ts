@@ -123,33 +123,26 @@ export default defineAction({
         ...(args.runId ? { runId: args.runId } : {}),
       };
       const unsuccessfulTitle = isUnsuccessfulTitleStatus(next);
-      const completedTitle =
-        args.status === "completed" &&
-        (args.kind === "regenerate-title" || args.kind === "generate-metadata");
       const markerKey = titleTerminalKey(args.recordingId);
-      const marker =
-        unsuccessfulTitle || completedTitle
-          ? await readAppState(markerKey)
-          : null;
-      const saved =
-        unsuccessfulTitle || (completedTitle && marker?.suppressed === true)
-          ? await compareAndSetManyAppState([
-              { key: statusKey, expectedValue: expected, nextValue: next },
-              {
-                key: markerKey,
-                expectedValue: marker,
-                nextValue: {
-                  kind: args.kind,
-                  status: args.status,
-                  requestedAt: args.requestedAt,
-                  ...(typeof expected.transcriptRevision === "string"
-                    ? { transcriptRevision: expected.transcriptRevision }
-                    : {}),
-                  suppressed: unsuccessfulTitle,
-                },
+      const marker = unsuccessfulTitle ? await readAppState(markerKey) : null;
+      const saved = unsuccessfulTitle
+        ? await compareAndSetManyAppState([
+            { key: statusKey, expectedValue: expected, nextValue: next },
+            {
+              key: markerKey,
+              expectedValue: marker,
+              nextValue: {
+                kind: args.kind,
+                status: args.status,
+                requestedAt: args.requestedAt,
+                ...(typeof expected.transcriptRevision === "string"
+                  ? { transcriptRevision: expected.transcriptRevision }
+                  : {}),
+                suppressed: true,
               },
-            ])
-          : await compareAndSetAppState(statusKey, expected, next);
+            },
+          ])
+        : await compareAndSetAppState(statusKey, expected, next);
       if (saved) {
         try {
           await writeAppState("refresh-signal", { ts: Date.now() });
