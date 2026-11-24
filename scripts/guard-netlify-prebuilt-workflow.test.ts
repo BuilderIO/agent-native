@@ -3506,8 +3506,6 @@ describe("production Netlify site concurrency guard", () => {
     assert.equal(untitled.outputs.current, "true");
     assert.match(untitled.infos[0] ?? "", /names no source commit/);
 
-    // Nor does one titled with a commit GitHub never had: the comparison
-    // 404s, and the source itself still has to exist.
     const notFound = () =>
       Object.assign(new Error("Not Found"), { status: 404 });
     const unknownLiveCommit = await runLiveCheck({
