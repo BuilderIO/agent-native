@@ -316,7 +316,7 @@ function knownActionNames(
   const words = query.split(/[\s,]+/).filter(Boolean);
   if (words.length === 0) return undefined;
   const byLowerName = new Map<string, string>();
-  for (const [name, entry] of Object.entries(registry)) {
+  for (const name of Object.keys(registry)) {
     if (name !== TOOL_SEARCH_ACTION_NAME) {
       byLowerName.set(name.toLowerCase(), name);
     }
