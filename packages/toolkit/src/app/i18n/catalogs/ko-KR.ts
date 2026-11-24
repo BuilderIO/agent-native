@@ -712,6 +712,8 @@ const messages: ToolkitAgentChatTranslation = {
     "도구 스키마가 올바르지 않아 모델이 요청 시작 전에 거부했습니다. 올바르지 않은 도구를 건너뛰고 요청을 다시 시도할 수 있습니다.",
   "errorMessages.malformedRequest":
     "모델 제공업체가 이 요청을 잘못된 형식으로 거부하여 재시도하지 않았습니다. 다시 시도하거나 문제가 계속되면 새 채팅을 시작하세요.",
+  "errorMessages.requestNotRead":
+    "요청이 너무 크거나 복잡해서(예: 도구가 너무 많음) 모델이 이 요청을 읽지 못했고, 재시도하지 않았습니다. 새 채팅을 시작하거나 다른 모델을 선택하세요.",
   "errorMessages.requestTooLarge":
     "이 요청은 서버 크기 제한을 초과했습니다(HTTP 413). 새 채팅을 시작하거나 큰 첨부 파일 또는 참조를 제거한 뒤 다시 시도하세요.",
   "errorMessages.capabilityUnavailable":

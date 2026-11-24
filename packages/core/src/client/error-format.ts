@@ -91,6 +91,8 @@ const MALFORMED_REQUEST_ATTACHMENT_MESSAGE =
   "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.";
 const MALFORMED_REQUEST_MESSAGE =
   "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.";
+const REQUEST_NOT_READ_MESSAGE =
+  "The model could not read this request because it was too large or complex, for example too many tools, so it was not retried. Start a new chat or pick a different model.";
 export const CHAT_REQUEST_TOO_LARGE_MESSAGE =
   "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.";
 export const CHAT_CAPABILITY_UNAVAILABLE_MESSAGE =
@@ -263,6 +265,7 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     "agentChat.errorMessages.malformedRequestAttachment",
   ],
   [MALFORMED_REQUEST_MESSAGE, "agentChat.errorMessages.malformedRequest"],
+  [REQUEST_NOT_READ_MESSAGE, "agentChat.errorMessages.requestNotRead"],
   [RUN_INTERRUPTED_MESSAGE, "agentChat.errorMessages.runInterrupted"],
   [RUN_FAILED_MESSAGE, "agentChat.errorMessages.runFailed"],
   [RUN_UNVERIFIED_MESSAGE, "agentChat.errorMessages.runUnverified"],
@@ -558,6 +561,10 @@ export function normalizeChatError(
         "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
       details: text,
     };
+  }
+
+  if (code === "request_not_read") {
+    return { message: REQUEST_NOT_READ_MESSAGE, details: text };
   }
 
   if (rejectedRequest && !isContextOverflowMessage(text)) {
