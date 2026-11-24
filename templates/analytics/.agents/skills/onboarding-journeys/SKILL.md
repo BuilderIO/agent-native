@@ -175,7 +175,10 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   `preparing`, `checking_cache`, `waiting_for_lock` (another call was
   running the same page), `authenticating` (getting BigQuery credentials),
   `submitting`, `checking_existing_job`, `polling`, `saving` or
-  `finished`. A
+  `finished`. A follow-up whose BigQuery query ran out of time reports the
+  same details, without a page number, in its
+  `coverage.followupAggregateRead.stoppedQuery`. An earlier job that failed has
+  BigQuery's own `failureCode`; `stopped` means the job was cancelled. A
   PostgreSQL-backed app has no jobs to collect, so a follow-up that ran out of
   its full 20 seconds gets a note to read a shorter range instead. In
   session mode the watermark pins event time but not receive time, so an event

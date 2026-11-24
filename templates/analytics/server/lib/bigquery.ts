@@ -124,6 +124,12 @@ function safeBigQueryReason(reason: unknown): BigQueryBackendReason {
     : "other";
 }
 
+function safeBigQueryReasonCode(reason: unknown): string | null {
+  return typeof reason === "string" && /^[A-Za-z]{1,40}$/.test(reason)
+    ? reason
+    : null;
+}
+
 function bigQueryReasonFromResponse(body: string): BigQueryBackendReason {
   try {
     const parsed = JSON.parse(body) as {
@@ -1078,6 +1084,7 @@ export interface BigQueryJobAttempt {
     submittedLength: number;
   };
   failureReason?: BigQueryBackendReason | null;
+  failureCode?: string | null;
   tooOld?: boolean;
   unreadable?: boolean;
 }
@@ -1346,6 +1353,13 @@ async function resumableJobState(
         failureReason: failed
           ? safeBigQueryReason(job.status?.errorResult?.reason)
           : null,
+        ...(failed
+          ? {
+              failureCode: safeBigQueryReasonCode(
+                job.status?.errorResult?.reason,
+              ),
+            }
+          : {}),
         ...(createdAt < createdAfter ? { tooOld: true } : {}),
       },
     };

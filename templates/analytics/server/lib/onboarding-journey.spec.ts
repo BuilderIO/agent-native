@@ -2566,6 +2566,64 @@ describe("getOnboardingJourney", () => {
     }
   });
 
+  it("says why each timed-out follow-up's earlier BigQuery jobs weren't collected", async () => {
+    const sessionJobs = [{ job: "new" as const, slot: 1 }];
+    const personJobs = [
+      {
+        job: "existing" as const,
+        slot: 1,
+        collectable: false,
+        state: "DONE",
+        ageSeconds: 180,
+        sameQuery: true,
+        failureReason: "other" as const,
+        failureCode: "stopped",
+      },
+      { job: "new" as const, slot: 2 },
+    ];
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (
+        sql: string,
+        _scope: unknown,
+        options: { trace: BigQueryQueryTrace },
+      ) => {
+        if (sql.includes("journey_total_rows")) {
+          return { rows: journeyRows(), schema: [] };
+        }
+        const { trace } = options;
+        trace.jobs.push(
+          ...(sql.includes("authUserId") ? personJobs : sessionJobs),
+        );
+        trace.stage = "polling";
+        trace.polls = 3;
+        throw new FirstPartyAnalyticsQueryTimeoutError();
+      },
+    );
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      followUpMode: "person",
+      format: "summary",
+    })) as JourneySummary;
+
+    expect(summary.followUp).toMatchObject({
+      incompleteReason: "followup_aggregate_query_timeout",
+      coverage: {
+        followupAggregateRead: {
+          stoppedQuery: { stage: "polling", jobs: sessionJobs, polls: 3 },
+        },
+      },
+    });
+    expect(summary.personFollowUp).toMatchObject({
+      incompleteReason: "person_followup_query_timeout",
+      coverage: {
+        followupAggregateRead: {
+          stoppedQuery: { stage: "polling", jobs: personJobs, polls: 3 },
+        },
+      },
+    });
+  });
+
   it.each(["postgres", "dual"] as const)(
     "does not offer a retry when a %s-backed follow-up had a query's full time",
     async (sink) => {
@@ -2587,6 +2645,9 @@ describe("getOnboardingJourney", () => {
         status: "incomplete",
         incompleteReason: "followup_aggregate_query_timeout",
       });
+      expect(
+        summary.followUp?.coverage.followupAggregateRead,
+      ).not.toHaveProperty("stoppedQuery");
       expect(summary.notes).toEqual([
         expect.stringMatching(
           /needed more than the 20 seconds one query may run, so calling again will not finish it/,
