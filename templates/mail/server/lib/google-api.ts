@@ -1,5 +1,6 @@
 import {
   acquireGmailQuota,
+  assertGmailTokenNotCoolingDown,
   GmailQuotaAccountUnavailableError,
   GmailQuotaCooldownError,
   markGmailQuotaSuccess,
@@ -271,7 +272,7 @@ export async function googleFetch(
   const maxRetries = 3;
   const method = requestOptions.method?.toUpperCase() ?? "GET";
   const canRetry = method === "GET" || method === "HEAD";
-  const gmailRequest = url.includes("gmail.googleapis.com");
+  const gmailRequest = new URL(url).hostname === "gmail.googleapis.com";
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     signal?.throwIfAborted();
@@ -765,10 +766,10 @@ async function gmailBatchGet(
     ids.length * costPerItem,
     lane,
   );
-  signal?.throwIfAborted();
 
   const results: GmailBatchResult[] = [];
   for (let i = 0; i < ids.length; i += MAX_PARTS_PER_GMAIL_BATCH_REQUEST) {
+    if (i > 0) await assertGmailTokenNotCoolingDown(accessToken);
     const part = await sendGmailBatch(
       accessToken,
       ids.slice(i, i + MAX_PARTS_PER_GMAIL_BATCH_REQUEST),
