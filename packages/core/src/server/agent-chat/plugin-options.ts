@@ -36,6 +36,8 @@ export interface AgentChatPluginOptions {
     scope: AgentChatScope,
     run: Pick<ActiveRun, "threadId" | "runId">,
   ) => void | Promise<void>;
+  /** Fail the run if onAgentTurnStart fails instead of treating it as best-effort. */
+  requireAgentTurnStart?: boolean;
   onAgentTurnComplete?: (
     scope: AgentChatScope,
     run: ActiveRun,

@@ -33,6 +33,7 @@ import {
   type ComponentDeletionGeometry,
 } from "../../shared/component-archive.js";
 import { shouldUseLiveFileContent } from "../../shared/html-content.js";
+import { SOURCE_VERSION_CONFLICT_ERROR_CODE } from "../../shared/save-conflict.js";
 import { getDb, schema } from "../db/index.js";
 import {
   affectedRowCount,
@@ -49,6 +50,7 @@ import { buildDesignSnapshot, type SnapshotFile } from "./design-snapshot.js";
 import { visualEditCapabilityDesignScope } from "./visual-edit-capability.js";
 
 const CHAT_VERSION_LOOKBACK = 100;
+const CHAT_START_CHECKPOINT_ATTEMPTS = 3;
 const MAX_INLINE_DESIGN_VERSION_BYTES = 256 * 1024;
 const EDITOR_CHECKPOINT_THROTTLE_MS = 5 * 60 * 1000;
 
@@ -1017,68 +1019,96 @@ async function seedDesignVersionSourceCollaboration(
   designId: string,
   accessLevel: "editor" | "viewer",
 ): Promise<void> {
-  await withPreparedDesignVersionSourceFilesWithAccess(
-    designId,
-    async (prepared) =>
-      withDesignSourceMutationTransaction(designId, async (transaction) => {
-        await assertAccess("design", designId, accessLevel);
-        const fileRows = await transaction
-          .select()
-          .from(schema.designFiles)
-          .where(eq(schema.designFiles.designId, designId))
-          .for("update");
-        const sortedRows = [...fileRows].sort((left, right) =>
-          compareDesignFileIds(left.id, right.id),
-        );
-        if (
-          sortedRows.length !== prepared.fileIds.length ||
-          sortedRows.some((file, index) => file.id !== prepared.fileIds[index])
-        ) {
-          throw new DesignVersionCheckpointChangedError();
-        }
-
-        const transactionExec = getDesignSourceMutationExec(
-          transaction as object,
-        );
-        for (const file of sortedRows) {
-          const lease = prepared.leases.get(file.id);
-          if (!lease) throw new DesignVersionCheckpointChangedError();
-
-          let collaboration: Awaited<
-            ReturnType<typeof lockPreparedSourceCollaboration>
-          >;
-          try {
-            collaboration = await lockPreparedSourceCollaboration(
-              transactionExec,
-              file.id,
-              lease,
+  const outcome = { callbackCompleted: false, rollbackConfirmed: false };
+  const transactionState = { started: false };
+  try {
+    await withPreparedDesignVersionSourceFilesWithAccess(
+      designId,
+      async (prepared) => {
+        transactionState.started = true;
+        return withDesignSourceMutationTransaction(
+          designId,
+          async (transaction) => {
+            await assertAccess("design", designId, accessLevel);
+            const fileRows = await transaction
+              .select()
+              .from(schema.designFiles)
+              .where(eq(schema.designFiles.designId, designId))
+              .for("update");
+            const sortedRows = [...fileRows].sort((left, right) =>
+              compareDesignFileIds(left.id, right.id),
             );
-          } catch (error) {
             if (
-              lease.baseVersion === null &&
-              error instanceof SourceWorkspaceEditConflictError
+              sortedRows.length !== prepared.fileIds.length ||
+              sortedRows.some(
+                (file, index) => file.id !== prepared.fileIds[index],
+              )
             ) {
               throw new DesignVersionCheckpointChangedError();
             }
-            throw error;
-          }
-          if (!collaboration.needsSeed) continue;
 
-          const storedContent = file.content ?? "";
-          applyTextToYDoc(lease.doc, "content", storedContent, "agent");
-          try {
-            await lease.persist(transactionExec, storedContent);
-          } catch (error) {
-            if (error instanceof CollabBaseVersionConflictError) {
-              throw new DesignVersionCheckpointChangedError();
+            const transactionExec = getDesignSourceMutationExec(
+              transaction as object,
+            );
+            for (const file of sortedRows) {
+              const lease = prepared.leases.get(file.id);
+              if (!lease) throw new DesignVersionCheckpointChangedError();
+
+              let collaboration: Awaited<
+                ReturnType<typeof lockPreparedSourceCollaboration>
+              >;
+              try {
+                collaboration = await lockPreparedSourceCollaboration(
+                  transactionExec,
+                  file.id,
+                  lease,
+                );
+              } catch (error) {
+                if (
+                  error instanceof SourceWorkspaceEditConflictError &&
+                  error.errorCode === SOURCE_VERSION_CONFLICT_ERROR_CODE
+                ) {
+                  throw new DesignVersionCheckpointChangedError();
+                }
+                throw error;
+              }
+              if (!collaboration.needsSeed) continue;
+
+              const storedContent =
+                (file.content as string | null | undefined) ?? "";
+              applyTextToYDoc(lease.doc, "content", storedContent, "agent");
+              try {
+                await lease.persist(transactionExec, storedContent);
+              } catch (error) {
+                if (error instanceof CollabBaseVersionConflictError) {
+                  throw new DesignVersionCheckpointChangedError();
+                }
+                throw error;
+              }
             }
-            throw error;
-          }
-        }
-      }),
-    [],
-    accessLevel,
-  );
+          },
+          outcome,
+        );
+      },
+      [],
+      accessLevel,
+    );
+  } catch (error) {
+    if (
+      error instanceof DesignVersionCheckpointChangedError &&
+      transactionState.started &&
+      !outcome.rollbackConfirmed
+    ) {
+      throw Object.defineProperty(
+        new Error(
+          "Design collaboration seed transaction outcome is uncertain.",
+        ),
+        "cause",
+        { value: error, configurable: true, writable: true },
+      );
+    }
+    throw error;
+  }
 }
 
 async function prepareDesignVersionCheckpointWithAccess(
@@ -1458,9 +1488,11 @@ async function captureDesignVersion(
     callbackCompleted: false,
     rollbackConfirmed: false,
   };
+  const transactionState = { started: false };
   try {
-    const result = await withPreparedSourceFiles(designId, (preparedFiles) =>
-      withDesignSourceMutationTransaction(
+    const result = await withPreparedSourceFiles(designId, (preparedFiles) => {
+      transactionState.started = true;
+      return withDesignSourceMutationTransaction(
         designId,
         async (tx) => {
           await assertAccess("design", designId, "editor");
@@ -1471,8 +1503,8 @@ async function captureDesignVersion(
           );
         },
         transactionOutcome,
-      ),
-    );
+      );
+    });
     await cleanupPreparedDesignVersionCheckpoint(preparedCheckpoint, true);
     return result;
   } catch (error) {
@@ -1481,6 +1513,25 @@ async function captureDesignVersion(
       false,
       transactionOutcome.rollbackConfirmed,
     );
+    if (
+      transactionState.started &&
+      transactionOutcome.rollbackConfirmed &&
+      error instanceof SourceWorkspaceEditConflictError &&
+      error.errorCode === SOURCE_VERSION_CONFLICT_ERROR_CODE
+    ) {
+      throw new DesignVersionCheckpointChangedError();
+    }
+    if (
+      error instanceof DesignVersionCheckpointChangedError &&
+      transactionState.started &&
+      !transactionOutcome.rollbackConfirmed
+    ) {
+      throw Object.defineProperty(
+        new Error("Design checkpoint transaction outcome is uncertain."),
+        "cause",
+        { value: error, configurable: true, writable: true },
+      );
+    }
     throw error;
   }
 }
@@ -1584,28 +1635,41 @@ export async function createDesignChatBeginningSnapshot(
   run: { threadId: string; runId: string },
 ) {
   return withDesignVersionLock(designId, async () => {
-    const rows = await getDb()
-      .select({ id: schema.designVersions.id })
-      .from(schema.designVersions)
-      .where(
-        and(
-          eq(schema.designVersions.designId, designId),
-          eq(
-            schema.designVersions.id,
-            designVersionIdForIdempotencyKey(
-              designId,
-              `chat-start:${run.threadId}`,
+    const options = {
+      label: "Before chat",
+      chatContext: { ...run, phase: "start" as const },
+      idempotencyKey: `chat-start:${run.threadId}`,
+    };
+    const checkpointExists = async () => {
+      const rows = await getDb()
+        .select({ id: schema.designVersions.id })
+        .from(schema.designVersions)
+        .where(
+          and(
+            eq(schema.designVersions.designId, designId),
+            eq(
+              schema.designVersions.id,
+              designVersionIdForIdempotencyKey(
+                designId,
+                options.idempotencyKey,
+              ),
             ),
           ),
-        ),
-      )
-      .limit(1);
-    if (rows.length) return null;
-    return captureDesignVersion(designId, {
-      label: "Before chat",
-      chatContext: { ...run, phase: "start" },
-      idempotencyKey: `chat-start:${run.threadId}`,
-    });
+        )
+        .limit(1);
+      return rows.length > 0;
+    };
+    if (await checkpointExists()) return null;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await captureDesignVersion(designId, options);
+      } catch (error) {
+        if (!(error instanceof DesignVersionCheckpointChangedError))
+          throw error;
+        if (await checkpointExists()) return null;
+        if (attempt >= CHAT_START_CHECKPOINT_ATTEMPTS) throw error;
+      }
+    }
   });
 }
 

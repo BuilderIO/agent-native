@@ -64,6 +64,25 @@ describe("pre-agent-turn autosave", () => {
     });
   });
 
+  it("rejects a failed required checkpoint before generation", async () => {
+    const error = new Error("checkpoint unavailable");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        runPreAgentTurnAutosave(
+          async () => {
+            throw error;
+          },
+          scope,
+          makeRun([]),
+          true,
+        ),
+      ).rejects.toBe(error);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("skips missing handlers or scope and contains callback failures", async () => {
     const autosave = vi.fn(async () => {
       throw new Error("snapshot unavailable");
