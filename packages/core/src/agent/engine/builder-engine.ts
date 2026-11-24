@@ -1460,14 +1460,31 @@ async function* parseJsonlStream(
               reason === "rate_limited") &&
             creditsErrorCode !== undefined
           ) {
+            const explicitErrMsg = event.error || event.message || event.detail;
+            const gatewayRequestId =
+              event.statusCode !== 401 && typeof event.requestId === "string"
+                ? event.requestId
+                : undefined;
+            if (reason === "error") {
+              console.error(
+                `[builder-engine] stop reason=error model=${model} code=${creditsErrorCode} requestId=${gatewayRequestId ?? "(none)"} providerMessagePresent=${Boolean(explicitErrMsg)}`,
+              );
+              if (!explicitErrMsg) {
+                captureBuilderGatewayNoDetailError({
+                  requestId: gatewayRequestId,
+                  model,
+                  gatewayUrl: captureContext.gatewayUrl,
+                  errorCode: creditsErrorCode,
+                });
+              }
+            } else if (reason === "invalid_request") {
+              console.warn(
+                `[builder-engine] stop reason=invalid_request model=${model} code=${creditsErrorCode} requestId=${gatewayRequestId ?? "(none)"} requestShape=${JSON.stringify(captureContext.requestShape)} providerMessagePresent=${Boolean(explicitErrMsg)}`,
+              );
+            }
             if (explicitCreditsCode) await notifyBuilderCreditLimit();
             yield stop({
-              error: String(
-                event.error ||
-                  event.message ||
-                  event.detail ||
-                  "Gateway error (no detail)",
-              ),
+              error: String(explicitErrMsg || "Gateway error (no detail)"),
               errorCode: creditsErrorCode,
               upgradeUrl: await buildUpgradeUrl(),
               ...(typeof event.requestId === "string"

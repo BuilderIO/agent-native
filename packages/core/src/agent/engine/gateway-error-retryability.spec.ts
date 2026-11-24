@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { captureError } from "../../server/capture-error.js";
 import { BUILDER_CLAUDE_SONNET_MODEL_ID } from "../model-config.js";
 import {
   isContextTooLongError,
@@ -15,6 +16,8 @@ import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "./credential-errors.js";
 import { classifyProviderError } from "./error-detail.js";
 import { PRIVATE_COMPLETION_ERROR_MESSAGE } from "./private-completion-error.js";
 import { EngineError, type EngineStreamOptions } from "./types.js";
+
+vi.mock("../../server/capture-error.js", () => ({ captureError: vi.fn() }));
 
 const credentialState = vi.hoisted(() => ({
   lane: "identity" as "identity" | "gateway-deploy" | null,
@@ -94,6 +97,52 @@ describe("Builder gateway error retryability", () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
+
+  it.each(["error", "invalid_request"])(
+    "preserves safe diagnostics for streamed %s credit errors",
+    async (reason) => {
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.mocked(captureError).mockClear();
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            jsonlResponse([
+              {
+                type: "stop",
+                reason,
+                code: "credits-limit-daily",
+                requestId: "req-credit",
+              },
+            ]),
+          ),
+      );
+      const events = await collectEvents(
+        createBuilderEngine().stream(BASE_OPTS),
+      );
+      expect(events.find((event) => event.type === "stop")).toMatchObject({
+        errorCode: "credits-limit-daily",
+        providerRetryable: false,
+      });
+      const log = reason === "error" ? errorLog : warnLog;
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining(`stop reason=${reason}`),
+      );
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining("requestId=req-credit"),
+      );
+      if (reason === "error") {
+        expect(captureError).toHaveBeenCalledWith(
+          expect.objectContaining({ name: "BuilderGatewayNoDetailError" }),
+          expect.objectContaining({ errorMessagePolicy: "omit" }),
+        );
+      } else {
+        expect(captureError).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   describe("retryability is structural on every gateway-error branch", () => {
     const branches: Array<{
