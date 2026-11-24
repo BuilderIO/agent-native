@@ -1,4 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import tailwindcss from "@tailwindcss/vite";
 import { chromium, type Browser, type Locator } from "playwright";
@@ -60,6 +63,7 @@ const brief = {
 let browser: Browser | undefined;
 let vite: ViteDevServer | undefined;
 let css: string;
+let cacheDir: string | undefined;
 
 async function expectEllipsis(titleElement: Locator) {
   const overflow = await titleElement.evaluate((element) => ({
@@ -75,9 +79,15 @@ async function expectEllipsis(titleElement: Locator) {
   expect(overflow.whiteSpace).toBe("nowrap");
 }
 
+// Only Design's stylesheet is compiled: no file watching, dependency
+// discovery or dev-server sockets, which stall on a busy CI shard.
 beforeAll(async () => {
+  cacheDir = await mkdtemp(path.join(os.tmpdir(), "design-title-layout-"));
   vite = await createServer({
     configFile: false,
+    cacheDir,
+    logLevel: "silent",
+    optimizeDeps: { noDiscovery: true, include: [] },
     plugins: [
       {
         name: "title-layout-styles",
@@ -97,23 +107,26 @@ beforeAll(async () => {
       },
       tailwindcss(),
     ],
-    server: { middlewareMode: true },
+    server: { middlewareMode: true, watch: null, hmr: false, ws: false },
     appType: "custom",
   });
   const result = await vite.transformRequest("/app/global.css?direct");
   if (!result) throw new Error("Could not compile Design's stylesheet");
   css = result.code;
-  browser = await chromium.launch({
-    headless: true,
-    ...(existsSync("/usr/bin/chromium")
-      ? { executablePath: "/usr/bin/chromium" }
-      : {}),
-  });
-});
+  // Playwright's own Chromium, which CI installs for browser-backed tests.
+  browser = await chromium.launch({ headless: true });
+}, 60_000);
 
 afterAll(async () => {
-  await browser?.close();
-  await vite?.close();
+  try {
+    await browser?.close();
+  } finally {
+    try {
+      await vite?.close();
+    } finally {
+      if (cacheDir) await rm(cacheDir, { recursive: true, force: true });
+    }
+  }
 });
 
 describe("Design left header title", () => {

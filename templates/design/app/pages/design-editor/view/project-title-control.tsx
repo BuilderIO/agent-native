@@ -231,7 +231,8 @@ function ProjectTitleControl({
             onChange={(e) => setTitleDraft(e.target.value)}
             onBlur={commitTitleEdit}
             onKeyDown={handleTitleInputKeyDown}
-            className="-mx-1 h-7 min-w-0 flex-1 border-transparent bg-[var(--design-editor-panel-raised-bg)] px-1 py-0 text-[13px] font-medium text-foreground shadow-none ring-offset-0 focus-visible:border-[var(--design-editor-control-border)] focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0"
+            size="sm"
+            className="-mx-1 min-w-0 flex-1 border-transparent bg-[var(--design-editor-panel-raised-bg)] text-foreground shadow-none ring-offset-0 focus-visible:border-[var(--design-editor-control-border)] focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0"
           />
         </TooltipTrigger>
         <TooltipContent className="max-w-sm break-words">
