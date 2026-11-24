@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 
 import tailwindcss from "@tailwindcss/vite";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Locator } from "playwright";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { createServer, type ViteDevServer } from "vite";
@@ -57,9 +57,19 @@ const brief = {
   id: "page-one",
   url: "https://content.example.com/page-one",
 };
-let browser: Browser;
-let vite: ViteDevServer;
+let browser: Browser | undefined;
+let vite: ViteDevServer | undefined;
 let css: string;
+
+async function expectEllipsis(titleElement: Locator) {
+  const overflow = await titleElement.evaluate((element) => ({
+    scrollWidth: element.scrollWidth,
+    clientWidth: element.clientWidth,
+    textOverflow: getComputedStyle(element).textOverflow,
+  }));
+  expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
+  expect(overflow.textOverflow).toBe("ellipsis");
+}
 
 beforeAll(async () => {
   vite = await createServer({
@@ -145,6 +155,7 @@ describe("Design left header title", () => {
           <TooltipProvider>{sidebar}</TooltipProvider>
         </MemoryRouter>,
       );
+      if (!browser) throw new Error("Browser was not initialized");
       const page = await browser.newPage();
       try {
         await page.setContent(
@@ -164,15 +175,7 @@ describe("Design left header title", () => {
           throw new Error("Title or minimize control is missing");
         expect(titleBox.width).toBeGreaterThan(0);
         expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(toggleBox.x);
-        if (!editing) {
-          const overflow = await titleElement.evaluate((element) => ({
-            scrollWidth: element.scrollWidth,
-            clientWidth: element.clientWidth,
-            textOverflow: getComputedStyle(element).textOverflow,
-          }));
-          expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
-          expect(overflow.textOverflow).toBe("ellipsis");
-        }
+        if (!editing) await expectEllipsis(titleElement);
       } finally {
         await page.close();
       }
