@@ -950,6 +950,7 @@ function reviewAgentAttachments(attachments: readonly ReviewCommentImage[]) {
 const WORKING_AREA_CHROME_SELECTOR =
   '[data-design-chrome-region="left-shell"], [data-design-chrome-region="right-panel"], [data-design-chrome-region="top-bar"]';
 const BOTTOM_TOOLBAR_SELECTOR = "[data-design-bottom-toolbar]";
+const CAMERA_SETTLE_RESCAN_MS = 150;
 // The Pin comment tool, which the label cannot find: it is translated.
 const COMMENT_TOOL_SELECTOR = `${BOTTOM_TOOLBAR_SELECTOR} [data-design-toolbar-group="comment"] button`;
 const MAIN_SURFACE_SELECTOR =
@@ -1676,7 +1677,7 @@ export function ReviewCanvasPins({
       const surface = canvas.closest(MAIN_SURFACE_SELECTOR);
       if (surface) resizeObserver.observe(surface);
     };
-    let rescanChrome = true;
+    let rescanChrome = false;
     const bump = (cameraOnly = false) => {
       if (!cameraOnly) rescanChrome = true;
       if (animationFrame) return;
@@ -1687,7 +1688,15 @@ export function ReviewCanvasPins({
         if (!rendersNothingRef.current) setLayoutTick((current) => current + 1);
       });
     };
-    const bumpCamera = () => bump(true);
+    let settleTimer: number | null = null;
+    const bumpCamera = () => {
+      bump(true);
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => {
+        settleTimer = null;
+        bump();
+      }, CAMERA_SETTLE_RESCAN_MS);
+    };
     resizeObserver.observe(canvas);
     const iframe = canvas.querySelector<HTMLIFrameElement>(
       "iframe[data-design-preview-iframe]",
@@ -1721,6 +1730,7 @@ export function ReviewCanvasPins({
     iframe?.addEventListener("load", bumpResize);
     return () => {
       if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
       resizeObserver.disconnect();
       mutationObservers.forEach((observer) => observer.disconnect());
       window.removeEventListener("resize", bumpResize);
