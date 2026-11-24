@@ -7,6 +7,7 @@ const SCREEN_HTML = `<!doctype html>
 <body style="margin:0;min-height:600px">
 <main data-agent-native-node-id="main" style="position:relative;min-height:600px">
   <div data-agent-native-node-id="card" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:#dadada;border-radius:var(--radius-rem)"></div>
+  <img data-agent-native-node-id="photo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" style="position:absolute;left:240px;top:40px;width:120px;height:80px" />
   <p data-agent-native-node-id="copy" style="position:absolute;left:40px;top:200px;margin:0;font-size:20px;line-height:1.25em">Token copy</p>
 </main></body></html>`;
 
@@ -104,6 +105,12 @@ test("H binds to a rem spacing token and a rem radius detaches to its rem value"
     "var(--space-rem)",
   );
   await expect(height).toHaveValue("space-rem");
+  await expect(height).toBeFocused();
+  await page.keyboard.press("Backspace");
+  await app.settled();
+  expect(styleOf((await app.savedNodes(designId)).get("card")).height).toBe(
+    "1rem",
+  );
 
   const radius = page.getByRole("textbox", { name: "Corner radius" });
   await expect(radius).toHaveValue("radius-rem");
@@ -113,4 +120,29 @@ test("H binds to a rem spacing token and a rem radius detaches to its rem value"
   expect(
     styleOf((await app.savedNodes(designId)).get("card"))["border-radius"],
   ).toBe("0.5rem");
+});
+
+test("binding W with proportions locked scales H to match", async ({
+  app,
+  page,
+}) => {
+  const designId = await openScreen(app);
+  await selectLayer(app, "photo");
+  const lock = page.getByRole("button", { name: "Lock aspect ratio" });
+  await lock.click();
+  await expect(
+    page.getByRole("button", { name: "Unlock aspect ratio" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  const width = page.getByRole("textbox", { name: "W size in pixels" });
+  await width.focus();
+  await page.keyboard.press("ArrowDown");
+  await page
+    .getByRole("listbox")
+    .locator('[data-token-field-option="container-sm"]')
+    .dispatchEvent("pointerdown");
+  await app.settled();
+
+  const photo = styleOf((await app.savedNodes(designId)).get("photo"));
+  expect(photo.width).toBe("var(--container-sm)");
+  expect(photo.height).toBe("427px");
 });

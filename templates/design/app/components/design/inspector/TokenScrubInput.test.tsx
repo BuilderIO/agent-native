@@ -224,6 +224,18 @@ describe("TokenScrubInput", () => {
     }
   });
 
+  it("returns focus to the field once a picked token is applied", () => {
+    const { input } = render(undefined);
+    act(() => input.focus());
+    key(input, "ArrowDown");
+    key(input, "Enter");
+    expect(document.activeElement).not.toBe(input);
+
+    render("var(--container-sm)", 640);
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("container-sm");
+  });
+
   it("keeps ↑ nudging the value", () => {
     const { input, onChange } = render(undefined);
     act(() => input.focus());

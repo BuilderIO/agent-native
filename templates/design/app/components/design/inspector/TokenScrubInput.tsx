@@ -3,6 +3,7 @@ import type { ScrubInputApi } from "@agent-native/toolkit/design-tweaks";
 import type { DesignTokenType } from "@shared/design-token-types";
 import { IconChevronDown, IconUnlink } from "@tabler/icons-react";
 import {
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -180,6 +181,7 @@ function TokenCombobox({
   const apiRef = useRef<ScrubInputApi | null>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
   const editedRef = useRef(false);
+  const refocusRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -282,13 +284,27 @@ function TokenCombobox({
     apiRef.current?.blur();
   };
 
+  useEffect(() => {
+    if (!refocusRef.current) return;
+    refocusRef.current = false;
+    apiRef.current?.focus();
+  }, [binding.authored]);
+
   const pick = (index: number) => {
     const row = rowAt(rows, index);
     if (!row) return;
     finish();
-    if (row.kind === "detach") binding.onDetach(boundResolved);
-    else if (row.kind === "token") binding.onBind(row.cssVar, row.resolved);
-    else if (!row.item.disabled) row.item.onSelect();
+    if (row.kind === "detach") {
+      refocusRef.current = true;
+      binding.onDetach(boundResolved);
+    } else if (row.kind === "token") {
+      if (row.cssVar === boundVar) {
+        apiRef.current?.focus();
+        return;
+      }
+      refocusRef.current = true;
+      binding.onBind(row.cssVar, row.resolved);
+    } else if (!row.item.disabled) row.item.onSelect();
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -306,6 +322,7 @@ function TokenCombobox({
       ) {
         event.preventDefault();
         finish();
+        refocusRef.current = true;
         binding.onDetach(boundResolved);
         return true;
       }

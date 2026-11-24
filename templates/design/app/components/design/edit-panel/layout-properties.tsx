@@ -99,6 +99,7 @@ function elementSizeTokenBinding(
   commitPx: (px: number) => void,
   onStyleChange: StyleChangeHandler,
   onStylesChange?: StylesChangeHandler,
+  lockedPairPx?: (px: number) => number | undefined,
 ): Omit<TokenFieldBinding, "extraGroups"> {
   const property = axis === "horizontal" ? "width" : "height";
   return {
@@ -114,12 +115,24 @@ function elementSizeTokenBinding(
         px,
         onStyleChange,
         onStylesChange,
+        lockedPairPx?.(px),
       );
     },
     onDetach: (resolved) => {
-      const px =
-        (resolved ? resolvedPxSize(resolved) : null) ??
-        measuredElementSize(element, axis);
+      const resolvedPx = resolved ? resolvedPxSize(resolved) : null;
+      const measured = measuredElementSize(element, axis);
+      if (resolved && resolvedPx === null && measured !== null) {
+        commitElementSizeToken(
+          element,
+          axis,
+          resolved,
+          measured,
+          onStyleChange,
+          onStylesChange,
+        );
+        return;
+      }
+      const px = resolvedPx ?? measured;
       if (px !== null) commitPx(px);
     },
   };
@@ -979,6 +992,12 @@ export function LayoutContextProperties({
       );
     };
 
+    const lockedPairPx =
+      (changed: "width" | "height") =>
+      (px: number): number | undefined =>
+        aspectLock.locked && canLockAspect && aspectLock.ratio
+          ? deriveLockedAspectSize(changed, px, aspectLock.ratio)
+          : undefined;
     const commitWidth = (px: number, meta?: ScrubInputChangeMeta) => {
       if (aspectLock.locked && canLockAspect && aspectLock.ratio) {
         const nextHeight = deriveLockedAspectSize(
@@ -1105,6 +1124,7 @@ export function LayoutContextProperties({
                     commitWidth,
                     onStyleChange,
                     onStylesChange,
+                    lockedPairPx("width"),
                   )}
                 />
               </div>
@@ -1153,6 +1173,7 @@ export function LayoutContextProperties({
                     commitHeight,
                     onStyleChange,
                     onStylesChange,
+                    lockedPairPx("height"),
                   )}
                 />
               </div>

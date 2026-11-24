@@ -620,11 +620,19 @@ export function commitElementSizeToken(
   resolvedPx: number,
   onStyleChange: StyleChangeHandler,
   onStylesChange?: StylesChangeHandler,
+  pairedPx?: number,
 ): boolean {
+  const other = axis === "horizontal" ? "vertical" : "horizontal";
   const write = writeLayoutChange(layoutModelForElement(element), {
     kind: "sizing",
-    sizing: { [axis]: "fixed" },
-    px: { [axis]: resolvedPx },
+    sizing:
+      pairedPx === undefined
+        ? { [axis]: "fixed" }
+        : { [axis]: "fixed", [other]: "fixed" },
+    px:
+      pairedPx === undefined
+        ? { [axis]: resolvedPx }
+        : { [axis]: resolvedPx, [other]: pairedPx },
   });
   if (write.status !== "ok" || write.children.size !== 0) {
     trace("structure", "sizing-refused", {
