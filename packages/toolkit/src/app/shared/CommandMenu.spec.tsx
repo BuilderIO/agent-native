@@ -2574,6 +2574,8 @@ describe("CommandMenu", () => {
     );
   });
 
+  // oracle-change: removed a duplicate of the next test, same renderResultsHasItems false case with the same empty-state assertion
+
   it("uses result presence for opaque components that render no rows", () => {
     function EmptyResults() {
       return null;
@@ -2631,25 +2633,6 @@ describe("CommandMenu", () => {
 
     expect(document.body.textContent).toContain("Live result");
     expect(document.querySelector('[role="status"]')).toBeNull();
-  });
-
-  it("uses the render-results presence signal for components that render no rows", () => {
-    function EmptyLiveResults() {
-      return null;
-    }
-
-    renderAppCommands({
-      groups: [],
-      renderResults: () => <EmptyLiveResults />,
-      renderResultsHasItems: () => false,
-      emptyState: "No matching records",
-    });
-
-    search("missing");
-
-    expect(document.querySelector('[role="status"]')?.textContent).toContain(
-      "No matching records",
-    );
   });
 
   it("uses the explicit list's rows instead of the default result signal", () => {

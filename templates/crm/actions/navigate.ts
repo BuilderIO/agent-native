@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 import {
@@ -49,11 +52,14 @@ export default defineAction({
       .describe(
         "With view settings: a CRM › General tab (connection, fields, lists, intelligence, advanced) or the MCP server page (mcp).",
       ),
+    intent: navigationIntentSchema,
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
-    const path = crmNavigationPath(args);
-    await writeAppStateForCurrentTab("navigate", { ...args, path });
+    const { intent: _intent, ...nav } = args;
+    const path = crmNavigationPath(nav);
+    await writeAppStateForCurrentTab("navigate", { ...nav, path });
     return { navigatingTo: path };
   },
 });

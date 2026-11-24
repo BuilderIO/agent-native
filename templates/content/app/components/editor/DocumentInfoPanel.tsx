@@ -14,8 +14,8 @@ import {
   useDocumentProperties,
 } from "@/hooks/use-document-properties";
 
-import { useNow } from "./database/GitHubSourceStatusLine";
 import type { DatabaseRowView } from "./database/row-view-layout";
+import { useNow } from "./database/SourceStatusLine";
 import { DescriptionField } from "./DescriptionField";
 import { DocumentProperties } from "./DocumentProperties";
 

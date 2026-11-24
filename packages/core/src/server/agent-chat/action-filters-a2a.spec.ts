@@ -473,14 +473,35 @@ describe("filterDirectA2AActions", () => {
     ).toEqual(["search-text", "semantic"]);
   });
 
+  it("keeps a read whose MCP calls may ask for approval, and drops one that always may", () => {
+    const actions = {
+      "mcp-asks": action({
+        mcpNeedsApproval: () => true,
+        approvalNotice: () => "Allow up to $5.00 of BigQuery today?",
+        approvalProof: "review-page",
+      }),
+      "always-asks": action({ needsApproval: () => true }),
+    };
+
+    expect(
+      Object.keys(
+        filterDirectA2AActions(actions, {
+          connectorCatalog: Object.keys(actions),
+        }),
+      ),
+    ).toEqual(["mcp-asks"]);
+  });
+
   it("reads `mcpTool` as catalog membership and as a veto", () => {
     const actions = {
       "list-plans": action({ mcpTool: true }),
+      "find-plans": action({ mcpTool: "search" }),
       "get-plan": action(),
       "open-inspector": action({ mcpTool: false }),
     };
 
-    expect(Object.keys(filterDirectA2AActions(actions, {}))).toEqual([
+    expect(Object.keys(filterDirectA2AActions(actions, {})).sort()).toEqual([
+      "find-plans",
       "list-plans",
     ]);
 
@@ -490,7 +511,7 @@ describe("filterDirectA2AActions", () => {
           connectorCatalog: ["get-plan", "open-inspector"],
         }),
       ).sort(),
-    ).toEqual(["get-plan", "list-plans"]);
+    ).toEqual(["find-plans", "get-plan", "list-plans"]);
   });
 
   it("inherits agentTool when mcpTool is undefined, and lets mcpTool override it", () => {
@@ -517,12 +538,13 @@ describe("filterDirectA2AActions", () => {
       Object.keys(
         filterMcpOnlyActions({
           "mcp-only": action({ agentTool: false, mcpTool: true }),
+          "mcp-only-unlisted": action({ agentTool: false, mcpTool: "search" }),
           "agent-hidden": action({ agentTool: false }),
           "catalog-member": action({ mcpTool: true }),
           normal: action(),
         }),
       ),
-    ).toEqual(["mcp-only"]);
+    ).toEqual(["mcp-only", "mcp-only-unlisted"]);
   });
 
   it("allows a raw query input only with an explicit opt-in", () => {

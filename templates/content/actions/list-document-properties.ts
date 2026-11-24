@@ -3,6 +3,7 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
+import { addablePropertyTypes } from "../shared/properties.js";
 import {
   builderEntryStatusChoices,
   builderEntryStatusTargets,
@@ -49,8 +50,8 @@ export default defineAction({
     const canManageSchema = canEditValues;
     const canManageColumnRules =
       databaseAccess?.role === "owner" || databaseAccess?.role === "admin";
-    // A system collection such as Files refuses new properties.
-    const canAddProperties = canManageSchema && !database?.systemRole;
+    const addableTypes = addablePropertyTypes(database?.systemRole);
+    const canAddProperties = canManageSchema && addableTypes.length > 0;
 
     const properties = await listPropertiesForDocument(
       access.resource,
@@ -86,6 +87,9 @@ export default defineAction({
       canManageSchema,
       canManageColumnRules,
       canAddProperties,
+      ...(canAddProperties && database?.systemRole
+        ? { addablePropertyTypes: [...addableTypes] }
+        : {}),
       properties: databaseAccess
         ? properties.map((property) =>
             builderStatusChoices &&

@@ -11,6 +11,10 @@ import {
   preparedCallArguments,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import {
   ServicePrincipalRefusedError,
@@ -25,12 +29,28 @@ import {
   type McpActionCallOutcome,
   embedCredentialGuard,
   executeMcpActionCall,
+  MCP_APPROVAL_NOTICE_MAX_CHARS,
   redactEmbedCredentials,
   runMcpActionCallUnredacted,
   UnreadableResultError,
 } from "./execute-action-call.js";
+import { runWithMcpTurnGrantScope } from "./turn-grant-scope.js";
 
 const grants = vi.hoisted(() => new Map<string, any>());
+const getUserSettingMock = vi.hoisted(() =>
+  vi.fn<
+    (email?: string, key?: string) => Promise<Record<string, unknown> | null>
+  >(async () => null),
+);
+
+vi.mock("../settings/user-settings.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../settings/user-settings.js")>();
+  return {
+    ...actual,
+    getUserSetting: getUserSettingMock,
+  };
+});
 
 vi.mock("./approval-store.js", async () => {
   const actual = await vi.importActual<typeof import("./approval-store.js")>(
@@ -436,6 +456,140 @@ describe("executeMcpActionCall", () => {
     expect(ran).toEqual([1000]);
     expect(gate.length).toBeGreaterThan(0);
     expect(gate.every((time) => time === 1000)).toBe(true);
+  });
+
+  it("skips review for direct and approval-only turn-grant calls when no-approvals mode is on, and still reviews when off", async () => {
+    const direct = defineAction({
+      description: "Direct write.",
+      userTurn: "direct",
+      needsApproval: () => true,
+      run: async () => ({ ok: "direct" }),
+    }) as unknown as ActionEntry;
+    const approval = defineAction({
+      description: "Approval write.",
+      userTurn: "approval",
+      needsApproval: () => false,
+      run: async () => ({ ok: "approval" }),
+    }) as unknown as ActionEntry;
+
+    try {
+      getUserSettingMock.mockResolvedValue(null);
+      defineAppConfig({ agent: { noApprovalsEmails: ["user@example.com"] } });
+      await expect(
+        runWithMcpTurnGrantScope("direct", "direct", Date.now() + 60_000, () =>
+          execute({ direct }, "direct"),
+        ),
+      ).resolves.toMatchObject({ status: "completed" });
+      await expect(
+        runWithMcpTurnGrantScope(
+          "approval",
+          "approval",
+          Date.now() + 60_000,
+          () => execute({ approval }, "approval"),
+        ),
+      ).resolves.toMatchObject({ status: "completed" });
+
+      resetAppConfigForTests();
+      await expect(
+        runWithMcpTurnGrantScope("direct", "direct", Date.now() + 60_000, () =>
+          execute({ direct }, "direct"),
+        ),
+      ).resolves.toMatchObject({ status: "approval-required" });
+      await expect(
+        runWithMcpTurnGrantScope(
+          "approval",
+          "approval",
+          Date.now() + 60_000,
+          () => execute({ approval }, "approval"),
+        ),
+      ).resolves.toMatchObject({ status: "approval-required" });
+    } finally {
+      getUserSettingMock.mockReset();
+      getUserSettingMock.mockResolvedValue(null);
+      resetAppConfigForTests();
+    }
+  });
+
+  it("honors no-approvals mode for MCP direct and pageApprovalOnly gates via verified identity when request email is absent", async () => {
+    const direct = defineAction({
+      description: "Direct write.",
+      userTurn: "direct",
+      needsApproval: () => true,
+      run: async () => ({ ok: "direct" }),
+    }) as unknown as ActionEntry;
+    const approval = defineAction({
+      description: "Page approval write.",
+      userTurn: "approval",
+      needsApproval: () => true,
+      run: async () => ({ ok: "approval" }),
+    }) as unknown as ActionEntry;
+
+    const previousAmbientEmail = process.env.AGENT_USER_EMAIL;
+    try {
+      process.env.AGENT_USER_EMAIL = "deploy-admin@example.com";
+      getUserSettingMock.mockImplementation(async (email?: string) =>
+        email === "user@example.com" ? { enabled: true } : { enabled: false },
+      );
+      await expect(
+        runWithMcpTurnGrantScope("direct", "direct", Date.now() + 60_000, () =>
+          executeMcpActionCall(context, {
+            name: "direct",
+            args: {},
+            callable: { direct },
+          }),
+        ),
+      ).resolves.toMatchObject({ status: "completed" });
+      await expect(
+        runWithMcpTurnGrantScope(
+          "approval",
+          "approval",
+          Date.now() + 60_000,
+          () =>
+            executeMcpActionCall(context, {
+              name: "approval",
+              args: {},
+              callable: { approval },
+            }),
+        ),
+      ).resolves.toMatchObject({ status: "completed" });
+
+      getUserSettingMock.mockImplementation(async (email?: string) =>
+        email === "deploy-admin@example.com"
+          ? { enabled: true }
+          : { enabled: false },
+      );
+      await expect(
+        runWithMcpTurnGrantScope("direct", "direct", Date.now() + 60_000, () =>
+          executeMcpActionCall(context, {
+            name: "direct",
+            args: {},
+            callable: { direct },
+          }),
+        ),
+      ).resolves.toMatchObject({ status: "approval-required" });
+      await expect(
+        runWithMcpTurnGrantScope(
+          "approval",
+          "approval",
+          Date.now() + 60_000,
+          () =>
+            executeMcpActionCall(context, {
+              name: "approval",
+              args: {},
+              callable: { approval },
+            }),
+        ),
+      ).resolves.toMatchObject({ status: "approval-required" });
+    } finally {
+      if (previousAmbientEmail === undefined) {
+        delete process.env.AGENT_USER_EMAIL;
+      } else {
+        process.env.AGENT_USER_EMAIL = previousAmbientEmail;
+      }
+      getUserSettingMock.mockReset();
+      getUserSettingMock.mockResolvedValue(null);
+      resetAppConfigForTests();
+    }
   });
 
   it("runs a call already prepared as it was prepared, without preparing it again", async () => {
@@ -1433,7 +1587,12 @@ describe("MCP action approval grants", () => {
       actionName: "send",
       argumentsHash: grant.argumentsHash,
     });
-    expect(evidence).toEqual([{ auditOverride: { approval: "mcp-review" } }]);
+    expect(evidence).toEqual([
+      {
+        mcpReviewPageApproved: true,
+        auditOverride: { approval: "mcp-review" },
+      },
+    ]);
     expect(store.recordMcpApprovalRun).toHaveBeenCalledWith(
       grant.nonce,
       "completed",
@@ -1597,5 +1756,135 @@ describe("MCP action approval grants", () => {
       grant.nonce,
     );
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("never runs a review-page-proof action on a form answer, even one its state allows", async () => {
+    const run = vi.fn(async () => ({ rows: 1 }));
+    const callable = {
+      read: entry({
+        mcpNeedsApproval: () => true,
+        approvalProof: "review-page",
+        run,
+      }),
+    };
+    await runUnredacted(callable, "read", {});
+    const [grant] = [...grants.values()];
+
+    const outcome = await runUnredacted(
+      callable,
+      "read",
+      {},
+      formAnswer(grant, "approve"),
+    );
+    expect(outcome).toMatchObject({
+      status: "approval-pending",
+      reason: "declined",
+    });
+    expect(store.consumeMcpApprovalGrant).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+
+    if (outcome.status !== "approval-pending") return;
+    store.consumeReviewedMcpApprovalGrant.mockResolvedValueOnce({
+      nonce: outcome.review.nonce,
+      status: "approved",
+    } as approvalStore.McpApprovalRecord);
+    await expect(runUnredacted(callable, "read", {})).resolves.toMatchObject({
+      status: "ran",
+      result: { rows: 1 },
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  describe("approval notice", () => {
+    const asking = (approvalNotice: ActionEntry["approvalNotice"]) => {
+      const run = vi.fn(async () => ({ rows: 1 }));
+      return {
+        run,
+        callable: {
+          read: entry({ mcpNeedsApproval: () => true, approvalNotice, run }),
+        },
+      };
+    };
+
+    it("states the notice trimmed on the grant and the review", async () => {
+      const { run, callable } = asking(
+        async () => "  Allow up to $5.00 of BigQuery today?\n",
+      );
+
+      const outcome = await runUnredacted(callable, "read", {});
+
+      expect(outcome).toMatchObject({
+        status: "approval-required",
+        review: { notice: "Allow up to $5.00 of BigQuery today?" },
+      });
+      expect([...grants.values()]).toEqual([
+        expect.objectContaining({
+          approvalNotice: "Allow up to $5.00 of BigQuery today?",
+        }),
+      ]);
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["no notice", undefined],
+      ["a blank notice", " \n "],
+    ])("asks with the arguments alone for %s", async (_label, notice) => {
+      const { callable } = asking(async () => notice);
+
+      const outcome = await runUnredacted(callable, "read", {});
+
+      expect(outcome).toMatchObject({ status: "approval-required" });
+      expect(outcome).not.toHaveProperty("review.notice");
+      expect([...grants.values()]).toEqual([
+        expect.objectContaining({ approvalNotice: undefined }),
+      ]);
+    });
+
+    it("fails the call, with no grant, when the notice isn't text", async () => {
+      const { run, callable } = asking(
+        (async () => 42) as unknown as ActionEntry["approvalNotice"],
+      );
+
+      const outcome = await runUnredacted(callable, "read", {});
+
+      expect(outcome).toMatchObject({ status: "threw", stage: "approval" });
+      expect(outcome).toHaveProperty(
+        "error",
+        new TypeError("read's approvalNotice returned number, not text."),
+      );
+      expect(grants.size).toBe(0);
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("states a notice at the length limit whole, after trimming", async () => {
+      const long = "y".repeat(MCP_APPROVAL_NOTICE_MAX_CHARS);
+      const { callable } = asking(async () => ` ${long} `);
+
+      await expect(runUnredacted(callable, "read", {})).resolves.toMatchObject({
+        status: "approval-required",
+        review: { notice: long },
+      });
+      expect([...grants.values()]).toEqual([
+        expect.objectContaining({ approvalNotice: long }),
+      ]);
+    });
+
+    it("fails the call, with no grant, when the notice is over the length limit", async () => {
+      const { run, callable } = asking(async () =>
+        "x".repeat(MCP_APPROVAL_NOTICE_MAX_CHARS + 1),
+      );
+
+      const outcome = await runUnredacted(callable, "read", {});
+
+      expect(outcome).toMatchObject({ status: "threw", stage: "approval" });
+      expect(outcome).toHaveProperty(
+        "error",
+        new RangeError(
+          `read's approvalNotice is longer than ${MCP_APPROVAL_NOTICE_MAX_CHARS} characters, more than a review shows whole.`,
+        ),
+      );
+      expect(grants.size).toBe(0);
+      expect(run).not.toHaveBeenCalled();
+    });
   });
 });

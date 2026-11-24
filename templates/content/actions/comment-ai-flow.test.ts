@@ -1,3 +1,11 @@
+import {
+  DEFAULT_TOOL_RESULT_CHARS,
+  invocationEffect,
+  isNoWriteError,
+  noteExternalWrite,
+  runActionWithExecutionOutcome,
+  type ActionExecutionOutcome,
+} from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -5,6 +13,7 @@ const state = vi.hoisted(() => ({
   source: {} as Record<string, any>,
   updates: [] as Array<Record<string, any>>,
   retainedPayload: undefined as unknown,
+  sourceRevisionMatches: true,
   transactionDigest: "thread-digest",
   documentRevision: "base-revision",
   transactionError: null as Error | null,
@@ -85,10 +94,14 @@ vi.mock("../server/lib/comment-ai.js", () => ({
       status: "reasoning",
       sourceRevision: "base-revision",
       threadDigest: state.request.threadDigest,
+      payloadJson:
+        state.retainedPayload === undefined
+          ? null
+          : JSON.stringify(state.retainedPayload),
     },
     source: state.source,
     currentRevision: state.documentRevision,
-    sourceRevisionMatches: true,
+    sourceRevisionMatches: state.sourceRevisionMatches,
   }),
   retainCommentAiAttemptPayload: async (
     _request: unknown,
@@ -287,6 +300,7 @@ beforeEach(() => {
   state.source.text = bodyText(state.source.document);
   state.updates = [];
   state.retainedPayload = undefined;
+  state.sourceRevisionMatches = true;
   state.transactionDigest = "thread-digest";
   state.transactionError = null;
   state.resolvedRows = false;
@@ -683,6 +697,139 @@ describe("comment AI dedicated action boundaries", () => {
       result: { suggestionId: "suggestion-1" },
     });
   });
+
+  it.each([
+    {
+      name: "a repeated find",
+      edits: [{ find: "Water.", replace: "Mulch." }],
+      errorCode: "find_repeated",
+      message: "Edit 1's find text occurs 2 times",
+    },
+    {
+      name: "a missing find",
+      edits: [{ find: "Bed three.", replace: "Bed 3." }],
+      errorCode: "find_missing",
+      message: "Edit 1's find text is not in the latest text",
+    },
+    {
+      name: "overlapping finds",
+      edits: [
+        { find: "Bed one. Water.", replace: "Bed one. Mulch." },
+        { find: "Water. Bed two.", replace: "Mulch. Bed two." },
+      ],
+      errorCode: "finds_overlap",
+      message: "Edits 1 and 2 overlap",
+    },
+    {
+      name: "edits that change nothing",
+      edits: [{ find: "Bed one.", replace: "Bed one." }],
+      errorCode: "edits_unchanged",
+      message: "The edits together leave the text unchanged",
+    },
+  ])(
+    "refuses $name with nothing saved, so a corrected call succeeds",
+    async ({ edits, errorCode, message }) => {
+      state.request.intent = "suggest";
+      state.source.document.content = "Bed one. Water. Bed two. Water.";
+
+      const error = await run(createSuggestion as never, {
+        summary: "Mulch the beds",
+        edits,
+      }).catch((thrown: unknown) => thrown);
+
+      expect(isNoWriteError(error)).toBe(true);
+      expect(error).toMatchObject({
+        errorCode,
+        message: expect.stringContaining(message),
+      });
+      expect(state.retainedPayload).toBeUndefined();
+      expect(state.updates).toEqual([]);
+      expect(state.request.status).toBe("running");
+      expect(mocks.createSuggestion).not.toHaveBeenCalled();
+
+      const result = await run(createSuggestion as never, {
+        summary: "Mulch bed two",
+        edits: [{ find: "Bed two. Water.", replace: "Bed two. Mulch." }],
+      });
+
+      expect(result).toMatchObject({ status: "suggested" });
+      expect(mocks.createSuggestion).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("reports a refused find to the agent loop as a call that wrote nothing", async () => {
+    state.request.intent = "suggest";
+    state.source.document.content = "Bed one. Water. Bed two. Water.";
+    mocks.requireRequest.mockImplementationOnce(async () => {
+      noteExternalWrite("comment-ai-request");
+      return state.request;
+    });
+    const outcome: ActionExecutionOutcome = { refused: false };
+
+    const error = await runActionWithExecutionOutcome(
+      createSuggestion.run as never,
+      {
+        attemptId: "attempt-1",
+        summary: "Mulch the beds",
+        edits: [{ find: "Water.", replace: "Mulch." }],
+      },
+      ctx,
+      outcome,
+      createSuggestion,
+    ).catch((thrown: unknown) => thrown);
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(
+      invocationEffect(createSuggestion, outcome, { failed: { error } }),
+    ).toMatchObject({ effect: "none" });
+  });
+
+  it("refuses an apply whose find occurs more than once, with nothing saved", async () => {
+    state.request.intent = "apply-resolve";
+    state.source.document.content = "Bed one. Water. Bed two. Water.";
+
+    const error = await run(applyRequest as never, {
+      summary: "Mulched the beds",
+      edits: [{ find: "Water.", replace: "Mulch." }],
+    }).catch((thrown: unknown) => thrown);
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(error).toMatchObject({ errorCode: "find_repeated" });
+    expect(state.retainedPayload).toBeUndefined();
+    expect(state.updates).toEqual([]);
+    expect(mocks.editDocument).not.toHaveBeenCalled();
+  });
+
+  it("refuses apply edits that together leave the Page unchanged, before the edit is keyed", async () => {
+    state.request.intent = "apply-resolve";
+    state.source.document.content = "Alpha Beta";
+
+    const error = await run(applyRequest as never, {
+      summary: "Reworded",
+      edits: [
+        { find: "Alpha ", replace: "Alpha B" },
+        { find: "Beta", replace: "eta" },
+      ],
+    }).catch((thrown: unknown) => thrown);
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(error).toMatchObject({ errorCode: "edits_unchanged" });
+    expect(state.retainedPayload).toBeUndefined();
+    expect(mocks.editDocument).not.toHaveBeenCalled();
+  });
+
+  it("keeps a find a later Page change removed as a typed review conflict", async () => {
+    state.request.intent = "suggest";
+    state.sourceRevisionMatches = false;
+
+    await expect(
+      run(createSuggestion as never, {
+        summary: "Clarify this",
+        edits: [{ find: "Gone text", replace: "New text" }],
+      }),
+    ).rejects.toMatchObject({ code: "target_deleted" });
+    expect(state.request.status).toBe("needs-review");
+  });
 });
 
 describe("apply-and-resolve partial failure recovery", () => {
@@ -790,6 +937,25 @@ it("names the video a thread on a whole video is about", async () => {
 
   state.source.root = { quotedText: "Alpha" };
   expect(await run(getContext, {})).toMatchObject({ block: null });
+});
+
+it("keeps the quote and the discussion in the part of a long page the agent reads", async () => {
+  state.request.intent = "suggest";
+  state.request.snapshotJson = "[]";
+  const quoted = "Bed 4 held kale this year, planted in 5 rows by Dev.";
+  state.source.document.content = `${"Notes from the plots. ".repeat(5_000)}${quoted}`;
+  state.source.root = { quotedText: quoted };
+  state.source.comments = [
+    { id: "comment-1", parentId: null, content: "Shorten this paragraph" },
+  ];
+
+  const result = JSON.stringify(await run(getContext, {}));
+  const read = result.slice(0, DEFAULT_TOOL_RESULT_CHARS);
+
+  expect(result.length).toBeGreaterThan(DEFAULT_TOOL_RESULT_CHARS);
+  expect(read).toContain(`"quotedText":${JSON.stringify(quoted)}`);
+  expect(read).toContain('"content":"Shorten this paragraph"');
+  expect(read).toContain('"baseRevision":"base-revision"');
 });
 
 it("reports prior proposal decisions without treating them as the current result", async () => {

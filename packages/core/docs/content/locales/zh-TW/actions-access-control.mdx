@@ -73,7 +73,7 @@ export default defineAction({
 });
 ```
 
-這與外掛的 `mcp: { connectorCatalog: [...] }` 清單是同一份目錄，只是宣告寫在 action 上，而不是寫在一個每次重新命名都要同步的獨立陣列裡。兩種寫法都有效，應用程式可以一次搬移一個 action。沒有列入的部分仍可透過 `tool-search` 找到。
+這與外掛的 `mcp: { connectorCatalog: [...] }` 清單是同一份目錄，只是宣告寫在 action 上，而不是寫在一個每次重新命名都要同步的獨立陣列裡。兩種寫法都有效，應用程式可以一次搬移一個 action。沒有列入的 action 不在外部代理的預設目錄裡。`mcpTool: "search"` 會提供 action 但不列出它：`tool-search` 能找到它，`call-tool` 能執行它。對於你自己的代理能呼叫的其他 action，`tool-search` 會把相近的符合項目標為未提供，這樣已登入的外部代理就能把這項任務交給 `ask_app`。
 
 把兩個旗標反過來搭配——`agentTool: false` 搭配 `mcpTool: true`——就會得到一個**僅限 MCP** 的 action：外部代理拿得到，你自己應用程式的代理永遠看不到。適合用在外部工具需要、而你自己的代理沒有理由呼叫的匯出、同步或交接。
 
@@ -206,6 +206,8 @@ export default defineAction({
 - **拒絕**只會在本機端關閉這個操作介面。不會重新發出任何內容，因此該 action 永遠不會執行。
 
 `approvedToolCalls` 是聊天請求上的一個欄位（`AgentChatRequest.approvedToolCalls`）。不在其中的金鑰會維持暫停狀態。核准一次呼叫，永遠不會核准任何其他呼叫。由於這把金鑰是以內容定址的方式產生，一次核准只會授權那一次確切的呼叫與那些確切的引數。如果模型之後提議一次不同的傳送，那會產生一把新的金鑰，需要重新獲得一次核准。
+
+重新發出的回合也會在 `approvedToolCallAskIds` 中攜帶該呼叫待處理請求的 id。只有當該請求對同一使用者與同一執行緒仍在待處理時，伺服器才會執行該呼叫，因此單憑金鑰無法核准任何操作，且只有應用程式本身的頁面可以透過 `agentNative.submitChat` 轉送核准。
 
 ### 端對端流程 {#flow}
 

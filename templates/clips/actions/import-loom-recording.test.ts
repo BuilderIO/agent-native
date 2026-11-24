@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
     throw error;
   }),
   writeAppState: vi.fn(),
-  writeAppStateForCurrentTab: vi.fn(),
+  navigateAfterWrite: vi.fn(),
   uploadFile: vi.fn(),
   ssrfSafeFetch: vi.fn(),
   getDb: vi.fn(),
@@ -51,6 +51,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => mocks.defineAction(options),
+  isAgentCaller: () => false,
 }));
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => mocks.defineAction(options),
@@ -59,8 +60,7 @@ vi.mock("@agent-native/core/action", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
-  writeAppStateForCurrentTab: (...args: unknown[]) =>
-    mocks.writeAppStateForCurrentTab(...args),
+  navigateAfterWrite: (...args: unknown[]) => mocks.navigateAfterWrite(...args),
 }));
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
@@ -1276,10 +1276,13 @@ describe("first imported recording transactional email", () => {
     expect(mocks.writeAppState).toHaveBeenCalledWith("refresh-signal", {
       ts: expect.any(Number),
     });
-    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
-      view: "recording",
-      recordingId: "recording-imported",
-    });
+    expect(mocks.navigateAfterWrite).toHaveBeenCalledWith(
+      {
+        view: "recording",
+        recordingId: "recording-imported",
+      },
+      { ctx: undefined },
+    );
     expect(warn).toHaveBeenCalledWith(
       "[clips] First-import email enqueue failed",
       {

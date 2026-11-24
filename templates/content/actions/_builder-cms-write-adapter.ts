@@ -697,7 +697,7 @@ function builderRequiredFieldBlockers(args: {
 }) {
   if (
     args.source.sourceTable !== SAFE_WRITE_MODEL ||
-    (args.effect !== "create_draft" && args.effect !== "publish")
+    args.effect !== "publish"
   ) {
     return [];
   }

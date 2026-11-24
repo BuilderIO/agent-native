@@ -15,6 +15,7 @@ import {
   updateCommentAiRequest,
   verifyCommentAiAttempt,
 } from "../server/lib/comment-ai.js";
+import { commentAiChangeResource } from "../server/lib/document-change-resource.js";
 import { addCommentWithGuard, commentIdForIdempotency } from "./add-comment.js";
 
 const payloadSchema = z.object({
@@ -133,4 +134,5 @@ export default defineAction({
       throw typed;
     }
   },
+  changeResource: commentAiChangeResource,
 });

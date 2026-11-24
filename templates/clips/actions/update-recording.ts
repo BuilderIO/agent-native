@@ -1,8 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -71,6 +75,32 @@ export default defineAction({
         "Required with chaptersJson: mediaUpdatedAt from the get-recording-player-data response used to create these times.",
       ),
   }),
+  needsApproval: async (args, ctx) => {
+    if (!isOutsideAgentCall(ctx)) return false;
+    if (args.spaceIds !== undefined) return true;
+    if (args.password !== undefined && !args.password?.trim()) return true;
+    if (args.expiresAt === null) return true;
+    if (
+      args.password === undefined &&
+      args.expiresAt === undefined &&
+      args.enableComments !== true &&
+      args.enableDownloads !== true
+    ) {
+      return false;
+    }
+    const access = await resolveAccess("recording", args.id);
+    if (!access) return false;
+    const stored = access.resource;
+    if (args.enableComments === true && !stored.enableComments) return true;
+    if (args.enableDownloads === true && !stored.enableDownloads) return true;
+    if (args.password !== undefined && stored.password) return true;
+    return (
+      typeof args.expiresAt === "string" &&
+      Boolean(stored.expiresAt) &&
+      Date.parse(args.expiresAt) > Date.parse(stored.expiresAt)
+    );
+  },
+  mcpTool: "search",
   run: async (args) => {
     const access = assertRecordingNotExpired(
       await assertAccess("recording", args.id, "editor"),
@@ -188,6 +218,11 @@ export default defineAction({
     ) {
       return { id: args.id, recording: null, reason: "unavailable" as const };
     }
-    return { id: args.id, recording: updated };
+    if (!updated) return { id: args.id, recording: updated };
+    const { password, sharePasswordVersion, ...recording } = updated;
+    return {
+      id: args.id,
+      recording: { ...recording, hasPassword: Boolean(password) },
+    };
   },
 });

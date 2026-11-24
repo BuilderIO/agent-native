@@ -389,7 +389,9 @@ class AnthropicEngine implements AgentEngine {
             ? "tool_use"
             : stopReason === "max_tokens"
               ? "max_tokens"
-              : "end_turn",
+              : stopReason === "refusal"
+                ? "refusal"
+                : "end_turn",
       };
     } catch (err: any) {
       if (privateContent) {

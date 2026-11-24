@@ -182,6 +182,13 @@ import {
   WorkspaceAppKeepAlive,
 } from "./workspace-app-host";
 
+function postGuestReply(port: MessagePort, result: unknown): Promise<void> {
+  const handled = Promise.withResolvers<void>();
+  port.addEventListener("close", () => handled.resolve(), { once: true });
+  port.postMessage(result);
+  return handled.promise;
+}
+
 describe("WorkspaceAppKeepAlive", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -258,6 +265,15 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(calendarEntry?.classList.contains("hidden")).toBe(false);
     expect(calendarEntry?.querySelector("iframe")).not.toBeNull();
     expect(container.querySelectorAll("iframe")).toHaveLength(2);
+    for (const iframe of container.querySelectorAll("iframe")) {
+      expect(iframe.getAttribute("allow")?.split(/;\s*/)).toEqual(
+        expect.arrayContaining([
+          "clipboard-read",
+          "clipboard-write",
+          "fullscreen",
+        ]),
+      );
+    }
     expect(
       clientState.actionQueryParams.find(
         (query) => query.name === "list-workspace-apps",
@@ -636,6 +652,203 @@ describe("WorkspaceAppKeepAlive", () => {
       },
       "*",
     );
+  });
+
+  it("navigates a qualified app's loaded frame in place after a guest receipt", async () => {
+    const origin = "https://mail.example.test";
+    const startUrl = `${origin}/mail/inbox`;
+    clientState.legacyMutateAsync.mockResolvedValue({ startUrl });
+    clientState.suppressFrameLoad = true;
+    const app = {
+      id: "workspace/mail",
+      name: "Mail",
+      path: "/mail",
+      url: `${origin}/mail`,
+    };
+
+    await act(async () => {
+      root.render(<WorkspaceAppFrame app={app} embedPath="/inbox" />);
+    });
+    const iframe = container.querySelector("iframe");
+    if (!iframe || !iframe.contentWindow) throw new Error("Missing app frame");
+    const postMessage = vi.spyOn(iframe.contentWindow, "postMessage");
+    const target = "/mail/threads/42?mode=all#message";
+    const guestPort = Promise.withResolvers<MessagePort>();
+    postMessage.mockImplementation((message, _origin, transfer) => {
+      if (message?.type !== "agentNative.viewRequest") return;
+      const [port] = transfer as MessagePort[];
+      guestPort.resolve(port);
+    });
+
+    await act(async () => clientState.frameLoadHandler?.());
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={app}
+          embedPath="/threads/42?mode=all#message"
+        />,
+      );
+    });
+
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "agentNative.viewRequest",
+        operation: "navigate",
+        path: target,
+        deadline: expect.any(Number),
+      },
+      origin,
+      [expect.objectContaining({ postMessage: expect.any(Function) })],
+    );
+    expect(container.querySelector("iframe")).toBe(iframe);
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledTimes(1);
+    expect(
+      container
+        .querySelector("[data-chat-first-app-embed-url]")
+        ?.getAttribute("data-chat-first-app-embed-url"),
+    ).toBe(startUrl);
+    const port = await guestPort.promise;
+    await act(() => postGuestReply(port, { result: { path: target } }));
+    expect(container.querySelector("iframe")).toBe(iframe);
+  });
+
+  it.each([
+    { outcome: "accepted", newPath: "/threads/43" },
+    { outcome: "rejected", newPath: "/threads/43" },
+    { outcome: "accepted", newPath: "/inbox" },
+  ])(
+    "opens $newPath in the warm frame when a superseded request is $outcome",
+    async ({ outcome, newPath }) => {
+      const origin = "https://mail.example.test";
+      clientState.legacyMutateAsync.mockResolvedValue({
+        startUrl: `${origin}/mail/inbox`,
+      });
+      clientState.suppressFrameLoad = true;
+      const app = {
+        id: "workspace/mail",
+        name: "Mail",
+        path: "/mail",
+        url: `${origin}/mail`,
+      };
+      const onChildRouteChange = vi.fn();
+      const renderRoute = (path: string) =>
+        act(async () => {
+          root.render(
+            <WorkspaceAppFrame
+              app={app}
+              embedPath={path}
+              onChildRouteChange={onChildRouteChange}
+            />,
+          );
+        });
+      await renderRoute("/inbox");
+      const iframe = container.querySelector("iframe");
+      const source = iframe?.contentWindow;
+      if (!source) throw new Error("Missing app frame");
+      const ports = new Map<string, MessagePort>();
+      vi.spyOn(source, "postMessage").mockImplementation(
+        (message, _origin, transfer) => {
+          if (message?.type !== "agentNative.viewRequest") return;
+          const [port] = transfer as MessagePort[];
+          ports.set(message.path, port);
+        },
+      );
+      const reportRoute = (path: string) =>
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "agent-native:workspace-app-route", path },
+            origin,
+            source,
+          }),
+        );
+      const reply = async (path: string, result: object) => {
+        const port = ports.get(path);
+        if (!port) throw new Error("Missing navigation request");
+        await act(() => postGuestReply(port, result));
+      };
+
+      await act(async () => clientState.frameLoadHandler?.());
+      if (newPath === "/inbox") {
+        reportRoute("/mail/inbox");
+        onChildRouteChange.mockClear();
+      }
+      await renderRoute("/threads/42");
+      await renderRoute(newPath);
+      const superseded = "/mail/threads/42";
+      const latest = `/mail${newPath}`;
+      expect([...ports.keys()]).toEqual([superseded]);
+      if (outcome === "accepted" && newPath !== "/inbox") {
+        reportRoute(superseded);
+      }
+      await reply(
+        superseded,
+        outcome === "accepted"
+          ? { result: { path: superseded } }
+          : { error: "View unavailable" },
+      );
+
+      await vi.waitFor(() =>
+        expect([...ports.keys()]).toEqual([superseded, latest]),
+      );
+      reportRoute(latest);
+      await reply(latest, { result: { path: latest } });
+      expect(onChildRouteChange.mock.calls).toEqual([
+        [
+          `/apps/workspace%2Fmail?__workspace_app_path=${encodeURIComponent(newPath)}`,
+        ],
+      ]);
+      expect(container.querySelector("iframe")).toBe(iframe);
+      expect(clientState.legacyMutateAsync).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("opens the requested deep link if the mounted guest rejects in-place navigation", async () => {
+    const origin = "https://mail.example.test";
+    const startUrl = `${origin}/mail/inbox`;
+    const fallbackUrl = `${origin}/mail/threads/42`;
+    clientState.legacyMutateAsync
+      .mockResolvedValueOnce({ startUrl })
+      .mockResolvedValueOnce({ startUrl: fallbackUrl });
+    clientState.suppressFrameLoad = true;
+    const app = {
+      id: "workspace/mail",
+      name: "Mail",
+      path: "/mail",
+      url: `${origin}/mail`,
+    };
+
+    await act(async () => {
+      root.render(<WorkspaceAppFrame app={app} embedPath="/inbox" />);
+    });
+    const iframe = container.querySelector("iframe");
+    if (!iframe || !iframe.contentWindow) throw new Error("Missing app frame");
+    vi.spyOn(iframe.contentWindow, "postMessage").mockImplementation(
+      (message, _origin, transfer) => {
+        if (message?.type !== "agentNative.viewRequest") return;
+        const [port] = transfer as MessagePort[];
+        port.postMessage({ error: "View unavailable" });
+        port.close();
+      },
+    );
+    await act(async () => clientState.frameLoadHandler?.());
+    await act(async () => {
+      root.render(<WorkspaceAppFrame app={app} embedPath="/threads/42" />);
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+          app: "workspace/mail",
+          path: "/threads/42",
+          chrome: "minimal",
+        }),
+      );
+    });
+    expect(container.querySelector("iframe")).not.toBe(iframe);
+    expect(
+      container
+        .querySelector("[data-chat-first-app-embed-url]")
+        ?.getAttribute("data-chat-first-app-embed-url"),
+    ).toBe(fallbackUrl);
   });
 
   it("reports trusted child routes to the standalone Dispatch host", async () => {

@@ -1,24 +1,7 @@
-import {
-  ensureAdditiveColumns,
-  getDbExec,
-  runMigrations,
-} from "@agent-native/core/db";
+import { runMigrations } from "@agent-native/core/db";
 import { pgVectorIndexMigration } from "@agent-native/core/search";
 
-import * as schema from "../db/schema.js";
 import { BRAIN_EMBEDDING_DIMENSIONS } from "../lib/brain-embedding-family.js";
-
-function isDrizzleTable(value: unknown): value is object {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    Object.getOwnPropertySymbols(value).some((s) =>
-      s.toString().includes("drizzle"),
-    )
-  );
-}
-
-const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
@@ -526,36 +509,18 @@ CREATE TABLE IF NOT EXISTS brain_knowledge_verifications (
   acted_at TEXT NOT NULL
 )`,
     },
+    {
+      version: 32,
+      name: "brain-knowledge-provenance",
+      sql: `ALTER TABLE brain_knowledge ADD COLUMN IF NOT EXISTS provenance_json TEXT`,
+    },
+    {
+      version: 33,
+      name: "brain-knowledge-verification-reminder",
+      sql: `ALTER TABLE brain_knowledge_verifications ADD COLUMN IF NOT EXISTS remind_at TEXT`,
+    },
   ],
   { table: "brain_migrations" },
 );
 
-/**
- * The migration list above is the authoritative source for tables, indexes,
- * and data transforms. `ensureAdditiveColumns` runs after it as a
- * belt-and-braces safety net for the failure mode where a column is added to
- * schema.ts without a matching hand-written ALTER migration, which silently
- * 500s every query touching a pre-existing production table. It only ever
- * adds missing columns — never drops, renames, or retypes anything — and any
- * failure here is logged and swallowed so it can never fail boot.
- */
-export default async (nitroApp: any): Promise<void> => {
-  await runBrainMigrations(nitroApp);
-  try {
-    const summary = await ensureAdditiveColumns({
-      db: getDbExec(),
-      tables: schemaTables,
-    });
-    if (summary.errors.length > 0) {
-      console.warn(
-        "[db] ensureAdditiveColumns completed with errors:",
-        summary.errors,
-      );
-    }
-  } catch (err) {
-    console.warn(
-      "[db] ensureAdditiveColumns failed (non-fatal):",
-      err instanceof Error ? err.message : err,
-    );
-  }
-};
+export default runBrainMigrations;

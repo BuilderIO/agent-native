@@ -25,6 +25,7 @@ import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
 } from "./embed-auth.js";
+import { registerDbSyncQueryClient } from "./tool-done-refresh.js";
 import {
   bumpChangeVersion,
   bumpActiveLocalChangeVersions,
@@ -246,7 +247,9 @@ export function acquireCollabPollBoost(): () => void {
   };
 }
 const processedRunToolEvents = new WeakSet<Event>();
+const runToolEventClients = new WeakMap<Event, WeakSet<QueryClient>>();
 const processedRunEndEvents = new WeakSet<Event>();
+const runEndEventClients = new WeakMap<Event, WeakSet<QueryClient>>();
 const processedExplicitRefreshEvents = new WeakSet<Event>();
 const explicitRefreshClients = new WeakMap<Event, WeakSet<QueryClient>>();
 
@@ -273,10 +276,11 @@ export type SyncEvent = {
 
 type PollResponse = {
   version: number;
-  events: SyncEvent[];
+  events?: SyncEvent[];
   cursor?: string;
   // The server stopped at its row limit: more changes wait past `cursor`.
   cursorLimited?: boolean;
+  unreadable?: Array<{ type: "access-unavailable" | "unknown-scope" }>;
 };
 
 type SyncCursor = {
@@ -487,6 +491,7 @@ type SyncBroadcast =
     }
   | { type: "sse-state"; connected: boolean; capabilities: string[] }
   | { type: "resync" }
+  | { type: "unreadable" }
   | { type: "sse-state-request" };
 
 type EventSubscriber = (
@@ -1107,6 +1112,8 @@ class SyncTransport {
           this.notifySseState();
         }
         this.reschedule();
+      } else if (frame?.type === "unreadable") {
+        for (const sub of this.subscribers.values()) sub.onResync?.();
       } else if (frame?.type === "resync") {
         this.cursorRef = { ...INITIAL_SYNC_CURSOR };
         for (const sub of this.subscribers.values()) sub.onResync?.();
@@ -1335,6 +1342,10 @@ class SyncTransport {
       if (this.authFailureUntil > 0) {
         this.authFailureUntil = 0;
         this.connectEvents();
+      }
+      if (data.unreadable?.length) {
+        for (const sub of this.subscribers.values()) sub.onResync?.();
+        this.broadcast({ type: "unreadable" });
       }
       const events = data.events ?? [];
       const responseCursor = decodeSyncCursor(data.cursor);
@@ -1643,7 +1654,8 @@ export function useDbSync(
   options: {
     queryClient?: QueryClient;
     queryKeys?: string[];
-    realtime?: { reason: string };
+    realtime?: false | { reason: string };
+    resourceType?: string;
     pollUrl?: string;
     sseUrl?: string | false;
     /** @deprecated Use pollUrl instead */
@@ -1660,13 +1672,19 @@ export function useDbSync(
     suppressActionInvalidationFor?: string[];
   } = {},
 ): void {
+  const realtimeOption = options.realtime || undefined;
   const realtimeReason =
-    typeof options.realtime?.reason === "string"
-      ? options.realtime.reason.trim()
+    typeof realtimeOption?.reason === "string"
+      ? realtimeOption.reason.trim()
       : "";
-  if (options.realtime && !realtimeReason) {
+  if (realtimeOption && !realtimeReason) {
     throw new Error("useDbSync realtime opt-in requires a short reason.");
   }
+  const resourceType = options.resourceType;
+  const queryKeysRef = useRef(options.queryKeys);
+  useEffect(() => {
+    queryKeysRef.current = options.queryKeys;
+  }, [options.queryKeys]);
   const {
     queryClient,
     pollUrl = agentNativePath(options.eventsUrl ?? "/_agent-native/poll"),
@@ -1722,11 +1740,12 @@ export function useDbSync(
     }
 
     function queueInvalidateBatch(events: SyncEvent[]) {
-      pendingInvalidateEvents.push(...events);
-      if (events.some(isInteractionCriticalSyncEvent)) {
-        flushInvalidateBatch();
-        return;
-      }
+      const immediate = events.filter(isInteractionCriticalSyncEvent);
+      if (immediate.length) invalidateForEvents(immediate);
+      pendingInvalidateEvents.push(
+        ...events.filter((event) => !isInteractionCriticalSyncEvent(event)),
+      );
+      if (!pendingInvalidateEvents.length) return;
       if (invalidateTimer) return;
       invalidateTimer = setTimeout(
         flushInvalidateBatch,
@@ -1770,6 +1789,10 @@ export function useDbSync(
       const ownBrowserSource = getBrowserTabId();
       const relevant = events.filter(
         (event) =>
+          (!resourceType ||
+            event.source === "app-state" ||
+            event.version === 0 ||
+            event.resourceType === resourceType) &&
           !(
             event.source === "action" &&
             event.requestSource === ownBrowserSource
@@ -2053,17 +2076,22 @@ export function useDbSync(
       completedSideEffect: boolean,
       failed: boolean,
       browserTabId?: string,
+      navigationKeys?: unknown,
     ) => {
       const events: SyncEvent[] = [];
       if (completedSideEffect) {
         events.push({ source: "action", key: tool, version: 0 });
       }
-      if (tool === "navigate" && completedSideEffect) {
-        events.push({
-          source: "app-state",
-          key: browserTabId ? `navigate:${browserTabId}` : "navigate",
-          version: 0,
-        });
+      const targetKey = browserTabId ? `navigate:${browserTabId}` : "navigate";
+      const keys = Array.isArray(navigationKeys)
+        ? navigationKeys.filter(
+            (key) => key === "navigate" || key === targetKey,
+          )
+        : tool === "navigate" && completedSideEffect
+          ? [targetKey]
+          : [];
+      for (const key of new Set(keys)) {
+        events.push({ source: "app-state", key, version: 0 });
       }
       if (["__set_url__", "set-url", "set-search-params"].includes(tool)) {
         events.push({ source: "app-state", key: "__set_url__", version: 0 });
@@ -2077,9 +2105,27 @@ export function useDbSync(
       event: Event,
       events: SyncEvent[],
       processedEvents: WeakSet<Event>,
+      invalidatedClients: WeakMap<Event, WeakSet<QueryClient>>,
     ) => {
       if (events.length === 0) return;
+      const hasCustomFilter = Boolean(
+        actionInvalidatePredicateRef.current ||
+        ignoreSourceRef.current ||
+        suppressActionInvalidationForRef.current?.length,
+      );
       if (processedEvents.has(event)) {
+        if (queryClient) {
+          let clients = invalidatedClients.get(event);
+          if (!clients) {
+            clients = new WeakSet<QueryClient>();
+            invalidatedClients.set(event, clients);
+          }
+          if (hasCustomFilter || !clients.has(queryClient)) {
+            if (!hasCustomFilter) clients.add(queryClient);
+            queueInvalidateBatch(events);
+            return;
+          }
+        }
         for (const syncEvent of events) onEventRef.current?.(syncEvent);
         return;
       }
@@ -2105,6 +2151,14 @@ export function useDbSync(
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       }
+      if (queryClient && !hasCustomFilter) {
+        let clients = invalidatedClients.get(event);
+        if (!clients) {
+          clients = new WeakSet<QueryClient>();
+          invalidatedClients.set(event, clients);
+        }
+        clients.add(queryClient);
+      }
       queueInvalidateBatch(events);
     };
     const handleRunToolDone = (event: Event) => {
@@ -2112,6 +2166,7 @@ export function useDbSync(
         event as CustomEvent<{
           tool?: unknown;
           completedSideEffect?: unknown;
+          navigationKeys?: unknown;
           isError?: unknown;
           tabId?: unknown;
           browserTabId?: unknown;
@@ -2154,6 +2209,7 @@ export function useDbSync(
         completedSideEffect,
         detail.isError === true,
         browserTabId,
+        detail.navigationKeys,
       );
       if (events.length === 0) return;
       if (completedSideEffect) {
@@ -2166,7 +2222,12 @@ export function useDbSync(
         );
         sideEffectToolsByTab.set(tabId, tools);
       }
-      applyRunEvents(event, events, processedRunToolEvents);
+      applyRunEvents(
+        event,
+        events,
+        processedRunToolEvents,
+        runToolEventClients,
+      );
     };
     const handleRunStatus = (event: Event) => {
       const detail = (
@@ -2231,9 +2292,13 @@ export function useDbSync(
           eventsForTool(tool, true, failed, browserTabId),
         ),
         processedRunEndEvents,
+        runEndEventClients,
       );
     };
 
+    const releaseDbSyncClient = queryClient
+      ? registerDbSyncQueryClient(queryClient)
+      : undefined;
     window.addEventListener("agent-native:tool-done", handleRunToolDone);
     window.addEventListener("agentNative.chatRunning", handleRunStatus);
     const handleExplicitRefresh = (event: Event) => {
@@ -2265,7 +2330,23 @@ export function useDbSync(
       transport.add(id, {
         onEvents,
         onResync: () => {
-          queryClient?.invalidateQueries();
+          queryClient?.invalidateQueries({
+            predicate: (query) => {
+              if (query.queryKey[0] === "action") {
+                return (
+                  !resourceType ||
+                  actionQueryAffectedByResources(query, new Set([resourceType]))
+                );
+              }
+              return [
+                ...(queryKeysRef.current ?? []),
+                "app-state",
+                "navigate-command",
+                "__set_url__",
+                "show-questions",
+              ].includes(String(query.queryKey[0]));
+            },
+          });
         },
         pauseWhenHidden,
         interval,
@@ -2275,6 +2356,7 @@ export function useDbSync(
     }
 
     return () => {
+      releaseDbSyncClient?.();
       window.removeEventListener("agent-native:tool-done", handleRunToolDone);
       window.removeEventListener("agentNative.chatRunning", handleRunStatus);
       window.removeEventListener(
@@ -2303,6 +2385,7 @@ export function useDbSync(
     fallbackInterval,
     pauseWhenHidden,
     realtimeReason,
+    resourceType,
   ]);
 }
 

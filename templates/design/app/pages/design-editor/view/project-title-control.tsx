@@ -343,7 +343,7 @@ function ProjectTitleControl({
               </DropdownMenuSub>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
+                variant="destructive"
                 onClick={() => setTrashDialogOpen(true)}
                 disabled={!canShareDesign}
               >

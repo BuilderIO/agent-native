@@ -26,6 +26,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ query, limit }) => {
     const ownerEmail = await resolveOwnerEmail();
     const { contacts, errors } = await loadContactsForEmail(ownerEmail);

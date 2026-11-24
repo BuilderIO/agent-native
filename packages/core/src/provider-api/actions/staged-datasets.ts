@@ -222,6 +222,7 @@ export function createQueryStagedDatasetAction<
     http: options.http ?? false,
     readOnly: true,
     grounding: true,
+    mcpTool: false,
     run: async (rawArgs) => {
       const args = rawArgs as StagedActionArgs;
       const scope = resolveScope("query-staged-dataset", args, options);
@@ -306,6 +307,7 @@ export function createListStagedDatasetsAction<
     schema,
     http: options.http ?? { method: "GET" },
     readOnly: true,
+    mcpTool: false,
     run: async (rawArgs) => {
       const args = rawArgs as StagedActionArgs;
       const scope = resolveScope("list-staged-datasets", args, options);
@@ -349,6 +351,7 @@ export function createDeleteStagedDatasetAction<
       "Delete a staged dataset by id, freeing its scratch storage. Only the owner who staged the dataset can delete it.",
     schema,
     http: options.http ?? false,
+    mcpTool: false,
     run: async (rawArgs) => {
       const args = rawArgs as StagedActionArgs;
       const scope = resolveScope("delete-staged-dataset", args, options);

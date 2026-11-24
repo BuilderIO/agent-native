@@ -5,8 +5,7 @@
 - Setup
 - The script
 - Procedure
-- Rubric
-- Fixing
+- Shared rubric
 - Host notes
 
 Run this in step 5, inside the app directory, after the dev server answers
@@ -293,76 +292,17 @@ Reading the metrics:
 7. Shoot `p2` and rescore. Shoot `p3` only when `p2` still misses the bar (an
    automatic fail, a mean under 4.0, or a criterion under 3), the fixes are
    known, and the 45-minute aim has not passed; it is the last pass. Otherwise
-   stop at two and name the open criteria. Use the script as written; do not
-   grow a separate test harness.
-8. The bar (defaults): mean 4.0 or higher, no criterion below 3, no automatic
-   fail. On the final pass, if the host can spawn a sub-agent and time
-   remains, give it only the PNGs, the rubric, and the brief, have it score
-   blind, and keep the lower score per row.
+   stop at two and name the open criteria. Take these screenshots with the
+   capture script and run the separate interactive verification in app-quality-bar.
+8. Meet the shared visual review gate, including its blind independent
+   review. If no independent reviewer is available, keep the gate pending.
 9. Put the final table, the metrics, and the absolute paths of the final
    pass's screenshots in the final report, and name any open criterion. Never
    report a passed review without screenshots.
 
-## Rubric
+## Shared rubric
 
-| #   | Criterion             | 5 means                                                                                           | 3 means                                                                                  | 1 means                                             |
-| --- | --------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| 1   | First-viewport impact | Domain objects fill most of the view, populated, with one clear verb                              | Domain objects fill about half; the rest is whitespace or chrome                         | Mostly whitespace, a form, or text                  |
-| 2   | Domain fit            | The layout has the shape of the user's real objects                                               | Right objects, generic layout (a list of cards)                                          | A generic card stack                                |
-| 3   | Hierarchy             | The squint shot shows primary, secondary, tertiary                                                | Two levels read; the third is noise                                                      | Everything has equal weight                         |
-| 4   | Chrome discipline     | No repeated titles, subtitles, strips, or helper text                                             | One redundant title, strip, or helper line                                               | Eyebrow, H1, subtitle, nested cards                 |
-| 5   | Sample data           | 12+ varied, believable records with edge cases; numbers agree                                     | Real but thin data (6-10 rows), few edge cases                                           | Empty, lorem, "Item 1"                              |
-| 6   | Typography            | Clear scale, tabular numbers, comfortable measure, formatted long text                            | Scale exists; numbers not tabular or measure too wide                                    | One size, default stack, raw markdown               |
-| 7   | Color and direction   | A named direction in tokens; accent only on action, selection, state                              | Tokens applied; accent also used as decoration                                           | Scaffold grey or mixed accents                      |
-| 8   | Polish                | Concentric radii, shadow rings, 40px targets, hover, press, focus                                 | Some states or radii mismatched                                                          | Default controls, no states                         |
-| 9   | Agent and UI together | The click shows a working state on the object; the result lands in place with Accept, Edit, Retry | Working state on the page, but the result lands elsewhere or without Accept, Edit, Retry | Chat is elsewhere; the UI stays static              |
-| 10  | 390px                 | A purposeful mobile layout, an obvious path to detail, 44px targets                               | Usable, but one clipped control or a 32px target                                         | Overflow, clipped controls, or no way to the detail |
-| 11  | Dark mode             | A designed palette; charts and status legible                                                     | Themed, but one pill, chart, or image is wrong                                           | Broken or unthemed                                  |
-| 12  | Accessibility         | Roles, visible focus, 4.5:1 text, status not by color alone                                       | Roles and focus present; one color-only status or low-contrast text                      | Div buttons, no focus ring                          |
-
-Automatic fails, whatever the mean:
-
-- `signedOut` true (the pass does not count: fix sign-in and shoot again);
-- `stepper` true, or a stepper or wizard as the shell;
-- `/` not opening the domain route (`landed` false);
-- an empty first viewport, an empty state as the home, or a form-only first
-  viewport (`textareasAboveFold` above 0 with `visuals` at 0) on a source that
-  is not A11 or A12; an A11 or A12 home needs a filled sample input beside a
-  populated result, history, or entries list;
-- chrome text over 60 words (`proseWords`);
-- `defaultTokens` true, or `neutralPrimary` true on an unbranded app;
-- `overflowX` at 390px; `clipped` or `headerOverlap` above 0 on any row;
-  `innerScroll` at 390px that is not a lane scroller or filter row;
-- `rawMarkdown` above 0;
-- a console error from the new route;
-- a hit from either grep in Fixing.
-
-Criterion 9 needs a connected AI provider to show a result landing. Without
-one, judge the working state in the 400 ms shot and the "Connect AI" path in
-the 5 s shot, and say in the final report that the result was not exercised.
-
-## Fixing
-
-Most defects are one of these:
-
-- Delete chrome before restyling: page titles, subtitles, eyebrows, strips,
-  and a heading under the header title that names the view again.
-- Make the domain object bigger and the form smaller; move inputs behind an
-  Add verb or into the agent composer, unless the source is A11 or A12.
-- Replace placeholder rows with sample records that include edge cases.
-- Apply the direction's tokens. If `defaultTokens` is true, the block did not
-  load: check that it was appended after the scaffold's and that `--primary`
-  changed.
-- Check the working state: the 400 ms shot must show the object busy, and the
-  5 s shot must not show it stuck.
-- Run both commands before every pass; each must print nothing. The first
-  lists raw colors (the scaffold's `root.tsx` theme-color hex is excluded),
-  the second forbidden icons:
-
-```bash
-grep -rnE '\b(bg|text|border|ring|fill|stroke|from|to|via|divide)-(white|black|(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)(-[0-9]{2,3})?)\b|#[0-9a-fA-F]{6}\b' app --include='*.tsx' --exclude-dir=ui --exclude=root.tsx
-grep -rnE 'Icon(Sparkles|Wand|Magic|Robot)' app --include='*.tsx'
-```
+Use the `app-quality-bar/visual-review.md` from the scaffold's shared skills.
 
 ## Host notes
 

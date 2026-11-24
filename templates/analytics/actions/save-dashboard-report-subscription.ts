@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
@@ -11,6 +12,7 @@ import {
   SLACK_WEBHOOK_URL_MESSAGE,
   saveDashboardReportSubscription,
 } from "../server/lib/dashboard-report-subscriptions";
+import { guardWrite, idempotencyKeyArg } from "../server/lib/guarded-writes";
 
 export default defineAction({
   description:
@@ -45,12 +47,44 @@ export default defineAction({
       .describe("Local send time in HH:mm"),
     timezone: z.string().describe("IANA timezone for the send time"),
     enabled: z.boolean().default(true),
+    idempotencyKey: idempotencyKeyArg,
   }),
   http: { method: "POST" },
-  run: async (args) => {
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  retrySafe: ({ idempotencyKey }) => idempotencyKey !== undefined,
+  run: async ({ idempotencyKey, ...input }, actionContext) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
-    const orgId = getRequestOrgId() || null;
-    return saveDashboardReportSubscription(args, { email, orgId });
+    const ctx = { email, orgId: getRequestOrgId() || null };
+    const guard = guardWrite({
+      action: "save-dashboard-report-subscription",
+      target: { kind: "report-subscription", id: input.id ?? "" },
+      caller: actionContext?.caller,
+      scope: ctx,
+      idempotencyKey,
+      request: input,
+    });
+    guard.requireKey();
+    const outcome = await guard.run(
+      async () => undefined,
+      () => saveDashboardReportSubscription(input, ctx, guard.onCommit),
+    );
+    if ("replayed" in outcome) {
+      return {
+        id: outcome.replayed.writeReceipt.target.id,
+        ...outcome.replayed,
+      };
+    }
+    return {
+      ...outcome.written,
+      ...(guard.receipt ? { writeReceipt: guard.receipt } : {}),
+    };
   },
 });

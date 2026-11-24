@@ -27,6 +27,13 @@ import {
   type EmbeddingFamily,
 } from "../embeddings/index.js";
 import {
+  pauseProviderBudget,
+  releaseProviderBudgetReservation,
+  reserveProviderBudget,
+  type ProviderAdmission,
+  type ProviderConnectionScope,
+} from "../provider-api/provider-budget.js";
+import {
   claimResourceChanges,
   completeResourceChanges,
   deferResourceChanges,
@@ -110,6 +117,8 @@ const DOCUMENT_EMBED_TIMEOUT_MS = 15_000;
  */
 const RATE_LIMIT_WAIT_SECONDS = 60;
 const RATE_LIMIT_MAX_WAIT_SECONDS = 15 * 60;
+const SEARCH_FIRST_SECONDS = 2 * 60;
+const REFUSED_CREDENTIALS_WAIT_SECONDS = 60 * 60;
 
 /** Thrown when a drain's time is up before its next embedding call. */
 class DrainDeadlineReached extends Error {
@@ -780,6 +789,17 @@ function rateLimitWaitSeconds(error: unknown): number | undefined {
   );
 }
 
+function changesWait(count: number, seconds: number): string {
+  return `${count} ${count === 1 ? "change waits" : "changes wait"} ${seconds}s`;
+}
+
+function refusedCredentialsWaitSeconds(error: unknown): number | undefined {
+  return error instanceof EmbeddingProviderError &&
+    (error.status === 401 || error.status === 403)
+    ? REFUSED_CREDENTIALS_WAIT_SECONDS
+    : undefined;
+}
+
 /** Puts changes back untried, logging rather than throwing when it can't. */
 async function deferAfterRateLimit(
   exec: DbExec,
@@ -787,17 +807,88 @@ async function deferAfterRateLimit(
   changes: ClaimedResourceChange[],
   seconds: number,
   deferred: Set<ClaimedResourceChange>,
+  countAttempt = false,
 ): Promise<void> {
   for (const change of changes) deferred.add(change);
   // Changes not put back are claimed again when their lease expires.
-  await deferResourceChanges(exec, feed, changes, seconds).catch(
-    (error: unknown) => {
-      console.error(
-        `[search] Putting back ${changes.length} ${feed.app}/${feed.resourceType} changes after a rate limit failed, so they are retried when their claim expires:`,
-        error instanceof Error ? error.message : String(error),
-      );
-    },
-  );
+  await deferResourceChanges(exec, feed, changes, seconds, undefined, {
+    countAttempt,
+  }).catch((error: unknown) => {
+    console.error(
+      `[search] Putting back ${changes.length} ${feed.app}/${feed.resourceType} changes to wait failed, so they are retried when their claim expires:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  });
+}
+
+function documentBudgetScope({
+  scope,
+  policy,
+}: NonNullable<EmbeddingFamily["documentBudget"]>): ProviderConnectionScope {
+  return {
+    ...scope,
+    connectionId: `${scope.connectionId}:${policy.capacity}/${policy.windowMs}`,
+  };
+}
+
+async function documentBudgetWait(
+  family: EmbeddingFamily,
+  label: string,
+  deadline: number,
+): Promise<number | undefined> {
+  const budget = family.documentBudget;
+  if (!budget) return undefined;
+  if (Date.now() >= deadline) throw new DrainDeadlineReached();
+  let admission: ProviderAdmission;
+  try {
+    admission = await reserveProviderBudget(
+      documentBudgetScope(budget),
+      budget.policy,
+    );
+  } catch (error) {
+    console.warn(
+      `[search] Reading the embedding provider's budget for ${label} failed, so indexing goes on without it:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return undefined;
+  }
+  if (admission.status === "paused") {
+    if (admission.resumeAt === null) return RATE_LIMIT_MAX_WAIT_SECONDS;
+    return Math.max(1, Math.ceil((admission.resumeAt - Date.now()) / 1000));
+  }
+  if (Date.now() >= deadline) {
+    await releaseProviderBudgetReservation(admission).catch(
+      (error: unknown) => {
+        console.warn(
+          `[search] Returning an unused call to the embedding provider's budget for ${label} failed:`,
+          error instanceof Error ? error.message : String(error),
+        );
+      },
+    );
+    throw new DrainDeadlineReached();
+  }
+  return undefined;
+}
+
+async function holdDocumentBudget(
+  family: EmbeddingFamily,
+  seconds: number,
+  label: string,
+): Promise<void> {
+  const budget = family.documentBudget;
+  if (!budget) return;
+  try {
+    await pauseProviderBudget(
+      documentBudgetScope(budget),
+      { reason: "provider_throttle", resumeAt: Date.now() + seconds * 1000 },
+      budget.policy,
+    );
+  } catch (error) {
+    console.warn(
+      `[search] Holding back ${label} indexing on every server failed:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 /**
@@ -1084,8 +1175,10 @@ async function embedAudienceGroup(
       .slice(index)
       .flat()
       .map((item) => item.change);
-    const limited = limits.get(scope);
+    const limited =
+      limits.get(scope) ?? (await documentBudgetWait(family, label, deadline));
     if (limited !== undefined) {
+      limits.set(scope, limited);
       await deferAfterRateLimit(exec, feed, left, limited, deferred);
       return;
     }
@@ -1102,15 +1195,23 @@ async function embedAudienceGroup(
         { family, setId, orgId, done, deadline },
       );
     } catch (error) {
-      const wait = rateLimitWaitSeconds(error);
+      const limited = rateLimitWaitSeconds(error);
+      const wait = limited ?? refusedCredentialsWaitSeconds(error);
       if (wait === undefined) throw error;
+      const sent =
+        limited === undefined ? slice.map((item) => item.change) : [];
+      const rest = left.slice(sent.length);
       console.warn(
-        `[search] The embedding provider is rate limiting ${label}, so ${left.length} ${left.length === 1 ? "change waits" : "changes wait"} ${wait}s:`,
+        limited === undefined
+          ? `[search] The embedding provider refused the credentials for ${label}. Of the changes left, ${changesWait(sent.length, 2 * wait)} (those it was sent, retried one by one next) and ${changesWait(rest.length, wait)}:`
+          : `[search] The embedding provider is rate limiting ${label}, so ${changesWait(rest.length, wait)}:`,
         error instanceof Error ? error.message : String(error),
       );
       limits.set(scope, wait);
+      await holdDocumentBudget(family, wait, label);
+      await deferAfterRateLimit(exec, feed, sent, 2 * wait, deferred, true);
       // Put back now, so they wait even if a later group runs out of time.
-      await deferAfterRateLimit(exec, feed, left, wait, deferred);
+      await deferAfterRateLimit(exec, feed, rest, wait, deferred);
       return;
     }
     if (!on) {
@@ -1766,6 +1867,7 @@ async function queryVector(
     orgId: string | undefined;
     app: string;
   },
+  label: string,
 ): Promise<number[]> {
   const key = `${family.id}\u0000${family.version}\u0000${query}`;
   const cached = queryVectors.get(key);
@@ -1775,9 +1877,21 @@ async function queryVector(
     queryVectors.set(key, cached);
     return cached.vector;
   }
-  const vectors = await family.embed([{ text: query }], "query", {
-    signal: AbortSignal.timeout(QUERY_EMBED_TIMEOUT_MS),
-  });
+  const vectors = await family
+    .embed([{ text: query }], "query", {
+      signal: AbortSignal.timeout(QUERY_EMBED_TIMEOUT_MS),
+    })
+    .catch(async (error: unknown) => {
+      const wait = rateLimitWaitSeconds(error);
+      if (wait !== undefined && family.documentBudget) {
+        const seconds = Math.max(SEARCH_FIRST_SECONDS, wait);
+        console.warn(
+          `[search] ${label} searches were rate limited, so indexing with the same credentials waits ${seconds}s on every server.`,
+        );
+        await holdDocumentBudget(family, seconds, label);
+      }
+      throw error;
+    });
   const vector = vectors.at(0);
   if (!vector) throw new Error("The embedding provider returned no vector.");
   await recordEmbeddingUsage(family, [query], {
@@ -1865,11 +1979,16 @@ export async function searchSemanticIndex(
     if (!audienceIds.length || !input.query.trim()) {
       return { status: "used", hits: [] };
     }
-    const vector = await queryVector(family, input.query, {
-      ownerEmail: getRequestUserEmail(),
-      orgId,
-      app: registration.app,
-    });
+    const vector = await queryVector(
+      family,
+      input.query,
+      {
+        ownerEmail: getRequestUserEmail(),
+        orgId,
+        app: registration.app,
+      },
+      label,
+    );
     const matches = await store.query(exec, {
       embeddingSetId: embeddingSetId(registration, family),
       dimensions: family.dimensions,

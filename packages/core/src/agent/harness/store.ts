@@ -1666,6 +1666,46 @@ export async function listExpiredAgentHarnessFollowUps(
   return rows.map(rowToHarnessSession).filter(isStoredSession);
 }
 
+/**
+ * When the next follow-up or approval claim becomes recoverable, for the
+ * Netlify idle marker, or `null` when no session holds one.
+ */
+export async function nextAgentHarnessRecoveryDueAt(): Promise<number | null> {
+  await ensureAgentHarnessSessionTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT
+            MIN(CASE WHEN status = 'running' AND follow_up_claim_id IS NOT NULL
+              THEN GREATEST(
+                LEAST(
+                  COALESCE(follow_up_claim_expires_at, updated_at + ?),
+                  follow_up_deadline_at
+                ),
+                CASE WHEN approval_resolution_id IS NOT NULL
+                  THEN COALESCE(approval_resolution_claim_expires_at, updated_at + ?)
+                END
+              )
+            END) AS follow_up_due_at,
+            MIN(CASE WHEN approval_resolution_id IS NOT NULL
+                  AND follow_up_claim_id IS NULL AND expiry_cleanup_id IS NULL
+                  AND status NOT IN ('stopped', 'errored', 'destroyed')
+              THEN COALESCE(approval_resolution_claim_expires_at, updated_at + ?)
+            END) AS approval_due_at
+          FROM agent_harness_sessions
+          WHERE follow_up_claim_id IS NOT NULL
+            OR approval_resolution_id IS NOT NULL`,
+    args: [
+      LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
+      LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
+      LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
+    ],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  const dueTimes = [row?.follow_up_due_at, row?.approval_due_at]
+    .filter((dueAt) => dueAt !== null && dueAt !== undefined)
+    .map(Number);
+  return dueTimes.length > 0 ? Math.min(...dueTimes) : null;
+}
+
 async function hasAgentHarnessSessionEventType(
   tx: DbExec,
   sessionId: string,

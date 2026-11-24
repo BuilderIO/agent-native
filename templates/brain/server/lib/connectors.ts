@@ -12,6 +12,7 @@ import { getDb, schema } from "../db/index.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
 import {
   BrainCaptureBlockedError,
+  BrainCaptureConcurrentError,
   createCapture,
   commitPreparedCapture,
   prepareCapture,
@@ -35,6 +36,11 @@ import {
   readGoogleSourcePage,
 } from "./google-sources.js";
 import { resolveMeetingMemberEmails } from "./meeting-audience.js";
+import {
+  parseCaptureMetadata,
+  publicCaptureMetadata,
+  withOmissionReceipt,
+} from "./search-index-contracts.js";
 import {
   ensureSlackPublicChannelMembership,
   type SlackChannelJoinResponse,
@@ -78,11 +84,22 @@ export interface ConnectorSyncResult {
   stats?: Record<string, unknown>;
 }
 
+async function createCaptureRetryingOnce(
+  values: Parameters<typeof createCapture>[0],
+) {
+  try {
+    return await createCapture(values);
+  } catch (error) {
+    if (!(error instanceof BrainCaptureConcurrentError)) throw error;
+    return await createCapture(values);
+  }
+}
+
 async function createConnectorCapture(
   values: Parameters<typeof createCapture>[0],
 ) {
   try {
-    return { capture: await createCapture(values), blocked: false };
+    return { capture: await createCaptureRetryingOnce(values), blocked: false };
   } catch (error) {
     if (error instanceof BrainCaptureBlockedError) {
       return { capture: null, blocked: true };
@@ -446,7 +463,11 @@ function transcriptItems(config: Record<string, unknown>) {
   return raw
     .map((item) => {
       if (typeof item === "string") {
-        return { title: "Imported capture", content: item };
+        return {
+          title: "Imported capture",
+          content: item,
+          kind: "transcript" as const,
+        };
       }
       if (!item || typeof item !== "object") return null;
       const record = item as Record<string, unknown>;
@@ -1143,7 +1164,7 @@ async function createSlackThreadCapture(input: {
   });
   if (!normalized) return { capture: null, blocked: false };
   try {
-    const capture = await createCapture({
+    const capture = await createCaptureRetryingOnce({
       sourceId: input.source.id,
       externalId: normalized.externalId,
       title: normalized.title,
@@ -1971,6 +1992,7 @@ async function githubRefsFromLinkedSources(
       .select({
         id: schema.brainRawCaptures.id,
         title: schema.brainRawCaptures.title,
+        kind: schema.brainRawCaptures.kind,
         content: schema.brainRawCaptures.content,
         metadataJson: schema.brainRawCaptures.metadataJson,
       })
@@ -1999,9 +2021,14 @@ async function githubRefsFromLinkedSources(
 
     for (const capture of captures) {
       if (refsByKey.size >= options.refLimit) break;
-      const metadata = parseJson<Record<string, unknown>>(
-        capture.metadataJson,
-        {},
+      const metadata = publicCaptureMetadata(
+        parseCaptureMetadata(
+          withOmissionReceipt(
+            capture.metadataJson,
+            capture.content,
+            capture.kind,
+          ),
+        ),
       );
       const linkedFrom = {
         sourceId,
@@ -2386,7 +2413,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
       );
     }
 
-    const settings = await readBrainSettings();
+    const settings = await readBrainSettings(source.orgId);
     const publicExclusionPatterns =
       settings.publicChannelExclusionPatterns ?? [];
     const channelsById = new Map<string, SlackChannel>();
@@ -2773,7 +2800,8 @@ export async function refreshSlackThreadCapture(
       !channel.is_private &&
       matchesPublicChannelExclusion(
         channel,
-        (await readBrainSettings()).publicChannelExclusionPatterns ?? [],
+        (await readBrainSettings(source.orgId))
+          .publicChannelExclusionPatterns ?? [],
       )
     ) {
       throw new Error(

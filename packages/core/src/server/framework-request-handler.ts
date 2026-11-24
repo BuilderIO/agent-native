@@ -32,6 +32,7 @@ import {
   installHttpResponseTelemetryHooks,
   recordFrameworkReadyWait,
 } from "./http-response-telemetry.js";
+import { installNetlifyActivityMarkHook } from "./netlify-activity-mark.js";
 import { PublicServerError } from "./public-server-error.js";
 import {
   getRequestContext,
@@ -42,9 +43,14 @@ import {
 const BOOTSTRAPPED = new WeakSet<object>();
 const IN_BOOTSTRAP = new WeakSet<object>();
 const FRAMEWORK_PREFIX = "/_agent-native";
+export const BUILDER_SIGNUP_EXPERIMENT_PATH = `${FRAMEWORK_PREFIX}/auth/builder-signup-experiment`;
 const WELL_KNOWN_PREFIX = "/.well-known";
 const APP_SHIM_KEY = "_agentNativeH3Shim";
 const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
+const eventNitroApps = new WeakMap<
+  H3Event,
+  { [BOOTSTRAP_PROMISE_KEY]?: Promise<unknown> }
+>();
 const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
 const PLUGIN_READY_PLACEHOLDERS_KEY = "_agentNativePluginReadyPlaceholders";
 const PLUGIN_FAILED_KEY = "_agentNativePluginInitFailures";
@@ -198,6 +204,7 @@ export function getH3App(nitroApp: any): H3AppShim {
   installHttpResponseTelemetryHooks(nitroApp);
   installDevConnectionCloseHook(nitroApp);
   installDevDatabaseCloseHook(nitroApp);
+  installNetlifyActivityMarkHook(nitroApp);
 
   const cached = nitroApp[APP_SHIM_KEY] as H3AppShim | undefined;
   if (cached) return cached;
@@ -264,6 +271,7 @@ export function getH3App(nitroApp: any): H3AppShim {
     registerRequestContextBoundary(nitroApp);
 
     nitroApp.hooks?.hook?.("request", async (event: H3Event) => {
+      eventNitroApps.set(event, nitroApp);
       keepRequestOpenForPluginInit(nitroApp, event);
       translatePublicFrameworkRequest(event);
       const reqPath = event.url?.pathname ?? "";
@@ -312,6 +320,7 @@ function registerRequestContextBoundary(nitroApp: any): void {
   if (h3[REQUEST_CONTEXT_BOUNDARY_KEY]) return;
 
   const middleware = (event: H3Event, next: () => unknown) => {
+    eventNitroApps.set(event, nitroApp);
     translatePublicFrameworkRequest(event);
     if ((event as any).context?.[RETIRED_PATH_CONTEXT_KEY] !== undefined) {
       setResponseStatus(event, 404);
@@ -410,6 +419,35 @@ export async function awaitBootstrap(nitroApp: any): Promise<void> {
   if (promise) await promise;
 }
 
+/**
+ * Request-scoped bootstrap wait. Unlike awaitBootstrap, it does not return early
+ * while bootstrap is running: requests dispatched during bootstrap are not part
+ * of it, so waiting cannot deadlock, and skipping the wait is the bug.
+ */
+export async function awaitFrameworkBootstrapForEvent(
+  event: H3Event,
+): Promise<void> {
+  const promise = eventNitroApps.get(event)?.[BOOTSTRAP_PROMISE_KEY];
+  if (promise) await awaitFrameworkReadyWithinDeadline(promise);
+}
+
+export async function awaitFrameworkReadyWithinDeadline(
+  promise: Promise<unknown>,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const ready = await Promise.race([
+      promise.then(() => true),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), frameworkReadyDeadlineMs());
+      }),
+    ]);
+    if (!ready) throw new Error("Framework routes did not become ready");
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function awaitFrameworkRoutesReadyForRequest(
   nitroApp: any,
   reqPath: string,
@@ -428,11 +466,16 @@ async function awaitFrameworkRoutesReadyForRequest(
         const earlyPaths = nitroApp[EARLY_FRAMEWORK_PATHS_KEY] as
           | Set<string>
           | undefined;
+        const isBuilderSignupPath = Boolean(
+          resolveMountMatch(reqPath, BUILDER_SIGNUP_EXPERIMENT_PATH),
+        );
         const canDispatchBeforeBootstrap = Boolean(
           earlyPaths?.size &&
-          Array.from(earlyPaths).some((path) =>
-            resolveMountMatch(reqPath, path),
-          ),
+          (isBuilderSignupPath
+            ? earlyPaths.has(BUILDER_SIGNUP_EXPERIMENT_PATH)
+            : Array.from(earlyPaths).some((path) =>
+                resolveMountMatch(reqPath, path),
+              )),
         );
         if (bootstrapPromise && !canDispatchBeforeBootstrap) {
           await bootstrapPromise;

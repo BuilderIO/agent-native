@@ -1,7 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import {
+  navigateAfterWrite,
   writeAppState,
-  writeAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
@@ -17,6 +17,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
+import { recordingMadeBy } from "../server/lib/recording-made-by.js";
 import {
   beginMediaProduction,
   finishMediaProduction,
@@ -429,6 +430,7 @@ export default defineAction({
         await db.insert(schema.recordings).values({
           id,
           ...recordingValues,
+          ...recordingMadeBy(actionContext),
           videoUrl: null,
           status: "uploading",
           failureReason: storageSetupReason,
@@ -454,10 +456,13 @@ export default defineAction({
         updatedAt: now,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      await writeAppStateForCurrentTab("navigate", {
-        view: "recording",
-        recordingId: id,
-      });
+      await navigateAfterWrite(
+        {
+          view: "recording",
+          recordingId: id,
+        },
+        { ctx: actionContext },
+      );
 
       return {
         recordingId: id,
@@ -527,6 +532,7 @@ export default defineAction({
           await db.insert(schema.recordings).values({
             id,
             ...recordingValues,
+            ...recordingMadeBy(actionContext),
             videoUrl: null,
             status: "processing",
             failureReason: null,
@@ -554,10 +560,13 @@ export default defineAction({
         updatedAt: now,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      await writeAppStateForCurrentTab("navigate", {
-        view: "recording",
-        recordingId: id,
-      });
+      await navigateAfterWrite(
+        {
+          view: "recording",
+          recordingId: id,
+        },
+        { ctx: actionContext },
+      );
 
       try {
         console.log("[import-loom-recording] dispatching loom-import job", {
@@ -612,6 +621,7 @@ export default defineAction({
         await db.insert(schema.recordings).values({
           id,
           ...initialValues,
+          ...recordingMadeBy(actionContext),
           videoUrl: null,
           status: "processing",
           failureReason: null,
@@ -908,10 +918,13 @@ export default defineAction({
       updatedAt: now,
     });
     await writeAppState("refresh-signal", { ts: Date.now() });
-    await writeAppStateForCurrentTab("navigate", {
-      view: "recording",
-      recordingId: id,
-    });
+    await navigateAfterWrite(
+      {
+        view: "recording",
+        recordingId: id,
+      },
+      { ctx: actionContext },
+    );
 
     return {
       recordingId: id,

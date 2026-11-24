@@ -59,6 +59,7 @@ export default defineAction({
       .optional()
       .describe("Deprecated: use app. Filters to this one app."),
   }),
+  mcpTool: false,
   run: async ({ sinceDays, scope, userEmail, app, appId }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     // scope "me" ignores userEmail, so only a workspace lookup is checked.

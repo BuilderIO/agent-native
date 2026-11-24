@@ -2036,6 +2036,10 @@ export default {
     loading: "Loading",
     flagsUnavailable: "功能开关不可用",
     flagsUnreachable: "无法连接工作区目录。连接恢复后重试。",
+    verifiedFlagChangeOrg:
+      "已于 {{time}} 验证：{{app}} 中的 {{flag}} 已为此组织设置为 {{availability}}。",
+    verifiedFlagChangeGlobal:
+      "已于 {{time}} 验证：{{app}} 中的 {{flag}} 已为所有组织设置为 {{availability}}。",
     flagsEmpty: "没有应用报告功能开关",
     flagsEmptyDetail: "连接的应用准备就绪后，已注册开关会显示在这里。",
     flagsNotReady: "此应用状态为 {{status}}，不会将其开关状态假定为关闭。",
@@ -2194,6 +2198,14 @@ export default {
     addedBy: "添加者：{{email}}",
     more: "另外 {{count}} 条",
     flagLabel: "数据备注",
+  },
+  citedIn: {
+    menu: "引用位置",
+    menuTooltip: "包含此仪表板图表的 Content 页面",
+    empty: "还没有你能打开的 Content 页面包含此仪表板的图表",
+    unavailable: "无法连接 Content。请一分钟后重试。",
+    untitledPage: "未命名",
+    more: "Content 仅检查了最近编辑的页面，因此可能还有更多。",
   },
   annotations: {
     menu: "标注",

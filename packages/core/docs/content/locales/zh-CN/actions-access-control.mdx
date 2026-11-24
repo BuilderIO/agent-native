@@ -73,7 +73,7 @@ export default defineAction({
 });
 ```
 
-这与插件的 `mcp: { connectorCatalog: [...] }` 列表是同一份目录,只是声明写在 action 上,而不是写在一个每次重命名都要同步的独立数组里。两种写法都有效,应用可以一次迁移一个 action。没有列入的部分仍然可以通过 `tool-search` 发现。
+这与插件的 `mcp: { connectorCatalog: [...] }` 列表是同一份目录,只是声明写在 action 上,而不是写在一个每次重命名都要同步的独立数组里。两种写法都有效,应用可以一次迁移一个 action。没有列入的 action 不在外部代理的默认目录里。`mcpTool: "search"` 会提供 action 但不列出它:`tool-search` 能找到它,`call-tool` 能运行它。对于你自己的代理能调用的其他 action,`tool-search` 会把相近的匹配标为未提供,这样已登录的外部代理就能把这项任务交给 `ask_app`。
 
 把两个 flag 反过来搭配——`agentTool: false` 配 `mcpTool: true`——就得到一个**仅限 MCP** 的 action:外部代理拿得到,你自己应用的代理永远看不到。用它来做外部工具需要、而你自己的代理没有理由调用的导出、同步或交接。
 
@@ -205,6 +205,8 @@ export default defineAction({
 - **拒绝**只会在本地关闭这个操作入口。不会重新发出任何东西,所以该 action 永远不会运行。
 
 `approvedToolCalls` 是聊天请求上的一个字段(`AgentChatRequest.approvedToolCalls`)。不在这个字段中出现的键,会一直保持暂停状态。批准一次调用,永远不会批准任何其他调用。因为这个键是按内容寻址的,所以一次批准只会授权那一次确切的调用,连同那些确切的参数。如果模型之后提议一次不同的发送,那会产生一个新的键,需要一次全新的批准。
+
+重新发出的轮次还会在 `approvedToolCallAskIds` 中携带该调用待处理请求的 id。只有当该请求对同一用户和同一线程仍处于待处理状态时，服务器才会运行该调用，因此仅凭键无法批准任何操作，并且只有应用自身的页面可以通过 `agentNative.submitChat` 转发批准。
 
 ### 端到端流程 {#flow}
 

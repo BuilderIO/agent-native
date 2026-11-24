@@ -60,6 +60,7 @@ export default defineAction({
   requiresAuth: false,
   readOnly: true,
   parallelSafe: true,
+  mcpTool: "search",
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     const access = await assertReviewableResourceAccess(

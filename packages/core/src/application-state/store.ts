@@ -1,3 +1,7 @@
+import {
+  observeNavigationCommand,
+  withoutWriteObservation,
+} from "../action-frame.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, isLocalDatabase, type DbExec } from "../db/client.js";
 import {
@@ -10,6 +14,11 @@ import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import type { StoreWriteOptions } from "../settings/store.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
+import {
+  AgentNavigationRefusedError,
+  evaluateNavigateWrite,
+  navigationKeyForCommandKey,
+} from "./navigate-write-guard.js";
 
 const MAX_HOSTED_APP_STATE_VALUE_BYTES = 1024 * 1024;
 
@@ -146,6 +155,28 @@ export async function appStateGetMany(
   return values;
 }
 
+async function assertNavigateWriteAllowedForSession(
+  sessionId: string,
+  key: string,
+  value: Record<string, unknown>,
+): Promise<void> {
+  const refusal = evaluateNavigateWrite(key, value);
+  if (!refusal) return;
+  let currentView: Record<string, unknown> | null = null;
+  if (refusal.reason !== "read-only-action") {
+    const navKey = navigationKeyForCommandKey(key);
+    if (navKey) {
+      currentView = await withoutWriteObservation(() =>
+        appStateGet(sessionId, navKey),
+      );
+    }
+  }
+  throw new AgentNavigationRefusedError(refusal.message, {
+    reason: refusal.reason,
+    currentView,
+  });
+}
+
 /**
  * Stores `value` under `key`. With an `order`, a write older than the last one
  * applied to the row from the same writer is skipped (see AppStateWriteOrder):
@@ -157,6 +188,7 @@ export async function appStatePut(
   value: Record<string, unknown>,
   options?: AppStateWriteOptions,
 ): Promise<void> {
+  await assertNavigateWriteAllowedForSession(sessionId, key, value);
   const serialized = serializeAppStateValue(key, value);
   await ensureTable();
   const client = getDbExec();
@@ -175,6 +207,7 @@ export async function appStatePut(
     });
     if (result.rowsAffected === 0) return;
   }
+  observeNavigationCommand(key);
   emitAppStateChange(key, options?.requestSource, sessionId);
 }
 
@@ -213,6 +246,9 @@ export async function appStateCompareAndSet(
   nextValue: Record<string, unknown> | null,
   options?: StoreWriteOptions,
 ): Promise<boolean> {
+  if (nextValue) {
+    await assertNavigateWriteAllowedForSession(sessionId, key, nextValue);
+  }
   if (nextValue !== null) serializeAppStateValue(key, nextValue);
   await ensureTable();
   const client = getDbExec();
@@ -227,6 +263,7 @@ export async function appStateCompareAndSet(
     if (nextValue === null) {
       emitAppStateDelete(key, options?.requestSource, sessionId);
     } else {
+      observeNavigationCommand(key);
       emitAppStateChange(key, options?.requestSource, sessionId);
     }
   }
@@ -314,6 +351,11 @@ export async function appStateCompareAndSetMany(
   operations: readonly AppStateCompareAndSetOperation[],
   options?: StoreWriteOptions,
 ): Promise<boolean> {
+  for (const { key, nextValue } of operations) {
+    if (nextValue) {
+      await assertNavigateWriteAllowedForSession(sessionId, key, nextValue);
+    }
+  }
   if (operations.length === 0) return true;
   const keys = new Set(operations.map(({ key }) => key));
   if (keys.size !== operations.length) {
@@ -353,6 +395,7 @@ export async function appStateCompareAndSetMany(
     if (nextValue === null) {
       emitAppStateDelete(key, options?.requestSource, sessionId);
     } else {
+      observeNavigationCommand(key);
       emitAppStateChange(key, options?.requestSource, sessionId);
     }
   }
