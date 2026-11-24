@@ -26,8 +26,26 @@ const part = (
  * frozen: a new part or sub-part changes the snapshot in `parts.spec.ts`.
  */
 export const MODEL_PARTS: readonly ModelPart[] = [
-  part("shell", "app-shell"),
-  part("shell", "sidebar", ["section", "item"]),
+  part("shell", "app-shell", [
+    "nav",
+    "topbar",
+    "main",
+    "aside",
+    "banner",
+    "overlays",
+    "skeleton",
+    "split",
+  ]),
+  part("shell", "sidebar", [
+    "header",
+    "item",
+    "section",
+    "tree",
+    "rail",
+    "footer",
+    "resize-handle",
+    "slot",
+  ]),
   part("shell", "page-header"),
   part("shell", "toolbar"),
   part("shell", "filter-bar"),

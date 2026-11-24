@@ -10,8 +10,8 @@ describe("MODEL_PARTS", () => {
           `${group} ${name}${subParts.length > 0 ? `: ${subParts.join(" ")}` : ""}`,
       ),
     ).toEqual([
-      "shell app-shell",
-      "shell sidebar: section item",
+      "shell app-shell: nav topbar main aside banner overlays skeleton split",
+      "shell sidebar: header item section tree rail footer resize-handle slot",
       "shell page-header",
       "shell toolbar",
       "shell filter-bar",
