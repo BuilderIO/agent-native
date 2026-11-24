@@ -25,6 +25,7 @@ describe("packagedModuleNames", () => {
           '  - "node_modules/quoted/**"',
           "  - node_modules/@scope/core/package.json",
           "  - node_modules/@scope/core/dist/**",
+          "  - node_modules/metadata-only/package.json",
           "asarUnpack:",
           "  - node_modules/unpacked-only/prebuilds/**",
           "mac:",

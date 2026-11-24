@@ -14,7 +14,7 @@ export function packagedModuleNames(builderConfig: string): Set<string> {
     builderConfig.match(/^files:\r?\n((?:(?: .*|#.*|)(?:\r?\n|$))*)/m)?.[1] ??
     "";
   const entries = files.matchAll(
-    /^ {2}- ["']?node_modules\/((?:@[^/\s]+\/)?[^/\s]+)\//gm,
+    /^ {2}- ["']?node_modules\/((?:@[^/\s]+\/)?[^/\s]+)\/(?:\S*\/)?\*\*/gm,
   );
   return new Set(Array.from(entries).flatMap((match) => match.slice(1, 2)));
 }
