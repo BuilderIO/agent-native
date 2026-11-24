@@ -2714,15 +2714,20 @@ describe("design connect bridge endpoints", () => {
         insertBefore: (node: unknown) => node,
       };
       const xhrPrototype = { open: () => undefined };
+      const fetchUrls: string[] = [];
       const windowObject = {
-        fetch: () => undefined,
+        fetch: (url: string) => {
+          fetchUrls.push(url);
+        },
         WebSocket: FakeWebSocket,
       };
+      const documentObject = { baseURI: `${base}/live-edit` };
       vm.runInNewContext(authScript, {
         window: windowObject,
-        document: { baseURI: `${base}/live-edit` },
+        document: documentObject,
         Node: { prototype: nodePrototype },
         XMLHttpRequest: { prototype: xhrPrototype },
+        Request,
         URL,
       });
       const sameOriginIframe = {
@@ -2787,7 +2792,7 @@ describe("design connect bridge endpoints", () => {
       };
       vm.runInNewContext(stylesheetAuthScript, {
         Element: { prototype: elementPrototype },
-        document: { baseURI: `${base}/live-edit` },
+        document: documentObject,
         URL,
       });
       const viteReplacementLink = {
@@ -2806,6 +2811,21 @@ describe("design connect bridge endpoints", () => {
         `${base}/app/global.css?t=456&previewToken=${bridge.previewToken}`,
       );
       expect(insertedAfter).toEqual([[viteReplacementLink]]);
+      documentObject.baseURI = "https://external.example/path/";
+      windowObject.fetch("./data.json");
+      expect(fetchUrls).toEqual(["./data.json"]);
+      const externalBaseIframe = { ...sameOriginIframe, value: "./frame" };
+      nodePrototype.appendChild(externalBaseIframe);
+      expect(externalBaseIframe.value).toBe("./frame");
+      const externalBaseLink = { ...viteReplacementLink, value: "./style.css" };
+      elementPrototype.after(externalBaseLink);
+      expect(externalBaseLink.value).toBe("./style.css");
+      const localLink = { ...viteReplacementLink, value: `${base}/local.css` };
+      elementPrototype.after(localLink);
+      expect(localLink.value).toBe(
+        `${base}/local.css?previewToken=${bridge.previewToken}`,
+      );
+      documentObject.baseURI = `${base}/live-edit`;
       new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
         `ws://${new URL(base).host}/hmr`,
       );
