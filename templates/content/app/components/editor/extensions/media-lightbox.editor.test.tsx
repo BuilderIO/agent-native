@@ -49,6 +49,7 @@ afterEach(() => {
 const TOP = "https://cdn.example.test/top.png";
 const BEFORE = "https://cdn.example.test/before.png";
 const AFTER = "https://cdn.example.test/after.png";
+const NESTED = "https://cdn.example.test/nested.png";
 
 const image = (src: string) => ({ type: "image", attrs: { src, alt: "" } });
 const paragraph = (text: string) => ({
@@ -58,6 +59,26 @@ const paragraph = (text: string) => ({
 const column = (label: string, src: string) => ({
   type: "notionColumn",
   content: [paragraph(label), image(src)],
+});
+
+const untitledToggle = (
+  open: boolean,
+  content: JSONContent[],
+): JSONContent => ({
+  type: "notionToggle",
+  attrs: { open, summary: "Details" },
+  content,
+});
+const toggle = (open: boolean, content: JSONContent[]): JSONContent => ({
+  type: "notionToggle",
+  attrs: { open },
+  content: [
+    {
+      type: "notionToggleSummary",
+      content: [{ type: "text", text: "Details" }],
+    },
+    ...content,
+  ],
 });
 
 const beforeAndAfterPage: JSONContent[] = [
@@ -236,6 +257,26 @@ describe("media lightbox in a live editor", () => {
     await vi.waitFor(() => {
       expect(document.activeElement).toBe(after);
     });
+  });
+
+  it.each([
+    ["with a title", toggle],
+    ["without a title", untitledToggle],
+  ])("skips images in a closed toggle %s", async (_, makeToggle) => {
+    const { container } = await mountEditor([
+      image(TOP),
+      makeToggle(false, [image(BEFORE), makeToggle(true, [image(NESTED)])]),
+      makeToggle(true, [image(AFTER)]),
+    ]);
+    expect(container.querySelectorAll(".media-block")).toHaveLength(4);
+    await expand(container, 0);
+
+    expect(position()).toBe(
+      'editor.media.imagePosition {"current":1,"total":2}',
+    );
+    await press("ArrowRight");
+    expect(shownSrc()).toBe(AFTER);
+    expect(stepButton("nextImage")?.disabled).toBe(true);
   });
 
   it("shows no stepping on a page with one image", async () => {

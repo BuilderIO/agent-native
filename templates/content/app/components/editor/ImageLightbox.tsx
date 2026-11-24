@@ -98,11 +98,13 @@ interface Gallery {
   index: number;
 }
 
+const CLOSED_TOGGLE = ".content-toggle:not(.content-toggle--open)";
+
 function readGallery(origin: HTMLImageElement | null | undefined) {
   const page = origin?.closest(".ProseMirror");
   if (!origin || !page) return null;
-  const elements = Array.from(page.querySelectorAll("img")).filter((image) =>
-    pageImageFocus.has(image),
+  const elements = Array.from(page.querySelectorAll("img")).filter(
+    (image) => pageImageFocus.has(image) && !image.closest(CLOSED_TOGGLE),
   );
   const index = elements.indexOf(origin);
   if (index < 0 || elements.length < 2) return null;
