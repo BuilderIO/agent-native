@@ -349,6 +349,7 @@ describe("returning before the final chat snapshot is saved", () => {
           },
           { timeout: 15_000 },
         );
+        // wall-clock-ok: Completion must be visible within 15s of reopening the conversation.
         expect(performance.now() - reopenedAt).toBeLessThan(15_000);
         expect(requests).toContain(
           `GET /_agent-native/agent-chat/runs/${runId}/events?after=0`,
