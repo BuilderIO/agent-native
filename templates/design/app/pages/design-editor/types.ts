@@ -28,7 +28,7 @@ export type DesignLeftPanel =
   | "agent"
   | "assets"
   | "tools"
-  | "tokens"
+  | "library"
   | "threads";
 
 const designSecondaryLeftPanelsSetting =
@@ -48,7 +48,7 @@ export function isDesignLeftPanelEnabled(
     value !== "agent" &&
     value !== "assets" &&
     value !== "tools" &&
-    value !== "tokens" &&
+    value !== "library" &&
     value !== "threads"
   ) {
     return false;

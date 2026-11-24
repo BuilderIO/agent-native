@@ -37,15 +37,10 @@ templates/content/app/components/editor/database-sources/BuilderSourceReviewDial
 templates/content/app/components/editor/database-sources/BuilderSourceReviewDialog.tsx|To:
 templates/content/app/components/editor/database/DatabaseView.tsx|Add details
 templates/content/app/components/editor/database/DatabaseView.tsx|Add selected
-templates/content/app/components/editor/database/DatabaseView.tsx|Blocked:
-templates/content/app/components/editor/database/DatabaseView.tsx|Current:
-templates/content/app/components/editor/database/DatabaseView.tsx|Dry run
 templates/content/app/components/editor/database/DatabaseView.tsx|Grouped by
 templates/content/app/components/editor/database/DatabaseView.tsx|Match existing items to details. Suggested match:
 templates/content/app/components/editor/database/DatabaseView.tsx|No models match “
-templates/content/app/components/editor/database/DatabaseView.tsx|Proposed:
 templates/content/app/components/editor/database/DatabaseView.tsx|Use Builder.io
-templates/content/app/components/editor/database/DatabaseView.tsx|Would call
 templates/content/app/components/editor/database/DatabaseView.tsx|shown,
 templates/content/app/components/editor/database/TimelineView.tsx|End:
 templates/content/app/components/editor/database/settings.tsx|Add details

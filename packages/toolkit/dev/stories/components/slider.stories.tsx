@@ -1,15 +1,23 @@
 import { COLORS, RADII, sliderProps } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
+import { expect } from "storybook/test";
 
-import { Slider } from "../../../src/ui/base-ui/slider.js";
+import {
+  Slider,
+  SliderControl,
+  SliderTrack,
+  SliderThumb,
+} from "../../../src/ui/base-ui/slider.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./slider.docs.md?raw";
 
 const controls = propControls(sliderProps);
 
 const meta = {
   title: "Components/Slider",
   component: Slider,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: {
     ...controls.args,
     defaultValue: 40,
@@ -102,4 +110,59 @@ export const States: Story = {
       </div>
     </div>
   ),
+};
+
+const stopColors = ["var(--info-9)", "var(--brand-9)", "var(--warning-9)"];
+const stopLabels = ["Cool stop", "Accent stop", "Warm stop"];
+
+function GradientStops() {
+  const [positions, setPositions] = useState<readonly number[]>([10, 50, 90]);
+  const gradient =
+    "linear-gradient(to right, " +
+    stopColors.map((color, i) => color + " " + positions[i] + "%").join(", ") +
+    ")";
+  return (
+    <div className="grid gap-3">
+      <div
+        role="img"
+        aria-label="Three-stop gradient preview"
+        className="aspect-[3/1] rounded-card"
+        style={{ backgroundImage: gradient }}
+      />
+      <Slider
+        value={positions}
+        onValueChange={setPositions}
+        thumbCollisionBehavior="none"
+        minStepsBetweenValues={1}
+        thumbAlignment="edge"
+      >
+        <SliderControl>
+          <SliderTrack style={{ backgroundImage: gradient }}>
+            {stopColors.map((color, i) => (
+              <SliderThumb
+                key={color}
+                index={i}
+                aria-label={stopLabels[i]}
+                getAriaValueText={(value) => value + " percent"}
+                style={{ backgroundColor: color }}
+              />
+            ))}
+          </SliderTrack>
+        </SliderControl>
+      </Slider>
+    </div>
+  );
+}
+
+export const Gradient: Story = {
+  render: () => <GradientStops />,
+  play: async ({ canvas, userEvent }) => {
+    const middle = canvas.getByRole("slider", { name: "Accent stop" });
+    middle.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await expect(middle).toHaveAttribute("aria-valuenow", "51");
+    await expect(
+      canvas.getByRole("slider", { name: "Cool stop" }),
+    ).toHaveAttribute("aria-valuenow", "10");
+  },
 };

@@ -258,10 +258,10 @@ browser and on the server. A wall-clock time a daylight-saving change skips
 moves forward by the change, and one it repeats is the first of the two. A
 `between` whose start comes after its end is read the other way round.
 
-Filters can be grouped. Rules with `filterGroupId: "advanced"` and no parent
-form the UI's advanced filter; rules with `parentFilterGroupId: "advanced"` and
-their own `filterGroupId` (the UI uses `advanced-<id>`) form a group nested one
-level inside it. The view's `filterMode` combines ungrouped rules with each
+Filters can be grouped. Rules that share a `filterGroupId` and have no parent
+form a group (views saved before the shared filter kit use `advanced`); rules
+whose `parentFilterGroupId` names a group, with their own `filterGroupId`, form
+a group nested one level inside it. Groups go no deeper. The view's `filterMode` combines ungrouped rules with each
 top-level group as one member. A group's And/Or lives on its rules:
 `filterGroupMode` is the mode of the rule's `filterGroupId`, and
 `parentFilterGroupMode` (nested rules only) is the mode of its parent. Write a
@@ -454,8 +454,10 @@ payload replays the durable receipt; reusing it with a different payload fails.
 Configure at most one ordinary text property as the collection's natural key,
 then use `upsert-database-item-by-key` with that property. Natural-key upsert
 never accepts an arbitrary property name or silently chooses a field. Blocks,
-computed, system, source-managed, unknown, and relation properties are not
-writable through these actions; use their owning surfaces instead.
+computed, system, unknown, and relation properties are not writable through
+these actions; use their owning surfaces instead. A source-managed property is
+writable only when the mutation contract marks it `writable`, as it does for a
+Builder test-model field whose edits Content saves back to Builder.
 
 For a bounded migration that must rewrite every existing row body while adding
 new property definitions and values, use `migrate-content-database-rows` rather

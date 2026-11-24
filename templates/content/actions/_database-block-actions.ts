@@ -6,6 +6,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentRevisionToken } from "../server/lib/document-revision.js";
@@ -545,6 +546,11 @@ async function writeMarkdown(
       documentId: target.rowDocumentId,
       after: markdown,
       userEmail: documentAttributionActor(),
+    });
+    await syncAnalyticsChartCitations(db, {
+      documentId: target.rowDocumentId,
+      before: loaded.markdown,
+      after: markdown,
     });
     return;
   }

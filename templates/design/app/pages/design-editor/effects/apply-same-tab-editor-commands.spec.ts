@@ -27,9 +27,9 @@ const STORED_KEY = `design-editor-command:${TAB}`;
 function tokensCommand(designId = "design-1"): DesignEditorCommand {
   return {
     designId,
-    leftPanel: "tokens",
+    leftPanel: "library",
     issuedAt: 1,
-    path: `/design/${designId}?panel=tokens`,
+    path: `/design/${designId}?panel=library`,
   };
 }
 

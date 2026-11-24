@@ -34,6 +34,8 @@ let executeWithDeps: typeof import("./execute-builder-source-execution.js").exec
 let realAutosaveDeps: typeof import("./run-builder-article-autosave.js").realBuilderArticleAutosaveDeps;
 let setAutosave: typeof import("./set-builder-article-autosave.js").default;
 let listAutosaves: typeof import("./list-builder-article-autosaves.js").default;
+let setProperty: typeof import("./set-document-property.js").default;
+let configureProperty: typeof import("./configure-document-property.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -51,6 +53,9 @@ beforeAll(async () => {
     await import("./run-builder-article-autosave.js"));
   setAutosave = (await import("./set-builder-article-autosave.js")).default;
   listAutosaves = (await import("./list-builder-article-autosaves.js")).default;
+  setProperty = (await import("./set-document-property.js")).default;
+  configureProperty = (await import("./configure-document-property.js"))
+    .default;
 }, 60000);
 
 afterAll(() => {
@@ -334,6 +339,107 @@ async function addMembership(
   return databaseId;
 }
 
+async function addBuilderField(
+  ids: Awaited<ReturnType<typeof seedArticle>>,
+  name: string,
+  sourceFieldKey: string,
+  field: {
+    type?: string;
+    sourceFieldType?: string;
+    options?: Array<{ id: string; name: string; color: "gray" | "blue" }>;
+  } = {},
+) {
+  const propertyId = `prop_${name}_${ids.sourceId}`;
+  await getDb()
+    .insert(schema.documentPropertyDefinitions)
+    .values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId: ids.databaseId,
+      name,
+      type: field.type ?? "text",
+      ...(field.options
+        ? { optionsJson: JSON.stringify({ options: field.options }) }
+        : {}),
+      createdAt: SEEDED_AT,
+      updatedAt: SEEDED_AT,
+    });
+  await getDb()
+    .insert(schema.contentDatabaseSourceFields)
+    .values({
+      id: `field_${name}_${ids.sourceId}`,
+      ownerEmail: OWNER,
+      sourceId: ids.sourceId,
+      propertyId,
+      localFieldKey: propertyId,
+      sourceFieldKey,
+      sourceFieldLabel: name,
+      sourceFieldType: field.sourceFieldType ?? field.type ?? "text",
+      mappingType: "property",
+      writeOwner: "source",
+      readOnly: 0,
+      provenance: "source field",
+      freshness: "fresh",
+      createdAt: SEEDED_AT,
+      updatedAt: SEEDED_AT,
+    });
+  return propertyId;
+}
+
+async function builderHolds(values: Record<string, unknown>) {
+  const ids = await seedArticle();
+  await getDb()
+    .delete(schema.contentDatabaseSourceChangeSets)
+    .where(eq(schema.contentDatabaseSourceChangeSets.id, ids.changeSetId));
+  await getDb()
+    .update(schema.documents)
+    .set({ title: "Old title" })
+    .where(eq(schema.documents.id, ids.rowDocumentId));
+  await getDb()
+    .update(schema.contentDatabaseSourceRows)
+    .set({
+      sourceValuesJson: JSON.stringify({
+        "data.title": "Old title",
+        ...values,
+        published: "draft",
+      }),
+    })
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, ids.sourceId));
+  return ids;
+}
+
+function builderLive(
+  ids: Awaited<ReturnType<typeof seedArticle>>,
+  values: NonNullable<BuilderCmsEntryLiveState["values"]>,
+): BuilderCmsEntryLiveState {
+  return {
+    ...liveDraft(ids.entryId),
+    values: { "data.title": "Old title", ...values, published: "draft" },
+  };
+}
+
+async function fill(
+  ids: Awaited<ReturnType<typeof seedArticle>>,
+  propertyId: string,
+  value: unknown,
+) {
+  await asOwner(() =>
+    setProperty.run(
+      {
+        databaseId: ids.databaseId,
+        documentId: ids.rowDocumentId,
+        propertyId,
+        value,
+      },
+      { caller: "frontend", userEmail: OWNER },
+    ),
+  );
+  await getDb()
+    .update(schema.documentPropertyValues)
+    .set({ updatedAt: SEEDED_AT })
+    .where(eq(schema.documentPropertyValues.propertyId, propertyId));
+}
+
 async function listRows(rowDocumentId: string, now: string) {
   const database = await autosave.resolveArticleDatabase(rowDocumentId);
   if (!database) throw new Error("The row has no collection.");
@@ -370,6 +476,342 @@ describe("Builder article autosave", () => {
     const saved = await record(ids.sourceId, ids.rowDocumentId);
     expect(saved.savedEditAt).toBe(SEEDED_AT);
     expect(saved.attemptId).toBeNull();
+  });
+
+  it("saves a Builder field someone fills in Content with the draft", async () => {
+    const ids = await seedArticle();
+    await getDb()
+      .delete(schema.contentDatabaseSourceChangeSets)
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, ids.changeSetId));
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Old title" })
+      .where(eq(schema.documents.id, ids.rowDocumentId));
+    const handle = await addBuilderField(ids, "Handle", "data.handle");
+    const { deps, executeWrite } = harness({ entryId: ids.entryId });
+
+    await asOwner(() =>
+      setProperty.run(
+        {
+          databaseId: ids.databaseId,
+          documentId: ids.rowDocumentId,
+          propertyId: handle,
+          value: "draft-fields-check",
+        },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    await getDb()
+      .update(schema.documentPropertyValues)
+      .set({ updatedAt: SEEDED_AT })
+      .where(eq(schema.documentPropertyValues.propertyId, handle));
+    await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        deps,
+      ),
+    );
+
+    expect(executeWrite).toHaveBeenCalledTimes(1);
+    const [{ request }] = executeWrite.mock.calls[0] as unknown as [
+      { request: { method: string; body: { data: Record<string, unknown> } } },
+    ];
+    expect(request.method).toBe("PATCH");
+    expect(request.body.data).toMatchObject({ handle: "draft-fields-check" });
+  });
+
+  it("keeps Builder fields read-only in Content outside Builder's test model", async () => {
+    const ids = await seedArticle();
+    const handle = await addBuilderField(ids, "Handle", "data.handle");
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({ sourceTable: "blog-article" })
+      .where(eq(schema.contentDatabaseSources.id, ids.sourceId));
+
+    await expect(
+      asOwner(() =>
+        setProperty.run(
+          {
+            databaseId: ids.databaseId,
+            documentId: ids.rowDocumentId,
+            propertyId: handle,
+            value: "draft-fields-check",
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "PROPERTY_NOT_WRITABLE" });
+  });
+
+  it("takes one web link for a Builder image and turns down links Builder can't read", async () => {
+    const ids = await seedArticle();
+    const image = await addBuilderField(ids, "Image", "data.image", {
+      type: "files_media",
+      sourceFieldType: "file",
+    });
+    const write = (value: unknown) =>
+      asOwner(() =>
+        setProperty.run(
+          {
+            databaseId: ids.databaseId,
+            documentId: ids.rowDocumentId,
+            propertyId: image,
+            value,
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+
+    await expect(write(["/api/private-media/cover.png"])).rejects.toMatchObject(
+      { errorCode: "INVALID_PROPERTY_VALUE" },
+    );
+    await expect(
+      write(["https://cdn.builder.io/a.png", "https://cdn.builder.io/b.png"]),
+    ).rejects.toMatchObject({ errorCode: "INVALID_PROPERTY_VALUE" });
+    await write(["https://cdn.builder.io/a.png"]);
+  });
+
+  it("keeps the options of a Builder field that saves to Builder", async () => {
+    const ids = await seedArticle();
+    const builderTeam = { id: "author_1", name: "Builder Team", color: "gray" };
+    const author = await addBuilderField(ids, "Author", "data.author", {
+      type: "select",
+      sourceFieldType: "reference",
+      options: [builderTeam as { id: string; name: string; color: "gray" }],
+    });
+
+    await expect(
+      asOwner(() =>
+        configureProperty.run(
+          {
+            id: author,
+            documentId: ids.rowDocumentId,
+            name: "Author",
+            type: "select",
+            options: {
+              options: [
+                builderTeam,
+                { id: "made_up", name: "Made Up", color: "blue" },
+              ],
+            },
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "SOURCE_OPTIONS_LOCKED" });
+  });
+
+  it("saves a field edited while an earlier change waits on the next run", async () => {
+    const ids = await seedArticle();
+    const handle = await addBuilderField(ids, "Handle", "data.handle");
+    const { deps, executeWrite, readLiveEntry } = harness({
+      entryId: ids.entryId,
+    });
+    await asOwner(() =>
+      setProperty.run(
+        {
+          databaseId: ids.databaseId,
+          documentId: ids.rowDocumentId,
+          propertyId: handle,
+          value: "draft-fields-check",
+        },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    await getDb()
+      .update(schema.documentPropertyValues)
+      .set({ updatedAt: SEEDED_AT })
+      .where(eq(schema.documentPropertyValues.propertyId, handle));
+
+    await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        deps,
+      ),
+    );
+
+    expect(executeWrite).toHaveBeenCalledTimes(1);
+    expect((await record(ids.sourceId, ids.rowDocumentId)).savedEditAt).toBe(
+      "2026-06-29T14:00:00.000Z",
+    );
+    const listed = await asOwner(() =>
+      listRows(ids.rowDocumentId, "2026-06-29T15:31:00.000Z"),
+    );
+    expect(listed.rows[0]?.autosave?.due).toBe(true);
+
+    readLiveEntry.mockResolvedValue({
+      ...liveDraft(ids.entryId),
+      lastUpdated: LAST_UPDATED_MS + 5000,
+      values: { "data.title": "New title", published: "draft" },
+    });
+    await age(ids.sourceId);
+    await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        deps,
+      ),
+    );
+
+    expect(executeWrite).toHaveBeenCalledTimes(2);
+    const [{ request }] = executeWrite.mock.calls[1] as unknown as [
+      { request: { body: { data: Record<string, unknown> } } },
+    ];
+    expect(request.body.data).toEqual({ handle: "draft-fields-check" });
+    const settled = await asOwner(() =>
+      listRows(ids.rowDocumentId, "2026-06-29T15:31:00.000Z"),
+    );
+    expect(settled.rows[0]?.autosave?.due).toBe(false);
+  });
+
+  it("finds nothing to save once Builder holds the date picked in Content", async () => {
+    const ids = await seedArticle();
+    await getDb()
+      .delete(schema.contentDatabaseSourceChangeSets)
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, ids.changeSetId));
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Old title" })
+      .where(eq(schema.documents.id, ids.rowDocumentId));
+    await getDb()
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify({
+          "data.title": "Old title",
+          "data.date": Date.UTC(2026, 10, 23),
+          published: "draft",
+        }),
+      })
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, ids.sourceId));
+    const date = await addBuilderField(ids, "Date", "data.date", {
+      type: "date",
+    });
+    const { deps, executeWrite } = harness({ entryId: ids.entryId });
+    await asOwner(() =>
+      setProperty.run(
+        {
+          databaseId: ids.databaseId,
+          documentId: ids.rowDocumentId,
+          propertyId: date,
+          value: { start: "2026-11-23", includeTime: false },
+        },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    await getDb()
+      .update(schema.documentPropertyValues)
+      .set({ updatedAt: SEEDED_AT })
+      .where(eq(schema.documentPropertyValues.propertyId, date));
+
+    await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        deps,
+      ),
+    );
+
+    expect(executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("saves a new time on a day Builder already holds, and nothing once it holds that time", async () => {
+    for (const [held, expectedWrites] of [
+      [Date.UTC(2026, 10, 23, 12), 1],
+      [Date.UTC(2026, 10, 23, 17), 0],
+    ] as const) {
+      const ids = await builderHolds({ "data.date": held });
+      const date = await addBuilderField(ids, "Date", "data.date", {
+        type: "date",
+      });
+      const { deps, executeWrite } = harness({
+        entryId: ids.entryId,
+        live: builderLive(ids, { "data.date": held }),
+      });
+      await fill(ids, date, { start: "2026-11-23T17:00", includeTime: true });
+
+      await asOwner(() =>
+        autosave.runBuilderArticleAutosaveWithDeps(
+          { documentId: ids.rowDocumentId },
+          deps,
+        ),
+      );
+
+      const sent = (
+        executeWrite.mock.calls as unknown as [
+          { request: { body: { data: Record<string, unknown> } } },
+        ][]
+      ).map(([{ request }]) => Object.keys(request.body.data));
+      expect(sent).toEqual(expectedWrites ? [["date"]] : []);
+    }
+  });
+
+  it("finds nothing to save once Builder holds a link in its own form", async () => {
+    const ids = await builderHolds({
+      "data.image": "https://cdn.builder.io/cover.png",
+    });
+    const image = await addBuilderField(ids, "Image", "data.image", {
+      type: "files_media",
+      sourceFieldType: "file",
+    });
+    const { deps, executeWrite } = harness({
+      entryId: ids.entryId,
+      live: builderLive(ids, {
+        "data.image": "https://cdn.builder.io/cover.png",
+      }),
+    });
+    await fill(ids, image, ["https://CDN.builder.io/cover.png"]);
+
+    await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        deps,
+      ),
+    );
+
+    expect(executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("empties Builder's image when it's cleared in Content", async () => {
+    const ids = await builderHolds({
+      "data.image": "https://cdn.builder.io/cover.png",
+    });
+    const image = await addBuilderField(ids, "Image", "data.image", {
+      type: "files_media",
+      sourceFieldType: "file",
+    });
+    const { deps, executeWrite } = harness({
+      entryId: ids.entryId,
+      live: builderLive(ids, {
+        "data.image": "https://cdn.builder.io/cover.png",
+      }),
+    });
+    await fill(ids, image, ["https://cdn.builder.io/cover.png"]);
+    await fill(ids, image, null);
+
+    await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        deps,
+      ),
+    );
+
+    expect(executeWrite).toHaveBeenCalledTimes(1);
+    const [{ request }] = executeWrite.mock.calls[0] as unknown as [
+      { request: { body: { data: Record<string, unknown> } } },
+    ];
+    expect(request.body.data).toEqual({ image: null });
+  });
+
+  it("turns down an Author that isn't one of the field's options", async () => {
+    const ids = await seedArticle();
+    const author = await addBuilderField(ids, "Author", "data.author", {
+      type: "select",
+      sourceFieldType: "reference",
+      options: [{ id: "author_1", name: "Builder Team", color: "gray" }],
+    });
+
+    await expect(fill(ids, author, "made_up")).rejects.toMatchObject({
+      errorCode: "INVALID_PROPERTY_VALUE",
+    });
+    await fill(ids, author, "author_1");
   });
 
   it("leaves Builder alone when a run finds nothing new to save", async () => {
@@ -1223,5 +1665,53 @@ describe("Builder article autosave", () => {
       listRows(ids.rowDocumentId, "2026-06-29T15:00:40.000Z"),
     );
     expect(listed.rows[0]?.autosave?.due).toBe(true);
+  });
+
+  it("creates a new article as a Builder draft before Builder's required fields are filled", async () => {
+    const ids = await seedArticle({ linked: false });
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({
+        metadataJson: JSON.stringify({
+          primaryKey: "id",
+          titleField: "title",
+          writeMode: "stage_only",
+          pushMode: "autosave",
+          liveReadConfigured: true,
+          builderModelFields: [
+            { name: "title", type: "text", required: true },
+            {
+              name: "author",
+              type: "reference",
+              model: "blog-author",
+              required: true,
+            },
+          ],
+        }),
+      })
+      .where(eq(schema.contentDatabaseSources.id, ids.sourceId));
+    const created = `created_${ids.entryId}`;
+    const { deps, executeWrite } = harness({ entryId: created });
+
+    const status = await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        { ...deps, now: () => "2026-06-29T15:00:05.000Z" },
+      ),
+    );
+
+    expect(executeWrite).toHaveBeenCalledTimes(1);
+    const [{ request }] = executeWrite.mock.calls[0] as unknown as [
+      {
+        request: {
+          method: string;
+          body: { published?: string; data: Record<string, unknown> };
+        };
+      },
+    ];
+    expect(request.method).toBe("POST");
+    expect(request.body.published).toBe("draft");
+    expect(request.body.data).not.toHaveProperty("author");
+    expect(status.autosave).toMatchObject({ state: "saved", error: null });
   });
 });

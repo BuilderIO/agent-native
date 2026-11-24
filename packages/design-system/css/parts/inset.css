@@ -30,6 +30,7 @@
 
     box-sizing: border-box;
     overflow: hidden;
+    corner-shape: var(--corner-shape, round);
   }
 
   .inset[data-clip="padding-box"] {

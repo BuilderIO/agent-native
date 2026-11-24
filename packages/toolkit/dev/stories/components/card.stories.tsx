@@ -5,6 +5,7 @@ import { Badge } from "../../../src/ui/base-ui/badge.js";
 import { Card } from "../../../src/ui/base-ui/card.js";
 import { Inset } from "../../../src/ui/base-ui/inset.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./card.docs.md?raw";
 
 const controls = propControls(cardProps);
 
@@ -22,7 +23,7 @@ function Summary({ title = "Nightly sync" }: { title?: string }) {
 const meta = {
   title: "Components/Card",
   component: Card,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, children: <Summary /> },
   argTypes: controls.argTypes,
   decorators: [

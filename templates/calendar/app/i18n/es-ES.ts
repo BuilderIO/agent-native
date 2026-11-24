@@ -589,6 +589,12 @@ export default {
     custom: "Costumbre",
     customLink: "Enlace personalizado",
     customLinkDescription: "Pega cualquier reunión URL",
+    reminderEmail: "Correo de recordatorio",
+    reminderEmailDescription:
+      "Se envía a quien reservó y a los invitados que haya añadido.",
+    reminderOff: "Sin recordatorio",
+    reminderOneHour: "1 hora antes",
+    reminderOneDay: "1 día antes",
     date: "Fecha",
     dateAndTime: "Fecha y hora",
     dateSelection: "selección de fecha",

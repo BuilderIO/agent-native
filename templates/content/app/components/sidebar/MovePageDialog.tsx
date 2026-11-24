@@ -101,6 +101,7 @@ export function MovePageDialog({
     filesNavigationPageParams({
       databaseId: space?.filesDatabaseId ?? "",
       parentId: null,
+      pagesOnly: true,
     }),
     undefined,
     { enabled: open && query === "" },

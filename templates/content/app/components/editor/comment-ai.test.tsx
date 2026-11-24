@@ -1100,6 +1100,67 @@ describe("comment AI controls", () => {
     vi.useRealTimers();
   });
 
+  it("checks a Retry's new turn instead of reporting the turn that ended", async () => {
+    vi.useFakeTimers();
+    function Probe() {
+      useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    const turnStatus: Record<string, "running" | "completed"> = {
+      "initial-turn-1": "running",
+      "retry-turn-1": "running",
+    };
+    api.getBackgroundAgentSessionStatus.mockImplementation(
+      async ({ turnId }: { turnId: string }) => ({
+        operationId: "request-1",
+        threadId: "agent-thread-1",
+        turnId,
+        status: turnStatus[turnId],
+        runId: `run-${turnId}`,
+        terminalReason: null,
+      }),
+    );
+    const running = request({
+      status: "running",
+      errorCode: null,
+      error: null,
+      agentThreadId: "agent-thread-1",
+      agentTurnId: "initial-turn-1",
+    });
+    api.requests = [running];
+    await act(async () => root.render(createElement(Probe)));
+
+    turnStatus["initial-turn-1"] = "completed";
+    api.requests = [{ ...running, agentTurnId: "retry-turn-1" }];
+    await act(async () => root.render(createElement(Probe)));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+
+    expect(api.callAction).not.toHaveBeenCalled();
+    expect(api.getBackgroundAgentSessionStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ turnId: "retry-turn-1" }),
+    );
+
+    turnStatus["retry-turn-1"] = "completed";
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+
+    expect(api.callAction).toHaveBeenCalledOnce();
+    expect(api.callAction).toHaveBeenCalledWith(
+      "reconcile-comment-ai-session",
+      {
+        operationId: "request-1",
+        threadId: "agent-thread-1",
+        turnId: "retry-turn-1",
+        status: "completed",
+        runId: "run-retry-turn-1",
+      },
+    );
+    vi.useRealTimers();
+  });
+
   it("does not downgrade a terminal turn when its acknowledgement rejects late", async () => {
     let controller: CommentAiController;
     function Probe() {

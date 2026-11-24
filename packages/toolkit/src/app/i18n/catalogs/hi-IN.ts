@@ -707,6 +707,8 @@ const messages: ToolkitAgentChatTranslation = {
     "एक टूल स्कीमा अमान्य था, इसलिए मॉडल ने अनुरोध शुरू होने से पहले ही अस्वीकार कर दिया। अमान्य टूल को छोड़कर अनुरोध दोबारा किया जा सकता है।",
   "errorMessages.malformedRequest":
     "मॉडल प्रदाता ने इस अनुरोध को त्रुटिपूर्ण मानकर अस्वीकार कर दिया, इसलिए इसे दोबारा नहीं भेजा गया। फिर से प्रयास करें, या बार-बार होने पर नई चैट शुरू करें।",
+  "errorMessages.requestNotRead":
+    "अनुरोध बहुत बड़ा या जटिल होने के कारण (उदाहरण के लिए बहुत अधिक टूल) मॉडल इसे पढ़ नहीं सका, इसलिए इसे दोबारा नहीं भेजा गया। नई चैट शुरू करें या कोई दूसरा मॉडल चुनें।",
   "errorMessages.requestTooLarge":
     "यह अनुरोध सर्वर की आकार सीमा से बड़ा था (HTTP 413)। नई चैट शुरू करें या बड़े अटैचमेंट या संदर्भ हटाकर फिर कोशिश करें।",
   "errorMessages.capabilityUnavailable":
@@ -2178,6 +2180,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "भाषा और क्षेत्र",
   "settingsShell.account.languageDescription": "आपके सभी डिवाइस पर लागू होता है।",
   "settingsShell.account.appearance": "रूप-रंग",
+  "settingsShell.account.theme": "थीम",
+  "settingsShell.account.themeSystem": "सिस्टम",
+  "settingsShell.account.themeLight": "लाइट",
+  "settingsShell.account.themeDark": "डार्क",
   "settingsShell.account.themeFamily": "थीम शैली",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal": "ऐप के मूल रंग",
@@ -3867,6 +3873,7 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.typeValue": "मान लिखें",
   "filters.enterNumber": "संख्या लिखें",
   "filters.exactDate": "सटीक तारीख",
+  "filters.relativeRange": "सापेक्ष अवधि",
   "filters.startDate": "शुरू की तारीख",
   "filters.endDate": "आखिरी तारीख",
   "filters.dateBetween": "{{start}} – {{end}}",
@@ -3906,6 +3913,8 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.date.this.year": "इस साल",
   "filters.date.past": "पिछले {{duration}}",
   "filters.date.next": "अगले {{duration}}",
+  "filters.date.direction.past": "पिछले",
+  "filters.date.direction.next": "अगले",
   "filters.views.notSaved": "सहेजा नहीं गया",
   "filters.views.save": "सहेजें",
   "filters.views.saveForMe": "मेरे लिए सहेजें",

@@ -9,6 +9,7 @@ import {
   resolveChatFirstBrowserTarget,
   subscribeChatFirstOpenBrowser,
   subscribeChatFirstOpenApp,
+  subscribeChatFirstOpenAppStart,
   useChatFirstSessionWatch,
   useChatFirstSurfacePanel,
   useChatFirstSurfaceResize,
@@ -109,6 +110,7 @@ import {
   type ChatFirstAppRouteRecord,
 } from "../../lib/chat-first-app-route";
 import {
+  createTurnViewportLock,
   delegatedAppFromToolStart,
   resolveDispatchChatFirstAppTarget,
   visibleChatFirstSurfaceTabId,
@@ -178,6 +180,7 @@ import {
   WorkspaceAppFrame,
   type WorkspaceAppViewReader,
   WorkspaceAppKeepAlive,
+  useWorkspaceAppChildBrowserTab,
 } from "../workspace-app-host";
 import {
   AppNotice,
@@ -1700,6 +1703,8 @@ function DispatchLayout({
     appId: string;
     tabId: string;
   } | null>(null);
+  const turnViewportLockRef = useRef(createTurnViewportLock());
+  const workspaceAppChildTab = useWorkspaceAppChildBrowserTab();
   const previousChatFirstSurfaceScopeRef = useRef(chatFirstSurfaceScope);
   const previousChatFirstSurfaceTabCountRef = useRef<number | null>(null);
   const activeChatFirstSurfaceTab = useMemo(
@@ -2054,6 +2059,7 @@ function DispatchLayout({
       }
       pendingChatFirstOpenAppRef.current = null;
       if (isDispatchWorkspaceAppId(resolution.target.appId)) {
+        turnViewportLockRef.current.clear();
         closeChatFirstSessionWatch();
         chatFirstSurfaceTabsStore.closeAll();
         setChatFirstSurfacePanelOpen(false);
@@ -2066,7 +2072,15 @@ function DispatchLayout({
         }
         return;
       }
-      openChatFirstPane(resolution.target);
+      const lockDecision = turnViewportLockRef.current.evaluate({
+        appId: resolution.target.appId,
+        focus: detail.focus,
+        turnKey: detail.turnId,
+      });
+      if (!lockDecision.allowed) {
+        return;
+      }
+      openChatFirstPane(resolution.target, "side", detail.optimistic === true);
     },
     [
       chatFirstAppRegistrations,
@@ -2120,11 +2134,15 @@ function DispatchLayout({
       return;
     }
     const unsubscribeApp = subscribeChatFirstOpenApp(resolveChatFirstOpenApp);
+    const unsubscribeAppStart = subscribeChatFirstOpenAppStart(
+      resolveChatFirstOpenApp,
+    );
     const unsubscribeBrowser = subscribeChatFirstOpenBrowser(
       resolveChatFirstOpenBrowser,
     );
     return () => {
       unsubscribeApp();
+      unsubscribeAppStart();
       unsubscribeBrowser();
     };
   }, [
@@ -2159,11 +2177,28 @@ function DispatchLayout({
       ) {
         return;
       }
+      const lockDecision = turnViewportLockRef.current.evaluate({
+        appId: resolution.target.appId,
+        focus: false,
+      });
+      if (!lockDecision.allowed) {
+        return;
+      }
       openChatFirstPane(resolution.target);
     };
+    const handleTurnStart = (event: Event) => {
+      const detail = (event as CustomEvent<{ turnId?: unknown } | undefined>)
+        .detail;
+      const turnId =
+        typeof detail?.turnId === "string" ? detail.turnId : undefined;
+      turnViewportLockRef.current.beginTurn(turnId);
+    };
     window.addEventListener("agent-native:tool-start", handleToolStart);
-    return () =>
+    window.addEventListener("agent-native:turn-start", handleTurnStart);
+    return () => {
       window.removeEventListener("agent-native:tool-start", handleToolStart);
+      window.removeEventListener("agent-native:turn-start", handleTurnStart);
+    };
   }, [
     chatFirstAppRegistrations,
     chatFirstMode,
@@ -2264,6 +2299,7 @@ function DispatchLayout({
     }
     const chatGainedItsId = previousChatFirstSurfaceScopeRef.current === "new";
     previousChatFirstSurfaceScopeRef.current = chatFirstSurfaceScope;
+    turnViewportLockRef.current.clear();
     persistChatFirstPane(null);
     setChatFirstNotice(null);
     if (!chatGainedItsId) pendingChatFirstOpenAppRef.current = null;
@@ -2405,6 +2441,7 @@ function DispatchLayout({
       chatFirstRouteSendRef.current = { seq, id: detail.id };
       chatFirstRoutedPaneRef.current = null;
       provisionalChatFirstTabRef.current = null;
+      turnViewportLockRef.current.beginTurn(`submit:${seq}`);
       if (detail.queued) return;
       const sentPane = chatFirstPaneSignature(sent.tabsStore.getSnapshot());
       const started = performance.now();
@@ -2562,6 +2599,9 @@ function DispatchLayout({
         ),
       ].find(
         (candidate) =>
+          candidate
+            .closest("[data-dispatch-workspace-app-cache-entry]")
+            ?.getAttribute("aria-hidden") !== "true" &&
           candidate
             .closest("[data-chat-first-surface-content]")
             ?.getAttribute("aria-hidden") !== "true",
@@ -2728,7 +2768,7 @@ function DispatchLayout({
                 src={url}
                 title={title ?? chatFirstCopy("browserPage")}
                 referrerPolicy="no-referrer"
-                allow="clipboard-read; clipboard-write"
+                allow="clipboard-read; clipboard-write; fullscreen"
                 className="h-full w-full border-0 bg-background"
               />
             )}
@@ -3022,9 +3062,12 @@ function DispatchLayout({
           appName={workspaceAppChatRegistration.name ?? workspaceAppId}
           agentPageHref={agentPageHref}
           onFullscreenRequest={openAskAgentFullscreen}
+          browserTabId={workspaceAppChildTab.browserTabId}
         >
           <WorkspaceAppKeepAlive
             activeAppId={workspaceAppId}
+            claimBrowserTab
+            onViewReaderChange={workspaceAppChildTab.onViewReaderChange}
             {...(workspaceAppDeepPath
               ? { initialPath: workspaceAppDeepPath }
               : {})}

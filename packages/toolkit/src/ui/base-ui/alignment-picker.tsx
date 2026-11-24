@@ -2,11 +2,14 @@ import {
   type AlignmentPickerOwnProps,
   alignmentPickerProps,
 } from "@agent-native/design-system";
+import { useDirection } from "@base-ui/react/direction-provider";
 import * as React from "react";
 
 import { cn } from "../../utils.js";
+import { isComposingKey } from "../is-composing-key.js";
 import { useControlledValue } from "./controlled-value.js";
 import { splitProps } from "./props.js";
+import { activeElementInRoot } from "./surface-target.js";
 
 export type AlignmentJustify = "start" | "center" | "end" | "space-between";
 export type AlignmentAlign =
@@ -46,6 +49,7 @@ export interface AlignmentPickerProps
   disabled?: boolean;
   /** Names a cell's radio; "Top left" … "Bottom right" by default. */
   getCellLabel?: (position: AlignmentCellPosition) => string;
+  dir?: "ltr" | "rtl";
 }
 
 const POSITIONS: readonly Position[] = ["start", "center", "end"];
@@ -62,7 +66,12 @@ const COLUMN_NAMES: Record<Position, string> = {
   end: "Right",
 };
 
-function defaultCellLabel({ row, column }: AlignmentCellPosition): string {
+function defaultCellLabel(
+  { row, column }: AlignmentCellPosition,
+  rtl: boolean,
+): string {
+  if (rtl && column !== null && column !== "center")
+    column = column === "start" ? "end" : "start";
   if (row === null && column === null) return "Fill";
   if (row === null) return COLUMN_NAMES[column ?? "center"];
   if (column === null) return ROW_NAMES[row];
@@ -171,10 +180,14 @@ const AlignmentPicker = React.forwardRef<HTMLDivElement, AlignmentPickerProps>(
         defaultValue = DEFAULT_VALUE,
         onValueChange,
         disabled = false,
-        getCellLabel = defaultCellLabel,
+        getCellLabel,
+        dir,
         ...rest
       },
     ] = splitProps(alignmentPickerProps, props);
+    const inheritedDir = useDirection();
+    const readingDirection = dir ?? inheritedDir;
+    const rtl = readingDirection === "rtl";
     const direction = props.direction ?? "row";
     const [value, setValue] = useControlledValue(
       valueProp,
@@ -183,16 +196,21 @@ const AlignmentPicker = React.forwardRef<HTMLDivElement, AlignmentPickerProps>(
     );
     const cells = cellsFor(value, direction);
     const checked = cells.find((cell) => isChecked(cell, value, direction));
-    const tabStop = checked ?? cells[0];
+    const tabStop = checked ?? cells.at(0);
     const buttons = React.useRef(new Map<string, HTMLButtonElement>());
-    const refocus = React.useRef(false);
-    const checkedKey = checked?.key;
-
-    React.useEffect(() => {
-      if (!refocus.current || checkedKey === undefined) return;
-      refocus.current = false;
-      buttons.current.get(checkedKey)?.focus();
-    }, [checkedKey]);
+    const detachedFocus = React.useRef<HTMLButtonElement | null>(null);
+    React.useLayoutEffect(() => {
+      const previous = detachedFocus.current;
+      detachedFocus.current = null;
+      if (
+        tabStop &&
+        previous &&
+        !previous.isConnected &&
+        previous.ownerDocument.activeElement === previous.ownerDocument.body
+      ) {
+        buttons.current.get(tabStop.key)?.focus();
+      }
+    });
 
     const select = (cell: Cell) => {
       if (cell === checked) return;
@@ -203,7 +221,6 @@ const AlignmentPicker = React.forwardRef<HTMLDivElement, AlignmentPickerProps>(
       const { row, column } = cell.position;
       const cross = (direction === "row" ? row : column) ?? "center";
       const align = cell === checked ? value.align : cross;
-      refocus.current = true;
       setValue(
         value.justify === "space-between"
           ? { justify: main, align }
@@ -219,19 +236,30 @@ const AlignmentPicker = React.forwardRef<HTMLDivElement, AlignmentPickerProps>(
           : [event.clientY - rect.top, rect.height];
       if (!(length > 0)) return "center";
       const third = Math.min(2, Math.max(0, Math.floor((offset / length) * 3)));
-      return POSITIONS.at(third) ?? "center";
+      return (
+        POSITIONS.at(rtl && direction === "row" ? 2 - third : third) ?? "center"
+      );
     };
 
     const onKeyDown = (event: React.KeyboardEvent, cell: Cell) => {
+      if (
+        event.defaultPrevented ||
+        isComposingKey(event) ||
+        event.altKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.ctrlKey
+      )
+        return;
       if (event.key === "Enter") {
         event.preventDefault();
-        toggleDistribution(cell);
+        if (!event.repeat) toggleDistribution(cell);
         return;
       }
       const move = MOVES.get(event.key);
       if (move === undefined) return;
       event.preventDefault();
-      const target = neighbour(cells, cell, move);
+      const target = neighbour(cells, cell, rtl ? [move[0], -move[1]] : move);
       if (target === undefined) return;
       buttons.current.get(target.key)?.focus();
       select(target);
@@ -240,6 +268,7 @@ const AlignmentPicker = React.forwardRef<HTMLDivElement, AlignmentPickerProps>(
     return (
       <div
         ref={ref}
+        dir={readingDirection}
         role="radiogroup"
         aria-disabled={disabled || undefined}
         {...rest}
@@ -255,13 +284,23 @@ const AlignmentPicker = React.forwardRef<HTMLDivElement, AlignmentPickerProps>(
             <button
               key={cell.key}
               ref={(node) => {
-                if (node === null) buttons.current.delete(cell.key);
-                else buttons.current.set(cell.key, node);
+                if (node) {
+                  buttons.current.set(cell.key, node);
+                } else {
+                  const previous = buttons.current.get(cell.key);
+                  if (previous && activeElementInRoot(previous) === previous)
+                    detachedFocus.current = previous;
+                  buttons.current.delete(cell.key);
+                }
               }}
               type="button"
               role="radio"
               aria-checked={isOn}
-              aria-label={getCellLabel(cell.position)}
+              aria-label={
+                getCellLabel
+                  ? getCellLabel(cell.position)
+                  : defaultCellLabel(cell.position, rtl)
+              }
               tabIndex={cell === tabStop ? 0 : -1}
               disabled={disabled}
               data-row={trackAttribute(cell.position.row)}

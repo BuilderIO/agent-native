@@ -76,6 +76,24 @@ describe("workspaceAppDirectHref", () => {
         "/atlas",
       ),
     ).toBe("https://workspace.example.test/atlas");
+    expect(
+      workspaceAppDirectHref(
+        { path: "/decks-2", url: "https://workspace.example.test/decks-2" },
+        "/decks-2/docs/abc",
+      ),
+    ).toBe("https://workspace.example.test/decks-2/docs/abc");
+    expect(
+      workspaceAppDirectHref(
+        {
+          path: "/decks-2",
+          url: "https://workspace.example.test/decks-2/decks-2",
+        },
+        "/decks-2/decks-2/docs/abc",
+      ),
+    ).toBe("https://workspace.example.test/decks-2/docs/abc");
+    expect(
+      workspaceAppDirectHref({ path: "/decks-2" }, "/decks-2/decks-2?slide=1"),
+    ).toBe("/decks-2?slide=1");
   });
 
   it("resolves a mounted relative app path", () => {

@@ -65,7 +65,7 @@ export default defineAction({
     if (definition.systemRole) {
       throw new Error("System properties cannot be duplicated.");
     }
-    assertOrdinaryPropertySetupAllowed(database);
+    assertOrdinaryPropertySetupAllowed(database, definition.type);
 
     const now = new Date().toISOString();
     const newPropertyId = nanoid();

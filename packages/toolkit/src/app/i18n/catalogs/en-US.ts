@@ -719,6 +719,8 @@ const messages = {
     "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
   "errorMessages.malformedRequest":
     "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
+  "errorMessages.requestNotRead":
+    "The model could not read this request because it was too large or complex, for example too many tools, so it was not retried. Start a new chat or pick a different model.",
   "errorMessages.requestTooLarge":
     "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
   "errorMessages.capabilityUnavailable":
@@ -2216,6 +2218,10 @@ const messages = {
   "settingsShell.account.languageAndRegion": "Language and region",
   "settingsShell.account.languageDescription": "Applies on all your devices.",
   "settingsShell.account.appearance": "Appearance",
+  "settingsShell.account.theme": "Theme",
+  "settingsShell.account.themeSystem": "System",
+  "settingsShell.account.themeLight": "Light",
+  "settingsShell.account.themeDark": "Dark",
   "settingsShell.account.themeFamily": "Theme family",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal": "Original app colors",
@@ -3951,6 +3957,7 @@ const messages = {
   "filters.typeValue": "Type a value",
   "filters.enterNumber": "Enter a number",
   "filters.exactDate": "Exact date",
+  "filters.relativeRange": "Relative range",
   "filters.startDate": "Start date",
   "filters.endDate": "End date",
   "filters.dateBetween": "{{start}} – {{end}}",
@@ -3990,6 +3997,8 @@ const messages = {
   "filters.date.this.year": "This year",
   "filters.date.past": "Past {{duration}}",
   "filters.date.next": "Next {{duration}}",
+  "filters.date.direction.past": "Past",
+  "filters.date.direction.next": "Next",
   "filters.views.notSaved": "Not saved",
   "filters.views.save": "Save",
   "filters.views.saveForMe": "Save for me",

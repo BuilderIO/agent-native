@@ -194,9 +194,19 @@ const messages = {
       markRead: "既読にする",
       markUnread: "未読にする",
       moveTo: "移動先",
+      labelAs: "ラベルを付ける",
+      newLabel: "新しいラベル…",
       moveToTrash: "ゴミ箱へ移動",
       star: "スターを付ける",
       unstar: "スターを外す",
+    },
+    labels: {
+      labelAsPlaceholder: "ラベルを付ける…",
+      moveToPlaceholder: "移動先…",
+      newLabelPlaceholder: "新しいラベルの名前",
+      create: "ラベル「{{name}}」を作成",
+      empty: "ラベルはまだありません。名前を入力すると作成できます。",
+      alreadyExists: "「{{name}}」はすでにあります。",
     },
     compose: {
       addImage: "画像を追加",
@@ -467,6 +477,14 @@ const messages = {
       moveSucceeded: "「{{label}}」に移動しました。",
       moveManySucceeded:
         "{{count}} 件のスレッドを「{{label}}」に移動しました。",
+      labelSucceeded: "ラベル「{{label}}」を付けました。",
+      labelManySucceeded:
+        "{{count}} 件のスレッドにラベル「{{label}}」を付けました。",
+      labelPartialFailed:
+        "{{total}} 件中 {{succeeded}} 件にラベルを付けました（{{failed}} 件失敗）。",
+      labelFailed: "ラベルを付けられませんでした。",
+      labelCreated: "ラベル「{{label}}」を作成しました。",
+      createLabelFailed: "ラベルを作成できませんでした。",
       trashed: "ゴミ箱へ移動しました。",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "予約メールを送信しました。",
@@ -643,7 +661,7 @@ const messages = {
       instructionsTitle: "指示",
       instructionCount: "{{count}} 件の指示",
       instructionPlaceholder:
-        "例：「question for you, Steve」のような件名は不要",
+        "例：「quick question for you」のような件名は不要",
       addInstruction: "追加",
       noInstructions: "指示はまだありません。",
       instructionExample: "「政治キャンペーンのメールはすべて不要」を試す",
@@ -904,6 +922,7 @@ const messages = {
     autocomplete: "自動補完",
     sendAndMarkDone: "送信して完了にする",
     autocompleteSaveFailed: "自動補完の設定を保存できませんでした。",
+    signaturePlaceholder: "よろしくお願いいたします。\n名前",
     writingStylePlaceholder: "短く、具体的に、温かく。形式的な埋め草は避ける。",
     saveDraftingSettings: "下書き設定を保存",
     reset: "リセット",

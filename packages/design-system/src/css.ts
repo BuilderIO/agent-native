@@ -103,6 +103,10 @@ export function tokensCss(
     block(":root", { "--radius-factor": "1", ...staticPrimitives() }),
   );
 
+  sections.push(
+    ":where(.light) { color-scheme: light; }",
+    ":where(.dark) { color-scheme: dark; }",
+  );
   sections.push(block(":root,\n.light", palette.light.srgb));
   sections.push(block(".dark", palette.dark.srgb));
   sections.push(
@@ -122,12 +126,17 @@ export function tokensCss(
   }
 
   for (const radius of RADIUS_PRESETS) {
+    const selectors = ":scope[data-radius],\n[data-app-theme][data-app-theme]";
     sections.push(
-      block(preset("data-radius", radius), {
-        ...radiusStepTokens(),
-        ...STANDARD_SHAPE_TOKENS,
-        ...radiusTokens(radius),
-      }),
+      `@scope ([data-radius="${radius}"]) {\n${block(
+        selectors,
+        {
+          ...radiusStepTokens(),
+          ...STANDARD_SHAPE_TOKENS,
+          ...radiusTokens(radius),
+        },
+        "  ",
+      )}\n}`,
     );
   }
 
@@ -156,13 +165,6 @@ const ROOT_LIGHT_SCALES = [":root", ".light"]
   .map((selector) => `${selector}${NO_PALETTE}`)
   .join(",\n");
 const ROOT_DARK_SCALES = `.dark${NO_PALETTE}`;
-const THEME_LIGHT_SCALES = [":scope", ":scope.light", ".light"]
-  .map((selector) => `${selector}${NO_PALETTE}`)
-  .join(",\n");
-const THEME_DARK_SCALES = [":scope.dark", ".dark"]
-  .map((selector) => `${selector}${NO_PALETTE}`)
-  .join(",\n");
-
 function withResets(own: TokenMap, keys: ReadonlySet<string>): TokenMap {
   const tokens: TokenMap = { ...own };
   for (const key of keys) {
@@ -175,7 +177,7 @@ function withResets(own: TokenMap, keys: ReadonlySet<string>): TokenMap {
  * A theme's roles, values and tokens. The default theme is written twice:
  * unscoped, so it applies with no attribute, and inside `@scope`, like every
  * other theme, so the nearest `data-app-theme` ancestor wins by scope proximity.
- * Only `allThemes` in the same stylesheet need resets against each other.
+ * The shared token inventory covers every theme that may enclose this one.
  */
 export function themeCss(
   theme: ThemeDefinition,
@@ -220,39 +222,72 @@ export function themeCss(
     );
   }
 
+  const root = `[data-app-theme="${theme.name}"]`;
+  const themeRoot = `:where(:scope)${root}`;
   const scoped = [
     block(
-      baseSelectors(":scope"),
+      baseSelectors(themeRoot),
       { ...withResets(theme.base, appearanceKeys), ...theme.scopedOnly?.base },
       "  ",
     ),
+    block(themeRoot, withResets(theme.tokens, tokenKeys), "  "),
+  ].filter(Boolean);
+  const limit = theme.readsScales ? " to ([data-app-theme])" : "";
+  sections.push(`@scope (${root})${limit} {\n${scoped.join("\n\n")}\n}`);
+
+  const appearanceSelectors = (mode: string) => [
+    `:scope:where(${root}) .${mode}`,
+    `:scope:where(.${mode}) ${root}`,
+    `:scope:where(.${mode})${root}`,
+  ];
+  const light = appearanceSelectors("light");
+  const dark = appearanceSelectors("dark");
+  const scales = (selectors: string[]) =>
+    selectors.map((selector) => `${selector}${NO_PALETTE}`).join(",\n");
+  const lightScales = scales([themeRoot, ...light]);
+  const darkScales = scales(dark);
+  const foreignSlots = new Set(
+    [...appearanceKeys].filter(
+      (key) => !(key in theme.base || key in theme.light || key in theme.dark),
+    ),
+  );
+  const scopedLight: TokenMap = {};
+  for (const key of Object.keys(
+    theme.scopedOnly?.dark ?? {},
+  ) as (keyof TokenMap)[]) {
+    scopedLight[key] = theme.scopedOnly?.base[key] ?? "initial";
+  }
+  const appearances = [
     block(
-      ":scope.dark,\n.dark",
-      { ...theme.dark, ...theme.scopedOnly?.dark },
+      dark.join(",\n"),
+      withResets({ ...theme.dark, ...theme.scopedOnly?.dark }, foreignSlots),
       "  ",
     ),
-    block(":scope.light,\n.light", theme.light, "  "),
-    block(":scope", withResets(theme.tokens, tokenKeys), "  "),
     block(
-      THEME_LIGHT_SCALES,
+      light.join(",\n"),
+      withResets({ ...theme.light, ...scopedLight }, foreignSlots),
+      "  ",
+    ),
+    block(
+      lightScales,
       { ...theme.palette.light.srgb, ...colorScopeTokens("brand") },
       "  ",
     ),
     block(
-      THEME_DARK_SCALES,
+      darkScales,
       { ...theme.palette.dark.srgb, ...colorScopeTokens("brand") },
       "  ",
     ),
     p3Block([
-      block(THEME_LIGHT_SCALES, theme.palette.light.p3),
-      block(THEME_DARK_SCALES, theme.palette.dark.p3),
+      block(lightScales, theme.palette.light.p3),
+      block(darkScales, theme.palette.dark.p3),
     ])
       .split("\n")
       .map((line) => `  ${line}`)
       .join("\n"),
   ].filter(Boolean);
   sections.push(
-    `@scope ([data-app-theme="${theme.name}"]) {\n${scoped.join("\n\n")}\n}`,
+    `@scope (${root}, .light, .dark) {\n${appearances.join("\n\n")}\n}`,
   );
 
   return `${sections.filter(Boolean).join("\n\n")}\n`;
@@ -308,15 +343,24 @@ export function paletteCss(
     throw new TypeError(`Palette id must be alphanumeric with dashes: ${id}`);
   }
   const scope = `[data-palette="${id}"]`;
-  const light = [scope, `${scope} .light`].join(",\n");
-  const dark = [`.dark${scope}`, `.dark ${scope}`, `${scope} .dark`].join(
-    ",\n",
-  );
+  function selectors(mode: "light" | "dark") {
+    const appearance =
+      mode === "light" ? ":where(:root:not(.dark), .light)" : ":where(.dark)";
+    return [
+      `:scope${appearance}${scope}`,
+      `:scope${appearance} ${scope}`,
+      `:scope:where(${scope}) .${mode}:not(:where([data-palette]))`,
+    ].join(",\n");
+  }
+  const light = selectors("light");
+  const dark = selectors("dark");
   return [
-    block(light, palette.light.srgb),
-    block(dark, palette.dark.srgb),
+    "@scope (:root, .light, .dark, [data-palette]) {",
+    block(light, palette.light.srgb, "  "),
+    block(dark, palette.dark.srgb, "  "),
     p3Block([block(light, palette.light.p3), block(dark, palette.dark.p3)]),
-  ].join("\n\n");
+    "}",
+  ].join("\n");
 }
 
 function declarations(

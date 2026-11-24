@@ -6,6 +6,7 @@ import {
   AccordionPanel,
   AccordionTrigger,
 } from "../../../src/ui/base-ui/accordion.js";
+import guide from "./accordion.docs.md?raw";
 
 const QUESTIONS = [
   ["Where is my data stored?", "In your workspace's own database."],
@@ -23,7 +24,7 @@ const items = QUESTIONS.map(([question, answer], index) => (
 const meta = {
   title: "Components/Accordion",
   component: Accordion,
-  parameters: { layout: "padded" },
+  parameters: { docs: { description: { component: guide } }, layout: "padded" },
   args: { defaultValue: ["0"], multiple: false, children: items },
   argTypes: {
     multiple: {
