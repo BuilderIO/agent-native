@@ -937,6 +937,9 @@ const editor = {
     imageUploadsFailed:
       "Não foi possível enviar {{failed}} de {{total}} imagens.",
     imageView: "Visualização de imagem",
+    imagePosition: "{{current}} de {{total}}",
+    nextImage: "Próxima imagem",
+    previousImage: "Imagem anterior",
     keptYourAltText: "Seu texto alternativo foi mantido.",
     link: "Ligação",
     loadingAssetsPicker: "Carregando seletor de ativos",

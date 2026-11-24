@@ -566,6 +566,12 @@ export default {
     custom: "Custom",
     customLink: "Custom link",
     customLinkDescription: "Paste any meeting URL",
+    reminderEmail: "Reminder email",
+    reminderEmailDescription:
+      "Sent to the person who booked and any guests they added.",
+    reminderOff: "No reminder",
+    reminderOneHour: "1 hour before",
+    reminderOneDay: "1 day before",
     date: "Date",
     dateAndTime: "Date & Time",
     dateSelection: "date selection",
