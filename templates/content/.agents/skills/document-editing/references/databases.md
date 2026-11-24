@@ -454,8 +454,10 @@ payload replays the durable receipt; reusing it with a different payload fails.
 Configure at most one ordinary text property as the collection's natural key,
 then use `upsert-database-item-by-key` with that property. Natural-key upsert
 never accepts an arbitrary property name or silently chooses a field. Blocks,
-computed, system, source-managed, unknown, and relation properties are not
-writable through these actions; use their owning surfaces instead.
+computed, system, unknown, and relation properties are not writable through
+these actions; use their owning surfaces instead. A source-managed property is
+writable only when the mutation contract marks it `writable`, as it does for a
+Builder test-model field whose edits Content saves back to Builder.
 
 For a bounded migration that must rewrite every existing row body while adding
 new property definitions and values, use `migrate-content-database-rows` rather
