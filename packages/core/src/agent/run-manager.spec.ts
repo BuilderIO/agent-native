@@ -1105,6 +1105,7 @@ describe("run manager soft timeout", () => {
     expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-truncated-status",
       "completed",
+      expect.anything(),
     );
   });
 
@@ -1172,6 +1173,7 @@ describe("run manager soft timeout", () => {
     expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-checkpoint-finalization-race",
       "completed",
+      expect.anything(),
     );
 
     checkpoint.resolve();
@@ -1885,10 +1887,12 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
         run.runId,
         "completed",
+        expect.anything(),
       );
       expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
         run.runId,
         "errored",
+        expect.anything(),
       );
     },
   );
@@ -2539,6 +2543,7 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-terminal-event-order",
         "errored",
+        expect.objectContaining({ terminalReason: expect.any(String) }),
       );
     });
   });
@@ -2614,6 +2619,7 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-finalization-boundary",
         "completed",
+        expect.objectContaining({ terminalReason: "done" }),
       ),
     );
 
@@ -2628,9 +2634,10 @@ describe("run manager soft timeout", () => {
     persistFinalStatus?.(true);
     await run.finalized;
 
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-finalization-boundary",
-      "done",
+      expect.any(String),
+      expect.objectContaining({ terminalReason: "done" }),
     );
     expect(finalized).toBe(true);
   });
@@ -2654,10 +2661,14 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         run.runId,
         "errored",
+        expect.objectContaining({ terminalReason: expect.any(String) }),
       );
-      expect(setRunTerminalReason).toHaveBeenCalledWith(
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         run.runId,
-        "error:run_event_persistence_failed",
+        expect.any(String),
+        expect.objectContaining({
+          terminalReason: "error:run_event_persistence_failed",
+        }),
       );
     },
   );
@@ -2711,6 +2722,7 @@ describe("run manager soft timeout", () => {
     expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-terminal-persistence-failed",
       "completed",
+      expect.anything(),
     );
   });
 
@@ -2732,12 +2744,14 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-missing-credential-terminal",
         "errored",
+        expect.objectContaining({ terminalReason: expect.any(String) }),
       ),
     );
 
     expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-missing-credential-terminal",
       "completed",
+      expect.anything(),
     );
     expect(insertRunEvent).toHaveBeenCalledWith(
       "run-missing-credential-terminal",
@@ -2745,9 +2759,10 @@ describe("run manager soft timeout", () => {
       JSON.stringify({ type: "missing_api_key" }),
       { eventAt: expect.any(Number), requireInserted: true },
     );
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-missing-credential-terminal",
-      "missing_api_key",
+      expect.any(String),
+      expect.objectContaining({ terminalReason: "missing_api_key" }),
     );
     expect(setRunError).toHaveBeenCalledWith(
       "run-missing-credential-terminal",
@@ -4766,6 +4781,7 @@ describe("run manager soft timeout", () => {
     expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-insert-race",
       "completed",
+      expect.anything(),
     );
 
     resolveInsert();
@@ -4774,6 +4790,7 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-insert-race",
         "completed",
+        expect.objectContaining({ terminalReason: "done" }),
       ),
     );
   });
@@ -5089,6 +5106,7 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-terminal-reconcile-fallback",
         "completed",
+        expect.objectContaining({ terminalReason: "done" }),
       ),
     );
     expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(
@@ -5268,8 +5286,9 @@ describe("run manager soft timeout", () => {
     );
     expect(persistedStatus).toBe("truncated");
     expect(persistedTerminalReason).toBe("run_timeout");
-    expect(setRunTerminalReason).not.toHaveBeenCalledWith(
+    expect(setRunTerminalReasonIfStatus).not.toHaveBeenCalledWith(
       "run-ambiguous-checkpoint-status",
+      expect.any(String),
       "run_timeout",
     );
   });
@@ -5350,8 +5369,9 @@ describe("run manager soft timeout", () => {
 
     expect(run.status).toBe("completed");
     expect(getRunById).toHaveBeenCalledWith("run-ambiguous-terminal-mismatch");
-    expect(setRunTerminalReason).not.toHaveBeenCalledWith(
+    expect(setRunTerminalReasonIfStatus).not.toHaveBeenCalledWith(
       "run-ambiguous-terminal-mismatch",
+      expect.any(String),
       "done",
     );
   });
@@ -5499,6 +5519,7 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-capture-error",
         "errored",
+        expect.objectContaining({ terminalReason: expect.any(String) }),
       ),
     );
     unregister();
@@ -5619,6 +5640,7 @@ describe("run manager soft timeout", () => {
         expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
           "run-credits-limit",
           "errored",
+          expect.objectContaining({ terminalReason: expect.any(String) }),
         ),
       );
     } finally {
@@ -5660,6 +5682,7 @@ describe("run manager soft timeout", () => {
         expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
           "run-provider-429-no-capture",
           "errored",
+          expect.objectContaining({ terminalReason: expect.any(String) }),
         ),
       );
     } finally {
@@ -5698,6 +5721,7 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-provider-retryable",
         "errored",
+        expect.objectContaining({ terminalReason: expect.any(String) }),
       ),
     );
 
@@ -5731,6 +5755,7 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-provider-terminal",
         "errored",
+        expect.objectContaining({ terminalReason: expect.any(String) }),
       ),
     );
 
@@ -5763,6 +5788,7 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-provider-terminal-verdict",
         "errored",
+        expect.objectContaining({ terminalReason: expect.any(String) }),
       ),
     );
 
@@ -5801,6 +5827,7 @@ describe("run manager soft timeout", () => {
         expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
           "run-missing-provider-no-capture",
           "errored",
+          expect.objectContaining({ terminalReason: expect.any(String) }),
         ),
       );
     } finally {
@@ -5838,6 +5865,7 @@ describe("run manager soft timeout", () => {
         expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
           "run-provider-auth-no-capture",
           "errored",
+          expect.objectContaining({ terminalReason: expect.any(String) }),
         ),
       );
     } finally {
@@ -5875,6 +5903,7 @@ describe("run manager soft timeout", () => {
         expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
           "run-provider-connection-no-capture",
           "errored",
+          expect.objectContaining({ terminalReason: expect.any(String) }),
         ),
       );
     } finally {
@@ -5916,6 +5945,7 @@ describe("run manager soft timeout", () => {
         expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
           "run-provider-tls-no-capture",
           "errored",
+          expect.objectContaining({ terminalReason: expect.any(String) }),
         ),
       );
     } finally {
@@ -5960,6 +5990,7 @@ describe("run manager soft timeout", () => {
           expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
             `run-stream-ended-${name}`,
             "errored",
+            expect.objectContaining({ terminalReason: expect.any(String) }),
           ),
         );
       } finally {
@@ -6075,6 +6106,7 @@ describe("run manager soft timeout", () => {
     expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-terminal-after-save",
       "completed",
+      expect.anything(),
     );
 
     await vi.advanceTimersByTimeAsync(9_000);
@@ -6091,6 +6123,7 @@ describe("run manager soft timeout", () => {
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-terminal-after-save",
       "completed",
+      expect.objectContaining({ terminalReason: "done" }),
     );
   });
 
@@ -6273,6 +6306,7 @@ describe("run manager soft timeout", () => {
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-foreground-settled",
       "completed",
+      expect.objectContaining({ terminalReason: "done" }),
     );
   });
 
@@ -6456,9 +6490,12 @@ describe("run manager soft timeout", () => {
       type: "error",
       errorCode: "permanent_precondition",
     });
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-permanent-precondition",
-      "error:permanent_precondition",
+      expect.any(String),
+      expect.objectContaining({
+        terminalReason: "error:permanent_precondition",
+      }),
     );
   });
 
@@ -6502,14 +6539,17 @@ describe("run manager soft timeout", () => {
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-connection-yield",
       "completed",
+      expect.objectContaining({ terminalReason: "done" }),
     );
     expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-connection-yield",
       "truncated",
+      expect.anything(),
     );
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-connection-yield",
-      "done",
+      expect.any(String),
+      expect.objectContaining({ terminalReason: "done" }),
     );
   });
 
@@ -6591,9 +6631,10 @@ describe("run manager soft timeout", () => {
       type: "auto_continue",
       reason: "stream_ended",
     });
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-foreground-custom-ui",
-      "done",
+      expect.any(String),
+      expect.objectContaining({ terminalReason: "done" }),
     );
   });
 
@@ -6620,7 +6661,10 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-completion-failed",
         "errored",
-        { threadProjectionPending: true },
+        expect.objectContaining({
+          threadProjectionPending: true,
+          terminalReason: expect.any(String),
+        }),
       ),
     );
 
@@ -6658,7 +6702,10 @@ describe("run manager soft timeout", () => {
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-completion-reconcile-failed",
       "errored",
-      { threadProjectionPending: true },
+      expect.objectContaining({
+        threadProjectionPending: true,
+        terminalReason: expect.any(String),
+      }),
     );
     expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(
       "run-completion-reconcile-failed",
@@ -6696,9 +6743,10 @@ describe("run manager soft timeout", () => {
       type: "auto_continue",
       reason: "stream_ended",
     });
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-completion-boundary-failed",
-      "completion_error",
+      expect.any(String),
+      expect.objectContaining({ terminalReason: "completion_error" }),
     );
     consoleError.mockRestore();
   });
@@ -9561,8 +9609,16 @@ describe("run manager soft timeout", () => {
       await run.finalized;
       expect(endsAfterToolResultWithoutAssistantFinal(run)).toBe(false);
       expect(completionBoundary).toBe(false);
-      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
-      expect(setRunTerminalReason).toHaveBeenCalledWith(runId, "done");
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        runId,
+        "completed",
+        expect.objectContaining({ terminalReason: "done" }),
+      );
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        runId,
+        expect.any(String),
+        expect.objectContaining({ terminalReason: "done" }),
+      );
       expect(JSON.stringify(run.events)).not.toContain("private final answer");
       expect(
         run.events.some(({ event }) => event.type === "auto_continue"),
@@ -9643,6 +9699,7 @@ describe("run manager soft timeout", () => {
     expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       runId,
       "completed",
+      expect.anything(),
     );
     expect(
       run.events.some(
@@ -9693,7 +9750,11 @@ describe("run manager soft timeout", () => {
         { softTimeoutMs: 0 },
       );
       await run.finalized;
-      expect(setRunTerminalReason).toHaveBeenCalledWith(runId, `error:${code}`);
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        runId,
+        expect.any(String),
+        expect.objectContaining({ terminalReason: `error:${code}` }),
+      );
       expect(setRunError).toHaveBeenCalledWith(runId, code, expectedMessage);
       expect(JSON.stringify(setRunError.mock.calls)).not.toContain(
         "private sentinel text",
@@ -9793,9 +9854,12 @@ describe("run manager soft timeout", () => {
           .join(" "),
       ).not.toContain(sentinel);
       expect(writes.join(" ")).not.toContain(sentinel);
-      expect(setRunTerminalReason).toHaveBeenCalledWith(
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-private-persistence-failure",
-        "error:private_content_omitted",
+        expect.any(String),
+        expect.objectContaining({
+          terminalReason: "error:private_content_omitted",
+        }),
       );
       expect(setRunError).toHaveBeenCalledWith(
         "run-private-persistence-failure",
@@ -9937,6 +10001,7 @@ describe("run manager soft timeout", () => {
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-persist-retry-order",
       "completed",
+      expect.objectContaining({ terminalReason: "done" }),
     );
   });
 
@@ -9995,10 +10060,12 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
         "run-persist-permanent-gap",
         "completed",
+        expect.anything(),
       );
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-persist-permanent-gap",
         "errored",
+        expect.objectContaining({ terminalReason: expect.any(String) }),
       );
       expect(setRunError).toHaveBeenCalledWith(
         "run-persist-permanent-gap",
@@ -10021,9 +10088,12 @@ describe("run manager soft timeout", () => {
       expect(onComplete.mock.calls[0][0].events.at(-1).event.type).toBe(
         "error",
       );
-      expect(setRunTerminalReason).toHaveBeenCalledWith(
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-persist-permanent-gap",
-        "error:run_event_persistence_failed",
+        expect.any(String),
+        expect.objectContaining({
+          terminalReason: "error:run_event_persistence_failed",
+        }),
       );
       expect(cleanupOldRuns).toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(5 * 60_000);
