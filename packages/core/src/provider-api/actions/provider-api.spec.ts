@@ -3,6 +3,10 @@ import { z } from "zod";
 
 import { actionCallIsRetrySafe } from "../../action-call-classification.js";
 import {
+  CredentialUseLedger,
+  runWithCredentialUseLedger,
+} from "../../credentials/use-ledger.js";
+import {
   buildProviderApiAuditSummary,
   sanitizeProviderApiAuditPath,
 } from "./provider-api-audit.js";
@@ -310,6 +314,67 @@ describe("provider API action factories", () => {
     await expect(
       scoped.run({ provider: "github", path: "/repos", stageAs: "repos" }),
     ).rejects.toThrow("No authenticated context");
+  });
+});
+
+describe("provider API requests in a run shared with the org", () => {
+  it.each([
+    { provider: "stripe", method: "POST", path: "/customers" },
+    { provider: "github", method: "DELETE", path: "/repos/o/r" },
+    { provider: "github", path: "/repos", stageAs: "repos" },
+    { provider: "github", path: "/repos", saveToFile: "repos.json" },
+  ])(
+    "refuses a request that writes, stages or saves before sending it: %j",
+    async (request) => {
+      const executeRequest = vi.fn();
+      const action = createProviderApiRequestAction(
+        { executeRequest },
+        { appId: "analytics", getOwnerEmail: () => "viewer@example.com" },
+      );
+      const ledger = new CredentialUseLedger({ readsOnly: true });
+
+      await expect(
+        runWithCredentialUseLedger(ledger, () => action.run(request)),
+      ).rejects.toMatchObject({
+        errorCode: "provider_effect_in_shared_run",
+        statusCode: 403,
+      });
+      expect(executeRequest).not.toHaveBeenCalled();
+      expect(ledger.uses).toEqual([
+        { kind: "provider-effect", provider: request.provider },
+      ]);
+    },
+  );
+
+  it.each([
+    { provider: "posthog", method: "GET", path: "/api/projects/1/insights/" },
+    { provider: "posthog", method: "POST", path: "/api/projects/1/query/" },
+  ])("sends reads, including a listed read-only query: %j", async (request) => {
+    const response = { ok: true, status: 200, json: { ok: true } };
+    const executeRequest = vi.fn(async () => response);
+    const action = createProviderApiRequestAction({ executeRequest });
+    const ledger = new CredentialUseLedger({ readsOnly: true });
+
+    await expect(
+      runWithCredentialUseLedger(ledger, () => action.run(request)),
+    ).resolves.toBe(response);
+    expect(executeRequest).toHaveBeenCalledOnce();
+    expect(ledger.uses).toEqual([]);
+  });
+
+  it("still sends writes outside a shared run", async () => {
+    const response = { ok: true, status: 200, json: { ok: true } };
+    const executeRequest = vi.fn(async () => response);
+    const action = createProviderApiRequestAction({ executeRequest });
+    const request = { provider: "stripe", method: "POST", path: "/customers" };
+
+    await expect(
+      runWithCredentialUseLedger(new CredentialUseLedger(), () =>
+        action.run(request),
+      ),
+    ).resolves.toBe(response);
+    await expect(action.run(request)).resolves.toBe(response);
+    expect(executeRequest).toHaveBeenCalledTimes(2);
   });
 });
 

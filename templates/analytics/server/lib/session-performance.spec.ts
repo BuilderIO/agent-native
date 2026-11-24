@@ -3,7 +3,15 @@ import { createRequire } from "node:module";
 
 import { and, asc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -38,6 +46,7 @@ import {
   recordSessionPerformance,
   slowSessionConditions,
 } from "./session-performance";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 /** The DDL comes straight from the migration so the test tracks it. */
 function performanceMigrationSql(): string[] {
@@ -228,9 +237,17 @@ describe("performance aggregates on Postgres", () => {
   let client: PGliteClient;
   let db: any;
 
+  beforeAll(async () => {
+    client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
   beforeEach(async () => {
     __resetSessionPerformanceForTests();
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     for (const statement of performanceMigrationSql()) {
       await client.query(statement);
     }
@@ -248,10 +265,6 @@ describe("performance aggregates on Postgres", () => {
     }
     db = drizzle(client, { schema });
     getDbMock.mockReturnValue(db);
-  });
-
-  afterEach(async () => {
-    await client.close();
   });
 
   /** Mirrors ingest: session maxima in the event transaction, routes after. */

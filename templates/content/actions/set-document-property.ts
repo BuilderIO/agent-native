@@ -6,6 +6,7 @@ import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
@@ -609,6 +610,10 @@ export default defineAction({
             userEmail: documentAttributionActor(ctx),
           },
         );
+        await syncAnalyticsChartCitations(
+          tx as unknown as ReturnType<typeof getDb>,
+          { documentId, before: previousContent, after: content },
+        );
         if (
           !primaryBlocksFields.some((field) => field.propertyId === propertyId)
         ) {
@@ -696,6 +701,7 @@ export default defineAction({
         tx as unknown as ReturnType<typeof getDb>,
         database.id,
         lockedDefinition,
+        { value: parsePropertyValue(valueJson) },
       );
       // A tab frozen by this column checks it under the page's row lock, so
       // the change takes that lock too: a save to the tab that started before

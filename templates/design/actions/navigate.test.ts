@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppStateForCurrentTab = vi.fn();
 
-vi.mock("@agent-native/core/application-state", () => ({
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
   writeAppStateForCurrentTab: (...args: unknown[]) =>
     mockWriteAppStateForCurrentTab(...args),
 }));
@@ -14,6 +17,19 @@ beforeEach(() => {
 });
 
 describe("design navigate action", () => {
+  it("carries a design-home search into the one-shot navigation command", async () => {
+    const args = { view: "list", search: "checkout" } as const;
+    expect(action.schema?.safeParse(args).success).toBe(true);
+
+    const result = await action.run(args);
+
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "list",
+      search: "checkout",
+    });
+    expect(result).toContain('(search: "checkout")');
+  });
+
   it("carries the requested editor tool into the one-shot navigation command", async () => {
     const result = await action.run({
       view: "editor",
@@ -49,6 +65,25 @@ describe("design navigate action", () => {
       leftPanel: "threads",
     });
     expect(result).toContain("(threads panel)");
+  });
+
+  it("opens the Library tab for the legacy tokens panel id", async () => {
+    if (!action.schema) throw new Error("navigate has no schema");
+    const parsed = action.schema.safeParse({
+      view: "editor",
+      designId: "design-123",
+      leftPanel: "tokens",
+    });
+    if (!parsed.success) throw parsed.error;
+    expect(parsed.data.leftPanel).toBe("library");
+
+    await action.run(parsed.data);
+
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "editor",
+      designId: "design-123",
+      leftPanel: "library",
+    });
   });
 
   it("carries the Interact device and theme into the one-shot navigation command", async () => {

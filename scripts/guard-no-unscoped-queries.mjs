@@ -595,16 +595,56 @@ function isOptedOutWithinBlock(blockText) {
   return OPT_OUT_MARKER.test(blockText);
 }
 
-export async function scanFiles(ownablesByDir, root = REPO_ROOT) {
-  const allOwnableNames = new Set();
-  const allOwnableSqlNames = new Set();
-  for (const set of ownablesByDir.values()) {
+const SHARED_OWNABLE_UNIT = "packages/core";
+
+function owningUnit(relPath) {
+  const match = /^(?:templates|packages)\/[^/]+/.exec(relPath);
+  return match ? match[0] : null;
+}
+
+function partitionOwnablesByUnit(ownablesByDir) {
+  const byUnit = new Map();
+  for (const [dir, set] of ownablesByDir.entries()) {
+    const unit = owningUnit(dir);
+    if (!unit) continue;
+    let entry = byUnit.get(unit);
+    if (!entry) {
+      entry = { names: new Set(), sqlNames: new Set() };
+      byUnit.set(unit, entry);
+    }
     for (const name of set) {
-      if (name.startsWith("__sql__"))
-        allOwnableSqlNames.add(name.slice("__sql__".length));
-      else allOwnableNames.add(name);
+      if (name.startsWith("__sql__")) {
+        entry.sqlNames.add(name.slice("__sql__".length));
+      } else {
+        entry.names.add(name);
+      }
     }
   }
+  return byUnit;
+}
+
+function ownablesForUnit(byUnit, unit, cache) {
+  if (cache.has(unit)) return cache.get(unit);
+  const names = new Set();
+  const sqlNames = new Set();
+  const scopes =
+    unit === SHARED_OWNABLE_UNIT
+      ? [SHARED_OWNABLE_UNIT]
+      : [unit, SHARED_OWNABLE_UNIT];
+  for (const scope of scopes) {
+    const entry = byUnit.get(scope);
+    if (!entry) continue;
+    for (const name of entry.names) names.add(name);
+    for (const sqlName of entry.sqlNames) sqlNames.add(sqlName);
+  }
+  const result = { names, sqlNames };
+  cache.set(unit, result);
+  return result;
+}
+
+export async function scanFiles(ownablesByDir, root = REPO_ROOT) {
+  const ownablesByUnit = partitionOwnablesByUnit(ownablesByDir);
+  const unitCache = new Map();
 
   const violations = [];
 
@@ -621,6 +661,12 @@ export async function scanFiles(ownablesByDir, root = REPO_ROOT) {
     ) {
       continue;
     }
+
+    const unit = owningUnit(rel);
+    if (!unit) continue;
+    const { names: unitOwnableNames, sqlNames: unitOwnableSqlNames } =
+      ownablesForUnit(ownablesByUnit, unit, unitCache);
+    if (unitOwnableNames.size === 0 && unitOwnableSqlNames.size === 0) continue;
 
     let contents;
     try {
@@ -641,8 +687,8 @@ export async function scanFiles(ownablesByDir, root = REPO_ROOT) {
 
     const statements = findStatements(
       contents,
-      allOwnableNames,
-      allOwnableSqlNames,
+      unitOwnableNames,
+      unitOwnableSqlNames,
     );
     if (statements.length === 0) continue;
 
@@ -718,23 +764,29 @@ export async function scanFiles(ownablesByDir, root = REPO_ROOT) {
  * full per-statement block-walking done by scanFiles, but safe because
  * mentionProviders search functions are short self-contained closures.
  */
-async function scanMentionProviders(ownablesByDir) {
-  const allOwnableNames = new Set();
-  for (const set of ownablesByDir.values()) {
-    for (const name of set) {
-      if (!name.startsWith("__sql__")) allOwnableNames.add(name);
+export async function scanMentionProviders(ownablesByDir, root = REPO_ROOT) {
+  const ownablesByUnit = partitionOwnablesByUnit(ownablesByDir);
+  if (ownablesByUnit.size === 0) return [];
+  const unitCache = new Map();
+  const regexCache = new Map();
+
+  function fromOwnableRegexForUnit(unit) {
+    if (regexCache.has(unit)) return regexCache.get(unit);
+    const { names } = ownablesForUnit(ownablesByUnit, unit, unitCache);
+    if (names.size === 0) {
+      regexCache.set(unit, null);
+      return null;
     }
+    const namesAlt = [...names]
+      .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|");
+    const re = new RegExp(
+      `\\.\\s*from\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*\\.\\s*)?(${namesAlt})\\b`,
+      "g",
+    );
+    regexCache.set(unit, re);
+    return re;
   }
-  if (allOwnableNames.size === 0) return [];
-
-  const namesAlt = [...allOwnableNames]
-    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("|");
-
-  const fromOwnableRe = new RegExp(
-    `\\.\\s*from\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*\\.\\s*)?(${namesAlt})\\b`,
-    "g",
-  );
 
   const CLOSURE_ACCESS_PATTERNS = [
     ...ACCESS_CONTROL_HELPERS,
@@ -744,10 +796,10 @@ async function scanMentionProviders(ownablesByDir) {
 
   const violations = [];
 
-  for await (const file of walk(REPO_ROOT)) {
+  for await (const file of walk(root)) {
     if (!file.endsWith(".ts") && !file.endsWith(".tsx")) continue;
     if (file.endsWith(".d.ts")) continue;
-    const rel = path.relative(REPO_ROOT, file).replaceAll("\\", "/");
+    const rel = path.relative(root, file).replaceAll("\\", "/");
     if (/\.(?:spec|test)\.[^.]+$/.test(rel)) continue;
     if (FILE_ALLOWLIST.has(rel)) continue;
     if (
@@ -756,6 +808,11 @@ async function scanMentionProviders(ownablesByDir) {
     ) {
       continue;
     }
+
+    const unit = owningUnit(rel);
+    if (!unit) continue;
+    const fromOwnableRe = fromOwnableRegexForUnit(unit);
+    if (!fromOwnableRe) continue;
 
     let contents;
     try {

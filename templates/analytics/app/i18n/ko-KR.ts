@@ -2126,6 +2126,10 @@ export default {
     flagsUnavailable: "기능 플래그를 사용할 수 없습니다",
     flagsUnreachable:
       "작업 공간 디렉터리에 연결할 수 없습니다. 연결되면 다시 시도하세요.",
+    verifiedFlagChangeOrg:
+      "{{time}}에 확인됨: {{app}}의 {{flag}}이(가) 이 조직에서 {{availability}}(으)로 설정되었습니다.",
+    verifiedFlagChangeGlobal:
+      "{{time}}에 확인됨: {{app}}의 {{flag}}이(가) 모든 조직에서 {{availability}}(으)로 설정되었습니다.",
     flagsEmpty: "플래그를 보고한 작업 공간 앱이 없습니다",
     flagsEmptyDetail: "연결된 앱이 준비되면 등록된 플래그가 여기에 표시됩니다.",
     flagsNotReady:
@@ -2286,6 +2290,15 @@ export default {
     addedBy: "추가한 사람: {{email}}",
     more: "+{{count}}개 더",
     flagLabel: "데이터 노트",
+  },
+  citedIn: {
+    menu: "인용된 곳",
+    menuTooltip: "이 대시보드의 차트가 있는 Content 페이지",
+    empty:
+      "이 대시보드의 차트가 있는, 열 수 있는 Content 페이지가 아직 없습니다",
+    unavailable: "Content에 연결할 수 없습니다. 잠시 후 다시 시도하세요.",
+    untitledPage: "제목 없음",
+    more: "Content는 최근에 편집한 페이지만 확인했으므로 더 있을 수 있습니다.",
   },
   annotations: {
     menu: "주석",

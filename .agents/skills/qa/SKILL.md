@@ -253,19 +253,27 @@ npx prettier --write <file>
 ## What Counts as a Bug
 
 - Page crashes or shows error overlay
-- Console errors (not warnings — errors only)
-- Network requests returning 4xx or 5xx
-- Buttons/links that don't work
-- Forms that don't submit
-- Data that doesn't save or display
-- Layout severely broken (overlapping text, invisible elements)
-- Features described in CLAUDE.md that don't work
+- Console errors, hydration mismatches, or unhandled rejections (not benign third-party deprecation warnings)
+- Network requests returning 4xx or 5xx (outside an intentionally tested rejection)
+- Slow or unacknowledged interaction latency:
+  - Missing optimistic acknowledgment (`>100ms` before visible UI feedback on click, toggle, or submit)
+  - Unacknowledged pending state (`>400ms` without a skeleton or inline busy state, or bare `"Loading..."` strings instead of layout-matched skeletons)
+- Dead or broken controls:
+  - Buttons, links, menus, or keyboard shortcuts that do nothing or drop focus
+  - Native browser dialogs (`window.confirm`, `alert`, `prompt`) instead of accessible `AlertDialog` or instant undo
+  - Dead-end empty or error states with no interactive CTA or retry path
+- Forms that don't submit or data that doesn't save, persist across reload, or roll back cleanly on failure
+- Layout or visual craft failures:
+  - Broken layouts, overlapping headers/text, clipped controls, or horizontal overflow (including `390px` mobile and `<=640px` split-pane companion mode)
+  - Contrast failures (`<4.5:1` for text or `<3:1` for interactive controls in light or dark mode) or unthemed raw-color leaks in dark mode
+- Missing core workflow completion on an existing surface (for example, an item you can create but cannot edit, delete, undo, or recover from error), even if not exhaustively listed in `CLAUDE.md`
+- Features described in `CLAUDE.md` or `DESIGN.md` that don't work
 
 What is NOT a bug:
-- Minor styling preferences
-- Missing features that aren't described in CLAUDE.md
-- Warnings in console
-- Slow loading (unless > 10 seconds)
+
+- Purely subjective aesthetic preferences once visual hierarchy, semantic tokens, contrast, and layout integrity pass
+- Unrequested net-new product areas outside the app's scope (distinct from broken or incomplete core flows on existing surfaces)
+- Benign third-party deprecation warnings in console (not errors or hydration mismatches)
 
 ## Report Format
 

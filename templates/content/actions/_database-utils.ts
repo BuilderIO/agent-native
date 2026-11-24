@@ -1553,6 +1553,8 @@ export async function getContentDatabaseResponse(
               database,
               definitions: propertySchema.definitions,
               sourceManagedPropertyIds: propertySchema.sourceManagedPropertyIds,
+              sourceWritebackPropertyIds:
+                propertySchema.sourceWritebackPropertyIds,
             },
           },
         ).then(async (mutationContract) => ({
@@ -1640,7 +1642,7 @@ export async function getDatabaseByDocumentId(
   documentId: string,
   options: { includeDeleted?: boolean } = {},
   db = getDb(),
-) {
+): Promise<typeof schema.contentDatabases.$inferSelect | null> {
   const clauses = [eq(schema.contentDatabases.documentId, documentId)];
   if (!options.includeDeleted) {
     clauses.push(isNull(schema.contentDatabases.deletedAt));

@@ -2516,13 +2516,18 @@ const AgentKitAssistantChatBody = forwardRef<
             persistenceKey,
             threadData: snapshot.threadData,
           };
-          try {
-            props.onThreadSnapshotPersisted?.(threadId, snapshot.messageCount);
-          } catch (error) {
-            console.error(
-              "Failed to report the saved chat thread snapshot.",
-              error,
-            );
+          if (!isUnmountingRef.current) {
+            try {
+              props.onThreadSnapshotPersisted?.(
+                threadId,
+                snapshot.messageCount,
+              );
+            } catch (error) {
+              console.error(
+                "Failed to report the saved chat thread snapshot.",
+                error,
+              );
+            }
           }
           if (retryThreadSaveTimerRef.current !== null) {
             window.clearTimeout(retryThreadSaveTimerRef.current);
@@ -2776,7 +2781,8 @@ const AgentKitAssistantChatBody = forwardRef<
   // A send that has no run id yet already holds the thread's turn, so what
   // follows it queues instead of starting a second turn.
   const isThreadRunning = useCallback(
-    () => agentKitTurnInProgress(controller, threadId),
+    (ownSubmissionId?: string) =>
+      agentKitTurnInProgress(controller, threadId, ownSubmissionId),
     [controller, threadId],
   );
   const reconcileServerSettled = useCallback(
@@ -3725,7 +3731,7 @@ const AgentKitAssistantChatBody = forwardRef<
       }
       const submittedComposerOptions = captureQueuedRunState(
         composerOptions,
-        isThreadRunning(),
+        isThreadRunning(composerOptions.submissionId),
       );
       const release = await acquireSubmission();
       if (!release) {
@@ -4036,23 +4042,25 @@ const AgentKitAssistantChatBody = forwardRef<
       prepare?: () => Promise<PromptComposerSubmitOptions>,
     ) => {
       const noticeAttempt = beginNoticeAttempt();
-      const runWasActiveAtSubmit = isThreadRunning();
+      const runWasActiveAtSubmit = isThreadRunning(
+        composerOptions.submissionId,
+      );
       const announced = announceComposerSubmit(text, runWasActiveAtSubmit);
       setContinueSubmissionFailed(false);
-      const release = await acquireSubmission();
-      if (!release) {
-        withdrawAgentChatComposerSubmit(announced);
-        throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
-      }
-      noticeAttempt.promote();
       const pending =
         !runWasActiveAtSubmit && !composerOptions.submissionId
           ? beginSubmittedMessage(text, files)
           : undefined;
-      if (pending) {
-        composerOptions = { ...composerOptions, submissionId: pending.id };
-      }
+      let release: (() => void) | null = null;
       try {
+        release = await acquireSubmission();
+        if (!release) {
+          throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
+        }
+        noticeAttempt.promote();
+        if (pending) {
+          composerOptions = { ...composerOptions, submissionId: pending.id };
+        }
         const preparedOptions = prepare
           ? { ...(await prepare()), submissionId: composerOptions.submissionId }
           : composerOptions;
@@ -4665,15 +4673,16 @@ const AgentKitAssistantChatBody = forwardRef<
       const promoteNotice = noticeTracked
         ? undefined
         : beginNoticeAttempt().promote;
+      const runWasActiveAtSubmit = isThreadRunning();
       const announced = options?.hideUserMessage
         ? null
-        : announceComposerSubmit(text, isThreadRunning());
+        : announceComposerSubmit(text, runWasActiveAtSubmit);
       try {
         const result = await submit(
           text,
           [],
           [],
-          { intent: isThreadRunning() ? "queued" : "immediate" },
+          { intent: runWasActiveAtSubmit ? "queued" : "immediate" },
           {
             ...options,
             attachments: [
@@ -4980,7 +4989,7 @@ const AgentKitAssistantChatBody = forwardRef<
       sendRecoveryMessage: (text, recoveryAction, images) =>
         sendRecoveryMessage(text, recoveryAction, images),
       queueMessage: (text, images) => queueImperativeMessage(text, images),
-      isRunning: isThreadRunning,
+      isRunning: () => isThreadRunning(),
       hasInFlightWork: () =>
         Object.values(thread.tools).some((tool) => tool.status === "running") ||
         Object.values(thread.activities).some(
@@ -7091,14 +7100,22 @@ function AgentKitRunFailure({
           () => sendContinueRequest(surface, retryRequest, runId),
           setContinueFailed,
         );
+  const genericFailure =
+    error.code === "runtime_error" ||
+    error.code === "provider_internal_error" ||
+    /^http_5\d\d$/.test(error.code);
   const info: RunErrorInfo = {
     message: canRetryWithoutAttachment
       ? t("agentChat.errorMessages.invalidAttachmentNamed", {
           name: failedAttachmentNames.join(", "),
         })
-      : formatAgentKitErrorText(error, t),
+      : genericFailure
+        ? t("actionErrors.failed")
+        : formatAgentKitErrorText(error, t),
     errorCode: error.code,
-    details: formatErrorDetails(error.details),
+    details:
+      formatErrorDetails(error.details) ||
+      (genericFailure ? error.message : undefined),
     runId,
     recoverable: error.retryable,
   };

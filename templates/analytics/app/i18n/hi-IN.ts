@@ -2099,6 +2099,10 @@ export default {
     flagsUnavailable: "फ़ीचर फ़्लैग उपलब्ध नहीं हैं",
     flagsUnreachable:
       "वर्कस्पेस डायरेक्टरी तक नहीं पहुँचा जा सका। कनेक्शन उपलब्ध होने पर फिर कोशिश करें।",
+    verifiedFlagChangeOrg:
+      "{{time}} पर सत्यापित: {{app}} में {{flag}} इस संगठन के लिए {{availability}} पर सेट है।",
+    verifiedFlagChangeGlobal:
+      "{{time}} पर सत्यापित: {{app}} में {{flag}} सभी संगठनों के लिए {{availability}} पर सेट है।",
     flagsEmpty: "किसी वर्कस्पेस ऐप ने फ़्लैग की सूचना नहीं दी",
     flagsEmptyDetail: "कनेक्टेड ऐप तैयार होने पर पंजीकृत फ़्लैग यहाँ दिखाई देंगे।",
     flagsNotReady: "यह ऐप {{status}} है; इसकी फ़्लैग स्थिति को बंद नहीं माना जाता।",
@@ -2257,6 +2261,15 @@ export default {
     addedBy: "{{email}} ने जोड़ा",
     more: "+{{count}} और",
     flagLabel: "डेटा नोट्स",
+  },
+  citedIn: {
+    menu: "यहाँ उद्धृत",
+    menuTooltip: "इस डैशबोर्ड के चार्ट वाले Content पेज",
+    empty:
+      "अभी तक ऐसा कोई Content पेज नहीं है जिसे आप खोल सकें और जिसमें इस डैशबोर्ड के चार्ट हों",
+    unavailable: "Content से संपर्क नहीं हो सका। एक मिनट में फिर से कोशिश करें।",
+    untitledPage: "शीर्षकहीन",
+    more: "Content ने केवल हाल ही में संपादित पेज जाँचे हैं, इसलिए और पेज हो सकते हैं।",
   },
   annotations: {
     menu: "एनोटेशन",

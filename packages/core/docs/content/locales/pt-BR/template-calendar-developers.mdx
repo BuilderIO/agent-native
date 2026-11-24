@@ -72,6 +72,8 @@ O Calendário salva essas informações no seu próprio armazenamento de
 segredos, não em um arquivo `.env`, então esse passo é idêntico no Windows e
 no macOS. Os tokens são renovados automaticamente depois de conectados.
 
+Em uma implantação, defina `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` no ambiente dela. Assim, **Faça login com Google** pede acesso à agenda na mesma tela do Google, então fazer login também conecta essa conta; as demais contas continuam passando por **Adicionar conta**. O login volta para o mesmo endereço `/_agent-native/google/callback` usado ao conectar, então esse único URI de redirecionamento atende aos dois casos. Sem essas variáveis, o login só pergunta quem você é, e as pessoas conectam o Google depois.
+
 ### Conecte o Zoom (opcional)
 
 Diferente do Google, o Zoom não tem um formulário em Configurações. Crie um

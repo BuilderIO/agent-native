@@ -225,6 +225,66 @@ describe("dashboard-panel-query: program source", () => {
       });
     });
 
+    it.each([
+      { stale: true, pending: true, refreshPending: true },
+      { stale: true, pending: false, refreshPending: false },
+      { stale: false, pending: false, refreshPending: false },
+    ])(
+      "says a newer run is pending only when the program says one is: stale $stale, pending $pending",
+      async ({ stale, pending, refreshPending }) => {
+        mocks.runDataProgram.mockResolvedValue({
+          ok: true,
+          rows: [{ n: 1 }],
+          schema: [{ name: "n", type: "number" }],
+          truncated: false,
+          stale,
+          ...(pending ? { refreshPending: true } : {}),
+          cacheHit: true,
+          asOfMs: Date.now() - 60_000,
+          runId: "run_1",
+        });
+
+        const result = await runDashboardPanelQuery({
+          source: "program",
+          query: JSON.stringify({ programId: "dp_collector" }),
+          ctx,
+        });
+
+        expect("refreshPending" in result && result.refreshPending).toBe(
+          refreshPending,
+        );
+      },
+    );
+
+    it.each([
+      { code: "background_pending", refreshPending: true },
+      { code: "timeout", refreshPending: false },
+    ])(
+      "says a newer run is pending over the last good rows only for $code",
+      async ({ code, refreshPending }) => {
+        mocks.runDataProgram.mockResolvedValue({
+          ok: false,
+          error: { code, message: "Not done." },
+          lastGoodRun: {
+            rows: [{ n: 1 }],
+            schema: [{ name: "n", type: "number" }],
+            truncated: false,
+            asOfMs: Date.now() - 60_000,
+          },
+        });
+
+        const result = await runDashboardPanelQuery({
+          source: "program",
+          query: JSON.stringify({ programId: "dp_collector" }),
+          ctx,
+        });
+
+        expect("refreshPending" in result && result.refreshPending).toBe(
+          refreshPending,
+        );
+      },
+    );
+
     it("passes a panel Refresh through as forceRefresh", async () => {
       mocks.runDataProgram.mockResolvedValue({
         ok: true,

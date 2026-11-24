@@ -2,7 +2,15 @@
 import { PGlite } from "@electric-sql/pglite";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import * as schema from "../../../../../db/schema.js";
 
@@ -246,11 +254,7 @@ async function trackRows() {
   ).rows;
 }
 
-beforeEach(async () => {
-  vi.clearAllMocks();
-  mocks.state.clear();
-  mocks.rich = true;
-  mocks.stopped = false;
+beforeAll(async () => {
   client = new PGlite();
   db = drizzle(client, { schema });
   await client.exec(
@@ -258,6 +262,14 @@ beforeEach(async () => {
       createTable(schema.recordingTracks) +
       "CREATE UNIQUE INDEX recording_tracks_recording_track_unique_idx ON recording_tracks (recording_id, track);",
   );
+});
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+  mocks.state.clear();
+  mocks.rich = true;
+  mocks.stopped = false;
+  await client.exec("TRUNCATE recordings, recording_tracks CASCADE");
   await client.query(
     "INSERT INTO recordings (id, owner_email, status, storage_mode, upload_generation_id, edits_json, media_format, rich_bytes) VALUES ('rec-1', 'Owner@example.com', 'ready', 'own', 'gen-1', '{}', 'flat', 0)",
   );
@@ -284,7 +296,7 @@ async function setEdits(editsJson: string) {
   await client.query("UPDATE recordings SET edits_json=$1", [editsJson]);
 }
 
-afterEach(async () => {
+afterAll(async () => {
   await client.close();
 });
 
@@ -426,6 +438,39 @@ describe("POST /api/uploads/:recordingId/tracks/finalize", () => {
     });
     expect(resumable.completeSession).toHaveBeenCalledTimes(1);
     expect(mocks.upload).toHaveBeenCalledTimes(1);
+  });
+
+  it("completes a track its last chunk already closed, without closing it again", async () => {
+    session("screen", 10);
+    mocks.state.set(key("screen"), {
+      ...(mocks.state.get(key("screen")) as Record<string, unknown>),
+      providerClosed: true,
+    });
+    const { status, body: result } = await finalize(body([listed("screen")]));
+    expect(status).toBe(200);
+    expect(result).toMatchObject({ mediaFormat: "rich", richBytes: 10 });
+    expect(resumable.relayChunk).not.toHaveBeenCalled();
+    expect(resumable.completeSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("completes and deletes a closed upload it drops, since a closed upload can't be cancelled", async () => {
+    session("screen", 10, { uploadGenerationId: "gen-0" });
+    mocks.state.set(key("screen"), {
+      ...(mocks.state.get(key("screen")) as Record<string, unknown>),
+      providerClosed: true,
+    });
+    const { body: result } = await finalize(body([listed("screen")]));
+    expect(result).toMatchObject({
+      mediaFormat: "flat",
+      droppedTracks: [{ id: "screen", reason: "not_uploaded" }],
+    });
+    expect(mocks.abort).not.toHaveBeenCalled();
+    expect(resumable.completeSession).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteUrl).toHaveBeenCalledWith(trackUrl("screen"), {
+      storageMode: "own",
+      recordingId: "rec-1",
+    });
+    expect(mocks.state.has(key("screen"))).toBe(false);
   });
 
   it("finalizes one request at a time for a recording, and lets the lease go after", async () => {

@@ -66,6 +66,7 @@ function rowToBooking(
 }
 
 export default defineAction({
+  mcpTool: true,
   description: "List all bookings",
   schema: z.object({}),
   http: { method: "GET" },

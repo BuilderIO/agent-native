@@ -25,6 +25,9 @@ const source = {
 };
 
 const mocks = vi.hoisted(() => ({
+  BrainCaptureConcurrentError: class extends Error {},
+  BrainClassifierUnavailableError: class extends Error {},
+  BrainUnsafeSourceIdentityError: class extends Error {},
   contentHash: vi.fn(async () => "changed-hash"),
   enqueueCaptureInvalidation: vi.fn(async () => undefined),
   getAccessibleCapture: vi.fn(),
@@ -73,6 +76,7 @@ vi.mock("../server/db/index.js", () => ({
       kind: "capture.kind",
       sensitivityDisposition: "capture.sensitivityDisposition",
       sourceId: "capture.sourceId",
+      updatedAt: "capture.updatedAt",
     },
     brainSources: {},
   },
@@ -83,6 +87,7 @@ vi.mock("../server/lib/audiences.js", () => ({
 }));
 
 vi.mock("../server/lib/brain.js", () => ({
+  BrainCaptureConcurrentError: mocks.BrainCaptureConcurrentError,
   contentHash: mocks.contentHash,
   getAccessibleCapture: mocks.getAccessibleCapture,
   invalidateDerivedForCapture: mocks.invalidateDerivedForCapture,
@@ -95,6 +100,8 @@ vi.mock("../server/lib/brain.js", () => ({
 }));
 
 vi.mock("../server/lib/capture-sanitization.js", () => ({
+  BrainClassifierUnavailableError: mocks.BrainClassifierUnavailableError,
+  BrainUnsafeSourceIdentityError: mocks.BrainUnsafeSourceIdentityError,
   sanitizeCaptureForStorage: mocks.sanitizeCaptureForStorage,
 }));
 
@@ -110,7 +117,13 @@ import action from "./resanitize-captures.js";
 
 function createDb() {
   const update = vi.fn(() => ({
-    set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+    set: vi.fn(() => ({
+      where: vi.fn(() =>
+        Object.assign(Promise.resolve(undefined), {
+          returning: vi.fn(async () => [{ id: capture.id }]),
+        }),
+      ),
+    })),
   }));
   return {
     select: vi.fn((selection: Record<string, unknown>) => ({
@@ -143,6 +156,77 @@ describe("resanitize-captures", () => {
       capture,
       source,
       role: "editor",
+    });
+  });
+
+  it("reports the real sanitizer method when rescreening a partial transcript", async () => {
+    const actual = await vi.importActual<
+      typeof import("../server/lib/capture-sanitization.js")
+    >("../server/lib/capture-sanitization.js");
+    const { DEFAULT_BRAIN_SETTINGS } = await import("../shared/types.js");
+    mocks.getAccessibleCapture.mockResolvedValue({
+      capture: {
+        ...capture,
+        content: "Decision: ship the API.\n[…]\nRoadmap launch is ready.",
+        metadataJson: JSON.stringify({
+          passageQuarantine: { version: 1, withheldPassages: 1 },
+        }),
+      },
+      source,
+      role: "editor",
+    });
+    mocks.sanitizeCaptureForStorage.mockImplementationOnce((input) =>
+      actual.sanitizeCaptureForStorage({
+        ...input,
+        settings: {
+          ...DEFAULT_BRAIN_SETTINGS,
+          privacyClassifier: "deterministic",
+        },
+      }),
+    );
+    const result = await action.run({
+      captureIds: [capture.id],
+      limit: 25,
+      dryRun: true,
+      includeNonTranscript: false,
+      allowCitationDrift: false,
+    });
+    expect(result.results[0]).toMatchObject({
+      method: "deterministic",
+      rawContentRetained: false,
+    });
+  });
+
+  it("does not return the original locator for partial transcripts", async () => {
+    const metadata = {
+      passageQuarantine: { version: 1, withheldPassages: 1 },
+      captureSanitization: { method: "jev" },
+    };
+    mocks.getAccessibleCapture.mockResolvedValue({
+      capture: {
+        ...capture,
+        externalId: "https://example.test/full-transcript",
+        metadataJson: JSON.stringify(metadata),
+      },
+      source,
+      role: "editor",
+    });
+    mocks.sanitizeCaptureForStorage.mockResolvedValue({
+      title: capture.title,
+      content: "Safe excerpt.",
+      metadata,
+      decision: { disposition: "allowed", policyVersion: "policy-v2" },
+    });
+    const result = await action.run({
+      captureIds: [capture.id],
+      limit: 25,
+      dryRun: true,
+      includeNonTranscript: false,
+      allowCitationDrift: false,
+    });
+    expect(result.results[0]).toMatchObject({
+      externalId: null,
+      method: "jev",
     });
   });
 
@@ -198,5 +282,48 @@ describe("resanitize-captures", () => {
     expect(mocks.recordBlockedCapture).not.toHaveBeenCalled();
     expect(mocks.invalidateDerivedForCapture).not.toHaveBeenCalled();
     expect(mocks.enqueueCaptureInvalidation).not.toHaveBeenCalled();
+  });
+
+  it("reports a capture whose source identity is unsafe instead of aborting the batch", async () => {
+    mocks.sanitizeCaptureForStorage.mockRejectedValue(
+      new mocks.BrainUnsafeSourceIdentityError("unsafe source identity"),
+    );
+
+    const result = await action.run({
+      captureIds: [capture.id],
+      limit: 25,
+      dryRun: false,
+      includeNonTranscript: false,
+      allowCitationDrift: true,
+    });
+
+    expect(result.updated).toBe(0);
+    expect(result.results[0]).toMatchObject({
+      id: capture.id,
+      skipped: true,
+      skipReason: "unsafe-source-identity",
+    });
+    expect(mocks.getDb().update).not.toHaveBeenCalled();
+  });
+
+  it("reports a capture whose screening is unavailable instead of aborting the batch", async () => {
+    mocks.sanitizeCaptureForStorage.mockRejectedValue(
+      new mocks.BrainClassifierUnavailableError("classifier unavailable"),
+    );
+
+    const result = await action.run({
+      captureIds: [capture.id],
+      limit: 25,
+      dryRun: false,
+      includeNonTranscript: false,
+      allowCitationDrift: true,
+    });
+
+    expect(result.updated).toBe(0);
+    expect(result.results[0]).toMatchObject({
+      id: capture.id,
+      skipped: true,
+      skipReason: "screening-unavailable",
+    });
   });
 });

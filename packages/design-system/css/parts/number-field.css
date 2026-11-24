@@ -1,0 +1,130 @@
+/*
+ * Part: number-field
+ *
+ *   <div class="input number-field"                  Base UI NumberField.Root, Input's frame
+ *        data-size="sm|md" data-variant="surface|soft"
+ *        [data-color] [data-radius] [data-scrubbing] [data-disabled]>
+ *     <input class="input-control">                  NumberField.Input
+ *     <span class="input-slot number-field-scrub-area" data-side="left">
+ *       <label>                                      names the input; drag it to scrub
+ *     <div class="input-slot" data-side="right">     a unit, as in Input
+ *     <button class="icon-button number-field-decrement" data-variant="ghost" data-size>
+ *     <button class="icon-button number-field-increment" data-variant="ghost" data-size>
+ *   <span class="number-field-scrub-area-cursor">    in the body, while scrubbing
+ *
+ * An Input whose text is a number: input.css draws the frame, its sizes,
+ * variants and states, and the slots; this file adds only what a number
+ * field has beyond it. The scrub area is a leading slot that drags the
+ * value sideways, with the resize cursor; while the pointer is locked to
+ * scrub, the cursor part stands in for it. The steppers are ghost icon
+ * buttons after the text, set in from the end as far as from the top and
+ * bottom, gray in a surface field and the field's color in a soft one,
+ * and drawn disabled while the field is read only.
+ */
+
+@layer components {
+  .number-field {
+    --_stepper: var(--control-height-1);
+  }
+
+  .number-field .input-control {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Give the raised degree ring optical clearance at compact control sizes. */
+  .number-field .input-control[data-unit="degree"] {
+    letter-spacing: 0.06em;
+  }
+
+  /* ---- scrub area ---- */
+
+  .number-field-scrub-area {
+    cursor: ew-resize;
+  }
+
+  .number-field-scrub-area:where([data-orientation="vertical"]) {
+    cursor: ns-resize;
+  }
+
+  .number-field-scrub-area label {
+    cursor: inherit;
+    display: flex;
+    align-items: center;
+    gap: var(--control-gap);
+  }
+
+  .number-field-scrub-area:has(> label > svg) {
+    --_edge: calc((var(--_height) - var(--_icon)) / 2);
+  }
+
+  @media (hover: hover) {
+    .number-field-scrub-area:hover {
+      color: var(--fg-default);
+    }
+
+    .number-field[data-variant="soft"] .number-field-scrub-area:hover {
+      color: var(--accent-12);
+    }
+  }
+
+  .number-field-scrub-area[data-scrubbing] {
+    color: var(--fg-default);
+  }
+
+  .number-field[data-variant="soft"] .number-field-scrub-area[data-scrubbing] {
+    color: var(--accent-12);
+  }
+
+  .number-field:has(> input:disabled) .number-field-scrub-area {
+    cursor: not-allowed;
+  }
+
+  .number-field-scrub-area[data-readonly] {
+    cursor: default;
+  }
+
+  .number-field-scrub-area-cursor {
+    display: flex;
+    z-index: var(--layer-cursor);
+    color: var(--fg-default);
+    filter: drop-shadow(0 0 1px var(--shadow-tint-a7));
+  }
+
+  .number-field-scrub-area-cursor svg {
+    width: var(--control-icon-size-3);
+    height: var(--control-icon-size-3);
+  }
+
+  /* ---- steppers ---- */
+
+  .number-field-decrement,
+  .number-field-increment {
+    order: 1;
+    align-self: center;
+  }
+
+  .number-field
+    :is(.number-field-decrement, .number-field-increment)[data-readonly] {
+    background-color: transparent;
+    color: var(--fg-disabled);
+    cursor: default;
+    scale: 1;
+  }
+
+  .number-field:has(> .number-field-decrement, > .number-field-increment) {
+    padding-inline-end: calc((var(--_height) - var(--_stepper)) / 2);
+  }
+
+  .number-field
+    .input-slot[data-side="right"]:has(
+      ~ .number-field-decrement,
+      ~ .number-field-increment
+    ) {
+    --_edge: var(--space-1);
+  }
+
+  .number-field
+    .input-control:has(~ .number-field-decrement, ~ .number-field-increment) {
+    padding-inline-end: var(--space-1);
+  }
+}

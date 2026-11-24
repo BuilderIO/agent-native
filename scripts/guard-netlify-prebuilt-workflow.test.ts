@@ -1096,6 +1096,16 @@ describe("Netlify PR preview workflow guard", () => {
       ["cancel-in-progress: false", "cancel-in-progress: true"],
       ["cancel-in-progress: true", "cancel-in-progress: false"],
       ["          - fw", "          - unknown"],
+      ['"fw"]', '"unknown"'],
+      [
+        "needs.cleanup-preflight.outputs.has_preview == 'true'",
+        "needs.cleanup-preflight.outputs.has_preview == 'false'",
+      ],
+      [
+        "needs.cleanup-preflight.result != 'success'",
+        "needs.cleanup-preflight.result == 'success'",
+      ],
+      ["created: `>=${recentSince}`,", ""],
       ["types: [closed]", "types: [opened]"],
       [
         "      pull-requests: read\n    steps:\n      - name: Confirm the authorized PR head is still current",

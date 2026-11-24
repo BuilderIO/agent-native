@@ -521,6 +521,7 @@ export default defineAction({
   }),
   http: false,
   readOnly: true,
+  mcpTool: "search",
   run: async () => {
     const navigation = await readAppStateForCurrentTab("navigation", {
       fallbackToGlobal: false,

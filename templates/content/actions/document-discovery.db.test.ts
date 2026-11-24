@@ -621,6 +621,71 @@ describe("bounded document discovery", () => {
     );
   });
 
+  it("finds only the documents a person last edited, by their email in any case", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "search-edited-by-teammate",
+          ownerEmail: OWNER,
+          title: "Quarterly zephyr marigold plan",
+          content: "zephyr marker",
+          updatedBy: "Teammate@Example.com",
+        },
+        {
+          id: "search-edited-by-owner",
+          ownerEmail: OWNER,
+          title: "Quarterly zephyr review",
+          content: "zephyr marker",
+          updatedBy: OWNER,
+        },
+        {
+          id: "search-edited-by-unknown",
+          ownerEmail: OWNER,
+          title: "Quarterly zephyr notes",
+          content: "zephyr marker",
+          updatedBy: null,
+        },
+      ]);
+    const search = (query: string, updatedBy?: string) =>
+      asUser(OWNER, () =>
+        searchDocuments.run({
+          query,
+          ...(updatedBy ? { updatedBy } : {}),
+          limit: 20,
+          offset: 0,
+        }),
+      );
+    const ids = (result: Awaited<ReturnType<typeof search>>) =>
+      result.documents.map((doc) => doc.id).sort();
+
+    expect(ids(await search("zephyr"))).toEqual([
+      "search-edited-by-owner",
+      "search-edited-by-teammate",
+      "search-edited-by-unknown",
+    ]);
+    expect(ids(await search("zephyr", "teammate@EXAMPLE.com"))).toEqual([
+      "search-edited-by-teammate",
+    ]);
+    expect(ids(await search("zephyr", OWNER))).toEqual([
+      "search-edited-by-owner",
+    ]);
+    expect(
+      (await search("zephyr", "nobody@example.com")).pagination.totalItems,
+    ).toBe(0);
+    // A misspelled word is corrected only from what the filter lets through:
+    // only the teammate's title holds "marigold".
+    expect(ids(await search("marigld"))).toEqual(["search-edited-by-teammate"]);
+    const corrected = await search("marigld", "teammate@example.com");
+    expect(ids(corrected)).toEqual(["search-edited-by-teammate"]);
+    expect(corrected.spellingCorrections).toEqual([
+      { term: "marigld", replacements: ["marigold"] },
+    ]);
+    const uncorrected = await search("marigld", OWNER);
+    expect(uncorrected.pagination.totalItems).toBe(0);
+    expect(uncorrected.spellingCorrections).toBeUndefined();
+  });
+
   it("filters title and modified date before pagination and returns authorized parent context", async () => {
     const first = await asUser(OWNER, () =>
       searchDocuments.run({

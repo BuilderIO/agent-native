@@ -51,6 +51,8 @@
       "@agent-native/toolkit/conformance": ["./src/conformance/index.ts"],
       "@agent-native/toolkit/conformance/*": ["./src/conformance/*"],
       "@agent-native/toolkit/context-ui": ["./src/context-ui/index.ts"],
+      "@agent-native/toolkit/craft": ["./src/craft/index.ts"],
+      "@agent-native/toolkit/craft/*": ["./src/craft/*"],
       "@agent-native/toolkit/design-tweaks": ["./src/design-tweaks/index.ts"],
       "@agent-native/toolkit/design-system": ["./src/design-system/index.ts"],
       "@agent-native/toolkit/design-system/*": ["./src/design-system/*"],
@@ -1328,6 +1330,9 @@
       "@agent-native/core/labs/core-labs": ["./../core/src/labs/core-labs.ts"],
       "@agent-native/core/localization/mcp-settings-messages": [
         "./../core/src/localization/mcp-settings-messages.ts"
+      ],
+      "@agent-native/core/localization/privacy-choice-messages": [
+        "./../core/src/localization/privacy-choice-messages.ts"
       ],
       "@agent-native/core/localization/shared": [
         "./../core/src/localization/shared.ts"

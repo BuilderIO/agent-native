@@ -2759,6 +2759,10 @@ function runOptions(
     threadTitle: `Job: ${automation.name}`,
     runIdPrefix: `job-${automation.name}`,
     usageLabel: `recurring-job:${automation.name}`,
+    actionAutomation: {
+      triggerId: automation.resource.id,
+      triggerName: automation.name,
+    },
     ...overrides,
   };
 }

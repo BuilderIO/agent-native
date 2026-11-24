@@ -179,10 +179,13 @@ export default function Index() {
   const isSaveTemplateGettingStarted =
     searchParams.get("gettingStarted") === "save-template";
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
-  const [designFilter, setDesignFilter] = useState<DesignFilter>(
-    () => readStoredDesignFilter() ?? "mine",
-  );
+  const urlSearch = searchParams.get("search") ?? "";
+  const lastUrlSearchRef = useRef(urlSearch);
+  const [search, setSearch] = useState(urlSearch);
+  const [designFilter, setDesignFilter] = useState<DesignFilter>(() => {
+    const stored = readStoredDesignFilter() ?? "mine";
+    return urlSearch.trim() && stored === "mine" ? "all" : stored;
+  });
   const [page, setPage] = useState(1);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -650,14 +653,38 @@ export default function Index() {
     });
   }, [designs]);
 
-  const handleSearchChange = useCallback((query: string) => {
-    setSearch(query);
-    if (query.trim()) setHomeSection("recent");
+  const handleSearchChange = useCallback(
+    (query: string) => {
+      setSearch(query);
+      if (query.trim()) setHomeSection("recent");
+      setPage(1);
+      setSelectedDesignIds((current) =>
+        current.size === 0 ? current : new Set(),
+      );
+      lastUrlSearchRef.current = query;
+      const next = new URLSearchParams(searchParams);
+      if (query) next.set("search", query);
+      else next.delete("search");
+      if (next.toString() !== searchParams.toString()) {
+        setSearchParams(next, { replace: true });
+      }
+    },
+    [searchParams, setSearchParams],
+  );
+
+  useEffect(() => {
+    if (lastUrlSearchRef.current === urlSearch) return;
+    lastUrlSearchRef.current = urlSearch;
+    setSearch(urlSearch);
+    if (urlSearch.trim()) {
+      setDesignFilter((current) => (current === "mine" ? "all" : current));
+    }
+    if (urlSearch.trim()) setHomeSection("recent");
     setPage(1);
     setSelectedDesignIds((current) =>
       current.size === 0 ? current : new Set(),
     );
-  }, []);
+  }, [urlSearch]);
 
   const handleDesignFilterChange = useCallback(
     (next: "all" | "mine" | "shared") => {
@@ -1622,7 +1649,7 @@ export default function Index() {
                                   onClick={() =>
                                     setTimeout(() => setDeleteId(design.id))
                                   }
-                                  className="text-destructive focus:text-destructive"
+                                  variant="destructive"
                                 >
                                   <IconTrash />
                                   {t("home.delete")}

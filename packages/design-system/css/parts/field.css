@@ -1,0 +1,55 @@
+/*
+ * Part: field
+ *
+ *   <div class="field" [data-invalid] [data-disabled]>   Base UI Field.Root
+ *     <label class="field-label">                       Field.Label
+ *     …the control
+ *     <p class="field-description">                     Field.Description
+ *     <div class="field-error">                         Field.Error, while invalid
+ *
+ * A label, its control and its help text stacked a step apart. A disabled
+ * field's label takes the disabled text color; its error reads the danger
+ * scale's accessible text step.
+ */
+
+@layer components {
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .field-label {
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg-default);
+  }
+
+  /* A label wrapping its checkbox or radio reads as the option's text. */
+  .field-label:has(> .checkbox, > .radio-group-radio) {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--control-gap);
+    font-weight: var(--font-weight-regular);
+  }
+
+  .field-label[data-disabled] {
+    color: var(--fg-disabled);
+  }
+
+  .field-description,
+  .field-error {
+    margin: 0;
+    font-size: var(--font-size-1);
+    line-height: var(--line-height-1);
+  }
+
+  .field-description {
+    color: var(--fg-muted);
+  }
+
+  .field-error {
+    color: var(--fg-danger);
+  }
+}

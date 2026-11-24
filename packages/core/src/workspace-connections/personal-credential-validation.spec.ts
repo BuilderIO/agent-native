@@ -89,7 +89,7 @@ beforeEach(async () => {
   process.env.SECRETS_ENCRYPTION_KEY = "credential-validation-test-key";
   __resetSecretsRegistry();
   failTransaction = false;
-  db = await createTestPglite();
+  db = await createTestPglite({ reuseEmptyBootstrap: true });
   exec = {
     async execute(command) {
       if (typeof command === "string") {

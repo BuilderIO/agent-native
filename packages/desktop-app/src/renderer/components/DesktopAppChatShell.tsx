@@ -35,6 +35,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { useDesktopChatPreferences } from "../lib/desktop-chat-preferences.js";
 import {
   DesktopChatRelayAppContext,
   installDesktopChatFetchRelay,
@@ -177,6 +178,17 @@ export default function DesktopAppChatShell({
   >([]);
   const [localAgentModelsLoading, setLocalAgentModelsLoading] = useState(true);
   const [selectedAgent, setSelectedAgent] = useState("default");
+  const { resetChatOnAppSwitch } = useDesktopChatPreferences();
+  const wasActiveRef = useRef(isActive);
+  const [chatResetKey, setChatResetKey] = useState(0);
+
+  useEffect(() => {
+    const wasActive = wasActiveRef.current;
+    wasActiveRef.current = isActive;
+    if (wasActive && !isActive && resetChatOnAppSwitch) {
+      setChatResetKey((current) => current + 1);
+    }
+  }, [isActive, resetChatOnAppSwitch]);
   const [localCodeChangePrompt, setLocalCodeChangePrompt] = useState("");
   const [localCodeChange, setLocalCodeChange] = useState<LocalCodeChangeState>({
     status: "idle",
@@ -577,6 +589,7 @@ export default function DesktopAppChatShell({
         <MemoryRouter>
           <QueryClientProvider client={desktopChatQueryClient}>
             <AgentSidebar
+              key={chatResetKey}
               enabled={showChatSidebar}
               position="left"
               defaultOpen
@@ -625,7 +638,7 @@ export default function DesktopAppChatShell({
               desktopIdentityAuthenticated={desktopIdentityAuthenticated}
               builderConnectTransport={builderConnectTransport}
               showTabBar
-              restoreActiveThread={false}
+              restoreActiveThread={!resetChatOnAppSwitch}
               suppressInlineOpenApp
               dynamicSuggestions={false}
               suggestions={[]}

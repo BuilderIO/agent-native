@@ -80,14 +80,41 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
   const t = useT();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const urlQuery = searchParams.get("q") ?? "";
+  const [query, setQuery] = useState(urlQuery);
+  const [debouncedQuery, setDebouncedQuery] = useState(urlQuery);
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastUrlQueryRef = useRef(urlQuery);
   const routeRequestsFocus = hasSearchFocusRequest(searchParams);
 
   const { data, isFetching } = useRecordingSearch(debouncedQuery);
   const results: SearchHit[] = data?.results ?? [];
+
+  useEffect(() => {
+    if (urlQuery !== lastUrlQueryRef.current) {
+      lastUrlQueryRef.current = urlQuery;
+      setQuery(urlQuery);
+      setDebouncedQuery(urlQuery);
+    }
+  }, [urlQuery]);
+
+  const applySearchParam = useCallback(
+    (nextValue: string) => {
+      const trimmed = nextValue.trim();
+      lastUrlQueryRef.current = trimmed;
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (trimmed) next.set("q", trimmed);
+          else next.delete("q");
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedQuery(query), 200);
@@ -181,8 +208,19 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
               type="search"
               value={query}
               onChange={(e) => {
-                setQuery(e.target.value);
+                const nextValue = e.target.value;
+                setQuery(nextValue);
                 setOpen(true);
+                if (!nextValue.trim() && searchParams.has("q")) {
+                  applySearchParam("");
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  applySearchParam(query);
+                  setOpen(false);
+                }
               }}
               onFocus={() => setOpen(true)}
               placeholder={t("searchBar.placeholder")}
@@ -197,6 +235,10 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
                 aria-label={t("searchBar.clear")}
                 onClick={() => {
                   setQuery("");
+                  setDebouncedQuery("");
+                  if (searchParams.has("q")) {
+                    applySearchParam("");
+                  }
                   inputRef.current?.focus();
                 }}
                 className="absolute end-1 top-1/2 size-7 -translate-y-1/2 text-muted-foreground hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring/50 focus-visible:ring-offset-0"
