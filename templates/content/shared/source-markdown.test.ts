@@ -254,6 +254,46 @@ describe("mergeSourceMarkdown", () => {
     );
   });
 
+  it("keeps the Markdown of a block that moves or is copied", () => {
+    const list = "* one _a_\n* two\n";
+    expectMerge(
+      `First\n\n${list}\nMiddle\n\nLast\n`,
+      () => "Middle\nFirst\n- one *a*\n- two\nLast",
+      `Middle\n\nFirst\n\n${list}\nLast\n`,
+    );
+    expectMerge(
+      `${list}\nFirst\n\nMiddle __b__\n`,
+      () => "First\nMiddle **b**\n- one *a*\n- two",
+      `First\n\nMiddle __b__\n\n${list}`,
+    );
+    expectMerge(
+      "First __b__\n\nLast\n",
+      () => "First **b**\nLast\nFirst **b**",
+      "First __b__\n\nLast\n\nFirst __b__\n",
+    );
+  });
+
+  it("keeps the rest of the file when a list moves past its wrapped text", () => {
+    expectMerge(
+      "* Intro _x_\n\nText\n\n* Shape\n  first line\n  `second` line\n* End _y_\n",
+      (page) => page.replace("- Shape\n  first line", "  first line\n- Shape"),
+      "* Intro _x_\n\nText\n\n  first line\n* Shape\n  `second` line\n* End _y_\n",
+    );
+  });
+
+  it("keeps a long list's layout when one item changes", () => {
+    const list = (name: string) =>
+      Array.from(
+        { length: 4000 },
+        (_, index) => `* item _${index === 2000 ? name : index}_`,
+      ).join("\n\n");
+    expectMerge(
+      `${list("old")}\n`,
+      (page) => page.replace("*old*", "*new*"),
+      `${list("new")}\n`,
+    );
+  });
+
   it("keeps every other line when a line ending in spaces changes", () => {
     expectMerge(
       "Intro\n\nOld  \nNext\n\nEnd\n",

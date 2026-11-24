@@ -17,6 +17,7 @@ import {
 
 const EMPTY_BLOCK = "<empty-block/>";
 const BLANK_LINE = "\n\n";
+const LINE_BREAK = "\n";
 const MAX_DISTINCT_KEYS = 0xffff;
 const MAX_PAIRING_CANDIDATES = 50;
 const MIN_PAIRING_SIMILARITY = 0.4;
@@ -58,7 +59,13 @@ interface RawRange {
   late: number;
 }
 
-type BlockWriter = (block: SourceBlock, page: PageBlock) => string;
+interface TextLine {
+  start: number;
+  end: number;
+  key: string;
+}
+
+type BlockWriter = (block: SourceBlock | undefined, page: PageBlock) => string;
 
 export function sameSourceMarkdown(left: string, right: string): boolean {
   if (left === right) return true;
@@ -76,8 +83,11 @@ export function mergeSourceMarkdown(source: string, page: string): string {
   const stretches = alignBlocks(layout.blocks, pageBlocks);
   const finalEol = source === "" || /[\r\n]$/.test(source) ? layout.eol : "";
   const candidates = [
-    () => writeStretches(layout, stretches, patchBlock),
-    () => writeStretches(layout, stretches, rewriteBlock),
+    ...[patchBlocks(layout), rewriteBlock].flatMap((write) =>
+      [...new Set([usualGap(layout), LINE_BREAK])].map(
+        (gap) => () => writeStretches(layout, stretches, write, gap),
+      ),
+    ),
     () => withEol(form, layout.eol) + finalEol,
   ];
   for (const candidate of candidates) {
@@ -319,7 +329,7 @@ function usualGap(layout: SourceLayout): string {
     .map((block) => block.gap)
     .filter(isBlank);
   const tight = gaps.filter((gap) => lineBreaks(gap) < 2).length;
-  return tight * 2 > gaps.length ? "\n" : BLANK_LINE;
+  return tight * 2 > gaps.length ? LINE_BREAK : BLANK_LINE;
 }
 
 function joinedGap(gaps: readonly string[]): string {
@@ -334,8 +344,8 @@ function writeStretches(
   layout: SourceLayout,
   stretches: readonly Stretch[],
   write: BlockWriter,
+  usual: string,
 ): string {
-  const usual = usualGap(layout);
   const empty = layout.blocks.length === 0;
   const opening = empty ? layout.trailing : layout.leading;
   const pageIsEmpty = stretches.every((stretch) => stretch.page.length === 0);
@@ -379,15 +389,14 @@ function writeStretches(
     const waiting = stretch.blocks.values();
     for (const page of stretch.page) {
       const block = pairs.get(page);
-      if (!block) {
-        add(withEol(ordinaryMarkdown(page), layout.eol), undefined);
-        continue;
+      const text = withEol(write(block, page), layout.eol);
+      if (block) {
+        for (const skipped of waiting) {
+          if (skipped === block) break;
+          passed.push(skipped.gap);
+        }
       }
-      for (const skipped of waiting) {
-        if (skipped === block) break;
-        passed.push(skipped.gap);
-      }
-      add(withEol(write(block, page), layout.eol), block);
+      add(text, block);
     }
     for (const skipped of waiting) passed.push(skipped.gap);
   }
@@ -405,10 +414,21 @@ function writesHtml(block: SourceBlock): boolean {
   return block.text.trimStart().startsWith("<");
 }
 
-function rewriteBlock(block: SourceBlock, page: PageBlock): string {
-  return writesHtml(block) || block.text === block.keys.join("\n")
+function rewriteBlock(block: SourceBlock | undefined, page: PageBlock): string {
+  return block && (writesHtml(block) || block.text === block.keys.join("\n"))
     ? page.key
     : ordinaryMarkdown(page);
+}
+
+function patchBlocks(layout: SourceLayout): BlockWriter {
+  const spellings = new Map(
+    layout.blocks
+      .filter((block) => block.keys.length === 1)
+      .map((block) => [block.keys.join(""), block.raw]),
+  );
+  return (block, page) =>
+    spellings.get(page.key) ??
+    (block ? patchBlock(block, page) : ordinaryMarkdown(page));
 }
 
 function patchBlock(block: SourceBlock, page: PageBlock): string {
@@ -484,11 +504,51 @@ function textHunks(before: string, after: string): TextHunk[] {
   return hunks;
 }
 
+function textLines(text: string): TextLine[] {
+  let start = 0;
+  return text.split("\n").flatMap((line) => {
+    const key = line.replace(/[^\p{L}\p{N}]+/gu, "");
+    const end = start + line.length;
+    const span = { start, end, key };
+    start = end + 1;
+    return key === "" ? [] : [span];
+  });
+}
+
+function pairedPieces(canonical: string, raw: string): [string, string][] {
+  const from = textLines(canonical);
+  const to = textLines(raw);
+  const matches = matchKeys(
+    from.map((line) => line.key),
+    to.map((line) => line.key),
+  );
+  const rawLineAt = new Map(to.entries());
+  const pieces: [string, string][] = [];
+  let at = 0;
+  let offset = 0;
+  const cut = (end: number, rawEnd: number) => {
+    pieces.push([canonical.slice(at, end), raw.slice(offset, rawEnd)]);
+    at = end;
+    offset = rawEnd;
+  };
+  for (const [index, line] of from.entries()) {
+    const rawLine = rawLineAt.get(matches.get(index) ?? -1);
+    if (!rawLine) continue;
+    cut(line.start, rawLine.start);
+    cut(line.end, rawLine.end);
+  }
+  cut(canonical.length, raw.length);
+  return pieces;
+}
+
 function rawRanges(canonical: string, raw: string): Map<number, RawRange> {
   const ranges = new Map<number, RawRange>([[0, { early: 0, late: 0 }]]);
   let at = 0;
   let offset = 0;
-  for (const [kind, text] of new DiffMatchPatch().diff_main(canonical, raw)) {
+  const differ = new DiffMatchPatch();
+  for (const [kind, text] of pairedPieces(canonical, raw).flatMap((piece) =>
+    differ.diff_main(...piece),
+  )) {
     if (kind === DIFF_INSERT) {
       offset += text.length;
       ranges.set(at, { early: ranges.get(at)?.early ?? offset, late: offset });
