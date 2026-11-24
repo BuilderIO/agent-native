@@ -2455,6 +2455,7 @@ describe("calendar event revision checks", () => {
     );
 
     expect(result.revision).toBe('"etag-2"');
+    expect(result.alreadyApplied).toBe(true);
     expect(calendarPatchEventMock).toHaveBeenCalledOnce();
   });
 

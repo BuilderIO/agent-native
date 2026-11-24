@@ -132,7 +132,7 @@ export function isGoogleRequestRejectedError(error: unknown): boolean {
     error instanceof GoogleApiError
       ? error.status
       : Number(/^Google API error \((\d{3})\):/.exec(error.message)?.[1]);
-  return status >= 400 && status < 500;
+  return status >= 400 && status < 500 && status !== 408;
 }
 
 export function isGoogleEventAbsentError(error: unknown): boolean {

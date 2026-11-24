@@ -2098,6 +2098,7 @@ export interface EventUpdateResult {
   conferenceData?: CalendarEvent["conferenceData"] | undefined;
   attendees?: CalendarEvent["attendees"] | undefined;
   revision?: string | undefined;
+  alreadyApplied?: true | undefined;
 }
 
 async function updateResultAfterStaleWrite(
@@ -2116,6 +2117,7 @@ async function updateResultAfterStaleWrite(
     conferenceData: current.conferenceData,
     attendees: current.attendees,
     revision: current.revision,
+    alreadyApplied: true,
   };
 }
 
