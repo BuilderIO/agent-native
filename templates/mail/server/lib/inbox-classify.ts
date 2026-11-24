@@ -8,6 +8,8 @@ const AUTOMATED_CATEGORY_LABELS = new Set([
 const AUTOMATED_LOCAL_PART =
   /^(no-?reply|do-?not-?reply|donotreply|notifications?|notify|alerts?|mailer(-daemon)?|bounces?|postmaster|newsletter|digest|reminders?|calendar-notification|drive-shares-noreply)(?:[+.\-_]|$)/i;
 
+const BOT_ADDRESS = /(^|[+.\-_])bots?($|[+.\-_])|\[bot\]/i;
+
 export type AutomationClassification =
   | "automated"
   | "personal"
@@ -44,7 +46,8 @@ export function classifyAutomated(input: {
   }
 
   const localPart = input.fromEmail.split("@")[0] || "";
-  if (AUTOMATED_LOCAL_PART.test(localPart)) return "automated";
+  if (AUTOMATED_LOCAL_PART.test(localPart) || BOT_ADDRESS.test(localPart))
+    return "automated";
   if (input.labelIds.includes("CATEGORY_PERSONAL") || input.selfAddressed)
     return "personal";
   return "unclassified";
