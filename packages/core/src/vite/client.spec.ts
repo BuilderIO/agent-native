@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
+import { devActionDiscoveryFilePath } from "../server/dev-action-discovery.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
@@ -2876,6 +2877,13 @@ describe("agentNative Vite plugin preset", () => {
           JSON.stringify({ token: "secret" }),
         );
         fs.writeFileSync(path.join(appRoot, "public.txt"), "visible");
+        const discoveryPath = devActionDiscoveryFilePath(appRoot);
+        fs.mkdirSync(path.dirname(discoveryPath), { recursive: true });
+        fs.writeFileSync(discoveryPath, JSON.stringify({ token: "secret" }));
+        for (const dataDir of ["data/pglite", "db/custom"]) {
+          fs.mkdirSync(path.join(appRoot, dataDir), { recursive: true });
+          fs.writeFileSync(path.join(appRoot, dataDir, "PG_VERSION"), "secret");
+        }
         const server = await createServer({
           configFile: false,
           root: appRoot,
@@ -2884,8 +2892,12 @@ describe("agentNative Vite plugin preset", () => {
             host: "127.0.0.1",
             port: 0,
             fs: {
-              allow: [appRoot],
-              deny: agentNativeStateFsDeny(appRoot, ["."]),
+              allow: [appRoot, path.dirname(path.dirname(discoveryPath))],
+              deny: agentNativeStateFsDeny(
+                appRoot,
+                ["."],
+                "pglite:./db/custom",
+              ),
             },
           },
         });
@@ -2907,6 +2919,10 @@ describe("agentNative Vite plugin preset", () => {
             `/@fs${appRoot}/.agent-native/dev-server.json`,
             "/.agent-native/dev-server.json?raw",
             "/.agent-native/dev-server.json",
+            `/@fs${fs.realpathSync(discoveryPath)}?raw`,
+            `/@fs${appRoot}/data/pglite/PG_VERSION?raw`,
+            `/@fs${appRoot}/db/custom/PG_VERSION?raw`,
+            "/data/pglite/PG_VERSION",
           ]) {
             const response = await get(pathname);
             expect(await response.text()).not.toContain("secret");

@@ -37,7 +37,11 @@ import {
   type AgentNativeConfigContext,
   type AgentNativeConfigInput,
 } from "../config.js";
-import { getRuntimeDatabaseUrl } from "../db/client.js";
+import {
+  getRuntimeDatabaseUrl,
+  isPgliteUrl,
+  pgliteDataDirFromUrl,
+} from "../db/client.js";
 import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { findWorkspaceRoot } from "../scripts/workspace-root.js";
 import {
@@ -49,6 +53,7 @@ import {
   removeDevActionDiscoveryFile,
   writeDevActionDiscoveryFile,
 } from "../server/dev-action-bridge.js";
+import { devActionDiscoveryFilePath } from "../server/dev-action-discovery.js";
 import { validateEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { resolveEmbedSessionTokenForOrigin } from "../server/embed-session.js";
 import { getForwardedRequestOriginFromHeaders } from "../server/request-origin.js";
@@ -3259,24 +3264,49 @@ function devActionBridgePlugin(): Plugin {
   };
 }
 
+function realpathIfPresent(directory: string): string {
+  try {
+    return fs.realpathSync(directory);
+  } catch {
+    // coercion-ok: a directory that does not exist yet keeps its resolved path.
+    return directory;
+  }
+}
+
+function literalDirectoryGlob(directory: string): string {
+  return `${directory
+    .split(path.sep)
+    .join("/")
+    .replace(/[^\w/.:-]/g, "\\$&")}/**`;
+}
+
 /**
- * Vite `server.fs.deny` patterns for the `.agent-native/` state directory of
- * each served root. Scoped to those roots: an app can itself live under a
- * `.agent-native/` directory, such as the desktop workspaces folder.
+ * Vite `server.fs.deny` patterns for local state a dev server must never
+ * serve: each served root's `.agent-native/` directory, the dev action
+ * discovery directory, and the local PGlite data directory. Scoped to those
+ * directories: an app can itself live under a `.agent-native/` directory,
+ * such as the desktop workspaces folder.
  */
 export function agentNativeStateFsDeny(
   cwd: string,
   allowRoots: readonly string[],
+  databaseUrl = "pglite:./data/pglite",
 ): string[] {
+  const directories = [
+    ...allowRoots.map((root) => path.resolve(cwd, root, ".agent-native")),
+    path.dirname(devActionDiscoveryFilePath(cwd)),
+    path.resolve(cwd, "data", "pglite"),
+  ];
+  const pgliteDataDir = isPgliteUrl(databaseUrl)
+    ? pgliteDataDirFromUrl(databaseUrl)
+    : "memory://";
+  if (pgliteDataDir !== "memory://") {
+    directories.push(path.resolve(cwd, pgliteDataDir));
+  }
   return [
     ...new Set(
-      allowRoots.map(
-        (root) =>
-          `${path
-            .resolve(cwd, root, ".agent-native")
-            .split(path.sep)
-            .join("/")
-            .replace(/[^\w/.:-]/g, "\\$&")}/**`,
+      directories.flatMap((directory) =>
+        [directory, realpathIfPresent(directory)].map(literalDirectoryGlob),
       ),
     ),
   ];
@@ -5313,7 +5343,11 @@ function createAgentNativeConfig(
           ".env.*",
           "*.{crt,pem}",
           "**/.git/**",
-          ...agentNativeStateFsDeny(cwd, fsAllow),
+          ...agentNativeStateFsDeny(
+            cwd,
+            fsAllow,
+            getRuntimeDatabaseUrl("pglite:./data/pglite"),
+          ),
           ...(userConfig.server?.fs?.deny ?? []),
           ...(options.fsDeny ?? []),
         ],
