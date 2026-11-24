@@ -3905,31 +3905,22 @@ export function createAgentKitProtocolAdapter(
     const suffix = saved.slice(shown.length);
     if (!suffix) return { type: "terminal", outcome: "succeeded" };
     const format = textFormat ? { format: textFormat } : {};
+    let messageId = run.activeMessageId;
     if (
-      run.activeMessageId &&
-      !run.activeMessageCompleted &&
-      (run.activeMessageRole ?? "assistant") === "assistant"
+      !messageId ||
+      run.activeMessageCompleted ||
+      (run.activeMessageRole ?? "assistant") !== "assistant"
     ) {
-      append(run, {
-        type: "message.delta",
-        messageId: run.activeMessageId,
-        text: suffix,
-        ...format,
-      });
-    } else {
-      const messageId = createId("message");
+      messageId = createId("message");
       run.activeMessageId = messageId;
       run.activeMessageRole = "assistant";
       run.activeMessageCompleted = false;
       append(run, {
         type: "message.created",
-        message: {
-          id: messageId,
-          role: "assistant",
-          parts: [{ type: "text", text: suffix, ...format }],
-        },
+        message: { id: messageId, role: "assistant", parts: [] },
       });
     }
+    append(run, { type: "message.delta", messageId, text: suffix, ...format });
     return { type: "terminal", outcome: "succeeded" };
   }
 
