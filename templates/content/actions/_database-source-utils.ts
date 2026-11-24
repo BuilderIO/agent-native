@@ -2129,10 +2129,15 @@ async function reenqueueRetryableBuilderBodyHydration(args: {
         args.documentId
           ? eq(schema.contentDatabaseSourceRows.documentId, args.documentId)
           : undefined,
-        eq(schema.contentDatabaseItems.bodyHydrationStatus, "error"),
         args.includeTerminal
-          ? undefined
-          : eq(schema.contentDatabaseItems.bodyHydrationRetryable, 1),
+          ? inArray(schema.contentDatabaseItems.bodyHydrationStatus, [
+              "error",
+              "unavailable",
+            ])
+          : and(
+              eq(schema.contentDatabaseItems.bodyHydrationStatus, "error"),
+              eq(schema.contentDatabaseItems.bodyHydrationRetryable, 1),
+            ),
         isNull(schema.contentDatabaseBodyHydrationQueue.id),
       ),
     );

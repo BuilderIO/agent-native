@@ -6131,15 +6131,22 @@ it("lets an empty body Builder published replace a saved body through hydration"
 });
 
 it.each([
-  { retryable: 1, retryTerminal: undefined, read: true },
-  { retryable: 0, retryTerminal: undefined, read: false },
-  { retryable: 0, retryTerminal: true, read: true },
+  { status: "error", retryable: 1, retryTerminal: undefined, read: true },
+  { status: "error", retryable: 0, retryTerminal: undefined, read: false },
+  { status: "error", retryable: 0, retryTerminal: true, read: true },
+  {
+    status: "unavailable",
+    retryable: 0,
+    retryTerminal: undefined,
+    read: false,
+  },
+  { status: "unavailable", retryable: 0, retryTerminal: true, read: true },
 ])(
-  "reads a failed body again for its article: $retryable retryable, $retryTerminal terminal",
-  async ({ retryable, retryTerminal, read }) => {
+  "reads a failed body again for its article: $status, $retryable retryable, $retryTerminal terminal",
+  async ({ status, retryable, retryTerminal, read }) => {
     const db = getDb();
     const now = new Date().toISOString();
-    const key = `retry_terminal_${retryable}_${retryTerminal ?? false}`;
+    const key = `retry_terminal_${status}_${retryable}_${retryTerminal ?? false}`;
     const databaseDocId = `doc_db_${key}`;
     const documentId = `doc_${key}`;
     const itemId = `item_${key}`;
@@ -6187,7 +6194,7 @@ it.each([
       databaseId: `db_${key}`,
       documentId,
       position: 0,
-      bodyHydrationStatus: "error",
+      bodyHydrationStatus: status,
       bodyHydrationError: "Content could not construct a Builder body.",
       bodyHydrationReason: "conversion_failed",
       bodyHydrationProviderStatus: "local_source_record",
@@ -6229,7 +6236,7 @@ it.each([
       .select({ status: schema.contentDatabaseItems.bodyHydrationStatus })
       .from(schema.contentDatabaseItems)
       .where(eq(schema.contentDatabaseItems.id, itemId));
-    expect(item.status).toBe(read ? "hydrated" : "error");
+    expect(item.status).toBe(read ? "hydrated" : status);
   },
 );
 
