@@ -552,6 +552,13 @@ describe("Files navigation of linked local folders", () => {
       id: "foreign-linked",
       linked: { folderId: "vault", path: "foreign/note.md", sourceRow: false },
     });
+    await addSpace("foreign-free-space", "foreign-free-files");
+    await addPage({
+      id: "foreign-free-linked",
+      spaceId: "foreign-free-space",
+      databaseId: "foreign-free-files",
+      linked: { folderId: "vault", path: "foreign/free.md", sourceRow: false },
+    });
     await getDb().insert(schema.documents).values({
       id: "other-collection-document",
       spaceId: SPACE,
@@ -590,6 +597,24 @@ describe("Files navigation of linked local folders", () => {
       sourceQualifiedId: "local-folder://vault/foreign%2Fnote.md",
       sourceDisplayKey: "foreign/note.md",
     });
+    await getDb().insert(schema.contentDatabaseItems).values({
+      id: "other-foreign-free-membership",
+      ownerEmail: OWNER,
+      databaseId: "other-collection",
+      documentId: "foreign-free-linked",
+      createdAt: TIMESTAMP,
+      updatedAt: TIMESTAMP,
+    });
+    await getDb().insert(schema.contentDatabaseSourceRows).values({
+      id: "other-foreign-free-source-row",
+      ownerEmail: OWNER,
+      sourceId: "other-collection-source-vault",
+      databaseItemId: "other-foreign-free-membership",
+      documentId: "foreign-free-linked",
+      sourceRowId: "foreign/free.md",
+      sourceQualifiedId: "local-folder://vault/foreign%2Ffree.md",
+      sourceDisplayKey: "foreign/free.md",
+    });
     const context = await runWithRequestContext({ userEmail: OWNER }, () =>
       navigationContextAction.run({ id: "child-of-today" }),
     );
@@ -600,12 +625,36 @@ describe("Files navigation of linked local folders", () => {
       context.path.find((entry) => entry.id === "child-of-today"),
     ).not.toHaveProperty("canMove");
 
-    for (const id of [
-      "readme",
-      "unlinked-nested",
-      "foreign-linked",
-      "plain-page",
-    ]) {
+    const foreignContext = await runWithRequestContext(
+      { userEmail: OWNER },
+      () => navigationContextAction.run({ id: "foreign-linked" }),
+    );
+    expect(
+      foreignContext.path.find((entry) => entry.id === "foreign-linked"),
+    ).toMatchObject({ canMove: false });
+    const root = await navigate(FILES, { parentId: null });
+    expect(
+      root.items.find((item) => item.documentId === "foreign-linked"),
+    ).toMatchObject({ canMove: false });
+    const rootWithoutFolder = await navigate("foreign-free-files", {
+      parentId: null,
+    });
+    expect(
+      rootWithoutFolder.items.find(
+        (item) => item.documentId === "foreign-free-linked",
+      ),
+    ).toMatchObject({ canMove: false });
+    await getDb()
+      .delete(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.id, "membership-foreign-linked"));
+    const outsideFiles = await runWithRequestContext({ userEmail: OWNER }, () =>
+      navigationContextAction.run({ id: "foreign-linked" }),
+    );
+    expect(
+      outsideFiles.path.find((entry) => entry.id === "foreign-linked"),
+    ).toMatchObject({ canMove: false });
+
+    for (const id of ["readme", "unlinked-nested", "plain-page"]) {
       const result = await runWithRequestContext({ userEmail: OWNER }, () =>
         navigationContextAction.run({ id }),
       );
@@ -905,21 +954,23 @@ describe("Files navigation of a space without a linked folder", () => {
     ).toEqual(["unlinked-c"]);
   });
 
-  it("reads the tree without looking for linked files", async () => {
+  it("checks source-backed pages without reading folder projections", async () => {
     const statements = await statementsDuring(() =>
       navigate(FILES, { parentId: null, expand: ["unlinked-a"] }),
     );
-    const folderReads = statements.filter(
-      (statement) =>
-        statement.includes("content_database_source_rows") ||
-        statement.includes("navigation_folder"),
-    );
-    expect(folderReads).toEqual([]);
+    expect(
+      statements.filter((statement) => statement.includes("navigation_folder")),
+    ).toEqual([]);
+    expect(
+      statements.filter((statement) =>
+        statement.includes("content_database_source_rows"),
+      ),
+    ).toHaveLength(1);
     expect(
       statements.filter((statement) =>
         statement.includes("content_database_sources"),
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
 
     const childStatements = await statementsDuring(() =>
       navigate(FILES, { parentId: "unlinked-a" }),

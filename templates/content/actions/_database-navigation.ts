@@ -1911,7 +1911,7 @@ export async function getContentDatabaseNavigationPage(args: {
         localSourceFileDirectory(row.sourcePath),
     );
     const linkedRows =
-      candidates.length > 0 && (localFolders === null || linkedFolders)
+      candidates.length > 0
         ? await db
             .select({ id: schema.documents.id })
             .from(schema.documents)
@@ -1921,7 +1921,7 @@ export async function getContentDatabaseNavigationPage(args: {
                   schema.documents.id,
                   candidates.map((row) => row.documentId),
                 ),
-                linkedNestedLocalFile(db, args.database.id),
+                linkedNestedLocalFile(db),
               ),
             )
         : [];

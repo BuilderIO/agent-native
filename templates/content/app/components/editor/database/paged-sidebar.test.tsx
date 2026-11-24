@@ -1434,8 +1434,28 @@ describe("PagedContentFilesSidebarView", () => {
         false,
       ],
       ["nested linked with metadata", "notes/linked.md", false, false, true],
-      ["top-level linked", "readme.md", undefined, true, true],
-      ["nested unlinked", "notes/unlinked.md", undefined, true, true],
+      [
+        "top-level linked without metadata",
+        "readme.md",
+        undefined,
+        true,
+        false,
+      ],
+      ["top-level linked with metadata", "readme.md", undefined, false, true],
+      [
+        "nested unlinked without metadata",
+        "notes/unlinked.md",
+        undefined,
+        true,
+        false,
+      ],
+      [
+        "nested unlinked with metadata",
+        "notes/unlinked.md",
+        undefined,
+        false,
+        true,
+      ],
     ])(
       "uses the server's move eligibility for a grouped active reveal: %s",
       async (_label, path, canMove, movable, withMetadata) => {

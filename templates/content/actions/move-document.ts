@@ -408,16 +408,14 @@ export default defineAction({
             args.parentId !== undefined &&
             args.parentId !== current.parentId
           ) {
-            const linked = (
-              await tx
-                .select({ id: schema.documents.id })
-                .from(schema.documents)
-                .where(
-                  and(eq(schema.documents.id, id), linkedNestedLocalFile(tx)),
-                )
-                .limit(1)
-            )[0];
-            if (linked) {
+            const linked = await tx
+              .select({ id: schema.documents.id })
+              .from(schema.documents)
+              .where(
+                and(eq(schema.documents.id, id), linkedNestedLocalFile(tx)),
+              )
+              .limit(1);
+            if (linked.length > 0) {
               throw new ActionContractError(
                 "This page follows a file in a local subfolder, so it stays in that folder.",
                 { errorCode: "LOCAL_FOLDER_FILE_MOVE", statusCode: 409 },

@@ -292,6 +292,7 @@ export default defineAction({
         sourcePath: schema.documents.sourcePath,
         sourceRootPath: schema.documents.sourceRootPath,
         sourceUpdatedAt: schema.documents.sourceUpdatedAt,
+        linkedNestedLocalFile: linkedNestedLocalFile(db),
         createdAt: schema.documents.createdAt,
         updatedAt: schema.documents.updatedAt,
       })
@@ -335,16 +336,8 @@ export default defineAction({
           databaseId: schema.contentDatabaseItems.databaseId,
           databaseDocumentId: schema.contentDatabases.documentId,
           systemRole: schema.contentDatabases.systemRole,
-          linkedNestedLocalFile: linkedNestedLocalFile(
-            db,
-            schema.contentDatabases.id,
-          ),
         })
         .from(schema.contentDatabaseItems)
-        .innerJoin(
-          schema.documents,
-          eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-        )
         .innerJoin(
           schema.contentDatabases,
           eq(
@@ -457,7 +450,7 @@ export default defineAction({
         icon: row.icon,
         databaseId: navigationMembership?.databaseId ?? null,
         databaseDocumentId: navigationMembership?.databaseDocumentId ?? null,
-        ...(membership?.linkedNestedLocalFile ? { canMove: false } : {}),
+        ...(row.linkedNestedLocalFile ? { canMove: false } : {}),
         isFavorite: favorites.has(row.id),
         ...(childrenOnPath.has(row.id)
           ? { hasChildren: childrenOnPath.get(row.id) }

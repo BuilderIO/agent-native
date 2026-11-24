@@ -1452,10 +1452,6 @@ function DatabaseSidebarRow({
   }, [active]);
   const isLocalFile = item.document.source?.mode === "local-files";
   const canChangePage = canEdit && !isLocalFile && pageActions !== null;
-  const canMovePage =
-    canEdit &&
-    pageActions !== null &&
-    (!isLocalFile || Boolean(item.document.databaseMembership));
 
   function commitRename(nextTitle: string) {
     setRenaming(false);
@@ -1598,7 +1594,7 @@ function DatabaseSidebarRow({
                     : undefined
                 }
                 onMove={
-                  canMovePage && canMove
+                  canChangePage && canMove
                     ? () =>
                         pageActions.movePage({
                           documentId: item.document.id,
