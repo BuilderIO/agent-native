@@ -121,6 +121,8 @@ vi.mock("./google-api.js", () => ({
   isGoogleEventAbsentError: (error: unknown) =>
     error instanceof Error &&
     /^Google API error \((?:404|410)\):/.test(error.message),
+  isGooglePreconditionFailedError: (error: unknown) =>
+    error instanceof Error && /^Google API error \(412\):/.test(error.message),
 }));
 
 import {
@@ -2342,6 +2344,401 @@ describe("calendar recurring event updates", () => {
   });
 });
 
+describe("calendar event revision checks", () => {
+  const account = {
+    ownerEmail: "steve@example.com",
+    accountEmail: "steve@example.com",
+  };
+  const preconditionFailed = () =>
+    new Error("Google API error (412): Precondition Failed");
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    calendarGetEventMock.mockReset();
+    calendarPatchEventMock.mockReset();
+    calendarUpdateEventMock.mockReset();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+  });
+
+  it("returns each event's etag as its revision", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "event-1",
+      etag: '"etag-1"',
+      summary: "Planning",
+      start: { dateTime: "2026-05-20T15:00:00Z" },
+      end: { dateTime: "2026-05-20T16:00:00Z" },
+    });
+
+    await expect(getEvent("event-1", account)).resolves.toMatchObject({
+      googleEventId: "event-1",
+      revision: '"etag-1"',
+    });
+  });
+
+  it("sends the revision it read with the update and returns the new one", async () => {
+    calendarPatchEventMock.mockResolvedValue({
+      id: "event-1",
+      etag: '"etag-2"',
+    });
+
+    const result = await updateEvent(
+      "event-1",
+      { accountEmail: "steve@example.com", title: "Mine" },
+      { account, expectedRevision: '"etag-1"' },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledExactlyOnceWith(
+      "access-token",
+      "primary",
+      "event-1",
+      { summary: "Mine" },
+      expect.objectContaining({ ifMatch: '"etag-1"' }),
+    );
+    expect(result.revision).toBe('"etag-2"');
+  });
+
+  it("fails a stale update with the current event, and writes nothing", async () => {
+    calendarPatchEventMock.mockRejectedValue(preconditionFailed());
+    calendarGetEventMock.mockResolvedValue({
+      id: "event-1",
+      etag: '"etag-3"',
+      summary: "Theirs",
+      start: { dateTime: "2026-05-20T15:00:00Z" },
+      end: { dateTime: "2026-05-20T16:00:00Z" },
+    });
+
+    await expect(
+      updateEvent(
+        "event-1",
+        { accountEmail: "steve@example.com", title: "Mine" },
+        { account, expectedRevision: '"etag-1"' },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      statusCode: 409,
+      details: {
+        currentRevision: '"etag-3"',
+        current: expect.objectContaining({ title: "Theirs" }),
+      },
+    });
+    expect(calendarPatchEventMock).toHaveBeenCalledOnce();
+    expect(calendarUpdateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("counts a resent update that already landed as done", async () => {
+    calendarPatchEventMock.mockRejectedValue(preconditionFailed());
+    calendarGetEventMock.mockResolvedValue({
+      id: "event-1",
+      etag: '"etag-2"',
+      summary: "Mine",
+      start: { dateTime: "2026-05-20T11:00:00-04:00" },
+      end: { dateTime: "2026-05-20T12:00:00-04:00" },
+    });
+
+    const result = await updateEvent(
+      "event-1",
+      {
+        accountEmail: "steve@example.com",
+        title: "Mine",
+        start: "2026-05-20T15:00:00Z",
+        end: "2026-05-20T16:00:00Z",
+      },
+      { account, expectedRevision: '"etag-1"' },
+    );
+
+    expect(result.revision).toBe('"etag-2"');
+    expect(calendarPatchEventMock).toHaveBeenCalledOnce();
+  });
+
+  it("fails without writing when the occurrence changed before a whole-series update", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "instance-1",
+      etag: '"instance-2"',
+      recurringEventId: "series-1",
+      summary: "Theirs",
+      start: { dateTime: "2026-05-20T15:00:00Z" },
+      end: { dateTime: "2026-05-20T16:00:00Z" },
+    });
+
+    await expect(
+      updateEvent(
+        "instance-1",
+        { accountEmail: "steve@example.com", title: "Mine" },
+        { account, scope: "all", expectedRevision: '"instance-1"' },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: { currentRevision: '"instance-2"' },
+    });
+    expect(calendarPatchEventMock).not.toHaveBeenCalled();
+  });
+
+  it("writes a whole series only if its master is unchanged since it was read", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        etag: '"instance-1"',
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+        end: { dateTime: "2026-05-20T16:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        etag: '"master-1"',
+        start: { dateTime: "2026-05-06T15:00:00Z" },
+        end: { dateTime: "2026-05-06T16:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        etag: '"instance-1"',
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+        end: { dateTime: "2026-05-20T16:00:00Z" },
+      });
+    calendarPatchEventMock.mockResolvedValue({
+      id: "series-1",
+      etag: '"master-2"',
+    });
+
+    const result = await updateEvent(
+      "instance-1",
+      { accountEmail: "steve@example.com", title: "Mine" },
+      { account, scope: "all", expectedRevision: '"instance-1"' },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "series-1",
+      expect.objectContaining({ summary: "Mine" }),
+      expect.objectContaining({ ifMatch: '"master-1"' }),
+    );
+    expect(result.revision).toBeUndefined();
+  });
+
+  it("checks the occurrence again after reading the master of a whole series", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        etag: '"instance-1"',
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+        end: { dateTime: "2026-05-20T16:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        etag: '"master-2"',
+        start: { dateTime: "2026-05-06T15:00:00Z" },
+        end: { dateTime: "2026-05-06T16:00:00Z" },
+      })
+      .mockResolvedValue({
+        id: "instance-1",
+        etag: '"instance-2"',
+        recurringEventId: "series-1",
+        summary: "Theirs",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+        end: { dateTime: "2026-05-20T16:00:00Z" },
+      });
+
+    await expect(
+      updateEvent(
+        "instance-1",
+        { accountEmail: "steve@example.com", title: "Mine" },
+        { account, scope: "all", expectedRevision: '"instance-1"' },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: { currentRevision: '"instance-2"' },
+    });
+    expect(calendarPatchEventMock).not.toHaveBeenCalled();
+  });
+
+  it("counts a resent whole-series update of the event itself that already landed as done", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "event-1",
+      etag: '"etag-2"',
+      summary: "Mine",
+      start: { dateTime: "2026-05-20T15:00:00Z" },
+      end: { dateTime: "2026-05-20T16:00:00Z" },
+    });
+    calendarPatchEventMock.mockRejectedValue(preconditionFailed());
+
+    const result = await updateEvent(
+      "event-1",
+      { accountEmail: "steve@example.com", title: "Mine" },
+      { account, scope: "all", expectedRevision: '"etag-1"' },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "event-1",
+      expect.objectContaining({ summary: "Mine" }),
+      expect.objectContaining({ ifMatch: '"etag-1"' }),
+    );
+    expect(result.revision).toBe('"etag-2"');
+  });
+
+  it("never counts a refused whole-series update as landed from one occurrence", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        etag: '"instance-1"',
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+        end: { dateTime: "2026-05-20T16:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        etag: '"master-1"',
+        start: { dateTime: "2026-05-06T15:00:00Z" },
+        end: { dateTime: "2026-05-06T16:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        etag: '"instance-1"',
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+        end: { dateTime: "2026-05-20T16:00:00Z" },
+      })
+      .mockResolvedValue({
+        id: "instance-1",
+        etag: '"instance-2"',
+        recurringEventId: "series-1",
+        summary: "Mine",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+        end: { dateTime: "2026-05-20T16:00:00Z" },
+      });
+    calendarPatchEventMock.mockRejectedValue(preconditionFailed());
+
+    await expect(
+      updateEvent(
+        "instance-1",
+        { accountEmail: "steve@example.com", title: "Mine" },
+        { account, scope: "all", expectedRevision: '"instance-1"' },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: { currentRevision: '"instance-2"' },
+    });
+  });
+
+  it("never counts a refused Google Meet change as landed", async () => {
+    calendarPatchEventMock.mockRejectedValue(preconditionFailed());
+    calendarGetEventMock.mockResolvedValue({
+      id: "event-1",
+      etag: '"etag-2"',
+      summary: "Planning",
+      hangoutLink: "https://meet.google.com/abc-defg-hij",
+      start: { dateTime: "2026-05-20T15:00:00Z" },
+      end: { dateTime: "2026-05-20T16:00:00Z" },
+    });
+
+    await expect(
+      updateEvent(
+        "event-1",
+        { accountEmail: "steve@example.com" },
+        { account, removeGoogleMeet: true, expectedRevision: '"etag-1"' },
+      ),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+  });
+
+  it("compares a time sent without an offset only as written", async () => {
+    calendarPatchEventMock.mockRejectedValue(preconditionFailed());
+    calendarGetEventMock.mockResolvedValue({
+      id: "event-1",
+      etag: '"etag-2"',
+      summary: "Planning",
+      start: {
+        dateTime: "2026-05-20T05:00:00-04:00",
+        timeZone: "America/New_York",
+      },
+      end: {
+        dateTime: "2026-05-20T06:00:00-04:00",
+        timeZone: "America/New_York",
+      },
+    });
+
+    await expect(
+      updateEvent(
+        "event-1",
+        {
+          accountEmail: "steve@example.com",
+          start: "2026-05-20T09:00:00",
+          end: "2026-05-20T10:00:00",
+          startTimeZone: "America/New_York",
+          endTimeZone: "America/New_York",
+        },
+        { account, expectedRevision: '"etag-1"' },
+      ),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+  });
+
+  it("counts a cleared recurrence that already landed as done", async () => {
+    calendarPatchEventMock.mockRejectedValue(preconditionFailed());
+    calendarGetEventMock.mockResolvedValue({
+      id: "event-1",
+      etag: '"etag-2"',
+      summary: "Planning",
+      start: { dateTime: "2026-05-20T15:00:00Z" },
+      end: { dateTime: "2026-05-20T16:00:00Z" },
+    });
+
+    const result = await updateEvent(
+      "event-1",
+      { accountEmail: "steve@example.com", recurrence: [] },
+      { account, expectedRevision: '"etag-1"' },
+    );
+
+    expect(result.revision).toBe('"etag-2"');
+  });
+
+  it("replaces a working location only over the event it read, reading again if that changed", async () => {
+    const workingLocation = (etag: string) => ({
+      id: "working-location-1",
+      etag,
+      summary: "Home",
+      eventType: "workingLocation",
+      start: { date: "2026-07-08" },
+      end: { date: "2026-07-09" },
+      workingLocationProperties: { type: "homeOffice", homeOffice: {} },
+    });
+    calendarGetEventMock
+      .mockResolvedValueOnce(workingLocation('"wl-1"'))
+      .mockResolvedValueOnce(workingLocation('"wl-2"'));
+    calendarUpdateEventMock
+      .mockRejectedValueOnce(preconditionFailed())
+      .mockResolvedValueOnce({ id: "working-location-1", etag: '"wl-3"' });
+
+    const result = await updateEvent(
+      "working-location-1",
+      {
+        accountEmail: "steve@example.com",
+        workingLocationProperties: {
+          type: "officeLocation",
+          officeLocation: { label: "Pier 57" },
+        },
+      },
+      { account },
+    );
+
+    expect(
+      calendarUpdateEventMock.mock.calls.map(
+        ([, , , , params]) => params.ifMatch,
+      ),
+    ).toEqual(['"wl-1"', '"wl-2"']);
+    expect(result.revision).toBe('"wl-3"');
+  });
+});
+
 describe("calendar working-location updates", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -2693,12 +3090,14 @@ describe("owner-aware Google Calendar writes", () => {
       "primary",
       "event-secondary",
       undefined,
+      undefined,
     );
   });
 
   it("recreates an event on the destination account before deleting the source", async () => {
     calendarGetEventMock.mockResolvedValue({
       id: "source-event",
+      etag: '"source-1"',
       summary: "Move me",
       description: "Agenda",
       start: { dateTime: "2026-07-09T16:00:00.000Z" },
@@ -2737,6 +3136,7 @@ describe("owner-aware Google Calendar writes", () => {
       "primary",
       "source-event",
       "all",
+      '"source-1"',
     );
     expect(result).toEqual({
       id: "destination-event",
@@ -2775,6 +3175,81 @@ describe("owner-aware Google Calendar writes", () => {
       "primary",
       "destination-event",
       "all",
+      undefined,
+    );
+  });
+
+  it("refuses a move from a stale read before copying the event", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "source-event",
+      etag: '"source-2"',
+      summary: "Move me",
+      start: { dateTime: "2026-07-09T16:00:00.000Z" },
+      end: { dateTime: "2026-07-09T16:30:00.000Z" },
+    });
+
+    await expect(
+      moveEvent("source-event", {
+        sourceAccount: { ownerEmail, accountEmail: ownerEmail },
+        destinationAccount: account,
+        expectedRevision: '"source-1"',
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: { currentRevision: '"source-2"' },
+    });
+    expect(calendarInsertEventMock).not.toHaveBeenCalled();
+    expect(calendarDeleteEventMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the source and removes the copy when the source changes during the move", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "source-event",
+        etag: '"source-1"',
+        summary: "Move me",
+        start: { dateTime: "2026-07-09T16:00:00.000Z" },
+        end: { dateTime: "2026-07-09T16:30:00.000Z" },
+      })
+      .mockResolvedValue({
+        id: "source-event",
+        etag: '"source-2"',
+        summary: "Moved by someone else",
+        start: { dateTime: "2026-07-09T17:00:00.000Z" },
+        end: { dateTime: "2026-07-09T17:30:00.000Z" },
+      });
+    calendarInsertEventMock.mockResolvedValue({ id: "destination-event" });
+    calendarDeleteEventMock
+      .mockRejectedValueOnce(
+        new Error("Google API error (412): Precondition Failed"),
+      )
+      .mockResolvedValueOnce(undefined);
+
+    await expect(
+      moveEvent("source-event", {
+        sourceAccount: { ownerEmail, accountEmail: ownerEmail },
+        destinationAccount: account,
+        expectedRevision: '"source-1"',
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: { currentRevision: '"source-2"' },
+    });
+    expect(calendarDeleteEventMock).toHaveBeenNthCalledWith(
+      1,
+      "owner-access-token",
+      "primary",
+      "source-event",
+      undefined,
+      '"source-1"',
+    );
+    expect(calendarDeleteEventMock).toHaveBeenNthCalledWith(
+      2,
+      "secondary-access-token",
+      "primary",
+      "destination-event",
+      "none",
+      undefined,
     );
   });
 

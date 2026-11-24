@@ -1,11 +1,35 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  calendarDeleteEvent,
   calendarGetEvent,
   calendarListEvents,
   calendarPatchEvent,
+  calendarUpdateEvent,
+  GoogleApiError,
   googleFetch,
+  isGoogleRequestRejectedError,
 } from "./google-api.js";
+
+describe("isGoogleRequestRejectedError", () => {
+  it("counts a 4xx answer as a refused write, but not a timeout or a server error", () => {
+    expect(isGoogleRequestRejectedError(new GoogleApiError(400, "Bad"))).toBe(
+      true,
+    );
+    expect(
+      isGoogleRequestRejectedError(new Error("Google API error (404): Gone")),
+    ).toBe(true);
+    expect(
+      isGoogleRequestRejectedError(new GoogleApiError(408, "Timeout")),
+    ).toBe(false);
+    expect(
+      isGoogleRequestRejectedError(new GoogleApiError(503, "Unavailable")),
+    ).toBe(false);
+    expect(isGoogleRequestRejectedError(new Error("socket hang up"))).toBe(
+      false,
+    );
+  });
+});
 
 describe("googleFetch", () => {
   const fetchMock = vi.fn();
@@ -59,5 +83,46 @@ describe("googleFetch", () => {
     controller.abort();
     expect(signals).toHaveLength(3);
     expect(signals.every((signal) => signal.aborted)).toBe(true);
+  });
+
+  it("sends the revision an event write starts from as If-Match, not in the query", async () => {
+    fetchMock.mockClear();
+
+    await calendarPatchEvent(
+      "token",
+      "primary",
+      "event-1",
+      { summary: "Mine" },
+      { sendUpdates: "none", ifMatch: '"etag-1"' },
+    );
+    await calendarUpdateEvent(
+      "token",
+      "primary",
+      "event-1",
+      { summary: "Mine" },
+      { ifMatch: '"etag-2"' },
+    );
+    await calendarPatchEvent("token", "primary", "event-1", {});
+    await calendarDeleteEvent(
+      "token",
+      "primary",
+      "event-1",
+      undefined,
+      '"etag-3"',
+    );
+
+    const requests = fetchMock.mock.calls.map(([url, init]) => ({
+      url: String(url),
+      ifMatch: new Headers((init as RequestInit).headers).get("If-Match"),
+    }));
+    expect(requests).toEqual([
+      {
+        url: expect.stringMatching(/\/events\/event-1\?sendUpdates=none$/),
+        ifMatch: '"etag-1"',
+      },
+      { url: expect.stringMatching(/\/events\/event-1$/), ifMatch: '"etag-2"' },
+      { url: expect.stringMatching(/\/events\/event-1$/), ifMatch: null },
+      { url: expect.stringMatching(/\/events\/event-1$/), ifMatch: '"etag-3"' },
+    ]);
   });
 });

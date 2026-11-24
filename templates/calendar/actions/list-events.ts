@@ -151,6 +151,7 @@ export interface CalendarInventoryItem {
   transparency?: CalendarEvent["transparency"];
   source: "google" | "booking" | "ics" | "overlay";
   sourceId?: string;
+  revision?: string;
   accountEmail?: string;
   calendarSourceKey?: string;
   calendarId?: string;
@@ -366,6 +367,7 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
     transparency: event.transparency,
     source,
     sourceId: event.sourceId,
+    revision: event.revision,
     accountEmail: event.accountEmail,
     calendarSourceKey: event.calendarSourceKey,
     calendarId: event.calendarId,
