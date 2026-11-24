@@ -408,7 +408,11 @@ describe("useEventSave", () => {
     });
 
     expect(updateEventMutateAsync).toHaveBeenCalledTimes(1);
-    expect(saved).toMatchObject({ title: "Retro", revision: '"2"' });
+    expect(saved).toMatchObject({
+      title: "Retro",
+      revision: '"2"',
+      usedTheirs: true,
+    });
   });
 
   it("writes nothing more when the other writer already made the same move", async () => {
@@ -422,8 +426,9 @@ describe("useEventSave", () => {
       ),
     );
 
+    let saved: unknown;
     await act(async () => {
-      await rendered().mutateAsync(event(), {
+      saved = await rendered().mutateAsync(event(), {
         start: "2026-11-23T21:00:00.000Z",
         end: "2026-11-23T22:00:00.000Z",
       });
@@ -431,6 +436,7 @@ describe("useEventSave", () => {
 
     expect(resolveOverlap).not.toHaveBeenCalled();
     expect(updateEventMutateAsync).toHaveBeenCalledTimes(1);
+    expect(saved).not.toHaveProperty("usedTheirs");
   });
 
   it("gets the other time back whole, with the edit's scope", async () => {

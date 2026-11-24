@@ -42,8 +42,10 @@ export type EventChanges = {
   [Key in keyof ChangeFields]?: ChangeFields[Key] | undefined;
 };
 
+export type EventSaveResult = UpdateEventResult & { usedTheirs?: true };
+
 export interface EventSaveCallbacks {
-  onSuccess?: (saved: UpdateEventResult) => void;
+  onSuccess?: (saved: EventSaveResult) => void;
   onError?: (error: unknown) => void;
   onSettled?: () => void;
 }
@@ -277,7 +279,7 @@ interface EventSaveContextValue {
   save: (
     event: CalendarEvent,
     changes: EventChanges,
-  ) => Promise<UpdateEventResult>;
+  ) => Promise<EventSaveResult>;
 }
 
 const EventSaveContext = createContext<EventSaveContextValue | null>(null);
@@ -362,7 +364,7 @@ export function EventSaveProvider({ children }: { children: ReactNode }) {
       event: CalendarEvent,
       changes: EventChanges,
       queue: EventSaveQueue,
-    ): Promise<UpdateEventResult> => {
+    ): Promise<EventSaveResult> => {
       const last = queue.last;
       queue.last = undefined;
       const carried =
@@ -388,6 +390,7 @@ export function EventSaveProvider({ children }: { children: ReactNode }) {
         result?: UpdateEventResult;
         current?: UpdateEventResult;
         sent?: Record<string, unknown>;
+        usedTheirs?: boolean;
       } = { attempts: 0 };
       await saveWithMerge<EventEdit>({
         base: { value: base, revision: startedFrom.revision ?? null },
@@ -397,7 +400,7 @@ export function EventSaveProvider({ children }: { children: ReactNode }) {
           outcome.current = asRecord(value) as UpdateEventResult;
           return eventEditOf(asRecord(value), paths);
         },
-        resolveOverlap: (overlap: SaveOverlap<EventEdit>, finished) => {
+        resolveOverlap: async (overlap: SaveOverlap<EventEdit>, finished) => {
           const restoreOptions = pickDefined(request, RESTORE_OPTION_KEYS);
           overlapEventRef.current.set(overlap.keepMine, {
             event,
@@ -409,7 +412,9 @@ export function EventSaveProvider({ children }: { children: ReactNode }) {
             chosen: overlap.keepMine,
             options: restoreOptions,
           });
-          return resolveOverlap(overlap, finished);
+          const chosen = await resolveOverlap(overlap, finished);
+          outcome.usedTheirs = chosen === overlap.useTheirs;
+          return chosen;
         },
         save: async ({ value, revision, base: from }) => {
           outcome.attempts += 1;
@@ -444,6 +449,9 @@ export function EventSaveProvider({ children }: { children: ReactNode }) {
             ...asRecord(result),
           },
         };
+      }
+      if (!result && outcome.usedTheirs) {
+        return { ...outcome.current, usedTheirs: true };
       }
       return result ?? outcome.current ?? {};
     },

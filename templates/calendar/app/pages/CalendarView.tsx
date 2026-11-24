@@ -1481,6 +1481,10 @@ export default function CalendarView({
       },
       {
         onSuccess: (saved) => {
+          if (saved.usedTheirs) {
+            toast.dismiss(toastId);
+            return;
+          }
           const undo = undoFrom(saved);
           setUndoAction(undo);
           toast.success(t("calendarView.eventMoved"), {
@@ -1571,6 +1575,10 @@ export default function CalendarView({
             ...guestNotification,
           },
         );
+        if (saved.usedTheirs) {
+          toast.dismiss(toastId);
+          return;
+        }
         const undo = undoFrom(saved);
         setUndoAction(undo);
         toast.success(t("calendarView.eventUpdated"), {
