@@ -195,6 +195,7 @@ const messages = {
       moveToTrash: "कूड़ेदान में ले जाएँ",
       star: "स्टार करें",
       unstar: "स्टार हटाएँ",
+      copyLink: "लिंक कॉपी करें",
     },
     labels: {
       labelAsPlaceholder: "लेबल लगाएं…",
@@ -460,6 +461,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "कोई ईमेल चयनित नहीं।",
+      linkCopied: "लिंक कॉपी हो गया।",
+      linkCopyFailed: "लिंक कॉपी नहीं किया जा सका।",
       reportedSpam: "स्पैम के रूप में रिपोर्ट किया गया।",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "कोई थ्रेड चयनित नहीं।",

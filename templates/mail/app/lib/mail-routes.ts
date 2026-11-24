@@ -1,3 +1,5 @@
+import { appPath } from "@agent-native/core/client/api-path";
+
 export function mailThreadHref(
   view: string,
   threadId: string,
@@ -9,6 +11,16 @@ export function mailThreadHref(
   else params.delete("accountEmail");
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return `/${view}/${threadId}${suffix}`;
+}
+
+export function mailThreadUrl(threadId: string, accountEmail?: string) {
+  const href = mailThreadHref(
+    "inbox",
+    threadId,
+    new URLSearchParams(),
+    accountEmail,
+  );
+  return window.location.origin + appPath(href);
 }
 
 export function mailViewHref(view: string, searchParams: URLSearchParams) {

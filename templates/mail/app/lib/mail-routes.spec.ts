@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { mailThreadHref, mailViewHref } from "./mail-routes";
+vi.mock("@agent-native/core/client/api-path", () => ({
+  appPath: (path: string) => `/mail${path}`,
+}));
+
+import { mailThreadHref, mailThreadUrl, mailViewHref } from "./mail-routes";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("mail thread routes", () => {
   it("sets the mailbox for the selected thread while preserving view filters", () => {
@@ -15,6 +23,22 @@ describe("mail thread routes", () => {
       ),
     ).toBe(
       "/all/thread-1?q=invoice&label=important&accountEmail=new%40example.test",
+    );
+  });
+
+  it("links to a thread by itself, on this site and in its own mailbox", () => {
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://apps.example.test",
+        search: "?q=invoice&label=important&tab=all",
+      },
+    });
+
+    expect(mailThreadUrl("thread-1", "alex@example.test")).toBe(
+      "https://apps.example.test/mail/inbox/thread-1?accountEmail=alex%40example.test",
+    );
+    expect(mailThreadUrl("thread-1")).toBe(
+      "https://apps.example.test/mail/inbox/thread-1",
     );
   });
 

@@ -27,6 +27,7 @@ import {
   IconDots,
   IconFilter,
   IconInbox,
+  IconLink,
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconTrash,
@@ -78,6 +79,7 @@ import {
   applyDraftSaveResult,
   useComposeState,
 } from "@/hooks/use-compose-state";
+import { useCopyEmailLink } from "@/hooks/use-copy-email-link";
 import {
   useThreadMessages,
   useArchiveEmail,
@@ -216,6 +218,7 @@ export function EmailThread({
   const compose = useComposeState();
   const queryClient = useQueryClient();
   const priorityFeedback = useAiPriorityFeedback();
+  const copyEmailLink = useCopyEmailLink();
 
   useEffect(() => {
     if (!threadId) return;
@@ -1559,6 +1562,23 @@ export function EmailThread({
                       className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                     >
                       <IconTrash className="h-4 w-4" />
+                    </button>
+                  </ActionTooltip>
+                )}
+                {threadId && (
+                  <ActionTooltip label={t("mail.actions.copyLink")}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void copyEmailLink(
+                          threadId,
+                          email.accountEmail ?? accountEmail,
+                        )
+                      }
+                      aria-label={t("mail.actions.copyLink")}
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    >
+                      <IconLink className="h-4 w-4" />
                     </button>
                   </ActionTooltip>
                 )}
