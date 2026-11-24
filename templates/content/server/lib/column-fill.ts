@@ -334,6 +334,7 @@ async function reconcileRunningCells(fill: FillRow) {
 async function claimCells(fillId: string): Promise<{
   fill: FillRow;
   claimed: CellRow[];
+  more: boolean;
 } | null> {
   return getDb().transaction(async (tx) => {
     const fill = firstRow(
@@ -362,15 +363,15 @@ async function claimCells(fillId: string): Promise<{
           .update(schema.contentColumnFills)
           .set({ status, updatedAt: stamp })
           .where(eq(schema.contentColumnFills.id, fillId));
-        return { fill: { ...fill, status }, claimed: [] };
+        return { fill: { ...fill, status }, claimed: [], more: false };
       }
-      return { fill, claimed: [] };
+      return { fill, claimed: [], more: false };
     }
     const next = waiting.slice(
       0,
       Math.max(0, COLUMN_FILL_CONCURRENCY - running),
     );
-    if (!next.length) return { fill, claimed: [] };
+    if (!next.length) return { fill, claimed: [], more: false };
     const generations = await readPropertyGenerations(
       tx as unknown as ReturnType<typeof getDb>,
       next.map((cell) => cell.documentId),
@@ -397,7 +398,7 @@ async function claimCells(fillId: string): Promise<{
       .update(schema.contentColumnFills)
       .set({ updatedAt: stamp })
       .where(eq(schema.contentColumnFills.id, fillId));
-    return { fill, claimed };
+    return { fill, claimed, more: true };
   });
 }
 
@@ -435,6 +436,14 @@ async function startCellAgents(fill: FillRow, cells: CellRow[]) {
   }
   const { definition, collectionTitle, titles } = context;
   for (const cell of cells) {
+    if (!(await canEditDocument(cell.documentId))) {
+      await setCell(
+        cell,
+        { status: "failed", error: "You can no longer edit this row." },
+        "running",
+      );
+      continue;
+    }
     const { description, instructions } = cellTask({
       fill,
       definition,
@@ -508,8 +517,10 @@ export async function advanceColumnFill(fillId: string): Promise<void> {
       await reconcileRunningCells(fill);
       for (;;) {
         const result = await claimCells(fillId);
-        if (!result?.claimed.length) return;
-        await startCellAgents(result.fill, result.claimed);
+        if (!result?.more) return;
+        if (result.claimed.length) {
+          await startCellAgents(result.fill, result.claimed);
+        }
       }
     },
   );

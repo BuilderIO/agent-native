@@ -645,6 +645,69 @@ describe("Fill with AI", () => {
     });
   });
 
+  it("goes past waiting cells that were all edited", async () => {
+    const ids = await fixture(11);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    for (const index of [5, 6, 7, 8, 9]) {
+      await asOwner(() =>
+        setProperty.run({
+          documentId: ids.row(index),
+          databaseId: ids.databaseId,
+          propertyId: ids.summary,
+          value: "Mine",
+        }),
+      );
+    }
+    for (let index = 1; index <= 5; index += 1) {
+      agents.statuses.set(`task-${index}`, "errored");
+    }
+    await columnFill.sweepColumnFills({ deadlineAt: Date.now() + 10_000 });
+
+    const states = await cells(fill.id);
+    expect(states.get(ids.row(5))).toBe("kept");
+    expect(states.get(ids.row(9))).toBe("kept");
+    expect(states.get(ids.row(10))).toBe("running");
+    expect(agents.spawned).toHaveLength(6);
+  });
+
+  it("doesn't start a run for a row the owner can no longer edit", async () => {
+    const ids = await fixture(6);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    await getDb()
+      .update(schema.documents)
+      .set({ ownerEmail: "someone-else@example.com", visibility: "public" })
+      .where(eq(schema.documents.id, ids.row(5)));
+    for (let index = 1; index <= 5; index += 1) {
+      agents.statuses.set(`task-${index}`, "errored");
+    }
+    await columnFill.sweepColumnFills({ deadlineAt: Date.now() + 10_000 });
+
+    const read = await asOwner(() => columnFill.readColumnFill(fill.id));
+    expect(
+      read.cells.find((cell) => cell.documentId === ids.row(5)),
+    ).toMatchObject({
+      status: "failed",
+      error: "You can no longer edit this row.",
+    });
+    expect(agents.spawned).toHaveLength(5);
+  });
+
   it("stops saving to a row the person can no longer edit", async () => {
     const ids = await fixture(2);
     const fill = await asOwner(() =>
