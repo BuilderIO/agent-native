@@ -6,18 +6,28 @@ import {
   listReviewCommentReactors,
   mirrorReviewComments,
   queryReviewComments,
+  reviewReactionActor,
+  setReviewCommentReaction,
   type ReviewComment,
   type ReviewCommentCopy,
   type ReviewCommentPosition,
+  type ReviewResourceContext,
 } from "@agent-native/core/review";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import {
   PLAN_COMMENT_KINDS,
   type PlanAuthor,
   type PlanCommentKind,
+  type PlanCommentReaction,
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
+import {
+  isAnonymousPublicViewer,
+  isGuestAuthorIdentity,
+  resolvePlanOwnerEmailForWrite,
+} from "./local-identity.js";
 import {
   PLAN_REVIEW_RESOURCE,
   planCommentCopy,
@@ -429,6 +439,69 @@ export function commentAndDescendantIds(
     stack.push(...(childrenByParent.get(id) ?? []));
   }
   return ids;
+}
+
+export function planReactionActor(ctx: unknown): string | null {
+  const email = getRequestUserEmail();
+  if (isAnonymousPublicViewer(email) || isGuestAuthorIdentity(email)) {
+    return null;
+  }
+  return reviewReactionActor({
+    ...(ctx as ReviewResourceContext | undefined),
+    userEmail: resolvePlanOwnerEmailForWrite(email) ?? null,
+  });
+}
+
+export async function planCommentReactions(
+  commentIds: readonly string[],
+  actor: string | null,
+): Promise<Map<string, PlanCommentReaction[]>> {
+  const reactors = await listReviewCommentReactors(commentIds);
+  return new Map(
+    Object.entries(reactors).map(([id, byReaction]) => [
+      id,
+      Object.entries(byReaction).map(([reaction, actors]) => ({
+        reaction,
+        count: actors.length,
+        reactedByMe:
+          actor !== null && actors.some((who) => who.toLowerCase() === actor),
+      })),
+    ]),
+  );
+}
+
+export async function reactToPlanComment(
+  db: PlanDb,
+  planId: string,
+  reaction: {
+    commentId: string;
+    actorEmail: string;
+    reaction: string;
+    active: boolean;
+  },
+): Promise<PlanCommentReaction[]> {
+  await livePlanResource(db, planId);
+  await lockPlanComments(planId, [reaction.commentId]);
+  const comment = await getReviewCommentById(
+    reaction.commentId,
+    {},
+    { bypassScope: true },
+  );
+  if (
+    !comment ||
+    comment.resourceType !== PLAN_REVIEW_RESOURCE ||
+    comment.resourceId !== planId ||
+    comment.status === "deleted" ||
+    comment.deletedAt !== null
+  ) {
+    throw new Error(`Comment ${reaction.commentId} isn't on plan ${planId}.`);
+  }
+  await setReviewCommentReaction(reaction);
+  const reactions = await planCommentReactions(
+    [reaction.commentId],
+    reaction.actorEmail,
+  );
+  return reactions.get(reaction.commentId) ?? [];
 }
 
 export async function deletePlanCommentThread(

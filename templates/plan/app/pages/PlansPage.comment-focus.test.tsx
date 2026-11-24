@@ -1,16 +1,44 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
+}));
+
+vi.mock("@agent-native/core/client/use-avatar", () => ({
+  useAvatarUrl: () => null,
+}));
+
+vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/review")
+  >()),
+  useReviewMentionPeople: () => ({
+    people: [{ label: "Pat", email: "pat@example.com" }],
+    searching: false,
+    failed: false,
+    onMentionQueryChange: () => {},
+  }),
 }));
 
 import type { RuntimeAnnotation } from "@/lib/plan-annotation-runtime";
 
-import { AnnotationPopover, CommentMentionEditor } from "./PlansPage";
+import { AnnotationPopover, InlineCommentPopover } from "./PlansPage";
+
+type EditorElement = HTMLElement & {
+  editor: {
+    commands: { focus: (position: "end") => boolean };
+    state: {
+      doc: { content: { size: number } };
+      tr: { insertText: (text: string, from?: number, to?: number) => unknown };
+    };
+    view: { dispatch: (transaction: unknown) => void };
+  };
+};
 
 let container: HTMLDivElement;
 let root: Root;
@@ -32,26 +60,60 @@ const settle = () =>
   act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
 
 function editor() {
-  return container.querySelector<HTMLElement>('[contenteditable="true"]')!;
+  const found = container.querySelector<EditorElement>(".ProseMirror");
+  if (!found) throw new Error("No comment box on screen");
+  return found;
 }
 
-function render(focusKey?: unknown) {
+function submitButton() {
+  const found = container.querySelector<HTMLButtonElement>(
+    'button[type="submit"]',
+  );
+  if (!found) throw new Error("No send button on screen");
+  return found;
+}
+
+function typeText(text: string) {
+  act(() => {
+    editor().editor.commands.focus("end");
+  });
+  act(() => {
+    const { state, view } = editor().editor;
+    view.dispatch(state.tr.insertText(text));
+  });
+}
+
+type InlineAnchor = ComponentProps<typeof InlineCommentPopover>["anchor"];
+
+function inlineComment(
+  anchor: object,
+  reopened = false,
+  onCancel: () => void = () => {},
+) {
+  return (
+    <InlineCommentPopover
+      anchor={anchor as InlineAnchor}
+      position={{ left: 0, top: 0, pinLeft: 0, pinTop: 0, width: 320 }}
+      initialDraft={{ message: "", mentions: [], resolutionTarget: "agent" }}
+      onCancel={onCancel}
+      onSubmit={async () => {}}
+      reopened={reopened}
+    />
+  );
+}
+
+function render(anchor: object = { x: 1 }) {
   act(() =>
     root.render(
       <>
         <button type="button" data-outside />
-        <CommentMentionEditor
-          placeholder="Add a comment"
-          autoFocus
-          focusKey={focusKey}
-          onChange={() => {}}
-        />
+        {inlineComment(anchor)}
       </>,
     ),
   );
 }
 
-describe("comment editor focus", () => {
+describe("comment box focus", () => {
   it("takes focus back from a menu that still traps it on mount", async () => {
     const outside = () =>
       container.querySelector<HTMLButtonElement>("[data-outside]")!;
@@ -65,28 +127,20 @@ describe("comment editor focus", () => {
     document.addEventListener("focusin", trap);
     try {
       render();
-      expect(document.activeElement).toBe(outside());
       await settle();
+      expect(trapped).toBe(false);
       expect(document.activeElement).toBe(editor());
     } finally {
       document.removeEventListener("focusin", trap);
     }
   });
 
-  function renderReopened(showEditor: boolean) {
+  function renderReopened(showBox: boolean) {
     act(() =>
       root.render(
         <>
           <button type="button" data-outside />
-          {showEditor && (
-            <CommentMentionEditor
-              placeholder="Add a comment"
-              autoFocus="if-free"
-              // A reopened inline comment still has its anchor.
-              focusKey={{ x: 1 }}
-              onChange={() => {}}
-            />
-          )}
+          {showBox && inlineComment({ x: 1 }, true)}
         </>,
       ),
     );
@@ -111,13 +165,66 @@ describe("comment editor focus", () => {
   it("puts the caret back in a moved draft without clearing it", async () => {
     render({ x: 1 });
     await settle();
-    editor().textContent = "Tighten this step";
+    typeText("Tighten this step");
     container.querySelector<HTMLButtonElement>("[data-outside]")!.focus();
 
     render({ x: 2 });
+    await settle();
 
     expect(document.activeElement).toBe(editor());
     expect(editor().textContent).toBe("Tighten this step");
+  });
+
+  it("cancels the new comment on Escape", async () => {
+    const onCancel = vi.fn();
+    act(() => root.render(inlineComment({ x: 1 }, false, onCancel)));
+    await settle();
+    typeText("Not this one");
+
+    const escape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      editor().dispatchEvent(escape);
+    });
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a comment for a person once its mention is deleted", async () => {
+    act(() =>
+      root.render(
+        <InlineCommentPopover
+          anchor={{ x: 1 } as InlineAnchor}
+          position={{ left: 0, top: 0, pinLeft: 0, pinTop: 0, width: 320 }}
+          initialDraft={{
+            message: "@[Pat](mailto:pat%40example.com) look here",
+            mentions: [],
+            resolutionTarget: "agent",
+          }}
+          onCancel={() => {}}
+          onSubmit={async () => {}}
+        />,
+      ),
+    );
+    await settle();
+    expect(submitButton().disabled).toBe(false);
+
+    act(() => {
+      const { state, view } = editor().editor;
+      view.dispatch(
+        state.tr.insertText("Just a note", 1, state.doc.content.size - 1),
+      );
+    });
+    await settle();
+
+    expect(editor().textContent).toBe("Just a note");
+    expect(submitButton().disabled).toBe(true);
+    expect(container.textContent).toContain(
+      "plansPage.comments.mentionRequired",
+    );
   });
 });
 
@@ -150,13 +257,6 @@ function renderPopover(
         annotation={thread}
         position={{ left: 0, top: 0, pinLeft: 0, pinTop: 0, width: 320 }}
         isPending={false}
-        pendingAuthor={{
-          name: "Viewer",
-          email: "viewer@example.com",
-          initials: "V",
-          color: "#888",
-          avatarUrl: null,
-        }}
         canComment
         canEditRootComment={false}
         onSave={() => {}}
@@ -167,6 +267,10 @@ function renderPopover(
         onDelete={() => {}}
         canDeleteComment={() => false}
         onDeleteComment={() => {}}
+        reactionsFor={() => []}
+        showReactions={false}
+        canReact={false}
+        onReact={() => {}}
       />,
     ),
   );
@@ -175,19 +279,12 @@ function renderPopover(
 function sendReply() {
   return act(async () => {
     container
-      .querySelector<HTMLButtonElement>(
-        'button[aria-label="plansPage.comments.sendReply"]',
-      )!
+      .querySelector<HTMLButtonElement>('button[type="submit"]')!
       .click();
   });
 }
 
-function typeReply(text: string) {
-  act(() => {
-    editor().textContent = text;
-    editor().dispatchEvent(new Event("input", { bubbles: true }));
-  });
-}
+const typeReply = typeText;
 
 describe("thread popover reply", () => {
   it("keeps each thread's unsent reply with that thread", async () => {
@@ -250,9 +347,11 @@ describe("thread popover reply", () => {
     typeReply("Reply for A");
     await sendReply();
     typeReply("Next thought");
+    expect(submitButton().disabled).toBe(true);
     await act(async () => finishSending());
 
     expect(editor().textContent).toBe("Next thought");
+    expect(submitButton().disabled).toBe(false);
   });
 
   it("brings back a reply that fails after you leave its thread", async () => {

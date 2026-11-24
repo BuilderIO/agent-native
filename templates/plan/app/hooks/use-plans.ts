@@ -8,6 +8,7 @@ import type {
   PlanBundle,
   PlanCommentKind,
   PlanCommentMention,
+  PlanCommentReaction,
   PlanCommentResolutionTarget,
   PlanCommentStatus,
   PlanKind,
@@ -210,6 +211,17 @@ export type DeletePlanCommentResult = {
   deletedCommentIds: string[];
   deletedCount: number;
   deletedAt: string;
+};
+
+export type ReactToPlanCommentInput = {
+  planId: string;
+  commentId: string;
+  reaction: string;
+  active: boolean;
+};
+
+export type ReactToPlanCommentResult = ReactToPlanCommentInput & {
+  reactions: PlanCommentReaction[];
 };
 
 export type ListPlansInput = {
@@ -604,6 +616,13 @@ export function useDeletePlanComment() {
       onSuccess: invalidate,
       onError: showActionError("Failed to delete comment"),
     },
+  );
+}
+
+export function useReactToPlanComment() {
+  return useActionMutation<ReactToPlanCommentResult, ReactToPlanCommentInput>(
+    "react-to-plan-comment",
+    { skipActionQueryInvalidation: true },
   );
 }
 

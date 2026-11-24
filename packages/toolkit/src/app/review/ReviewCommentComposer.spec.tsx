@@ -295,6 +295,20 @@ describe("ReviewCommentComposer", () => {
     ).toBe(false);
   });
 
+  it("holds send back while submitDisabled, leaving the box editable", async () => {
+    const onSubmit = vi.fn();
+    await render(
+      <Harness initialValue="Hello" onSubmit={onSubmit} submitDisabled />,
+    );
+    expect(
+      container.querySelector<HTMLButtonElement>('button[type="submit"]')
+        ?.disabled,
+    ).toBe(true);
+    expect(editorDom().getAttribute("contenteditable")).toBe("true");
+    keydown("Enter");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("can expose only a dedicated agent action", async () => {
     const onSubmit = vi.fn();
     await render(
@@ -1483,6 +1497,17 @@ describe("ReviewCommentComposer", () => {
     await act(async () => {});
     await act(async () => mentionOption("Alice").click());
     expect(state.value).toBe("@Alice");
+    expect(state.mentions).toEqual([alice]);
+  });
+
+  it("separates text typed after a person's mention chip", async () => {
+    let state = { value: "", mentions: [] as ReviewMention[] };
+    await render(<Harness onState={(next) => (state = next)} />);
+    keydown("@");
+    await act(async () => {});
+    await act(async () => mentionOption("Alice").click());
+    typeText("check");
+    expect(state.value).toBe("@Alice check");
     expect(state.mentions).toEqual([alice]);
   });
 

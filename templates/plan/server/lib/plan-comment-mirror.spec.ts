@@ -57,6 +57,8 @@ let deleteComment: Runnable;
 let consumeFeedback: Runnable;
 let restoreVersion: Runnable;
 let deletePlan: Runnable;
+let reactToComment: Runnable<{ reactions: unknown }>;
+let getPlan: Runnable<{ comments: Array<{ id: string; reactions?: unknown }> }>;
 let previousLocalMode: string | undefined;
 
 beforeAll(async () => {
@@ -84,6 +86,10 @@ beforeAll(async () => {
     await import("../../actions/restore-plan-version.js"),
   );
   deletePlan = action(await import("../../actions/delete-visual-plan.js"));
+  reactToComment = action(
+    await import("../../actions/react-to-plan-comment.js"),
+  );
+  getPlan = action(await import("../../actions/get-visual-plan.js"));
   const dbPlugin = (await import("../plugins/db.js")).default;
   await dbPlugin(undefined);
   const reviewPlugin = (await import("../plugins/review.js")).default;
@@ -1009,6 +1015,76 @@ describe("Plan comments in the review kit", () => {
       comments: 2,
       open: 1,
     });
+  });
+
+  it("keeps a person's reactions and their agent's apart, and shows each their own", async () => {
+    const planId = await newPlan([{ id: "react-root", message: "React here" }]);
+    const react = (active: boolean, ctx?: unknown) =>
+      call(
+        reactToComment,
+        { planId, commentId: "react-root", reaction: "👍", active },
+        ctx,
+      );
+    const agent = { caller: "tool" };
+
+    expect((await react(true)).reactions).toEqual([
+      { reaction: "👍", count: 1, reactedByMe: true },
+    ]);
+    expect((await react(true, agent)).reactions).toEqual([
+      { reaction: "👍", count: 2, reactedByMe: true },
+    ]);
+    expect((await react(true)).reactions).toEqual([
+      { reaction: "👍", count: 2, reactedByMe: true },
+    ]);
+    expect((await react(false)).reactions).toEqual([
+      { reaction: "👍", count: 1, reactedByMe: false },
+    ]);
+    expect(await listReviewCommentReactors(["react-root"])).toEqual({
+      "react-root": { "👍": ["agent:owner@example.test"] },
+    });
+
+    const read = async (ctx?: unknown) =>
+      (
+        await call(getPlan, { id: planId, includeMdx: false }, ctx)
+      ).comments.find((comment) => comment.id === "react-root")?.reactions;
+    expect(await read()).toEqual([
+      { reaction: "👍", count: 1, reactedByMe: false },
+    ]);
+    expect(await read(agent)).toEqual([
+      { reaction: "👍", count: 1, reactedByMe: true },
+    ]);
+  });
+
+  it("refuses a reaction on a deleted comment, another plan's, or a plan in the trash", async () => {
+    const planId = await newPlan([
+      { id: "react-kept", message: "Kept" },
+      { id: "react-gone", message: "Deleted" },
+    ]);
+    const otherPlanId = await newPlan([
+      { id: "react-other", message: "Other" },
+    ]);
+    await call(deleteComment, { planId, commentId: "react-gone" });
+    const react = (target: string, commentId: string) =>
+      call(reactToComment, {
+        planId: target,
+        commentId,
+        reaction: "🎉",
+        active: true,
+      });
+
+    await expect(react(planId, "react-gone")).rejects.toThrow(
+      `Comment react-gone isn't on plan ${planId}.`,
+    );
+    await expect(react(planId, "react-other")).rejects.toThrow(
+      `Comment react-other isn't on plan ${planId}.`,
+    );
+    await call(deletePlan, { planId: otherPlanId, mode: "soft" });
+    await expect(react(otherPlanId, "react-other")).rejects.toThrow(
+      `Plan ${otherPlanId} not found`,
+    );
+    expect(
+      await listReviewCommentReactors(["react-gone", "react-other"]),
+    ).toEqual({ "react-gone": {}, "react-other": {} });
   });
 
   it("refuses plan comment writes through the kit's own actions", async () => {
