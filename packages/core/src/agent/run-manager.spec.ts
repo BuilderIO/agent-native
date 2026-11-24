@@ -1102,11 +1102,12 @@ describe("run manager soft timeout", () => {
         expect.objectContaining({ terminalReason: "run_timeout" }),
       ),
     );
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      "run-truncated-status",
-      "completed",
-      expect.anything(),
-    );
+    expect(
+      updateRunStatusIfRunning.mock.calls.some(
+        ([id, status]) =>
+          id === "run-truncated-status" && status === "completed",
+      ),
+    ).toBe(false);
   });
 
   it("makes the chunk boundary durable when the soft timeout fires, not after the unwind", async () => {
@@ -1170,11 +1171,12 @@ describe("run manager soft timeout", () => {
     await Promise.resolve();
 
     expect(finalized).toBe(false);
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      "run-checkpoint-finalization-race",
-      "completed",
-      expect.anything(),
-    );
+    expect(
+      updateRunStatusIfRunning.mock.calls.some(
+        ([id, status]) =>
+          id === "run-checkpoint-finalization-race" && status === "completed",
+      ),
+    ).toBe(false);
 
     checkpoint.resolve();
     await run.finalized;
@@ -1421,11 +1423,11 @@ describe("run manager soft timeout", () => {
     expect(events).not.toContainEqual(
       expect.objectContaining({ errorCode: "run_terminal_lookup_failed" }),
     );
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      runId,
-      "errored",
-      expect.anything(),
-    );
+    expect(
+      updateRunStatusIfRunning.mock.calls.some(
+        ([id, status]) => id === runId && status === "errored",
+      ),
+    ).toBe(false);
   });
 
   it("lets checkpoint lookup failures replace a staged continuation terminal", async () => {
@@ -1884,16 +1886,16 @@ describe("run manager soft timeout", () => {
       await vi.waitFor(() =>
         expect(markRunAborted).toHaveBeenCalledWith(run.runId, "user"),
       );
-      expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-        run.runId,
-        "completed",
-        expect.anything(),
-      );
-      expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-        run.runId,
-        "errored",
-        expect.anything(),
-      );
+      expect(
+        updateRunStatusIfRunning.mock.calls.some(
+          ([id, status]) => id === run.runId && status === "completed",
+        ),
+      ).toBe(false);
+      expect(
+        updateRunStatusIfRunning.mock.calls.some(
+          ([id, status]) => id === run.runId && status === "errored",
+        ),
+      ).toBe(false);
     },
   );
 
@@ -2719,11 +2721,12 @@ describe("run manager soft timeout", () => {
     await expect(run.finalized).rejects.toThrow(
       "terminal event persistence failed",
     );
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      "run-terminal-persistence-failed",
-      "completed",
-      expect.anything(),
-    );
+    expect(
+      updateRunStatusIfRunning.mock.calls.some(
+        ([id, status]) =>
+          id === "run-terminal-persistence-failed" && status === "completed",
+      ),
+    ).toBe(false);
   });
 
   it("persists missing credential terminal events as errored runs", async () => {
@@ -2748,11 +2751,12 @@ describe("run manager soft timeout", () => {
       ),
     );
 
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      "run-missing-credential-terminal",
-      "completed",
-      expect.anything(),
-    );
+    expect(
+      updateRunStatusIfRunning.mock.calls.some(
+        ([id, status]) =>
+          id === "run-missing-credential-terminal" && status === "completed",
+      ),
+    ).toBe(false);
     expect(insertRunEvent).toHaveBeenCalledWith(
       "run-missing-credential-terminal",
       0,
@@ -3420,11 +3424,11 @@ describe("run manager soft timeout", () => {
     await run.finalized;
 
     expect(markRunAborted).toHaveBeenCalledWith(run.runId, "user");
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      run.runId,
-      "aborted",
-      expect.anything(),
-    );
+    expect(
+      updateRunStatusIfRunning.mock.calls.some(
+        ([id, status]) => id === run.runId && status === "aborted",
+      ),
+    ).toBe(false);
   });
 
   it("signals in memory when safe-boundary abort committed before event persistence failed", async () => {
@@ -4778,11 +4782,11 @@ describe("run manager soft timeout", () => {
     );
 
     await vi.waitFor(() => expect(run.status).toBe("completed"));
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      "run-insert-race",
-      "completed",
-      expect.anything(),
-    );
+    expect(
+      updateRunStatusIfRunning.mock.calls.some(
+        ([id, status]) => id === "run-insert-race" && status === "completed",
+      ),
+    ).toBe(false);
 
     resolveInsert();
 
@@ -6103,11 +6107,12 @@ describe("run manager soft timeout", () => {
       0,
       JSON.stringify({ type: "text", text: "saved first" }),
     );
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      "run-terminal-after-save",
-      "completed",
-      expect.anything(),
-    );
+    expect(
+      updateRunStatusIfRunning.mock.calls.some(
+        ([id, status]) =>
+          id === "run-terminal-after-save" && status === "completed",
+      ),
+    ).toBe(false);
 
     await vi.advanceTimersByTimeAsync(9_000);
     resolveComplete();
@@ -6541,11 +6546,12 @@ describe("run manager soft timeout", () => {
       "completed",
       expect.objectContaining({ terminalReason: "done" }),
     );
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      "run-connection-yield",
-      "truncated",
-      expect.anything(),
-    );
+    expect(
+      updateRunStatusIfRunning.mock.calls.some(
+        ([id, status]) =>
+          id === "run-connection-yield" && status === "truncated",
+      ),
+    ).toBe(false);
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-connection-yield",
       expect.any(String),
@@ -9653,11 +9659,11 @@ describe("run manager soft timeout", () => {
     await run.finalized;
     expect(run.status).toBe("completed");
     expect(endsAfterToolResultWithoutAssistantFinal(run)).toBe(false);
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      runId,
-      "truncated",
-      expect.anything(),
-    );
+    expect(
+      updateRunStatusIfRunning.mock.calls.some(
+        ([id, status]) => id === runId && status === "truncated",
+      ),
+    ).toBe(false);
   });
 
   it("auto-continues a private turn that ends after a completed side-effect tool with empty text", async () => {
@@ -9696,11 +9702,11 @@ describe("run manager soft timeout", () => {
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "truncated", {
       terminalReason: "stream_ended",
     });
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      runId,
-      "completed",
-      expect.anything(),
-    );
+    expect(
+      updateRunStatusIfRunning.mock.calls.some(
+        ([id, status]) => id === runId && status === "completed",
+      ),
+    ).toBe(false);
     expect(
       run.events.some(
         ({ event }) =>
@@ -10057,11 +10063,12 @@ describe("run manager soft timeout", () => {
           }),
         }),
       ]);
-      expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-        "run-persist-permanent-gap",
-        "completed",
-        expect.anything(),
-      );
+      expect(
+        updateRunStatusIfRunning.mock.calls.some(
+          ([id, status]) =>
+            id === "run-persist-permanent-gap" && status === "completed",
+        ),
+      ).toBe(false);
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-persist-permanent-gap",
         "errored",
@@ -10161,11 +10168,11 @@ describe("run manager soft timeout", () => {
       expect.anything(),
     );
     expect(markRunAborted).toHaveBeenCalledWith(run.runId, "user");
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      run.runId,
-      "aborted",
-      expect.anything(),
-    );
+    expect(
+      updateRunStatusIfRunning.mock.calls.some(
+        ([id, status]) => id === run.runId && status === "aborted",
+      ),
+    ).toBe(false);
   });
 
   it("does not write an aborted status when the atomic abort transaction fails", async () => {
@@ -10191,11 +10198,11 @@ describe("run manager soft timeout", () => {
     await expect(run.finalized).rejects.toThrow("abort transaction failed");
 
     expect(markRunAborted).toHaveBeenCalledWith(run.runId, "user");
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      run.runId,
-      "aborted",
-      expect.anything(),
-    );
+    expect(
+      updateRunStatusIfRunning.mock.calls.some(
+        ([id, status]) => id === run.runId && status === "aborted",
+      ),
+    ).toBe(false);
     expect(run.status).toBe("aborted");
     consoleError.mockRestore();
   });

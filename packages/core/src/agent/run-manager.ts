@@ -1008,7 +1008,6 @@ export function startRun(
     },
   };
   let softTimedOut = false;
-  let checkpointBoundaryStarted = false;
   let resolveFinalized: () => void = () => {};
   let rejectFinalized: (reason?: unknown) => void = () => {};
   let resolveLivenessReady: (ready: boolean) => void = () => {};
@@ -1577,7 +1576,6 @@ export function startRun(
     )
       return checkpointRunBoundaryTask;
     checkpointAbortInFlight = true;
-    checkpointBoundaryStarted = true;
     const task = (async () => {
       let checkpointPersisted = false;
       try {
