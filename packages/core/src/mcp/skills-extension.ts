@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+
 import { parse as parseYaml } from "yaml";
 
 import { AN_SKILL_MD } from "../cli/skills-content/an-skill.js";
@@ -18,7 +19,7 @@ interface SkillEntry {
   resources: { uri: string; digest: string; size: number }[];
 }
 
-function buildSkill(name: string, skillMd: string) {
+export function buildSkill(name: string, skillMd: string) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(skillMd);
   const frontmatter = match ? parseYaml(match[1] ?? "") : null;
   if (
