@@ -222,7 +222,7 @@ describe("media lightbox in a live editor", () => {
     });
   });
 
-  it("hands focus to the showing image's Expand button on a read-only page", async () => {
+  it("hands focus to the showing image on a read-only page", async () => {
     const { container } = await mountEditor(beforeAndAfterPage, false);
     await expand(container, 0);
 
@@ -231,11 +231,10 @@ describe("media lightbox in a live editor", () => {
     await press("Escape");
 
     expect(lightbox()).toBeNull();
-    const after = container.querySelectorAll(".media-block")[2];
+    const after = container.querySelector(`img[src="${AFTER}"]`);
+    expect(after).not.toBeNull();
     await vi.waitFor(() => {
-      expect(document.activeElement).toBe(
-        after?.querySelector('button[aria-label="editor.media.expandImage"]'),
-      );
+      expect(document.activeElement).toBe(after);
     });
   });
 
