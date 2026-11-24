@@ -365,7 +365,6 @@ function withCreatedFilesRows(
   }
   const { databaseId, navigation } = params;
   if (
-    !navigation.pagesOnly &&
     listsBranch(params) &&
     navigation.cursor === undefined &&
     !page.pagination.hasMore
@@ -378,7 +377,11 @@ function withCreatedFilesRows(
       )
         continue;
       for (const [id, retained] of read.retained) {
-        if (retained.readMark < readStartMark && !listed.has(id)) {
+        if (
+          retained.readMark < readStartMark &&
+          !listed.has(id) &&
+          (!navigation.pagesOnly || retained.row.item.type === "page")
+        ) {
           read.retained.delete(id);
           read.movedOut.add(id);
         }
@@ -401,7 +404,7 @@ function withCreatedFilesRows(
     row: CreatedFilesRow,
     present: boolean,
   ) => {
-    if (navigation.pagesOnly) return;
+    if (navigation.pagesOnly && present) return;
     for (const read of pendingPagesOnlyReads.get(queryClient) ?? []) {
       if (read.databaseId !== databaseId || read.parentId !== row.item.parentId)
         continue;
@@ -987,7 +990,7 @@ export function useFilesNavigationPage(
       );
     },
     retry: false,
-    refetchOnMount,
+    ...(refetchOnMount === undefined ? {} : { refetchOnMount }),
     enabled: enabled && canFetch,
   });
   useEffect(() => {

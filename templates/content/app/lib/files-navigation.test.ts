@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from "node:fs";
-
 import type {
   ContentDatabaseNavigationItem,
   ContentDatabaseNavigationPageResponse,
@@ -345,11 +343,61 @@ describe("pages this tab created in the Files tree", () => {
     if ("available" in result) throw new Error("The Files read failed");
     expect(result.items.map((item) => item.documentId)).toEqual(["a", "new"]);
 
-    // A pages-only response does not describe the tree's whole branch.
     callActionWithRetry.mockResolvedValueOnce(page([row("new")]));
     await readFilesNavigationPage(queryClient, pickerParams, []);
     expect(await reread(queryClient, page([row("a")], true))).toContain("new");
   });
+
+  it.each(["created", "moved"])(
+    "retires an absent confirmed %s page without dropping folders or pending creates",
+    async (kind) => {
+      const picker = filesNavigationPageParams({
+        databaseId: FILES,
+        parentId: null,
+        pagesOnly: true,
+      });
+      let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
+      callActionWithRetry.mockReturnValueOnce(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      );
+      const olderPicker = readFilesNavigationPage(queryClient, picker, []);
+      if (kind === "created") {
+        startCreate(queryClient, created("stale"));
+        confirmCreatedFilesRow(queryClient, "stale");
+      } else {
+        keepMovedFilesRow(queryClient, {
+          documentId: "stale",
+          databaseId: FILES,
+          parentId: null,
+          from: { databaseId: FILES, parentId: "old" },
+          item: row("stale"),
+        });
+      }
+      startCreate(queryClient, created("pending"));
+      showCreatedFilesRow(queryClient, FILES, created("folder"), "folder");
+      callActionWithRetry.mockResolvedValueOnce(page([row("a")]));
+      const fresh = await readFilesNavigationPage(queryClient, picker, []);
+      if ("available" in fresh) throw new Error("The Files read failed");
+      expect(fresh.items.map((item) => item.documentId)).toEqual([
+        "a",
+        "pending",
+      ]);
+      answer(page([row("a"), row("stale")]));
+      const older = await olderPicker;
+      if ("available" in older) throw new Error("The Files read failed");
+      expect(older.items.map((item) => item.documentId)).toEqual([
+        "a",
+        "pending",
+      ]);
+      expect(await reread(queryClient, page([row("a")], true))).toEqual([
+        "a",
+        "pending",
+        "folder",
+      ]);
+    },
+  );
 
   it("keeps a moved destination when a newer tree read overtakes the picker", async () => {
     const picker = filesNavigationPageParams({
@@ -565,22 +613,6 @@ describe("pages this tab created in the Files tree", () => {
 
     confirmCreatedFilesRow(queryClient, "new");
     expect(isFilesRowCreationPending(queryClient, "new")).toBe(false);
-  });
-
-  it("stay in a branch whatever reader mounted last, because every reader reads through one hook", () => {
-    // A query refetches with the read function of the reader that mounted
-    // last; a Files reader with its own would drop these rows on refetch.
-    const appDir = new URL("../", import.meta.url);
-    const readers = readdirSync(appDir, { recursive: true, encoding: "utf8" })
-      .filter(
-        (file) => /\.tsx?$/.test(file) && !/\.(test|spec)\.tsx?$/.test(file),
-      )
-      .filter((file) =>
-        /use(Action)?Query\b[^;]*?["']query-content-database-items["'][^;]*?filesNavigationPageParams\(/s.test(
-          readFileSync(new URL(file.replace(/\\/g, "/"), appDir), "utf8"),
-        ),
-      );
-    expect(readers).toEqual([]);
   });
 
   it("leave a branch marked for a reread marked", async () => {

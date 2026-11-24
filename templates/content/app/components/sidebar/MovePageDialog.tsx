@@ -32,7 +32,7 @@ import {
   useFilesNavigationPage,
 } from "@/lib/files-navigation";
 
-import { SidebarRowIcon } from "./SidebarNavigationRow";
+import { SidebarRowIcon, SidebarRowsSkeleton } from "./SidebarNavigationRow";
 
 export interface MovePageTarget {
   documentId: string;
@@ -121,7 +121,7 @@ function MovePageDestinations({
       databaseId,
       parentId: null,
       pagesOnly: true,
-      cursor,
+      ...(cursor === undefined ? {} : { cursor }),
     }),
     undefined,
     { refetchOnMount: "always" },
@@ -147,7 +147,7 @@ function MovePageDestinations({
     );
   }
   if (result.isFetching || !result.data || "available" in result.data)
-    return null;
+    return <SidebarRowsSkeleton rows={3} framed={false} />;
   const items = result.data.items.filter(
     (item) =>
       item.type === "page" &&
@@ -266,7 +266,8 @@ function SearchMovePageDestinations({
         pagination: { hasMore: boolean; nextOffset: number | null };
       }
     | undefined;
-  if (result.isFetching || !data) return null;
+  if (result.isFetching || !data)
+    return <SidebarRowsSkeleton rows={3} framed={false} />;
   const choices = data.documents.filter(
     (item) =>
       item.id !== excludedId &&
@@ -480,19 +481,15 @@ export function MovePageDialog({
             />
             <CommandList className="max-h-80">
               <CommandGroup>
-                {open && query === "" && search.trim() === query && space ? (
+                {open && query === "" && search.trim() === query ? (
                   <MovePageDestinationList
                     key={space.id}
                     databaseId={space.filesDatabaseId}
-                    excludedId={page?.documentId}
+                    excludedId={page.documentId}
                     choose={choose}
                   />
                 ) : null}
-                {open &&
-                query !== "" &&
-                search.trim() === query &&
-                space &&
-                page ? (
+                {open && query !== "" && search.trim() === query ? (
                   <SearchMovePageDestinations
                     key={`${space.id}:${query}`}
                     query={query}

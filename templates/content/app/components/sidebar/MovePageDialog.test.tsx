@@ -121,7 +121,7 @@ it("pages through scoped search and resets continuation when the search changes"
   expect(document.body.textContent).not.toContain("search-folder");
   const more = Array.from(
     document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ).find((element) => element.textContent?.includes("sidebar.showMore"));
+  ).find((element) => element.textContent.includes("sidebar.showMore"));
   if (!more) throw new Error("Missing continuation");
   await act(async () => more.click());
   await vi.waitFor(() =>
@@ -186,7 +186,7 @@ it("starts at the first page when switching spaces", async () => {
   );
   const more = [
     ...document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ].find((item) => item.textContent?.includes("sidebar.showMore"));
+  ].find((item) => item.textContent.includes("sidebar.showMore"));
   if (!more) throw new Error("Missing continuation");
   await act(async () => more.click());
   await vi.waitFor(() =>
@@ -203,7 +203,7 @@ it("starts at the first page when switching spaces", async () => {
   );
   const choice = [
     ...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
-  ].find((item) => item.textContent?.includes("Other space"));
+  ].find((item) => item.textContent.includes("Other space"));
   if (!choice) throw new Error("Missing other space");
   await act(async () => choice.click());
   await vi.waitFor(() =>
@@ -243,8 +243,76 @@ it("does not offer cached destinations while reopening is reauthorizing", async 
   );
   await act(async () => render(target));
   expect(document.body.textContent).not.toContain("old");
+  expect(
+    document.body.querySelectorAll("[data-sidebar-row-placeholder]").length,
+  ).toBeGreaterThan(0);
+  expect(document.body.querySelectorAll('[role="option"]')).toHaveLength(0);
   await act(async () => answer(response([row("fresh")], null)));
   await vi.waitFor(() => expect(document.body.textContent).toContain("fresh"));
+});
+
+it("shows a placeholder instead of cached search results during revalidation", async () => {
+  let resolveSearch!: (value: {
+    documents: Array<{
+      id: string;
+      title: string;
+      icon: null;
+      parentTitle: null;
+    }>;
+    pagination: { hasMore: boolean; nextOffset: null };
+  }) => void;
+  const searchResult = (id: string) => ({
+    documents: [{ id, title: id, icon: null, parentTitle: null }],
+    pagination: { hasMore: false, nextOffset: null },
+  });
+  let searches = 0;
+  read.mockImplementation(async (action) => {
+    if (action !== "search-documents") return response([row("root")], null);
+    if (searches++ === 0) return searchResult("old-search");
+    return new Promise((resolve) => {
+      resolveSearch = resolve;
+    });
+  });
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <MovePageDialog
+          page={target}
+          spaces={[space]}
+          onOpenChange={() => {}}
+          onMove={() => {}}
+        />
+      </QueryClientProvider>,
+    ),
+  );
+  const input = document.querySelector<HTMLInputElement>("input");
+  if (!input) throw new Error("Missing search input");
+  async function search(value: string) {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+  await search("plan");
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("old-search"),
+  );
+  await search("");
+  await vi.waitFor(() => expect(document.body.textContent).toContain("root"));
+  await search("plan");
+  await vi.waitFor(() => expect(searches).toBe(2));
+  expect(document.body.textContent).not.toContain("old-search");
+  expect(
+    document.body.querySelectorAll("[data-sidebar-row-placeholder]").length,
+  ).toBeGreaterThan(0);
+  expect(document.body.querySelectorAll('[role="option"]')).toHaveLength(0);
+  await act(async () => resolveSearch(searchResult("fresh-search")));
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("fresh-search"),
+  );
 });
 
 it("restarts from the first page after a stale cursor", async () => {
@@ -279,7 +347,7 @@ it("restarts from the first page after a stale cursor", async () => {
   );
   const more = [
     ...document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ].find((item) => item.textContent?.includes("sidebar.showMore"));
+  ].find((item) => item.textContent.includes("sidebar.showMore"));
   if (!more) throw new Error("Missing continuation");
   await act(async () => more.click());
   await vi.waitFor(() =>
@@ -287,7 +355,7 @@ it("restarts from the first page after a stale cursor", async () => {
   );
   const retry = [
     ...document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ].find((item) => item.textContent?.includes("root.searchRetry"));
+  ].find((item) => item.textContent.includes("root.searchRetry"));
   if (!retry) throw new Error("Missing retry");
   await act(async () => retry.click());
   await vi.waitFor(() =>
@@ -321,7 +389,7 @@ it("withdraws all destinations when a continuation reports the database unavaila
   await vi.waitFor(() => expect(document.body.textContent).toContain("old"));
   const more = [
     ...document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ].find((item) => item.textContent?.includes("sidebar.showMore"));
+  ].find((item) => item.textContent.includes("sidebar.showMore"));
   if (!more) throw new Error("Missing continuation");
   await act(async () => more.click());
   await vi.waitFor(() =>
@@ -357,7 +425,7 @@ it("recovers from a cached unavailable response after retry", async () => {
   await vi.waitFor(() => expect(document.body.textContent).toContain("old"));
   const more = [
     ...document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ].find((item) => item.textContent?.includes("sidebar.showMore"));
+  ].find((item) => item.textContent.includes("sidebar.showMore"));
   if (!more) throw new Error("Missing continuation");
   await act(async () => more.click());
   await vi.waitFor(() =>
@@ -365,7 +433,7 @@ it("recovers from a cached unavailable response after retry", async () => {
   );
   const retry = [
     ...document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ].find((item) => item.textContent?.includes("root.searchRetry"));
+  ].find((item) => item.textContent.includes("root.searchRetry"));
   if (!retry) throw new Error("Missing retry");
   await act(async () => retry.click());
   await vi.waitFor(() => expect(attempts).toBe(2));
@@ -404,7 +472,7 @@ it.each([401, 403, 404])(
     await vi.waitFor(() => expect(document.body.textContent).toContain("old"));
     const more = [
       ...document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ].find((item) => item.textContent?.includes("sidebar.showMore"));
+    ].find((item) => item.textContent.includes("sidebar.showMore"));
     if (!more) throw new Error("Missing continuation");
     await act(async () => more.click());
     await vi.waitFor(() =>
@@ -413,7 +481,7 @@ it.each([401, 403, 404])(
     expect(document.body.textContent).not.toContain("old");
     const retry = [
       ...document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ].find((item) => item.textContent?.includes("root.searchRetry"));
+    ].find((item) => item.textContent.includes("root.searchRetry"));
     if (!retry) throw new Error("Missing retry");
     await act(async () => retry.click());
     await vi.waitFor(() =>
@@ -445,7 +513,7 @@ it("loads later pages on request and refetches the first page on reopening", asy
   expect(document.body.textContent).not.toContain("folder");
   const more = Array.from(
     document.querySelectorAll('[role="option"], button'),
-  ).find((element) => element.textContent?.includes("sidebar.showMore"));
+  ).find((element) => element.textContent.includes("sidebar.showMore"));
   expect(more).toBeDefined();
   await act(async () => (more as HTMLElement).click());
   await vi.waitFor(() => expect(document.body.textContent).toContain("later"));
