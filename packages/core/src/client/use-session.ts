@@ -441,6 +441,8 @@ function invalidateSessionCache(): Promise<void> {
 // accepted stays shown while it is out (see "Whom a request was answered
 // for").
 function rereadSession(): void {
+  // Restarting during retry backoff would keep extending the resolution budget.
+  if (activeResolveGeneration !== 0) return;
   cachedSessionAt = 0;
   clearTimeout(staleSessionRecheck);
   staleSessionRecheck = undefined;
