@@ -16,6 +16,7 @@ describe("isRunFailureRetryable", () => {
     "error:missing_credentials",
     "error:http_401",
     "error:authentication_error",
+    "error:email_verification_required",
     "missing_api_key",
     "error:provider_rate_limited",
     "error:http_429",
@@ -30,6 +31,7 @@ describe("isRunFailureRetryable", () => {
 
   it.each([
     "error:stale_run",
+    "error:provider_network_error",
     "error:builder_gateway_internal_error",
     "error:empty_completion",
     "error:background_worker_failed",
