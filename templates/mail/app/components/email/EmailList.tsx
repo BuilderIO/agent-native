@@ -455,7 +455,7 @@ const RICH_ROW_HEIGHT_ESTIMATE = 96;
 
 function getRateLimitRetryMs(error: {
   message?: string;
-  retryAfterMs?: number;
+  retryAfterMs?: number | undefined;
 }): number {
   if (
     typeof error.retryAfterMs === "number" &&
@@ -471,20 +471,18 @@ function getRateLimitRetryMs(error: {
   return Math.min(Math.max(seconds * 1000, 15_000), 5 * 60_000);
 }
 
-function EmailErrorState({
+function EmailRetryButton({
   isQuotaError,
   message,
   retryAfterMs,
   isFetching,
   onRetry,
-  containerRef,
 }: {
   isQuotaError: boolean;
   message: string;
-  retryAfterMs?: number;
+  retryAfterMs?: number | undefined;
   isFetching: boolean;
   onRetry: () => unknown;
-  containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const t = useT();
   const rateLimitRetryMs = isQuotaError
@@ -524,6 +522,34 @@ function EmailErrorState({
   }
 
   return (
+    <button
+      onClick={handleClick}
+      disabled={buttonDisabled}
+      className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {isFetching && <Spinner className="h-3 w-3" />}
+      {buttonLabel}
+    </button>
+  );
+}
+
+function EmailErrorState({
+  isQuotaError,
+  message,
+  retryAfterMs,
+  isFetching,
+  onRetry,
+  containerRef,
+}: {
+  isQuotaError: boolean;
+  message: string;
+  retryAfterMs?: number;
+  isFetching: boolean;
+  onRetry: () => unknown;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const t = useT();
+  return (
     <div className="flex h-full flex-col" ref={containerRef}>
       <div className="flex flex-1 flex-col items-center justify-center px-8">
         <div className="flex flex-col items-center gap-3 max-w-xs text-center">
@@ -540,14 +566,9 @@ function EmailErrorState({
               {isQuotaError ? t("mail.error.rateLimitDescription") : message}
             </p>
           </div>
-          <button
-            onClick={handleClick}
-            disabled={buttonDisabled}
-            className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isFetching && <Spinner className="h-3 w-3" />}
-            {buttonLabel}
-          </button>
+          <EmailRetryButton
+            {...{ isQuotaError, message, retryAfterMs, isFetching, onRetry }}
+          />
         </div>
       </div>
     </div>
@@ -2788,12 +2809,34 @@ export function EmailList({
   );
   useSetHeaderActions(headerActions);
 
+  const isQuotaError = emailsError
+    ? (emailsError as { status?: number }).status === 429 ||
+      /\((429|403)\)|quota|rate limit/i.test(emailsError.message)
+    : false;
   const cooldownNotice =
-    read && read.freshness !== "live" ? (
+    (emailsError || accountErrors?.length) && emails.length > 0 ? (
+      <div
+        role="status"
+        className="shrink-0 border-b border-border/30 bg-muted/40 px-4 py-1.5 text-xs text-muted-foreground"
+      >
+        {t("mail.error.staleSaved")}
+        {emailsError && (
+          <EmailRetryButton
+            isQuotaError={isQuotaError}
+            message={emailsError.message}
+            retryAfterMs={
+              (emailsError as { retryAfterMs?: number }).retryAfterMs
+            }
+            isFetching={isFetching}
+            onRetry={refetch}
+          />
+        )}
+      </div>
+    ) : read && read.freshness !== "live" ? (
       <GmailCooldownNotice read={read} onRetry={refetch} />
     ) : null;
 
-  if (emailsError) {
+  if (emailsError && emails.length === 0) {
     const needsCredentials =
       emailsError.message?.includes("GOOGLE_CLIENT_ID") ||
       emailsError.message?.includes("GOOGLE_CLIENT_SECRET");
@@ -2805,10 +2848,6 @@ export function EmailList({
         </div>
       );
     }
-
-    const isQuotaError =
-      (emailsError as { status?: number }).status === 429 ||
-      /\((429|403)\)|quota|rate limit/i.test(emailsError.message ?? "");
 
     return (
       <EmailErrorState
@@ -2822,7 +2861,7 @@ export function EmailList({
     );
   }
 
-  if (isLoading) {
+  if (isLoading && emails.length === 0) {
     return <MailLoadingState containerRef={containerRef} rich={readingPane} />;
   }
 

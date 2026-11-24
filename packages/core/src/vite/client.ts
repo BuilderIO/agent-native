@@ -37,7 +37,11 @@ import {
   type AgentNativeConfigContext,
   type AgentNativeConfigInput,
 } from "../config.js";
-import { getRuntimeDatabaseUrl } from "../db/client.js";
+import {
+  getRuntimeDatabaseUrl,
+  isPgliteUrl,
+  pgliteDataDirFromUrl,
+} from "../db/client.js";
 import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { findWorkspaceRoot } from "../scripts/workspace-root.js";
 import {
@@ -49,6 +53,7 @@ import {
   removeDevActionDiscoveryFile,
   writeDevActionDiscoveryFile,
 } from "../server/dev-action-bridge.js";
+import { devActionDiscoveryFilePath } from "../server/dev-action-discovery.js";
 import { validateEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { resolveEmbedSessionTokenForOrigin } from "../server/embed-session.js";
 import { getForwardedRequestOriginFromHeaders } from "../server/request-origin.js";
@@ -3259,6 +3264,61 @@ function devActionBridgePlugin(): Plugin {
   };
 }
 
+function realpathIfPresent(directory: string): string {
+  try {
+    return fs.realpathSync(directory);
+  } catch {
+    // coercion-ok: a directory that does not exist yet keeps its resolved path.
+    return directory;
+  }
+}
+
+function literalDirectoryGlob(directory: string): string {
+  return `${directory
+    .split(path.sep)
+    .join("/")
+    .replace(/[^\w/.:-]/g, "\\$&")}/**`;
+}
+
+/**
+ * Vite `server.fs.deny` patterns for local state a dev server must never
+ * serve: each served root's `.agent-native/` directory, the dev action
+ * discovery directory, and the local PGlite data directory. Scoped to those
+ * directories: an app can itself live under a `.agent-native/` directory,
+ * such as the desktop workspaces folder.
+ */
+export function agentNativeStateFsDeny(
+  cwd: string,
+  allowRoots: readonly string[],
+  {
+    databaseUrl = "pglite:./data/pglite",
+    root = ".",
+  }: { databaseUrl?: string; root?: string } = {},
+): string[] {
+  const viteRoot = path.resolve(cwd, root);
+  const directories = [
+    ...[".", ...allowRoots].flatMap((allowed) => [
+      path.resolve(cwd, allowed, ".agent-native"),
+      path.resolve(viteRoot, allowed, ".agent-native"),
+    ]),
+    path.dirname(devActionDiscoveryFilePath(cwd)),
+    path.resolve(cwd, "data", "pglite"),
+  ];
+  const pgliteDataDir = isPgliteUrl(databaseUrl)
+    ? pgliteDataDirFromUrl(databaseUrl)
+    : "memory://";
+  if (pgliteDataDir !== "memory://") {
+    directories.push(path.resolve(cwd, pgliteDataDir));
+  }
+  return [
+    ...new Set(
+      directories.flatMap((directory) =>
+        [directory, realpathIfPresent(directory)].map(literalDirectoryGlob),
+      ),
+    ),
+  ];
+}
+
 function devAppDisplayName(appRoot: string): string {
   try {
     const pkg = JSON.parse(
@@ -5126,6 +5186,16 @@ function createAgentNativeConfig(
   const localWorkspacePackageAllow = localWorkspacePackageDeps.map(
     (pkg) => pkg.packageDir,
   );
+  const fsAllow = [
+    ".",
+    ...monorepoPackageAllow,
+    ...monorepoNodeModulesAllow,
+    ...workspaceCoreFsAllow,
+    ...localWorkspacePackageAllow,
+    ...workspaceNodeModulesAllow,
+    ...(userConfig.server?.fs?.allow ?? []),
+    ...(options.fsAllow ?? []),
+  ];
   const localWorkspacePackageResolveAliases = localWorkspacePackageAliases(
     localWorkspacePackageDeps,
   );
@@ -5274,21 +5344,16 @@ function createAgentNativeConfig(
       },
       fs: {
         ...(userConfig.server?.fs ?? {}),
-        allow: [
-          ".",
-          ...monorepoPackageAllow,
-          ...monorepoNodeModulesAllow,
-          ...workspaceCoreFsAllow,
-          ...localWorkspacePackageAllow,
-          ...workspaceNodeModulesAllow,
-          ...(userConfig.server?.fs?.allow ?? []),
-          ...(options.fsAllow ?? []),
-        ],
+        allow: fsAllow,
         deny: [
           ".env",
           ".env.*",
           "*.{crt,pem}",
           "**/.git/**",
+          ...agentNativeStateFsDeny(cwd, fsAllow, {
+            databaseUrl: getRuntimeDatabaseUrl("pglite:./data/pglite"),
+            ...(userConfig.root ? { root: userConfig.root } : {}),
+          }),
           ...(userConfig.server?.fs?.deny ?? []),
           ...(options.fsDeny ?? []),
         ],

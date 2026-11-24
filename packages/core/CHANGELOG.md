@@ -51,6 +51,59 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.233.0
+
+### Minor Changes
+
+- 40a841b: Link summaries cover Content pages: `content` is a link summary app, its links are `/page/:id`, and its kind is `page`. `isLinkSummaryApp` is removed; a surface that shows only some apps' links lists them itself.
+- 3f67b62: Add a shared link summary call between apps. `readPeerLinkSummaries` asks the app that owns a link what it is, as the signed-in reader, and `answerLinkSummaries` gives the owning app its side: the item's title only when that reader can open it, otherwise a bare `unavailable` that looks the same for a private, missing, or malformed link. A signed-out reader makes no call, and a refusal or a timeout (5 seconds by default) comes back as `unavailable` rather than an error. The owning app reads a few items at a time, and a link whose query or hash may carry a token or key has no summary. The shared types and link parsing are in `@agent-native/core/shared`.
+- 6e1e604: Offer the MCP script catalog only to organizations listed in `mcp.scriptOrgs` (`AGENT_NATIVE_MCP_SCRIPT_ORGS`), checked against each request's own organization when tools are listed and when they are called. Turning on `mcp.scriptTools` alone now offers it to no one. Connections from a listed organization are told, in the server's instructions, that bulk work can run as a script on that catalog.
+
+  Keep an action's `mcpScript: "write"` and its `mcpScriptWrite` contract when the action is loaded from an app's registry or the dev scan. Until now only reads survived loading, so scripts could not call any app's writes.
+
+### Patch Changes
+
+- b049c7c: Retry a database connection the server refused before any statement ran (cold start, refused connect, DNS hiccup) inside the existing bounded database retry, so one transient failure no longer fails an agent chat with a 503. Errors Drizzle wraps are now classified by the driver error they carry, so a constraint, permission, or query error whose SQL or params mention a connection is never reported as "database unavailable".
+- c71955a: Connect Builder.io from browsers that refuse blank popups: when the host refuses the blank sign-in window, the connect flow opens its waiting page in the same click instead of reporting that popups are blocked. The app's own redirect to Builder no longer cuts off a popup that started on that page, which the app took for a closed window and reported as a failed setup 20 seconds into the sign-in.
+- b71c09c: Chat no longer shows a cut-off assistant reply as complete. When a finished run's events could not be read to its terminal event, the client completes the reply from the server's saved copy, or ends the run with the "lost track of the agent" notice instead of a silent success.
+- 77579d5: Add a reusable action conformance harness for UI, MCP, A2A and hosted connectors. Preserve output schemas during action discovery, retain resolved editor paths when opening deep links, and flush pending navigation and selection writes before starting an agent turn.
+- 05c5e64: When a provider key is saved in another organization the person also belongs to, the missing-key error now opens with its two fixes (save the key in this organization, or switch to the one holding it) and explains after, with the organization's name after both fixes. Neither that explanation nor the one for a key saved only as someone's Personal key names the key before its fixes any more (when a provider accepts several keys, each ends by naming the one it found), and a provider that needs one specific key now words an explained miss the way the any-key error does, "<provider> credential not configured. <explanation> Tried: <key>". Together these keep the fixes in a stop's one-line reason however long the key and organization names are. When that organization's name can't be read, the message no longer says "the another organization".
+- a20bef8: A background data program's still-fresh rows now come back marked stale while a newer run of it is queued or running, as after a forced refresh. Results also carry `refreshPending: true` whenever such a run is queued or running, and only then, so a panel can tell new rows are on the way and read again.
+- c862f58: Core now exports the read side of `list-data-programs` and `get-data-program` from `@agent-native/core/data-programs` as `listDataProgramSummaries` and `getDataProgramDetails`, for apps that define their own same-named actions. Analytics' two actions now use them, so its MCP tools return `scheduledRefresh` and `orgSharedRun` like the framework's actions; before, a program saved with a scheduled refresh showed neither there.
+- 42b7e78: Reduce first-message latency for background agent chats by deferring execution setup and loading prompt resources concurrently.
+- b9ad2ba: Preserve canonical attachment submission identity while binding trusted durable references across background workers and successor runs.
+- 39871df: Propagate feature flag database connection failures instead of retrying every flag separately, and fail closed when a flag refresh fails despite cached values.
+- c541b37: Hide chat tool cells for calls to tools that do not exist instead of showing the raw tool name and dispatch error.
+- Release all public npm packages with a patch version bump.
+- 380b147: Add `agent-native design matched-check`, a validated source-versus-destination capture that confirms viewport, device pixel ratio, crop, pinned time, and alpha before it reports any fidelity metric, and labels unpinnable clocks unverified instead of passing them.
+- acad739: `$mcp_tool_call` now records how big each result is: `$mcp_response_text_chars` counts the characters in its text blocks, and `$mcp_response_structured_chars` its structured content as JSON, when it has any. MCP hosts cut or move a result past about 40,000 characters, and Claude Code and OpenCode show the model only the structured content while Codex shows both, so the two are counted apart. Only the numbers are sent; the result's text stays out of analytics.
+- 244edec: Answer a request for a missing file with `Cache-Control: no-store`, so a browser behind Cloudflare no longer keeps the 404 for four hours and asks for the file again on the next load.
+- 7550059: Add `hasOwnStoredBuilderOAuthGrantForUse`, which reports whether a user has their own usable Builder sign-in, and record who signed in when saving organization grants.
+- c1f6efc: Each sync event a poll skips as unreadable is now counted in the `agent_native.sync.unreadable_events` metric, by cause, next to the existing server log, so a feed that keeps skipping events shows up on dashboards and alerts.
+- 99ab0f0: PowerPoint import now keeps a picture's alt text. `parsePptxPresentation` reads the description PowerPoint stores on each picture (`<p:cNvPr descr="…">`) into a new optional `altText` on the parsed image, on both the slide's `images` and the image element. Pictures with no description, or a blank one, have no `altText`.
+- 6f96822: Answer a queued-message claim or send-now for a message the server already promoted with its run, instead of a 409 conflict.
+- ca51135: Display the readable message from generic provider error responses while retaining the response body as diagnostic details.
+- 7789e80: Keep a live agent run from losing its execution lease. A chat run's 15s stale window matched its 15s lease, so the stale reaper ended a run the instant one renewal ran late, and the still-working run then stopped with `execution_lease_lost`. The reaper now leaves a run alone while its lease lapsed on its own less than one lease ago, the same rule the worker already uses to reclaim it. A run that stays silent past that window, or whose lease was revoked, is still reaped.
+- 8604fbb: Record a queued chat message whose turn is refused for a missing AI credential in its thread, the way a refused direct send is recorded: the prompt with its retry, and a failed run carrying the refusal. The refused-turn hook now carries the queued message's promotion claim, so saving the refusal passes the queue's claim check and the message leaves the queue instead of failing to save.
+- 70a4b3f: Restore explicitly redacted historical chat events and omit private tool projections with no retained name.
+- 9128163: A request the provider read none of (`request_not_read`, usually too many or too complex tool definitions) is now treated as a rejected request: it is not resent, a kept guard draft is shown alone, and the chat explains that the request was too large or complex. The empty-response error no longer claims the output-token budget was the cause.
+- 15a226b: Restore saved application state when the initial session resolves during a read.
+- 98e4444: Restore conversations containing deliberately redacted event payloads while preserving validation of corrupt history and keeping private content omitted.
+- 0998ade: Comments & Review Kit: `deleteOrphanedMirroredReplies(resource, ids)` deletes the comments among `ids` whose thread's first comment the kit has deleted or never held, and returns their IDs. An app's startup copy passes the comments only the kit holds, so a reply written through the kit's own actions in a thread the app deleted only in its own table goes, as it would have had the delete gone through the kit. Plan and Clips copy their comments into the kit once more, in a release after every server writes both stores, and delete such replies as they copy.
+- b7b1029: When an embedding provider refuses a request, its error now carries the provider's error code as `code`, and search's log lines print it. Builder's gateway answers 429 for several causes, and only its code says which. Only a code that is a plain identifier is kept, and the provider's message is left out, so no page text can reach the logs. The error's message is unchanged. A refusal whose reply stalls past the timeout or the caller's signal now still reports its status and Retry-After.
+- 3ecdd02: The `session status` event now says what made the tab read the session in a new `trigger` property: `load` for the page's first read, `focus` for a return to a tab whose answer was stale, `expired`, `auth_change`, `unauthorized`, or `transport_change`; `trackSessionStatus` takes it as an optional second argument. Actions can declare `automatic` (or a predicate of the input and the call's context) for writes the app makes with no user gesture, such as on load, on a timer, or for experiment bookkeeping (only a call from the app's own UI counts, so an agent's, MCP client's, or CLI call stays a write); their `action_started`, `action_completed`, and `action_failed` events then carry `action_kind: "automatic"`, and a call an action's `planMode` declares a read carries `action_kind: "read"`. Other writes keep `"write"`.
+- 48793f1: The `shadcn-ui` skill in the chat, default and workspace-core starter templates now names Tabler Icons for UI icons, with Design using Radix Icons, in place of "use the icon package already installed by the app."
+- 4b68858: Settings → Appearance now has a Theme row in every app, with System, Light and Dark, so people can see and change whether an app follows their computer. The early head script and the running app now keep the same saved theme, and a theme sent by a host app (the desktop app, an embedding page) shows without being saved as the person's own choice.
+- 70a4b3f: Restore stored chat messages that omit their parts and safely verify folded private-run history.
+- b755252: Add `@agent-native/toolkit/craft` primitives (`ResourceStateBoundary`, `useCommandRegistry`, `SafeDestructiveAction`, `useOptimisticAction`), `craft-tokens.css` semantic/elevation/density/motion tokens, and updated `build-an-app` template skill guidance.
+- b1197d4: Fix A2A browser tab and viewport mode propagation, add turn-scoped foreground viewport lock and early open_app pane commit, upgrade AppCapabilityManifest to v2 with route template validation, and add rendered screen verification receipts.
+- f011519: Actions sent while the page's first UI capability is still being established now wait for it instead of failing.
+- 8787418: A UI action call waiting on another session's capability mint now stays bound to the session scope it started in, and removes its abort listener once aborted.
+- 0c35897: Request Zoom meeting and transcript permissions for workspace connections.
+- Updated dependencies
+  - @agent-native/agentkit@0.233.0
+  - @agent-native/recap-cli@0.5.108
+
 ## 0.232.0
 
 ### Minor Changes
@@ -4998,41 +5051,5 @@
 - Updated dependencies [a4b36e0]
   - @agent-native/recap-cli@0.5.10
   - @agent-native/toolkit@0.16.13
-
-## 0.173.0
-
-### Minor Changes
-
-- 460080b: Give chat readers control over how much model reasoning is shown, and make
-  reasoning collapsible everywhere it appears.
-
-  Reasoning inside the "Worked for…" summary used to render as flat prose with no
-  disclosure of its own, so opening that summary dumped the full chain of thought
-  between the tool calls with no way to fold it back. It now keeps its own
-  "Thought for Xs" row, collapsible exactly like the tool calls it sits between,
-  and renders its markdown instead of showing `**source characters**` — OpenAI
-  reasoning summaries arrive pre-formatted.
-
-  A new browser-local preference picks between three modes, reachable from the
-  chat panel's ⋮ menu:
-  - **Expanded** — the previous behaviour: the live cell opens itself.
-  - **Collapsed** — the new default. The label and its timing stay visible, the
-    text is one click away, and a live turn no longer pushes the answer out of
-    the viewport.
-  - **Hidden** — no reasoning cells at all.
-
-  Hosts can pin the mode with the `thinkingDisplay` prop on `AgentSidebar`,
-  `AgentPanel`, `AgentChatSurface`, and `AssistantChat`; when pinned, the in-chat
-  control is not offered rather than left as a dead menu item. The preference is
-  presentation only — it never changes what the engine requests or what is
-  persisted, so switching back reveals the same text on the same turns.
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- 460080b: Send `$ai_generation` and `$ai_span` to PostHog stamped at the moment the operation ended, which is the convention it reads them by: its timeline derives an operation's start as `timestamp - $ai_latency`, so stamping the start drew every bar one full latency too early — model calls overlapped each other by a growing margin, a call's tool spans appeared underneath the _next_ call, and a 35s run rendered as 31.2s. The shift is applied inside the PostHog provider, so the shared event keeps the operation's start for Mixpanel, Amplitude, webhooks, and Agent-Native Analytics, which read the timestamp verbatim. Events with no `$ai_latency` — a trace, an exception — are unshifted.
-- Updated dependencies
-  - @agent-native/recap-cli@0.5.9
-  - @agent-native/toolkit@0.16.12
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

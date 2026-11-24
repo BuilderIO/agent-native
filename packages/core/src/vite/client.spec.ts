@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
+import { devActionDiscoveryFilePath } from "../server/dev-action-discovery.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
@@ -31,6 +32,7 @@ import {
   _nitroStartupRecovery,
   _persistent5xxRecovery,
   agentNative,
+  agentNativeStateFsDeny,
   defaultViteWatchIgnored,
   defineConfig,
   isFrameworkDynamicDevPath,
@@ -2838,6 +2840,141 @@ describe("agentNative Vite plugin preset", () => {
       find: "~",
       replacement: "/tmp/app",
     });
+  });
+
+  it("denies the served roots' .agent-native state, scoped to those roots", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const previousCwd = process.cwd();
+    const chatRoot = path.join(repositoryRoot(), "templates/chat");
+    let config: { server: { fs: { deny: string[] } } };
+    process.chdir(chatRoot);
+    try {
+      config = await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      );
+    } finally {
+      process.chdir(previousCwd);
+    }
+    expect(config.server.fs.deny).toEqual(
+      expect.arrayContaining(agentNativeStateFsDeny(chatRoot, ["."])),
+    );
+    expect(config.server.fs.deny).not.toContain("**/.agent-native/**");
+
+    const home = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "an-fs-deny-")),
+    );
+    try {
+      for (const appRoot of [
+        path.join(home, "app"),
+        path.join(home, ".agent-native", "workspaces", "app"),
+        path.join(home, "a|b (c) [d] {e} !f +g @h"),
+      ]) {
+        fs.mkdirSync(path.join(appRoot, ".agent-native"), { recursive: true });
+        fs.writeFileSync(
+          path.join(appRoot, ".agent-native", "dev-server.json"),
+          JSON.stringify({ token: "secret" }),
+        );
+        fs.writeFileSync(path.join(appRoot, "public.txt"), "visible");
+        const discoveryPath = devActionDiscoveryFilePath(appRoot);
+        fs.mkdirSync(path.dirname(discoveryPath), { recursive: true });
+        fs.writeFileSync(discoveryPath, JSON.stringify({ token: "secret" }));
+        for (const dataDir of ["data/pglite", "db/custom"]) {
+          fs.mkdirSync(path.join(appRoot, dataDir), { recursive: true });
+          fs.writeFileSync(path.join(appRoot, dataDir, "PG_VERSION"), "secret");
+        }
+        const server = await createServer({
+          configFile: false,
+          root: appRoot,
+          logLevel: "silent",
+          server: {
+            host: "127.0.0.1",
+            port: 0,
+            fs: {
+              allow: [appRoot, path.dirname(path.dirname(discoveryPath))],
+              deny: agentNativeStateFsDeny(appRoot, ["."], {
+                databaseUrl: "pglite:./db/custom",
+              }),
+            },
+          },
+        });
+        try {
+          await server.listen();
+          const address = server.httpServer?.address();
+          if (!address || typeof address !== "object") {
+            throw new Error("Vite did not bind a port.");
+          }
+          const get = (pathname: string) =>
+            fetch(`http://127.0.0.1:${address.port}${encodeURI(pathname)}`);
+
+          expect(
+            await (await get(`/@fs${appRoot}/public.txt?raw`)).text(),
+          ).toContain("visible");
+          for (const pathname of [
+            `/@fs${appRoot}/.agent-native/dev-server.json?raw`,
+            `/@fs${appRoot}/.agent-native/dev-server.json?import&raw`,
+            `/@fs${appRoot}/.agent-native/dev-server.json`,
+            "/.agent-native/dev-server.json?raw",
+            "/.agent-native/dev-server.json",
+            `/@fs${fs.realpathSync(discoveryPath)}?raw`,
+            `/@fs${appRoot}/data/pglite/PG_VERSION?raw`,
+            `/@fs${appRoot}/db/custom/PG_VERSION?raw`,
+            "/data/pglite/PG_VERSION",
+          ]) {
+            const response = await get(pathname);
+            expect(await response.text()).not.toContain("secret");
+          }
+        } finally {
+          await server.close();
+          fs.rmSync(discoveryPath, { force: true });
+        }
+      }
+
+      const appRoot = path.join(home, "nested-root-app");
+      const viteRoot = path.join(appRoot, "web");
+      fs.mkdirSync(path.join(viteRoot, ".agent-native"), { recursive: true });
+      fs.writeFileSync(
+        path.join(viteRoot, ".agent-native", "state.json"),
+        "secret",
+      );
+      fs.writeFileSync(path.join(viteRoot, "public.txt"), "visible");
+      const server = await createServer({
+        configFile: false,
+        root: viteRoot,
+        logLevel: "silent",
+        server: {
+          host: "127.0.0.1",
+          port: 0,
+          fs: {
+            allow: ["."],
+            deny: agentNativeStateFsDeny(appRoot, ["."], { root: "web" }),
+          },
+        },
+      });
+      try {
+        await server.listen();
+        const address = server.httpServer?.address();
+        if (!address || typeof address !== "object") {
+          throw new Error("Vite did not bind a port.");
+        }
+        const get = (pathname: string) =>
+          fetch(`http://127.0.0.1:${address.port}${encodeURI(pathname)}`);
+        expect(await (await get("/public.txt?raw")).text()).toContain(
+          "visible",
+        );
+        for (const pathname of [
+          "/.agent-native/state.json?raw",
+          `/@fs${viteRoot}/.agent-native/state.json?raw`,
+        ]) {
+          expect(await (await get(pathname)).text()).not.toContain("secret");
+        }
+      } finally {
+        await server.close();
+      }
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it("leaves build.sourcemap off and adds no Sentry plugin without upload config", async () => {
