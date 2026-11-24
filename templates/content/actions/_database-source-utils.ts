@@ -2086,6 +2086,7 @@ async function enqueueBuilderBodyHydrations(
 async function reenqueueRetryableBuilderBodyHydration(args: {
   sourceId: string;
   documentId?: string | null;
+  includeTerminal?: boolean;
   now: string;
 }) {
   const rows = await getDb()
@@ -2129,7 +2130,9 @@ async function reenqueueRetryableBuilderBodyHydration(args: {
           ? eq(schema.contentDatabaseSourceRows.documentId, args.documentId)
           : undefined,
         eq(schema.contentDatabaseItems.bodyHydrationStatus, "error"),
-        eq(schema.contentDatabaseItems.bodyHydrationRetryable, 1),
+        args.includeTerminal
+          ? undefined
+          : eq(schema.contentDatabaseItems.bodyHydrationRetryable, 1),
         isNull(schema.contentDatabaseBodyHydrationQueue.id),
       ),
     );
@@ -3732,6 +3735,7 @@ export async function processBuilderBodyHydrationQueue(args: {
   preloadedJobs?: ContentDatabaseBodyHydrationQueueRowDb[];
   preloadBodies?: boolean;
   retryFailed?: boolean;
+  retryTerminal?: boolean;
   runBudgetMs?: number;
 }) {
   const runDeadline =
@@ -3750,6 +3754,7 @@ export async function processBuilderBodyHydrationQueue(args: {
     await reenqueueRetryableBuilderBodyHydration({
       sourceId: args.sourceId,
       documentId: args.documentId,
+      includeTerminal: args.retryTerminal,
       now,
     });
   }

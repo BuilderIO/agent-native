@@ -255,6 +255,7 @@ function harness(args: {
     matches: [],
   }));
   const refreshSource = vi.fn(async () => ({}));
+  const readBody = vi.fn(async () => ({}));
   const deps = {
     ...realAutosaveDeps(),
     execute: (request: ExecuteBuilderSourceExecutionRequest) =>
@@ -270,8 +271,9 @@ function harness(args: {
         { automatic: true },
       ),
     refreshSource,
+    readBody,
   };
-  return { deps, executeWrite, readLiveEntry, refreshSource };
+  return { deps, executeWrite, readBody, readLiveEntry, refreshSource };
 }
 
 async function record(sourceId: string, documentId: string) {
@@ -1727,10 +1729,11 @@ describe("Builder article autosave", () => {
       lastUpdated: LAST_UPDATED_MS + 5000,
       values: { "data.title": "New title", published: "draft" },
     };
-    const { deps, executeWrite, readLiveEntry, refreshSource } = harness({
-      entryId: created,
-      live,
-    });
+    const { deps, executeWrite, readBody, readLiveEntry, refreshSource } =
+      harness({
+        entryId: created,
+        live,
+      });
     const run = (now: string, retry = false) =>
       asOwner(() =>
         autosave.runBuilderArticleAutosaveWithDeps(
@@ -1794,6 +1797,7 @@ describe("Builder article autosave", () => {
       executeWrite,
       ids,
       live,
+      readBody,
       readBuilderBody,
       readLiveEntry,
       refreshSource,
@@ -2002,9 +2006,9 @@ describe("Builder article autosave", () => {
   );
 
   it.each(["error", "unavailable"])(
-    "fails with a retry that checks Builder when its body read ended %s",
+    "fails when its body read ended %s, and a retry reads it and saves",
     async (reading) => {
-      const { executeWrite, ids, refreshSource, run } =
+      const { executeWrite, ids, readBody, refreshSource, run } =
         await createFromTitleThenType("Typed after the title was saved.");
       const error = "Builder no longer returns this source entry.";
       await setBodyHydration(ids.itemId, reading, error);
@@ -2020,28 +2024,42 @@ describe("Builder article autosave", () => {
         due: false,
       });
 
-      refreshSource.mockImplementation(async () => {
-        await setBodyHydration(ids.itemId, "pending");
+      readBody.mockImplementation(async () => {
+        expect(refreshSource).toHaveBeenCalledTimes(1);
+        await setBodyHydration(ids.itemId, "hydrated");
         return {};
       });
-      const retried = await run("2026-06-29T15:00:50.000Z", true);
+      const saved = await run("2026-06-29T15:00:50.000Z", true);
 
-      expect(refreshSource).toHaveBeenCalledTimes(1);
-      expect(retried.autosave).toMatchObject({
-        state: "waiting",
-        reason: "builder_body_unread",
+      expect(readBody).toHaveBeenCalledExactlyOnceWith({
+        sourceId: ids.sourceId,
+        documentId: ids.rowDocumentId,
       });
-
-      await setBodyHydration(ids.itemId, "hydrated");
-      const saved = await run("2026-06-29T15:01:50.000Z");
-
       expect(executeWrite).toHaveBeenCalledTimes(2);
       expect(saved.autosave).toMatchObject({ state: "saved", due: false });
     },
   );
 
+  it("stays failed when a retry still can't read the body", async () => {
+    const { executeWrite, ids, readBody, run } = await createFromTitleThenType(
+      "Typed after the title was saved.",
+    );
+    await setBodyHydration(ids.itemId, "error", "Builder didn't answer.");
+    await run("2026-06-29T15:00:40.000Z");
+
+    const status = await run("2026-06-29T15:00:50.000Z", true);
+
+    expect(readBody).toHaveBeenCalledTimes(1);
+    expect(executeWrite).toHaveBeenCalledTimes(1);
+    expect(status.autosave).toMatchObject({
+      state: "failed",
+      reason: "builder_body_unreadable",
+      canSave: true,
+    });
+  });
+
   it("saves on its own once a body it couldn't read has been read", async () => {
-    const { executeWrite, ids, refreshSource, run } =
+    const { executeWrite, ids, readBody, refreshSource, run } =
       await createFromTitleThenType("Typed after the title was saved.");
     await setBodyHydration(ids.itemId, "error", "Builder didn't answer.");
     await run("2026-06-29T15:00:40.000Z");
@@ -2050,6 +2068,7 @@ describe("Builder article autosave", () => {
     const saved = await run("2026-06-29T15:01:40.000Z");
 
     expect(refreshSource).not.toHaveBeenCalled();
+    expect(readBody).not.toHaveBeenCalled();
     expect(executeWrite).toHaveBeenCalledTimes(2);
     expect(saved.autosave).toMatchObject({ state: "saved", due: false });
   });

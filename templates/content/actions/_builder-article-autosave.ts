@@ -753,6 +753,10 @@ export interface BuilderArticleAutosaveDeps {
     databaseId: string;
     sourceId: string;
   }) => Promise<unknown>;
+  readBody: (args: {
+    sourceId: string;
+    documentId: string;
+  }) => Promise<unknown>;
 }
 
 function errorMessage(error: unknown) {
@@ -1058,6 +1062,12 @@ export async function runBuilderArticleAutosaveWithDeps(
       await deps.refreshSource({
         databaseId: database.id,
         sourceId: row.sourceId,
+      });
+    }
+    if (args.retry && row.record?.reason === "builder_body_unreadable") {
+      await deps.readBody({
+        sourceId: row.sourceId,
+        documentId: row.documentId,
       });
     }
     outcome = await saveArticle({ database, row, deps });
