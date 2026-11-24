@@ -435,25 +435,42 @@ export function useEvents(
     gcTime: 30 * 60 * 1000,
   });
 
+  const partialEvents = (
+    (live.error ?? live.failureReason) as {
+      details?: { partialEvents?: unknown };
+    } | null
+  )?.details?.partialEvents;
   const mergedData = useMemo(() => {
-    if (!Array.isArray(live.data) || extraOverlayQueries.length === 0) {
-      return live.data;
+    const partial = Array.isArray(partialEvents)
+      ? (partialEvents as CalendarEvent[])
+      : [];
+    const base = partial.reduce<CalendarEvent[] | undefined>(
+      (events, event) => mergeCalendarEventIntoList(events, event),
+      live.data,
+    );
+    if (!Array.isArray(base) || extraOverlayQueries.length === 0) {
+      return base;
     }
     const extras = extraOverlayQueries.flatMap((query) =>
       Array.isArray(query.data) ? query.data : [],
     );
-    return extras.length > 0 ? [...live.data, ...extras] : live.data;
-  }, [live.data, extraOverlayQueries]);
+    return extras.length > 0 ? [...base, ...extras] : base;
+  }, [live.data, partialEvents, extraOverlayQueries]);
 
   if (demo) return fixture;
-  if (extraOverlayQueries.length === 0) return live;
+  if (extraOverlayQueries.length === 0)
+    return {
+      ...live,
+      data: mergedData,
+      isLoading: live.isLoading && !mergedData?.length,
+    };
 
   const overlayError = extraOverlayQueries.find((q) => q.error)?.error;
 
   return {
     ...live,
     data: mergedData,
-    isLoading: live.isLoading,
+    isLoading: live.isLoading && !mergedData?.length,
     isFetching:
       live.isFetching || extraOverlayQueries.some((q) => q.isFetching),
     isPlaceholderData:

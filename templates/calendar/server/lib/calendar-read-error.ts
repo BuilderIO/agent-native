@@ -1,5 +1,6 @@
 export function calendarReadFailure(
   errors: Array<{ error: string; code?: string }>,
+  details?: Record<string, unknown>,
 ) {
   const rateLimited = errors.some((error) => error.code === "RATE_LIMITED");
   const authRequired = errors.some(
@@ -19,6 +20,7 @@ export function calendarReadFailure(
     ),
     {
       expected: true,
+      ...(details ? { details } : {}),
       errorCode: rateLimited
         ? "calendar_rate_limited"
         : authRequired

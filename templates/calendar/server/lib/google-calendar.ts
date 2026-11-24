@@ -1182,6 +1182,7 @@ function googleReadErrorCode(error: unknown): string | undefined {
         "rateLimitExceeded",
         "userRateLimitExceeded",
         "quotaExceeded",
+        "dailyLimitExceeded",
         "rate_limit_exceeded",
       ].includes(error.reason ?? ""))
   )
@@ -1428,7 +1429,6 @@ export async function listEvents(
   if (requestedSourceKeys.length > 0) {
     const discovered = await listGoogleCalendars(forEmail);
     errors.push(...discovered.errors);
-    if (discovered.errors.length > 0) return { events: [], errors };
     const discoveredByKey = new Map<
       string,
       {
@@ -1453,13 +1453,15 @@ export async function listEvents(
     const invalid = requestedSourceKeys.filter(
       (sourceKey) => !discoveredByKey.has(sourceKey),
     );
-    if (invalid.length > 0) {
+    if (invalid.length > 0 && discovered.errors.length === 0) {
       throw new Error(
         `Google Calendar source is not connected or no longer available: ${invalid.join(", ")}`,
       );
     }
     for (const sourceKey of requestedSourceKeys) {
-      const { source, paths } = discoveredByKey.get(sourceKey)!;
+      const discoveredSource = discoveredByKey.get(sourceKey);
+      if (!discoveredSource) continue;
+      const { source, paths } = discoveredSource;
       for (const path of paths) {
         const accountKey = path.accountEmail.trim().toLowerCase();
         selectedSourcesByAccount.set(accountKey, [
@@ -1494,9 +1496,10 @@ export async function listEvents(
     clients,
     async ({ email, accessToken }) => {
       try {
-        const sources = selectedSourcesByAccount.size
-          ? (selectedSourcesByAccount.get(email.trim().toLowerCase()) ?? [])
-          : [undefined];
+        const sources =
+          requestedSourceKeys.length > 0
+            ? (selectedSourcesByAccount.get(email.trim().toLowerCase()) ?? [])
+            : [undefined];
         const preloaded =
           options.incremental && forEmail
             ? await Promise.allSettled(

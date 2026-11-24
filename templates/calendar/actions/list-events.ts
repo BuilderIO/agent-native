@@ -1164,7 +1164,10 @@ export default defineAction({
       ...(args.incremental ? result.icalErrors : []),
     ];
     if (readFailures.length > 0) {
-      throw calendarReadFailure(readFailures);
+      throw calendarReadFailure(
+        readFailures,
+        args.incremental ? { partialEvents: result.events } : undefined,
+      );
     }
 
     if (!result.googleConnected && !args.from && !args.to) {

@@ -772,6 +772,7 @@ describe("calendar event listing", () => {
   it.each([
     new GoogleApiError(429, "Too many requests"),
     new GoogleApiError(403, "Quota exceeded", "rateLimitExceeded"),
+    new GoogleApiError(403, "Quota exceeded", "dailyLimitExceeded"),
   ])(
     "preserves rate-limit classification when reading events",
     async (error) => {
@@ -801,6 +802,72 @@ describe("calendar event listing", () => {
       expect.objectContaining({ code: "RATE_LIMITED" }),
     ]);
     expect(calendarListEventsMock).not.toHaveBeenCalled();
+  });
+
+  it("reads verified sources from healthy accounts when another account discovery is throttled", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "healthy@example.test",
+        tokens: {
+          access_token: "healthy-token",
+          expiry_date: Date.now() + 600_000,
+        },
+      },
+      {
+        accountId: "limited@example.test",
+        tokens: {
+          access_token: "limited-token",
+          expiry_date: Date.now() + 600_000,
+        },
+      },
+    ]);
+    calendarListCalendarsMock.mockImplementation(async (token: string) => ({
+      items: [
+        {
+          id: `${token}@example.test`,
+          primary: true,
+          selected: true,
+          accessRole: "owner",
+        },
+      ],
+    }));
+    const sources = (await listGoogleCalendars("owner@example.com")).calendars;
+    calendarListCalendarsMock.mockImplementation(async (token: string) => {
+      if (token === "limited-token") throw new GoogleApiError(429, "Throttled");
+      return {
+        items: [
+          {
+            id: `${token}@example.test`,
+            primary: true,
+            selected: true,
+            accessRole: "owner",
+          },
+        ],
+      };
+    });
+    calendarListEventsMock.mockResolvedValue({
+      items: [
+        {
+          id: "healthy-event",
+          summary: "Healthy event",
+          start: { dateTime: "2026-07-06T10:00:00Z" },
+          end: { dateTime: "2026-07-06T11:00:00Z" },
+        },
+      ],
+    });
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-07T00:00:00Z",
+      "owner@example.com",
+      { calendarSourceKeys: sources.map((source) => source.sourceKey) },
+    );
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: "RATE_LIMITED" }),
+    ]);
+    expect(result.events).toEqual([
+      expect.objectContaining({ title: "Healthy event" }),
+    ]);
+    expect(calendarListEventsMock).toHaveBeenCalledTimes(1);
   });
 
   it("paginates CalendarList entries across connected accounts", async () => {

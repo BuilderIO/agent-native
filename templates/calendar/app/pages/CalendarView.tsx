@@ -709,7 +709,8 @@ export default function CalendarView({
     to,
     overlayEmails,
     enabledGoogleCalendarSourceKeys,
-    Boolean(googleCalendars.data) && !sourceLoadError,
+    Boolean(googleCalendars.data) &&
+      (!sourceLoadError || googleCalendars.hasPartialData),
   );
   const isLoading = eventsAreLoading || googleCalendars.isLoading;
   const eventsLoadError = (sourceLoadError ??

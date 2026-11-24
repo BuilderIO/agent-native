@@ -171,6 +171,9 @@ it("keeps saved events and the rate-limit notice through repeated refusals", asy
           JSON.stringify({
             error: "Rate limited",
             errorCode: "calendar_rate_limited",
+            details: {
+              partialEvents: [{ ...fixture[1], title: "Fresh healthy event" }],
+            },
           }),
           { status: 429, headers: { "Content-Type": "application/json" } },
         );
@@ -198,7 +201,7 @@ it("keeps saved events and the rate-limit notice through repeated refusals", asy
     return (
       <>
         <CalendarEventsStatus error={error} />
-        <div>{events.data?.[0]?.title}</div>
+        <div>{events.data?.map((event) => event.title).join(", ")}</div>
       </>
     );
   }
@@ -221,6 +224,7 @@ it("keeps saved events and the rate-limit notice through repeated refusals", asy
     timeout: 4000,
   });
   expect(container.textContent).toContain("Event 0");
+  expect(container.textContent).toContain("Fresh healthy event");
   expect(container.textContent).toContain("rate limited");
   expect(container.textContent).not.toContain("Reconnect Google Calendar");
 });
@@ -302,4 +306,121 @@ it("keeps the cached event window when calendar discovery is throttled", async (
   expect(container.textContent).toContain("Event 0");
   expect(container.textContent).not.toContain("Reconnect Google Calendar");
   expect(eventReads).toBe(readsBeforeThrottle);
+});
+
+it("shows healthy partial events alongside a typed throttling error", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: "Rate limited",
+            errorCode: "calendar_rate_limited",
+            details: { partialEvents: [fixture[0]] },
+          }),
+          { status: 429, headers: { "Content-Type": "application/json" } },
+        ),
+    ),
+  );
+  const activeClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  client = activeClient;
+  container = document.createElement("div");
+  document.body.append(container);
+  const activeRoot = createRoot(container);
+  root = activeRoot;
+  function Calendar() {
+    const events = useEvents(
+      new Date(start).toISOString(),
+      new Date(start + week).toISOString(),
+    );
+    const error = events.error ?? events.failureReason;
+    return (
+      <>
+        <CalendarEventsStatus
+          error={error as (Error & { code?: string }) | null}
+        />
+        <div>{events.data?.[0]?.title}</div>
+      </>
+    );
+  }
+  await act(async () =>
+    activeRoot.render(
+      <QueryClientProvider client={activeClient}>
+        <Calendar />
+      </QueryClientProvider>,
+    ),
+  );
+  await vi.waitFor(() => expect(container?.textContent).toContain("Event 0"));
+  expect(container.textContent).toContain("rate limited");
+  expect(container.textContent).not.toContain("Reconnect Google Calendar");
+});
+
+it("reads successfully discovered sources while another account is throttled", async () => {
+  const calendar = {
+    sourceKey: "healthy",
+    canonicalKey: "healthy",
+    calendarId: "healthy@example.test",
+    name: "Healthy",
+    accountEmail: "healthy@example.test",
+    primary: true,
+    selected: true,
+    accessRole: "owner",
+    readOnly: false,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      const details = url.pathname.endsWith("/list-google-calendars")
+        ? { calendars: [calendar] }
+        : { partialEvents: [fixture[0]] };
+      return new Response(
+        JSON.stringify({
+          error: "Rate limited",
+          errorCode: "calendar_rate_limited",
+          details,
+        }),
+        { status: 429, headers: { "Content-Type": "application/json" } },
+      );
+    }),
+  );
+  const activeClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  client = activeClient;
+  container = document.createElement("div");
+  document.body.append(container);
+  const activeRoot = createRoot(container);
+  root = activeRoot;
+  function Calendar() {
+    const sources = useGoogleCalendars();
+    const error = sources.error ?? sources.failureReason;
+    const events = useEvents(
+      new Date(start).toISOString(),
+      new Date(start + week).toISOString(),
+      undefined,
+      sources.data?.map((source) => source.sourceKey),
+      Boolean(sources.data),
+    );
+    return (
+      <>
+        <CalendarEventsStatus
+          error={error as (Error & { code?: string }) | null}
+        />
+        <div>{events.data?.[0]?.title}</div>
+      </>
+    );
+  }
+  await act(async () =>
+    activeRoot.render(
+      <QueryClientProvider client={activeClient}>
+        <Calendar />
+      </QueryClientProvider>,
+    ),
+  );
+  await vi.waitFor(() => expect(container?.textContent).toContain("Event 0"));
+  expect(container.textContent).toContain("rate limited");
 });

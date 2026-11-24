@@ -30,19 +30,17 @@ export default defineAction({
       listGoogleCalendars(ownerEmail),
       getAccountDescriptions(ownerEmail),
     ]);
+    const calendars = result.calendars.map((calendar) => {
+      const accountDescription = accountDescriptionFor(
+        descriptions,
+        owningAccountEmail(calendar),
+      );
+      return accountDescription
+        ? { ...calendar, accountDescription }
+        : calendar;
+    });
     if (args.strict && result.errors.length)
-      throw calendarReadFailure(result.errors);
-    return {
-      ...result,
-      calendars: result.calendars.map((calendar) => {
-        const accountDescription = accountDescriptionFor(
-          descriptions,
-          owningAccountEmail(calendar),
-        );
-        return accountDescription
-          ? { ...calendar, accountDescription }
-          : calendar;
-      }),
-    };
+      throw calendarReadFailure(result.errors, { calendars });
+    return { ...result, calendars };
   },
 });

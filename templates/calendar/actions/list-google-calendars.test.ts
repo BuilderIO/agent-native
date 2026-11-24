@@ -53,6 +53,34 @@ describe("list-google-calendars action", () => {
     });
   });
 
+  it("includes successfully discovered calendars with a typed partial failure", async () => {
+    const calendar = {
+      sourceKey: "healthy",
+      calendarId: "healthy@example.test",
+      accountEmail: "healthy@example.test",
+      canonicalKey: "healthy",
+      name: "Healthy",
+      primary: true,
+      selected: true,
+      accessRole: "owner",
+      readOnly: false,
+    };
+    listGoogleCalendarsMock.mockResolvedValue({
+      calendars: [calendar],
+      errors: [
+        {
+          email: "other@example.test",
+          error: "Throttled",
+          code: "RATE_LIMITED",
+        },
+      ],
+    });
+    await expect(action.run({ strict: true })).rejects.toMatchObject({
+      errorCode: "calendar_rate_limited",
+      details: { calendars: [calendar] },
+    });
+  });
+
   it("says what each calendar's account is for", async () => {
     const calendar = {
       sourceKey: "s1",

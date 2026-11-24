@@ -175,6 +175,7 @@ export async function listSyncedGoogleEvents(
               "rateLimitExceeded",
               "userRateLimitExceeded",
               "quotaExceeded",
+              "dailyLimitExceeded",
               "rate_limit_exceeded",
             ].includes(error.reason ?? "")))
       )

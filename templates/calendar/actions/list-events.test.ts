@@ -1050,6 +1050,34 @@ describe("list-events inventory contract", () => {
     ).rejects.toMatchObject({ errorCode: "calendar_rate_limited" });
   });
 
+  it("returns healthy events inside the typed partial failure", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({ bookings: [bookingRow({ googleEventId: null })] }),
+    );
+    listGoogleEventsMock.mockResolvedValue({
+      events: [],
+      errors: [
+        {
+          email: "broken@example.test",
+          error: "Throttled",
+          code: "RATE_LIMITED",
+        },
+      ],
+    });
+    await expect(
+      listEventsAction.run({
+        from: "2026-06-17",
+        to: "2026-06-18",
+        incremental: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "calendar_rate_limited",
+      details: {
+        partialEvents: [expect.objectContaining({ id: "booking:booking-1" })],
+      },
+    });
+  });
+
   it("still fails the whole request when the primary account read itself errors with no events", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [],
