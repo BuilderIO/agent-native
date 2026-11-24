@@ -32,6 +32,7 @@ export const FILES_NAVIGATION_PAGE_SIZE = 20;
 // Most expanded folders one read asks for; the server caps what it returns.
 const MAX_EXPANDED_IDS_PER_READ = 100;
 const pendingExpansionReads = new WeakMap<QueryClient, Set<string>>();
+const pendingPagesOnlyReads = new WeakMap<QueryClient, Map<string, number>>();
 
 /**
  * The folders the Files tree draws open, most important first: both caps on
@@ -210,6 +211,7 @@ export function showCreatedFilesRow(
     listsBranch(params) &&
     params.navigation.parentId === item.parentId &&
     params.navigation.cursor === undefined &&
+    (!params.navigation.pagesOnly || item.type === "page") &&
     !page.items.some((listed) => listed.documentId === document.id)
       ? { ...page, items: [...page.items, item] }
       : undefined,
@@ -335,6 +337,10 @@ function withCreatedFilesRows(
   const rows = createdFilesRows.get(queryClient);
   if (!rows?.size || !listsBranch(params)) return page;
   const { databaseId, navigation } = params;
+  // An older picker read still needs rows that a newer tree read can retire.
+  const canRetire =
+    !navigation.pagesOnly &&
+    !pendingPagesOnlyReads.get(queryClient)?.has(databaseId);
   const firstPage = navigation.cursor === undefined;
   const listed = new Set(page.items.map((item) => item.documentId));
   // A shown row keeps the title and icon given to it since it was added.
@@ -349,20 +355,26 @@ function withCreatedFilesRows(
   for (const [documentId, row] of rows) {
     if (row.databaseId !== databaseId) continue;
     parentIds.add(row.item.parentId);
-    if (!firstPage || row.item.parentId !== navigation.parentId) continue;
+    if (
+      !firstPage ||
+      row.item.parentId !== navigation.parentId ||
+      (navigation.pagesOnly && row.item.type !== "page")
+    )
+      continue;
     const readAfterCreate =
       row.confirmedMark !== null && row.confirmedMark < readStartMark;
     if (listed.has(documentId)) {
-      if (readAfterCreate) rows.delete(documentId);
+      if (readAfterCreate && canRetire) rows.delete(documentId);
       continue;
     }
     if (readAfterCreate && !page.pagination.hasMore) {
-      rows.delete(documentId);
+      if (canRetire) rows.delete(documentId);
       continue;
     }
-    row.item =
+    const item =
       cachedItems.find((item) => item.documentId === documentId) ?? row.item;
-    shown.push(row.item);
+    if (!navigation.pagesOnly) row.item = item;
+    shown.push(item);
   }
   const items = [...page.items, ...shown];
   // A folder whose first child is still being created has children already.
@@ -488,7 +500,8 @@ export function moveCachedFilesRow(
     return !listed &&
       listsBranch(params) &&
       inDestination(params) &&
-      params.navigation.cursor === undefined
+      params.navigation.cursor === undefined &&
+      (!params.navigation.pagesOnly || move.item.type === "page")
       ? { ...page, items: [...page.items, move.item] }
       : undefined;
   });
@@ -664,6 +677,18 @@ export async function readFilesNavigationPage(
     pending.add(expansionKey);
   }
   const readStartMark = nextFilesMark();
+  let pendingPageReads: Map<string, number> | undefined;
+  if (pagesOnly) {
+    pendingPageReads = pendingPagesOnlyReads.get(queryClient);
+    if (!pendingPageReads) {
+      pendingPageReads = new Map();
+      pendingPagesOnlyReads.set(queryClient, pendingPageReads);
+    }
+    pendingPageReads.set(
+      params.databaseId,
+      (pendingPageReads.get(params.databaseId) ?? 0) + 1,
+    );
+  }
   try {
     // Read like a `useActionQuery`: a refused read drops the rows this page
     // showed. The Files tree isn't saved in the browser, so the response
@@ -709,9 +734,7 @@ export async function readFilesNavigationPage(
         );
       }
     }
-    return pagesOnly
-      ? page
-      : withCreatedFilesRows(queryClient, params, page, readStartMark);
+    return withCreatedFilesRows(queryClient, params, page, readStartMark);
   } catch (error) {
     // The server checks access to the whole Files database for every page of
     // it, and answers a folder it can't show with a 400. So a refused read of
@@ -732,6 +755,11 @@ export async function readFilesNavigationPage(
     throw error;
   } finally {
     if (expansionKey && pending) pending.delete(expansionKey);
+    if (pendingPageReads) {
+      const remaining = (pendingPageReads.get(params.databaseId) ?? 1) - 1;
+      if (remaining === 0) pendingPageReads.delete(params.databaseId);
+      else pendingPageReads.set(params.databaseId, remaining);
+    }
   }
 }
 
@@ -803,7 +831,10 @@ function openFoldersOnPage(
 export function useFilesNavigationPage(
   params: FilesNavigationPageParams,
   expanded: ReadonlySet<string> = NO_EXPANDED_FOLDERS,
-  { enabled = true }: { enabled?: boolean } = {},
+  {
+    enabled = true,
+    refetchOnMount,
+  }: { enabled?: boolean; refetchOnMount?: "always" } = {},
 ) {
   const queryClient = useQueryClient();
   const queryKey = filesNavigationQueryKey(params);
@@ -848,6 +879,7 @@ export function useFilesNavigationPage(
       );
     },
     retry: false,
+    refetchOnMount,
     enabled: enabled && canFetch,
   });
   useEffect(() => {

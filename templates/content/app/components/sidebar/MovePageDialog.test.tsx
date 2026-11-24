@@ -1,0 +1,267 @@
+// @vitest-environment happy-dom
+
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from "@tanstack/react-query";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+
+const { read } = vi.hoisted(() => ({ read: vi.fn() }));
+vi.mock("@agent-native/core/client/hooks", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/client/hooks")>()),
+  callActionWithRetry: read,
+  useActionQuery: (action: string, params: object) =>
+    useQuery({
+      queryKey: [action, params],
+      queryFn: () => read(action, params),
+      retry: false,
+    }),
+}));
+vi.mock("@agent-native/core/client/i18n", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/client/i18n")>()),
+  useT: () => (key: string) => key,
+}));
+
+import { MovePageDialog, type MovePageTarget } from "./MovePageDialog";
+
+const space = {
+  id: "space",
+  name: "Space",
+  filesDatabaseId: "files",
+  orgId: null,
+};
+const target = { documentId: "moving", title: "Moving", spaceId: "space" };
+function row(id: string, type = "page") {
+  return { documentId: id, title: id, type, icon: null, parentId: null };
+}
+function response(items: ReturnType<typeof row>[], nextCursor: string | null) {
+  return {
+    items,
+    pagination: { limit: 20, hasMore: nextCursor !== null, nextCursor },
+  };
+}
+let queryClient: QueryClient;
+let root: Root;
+let container: HTMLDivElement;
+
+beforeEach(() => {
+  (
+    globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  read.mockReset();
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+  });
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  queryClient.clear();
+});
+
+it("pages through scoped search and resets continuation when the search changes", async () => {
+  read.mockImplementation(async (action, params) => {
+    if (action !== "search-documents")
+      return response([row("root")], "root-next");
+    const id = `${params.query}-${params.offset}`;
+    return {
+      documents: [
+        { id, title: id, icon: null, parentTitle: null },
+        {
+          id: "search-folder",
+          title: "search-folder",
+          sourceKind: "folder",
+          icon: null,
+          parentTitle: null,
+        },
+      ],
+      pagination: {
+        hasMore: params.offset === 0,
+        nextOffset: params.offset === 0 ? 20 : null,
+      },
+    };
+  });
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <MovePageDialog
+          page={target}
+          spaces={[space]}
+          onOpenChange={() => {}}
+          onMove={() => {}}
+        />
+      </QueryClientProvider>,
+    ),
+  );
+  await vi.waitFor(() => expect(document.body.textContent).toContain("root"));
+  async function search(value: string) {
+    const input = document.querySelector<HTMLInputElement>("input");
+    if (!input) throw new Error("Missing search input");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+  await search("plan");
+  await vi.waitFor(() => expect(document.body.textContent).toContain("plan-0"));
+  expect(document.body.textContent).not.toContain("search-folder");
+  const more = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((element) => element.textContent?.includes("sidebar.showMore"));
+  if (!more) throw new Error("Missing continuation");
+  await act(async () => more.click());
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("plan-20"),
+  );
+  expect(read).toHaveBeenCalledWith(
+    "search-documents",
+    expect.objectContaining({
+      query: "plan",
+      spaceId: "space",
+      documentType: "page",
+      excludeSubtreeOf: "moving",
+      limit: 20,
+      offset: 20,
+    }),
+  );
+  await search("other");
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("other-0"),
+  );
+  expect(document.body.textContent).not.toContain("plan-20");
+  expect(
+    read.mock.calls.some(
+      ([action, params]) =>
+        action === "search-documents" &&
+        params.query === "other" &&
+        params.offset === 20,
+    ),
+  ).toBe(false);
+  await search("");
+  await vi.waitFor(() => expect(document.body.textContent).toContain("root"));
+  expect(document.body.textContent).not.toContain("plan-20");
+});
+
+it("starts at the first page when switching spaces", async () => {
+  const other = {
+    id: "other",
+    name: "Other space",
+    filesDatabaseId: "other-files",
+    orgId: null,
+  };
+  read.mockImplementation(async (_action, params) =>
+    response(
+      [row(`${params.databaseId}-${params.navigation.cursor ?? "first"}`)],
+      params.navigation.cursor ? null : "next",
+    ),
+  );
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <MovePageDialog
+          page={target}
+          spaces={[space, other]}
+          onOpenChange={() => {}}
+          onMove={() => {}}
+        />
+      </QueryClientProvider>,
+    ),
+  );
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("files-first"),
+  );
+  const more = [
+    ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ].find((item) => item.textContent?.includes("sidebar.showMore"));
+  if (!more) throw new Error("Missing continuation");
+  await act(async () => more.click());
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("files-next"),
+  );
+  const trigger = document.querySelector<HTMLElement>(
+    '[aria-label="sidebar.chooseSpace"]',
+  );
+  if (!trigger) throw new Error("Missing space selector");
+  await act(async () =>
+    trigger.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+    ),
+  );
+  const choice = [
+    ...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+  ].find((item) => item.textContent?.includes("Other space"));
+  if (!choice) throw new Error("Missing other space");
+  await act(async () => choice.click());
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("other-files-first"),
+  );
+  expect(document.body.textContent).not.toContain("files-next");
+  expect(
+    read.mock.calls.some(
+      ([, params]) =>
+        params.databaseId === "other-files" &&
+        params.navigation.cursor === "next",
+    ),
+  ).toBe(false);
+});
+
+it("loads later pages on request and refetches the first page on reopening", async () => {
+  let first = response([row("first"), row("folder", "folder")], "cursor-2");
+  read.mockImplementation(async (_action, params) =>
+    params.navigation.cursor ? response([row("later")], null) : first,
+  );
+  const onMove = vi.fn();
+  function render(page: MovePageTarget | null) {
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <MovePageDialog
+          page={page}
+          spaces={[space]}
+          onOpenChange={() => {}}
+          onMove={onMove}
+        />
+      </QueryClientProvider>,
+    );
+  }
+  await act(async () => render(target));
+  await vi.waitFor(() => expect(document.body.textContent).toContain("first"));
+  expect(document.body.textContent).not.toContain("folder");
+  const more = Array.from(
+    document.querySelectorAll('[role="option"], button'),
+  ).find((element) => element.textContent?.includes("sidebar.showMore"));
+  expect(more).toBeDefined();
+  await act(async () => (more as HTMLElement).click());
+  await vi.waitFor(() => expect(document.body.textContent).toContain("later"));
+  expect(
+    read.mock.calls.some(
+      ([, params]) =>
+        params.navigation.cursor === "cursor-2" &&
+        params.navigation.pagesOnly === true &&
+        params.limit === 20,
+    ),
+  ).toBe(true);
+  const later = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((element) => element.textContent === "later");
+  if (!later) throw new Error("Missing later destination");
+  await act(async () => later.click());
+  expect(onMove).toHaveBeenCalledWith(target, {
+    spaceId: "space",
+    parentId: "later",
+  });
+
+  await act(async () => render(null));
+  first = response([row("fresh")], null);
+  await act(async () => render(target));
+  await vi.waitFor(() => expect(document.body.textContent).toContain("fresh"));
+  expect(document.body.textContent).not.toContain("later");
+});

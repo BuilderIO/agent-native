@@ -324,6 +324,89 @@ describe("pages this tab created in the Files tree", () => {
     expect(shown[shown.length - 1]).toBe("new");
   });
 
+  it("shows confirmed pages but not folders in a racing Move picker read without retiring the tree overlay", async () => {
+    const pickerParams = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const read = readFilesNavigationPage(queryClient, pickerParams, []);
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+    showCreatedFilesRow(queryClient, FILES, created("folder"), "folder");
+    answer(page([row("a")]));
+    const result = await read;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((item) => item.documentId)).toEqual(["a", "new"]);
+
+    // A pages-only response does not describe the tree's whole branch.
+    callActionWithRetry.mockResolvedValueOnce(page([row("new")]));
+    await readFilesNavigationPage(queryClient, pickerParams, []);
+    expect(await reread(queryClient, page([row("a")], true))).toContain("new");
+  });
+
+  it("keeps a moved destination when a newer tree read overtakes the picker", async () => {
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const read = readFilesNavigationPage(queryClient, picker, []);
+    const item = row("moved");
+    keepMovedFilesRow(queryClient, {
+      documentId: "moved",
+      databaseId: FILES,
+      parentId: null,
+      from: { databaseId: FILES, parentId: "old" },
+      item,
+    });
+    await reread(queryClient, page([row("a"), item]));
+    answer(page([row("a")]));
+    const result = await read;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((entry) => entry.documentId)).toEqual([
+      "a",
+      "moved",
+    ]);
+  });
+
+  it("does not add folders to cached pages-only results after creation or move", () => {
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    queryClient.setQueryData(filesNavigationQueryKey(picker), page([row("a")]));
+    showCreatedFilesRow(queryClient, FILES, created("folder"), "folder");
+    const item = row("moved-folder", { type: "folder" });
+    moveCachedFilesRow(queryClient, {
+      documentId: item.documentId,
+      databaseId: FILES,
+      parentId: null,
+      from: { databaseId: FILES, parentId: "old" },
+      item,
+    });
+    expect(
+      queryClient
+        .getQueryData<ContentDatabaseNavigationPageResponse>(
+          filesNavigationQueryKey(picker),
+        )
+        ?.items.map((entry) => entry.documentId),
+    ).toEqual(["a"]);
+  });
+
   it("take out a failed create, and leave a deleted page to the write's reread", async () => {
     startCreate(queryClient, created("failed"));
     removeCreatedFilesRows(queryClient, ["failed"]);
