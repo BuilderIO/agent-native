@@ -103,7 +103,11 @@ function argumentLabel(key: string): string {
 
 function ReviewValue({ value }: { value: unknown }) {
   const t = useT();
-  if (value === null || value === undefined) return null;
+  if (value === null)
+    return (
+      <>{t("dispatch.pages.suggestionNullValue", { defaultValue: "None" })}</>
+    );
+  if (value === undefined) return null;
   if (Array.isArray(value))
     return (
       <ul className="list-inside list-disc">
@@ -130,9 +134,14 @@ function ReviewValue({ value }: { value: unknown }) {
   if (typeof value === "boolean")
     return (
       <>
-        {t(value ? "common.yes" : "common.no", {
-          defaultValue: value ? "Yes" : "No",
-        })}
+        {t(
+          value
+            ? "dispatch.pages.suggestionYesValue"
+            : "dispatch.pages.suggestionNoValue",
+          {
+            defaultValue: value ? "Yes" : "No",
+          },
+        )}
       </>
     );
   return <span dir="auto">{String(value)}</span>;

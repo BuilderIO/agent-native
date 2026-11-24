@@ -54,7 +54,7 @@ const automation = {
   execution: {
     type: "action",
     action: "create-reminder",
-    params: { cadence: "daily" },
+    params: { cadence: "daily", assignee: null, enabled: false },
   },
 } satisfies ActionSuggestion;
 
@@ -323,4 +323,21 @@ it("offers the existing app after confirmation", async () => {
   expect(
     container.querySelector('[role="status"] a')?.getAttribute("href"),
   ).toBe("https://equipment.example.test/");
+});
+
+it("shows explicit null and boolean values in the review", async () => {
+  const thread = doneThread();
+  thread.tools.turn = {
+    id: "turn",
+    name: "propose-action-suggestions",
+    runId: "run",
+    status: "completed",
+    output: { suggestions: [automation] },
+  };
+  mocks.useThread.mockReturnValue(thread);
+  await render();
+  await act(async () => chip(automation.label)?.click());
+  const dialog = document.querySelector('[role="dialog"]');
+  expect(dialog?.textContent).toContain("AssigneeNone");
+  expect(dialog?.textContent).toContain("EnabledNo");
 });
