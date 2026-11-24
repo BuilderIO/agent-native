@@ -247,8 +247,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          docker run -d --name feedback-proof-postgres \
+          export DOCKER_CONFIG="$(mktemp -d "$RUNNER_TEMP/feedback-proof-docker.XXXXXX")"
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker pull ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+          docker logout ghcr.io
+          rm -rf "$DOCKER_CONFIG"
+          trap - EXIT
+          unset DOCKER_CONFIG GH_TOKEN
+          docker run --pull=never -d --name feedback-proof-postgres \
             -e POSTGRES_DB=content_navigation_test -e POSTGRES_HOST_AUTH_METHOD=trust \
             -p 127.0.0.1:5432:5432 ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
           for attempt in {1..30}; do
