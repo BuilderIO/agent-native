@@ -44,14 +44,11 @@ const receiptSchema = z.discriminatedUnion("outcome", [
   }),
 ]);
 
-const ALREADY_EXISTS_CODE =
-  /(?:^|_)(?:already_exists|exists|duplicate)(?:_|$)/i;
-
 function targetAlreadyExists(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const code = (error as { errorCode?: unknown }).errorCode;
-  if (typeof code === "string" && ALREADY_EXISTS_CODE.test(code)) return true;
-  return /\balready exists\b/i.test(error.message);
+  return (
+    error instanceof Error &&
+    (error as { errorCode?: unknown }).errorCode === "already_exists"
+  );
 }
 
 function safeAppUrl(value: string | null | undefined): string | undefined {

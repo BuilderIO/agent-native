@@ -306,6 +306,20 @@ it("still fails an action that errors for another reason", async () => {
   ).rejects.toMatchObject({ errorCode: "app_failed" });
 });
 
+it.each([
+  ["Split already exists", "app_failed"],
+  ["Boom", "duplicate_input"],
+  ["Parent folder does not exist", "folder_not_exists"],
+])("does not report %s (%s) as completed", async (text, code) => {
+  mocks.callAction.mockResolvedValue({
+    isError: true,
+    content: [{ type: "text", text: `${text} (errorCode: ${code})` }],
+  });
+  await expect(
+    execute.run({ suggestion: filter }, browser),
+  ).rejects.toMatchObject({ errorCode: code });
+});
+
 it("opens the pending Builder branch when the app is already being created", async () => {
   mocks.startCreation.mockResolvedValue({
     mode: "app-id-taken",
