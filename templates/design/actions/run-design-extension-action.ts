@@ -15,6 +15,7 @@ interface CapabilityRoute {
   readOnly: boolean;
   gated?: boolean;
   gateReason?: string;
+  mcpTool?: boolean;
 }
 
 const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
@@ -33,8 +34,9 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
   "design.asset-library:generate": {
     action: "generate-asset",
     paramHint:
-      'Call the Assets MCP tool generate-asset with a generation prompt and callerAppId "design", then pass the returned assetUrl to insert-asset.  If no generate-asset tool is in your tool list, Assets is not connected for this organization: say so (an org owner or admin can run connect-assets-mcp) and do not try to reach another app.',
+      'Call the Assets MCP tool whose name ends in "__generate-asset" with a generation prompt and callerAppId "design", then pass the returned assetUrl to insert-asset.  If no generate-asset tool is in your tool list, Assets is not connected for this organization: say so (an org owner or admin can run connect-assets-mcp) and do not try to reach another app.',
     readOnly: false,
+    mcpTool: true,
   },
 
   "design.token-auditor:index": {
@@ -171,10 +173,13 @@ The extension iframe itself is not called by this action — only the backing ac
         readOnly: route.readOnly,
         gated: route.gated ?? false,
         gateReason: route.gateReason ?? null,
+        mcpTool: route.mcpTool ?? false,
       },
       nextStep: route.gated
         ? `NOTE: This capability is gated.  ${route.gateReason ?? ""}  The underlying action will return a clear gated result; do not imply the operation will succeed.`
-        : `Call the action "${route.action}" with the params described in paramHint.`,
+        : route.mcpTool
+          ? `Call the MCP tool in your tool list whose name ends in "__${route.action}" with the params described in paramHint.`
+          : `Call the action "${route.action}" with the params described in paramHint.`,
       slotId: "design.editor.inspector",
     };
   },
