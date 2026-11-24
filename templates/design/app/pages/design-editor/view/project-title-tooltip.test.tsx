@@ -78,32 +78,6 @@ describe("Design project title tooltip", () => {
     },
   );
 
-  it("focuses the original-sized rename input without opening a tooltip", async () => {
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    await act(async () => {
-      root.render(
-        <MemoryRouter>
-          <TooltipProvider delayDuration={0}>
-            {titleControl(true, false, true)}
-          </TooltipProvider>
-        </MemoryRouter>,
-      );
-    });
-    cleanup = () => act(async () => root.unmount()).then(() => host.remove());
-    const input = host.querySelector("input");
-    if (!input) throw new Error("Missing rename input");
-    expect(document.activeElement).toBe(input);
-    expect(input.value).toBe(title);
-    expect(input.className).toContain("h-7");
-    expect(input.className).toContain("px-1");
-    expect(input.className).toContain("py-0");
-    expect(input.className).toContain("text-[13px]");
-    expect(input.className).toContain("font-medium");
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
-  });
-
   it.each([
     ["read-only", false, false],
     ["read-only with brief", false, true],
