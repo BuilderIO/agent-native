@@ -24,11 +24,22 @@ const mocks = vi.hoisted(() => ({
   runStatuses: new Map<string, string>(),
   runEvents: new Map<
     string,
-    Array<{ runId: string; seq: number; event: { type: string } }>
+    Array<{
+      runId: string;
+      seq: number;
+      event: {
+        type: string;
+        error?: string;
+        errorCode?: string;
+        recoverable?: boolean;
+        providerRetryable?: boolean;
+      };
+    }>
   >(),
   runReadError: null as Error | null,
   beforeCompare: null as (() => void) | null,
   compare: vi.fn(),
+  compareMany: vi.fn(),
   readRun: vi.fn(),
 }));
 
@@ -51,6 +62,32 @@ vi.mock("@agent-native/core/application-state", () => {
       structuredClone(
         entries().find((entry) => entry.key === key)?.value ?? null,
       ),
+    compareAndSetManyAppState: async (
+      operations: Array<{
+        key: string;
+        expectedValue: unknown;
+        nextValue: unknown;
+      }>,
+    ) => {
+      mocks.compareMany(operations);
+      mocks.beforeCompare?.();
+      const current = entries();
+      if (
+        operations.some(
+          ({ key, expectedValue }) =>
+            JSON.stringify(
+              current.find((entry) => entry.key === key)?.value ?? null,
+            ) !== JSON.stringify(expectedValue),
+        )
+      )
+        return false;
+      for (const { key, nextValue } of operations) {
+        const entry = current.find((item) => item.key === key);
+        if (entry) entry.value = structuredClone(nextValue);
+        else current.push({ key, value: structuredClone(nextValue) });
+      }
+      return true;
+    },
     compareAndSetAppState: async (
       key: string,
       expected: unknown,
@@ -164,6 +201,7 @@ beforeEach(async () => {
   mocks.runReadError = null;
   mocks.beforeCompare = null;
   mocks.compare.mockReset();
+  mocks.compareMany.mockReset();
   mocks.readRun.mockReset();
 });
 
@@ -519,6 +557,222 @@ describe("server-side AI request reconciliation", () => {
       status: "completed",
       updatedAt: expect.any(String),
     });
+  });
+
+  it("reconciles an explicitly terminal verification error and atomically suppresses auto-title", async () => {
+    const original = await seed("rec", "errored");
+    await client.query(
+      "update recordings set title_source = 'default', title = 'Untitled recording' where id = 'rec'",
+    );
+    await client.query(
+      "insert into recording_transcripts (recording_id, status, full_text, segments_json) values ('rec', 'ready', 'Example transcript', '[]')",
+    );
+    mocks.runEvents.set(`${original.threadId}/${original.turnId}`, [
+      {
+        runId: "run-rec",
+        seq: 1,
+        event: {
+          type: "error",
+          error: "An email must be verified",
+          errorCode: "email_verification_required",
+          providerRetryable: false,
+        },
+      },
+    ]);
+    const result = await listAiRequests.run({});
+    expect(result.activeSessions).toEqual([]);
+    expect(result.titleCandidates).toEqual([]);
+    expect(
+      mocks.appState.find((entry) => entry.key === statusKey("rec"))?.value,
+    ).toEqual({
+      ...original,
+      status: "failed",
+      message:
+        "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
+      updatedAt: expect.any(String),
+    });
+    expect(
+      mocks.appState.find(
+        (entry) => entry.key === "clips-ai-title-terminal-rec",
+      )?.value,
+    ).toEqual({
+      kind: original.kind,
+      status: "failed",
+      requestedAt: original.requestedAt,
+      suppressed: true,
+    });
+    expect(mocks.compareMany).toHaveBeenCalledOnce();
+  });
+
+  it("settles a non-title verification failure without creating a title marker", async () => {
+    const original = {
+      ...(await seed("rec", "errored")),
+      kind: "regenerate-chapters",
+    };
+    mocks.appState[0].value = original;
+    mocks.runEvents.set(`${original.threadId}/${original.turnId}`, [
+      {
+        runId: "run-rec",
+        seq: 1,
+        event: {
+          type: "error",
+          error: "An email must be verified",
+          errorCode: "email_verification_required",
+          recoverable: false,
+        },
+      },
+    ]);
+    expect((await listAiRequests.run({})).activeSessions).toEqual([]);
+    expect(mocks.appState[0].value).toMatchObject({
+      status: "failed",
+      message:
+        "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
+    });
+    expect(
+      mocks.appState.find(
+        (entry) => entry.key === "clips-ai-title-terminal-rec",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("leaves the status unchanged if the suppression marker races", async () => {
+    const original = await seed("rec", "errored");
+    mocks.runEvents.set(`${original.threadId}/${original.turnId}`, [
+      {
+        runId: "run-rec",
+        seq: 1,
+        event: {
+          type: "error",
+          error: "An email must be verified",
+          errorCode: "email_verification_required",
+          providerRetryable: false,
+        },
+      },
+    ]);
+    mocks.beforeCompare = () => {
+      mocks.appState.push({
+        key: "clips-ai-title-terminal-rec",
+        value: { suppressed: true, requestedAt: "newer" },
+      });
+    };
+    const result = await listAiRequests.run({});
+    expect(result.activeSessions).toEqual([expect.objectContaining(original)]);
+    expect(mocks.appState[0].value).toEqual(original);
+    expect(mocks.appState[1].value).toEqual({
+      suppressed: true,
+      requestedAt: "newer",
+    });
+  });
+
+  it.each([
+    "missing",
+    "ambiguous",
+    "recoverable",
+    "wrong-code",
+    "continuation",
+    "successor",
+  ])(
+    "keeps verification errors active when evidence is %s",
+    async (scenario) => {
+      const original = await seed("rec", "errored");
+      const event = {
+        type: "error",
+        error: "An email must be verified",
+        errorCode: "email_verification_required",
+        providerRetryable: false,
+      };
+      if (scenario !== "missing") {
+        mocks.runEvents.set(`${original.threadId}/${original.turnId}`, [
+          {
+            runId: "run-rec",
+            seq: 1,
+            event:
+              scenario === "ambiguous"
+                ? { ...event, providerRetryable: undefined }
+                : scenario === "recoverable"
+                  ? { ...event, recoverable: true }
+                  : scenario === "wrong-code"
+                    ? { ...event, errorCode: "timeout" }
+                    : event,
+          },
+          ...(scenario === "continuation"
+            ? [{ runId: "run-rec", seq: 2, event: { type: "auto_continue" } }]
+            : []),
+        ]);
+      }
+      if (scenario === "successor") {
+        mocks.turnRuns.set(`${original.threadId}/${original.turnId}`, [
+          "run-rec",
+          "run-next",
+        ]);
+        mocks.runStatuses.set("run-next", "running");
+      }
+      expect((await listAiRequests.run({})).activeSessions).toEqual([
+        expect.objectContaining(original),
+      ]);
+      expect(mocks.appState[0].value).toEqual(original);
+      expect(mocks.compareMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not reconcile a verification failure for a viewer or another user's thread", async () => {
+    mocks.shared = true;
+    const viewer = await seed("viewer", "errored", "owner@example.com");
+    const otherThread = await seed("other", "errored");
+    mocks.inaccessibleThreads = [otherThread.threadId];
+    for (const [id, state] of [
+      ["viewer", viewer],
+      ["other", otherThread],
+    ] as const) {
+      mocks.runEvents.set(`${state.threadId}/${state.turnId}`, [
+        {
+          runId: `run-${id}`,
+          seq: 1,
+          event: {
+            type: "error",
+            error: "An email must be verified",
+            errorCode: "email_verification_required",
+            recoverable: false,
+          },
+        },
+      ]);
+    }
+    expect((await listAiRequests.run({})).activeSessions).toHaveLength(2);
+    expect(mocks.compareMany).not.toHaveBeenCalled();
+    expect(mocks.readRun).not.toHaveBeenCalled();
+  });
+
+  it("does not suppress or overwrite a newer request when verification settlement races", async () => {
+    const original = await seed("rec", "errored");
+    mocks.runEvents.set(`${original.threadId}/${original.turnId}`, [
+      {
+        runId: "run-rec",
+        seq: 1,
+        event: {
+          type: "error",
+          error: "An email must be verified",
+          errorCode: "email_verification_required",
+          recoverable: false,
+        },
+      },
+    ]);
+    const newer = {
+      ...original,
+      operationId: "new-operation",
+      threadId: "new-thread",
+      turnId: "new-turn",
+    };
+    mocks.beforeCompare = () => {
+      mocks.appState[0].value = newer;
+    };
+    const result = await listAiRequests.run({});
+    expect(result.activeSessions).toEqual([expect.objectContaining(newer)]);
+    expect(mocks.appState[0].value).toEqual(newer);
+    expect(
+      mocks.appState.find(
+        (entry) => entry.key === "clips-ai-title-terminal-rec",
+      ),
+    ).toBeUndefined();
   });
 
   it("finds a receipt without a run ID and uses the newest same-turn continuation", async () => {
