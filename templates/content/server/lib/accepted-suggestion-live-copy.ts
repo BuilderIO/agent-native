@@ -631,8 +631,14 @@ function writeWhereUnchanged(
       : null;
   if (offset === null) return false;
   const blocks: ProseMirrorNode[] = [];
-  for (let index = first; index < nextEnd; index += 1)
-    blocks.push(after.child(index));
+  const sameCount = nextEnd === end;
+  for (let index = first; index < nextEnd; index += 1) {
+    const next = after.child(index);
+    const held = sameCount ? live.child(offset + index - first) : null;
+    blocks.push(
+      held && held.type === next.type ? withBlockIdOf(held, next) : next,
+    );
+  }
   let target: ProseMirrorNode;
   try {
     target = live.replace(

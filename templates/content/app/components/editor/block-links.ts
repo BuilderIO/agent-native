@@ -161,12 +161,11 @@ export function stampBlockIdentityIds(
 }
 
 async function readBodyBlockIds(documentId: string) {
-  const { ids } = (await callAction(
+  return (await callAction(
     "get-body-block-ids",
     { documentId },
     { method: "GET" },
-  )) as { ids: BodyBlockIds | null };
-  return ids;
+  )) as { ids: BodyBlockIds | null; noBlocksField?: true };
 }
 
 const STAMP_DELAY_MS = 1500;
@@ -184,18 +183,21 @@ export function useBlockIdentityStamps(args: {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
     let reading = false;
+    let noBlocksField = false;
     const schedule = (delay: number) => {
       clearTimeout(timer);
       timer = setTimeout(() => void run(), delay);
     };
-    const stopped = () => cancelled || editor.isDestroyed;
+    const stopped = () => cancelled || editor.isDestroyed || noBlocksField;
     const run = async () => {
       if (stopped() || !lacksIds(editor.state.doc)) return;
       if (reading) return schedule(STAMP_DELAY_MS);
       reading = true;
       try {
         const doc = editor.state.doc;
-        const ids = await readBodyBlockIds(documentId);
+        const read = await readBodyBlockIds(documentId);
+        noBlocksField = read.noBlocksField === true;
+        const { ids } = read;
         if (stopped() || !ids) return;
         if (editor.state.doc !== doc) return schedule(STAMP_DELAY_MS);
         const stamped = stampBlockIdentityIds(editor, ids);
@@ -287,7 +289,7 @@ export async function blockLinkId(args: {
       if (id) return id;
       if (step) await step();
       const doc = editor.state.doc;
-      const ids = await readBodyBlockIds(documentId);
+      const { ids } = await readBodyBlockIds(documentId);
       if (!ids || editor.isDestroyed) continue;
       const found = fromRead(ids);
       if (args.stamp && editor.state.doc === doc) {
@@ -415,7 +417,8 @@ export function useLinkedBlockReveal(args: {
           if (done) return;
           if (found.state === "live") {
             at = { path: found.path, content: found.content };
-            if (!tryReveal() && waited) missing();
+            if (!tryReveal() && waited)
+              timer = setTimeout(missing, LINK_WAIT_MS);
             return;
           }
           finish();

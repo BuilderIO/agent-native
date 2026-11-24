@@ -146,6 +146,7 @@ import {
   watchClipUploadBlocks,
 } from "./clip-embed/clip-uploads";
 import { CodeBlockToolbar } from "./CodeBlockToolbar";
+import { flushBeforeSave } from "./collab-flush-before-save";
 import { ColumnResizeControls } from "./ColumnResizeControls";
 import {
   buildDocText,
@@ -1897,6 +1898,7 @@ interface VisualEditorProps {
   requestCollabSync?: () => Promise<{
     status: "synced" | "failed" | "unavailable";
   }>;
+  flushCollabUpdates?: (options?: { editsSoFar?: boolean }) => Promise<boolean>;
   onBaseAwareReconcile?: (result: {
     status: "merged" | "conflict" | "failed";
     content: string;
@@ -3889,6 +3891,7 @@ export function VisualEditor({
   mergedLocalSave,
   collabContentRevision,
   requestCollabSync,
+  flushCollabUpdates,
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
   isEditorClean,
@@ -5115,8 +5118,13 @@ export function VisualEditor({
         stamp: canWrite,
         save: canWrite
           ? async () => {
-              if (bodyIsLiveCopy) await requestCollabSync?.();
-              else {
+              if (bodyIsLiveCopy) {
+                if (flushCollabUpdates)
+                  await flushBeforeSave(() =>
+                    flushCollabUpdates({ editsSoFar: true }),
+                  );
+                await requestCollabSync?.();
+              } else {
                 await persistEditorContent(editor, {
                   immediate: true,
                   userInitiated: true,
@@ -5133,6 +5141,7 @@ export function VisualEditor({
       documentId,
       editable,
       editor,
+      flushCollabUpdates,
       persistEditorContent,
       requestCollabSync,
     ],

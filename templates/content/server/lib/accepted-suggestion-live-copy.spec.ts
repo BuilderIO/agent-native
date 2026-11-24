@@ -611,6 +611,32 @@ describe("writeAcceptedSuggestion without a placement", () => {
     expect(idsOf(server)).toEqual(["block_0", null, "block_1"]);
   });
 
+  it("keeps the IDs of blocks a suggestion rewrites together", () => {
+    for (const typed of [false, true]) {
+      const stored = "Alpha.\nBeta.\nGamma.";
+      const { server, browser } = pair(stored);
+      Y.applyUpdate(server, edit(browser, stampIds));
+      if (typed)
+        Y.applyUpdate(server, edit(browser, typeAt(" Typed.", endOf("Gamma"))));
+      accept(server, stored, "Alpha!\nBeta!\nGamma.");
+      exchange(server, browser);
+      expect(markdownOf(server)).toBe(
+        typed ? "Alpha!\nBeta!\nGamma. Typed." : "Alpha!\nBeta!\nGamma.",
+      );
+      expect(idsOf(server)).toEqual(["block_0", "block_1", "block_2"]);
+      expect(idsOf(browser)).toEqual(["block_0", "block_1", "block_2"]);
+    }
+  });
+
+  it("gives no ID to blocks a suggestion rewrites into fewer", () => {
+    const stored = "Alpha.\nBeta.\nGamma.";
+    const { server, browser } = pair(stored);
+    Y.applyUpdate(server, edit(browser, stampIds));
+    accept(server, stored, "Beta!\nGamma.");
+    expect(markdownOf(server)).toBe("Beta!\nGamma.");
+    expect(idsOf(server)).toEqual([null, "block_2"]);
+  });
+
   it("refuses when the live copy changed that paragraph", () => {
     const stored = "The lazy dog.\nSecond paragraph.";
     const {

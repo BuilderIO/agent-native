@@ -25,12 +25,15 @@ export default defineAction({
   schema: z.object({
     documentId: z.string().min(1),
   }),
-  outputSchema: z.object({ ids: editorBlockIdsSchema.nullable() }),
+  outputSchema: z.object({
+    ids: editorBlockIdsSchema.nullable(),
+    noBlocksField: z.literal(true).optional(),
+  }),
   run: async ({ documentId }) => {
     const access = await resolveDocumentAccess(documentId);
     if (!access) return { ids: null };
     const [propertyId] = await bodyBlocksPropertyIds(documentId);
-    if (!propertyId) return { ids: null };
+    if (!propertyId) return { ids: null, noBlocksField: true as const };
     const markdown =
       (access.resource.content as string | null | undefined) ?? "";
     const identity = await readBlocksFieldIdentity({

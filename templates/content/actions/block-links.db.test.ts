@@ -264,6 +264,19 @@ describe("block links", () => {
     await expect(readIds(documentId)).resolves.toEqual({ ids: null });
   });
 
+  it("says when a page belongs to no collection, so it has no Blocks field", async () => {
+    const { documentId } = await rowPage("Alpha\nBeta");
+    await getDb()
+      .delete(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.documentId, documentId));
+
+    await expect(readIds(documentId)).resolves.toEqual({
+      ids: null,
+      noBlocksField: true,
+    });
+    await expect(readIds(documentId, OUTSIDER)).resolves.toEqual({ ids: null });
+  });
+
   it("keeps a stale tab's IDs on its blocks when a merge adds another tab's change", async () => {
     const content = "Alpha\nBeta\nGamma";
     const { documentId, ids } = await rowPage(content);
@@ -312,6 +325,9 @@ describe("block links", () => {
       content: "Alpha\nBeta\nGamma, edited",
       revision: (first as { revision: string }).revision,
     });
+    expect((await readIds(documentId)).ids?.idsByPath).toEqual(
+      byPath(alpha, beta, gamma),
+    );
   });
 
   it("follows the merged text when a stale tab's IDs are older than another tab's move", async () => {

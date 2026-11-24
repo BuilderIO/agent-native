@@ -12566,6 +12566,7 @@ function PageEditorSessionBody({
                                     : document.collabContentRevision
                                 }
                                 requestCollabSync={requestCollabSync}
+                                flushCollabUpdates={flushCollabUpdates}
                                 onChange={
                                   isSuggesting
                                     ? handleSuggestionDraftChange

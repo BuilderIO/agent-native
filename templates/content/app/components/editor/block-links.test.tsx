@@ -26,6 +26,7 @@ import {
   editorDocBlockIds,
   heldBlockLinkId,
   stampBlockIdentityIds,
+  useBlockIdentityStamps,
   useLinkedBlockReveal,
 } from "./block-links";
 import type { BlockAt } from "./block-menu-registry";
@@ -385,6 +386,65 @@ describe("block links", () => {
   });
 });
 
+describe("stamping a page's block IDs", () => {
+  async function stamp(target: Editor) {
+    function Harness() {
+      useBlockIdentityStamps({
+        editor: target,
+        documentId: "doc-1",
+        enabled: true,
+      });
+      return null;
+    }
+    const container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => root?.render(<Harness />));
+    await act(async () => {
+      vi.advanceTimersByTime(10);
+    });
+  }
+
+  async function typeAndPause(target: Editor) {
+    await act(async () => {
+      target.commands.insertContentAt(target.state.doc.content.size, {
+        type: "paragraph",
+        content: [{ type: "text", text: "More" }],
+      });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(2_000);
+    });
+  }
+
+  it("stops reading IDs for a page with no Blocks field", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout"],
+      shouldAdvanceTime: true,
+    });
+    const target = open("Apples");
+    hooks.callAction.mockResolvedValue({ ids: null, noBlocksField: true });
+    await stamp(target);
+    expect(hooks.callAction).toHaveBeenCalledTimes(1);
+
+    await typeAndPause(target);
+    expect(hooks.callAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads IDs again after an edit while the page's table has none", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout"],
+      shouldAdvanceTime: true,
+    });
+    const target = open("Apples");
+    hooks.callAction.mockResolvedValue({ ids: null });
+    await stamp(target);
+    expect(hooks.callAction).toHaveBeenCalledTimes(1);
+
+    await typeAndPause(target);
+    expect(hooks.callAction).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("opening a block link", () => {
   async function reveal(target: Editor, blockId: string) {
     const onDeleted = vi.fn();
@@ -512,6 +572,86 @@ describe("opening a block link", () => {
 
       expect(onMissing).not.toHaveBeenCalled();
       expect(highlighted(target)).toEqual(["Pears"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for the editor to catch up when the server answers after the wait", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout"],
+      shouldAdvanceTime: true,
+    });
+    try {
+      const target = open("Apples");
+      let answer: (found: unknown) => void = () => undefined;
+      hooks.callAction.mockReturnValueOnce(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      );
+      const { onMissing } = await reveal(target, "block_pears");
+      await act(async () => {
+        vi.advanceTimersByTime(9_000);
+      });
+      await act(async () => {
+        answer({
+          state: "live",
+          path: "1",
+          content: blockContentHashesByPath("Apples\nPears")["1"],
+        });
+      });
+      expect(onMissing).not.toHaveBeenCalled();
+
+      await act(async () => {
+        target.commands.insertContentAt(target.state.doc.content.size, {
+          type: "paragraph",
+          content: [{ type: "text", text: "Pears" }],
+        });
+      });
+      for (let frame = 0; frame < 2; frame++) {
+        await act(async () => {
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        });
+      }
+
+      expect(onMissing).not.toHaveBeenCalled();
+      expect(highlighted(target)).toEqual(["Pears"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says the block is missing when the editor never catches up with a late answer", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout"],
+      shouldAdvanceTime: true,
+    });
+    try {
+      const target = open("Apples");
+      let answer: (found: unknown) => void = () => undefined;
+      hooks.callAction.mockReturnValueOnce(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      );
+      const { onMissing } = await reveal(target, "block_pears");
+      await act(async () => {
+        vi.advanceTimersByTime(9_000);
+      });
+      await act(async () => {
+        answer({
+          state: "live",
+          path: "1",
+          content: blockContentHashesByPath("Apples\nPears")["1"],
+        });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(9_000);
+      });
+
+      expect(onMissing).toHaveBeenCalledTimes(1);
+      expect(highlighted(target)).toEqual([]);
     } finally {
       vi.useRealTimers();
     }
