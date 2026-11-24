@@ -153,16 +153,20 @@ export default defineAction({
       }
     }
 
-    const intentApp = /\b(?:e-?mails?|messages?|inbox)\b/i.test(text)
-      ? "mail"
-      : /\bgithub\b/i.test(text) &&
-          /\b(?:issues?|pull requests?|prs?)\b/i.test(text)
-        ? "tasks"
-        : null;
+    const taskIntent =
+      /\bgithub\b/i.test(text) &&
+      /\b(?:issues?|pull requests?|prs?)\b/i.test(text) &&
+      !/\b(?:e-?mails?|inbox|messages?)\s+(?:about|regarding)\b/i.test(text);
+    const mailIntent =
+      /\b(?:e-?mails?|inbox)\b/i.test(text) ||
+      /\bmessages?\s+from\s+(?:(?:actual|real)\s+)?people\b/i.test(text) ||
+      /\b(?:my|your)\s+messages?\b/i.test(text);
+    const intentApp = taskIntent ? "tasks" : mailIntent ? "mail" : null;
     const intentCandidates = intentApp
       ? matchDispatchAppCandidates(apps, intentApp)
       : [];
     const intentCandidate = intentCandidates.at(0);
+    const hit = matchPointer(text, grantedPointers);
     if (intentCandidates.length === 1 && intentCandidate) {
       return {
         status: "ok",
@@ -172,11 +176,17 @@ export default defineAction({
         model: "data-intent",
         cached: false,
         latencyMs: 0,
+        ...(hit && hit.appId === intentCandidate.id
+          ? {
+              pointer: true,
+              ...(hit.objectId ? { objectId: hit.objectId } : {}),
+              ...(hit.url ? { url: hit.url } : {}),
+            }
+          : {}),
       };
     }
 
-    const hit = matchPointer(text, grantedPointers);
-    if (hit && !openApp) {
+    if (hit && !openApp && !intentApp) {
       return {
         status: "ok",
         app: hit.appId,

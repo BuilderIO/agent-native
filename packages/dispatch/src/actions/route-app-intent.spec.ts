@@ -77,17 +77,71 @@ describe("route-app-intent", () => {
     mocks.listGrantedDispatchMcpApps.mockResolvedValue([
       { id: "tasks", name: "Tasks", description: "GitHub integration" },
     ]);
+    mocks.listPointerRows.mockResolvedValue([
+      {
+        id: "p1",
+        owner: "owner@example.com",
+        path: "pointers/github.json",
+        content: JSON.stringify({ alias: "GitHub", appId: "tasks" }),
+      },
+    ]);
     mocks.decide.mockResolvedValue({
       status: "ok",
       provider: "test",
       model: "test",
       answers: { app: { type: "choice", choice: "none" } },
     });
-    expect(await run({ text: "show my inbox" })).toMatchObject({
+    expect(await run({ text: "show my GitHub inbox" })).toMatchObject({
       status: "ok",
       app: "none",
     });
     expect(mocks.decide).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    "explain these commit messages",
+    "fix the error messages in the login form",
+  ])("leaves unrelated messages to classification: %s", async (text) => {
+    mocks.decide.mockResolvedValue({
+      status: "ok",
+      provider: "test",
+      model: "test",
+      answers: { app: { type: "choice", choice: "none" } },
+    });
+    expect(await run({ text })).toMatchObject({ app: "none" });
+  });
+
+  it("preserves a matching saved mail object", async () => {
+    mocks.listPointerRows.mockResolvedValue([
+      {
+        id: "p1",
+        owner: "owner@example.com",
+        path: "pointers/email-drafts.json",
+        content: JSON.stringify({
+          alias: "email drafts",
+          appId: "mail",
+          url: "https://example.com/drafts",
+        }),
+      },
+    ]);
+    expect(await run({ text: "open email drafts" })).toMatchObject({
+      app: "mail",
+      pointer: true,
+      url: "https://example.com/drafts",
+    });
+  });
+
+  it("routes GitHub issue messages to tasks", async () => {
+    mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+      { id: "mail", name: "Mail" },
+      { id: "tasks", name: "Tasks" },
+    ]);
+    expect(
+      await run({
+        text: "show messages on this GitHub issue",
+        openApp: "tasks",
+      }),
+    ).toMatchObject({ app: "tasks" });
   });
 
   it("recognizes an explicit registered app choice without classifying it", async () => {
