@@ -45,6 +45,10 @@ describe("dev-lazy workspace handoff", () => {
       assert.equal(shouldUseWorkspaceDev(root, ["--apps=mail"]), false);
       assert.equal(shouldUseWorkspaceDev(root, ["--desktop"]), false);
       assert.equal(shouldUseWorkspaceDev(root, ["--watch-core-dist"]), false);
+      assert.equal(
+        shouldUseWorkspaceDev(root, [], { WORKSPACE_WATCH_CORE_DIST: "1" }),
+        false,
+      );
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

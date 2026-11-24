@@ -13,7 +13,7 @@ import {
   normalizeOrigin,
   rewriteRedirectLocation,
 } from "../packages/core/src/cli/gateway-helpers.ts";
-import { pnpmCommand, stopProcessTree } from "./lib/pnpm-command.ts";
+import { pnpmCommand } from "./lib/pnpm-command.ts";
 
 interface TemplateApp {
   id: string;
@@ -1896,13 +1896,18 @@ const DEV_LAZY_ONLY_FLAGS = [
   "--watch-core-dist",
 ];
 
-export function shouldUseWorkspaceDev(root: string, args: string[]): boolean {
+export function shouldUseWorkspaceDev(
+  root: string,
+  args: string[],
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
   const configPath = path.join(root, "agent-native.json");
   if (!fs.existsSync(configPath)) return false;
   const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
     deployment?: { workspace?: unknown };
   };
   if (!config.deployment?.workspace) return false;
+  if (readBooleanEnv(env.WORKSPACE_WATCH_CORE_DIST) === true) return false;
   return !args.some((arg) =>
     DEV_LAZY_ONLY_FLAGS.some(
       (flag) => arg === flag || arg.startsWith(`${flag}=`),
@@ -1924,9 +1929,10 @@ function runWorkspaceDev(): void {
     cwd: ROOT,
     shell: pnpm.shell,
     stdio: "inherit",
+    detached: process.platform !== "win32",
   });
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.once(sig, () => stopProcessTree(child, sig));
+    process.once(sig, () => killChildProcessTree(child, sig));
   }
   child.on("exit", (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
 }
