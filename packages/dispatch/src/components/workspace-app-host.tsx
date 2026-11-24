@@ -1062,7 +1062,7 @@ export function WorkspaceAppFrame({
           ref={embedFrameRef}
           onLoad={handleFrameLoad}
           referrerPolicy="no-referrer"
-          allow="clipboard-read; clipboard-write"
+          allow="clipboard-read; clipboard-write; fullscreen"
           className="h-full w-full border-0 bg-background"
         />
       )}
