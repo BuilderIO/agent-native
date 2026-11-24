@@ -8,6 +8,8 @@ const AUTOMATED_CATEGORY_LABELS = new Set([
 const AUTOMATED_LOCAL_PART =
   /^(no-?reply|do-?not-?reply|donotreply|notifications?|notify|alerts?|mailer(-daemon)?|bounces?|postmaster|newsletter|digest|reminders?|calendar-notification|drive-shares-noreply)(?:[+.\-_]|$)/i;
 
+const BOT_ADDRESS = /(^|[+.\-_])bots?($|[+.\-_])|\[bot\]/i;
+
 export function classifyAutomated(input: {
   headers: Array<{ name?: string | null; value?: string | null }>;
   labelIds: string[];
@@ -30,5 +32,5 @@ export function classifyAutomated(input: {
   }
 
   const localPart = input.fromEmail.split("@")[0] || "";
-  return AUTOMATED_LOCAL_PART.test(localPart);
+  return AUTOMATED_LOCAL_PART.test(localPart) || BOT_ADDRESS.test(localPart);
 }
