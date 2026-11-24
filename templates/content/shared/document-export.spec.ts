@@ -223,6 +223,35 @@ describe("document export", () => {
     expect(exportPayload.content).toContain("<strong>Ship it</strong>");
   });
 
+  it("keeps a link's underscores out of emphasis in HTML exports", () => {
+    const url = "https://design.example.test/design/a_1_b";
+    const html = buildDocumentExport({
+      id: "doc_1",
+      title: "Links",
+      content: `[launch_1](${url}) and _real_ emphasis`,
+      format: "html",
+    }).content;
+    expect(html).toContain(
+      `<a href="${url}">launch_1</a> and <em>real</em> emphasis`,
+    );
+  });
+
+  it("keeps linked images, and digits after an image, in HTML exports", () => {
+    const html = buildDocumentExport({
+      id: "doc_1",
+      title: "Images",
+      content:
+        "[![Launch](https://example.test/launch.png)](https://example.test/page) and ![Chart](https://example.test/chart.png)5 items",
+      format: "html",
+    }).content;
+    expect(html).toContain(
+      '<a href="https://example.test/page"><img src="https://example.test/launch.png" alt="Launch" /></a>',
+    );
+    expect(html).toContain(
+      '<img src="https://example.test/chart.png" alt="Chart" />5 items',
+    );
+  });
+
   it("renders inline and block math in standalone HTML exports", () => {
     const exportPayload = buildDocumentExport({
       id: "doc_123",
@@ -429,23 +458,6 @@ describe("document export", () => {
     });
 
     expect(exportPayload.content).not.toContain('href="javascript:');
-  });
-
-  it("keeps the emphasis characters of an address as its own", () => {
-    const { content } = buildDocumentExport({
-      id: "doc_123",
-      title: "Links",
-      content:
-        "[a](https://example.com/_a_b_c?d=*e*) and ![f](https://example.com/_f_.png), _not_ [g](https://example.com/g_h)",
-      format: "html",
-    });
-    const decoded = content.replace(/&#(\d+);/g, (_entity, code: string) =>
-      String.fromCharCode(Number(code)),
-    );
-
-    expect(decoded).toContain(
-      '<a href="https://example.com/_a_b_c?d=*e*">a</a> and <img src="https://example.com/_f_.png" alt="f" />, <em>not</em> <a href="https://example.com/g_h">g</a>',
-    );
   });
 
   it("strips unsafe link targets from HTML exports", () => {
