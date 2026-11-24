@@ -247,6 +247,41 @@ describe("Builder gateway error retryability", () => {
         expectedProviderRetryable: false,
       },
       {
+        label: "429 nested http_402 with rate_limited top-level code",
+        response: () =>
+          jsonErrorResponse(429, {
+            code: "rate_limited",
+            error: { code: "http_402", message: "quota exceeded" },
+          }),
+        retryable: false,
+        upgradeUrl: true,
+        expectedErrorCode: "http_402",
+        expectedProviderRetryable: false,
+      },
+      {
+        label: "429 nested explicit credit code with top-level http_402",
+        response: () =>
+          jsonErrorResponse(429, {
+            code: "http_402",
+            error: { code: "credits-limit-monthly", message: "quota exceeded" },
+          }),
+        retryable: false,
+        upgradeUrl: true,
+        expectedErrorCode: "credits-limit-monthly",
+        expectedProviderRetryable: false,
+      },
+      {
+        label: "429 rate_limited without credit code",
+        response: () =>
+          jsonErrorResponse(429, {
+            code: "rate_limited",
+            error: { code: "gateway_error", message: "quota exceeded" },
+          }),
+        retryable: true,
+        expectedErrorCode: "rate_limited",
+        expectedProviderRetryable: true,
+      },
+      {
         label: "402 credits limit",
         response: () =>
           jsonErrorResponse(402, {

@@ -1014,6 +1014,10 @@ async function* emitHttpError(
       (value): value is string =>
         typeof value === "string" && isExplicitCreditsLimitErrorCode(value),
     ) ??
+    providerCodes.find(
+      (value): value is string =>
+        typeof value === "string" && isCreditsLimitErrorCode(value),
+    ) ??
     providerCodes.find((value): value is string => typeof value === "string");
   const code =
     canonicalizeBuilderGatewayErrorCode(providerCode, message) ??
