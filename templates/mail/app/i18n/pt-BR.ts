@@ -567,6 +567,10 @@ const messages = {
       loadTitle: "Não foi possível carregar emails",
       rateLimitDescription:
         "Muitas solicitações recentes ao Google. Aguardando um momento antes de tentar novamente.",
+      limitedListFrom:
+        "Última atualização: {{time}}. Alguns e-mails podem estar faltando. O Google está limitando as solicitações do Mail.",
+      limitedList:
+        "Alguns e-mails podem estar faltando. O Google está limitando as solicitações do Mail.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:

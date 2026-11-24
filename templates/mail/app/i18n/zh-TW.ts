@@ -536,6 +536,9 @@ const messages = {
       rateLimitTitle: "觸發 Gmail 速率限制",
       loadTitle: "無法載入郵件",
       rateLimitDescription: "最近對 Google 的請求過多。稍等片刻後會重試。",
+      limitedListFrom:
+        "上次更新：{{time}}。部分郵件可能未顯示。Google 正在限制 Mail 的請求。",
+      limitedList: "部分郵件可能未顯示。Google 正在限制 Mail 的請求。",
       failedToConnect: "連線失敗。請重試。",
       failedToParseJson: "解析 JSON 失敗",
       missingGoogleCredentials: "在 JSON 中找不到 client_id 和 client_secret",

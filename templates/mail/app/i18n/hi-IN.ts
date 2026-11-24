@@ -553,6 +553,10 @@ const messages = {
       loadTitle: "ईमेल लोड नहीं हो सके",
       rateLimitDescription:
         "Google को हाल में बहुत अधिक अनुरोध भेजे गए। फिर कोशिश से पहले थोड़ा इंतज़ार किया जा रहा है।",
+      limitedListFrom:
+        "पिछला अपडेट: {{time}}। कुछ मेल दिखाई नहीं दे रहे होंगे। Google, Mail के अनुरोध सीमित कर रहा है।",
+      limitedList:
+        "कुछ मेल दिखाई नहीं दे रहे होंगे। Google, Mail के अनुरोध सीमित कर रहा है।",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:

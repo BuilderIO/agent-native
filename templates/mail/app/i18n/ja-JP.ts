@@ -561,6 +561,10 @@ const messages = {
       loadTitle: "メールを読み込めません",
       rateLimitDescription:
         "Google への最近のリクエストが多すぎます。少し待ってから再試行します。",
+      limitedListFrom:
+        "最終更新: {{time}}。一部のメールが表示されていない可能性があります。Google が Mail のリクエストを制限しています。",
+      limitedList:
+        "一部のメールが表示されていない可能性があります。Google が Mail のリクエストを制限しています。",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:

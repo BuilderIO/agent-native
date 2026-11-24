@@ -39,7 +39,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useFormatters: () => ({
+    formatDate: (date: number) => new Date(date).toISOString(),
+  }),
+  useT: () => (key: string, params?: { time?: string }) =>
+    params?.time === undefined ? key : `${key} ${params.time}`,
 }));
 
 vi.mock("sonner", () => ({
@@ -474,12 +478,13 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.view = "inbox";
     const refetchEmails = vi.fn();
     const cooldownUntil = Date.now() + 20_000;
+    const staleSince = Date.now() - 60_000;
 
     render(
       <Harness
         read={{
           freshness: "cached",
-          staleSince: Date.now() - 60_000,
+          staleSince,
           cooldownUntil,
           retryAfterMs: 20_000,
         }}
@@ -489,7 +494,9 @@ describe("EmailList keyboard navigation interactions", () => {
 
     expect(rows().length).toBeGreaterThan(0);
     const notice = screen
-      .getByText("mail.error.rateLimitDescription")
+      .getByText(
+        `mail.error.limitedListFrom ${new Date(staleSince).toISOString()}`,
+      )
       .closest('[role="status"]');
     expect(notice?.textContent).toContain("mail.error.tryAgainIn");
     expect(
@@ -508,12 +515,28 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(refetchEmails).toHaveBeenCalledOnce();
   });
 
+  it("says mail may be missing when no update time is known", () => {
+    mocks.view = "inbox";
+
+    render(
+      <Harness
+        read={{
+          freshness: "stale",
+          cooldownUntil: Date.now() + 20_000,
+          retryAfterMs: 20_000,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("mail.error.limitedList")).toBeTruthy();
+  });
+
   it("shows no notice for live rows", () => {
     mocks.view = "inbox";
 
     render(<Harness read={{ freshness: "live" }} />);
 
-    expect(screen.queryByText("mail.error.rateLimitDescription")).toBeNull();
+    expect(screen.queryByText(/mail\.error\.limitedList/)).toBeNull();
     expect(rows().length).toBeGreaterThan(0);
   });
 
