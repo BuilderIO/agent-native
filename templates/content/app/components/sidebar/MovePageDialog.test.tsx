@@ -331,6 +331,97 @@ it("withdraws all destinations when a continuation reports the database unavaila
   expect(document.body.textContent).toContain("empty.genericError");
 });
 
+it("recovers from a cached unavailable response after retry", async () => {
+  let resolveRetry!: (value: ReturnType<typeof response>) => void;
+  let attempts = 0;
+  read.mockImplementation(async (_action, params) => {
+    if (params.navigation.cursor)
+      return { available: false, reason: "deleted", databaseId: "files" };
+    if (attempts++ === 0) return response([row("old")], "next");
+    return new Promise((resolve) => {
+      resolveRetry = resolve;
+    });
+  });
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <MovePageDialog
+          page={target}
+          spaces={[space]}
+          onOpenChange={() => {}}
+          onMove={() => {}}
+        />
+      </QueryClientProvider>,
+    ),
+  );
+  await vi.waitFor(() => expect(document.body.textContent).toContain("old"));
+  const more = [
+    ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ].find((item) => item.textContent?.includes("sidebar.showMore"));
+  if (!more) throw new Error("Missing continuation");
+  await act(async () => more.click());
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("root.searchRetry"),
+  );
+  const retry = [
+    ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ].find((item) => item.textContent?.includes("root.searchRetry"));
+  if (!retry) throw new Error("Missing retry");
+  await act(async () => retry.click());
+  await vi.waitFor(() => expect(attempts).toBe(2));
+  await act(async () => resolveRetry(response([row("recovered")], null)));
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("recovered"),
+  );
+});
+
+it.each([401, 403, 404])(
+  "shows retry when continuation is refused with %i",
+  async (status) => {
+    let refused = true;
+    read.mockImplementation(async (_action, params) => {
+      if (params.navigation.cursor && refused) {
+        refused = false;
+        throw Object.assign(new Error("refused"), { status });
+      }
+      return response(
+        [row(refused ? "old" : "recovered")],
+        refused ? "next" : null,
+      );
+    });
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MovePageDialog
+            page={target}
+            spaces={[space]}
+            onOpenChange={() => {}}
+            onMove={() => {}}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+    await vi.waitFor(() => expect(document.body.textContent).toContain("old"));
+    const more = [
+      ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ].find((item) => item.textContent?.includes("sidebar.showMore"));
+    if (!more) throw new Error("Missing continuation");
+    await act(async () => more.click());
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain("root.searchRetry"),
+    );
+    expect(document.body.textContent).not.toContain("old");
+    const retry = [
+      ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ].find((item) => item.textContent?.includes("root.searchRetry"));
+    if (!retry) throw new Error("Missing retry");
+    await act(async () => retry.click());
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain("recovered"),
+    );
+  },
+);
+
 it("loads later pages on request and refetches the first page on reopening", async () => {
   let first = response([row("first"), row("folder", "folder")], "cursor-2");
   read.mockImplementation(async (_action, params) =>

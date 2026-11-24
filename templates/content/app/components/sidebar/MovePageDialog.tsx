@@ -133,8 +133,8 @@ function MovePageDestinations({
       "invalid_navigation_cursor",
   );
   useEffect(() => {
-    if (unavailable || invalidCursor) onUnavailable();
-  }, [unavailable, invalidCursor, onUnavailable]);
+    if ((unavailable && !result.isFetching) || invalidCursor) onUnavailable();
+  }, [unavailable, invalidCursor, result.isFetching, onUnavailable]);
   if (invalidCursor) return null;
   if (result.isError) {
     return (

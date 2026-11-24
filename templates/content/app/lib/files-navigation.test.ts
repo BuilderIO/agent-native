@@ -425,6 +425,67 @@ describe("pages this tab created in the Files tree", () => {
     expect(result.items.map((entry) => entry.documentId)).toEqual(["a"]);
   });
 
+  it("does not restore a retained row after a later whole-tree read sees an external deletion", async () => {
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const read = readFilesNavigationPage(queryClient, picker, []);
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+    await reread(queryClient, page([row("a"), row("new")]));
+    await reread(queryClient, page([row("a")]));
+    answer(page([row("a")]));
+    const result = await read;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((entry) => entry.documentId)).toEqual(["a"]);
+  });
+
+  it("keeps a retained destination through incomplete or older tree reads", async () => {
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    const tree = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+    });
+    let answerPicker!: (value: ContentDatabaseNavigationPageResponse) => void;
+    let answerOlderTree!: (
+      value: ContentDatabaseNavigationPageResponse,
+    ) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerPicker = resolve;
+      }),
+    );
+    const read = readFilesNavigationPage(queryClient, picker, []);
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerOlderTree = resolve;
+      }),
+    );
+    const olderTree = readFilesNavigationPage(queryClient, tree, []);
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+    await reread(queryClient, page([row("a"), row("new")]));
+    await reread(queryClient, page([row("a")], true));
+    answerOlderTree(page([row("a")]));
+    await olderTree;
+    answerPicker(page([row("a")]));
+    const result = await read;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((entry) => entry.documentId)).toEqual(["a", "new"]);
+  });
+
   it("does not restore a row moved away after the picker read started", async () => {
     const picker = filesNavigationPageParams({
       databaseId: FILES,

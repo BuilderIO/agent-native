@@ -35,7 +35,7 @@ const pendingExpansionReads = new WeakMap<QueryClient, Set<string>>();
 type PendingPagesOnlyRead = {
   databaseId: string;
   parentId: string | null;
-  retained: Map<string, CreatedFilesRow>;
+  retained: Map<string, { row: CreatedFilesRow; readMark: number }>;
   movedOut: Set<string>;
 };
 const pendingPagesOnlyReads = new WeakMap<
@@ -363,12 +363,39 @@ function withCreatedFilesRows(
       ),
     };
   }
+  const { databaseId, navigation } = params;
+  if (
+    !navigation.pagesOnly &&
+    listsBranch(params) &&
+    navigation.cursor === undefined &&
+    !page.pagination.hasMore
+  ) {
+    const listed = new Set(page.items.map((item) => item.documentId));
+    for (const read of pendingPagesOnlyReads.get(queryClient) ?? []) {
+      if (
+        read.databaseId !== databaseId ||
+        read.parentId !== navigation.parentId
+      )
+        continue;
+      for (const [id, retained] of read.retained) {
+        if (retained.readMark < readStartMark && !listed.has(id)) {
+          read.retained.delete(id);
+          read.movedOut.add(id);
+        }
+      }
+    }
+  }
   const liveRows = createdFilesRows.get(queryClient);
   const rows = pendingRead
-    ? new Map([...pendingRead.retained, ...(liveRows ?? [])])
+    ? new Map([
+        ...Array.from(
+          pendingRead.retained,
+          ([id, retained]) => [id, retained.row] as const,
+        ),
+        ...(liveRows ?? []),
+      ])
     : liveRows;
   if (!rows?.size || !listsBranch(params)) return page;
-  const { databaseId, navigation } = params;
   const retire = (
     documentId: string,
     row: CreatedFilesRow,
@@ -382,7 +409,7 @@ function withCreatedFilesRows(
         read.retained.delete(documentId);
         read.movedOut.add(documentId);
       } else if (!read.movedOut.has(documentId)) {
-        read.retained.set(documentId, row);
+        read.retained.set(documentId, { row, readMark: readStartMark });
       }
     }
     liveRows?.delete(documentId);
@@ -814,6 +841,8 @@ export async function readFilesNavigationPage(
         queryClient,
         params.databaseId,
         filesNavigationQueryKey(params),
+        undefined,
+        error,
       );
     }
     throw error;
@@ -828,6 +857,7 @@ function clearCachedFilesPages(
   databaseId: string,
   refusedKey: QueryKey,
   unavailable?: ContentDatabaseUnavailableResponse,
+  error?: unknown,
 ) {
   const cache = queryClient.getQueryCache();
   const refused = cache.find({ queryKey: refusedKey, exact: true });
@@ -844,6 +874,20 @@ function clearCachedFilesPages(
     query.setState({
       data: unavailable,
       dataUpdatedAt: unavailable ? Date.now() : 0,
+      ...(error === undefined
+        ? {}
+        : {
+            status: "error" as const,
+            error:
+              error instanceof Error
+                ? error
+                : Object.assign(
+                    new Error("Files navigation read was refused"),
+                    {
+                      cause: error,
+                    },
+                  ),
+          }),
     });
   }
 }
