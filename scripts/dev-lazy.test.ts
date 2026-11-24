@@ -17,7 +17,38 @@ import {
   shouldEvict,
   shouldRestartPersistent5xx,
   shouldRestartStuckApp,
+  shouldUseWorkspaceDev,
 } from "./dev-lazy";
+
+describe("dev-lazy workspace handoff", () => {
+  it("hands a declared workspace to workspace-dev unless a dev-lazy-only flag is passed", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "dev-lazy-ws-"));
+    try {
+      assert.equal(shouldUseWorkspaceDev(root, []), false);
+
+      fs.writeFileSync(
+        path.join(root, "agent-native.json"),
+        JSON.stringify({ version: 1, apps: {} }),
+      );
+      assert.equal(shouldUseWorkspaceDev(root, []), false);
+
+      fs.writeFileSync(
+        path.join(root, "agent-native.json"),
+        JSON.stringify({
+          version: 1,
+          deployment: { workspace: { appsDirectory: "templates" } },
+        }),
+      );
+      assert.equal(shouldUseWorkspaceDev(root, []), true);
+      assert.equal(shouldUseWorkspaceDev(root, ["--eager"]), true);
+      assert.equal(shouldUseWorkspaceDev(root, ["--apps", "mail"]), false);
+      assert.equal(shouldUseWorkspaceDev(root, ["--apps=mail"]), false);
+      assert.equal(shouldUseWorkspaceDev(root, ["--desktop"]), false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("dev-lazy app-local environment", () => {
   it("passes only app-scoped env values with local overrides", () => {
