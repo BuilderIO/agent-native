@@ -132,6 +132,7 @@ type CreatedFilesRow = {
 // starting after it, and could drop a row the read never had a chance to list.
 let lastFilesMark = 0;
 const nextFilesMark = () => ++lastFilesMark;
+const filesReadMarks = new WeakMap<object, number>();
 
 const createdFilesRows = new WeakMap<
   QueryClient,
@@ -761,6 +762,11 @@ export async function readFilesNavigationPage(
     pending.add(expansionKey);
   }
   const readStartMark = nextFilesMark();
+  const currentQuery = queryClient.getQueryCache().find({
+    queryKey: filesNavigationQueryKey(params),
+    exact: true,
+  });
+  if (currentQuery) filesReadMarks.set(currentQuery, readStartMark);
   let pendingPageReads: Set<PendingPagesOnlyRead> | undefined;
   let pendingRead: PendingPagesOnlyRead | undefined;
   if (pagesOnly) {
@@ -803,6 +809,7 @@ export async function readFilesNavigationPage(
         queryClient,
         params.databaseId,
         filesNavigationQueryKey(params),
+        readStartMark,
         response,
       );
       return response;
@@ -853,6 +860,7 @@ export async function readFilesNavigationPage(
         queryClient,
         params.databaseId,
         filesNavigationQueryKey(params),
+        readStartMark,
         undefined,
         error,
       );
@@ -868,6 +876,7 @@ function clearCachedFilesPages(
   queryClient: QueryClient,
   databaseId: string,
   refusedKey: QueryKey,
+  readStartMark: number,
   unavailable?: ContentDatabaseUnavailableResponse,
   error?: unknown,
 ) {
@@ -878,29 +887,34 @@ function clearCachedFilesPages(
   })) {
     const params = query.queryKey[2] as FilesNavigationPageParams | undefined;
     if (!params?.navigation || params.databaseId !== databaseId) continue;
+    if ((filesReadMarks.get(query) ?? 0) > readStartMark) continue;
     // A read still under way would put back what this clears once it
     // answers, so it stops first. The refused read is the one ending here.
     if (query !== refused && query.state.fetchStatus !== "idle") {
       void query.cancel({ revert: true });
     }
-    query.setState({
-      data: unavailable,
-      dataUpdatedAt: unavailable ? Date.now() : 0,
-      ...(error === undefined
-        ? {}
-        : {
-            status: "error" as const,
-            error:
-              error instanceof Error
-                ? error
-                : Object.assign(
-                    new Error("Files navigation read was refused"),
-                    {
-                      cause: error,
-                    },
-                  ),
-          }),
-    });
+    if (params.navigation.pagesOnly) {
+      query.setState({
+        data: unavailable,
+        dataUpdatedAt: unavailable ? Date.now() : 0,
+        ...(error === undefined
+          ? {}
+          : {
+              status: "error" as const,
+              error:
+                error instanceof Error
+                  ? error
+                  : Object.assign(
+                      new Error("Files navigation read was refused"),
+                      {
+                        cause: error,
+                      },
+                    ),
+            }),
+      });
+    } else {
+      query.setState({ data: undefined, dataUpdatedAt: 0 });
+    }
   }
 }
 

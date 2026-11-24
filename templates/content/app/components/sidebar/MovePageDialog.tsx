@@ -80,21 +80,27 @@ function MovePageDestinationList({
       refetchType: "none",
     });
   }
-  if (unavailable)
-    return (
-      <CommandItem value="__unavailable__" onSelect={restart}>
-        {t("empty.genericError")} {t("root.searchRetry")}
-      </CommandItem>
-    );
   return (
-    <MovePageDestinations
-      key={generation}
-      databaseId={databaseId}
-      excludedId={excludedId}
-      choose={choose}
-      precedingIds={new Set()}
-      onUnavailable={() => setUnavailable(true)}
-    />
+    <>
+      <CommandItem value="__top-level__" onSelect={() => choose(null)}>
+        <IconCornerDownRight className="me-2 size-4 text-muted-foreground" />
+        {t("sidebar.topLevel")}
+      </CommandItem>
+      {unavailable ? (
+        <CommandItem value="__unavailable__" onSelect={restart}>
+          {t("empty.genericError")} {t("root.searchRetry")}
+        </CommandItem>
+      ) : (
+        <MovePageDestinations
+          key={generation}
+          databaseId={databaseId}
+          excludedId={excludedId}
+          choose={choose}
+          precedingIds={new Set()}
+          onUnavailable={() => setUnavailable(true)}
+        />
+      )}
+    </>
   );
 }
 
@@ -164,12 +170,6 @@ function MovePageDestinations({
     : null;
   return (
     <>
-      {cursor === undefined ? (
-        <CommandItem value="__top-level__" onSelect={() => choose(null)}>
-          <IconCornerDownRight className="me-2 size-4 text-muted-foreground" />
-          {t("sidebar.topLevel")}
-        </CommandItem>
-      ) : null}
       {items.map((item) => (
         <CommandItem
           key={item.documentId}

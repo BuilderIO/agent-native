@@ -246,7 +246,7 @@ it("does not offer cached destinations while reopening is reauthorizing", async 
   expect(
     document.body.querySelectorAll("[data-sidebar-row-placeholder]").length,
   ).toBeGreaterThan(0);
-  expect(document.body.querySelectorAll('[role="option"]')).toHaveLength(0);
+  expect(document.body.textContent).toContain("sidebar.topLevel");
   await act(async () => answer(response([row("fresh")], null)));
   await vi.waitFor(() => expect(document.body.textContent).toContain("fresh"));
 });
@@ -285,9 +285,9 @@ it("shows a placeholder instead of cached search results during revalidation", a
       </QueryClientProvider>,
     ),
   );
-  const input = document.querySelector<HTMLInputElement>("input");
-  if (!input) throw new Error("Missing search input");
   async function search(value: string) {
+    const input = document.querySelector<HTMLInputElement>("input");
+    if (!input) throw new Error("Missing search input");
     await act(async () => {
       Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
@@ -315,7 +315,36 @@ it("shows a placeholder instead of cached search results during revalidation", a
   );
 });
 
-it("restarts from the first page after a stale cursor", async () => {
+it("allows moving to top level when the destination list fails", async () => {
+  read.mockRejectedValue(new Error("Unavailable"));
+  const onMove = vi.fn();
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <MovePageDialog
+          page={target}
+          spaces={[space]}
+          onOpenChange={() => {}}
+          onMove={onMove}
+        />
+      </QueryClientProvider>,
+    ),
+  );
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("root.searchRetry"),
+  );
+  const topLevel = [
+    ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ].find((item) => item.textContent.includes("sidebar.topLevel"));
+  if (!topLevel) throw new Error("Missing top level");
+  await act(async () => topLevel.click());
+  expect(onMove).toHaveBeenCalledWith(target, {
+    spaceId: "space",
+    parentId: null,
+  });
+});
+
+it("restarts from the first page after retrying a stale cursor", async () => {
   let firstRead = true;
   read.mockImplementation(async (_action, params) => {
     if (params.navigation.cursor)
@@ -368,7 +397,7 @@ it("restarts from the first page after a stale cursor", async () => {
   ).toHaveLength(1);
 });
 
-it("withdraws all destinations when a continuation reports the database unavailable", async () => {
+it("withdraws cached page destinations when a continuation reports the database unavailable", async () => {
   read.mockImplementation(async (_action, params) =>
     params.navigation.cursor
       ? { available: false, reason: "deleted", databaseId: "files" }
@@ -395,7 +424,7 @@ it("withdraws all destinations when a continuation reports the database unavaila
   await vi.waitFor(() =>
     expect(document.body.textContent).not.toContain("old"),
   );
-  expect(document.body.textContent).not.toContain("sidebar.topLevel");
+  expect(document.body.textContent).toContain("sidebar.topLevel");
   expect(document.body.textContent).toContain("empty.genericError");
 });
 
