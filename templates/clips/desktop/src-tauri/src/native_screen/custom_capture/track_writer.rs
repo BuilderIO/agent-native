@@ -372,9 +372,13 @@ pub(super) unsafe fn h264_settings(
 mod tests {
     use super::super::{av_audio_output_settings, LiveAudioMixer};
     use super::*;
+    use std::time::Instant;
 
     const SAMPLE_RATE: i32 = 48_000;
     const BUFFER_FRAMES: usize = 480;
+    /// The lead-in the AAC encoder puts before the sound: 44 ms.
+    const LEAD_IN_FRAMES: u64 = 2112;
+    const READY_TIMEOUT: Duration = Duration::from_secs(10);
 
     fn be_u32(bytes: &[u8]) -> u32 {
         u32::from_be_bytes(bytes[..4].try_into().unwrap())
@@ -438,7 +442,13 @@ mod tests {
             writer.start().unwrap();
             let mut frame = start_frame;
             for _ in 0..200 {
+                let deadline = Instant::now() + READY_TIMEOUT;
                 while !writer.is_ready() {
+                    assert!(
+                        Instant::now() < deadline,
+                        "writer not ready for more sound{}",
+                        av_writer_error_suffix(&writer.writer)
+                    );
                     std::thread::sleep(Duration::from_millis(1));
                 }
                 let buffer = mixer
@@ -465,7 +475,7 @@ mod tests {
             // The first fragment is the lead-in, then the sound: it decodes at
             // the sound's own time because the edit starts past the lead-in.
             assert_eq!(first_decode_time(&file), start_frame as u64);
-            assert!(edit_media_time(&file).is_some_and(|lead_in| lead_in > 0));
+            assert_eq!(edit_media_time(&file), Some(LEAD_IN_FRAMES));
         }
     }
 }
