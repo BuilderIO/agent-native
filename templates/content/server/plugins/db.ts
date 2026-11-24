@@ -1840,6 +1840,48 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_analytics_chart_citation_dashboard_idx
         ON content_analytics_chart_citations (dashboard_id)`,
     },
+    {
+      version: 145,
+      name: "content-column-fills",
+      sql: `CREATE TABLE IF NOT EXISTS content_column_fills (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        database_id TEXT NOT NULL,
+        database_document_id TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        instruction TEXT NOT NULL,
+        rewrite BOOLEAN NOT NULL DEFAULT FALSE,
+        status TEXT NOT NULL DEFAULT 'running',
+        total INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE INDEX IF NOT EXISTS content_column_fills_database_idx
+        ON content_column_fills (database_id, created_at);
+      CREATE INDEX IF NOT EXISTS content_column_fills_status_idx
+        ON content_column_fills (status);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_column_fills_active_idx
+        ON content_column_fills (database_id, property_id)
+        WHERE status IN ('running', 'stopping');
+      CREATE TABLE IF NOT EXISTS content_column_fill_cells (
+        fill_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'waiting',
+        base_generation BIGINT,
+        task_id TEXT,
+        agent_thread_id TEXT,
+        run_id TEXT,
+        attempt INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_column_fill_cells_cell_idx
+        ON content_column_fill_cells (fill_id, document_id);
+      CREATE INDEX IF NOT EXISTS content_column_fill_cells_status_idx
+        ON content_column_fill_cells (fill_id, status, position)`,
+    },
   ],
   { table: "content_migrations" },
 );

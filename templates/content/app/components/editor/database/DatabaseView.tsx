@@ -334,6 +334,12 @@ import {
 import { BuilderSourcePanel } from "./BuilderSourcePanel";
 import { BuilderSourceStatusLine } from "./BuilderSourceStatusLine";
 import {
+  ColumnFillCellBadge,
+  ColumnFillHeaderStatus,
+  ColumnFillProvider,
+  useColumnFillMenu,
+} from "./column-fill";
+import {
   ContentTableConstraintChip,
   ContentTableConstraintBar,
   ContentTableRowActionButton,
@@ -997,6 +1003,22 @@ export function DatabaseView({
       foreground={foreground}
       onExportContextChange={onExportContextChange}
     />
+  );
+}
+
+function DatabaseViewContexts({
+  openComments,
+  columnFill,
+  children,
+}: {
+  openComments: OpenDatabaseItemComments | null;
+  columnFill: Omit<ComponentProps<typeof ColumnFillProvider>, "children">;
+  children: ReactNode;
+}) {
+  return (
+    <DatabaseItemCommentsContext.Provider value={openComments}>
+      <ColumnFillProvider {...columnFill}>{children}</ColumnFillProvider>
+    </DatabaseItemCommentsContext.Provider>
   );
 }
 
@@ -3877,8 +3899,22 @@ function DatabaseTable({
       {/* Board and calendar cards share the table's row menu, so every view
           gets the handler. The read-only ChatGPT widget can't read or write
           Comments. */}
-      <DatabaseItemCommentsContext.Provider
-        value={document.mcpDirectoryWidgetReadOnly ? null : previewItemComments}
+      <DatabaseViewContexts
+        openComments={
+          document.mcpDirectoryWidgetReadOnly ? null : previewItemComments
+        }
+        columnFill={{
+          databaseId,
+          databaseDocumentId: document.id,
+          items: visibleItems,
+          moreRows: data?.pagination?.hasMore === true,
+          properties: orderedProperties,
+          enabled:
+            activeView.type === "table" &&
+            effectiveCanEdit &&
+            !document.mcpDirectoryWidgetReadOnly &&
+            !database.itemsFailed,
+        }}
       >
         {database.itemsFailed ? (
           <QueryErrorState
@@ -4175,7 +4211,7 @@ function DatabaseTable({
             onOpenPage={openItemPage}
           />
         )}
-      </DatabaseItemCommentsContext.Provider>
+      </DatabaseViewContexts>
 
       {hasMoreItems &&
       !isClientQueryExpansionPending &&
@@ -15941,6 +15977,7 @@ function DatabasePropertyHeader({
   const Icon = TYPE_ICONS[property.definition.type];
   const canReorder = canEdit;
   const narrow = width < NARROW_PROPERTY_HEADER_WIDTH;
+  const openFillWithAi = useColumnFillMenu(property);
   const nameTooltip = useTruncatedHeaderTooltip();
   const columnState = databaseColumnHeaderState(
     sorts,
@@ -16013,6 +16050,7 @@ function DatabasePropertyHeader({
               onHide={() =>
                 onPropertyHiddenChange(property.definition.id, true)
               }
+              onFillWithAi={openFillWithAi}
             />
           ) : (
             <DropdownMenu>
@@ -16052,6 +16090,13 @@ function DatabasePropertyHeader({
               />
             </DropdownMenu>
           )}
+          {!readOnlyPresentation ? (
+            <ColumnFillHeaderStatus
+              property={property}
+              width={width}
+              narrow={narrow}
+            />
+          ) : null}
           {!readOnlyPresentation ? (
             <ColumnResizeHandle
               label={`Resize ${property.definition.name} column`}
@@ -17348,6 +17393,10 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
                 itemProperty.editable &&
                 propertyValueHasLinks(itemProperty)
               }
+            />
+            <ColumnFillCellBadge
+              propertyId={property.definition.id}
+              documentId={item.document.id}
             />
           </div>
         );

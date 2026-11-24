@@ -543,6 +543,71 @@ const database = {
   unfreezeColumns: "Spaltenfixierung aufheben",
   selectAllLoadedRows: "Alle geladenen Zeilen auswählen",
   clearSelectedRows: "Zeilenauswahl aufheben",
+  fillWithAi: "Mit KI ausfüllen",
+  fillWithAiTitle: "{{name}} mit KI ausfüllen",
+  fillWithAiDescription:
+    "Jede Zeile bekommt ihren eigenen KI-Durchlauf, der die Seite dieser Zeile liest und nur die Zelle dieser Zeile schreibt.",
+  fillWithAiDescriptionOptions:
+    "Jede Zeile bekommt ihren eigenen KI-Durchlauf, der die Seite dieser Zeile liest und aus den Optionen dieser Spalte wählt.",
+  fillWithAiInstructionLabel: "Was soll in jede Zelle?",
+  fillWithAiInstructionPlaceholder:
+    "Zum Beispiel: eine Beschreibung der Seite in einem Satz für Suchergebnisse",
+  fillWithAiRewrite: "Auch Zellen mit einem Wert neu schreiben",
+  fillWithAiCount_zero: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiCount_one: "Füllt {{count}} leere Zelle in dieser Ansicht",
+  fillWithAiCount_two: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiCount_few: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiCount_many: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiCount_other: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_zero: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_one: "Füllt {{count}} Zelle in dieser Ansicht",
+  fillWithAiRewriteCount_two: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_few: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_many: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_other: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiNothingEmpty:
+    "Jede Zelle in dieser Ansicht hat bereits einen Wert.",
+  fillWithAiNoRows: "In dieser Ansicht gibt es keine Zeilen zum Ausfüllen.",
+  fillWithAiTooMany:
+    "Mit KI ausfüllen füllt bis zu {{max}} Zellen auf einmal. Filtern Sie die Ansicht auf weniger Zeilen.",
+  fillWithAiLoadedOnly: "Nur die bisher geladenen Zeilen sind enthalten.",
+  fillWithAiAlreadyRunning: "Diese Spalte wird bereits ausgefüllt.",
+  fillWithAiNeedsSetup: "Richten Sie KI ein, um Zellen auszufüllen.",
+  fillWithAiSetUp: "KI einrichten",
+  fillWithAiStart: "Ausfüllen",
+  fillWithAiStartFailed: "Das Ausfüllen konnte nicht gestartet werden.",
+  fillProgress: "{{done}} von {{total}} werden ausgefüllt",
+  fillStopping: "Wird angehalten…",
+  fillStop: "Anhalten",
+  fillStopLabel: "Ausfüllen von {{name}} anhalten",
+  fillStopFailed: "Das Ausfüllen konnte nicht angehalten werden.",
+  fillCellWaiting: "Wartet",
+  fillCellRunning: "Wird ausgefüllt…",
+  fillCellFailed: "Konnte nicht ausgefüllt werden",
+  fillTryAgain: "Erneut versuchen",
+  fillRetryFailed: "Der erneute Versuch ist fehlgeschlagen.",
+  fillOpenChat: "Chat öffnen",
+  fillEditInChat: "Im Chat bearbeiten",
+  fillStarted_zero: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillStarted_one: "{{count}} Zelle in {{name}} wird ausgefüllt.",
+  fillStarted_two: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillStarted_few: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillStarted_many: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillStarted_other: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillFinished: "{{name}} ist ausgefüllt.",
+  fillFinishedWithFailures_zero:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillFinishedWithFailures_one:
+    "{{name}} ist ausgefüllt. {{count}} Zelle konnte nicht ausgefüllt werden.",
+  fillFinishedWithFailures_two:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillFinishedWithFailures_few:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillFinishedWithFailures_many:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillFinishedWithFailures_other:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillStoppedAnnouncement: "Ausfüllen von {{name}} angehalten.",
 };
 
 const databaseExactEnglish = {

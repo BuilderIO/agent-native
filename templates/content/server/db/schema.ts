@@ -1316,4 +1316,57 @@ export const contentWebhookDeliveries = table(
   ],
 );
 
+export const contentColumnFills = table(
+  "content_column_fills",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    databaseId: text("database_id").notNull(),
+    databaseDocumentId: text("database_document_id").notNull(),
+    propertyId: text("property_id").notNull(),
+    instruction: text("instruction").notNull(),
+    rewrite: boolean("rewrite").notNull().default(false),
+    status: text("status").notNull().default("running"),
+    total: integer("total").notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (fill) => [
+    index("content_column_fills_database_idx").on(
+      fill.databaseId,
+      fill.createdAt,
+    ),
+    index("content_column_fills_status_idx").on(fill.status),
+  ],
+);
+
+export const contentColumnFillCells = table(
+  "content_column_fill_cells",
+  {
+    fillId: text("fill_id").notNull(),
+    documentId: text("document_id").notNull(),
+    position: integer("position").notNull(),
+    status: text("status").notNull().default("waiting"),
+    baseGeneration: bigint("base_generation", { mode: "number" }),
+    taskId: text("task_id"),
+    agentThreadId: text("agent_thread_id"),
+    runId: text("run_id"),
+    attempt: integer("attempt").notNull().default(0),
+    error: text("error"),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (cell) => [
+    uniqueIndex("content_column_fill_cells_cell_idx").on(
+      cell.fillId,
+      cell.documentId,
+    ),
+    index("content_column_fill_cells_status_idx").on(
+      cell.fillId,
+      cell.status,
+      cell.position,
+    ),
+  ],
+);
+
 export const documentShares = createSharesTable("document_shares");
