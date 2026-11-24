@@ -24,6 +24,8 @@ const en = {
     "Another save to this article is running. This one goes next.",
   reasonBuilderBodyUnread:
     "Content hasn't read this article's body in Builder yet, so it hasn't saved yours. It checks again shortly.",
+  reasonBuilderBodyUnreadable:
+    "Content couldn't read this article's body in Builder, so it hasn't saved yours. Retry checks Builder again first.",
   reasonPublished:
     "This article is published, so automatic saves stopped. Save its changes with Review Builder update.",
   reasonNeedsReview:
@@ -69,6 +71,8 @@ const translations: Record<
       "Hay otro guardado de este artículo en curso. Este va después.",
     reasonBuilderBodyUnread:
       "Content aún no ha leído el cuerpo de este artículo en Builder, así que no ha guardado el tuyo. Lo comprobará de nuevo en breve.",
+    reasonBuilderBodyUnreadable:
+      "Content no pudo leer el cuerpo de este artículo en Builder, así que no ha guardado el tuyo. Reintentar vuelve a consultar Builder primero.",
     reasonPublished:
       "Este artículo está publicado, así que el guardado automático se detuvo. Guarda sus cambios con Revisar actualización de Builder.",
     reasonNeedsReview:
@@ -107,6 +111,8 @@ const translations: Record<
       "Un autre enregistrement de cet article est en cours. Celui-ci passe ensuite.",
     reasonBuilderBodyUnread:
       "Content n'a pas encore lu le corps de cet article dans Builder, il n'a donc pas enregistré le vôtre. Il vérifie à nouveau sous peu.",
+    reasonBuilderBodyUnreadable:
+      "Content n'a pas pu lire le corps de cet article dans Builder, il n'a donc pas enregistré le vôtre. Réessayer consulte d'abord Builder à nouveau.",
     reasonPublished:
       "Cet article est publié, l'enregistrement automatique s'est donc arrêté. Enregistrez ses modifications avec Vérifier la mise à jour Builder.",
     reasonNeedsReview:
@@ -145,6 +151,8 @@ const translations: Record<
       "Für diesen Artikel läuft bereits ein anderes Speichern. Dieses folgt danach.",
     reasonBuilderBodyUnread:
       "Content hat den Textkörper dieses Artikels in Builder noch nicht gelesen und deinen deshalb nicht gespeichert. Es prüft gleich noch einmal.",
+    reasonBuilderBodyUnreadable:
+      "Content konnte den Textkörper dieses Artikels in Builder nicht lesen und hat deinen deshalb nicht gespeichert. Erneut versuchen fragt zuerst Builder noch einmal ab.",
     reasonPublished:
       "Dieser Artikel ist veröffentlicht, daher wurde das automatische Speichern beendet. Speichere seine Änderungen mit Builder-Update prüfen.",
     reasonNeedsReview:
@@ -183,6 +191,8 @@ const translations: Record<
       "Outro salvamento deste artigo está em andamento. Este vem em seguida.",
     reasonBuilderBodyUnread:
       "O Content ainda não leu o corpo deste artigo no Builder, então não salvou o seu. Ele confere de novo em instantes.",
+    reasonBuilderBodyUnreadable:
+      "O Content não conseguiu ler o corpo deste artigo no Builder, então não salvou o seu. Tentar de novo consulta o Builder antes.",
     reasonPublished:
       "Este artigo está publicado, então o salvamento automático parou. Salve as alterações com Revisar atualização do Builder.",
     reasonNeedsReview:
@@ -220,6 +230,8 @@ const translations: Record<
       "这篇文章的另一次保存正在进行，这次保存随后进行。",
     reasonBuilderBodyUnread:
       "Content 还没有读取这篇文章在 Builder 中的正文，因此尚未保存你的正文。它稍后会再次检查。",
+    reasonBuilderBodyUnreadable:
+      "Content 无法读取这篇文章在 Builder 中的正文，因此尚未保存你的正文。重试会先重新检查 Builder。",
     reasonPublished:
       "这篇文章已发布，因此自动保存已停止。请用“审查 Builder 更新”保存它的更改。",
     reasonNeedsReview:
@@ -256,6 +268,8 @@ const translations: Record<
       "這篇文章的另一次儲存正在進行，這次儲存隨後進行。",
     reasonBuilderBodyUnread:
       "Content 還沒有讀取這篇文章在 Builder 中的內文，因此尚未儲存你的內文。它稍後會再次檢查。",
+    reasonBuilderBodyUnreadable:
+      "Content 無法讀取這篇文章在 Builder 中的內文，因此尚未儲存你的內文。重試會先重新檢查 Builder。",
     reasonPublished:
       "這篇文章已發布，因此自動儲存已停止。請用「審查 Builder 更新」儲存它的變更。",
     reasonNeedsReview:
@@ -292,6 +306,8 @@ const translations: Record<
       "この記事の別の保存が進行中です。この保存はその後に行われます。",
     reasonBuilderBodyUnread:
       "Content はこの記事の本文をまだ Builder から読み込んでいないため、こちらの本文を保存していません。まもなくもう一度確認します。",
+    reasonBuilderBodyUnreadable:
+      "Content はこの記事の本文を Builder から読み込めなかったため、こちらの本文を保存していません。再試行するとまず Builder をもう一度確認します。",
     reasonPublished:
       "この記事は公開済みのため、自動保存は停止しました。変更は「Builder の更新を確認」で保存してください。",
     reasonNeedsReview:
@@ -329,6 +345,8 @@ const translations: Record<
       "이 글의 다른 저장이 진행 중입니다. 이 저장은 그다음에 진행됩니다.",
     reasonBuilderBodyUnread:
       "Content가 Builder에 있는 이 글의 본문을 아직 읽지 못해 여기서 쓴 본문을 저장하지 않았습니다. 곧 다시 확인합니다.",
+    reasonBuilderBodyUnreadable:
+      "Content가 Builder에 있는 이 글의 본문을 읽지 못해 여기서 쓴 본문을 저장하지 않았습니다. 다시 시도하면 먼저 Builder를 다시 확인합니다.",
     reasonPublished:
       "이 글은 게시되어 자동 저장이 멈췄습니다. 변경 사항은 Builder 업데이트 검토로 저장하세요.",
     reasonNeedsReview:
@@ -365,6 +383,8 @@ const translations: Record<
     reasonAnotherSaveRunning: "इस लेख का एक और सहेजना चल रहा है। यह उसके बाद होगा।",
     reasonBuilderBodyUnread:
       "Content ने Builder में इस लेख का मुख्य भाग अभी नहीं पढ़ा है, इसलिए आपका मुख्य भाग नहीं सहेजा। यह थोड़ी देर में फिर जाँचेगा।",
+    reasonBuilderBodyUnreadable:
+      "Content इस लेख का मुख्य भाग Builder में नहीं पढ़ सका, इसलिए आपका मुख्य भाग नहीं सहेजा। फिर कोशिश करने पर पहले Builder को दोबारा जाँचा जाता है।",
     reasonPublished:
       "यह लेख प्रकाशित है, इसलिए अपने-आप सहेजना रुक गया। इसके बदलाव Builder अपडेट की समीक्षा करें से सहेजें।",
     reasonNeedsReview:
@@ -401,6 +421,8 @@ const translations: Record<
       "هناك عملية حفظ أخرى لهذه المقالة قيد التنفيذ. هذه العملية تأتي بعدها.",
     reasonBuilderBodyUnread:
       "لم يقرأ Content نص هذه المقالة في Builder بعد، لذلك لم يحفظ نصك. سيتحقق مرة أخرى بعد قليل.",
+    reasonBuilderBodyUnreadable:
+      "تعذّر على Content قراءة نص هذه المقالة في Builder، لذلك لم يحفظ نصك. إعادة المحاولة تتحقق من Builder مجددًا أولًا.",
     reasonPublished:
       "هذه المقالة منشورة، لذا توقف الحفظ التلقائي. احفظ تغييراتها باستخدام مراجعة تحديث Builder.",
     reasonNeedsReview:

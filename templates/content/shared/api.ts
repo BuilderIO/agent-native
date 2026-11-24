@@ -1998,6 +1998,7 @@ export type BuilderArticleAutosaveReason =
   | "checking_last_save"
   | "another_save_running"
   | "builder_body_unread"
+  | "builder_body_unreadable"
   | "published"
   | "needs_review"
   | "edit_conflict"

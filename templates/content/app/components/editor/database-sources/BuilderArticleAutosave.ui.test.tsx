@@ -486,6 +486,23 @@ describe("builderAutosaveView", () => {
       builderAutosaveView(
         status({
           state: "failed",
+          reason: "builder_body_unreadable",
+          error: "Builder no longer returns this source entry.",
+        }),
+        false,
+        t,
+      ),
+    ).toMatchObject({
+      tone: "error",
+      label: "builderAutosave.stateFailed",
+      detail:
+        "builderAutosave.reasonBuilderBodyUnreadable Builder no longer returns this source entry.",
+      canRetry: true,
+    });
+    expect(
+      builderAutosaveView(
+        status({
+          state: "failed",
           reason: "builder_changed",
           error: "Title changed in Builder since you edited it.",
         }),

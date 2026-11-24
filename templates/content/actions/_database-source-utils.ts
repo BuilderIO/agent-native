@@ -5146,8 +5146,13 @@ export async function getContentDatabaseSourceSnapshotById(
 export type BuilderReviewBodyComparisonOptions = {
   builderBodyComparison?: "text" | "blocks";
   blocksCheckDocumentIds?: Set<string>;
-  unreadBodyDocumentIds?: Set<string>;
+  unreadBodies?: Map<string, BuilderUnreadBody>;
 };
+
+export interface BuilderUnreadBody {
+  failed: boolean;
+  error: string | null;
+}
 
 export async function getContentDatabaseSourceSnapshotForWrite(
   database: ContentDatabaseRow | ContentDatabase,
@@ -5479,6 +5484,7 @@ async function readSourceSnapshotRowsOnce(args: {
           id: schema.contentDatabaseItems.id,
           documentId: schema.contentDatabaseItems.documentId,
           bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
+          bodyHydrationError: schema.contentDatabaseItems.bodyHydrationError,
           bodyHydrationVersion:
             schema.contentDatabaseItems.bodyHydrationVersion,
         })
@@ -6032,6 +6038,17 @@ async function loadSourceSnapshot(
         item.bodyHydrationVersion,
       ]),
     );
+    const unreadBodyByDocumentId = new Map(
+      databaseItemRows.map((item) => [
+        item.documentId,
+        {
+          failed:
+            item.bodyHydrationStatus === "error" ||
+            item.bodyHydrationStatus === "unavailable",
+          error: item.bodyHydrationError,
+        },
+      ]),
+    );
     await Promise.all(
       allDocumentIds.map(async (documentId) => {
         const row = sourceRowByDocumentId.get(documentId);
@@ -6057,7 +6074,14 @@ async function loadSourceSnapshot(
               : null,
           comparison: options.builderBodyComparison,
           onNeedsBlocks: () => options.blocksCheckDocumentIds?.add(documentId),
-          onBodyUnread: () => options.unreadBodyDocumentIds?.add(documentId),
+          onBodyUnread: () =>
+            options.unreadBodies?.set(
+              documentId,
+              unreadBodyByDocumentId.get(documentId) ?? {
+                failed: false,
+                error: null,
+              },
+            ),
         });
         if (bodyChange) bodyChangeByDocumentId.set(documentId, bodyChange);
       }),
