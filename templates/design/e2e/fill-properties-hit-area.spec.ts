@@ -197,8 +197,9 @@ test("gradient fill trigger stays inside its cell and opens from one click", asy
   expect(handleBox!.x + handleBox!.width).toBeLessThanOrEqual(
     triggerBox!.x + 0.5,
   );
+  if (!triggerBox || !rowBox) throw new Error("fill row boxes are missing");
   // oracle-change: ENG-14616 widens the inspector's side margin, and the row handle that fills it, from 8px to 16px.
-  expect(triggerBox!.x - rowBox!.x).toBeCloseTo(16, 0);
+  expect(triggerBox.x - rowBox.x).toBeCloseTo(16, 0);
   expect(triggerBox!.x + triggerBox!.width).toBeLessThanOrEqual(
     cellBox!.x + cellBox!.width + 0.5,
   );
