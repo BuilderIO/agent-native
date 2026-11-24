@@ -102,7 +102,7 @@ export type LinkedLocalSourceWatchResult =
   | { ok: false; error: string; unavailable?: boolean };
 
 export type LinkedLocalSourceWriteOptions = {
-  expectedRevision?: string;
+  expectedRevision?: string | undefined;
   changed?: LinkedLocalSourceChanges;
 };
 
