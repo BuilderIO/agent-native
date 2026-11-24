@@ -4242,15 +4242,59 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("does not credential entity-prefixed external scripts or stylesheets", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const port = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res
+        .writeHead(200, { "content-type": "text/html" })
+        .end(
+          '<script src="&#9;https://external.example/module.js"></script>' +
+            '<link rel="stylesheet" href="&#10;//external.example/style.css">' +
+            '<script src="/src/my module.js"></script>',
+        );
+    });
+    await new Promise<void>((resolve) =>
+      devServer.listen(devPort, "127.0.0.1", resolve),
+    );
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const html = await getText(
+        `http://127.0.0.1:${port}/live-edit?path=/&previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        '<script src="&#9;https://external.example/module.js"></script>',
+      );
+      expect(html.body).toContain(
+        '<link rel="stylesheet" href="&#10;//external.example/style.css">',
+      );
+      expect(html.body).toContain(
+        `src="/src/my module.js?previewToken=${bridge.previewToken}" crossorigin="use-credentials"`,
+      );
+    } finally {
+      await bridge.close();
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
   it("authenticates literal imports after JavaScript line comment terminators", async () => {
     const root = tmpDir();
     const devPort = await freePort();
     const port = await freePort();
-    const source = ["\r", "\n", "\r\n", "\u2028", "\u2029"]
-      .map(
-        (end, index) => `import(// comment${end}'./module.js?case=${index}');`,
-      )
-      .join("\n");
+    const source =
+      ["\r", "\n", "\r\n", "\u2028", "\u2029"]
+        .map(
+          (end, index) =>
+            `import(// comment${end}'./module.js?case=${index}');`,
+        )
+        .join("\n") +
+      `\nimport/* before */('./module.js?case=before');\nimport(${"/* x */".repeat(16)}computed);`;
     const devServer = http.createServer((_req, res) => {
       res
         .writeHead(200, { "content-type": "application/javascript" })
@@ -4276,6 +4320,10 @@ describe("design connect bridge endpoints", () => {
           `case=${index}&previewToken=${bridge.previewToken}`,
         );
       }
+      expect(module.body).toContain(
+        `case=before&previewToken=${bridge.previewToken}`,
+      );
+      expect(module.body).toContain(`import(${"/* x */".repeat(16)}computed)`);
     } finally {
       await bridge.close();
       await new Promise<void>((resolve) => devServer.close(() => resolve()));

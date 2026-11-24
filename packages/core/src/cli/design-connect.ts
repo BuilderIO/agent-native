@@ -1542,18 +1542,20 @@ function addLiveEditBaseHref(html: string, href: string): string {
   return `<!DOCTYPE html><html><head>${baseTag}<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${html}</body></html>`;
 }
 
+function isLocalPreviewResourceUrl(resourceUrl: string): boolean {
+  return (
+    Boolean(resourceUrl) &&
+    resourceUrl.trim() === resourceUrl &&
+    !/[\\\x00-\x1f\x7f-\x9f]|[^\S ]/.test(resourceUrl) &&
+    !/^(?:[a-z][a-z\d+.-]*:|\/\/|#|%23)/i.test(resourceUrl)
+  );
+}
+
 function addPreviewTokenToResourceUrl(
   resourceUrl: string,
   previewToken: string,
 ): string {
-  if (
-    !resourceUrl ||
-    resourceUrl.trim() !== resourceUrl ||
-    /[\\\x00-\x1f\x7f-\x9f]|[^\S ]/.test(resourceUrl) ||
-    /^(?:[a-z][a-z\d+.-]*:|\/\/|#|%23)/i.test(resourceUrl)
-  ) {
-    return resourceUrl;
-  }
+  if (!isLocalPreviewResourceUrl(resourceUrl)) return resourceUrl;
   const hashIndex = resourceUrl.indexOf("#");
   const path = hashIndex === -1 ? resourceUrl : resourceUrl.slice(0, hashIndex);
   const hash = hashIndex === -1 ? "" : resourceUrl.slice(hashIndex);
@@ -1633,11 +1635,7 @@ function addOpaqueFrameCredentials(
       const resourceUrl =
         resourceMatch?.[2] ?? resourceMatch?.[3] ?? resourceMatch?.[4] ?? "";
       const decodedResourceUrl = decodeHTMLAttribute(resourceUrl);
-      if (
-        !resourceMatch ||
-        !decodedResourceUrl ||
-        /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(decodedResourceUrl)
-      ) {
+      if (!resourceMatch || !isLocalPreviewResourceUrl(decodedResourceUrl)) {
         return fullTag;
       }
       let nextAttributes = attributes;
@@ -1769,7 +1767,7 @@ function addOpaqueFrameJavaScriptResourceTokens(
         rewrite(prefix, quote, resourceUrl),
     )
     .replace(
-      /(\bimport\s*\((?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*(?:\r\n|[\r\n\u2028\u2029]|$))*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
+      /(\bimport(?:\s|\/\*(?:[^*]|\*(?!\/))*\*\/|\/\/[^\r\n\u2028\u2029]*(?:\r\n|[\r\n\u2028\u2029]|$))*\((?:\s|\/\*(?:[^*]|\*(?!\/))*\*\/|\/\/[^\r\n\u2028\u2029]*(?:\r\n|[\r\n\u2028\u2029]|$))*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>
         rewrite(prefix, quote, resourceUrl),
     )
