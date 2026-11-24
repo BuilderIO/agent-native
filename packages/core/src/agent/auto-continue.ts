@@ -1,3 +1,4 @@
+import { getAppConfig } from "../app-config/index.js";
 import { MAX_TURN_WALL_CLOCK_MS } from "../app-config/run-lifecycle-invariants.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
 
@@ -6,6 +7,7 @@ import { isRequestedStopAbortReason } from "./abort-reasons.js";
  * run time limit. Each one replays the turn's context to the model and runs up
  * to another full chunk (40 s foreground, 13 min background), so this bounds
  * what one message can spend unattended; past it the turn waits for Continue.
+ * This is the default of `agent.maxAutoContinuesPerTurn`.
  */
 export const MAX_AUTO_CONTINUES_PER_TURN = 3;
 
@@ -114,7 +116,7 @@ export function admitAutoContinue(input: {
   // The server's own turn ceiling still ends the turn first; that is what
   // keeps a continued turn inside the browser's follow budget.
   if (
-    turn.autoContinues >= MAX_AUTO_CONTINUES_PER_TURN ||
+    turn.autoContinues >= getAppConfig().agent.maxAutoContinuesPerTurn ||
     input.nowMs - turn.startedAt > MAX_TURN_WALL_CLOCK_MS
   ) {
     return { admit: false, code: "auto_continue_cap_reached" };

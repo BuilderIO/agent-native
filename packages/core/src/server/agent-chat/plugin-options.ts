@@ -3,6 +3,7 @@ import type {
   AgentLoopFinalResponseGuard,
   ProductionAgentOptions,
 } from "../../agent/production-agent.js";
+import type { ToolLimits } from "../../agent/production-agent.js";
 import type { ActiveRun } from "../../agent/run-manager.js";
 import type { AgentChatScope, MentionProvider } from "../../agent/types.js";
 import type { FrameworkToolsConfig } from "../../framework-tools.js";
@@ -296,11 +297,7 @@ export interface AgentChatPluginOptions {
     bridgeTools?: string[];
   };
 
-  toolLimits?: {
-    timeoutMs?: number;
-    maxResultChars?: number;
-    hardMaxResultChars?: number;
-  };
+  toolLimits?: ToolLimits;
 }
 
 export function resolveA2AAgentDelegationEnabled(
