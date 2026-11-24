@@ -1,4 +1,8 @@
-import { defineAction, type ActionRunContext } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { z } from "zod";
@@ -36,6 +40,14 @@ export default defineAction({
       .refine((value) => /^https:\/\//i.test(value), "sourceUrl must be https")
       .optional(),
   }),
+  outputSchema: z.object({
+    interactionId: z.string(),
+    recordId: z.string(),
+    occurredAt: z.string(),
+    ownerEmail: z.string(),
+    orgId: z.string().nullable(),
+    visibility: z.enum(["private", "org"]),
+  }),
   audit: {
     target: (args, result) => {
       const value = result as {
@@ -63,8 +75,15 @@ export default defineAction({
       .from(schema.crmRecords)
       .where(eq(schema.crmRecords.id, args.recordId))
       .limit(1);
-    if (records.length === 0) throw new Error("CRM record not found.");
-    const record = records[0];
+    const connectionId = records.reduce<string | null>(
+      (_, row) => row.connectionId,
+      null,
+    );
+    if (connectionId === null)
+      return fail("CRM record not found.", {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
 
     const now = new Date().toISOString();
     const occurredAt = args.occurredAt ?? now;
@@ -73,12 +92,12 @@ export default defineAction({
       await tx.insert(schema.crmInteractions).values({
         id,
         recordId: args.recordId,
-        connectionId: record.connectionId,
+        connectionId,
         kind: args.kind,
         direction: args.direction,
         title:
           args.title ??
-          `${args.kind[0].toUpperCase()}${args.kind.slice(1)} (${args.direction})`,
+          `${args.kind.charAt(0).toUpperCase()}${args.kind.slice(1)} (${args.direction})`,
         summary: args.summary,
         occurredAt,
         meaningful: args.meaningful,
@@ -109,6 +128,7 @@ export default defineAction({
       .where(eq(schema.crmInteractions.id, id))
       .limit(1);
     if (saved.length === 0)
+      // guard:allow-bare-error — invariant: the insert committed above, so a missing row is a storage bug
       throw new Error("Interaction could not be verified after saving.");
     return {
       interactionId: id,
