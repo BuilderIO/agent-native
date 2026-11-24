@@ -14,6 +14,7 @@ import { chromium, type Page } from "@playwright/test";
 
 import { pnpmCommand } from "../../../../scripts/lib/pnpm-command.ts";
 import {
+  BenchLockHeld,
   CHECKPOINT_LOAD_WAIT_MS,
   CONSTANTS,
   DEVICE_SCALE_FACTOR,
@@ -23,6 +24,7 @@ import {
   READY_TIMEOUT_MS,
   SanityFailure,
   VIEWPORT,
+  acquireBenchLock,
   findBrowserPid,
   median,
   measurePxPerTick,
@@ -55,8 +57,19 @@ async function deleteSeededDesign() {
   seededDesignId = undefined;
   await postAction("delete-design", { id });
 }
+async function deleteSeededDesignOrReport(): Promise<string | null> {
+  const id = seededDesignId;
+  try {
+    await deleteSeededDesign();
+    return null;
+  } catch (error) {
+    const message = `seeded design ${id} was NOT deleted, delete it manually: ${error instanceof Error ? error.message : String(error)}`;
+    console.error(message);
+    return message;
+  }
+}
 const exitAfterCleanup = async () => {
-  await deleteSeededDesign().catch(() => {});
+  await deleteSeededDesignOrReport();
   process.exit(2);
 };
 process.on("uncaughtException", (error) => {
@@ -194,6 +207,14 @@ if (values.design !== undefined && mutating.length) {
   console.error(
     `${mutating.map((action) => action.name).join(", ")} saves changes to the design, so it runs only on a seeded or --source board, never on --design`,
   );
+  process.exit(2);
+}
+
+try {
+  acquireBenchLock(process.argv.slice(2).join(" "));
+} catch (error) {
+  if (!(error instanceof BenchLockHeld)) throw error;
+  console.error(error.message);
   process.exit(2);
 }
 
@@ -402,12 +423,21 @@ if (!values.design) {
 } else {
   designId = values.design;
 }
+class DesignNotFound extends Error {}
 const readScreenCount = async (id: string) => {
   const state = await readDesignState(id);
-  if (!state) throw new Error(`design ${id} not found at ${baseUrl}`);
+  if (!state) throw new DesignNotFound(`design ${id} not found at ${baseUrl}`);
   return state.screens;
 };
-let screenCount = await readScreenCount(designId);
+let screenCount: number;
+try {
+  screenCount = await readScreenCount(designId);
+} catch (error) {
+  if (!(error instanceof DesignNotFound)) throw error;
+  console.error(error.message);
+  await deleteSeededDesignOrReport();
+  process.exit(2);
+}
 const seedMs = Date.now() - seedStartedAt;
 
 const testHooksScript = (hooks: {
@@ -582,8 +612,39 @@ async function waitForReady(page: Page) {
     }
     await page.waitForTimeout(100);
   }
+  const diagnostics = await page
+    .evaluate((viewportWidth) => {
+      const shells = [
+        ...document.querySelectorAll("[data-screen-shell][data-frame-id]"),
+      ].map((shell) => {
+        const { left, top, width, height } = shell.getBoundingClientRect();
+        return { left, top, width, height };
+      });
+      return {
+        camera:
+          document.querySelector<HTMLElement>(
+            "[data-multi-screen-canvas-world]",
+          )?.style.transform ?? null,
+        clear: window.__bench?.clearArea() ?? null,
+        shells: shells.length,
+        nearest: shells
+          .filter(
+            (r) =>
+              r.width > 0 &&
+              r.left < 2 * viewportWidth &&
+              r.left + r.width > -viewportWidth,
+          )
+          .slice(0, 6)
+          .map((r) => [r.left, r.top, r.width, r.height].map(Math.round)),
+      };
+    }, VIEWPORT.width)
+    .then(
+      (state) => JSON.stringify(state),
+      (error) =>
+        `diagnostics unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
   throw new SanityFailure(
-    `canvas never became ready: ${last.loaded}/${last.visible} visible screens loaded`,
+    `canvas never became ready: ${last.loaded}/${last.visible} visible screens loaded ${diagnostics}`,
   );
 }
 
@@ -891,6 +952,7 @@ async function measureAction(
       clearArea: () => readClearArea(page),
       measurePxPerTick: () => measurePxPerTick(page),
       idleFrameMs: null,
+      screenCount,
       sampler: {
         start: async () => {
           sampledStartedAt = Date.now();
@@ -916,6 +978,27 @@ async function measureAction(
         ) {
           await page.waitForTimeout(100);
           state = await readVisibleScreens(page);
+        }
+        if (!state.visible) {
+          console.log(
+            `${label} ${checkpointLabel} diagnostics: ${JSON.stringify(
+              await page.evaluate(() => ({
+                clear: window.__bench?.clearArea() ?? null,
+                shells: [
+                  ...document.querySelectorAll(
+                    "[data-screen-shell][data-frame-id]",
+                  ),
+                ].map((shell) => {
+                  const r = shell
+                    .querySelector("[data-screen-content]")
+                    ?.getBoundingClientRect();
+                  return (
+                    r && [r.left, r.top, r.width, r.height].map(Math.round)
+                  );
+                }),
+              })),
+            )}`,
+          );
         }
         let screenshot: string | null = null;
         const blank = !state.visible || state.loaded < state.visible;
@@ -1120,14 +1203,7 @@ try {
 
 const cleanupStartedAt = Date.now();
 await browser.close();
-let cleanupError: string | null = null;
-const seededIdAtCleanup = seededDesignId;
-try {
-  await deleteSeededDesign();
-} catch (error) {
-  cleanupError = `seeded design ${seededIdAtCleanup} was NOT deleted, delete it manually: ${error instanceof Error ? error.message : String(error)}`;
-  console.error(cleanupError);
-}
+const cleanupError = await deleteSeededDesignOrReport();
 const cleanupMs = Date.now() - cleanupStartedAt;
 const aborted = failure
   ? failure instanceof Error
