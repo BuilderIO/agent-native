@@ -12,6 +12,12 @@ import { getDb, schema } from "../server/db/index.js";
 import { requireCrmScope } from "./_crm-action-utils.js";
 
 export default defineAction({
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Log a call, meeting, email, note, or message on a CRM record's timeline. Stores a bounded summary only (never a transcript or media). Also advances the record's lastMeaningfulInteractionAt when the entry is meaningful and newer.",
   schema: z.object({
