@@ -1740,65 +1740,13 @@ function addOpaqueFrameResourceTokens(
   );
 }
 
-function addDynamicImportTokens(source: string, previewToken: string): string {
-  const imports = /\bimport\s*\(/g;
-  const lastBlockClose = source.lastIndexOf("*/");
-  const chunks: string[] = [];
-  let copied = 0;
-  for (let match = imports.exec(source); match; match = imports.exec(source)) {
-    let cursor = imports.lastIndex;
-    while (cursor < source.length) {
-      if (/\s/.test(source[cursor])) {
-        cursor++;
-      } else if (source.startsWith("/*", cursor)) {
-        if (cursor >= lastBlockClose) break;
-        const end = source.indexOf("*/", cursor + 2);
-        if (end < 0) break;
-        cursor = end + 2;
-      } else if (source.startsWith("//", cursor)) {
-        cursor += 2;
-        while (
-          cursor < source.length &&
-          !/[\r\n\u2028\u2029]/.test(source[cursor])
-        )
-          cursor++;
-      } else {
-        break;
-      }
-    }
-    const quote = source[cursor];
-    if (quote === '"' || quote === "'") {
-      let end = cursor + 1;
-      while (
-        end < source.length &&
-        source[end] !== quote &&
-        !/[\r\n\u2028\u2029]/.test(source[end])
-      )
-        end++;
-      if (source[end] === quote) {
-        const url = source.slice(cursor + 1, end);
-        if (/^(?:\/|\.{1,2}\/)/.test(url)) {
-          chunks.push(
-            source.slice(copied, cursor + 1),
-            addPreviewTokenToResourceUrl(url, previewToken),
-          );
-          copied = end;
-          imports.lastIndex = end + 1;
-        }
-      }
-    }
-  }
-  chunks.push(source.slice(copied));
-  return chunks.join("");
-}
-
 function addOpaqueFrameJavaScriptResourceTokens(
   source: string,
   previewToken: string,
 ): string {
   const rewrite = (prefix: string, quote: string, resourceUrl: string) =>
     `${prefix}${quote}${addPreviewTokenToResourceUrl(resourceUrl, previewToken)}${quote}`;
-  return addDynamicImportTokens(source, previewToken)
+  return source
     .replace(
       /(\b(?:import|export)\s+[^;]*?\sfrom\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>
@@ -1806,6 +1754,11 @@ function addOpaqueFrameJavaScriptResourceTokens(
     )
     .replace(
       /(\bimport\s+)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    )
+    .replace(
+      /(\bimport\s*\((?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>
         rewrite(prefix, quote, resourceUrl),
     )
