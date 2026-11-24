@@ -3214,6 +3214,49 @@ describe("chat thread store", () => {
     expect(unknown?.queueOrderStale).toBe(true);
   });
 
+  it("answers a claim or steer for an already-promoted message with its run instead of an error", async () => {
+    if (!row) throw new Error("thread row missing");
+    row.thread_data = JSON.stringify({
+      queuedMessages: [],
+      messages: [
+        {
+          message: {
+            id: "user-promoted",
+            role: "user",
+            metadata: {
+              custom: {
+                agentNativeQueuedMessageId: "queued-promoted",
+                submittedRunId: "run-promoted",
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    for (const mutation of [
+      { type: "claim" as const, messageId: "queued-promoted", claimId: "c-1" },
+      { type: "steer" as const, messageId: "queued-promoted" },
+    ]) {
+      const result = await mutateThreadQueuedMessages("thread-1", mutation);
+      expect(result?.alreadySubmitted).toBe(true);
+      expect(result?.submittedRunId).toBe("run-promoted");
+    }
+    await expect(
+      mutateThreadQueuedMessages("thread-1", {
+        type: "claim",
+        messageId: "queued-never-existed",
+        claimId: "c-2",
+      }),
+    ).rejects.toThrow("Unknown queued message: queued-never-existed");
+    await expect(
+      mutateThreadQueuedMessages("thread-1", {
+        type: "steer",
+        messageId: "queued-never-existed",
+      }),
+    ).rejects.toThrow("Unknown queued message: queued-never-existed");
+  });
+
   it("refuses to reorder a message that is being promoted", async () => {
     for (const id of ["queued-a", "queued-b"]) {
       await mutateThreadQueuedMessages("thread-1", {

@@ -5302,6 +5302,13 @@ export function createAgentNativeAgentKitTransport(
               return { delivery: "after_reply" as const };
             throw error;
           }
+          if (steered.alreadySubmitted && steered.submittedRunId) {
+            clearPromotionClaimId(threadId, messageId);
+            return {
+              runId: steered.submittedRunId,
+              alreadySubmitted: true as const,
+            };
+          }
           if (steered.submissionExpired)
             return { alreadyRemoved: true as const };
           return { delivery: steered.message?.delivery ?? "steering" };
@@ -5321,6 +5328,14 @@ export function createAgentNativeAgentKitTransport(
         }
         let claimHeld = true;
         try {
+          if (claim.alreadySubmitted && claim.submittedRunId) {
+            clearPromotionClaimId(threadId, messageId);
+            claimHeld = false;
+            return {
+              runId: claim.submittedRunId,
+              alreadySubmitted: true as const,
+            };
+          }
           if (claim.submissionExpired) {
             clearPromotionClaimId(threadId, messageId);
             return { alreadyRemoved: true as const };
