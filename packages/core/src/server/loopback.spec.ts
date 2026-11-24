@@ -224,6 +224,12 @@ describe("isLoopbackRequest", () => {
     { host: "localhost:8080", "x-forwarded-host": "[::1]attacker.example" },
     { host: "localhost:8080", "x-forwarded-host": "127.0.0.1:bad" },
     { host: "localhost:8080", forwarded: 'for="[::1]attacker.example"' },
+    { host: "localhost:8080", "cf-connecting-ip": "203.0.113.7" },
+    { host: "localhost:8080", "true-client-ip": "203.0.113.7" },
+    { host: "localhost:8080", "fly-client-ip": "203.0.113.7" },
+    { host: "localhost:8080", "x-client-ip": "203.0.113.7" },
+    { host: "localhost:8080", "x-original-host": "preview.example.dev" },
+    { host: "localhost:8080", "x-host": "preview.example.dev" },
     {},
   ])("refuses a proxied or foreign-host request %j", (headers) => {
     expect(isLoopbackPeerRequest(makeEvent(headers))).toBe(false);
@@ -262,4 +268,14 @@ describe("isLoopbackRequest", () => {
       expect(isLoopbackRequest(event)).toBe(true);
     },
   );
+
+  it("ignores the container opt-in outside development", () => {
+    vi.stubEnv("FUSION_ENVIRONMENT", "cloud");
+    vi.stubEnv("AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV", "1");
+    const event = makeEvent({ host: "localhost:8080" });
+    expect(isLoopbackRequest(event)).toBe(true);
+
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isLoopbackRequest(event)).toBe(false);
+  });
 });

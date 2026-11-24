@@ -2,6 +2,7 @@ import { getRequestIP } from "h3";
 import type { H3Event } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
+import { isDevEnvironment } from "./oauth-return-url.js";
 
 export function isLoopbackAddress(ip: string | undefined): boolean {
   const normalised = (ip ?? "").split("%")[0];
@@ -30,7 +31,8 @@ export function isPublicDevContainer(): boolean {
 /** Whether a loopback peer on this host can be trusted as the developer. */
 export function isLoopbackTrustedEnvironment(): boolean {
   return (
-    !isPublicDevContainer() || getAppConfig().auth.allowBuilderPreviewLocalDev
+    !isPublicDevContainer() ||
+    (isDevEnvironment() && getAppConfig().auth.allowBuilderPreviewLocalDev)
   );
 }
 
@@ -67,8 +69,7 @@ function hostnameOf(authority: string): string {
   const value = unquote(authority).trim().toLowerCase();
   const match = AUTHORITY.exec(value);
   if (match) {
-    const [, bracketed, name] = match;
-    return bracketed || name;
+    return match[1] || match[2] || "";
   }
   return value.includes(":") && BARE_IPV6.test(value) ? value : "";
 }
@@ -88,12 +89,30 @@ function isLoopbackHostname(hostname: string): boolean {
   );
 }
 
+const CLIENT_ADDRESS_HEADERS = [
+  "x-forwarded-for",
+  "x-real-ip",
+  "x-client-ip",
+  "x-cluster-client-ip",
+  "cf-connecting-ip",
+  "true-client-ip",
+  "fastly-client-ip",
+  "fly-client-ip",
+  "x-nf-client-connection-ip",
+  "x-appengine-user-ip",
+  "x-azure-clientip",
+  "client-ip",
+];
+
+const ORIGINAL_HOST_HEADERS = ["x-forwarded-host", "x-original-host", "x-host"];
+
 function forwardedHeadersNameOnlyLoopback(event: H3Event): boolean {
-  const clients = [
-    ...headerValues(readHeader(event, "x-forwarded-for")),
-    ...headerValues(readHeader(event, "x-real-ip")),
-  ];
-  const hosts = headerValues(readHeader(event, "x-forwarded-host"));
+  const clients = CLIENT_ADDRESS_HEADERS.flatMap((name) =>
+    headerValues(readHeader(event, name)),
+  );
+  const hosts = ORIGINAL_HOST_HEADERS.flatMap((name) =>
+    headerValues(readHeader(event, name)),
+  );
   for (const element of headerValues(readHeader(event, "forwarded"))) {
     for (const pair of element.split(";")) {
       const separator = pair.indexOf("=");
