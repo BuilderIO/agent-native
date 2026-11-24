@@ -149,8 +149,7 @@ for a customized copy.
 To save pages or Collection rows to Content, message Content to do the work as
 the signed-in person: `call-agent` to `content` from the agent, or
 `invokeAgent()` with the identity from `resolveA2ACallerAuth()` in server code.
-Direct action calls only read, so they can't save. Never ask the user for a
-Content token or keep one in an environment variable.
+Never ask the user for a Content token or keep one in an environment variable.
 
 ## Editing shared behavior
 
