@@ -4,10 +4,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
-import {
-  composerSourceReferenceSchema,
-  composerWebsiteUrlSchema,
-} from "@agent-native/core/shared";
+import { linkSummaryResultSchema } from "@agent-native/core/shared";
 import { designBriefsFromData, type DesignBrief } from "@shared/design-briefs";
 import {
   IconChevronDown,
@@ -61,34 +58,52 @@ import { ExportSubmenuContent } from "./export-submenu-content";
  * still cached), there is no page. The stored link is never used, so it can't
  * point a "Built from" item somewhere Content didn't.
  */
-function useBriefPage(
-  brief: DesignBrief,
+function useBriefPages(
+  briefs: readonly DesignBrief[],
   refetchOnMount: boolean | "always" = true,
 ) {
-  const page = useActionQuery(
-    "read-composer-source",
-    { source: "content", operation: "read", id: brief.id, page: 1 },
-    { method: "GET", staleTime: 5 * 60_000, retry: false, refetchOnMount },
+  const titles = useActionQuery(
+    "read-brief-titles",
+    { ids: briefs.map((brief) => brief.id) },
+    {
+      method: "GET",
+      enabled: briefs.length > 0,
+      staleTime: 5 * 60_000,
+      retry: false,
+      refetchOnMount,
+    },
   );
-  if (page.isError) return null;
-  const read = composerSourceReferenceSchema.safeParse(page.data);
-  if (!read.success) return null;
-  const title = read.data.title.trim();
-  const url = composerWebsiteUrlSchema.safeParse(read.data.url);
-  return title && url.success ? { title, url: url.data } : null;
+  const read = titles.isError
+    ? null
+    : linkSummaryResultSchema.safeParse(titles.data);
+  return briefs.map((brief, index) => {
+    const summary = read?.success ? read.data.summaries[index] : undefined;
+    return {
+      brief,
+      page: summary?.status === "available" ? summary : null,
+    };
+  });
 }
 
-/** Reads the page when the editor opens, so the file menu opens with it. */
-function BriefTitlePrefetch({ brief }: { brief: DesignBrief }) {
-  useBriefPage(brief);
+function BriefTitlesPrefetch({ briefs }: { briefs: readonly DesignBrief[] }) {
+  useBriefPages(briefs);
   return null;
 }
 
-export function BuiltFromItem({ brief }: { brief: DesignBrief }) {
-  const t = useT();
+export function BuiltFromItems({ briefs }: { briefs: readonly DesignBrief[] }) {
   // Opening the menu reads the page again, so access removed since the editor
   // opened takes the title away instead of showing it from the cache.
-  const page = useBriefPage(brief, "always");
+  return useBriefPages(briefs, "always").map(({ brief, page }) => (
+    <BuiltFromItem key={`${brief.source}:${brief.id}`} page={page} />
+  ));
+}
+
+function BuiltFromItem({
+  page,
+}: {
+  page: { title: string; url: string } | null;
+}) {
+  const t = useT();
   if (!page) {
     return (
       <DropdownMenuItem disabled className="items-start">
@@ -229,13 +244,6 @@ function ProjectTitleControl({
     );
   }
 
-  const briefPrefetches = briefs.map((brief) => (
-    <BriefTitlePrefetch key={`${brief.source}:${brief.id}`} brief={brief} />
-  ));
-  const builtFromItems = briefs.map((brief) => (
-    <BuiltFromItem key={`${brief.source}:${brief.id}`} brief={brief} />
-  ));
-
   if (!canEditDesign) {
     if (briefs.length === 0) {
       return (
@@ -248,7 +256,7 @@ function ProjectTitleControl({
     // was built from.
     return (
       <>
-        {briefPrefetches}
+        <BriefTitlesPrefetch briefs={briefs} />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -263,7 +271,7 @@ function ProjectTitleControl({
             align="start"
             className="design-editor-app-menu-content w-[220px]"
           >
-            {builtFromItems}
+            <BuiltFromItems briefs={briefs} />
           </DropdownMenuContent>
         </DropdownMenu>
       </>
@@ -272,7 +280,7 @@ function ProjectTitleControl({
 
   return (
     <>
-      {briefPrefetches}
+      <BriefTitlesPrefetch briefs={briefs} />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -292,7 +300,7 @@ function ProjectTitleControl({
             suppressFileMenuReturnFocusRef.current = false;
           }}
         >
-          {builtFromItems}
+          <BuiltFromItems briefs={briefs} />
           {briefs.length > 0 ? <DropdownMenuSeparator /> : null}
           <DropdownMenuItem
             onClick={() => {

@@ -90,6 +90,7 @@ describe("single-use link actions", () => {
         conferencing TEXT,
         color TEXT,
         is_active BOOLEAN NOT NULL DEFAULT true,
+        reminder_minutes INTEGER NOT NULL DEFAULT 1440,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         owner_email TEXT NOT NULL,

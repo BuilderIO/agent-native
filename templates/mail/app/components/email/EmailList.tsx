@@ -44,7 +44,10 @@ import { ActionTooltip } from "@/components/email/ActionTooltip";
 import { AiFilterDialog } from "@/components/email/AiFilterDialog";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
-import { JevConnectionPrompt } from "@/components/settings/JevConnectionPrompt";
+import {
+  JevConnectionDialog,
+  JevConnectionMenuItem,
+} from "@/components/settings/JevConnectionPrompt";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -622,6 +625,9 @@ export function EmailList({
     action: "filter" | "keep";
     targets: AiFilterTarget[];
   } | null>(null);
+  const [jevDialog, setJevDialog] = useState<"unopened" | "open" | "closed">(
+    "unopened",
+  );
 
   const {
     data: fetchedEmails = [],
@@ -2571,10 +2577,9 @@ export function EmailList({
                     </span>
                   </DropdownMenuItem>
                 ) : (
-                  <JevConnectionPrompt
-                    variant="menu-item"
+                  <JevConnectionMenuItem
                     disabled={jevAvailabilityLoading}
-                    onConnected={onJevConnected}
+                    onSelect={() => setJevDialog("open")}
                   />
                 ))}
             </DropdownMenuContent>
@@ -2589,7 +2594,6 @@ export function EmailList({
       jevConfigured,
       jevAvailabilityLoading,
       jevAvailabilityError,
-      onJevConnected,
       onJevRetry,
       currentSortMode,
       onSortModeChange,
@@ -2758,15 +2762,29 @@ export function EmailList({
       selectUnstarredThreads,
     ],
   );
+  if (jevConfigured && jevDialog !== "unopened") setJevDialog("unopened");
+  const jevConnectionDialog = useMemo(
+    () =>
+      jevDialog === "unopened" ? null : (
+        <JevConnectionDialog
+          open={jevDialog === "open"}
+          onOpenChange={(open) => setJevDialog(open ? "open" : "closed")}
+          onConnected={() => onJevConnected?.()}
+        />
+      ),
+    [jevDialog, onJevConnected],
+  );
+
   const headerActions = useMemo(
     () =>
-      sortHeaderAction || bulkHeaderActions ? (
+      sortHeaderAction || bulkHeaderActions || jevConnectionDialog ? (
         <>
           {sortHeaderAction}
           {bulkHeaderActions}
+          {jevConnectionDialog}
         </>
       ) : null,
-    [bulkHeaderActions, sortHeaderAction],
+    [bulkHeaderActions, jevConnectionDialog, sortHeaderAction],
   );
   useSetHeaderActions(headerActions);
 

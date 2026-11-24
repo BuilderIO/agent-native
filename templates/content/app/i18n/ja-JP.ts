@@ -780,6 +780,15 @@ const editor = {
       "移動する前にブロックが変更されたため、何も移動しませんでした。",
     moveFailed: "ブロックを {{title}} に移動できませんでした",
     openPage: "開く",
+    copyLink: "リンクをコピー",
+    linkCopied: "リンクをコピーしました",
+    copyLinkFailed: "リンクをコピーできませんでした",
+    linkNotReady:
+      "このブロックのリンクはまだ準備できていません。少し待ってからもう一度お試しください。",
+    linkedBlockDeleted: "このリンク先のブロックは削除されました。",
+    linkedBlockMissing: "このリンク先のブロックが見つかりませんでした。",
+    linkedBlockLookupFailed:
+      "このリンク先のブロックを開けませんでした。ページを再読み込みしてもう一度お試しください。",
   },
   noDocumentSelected: "ドキュメントが選択されていません",
   registryBlockLoadError:
@@ -912,6 +921,9 @@ const editor = {
     imageUploadsFailed:
       "{{total}} 件中 {{failed}} 件の画像をアップロードできませんでした。",
     imageView: "イメージビュー",
+    imagePosition: "{{current}} / {{total}}",
+    nextImage: "次の画像",
+    previousImage: "前の画像",
     keptYourAltText: "入力した代替テキストを残しました。",
     link: "リンク",
     loadingAssetsPicker: "アセットピッカーのロード",

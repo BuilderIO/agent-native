@@ -675,6 +675,8 @@ const messages: ToolkitAgentChatTranslation = {
     "工具結構描述無效，因此模型在要求開始前便拒絕了要求。您可以略過無效工具並重試要求。",
   "errorMessages.malformedRequest":
     "模型供應商認為此要求格式有誤而予以拒絕，因此未重試。請重試，若問題持續發生，請開始新的對話。",
+  "errorMessages.requestNotRead":
+    "此要求過大或過於複雜（例如工具過多），模型無法讀取，因此未重試。請開始新的對話或選擇其他模型。",
   "errorMessages.requestTooLarge":
     "此要求超過伺服器大小限制（HTTP 413）。請開始新的聊天，或移除較大的附件或參照後再試一次。",
   "errorMessages.capabilityUnavailable": "目前無法傳送你的訊息。請稍後再試。",

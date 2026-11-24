@@ -796,6 +796,15 @@ const editor = {
       "El bloque cambió antes de poder moverse, así que no se movió nada.",
     moveFailed: "No se pudo mover el bloque a {{title}}",
     openPage: "Abrir",
+    copyLink: "Copiar enlace",
+    linkCopied: "Enlace copiado",
+    copyLinkFailed: "No se pudo copiar el enlace",
+    linkNotReady:
+      "El enlace de este bloque aún no está listo. Inténtalo de nuevo en un momento.",
+    linkedBlockDeleted: "Se eliminó el bloque al que apunta este enlace.",
+    linkedBlockMissing: "No se encontró el bloque al que apunta este enlace.",
+    linkedBlockLookupFailed:
+      "No se pudo abrir el bloque al que apunta este enlace. Recarga la página para volver a intentarlo.",
   },
   noDocumentSelected: "Ningún documento seleccionado",
   registryBlockLoadError: "No se pudo cargar el bloque {{type}}: {{message}}",
@@ -927,6 +936,9 @@ const editor = {
     imageUploadsFailed:
       "No se pudieron subir {{failed}} de {{total}} imágenes.",
     imageView: "Vista de imagen",
+    imagePosition: "{{current}} de {{total}}",
+    nextImage: "Imagen siguiente",
+    previousImage: "Imagen anterior",
     keptYourAltText: "Se mantuvo tu texto alternativo.",
     link: "Enlace",
     loadingAssetsPicker: "Cargando selector de recursos",

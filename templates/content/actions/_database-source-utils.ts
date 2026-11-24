@@ -64,6 +64,8 @@ import {
 } from "../shared/builder-mdx.js";
 import { keepRuledOptions } from "../shared/column-rules.js";
 import {
+  documentPropertyDateTimestamp,
+  isDocumentPropertyDateValue,
   normalizePropertyValueWithOptions,
   parsePropertyOptions,
   parsePropertyValue,
@@ -1294,11 +1296,40 @@ function builderPageTitleRead(args: {
 function builderSourceFieldComparisonValue(
   field: { sourceFieldKey: string; sourceFieldType?: string | null },
   values: Record<string, DocumentPropertyValue>,
+  localValue?: unknown,
 ) {
   const value = values[field.sourceFieldKey];
-  return field.sourceFieldType?.trim().toLowerCase() === "reference"
-    ? (values[builderReferenceIdSourceValueKey(field.sourceFieldKey)] ?? value)
-    : value;
+  const sourceFieldType = field.sourceFieldType?.trim().toLowerCase();
+  if (sourceFieldType === "reference") {
+    return (
+      values[builderReferenceIdSourceValueKey(field.sourceFieldKey)] ?? value
+    );
+  }
+  if (
+    (sourceFieldType === "date" || sourceFieldType === "datetime") &&
+    typeof value === "number" &&
+    isDocumentPropertyDateValue(localValue)
+  ) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    const start = localValue.start.trim();
+    const same = /^\d{4}-\d{2}-\d{2}$/.test(start)
+      ? date.toISOString().slice(0, 10) === start
+      : documentPropertyDateTimestamp(start) === value;
+    return same ? localValue : value;
+  }
+  if (sourceFieldType === "file" && typeof value === "string") {
+    const links = Array.isArray(localValue) ? localValue : [localValue];
+    return links.length === 1 && canonicalWebLink(links[0]) === value
+      ? localValue
+      : value;
+  }
+  return value;
+}
+
+function canonicalWebLink(value: unknown) {
+  if (typeof value !== "string" || !URL.canParse(value)) return null;
+  return new URL(value).toString();
 }
 
 function stringSourceValue(
@@ -4804,7 +4835,11 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         if (
           sameMappedSourceFieldValue(
             localValue,
-            builderSourceFieldComparisonValue(field, rowSourceValues),
+            builderSourceFieldComparisonValue(
+              field,
+              rowSourceValues,
+              localValue,
+            ),
             field.propertyType,
             field.propertyOptions,
           )
@@ -4830,21 +4865,19 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     const bodyChange = args.bodyChangeByDocumentId?.get(row.documentId) ?? null;
     const transitionOnly = fieldChanges.length === 0 && !bodyChange;
     if (transitionOnly && !stagedTransition) continue;
-    const matchesStoredChange = args.storedChangeSets.some((changeSet) => {
-      if (
-        changeSet.direction !== "outbound" ||
-        changeSet.documentId !== row.documentId ||
-        changeSet.pushMode !== "autosave" ||
-        changeSet.state === "rejected" ||
-        changeSet.state === "applied"
-      ) {
-        return false;
-      }
-      // Any open change for the row carries its staged publish or unpublish.
-      if (transitionOnly) return true;
-      return (
-        changeSet.fieldChanges.some((stored) =>
-          fieldChanges.some((change) => {
+    const openChangeSets = args.storedChangeSets.filter(
+      (changeSet) =>
+        changeSet.direction === "outbound" &&
+        changeSet.documentId === row.documentId &&
+        changeSet.pushMode === "autosave" &&
+        changeSet.state !== "rejected" &&
+        changeSet.state !== "applied",
+    );
+    if (transitionOnly && openChangeSets.length > 0) continue;
+    const pendingFieldChanges = fieldChanges.filter(
+      (change) =>
+        !openChangeSets.some((changeSet) =>
+          changeSet.fieldChanges.some((stored) => {
             if (change.localFieldKey !== stored.localFieldKey) return false;
             const writableField = args.writableFields?.find(
               (field) => field.localFieldKey === change.localFieldKey,
@@ -4863,11 +4896,20 @@ export function buildBuilderLocalOutboundChangeSets(args: {
               sameStoredValue(change.proposedValue, stored.proposedValue)
             );
           }),
-        ) ||
-        (!!bodyChange && !!changeSet.bodyChange)
-      );
-    });
-    if (matchesStoredChange) continue;
+        ),
+    );
+    const pendingBodyChange = openChangeSets.some(
+      (changeSet) => changeSet.bodyChange,
+    )
+      ? null
+      : bodyChange;
+    if (
+      !transitionOnly &&
+      pendingFieldChanges.length === 0 &&
+      !pendingBodyChange
+    ) {
+      continue;
+    }
 
     const now = new Date().toISOString();
     const displayTitle = localTitle || sourceTitle;
@@ -4877,7 +4919,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       documentId: row.documentId,
       kind: transitionOnly
         ? "metadata_update"
-        : bodyChange && fieldChanges.length === 0
+        : pendingBodyChange && pendingFieldChanges.length === 0
           ? "body_update"
           : "field_update",
       direction: "outbound",
@@ -4886,16 +4928,16 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       localOnly: true,
       summary: transitionOnly
         ? `Pending local Builder CMS ${stagedTransition} for "${displayTitle}".`
-        : bodyChange && fieldChanges.length === 0
+        : pendingBodyChange && pendingFieldChanges.length === 0
           ? `Pending local Builder CMS body change for "${displayTitle}".`
-          : fieldChanges.length === 1 &&
-              fieldChanges[0]?.localFieldKey === "title"
+          : pendingFieldChanges.length === 1 &&
+              pendingFieldChanges[0]?.localFieldKey === "title"
             ? `Pending local Builder CMS title change for "${localTitle}".`
             : `Pending local Builder CMS changes for "${displayTitle}".`,
-      fieldChanges,
-      bodyChange,
+      fieldChanges: pendingFieldChanges,
+      bodyChange: pendingBodyChange,
       riskLevel: "low",
-      riskReasons: bodyChange ? ["body diff"] : ["single field diff"],
+      riskReasons: pendingBodyChange ? ["body diff"] : ["single field diff"],
       conflictState: "none",
       reviewEvents: [],
       executions: [],
@@ -5145,6 +5187,7 @@ export function builderReviewSourceValueTextProjection(
 async function findBuilderReviewBodyCandidateDocumentIds(args: {
   database: ContentDatabaseRow | ContentDatabase;
   source: ContentDatabaseSourceRowDb;
+  limit?: number;
 }) {
   const sourceRows = schema.contentDatabaseSourceRows;
   const items = schema.contentDatabaseItems;
@@ -5167,13 +5210,9 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
       eq(sourceRows.provenance, BUILDER_CMS_FIXTURE_ROW_PROVENANCE),
     ),
   );
-  const rows = await getDb()
-    .select({
-      documentId: sourceRows.documentId,
-      isSyntheticFixture: sql<boolean>`COALESCE(${isSyntheticFixture}, false)`,
-      localContentDiffers,
-      bodyHydrationVersion: items.bodyHydrationVersion,
-    })
+  const codecSuffix = `:${BUILDER_BODY_HYDRATION_CODEC_VERSION}`;
+  const query = getDb()
+    .select({ documentId: sourceRows.documentId })
     .from(sourceRows)
     .innerJoin(
       items,
@@ -5200,28 +5239,24 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
             or(localContentDiffers, usesCurrentMediaConverter),
           ),
         ),
+        or(
+          isSyntheticFixture,
+          localContentDiffers,
+          isNull(items.bodyHydrationVersion),
+          sql<boolean>`RIGHT(${items.bodyHydrationVersion}, CHAR_LENGTH(${codecSuffix})) <> ${codecSuffix}`,
+        ),
       ),
-    );
-  return rows
-    .filter(
-      (row) =>
-        row.isSyntheticFixture ||
-        row.localContentDiffers ||
-        !row.bodyHydrationVersion ||
-        builderBodyHydrationIsCodecMigration(row.bodyHydrationVersion),
     )
-    .map((row) => row.documentId);
+    .orderBy(asc(sourceRows.createdAt));
+  const rows =
+    args.limit === undefined ? await query : await query.limit(args.limit);
+  return rows.map((row) => row.documentId);
 }
 
-export async function builderReviewDocumentScope(
+async function builderReviewSource(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
-): Promise<{
-  source: ContentDatabaseSourceRowDb;
-  lightweight: ContentDatabaseSource;
-  reviewableChangeSetIds: string[];
-  documentIds: string[] | null;
-} | null> {
+): Promise<ContentDatabaseSourceRowDb | undefined> {
   const db = getDb();
   const [source] = sourceId
     ? await db
@@ -5241,17 +5276,91 @@ export async function builderReviewDocumentScope(
           asc(schema.contentDatabaseSources.createdAt),
           asc(schema.contentDatabaseSources.id),
         );
+  return source;
+}
+
+export function isReviewableBuilderChangeSet(changeSet: {
+  direction: string;
+  state: string;
+}) {
+  return (
+    changeSet.direction === "outbound" &&
+    (changeSet.state === "pending_push" ||
+      changeSet.state === "staged_revision" ||
+      changeSet.state === "approved")
+  );
+}
+
+export async function builderReviewFirstDocumentIds(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId: string | null | undefined,
+  limit: number,
+): Promise<{
+  sourceId: string;
+  sourceTable: string;
+  sourceType: ContentDatabaseSourceType;
+  documentIds: string[];
+} | null> {
+  const source = await builderReviewSource(database, sourceId);
+  if (!source) return null;
+  const found = {
+    sourceId: source.id,
+    sourceTable: source.sourceTable,
+    sourceType: normalizeSourceType(source.sourceType),
+  };
+  const changeSets = await getDb()
+    .select({
+      documentId: schema.contentDatabaseSourceChangeSets.documentId,
+      direction: schema.contentDatabaseSourceChangeSets.direction,
+      state: schema.contentDatabaseSourceChangeSets.state,
+    })
+    .from(schema.contentDatabaseSourceChangeSets)
+    .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id));
+  if (changeSets.some(isReviewableBuilderChangeSet)) {
+    return { ...found, documentIds: [] };
+  }
+  const rejected = new Set(
+    changeSets.flatMap((changeSet) =>
+      changeSet.state === "rejected" && changeSet.documentId
+        ? [changeSet.documentId]
+        : [],
+    ),
+  );
+  const bodyDocumentIds = [
+    ...new Set(
+      await findBuilderReviewBodyCandidateDocumentIds({
+        database,
+        source,
+        limit: limit + rejected.size,
+      }),
+    ),
+  ];
+  return {
+    ...found,
+    documentIds: [
+      ...bodyDocumentIds.filter((documentId) => !rejected.has(documentId)),
+      ...bodyDocumentIds.filter((documentId) => rejected.has(documentId)),
+    ].slice(0, limit),
+  };
+}
+
+export async function builderReviewDocumentScope(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId?: string | null,
+): Promise<{
+  source: ContentDatabaseSourceRowDb;
+  lightweight: ContentDatabaseSource;
+  reviewableChangeSetIds: string[];
+  documentIds: string[] | null;
+} | null> {
+  const source = await builderReviewSource(database, sourceId);
   if (!source) return null;
 
   const lightweight = await loadSourceSnapshot(source, database, {
     includeHeavyBuilderBodyValues: false,
   });
   const reviewableChanges = lightweight.changeSets.filter(
-    (changeSet) =>
-      changeSet.direction === "outbound" &&
-      (changeSet.state === "pending_push" ||
-        changeSet.state === "staged_revision" ||
-        changeSet.state === "approved"),
+    isReviewableBuilderChangeSet,
   );
   const reviewableChangeSetIds = reviewableChanges.map(
     (changeSet) => changeSet.id,
@@ -5271,22 +5380,12 @@ export async function builderReviewDocumentScope(
   if (reviewableChanges.some((changeSet) => !changeSet.documentId)) {
     return { source, lightweight, reviewableChangeSetIds, documentIds: null };
   }
-  const candidateDocumentIds = new Set(
-    reviewableChanges.flatMap((changeSet) =>
+  const candidateDocumentIds = new Set([
+    ...reviewableChanges.flatMap((changeSet) =>
       changeSet.documentId ? [changeSet.documentId] : [],
     ),
-  );
-  const bodyCandidateDocumentIds = new Set(
-    await findBuilderReviewBodyCandidateDocumentIds({ database, source }),
-  );
-  for (const row of lightweight.rows) {
-    if (bodyCandidateDocumentIds.delete(row.documentId)) {
-      candidateDocumentIds.add(row.documentId);
-    }
-  }
-  for (const documentId of bodyCandidateDocumentIds) {
-    candidateDocumentIds.add(documentId);
-  }
+    ...(await findBuilderReviewBodyCandidateDocumentIds({ database, source })),
+  ]);
   return {
     source,
     lightweight,
@@ -7636,6 +7735,7 @@ async function sourceFieldValueWrites(
         const previousValue = builderSourceFieldComparisonValue(
           field,
           previousSourceValues,
+          localValue,
         );
         const editedInContent =
           existing.valueJson !==
@@ -7651,6 +7751,7 @@ async function sourceFieldValueWrites(
           const nextValue = builderSourceFieldComparisonValue(
             field,
             sourceValues,
+            localValue,
           );
           const flaggedBefore =
             previousConflicts?.state === "invalid" ||

@@ -13,6 +13,7 @@ import type {
   ContentSidebarViewOrder,
   Document,
 } from "@shared/api";
+import { isLocalSourceDirectoryId } from "@shared/local-source-directory";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -66,6 +67,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cachedPathParentId } from "@/hooks/use-documents";
 import { usePendingMoves } from "@/hooks/use-pending-moves";
 import { usePendingTrash } from "@/hooks/use-pending-trash";
 import {
@@ -120,7 +122,10 @@ export interface ContentFilesSidebarRenderReorder {
  * A page on the open page's path. The Files tree draws it before its own
  * page of rows loads, so it carries whether it has children.
  */
-export type ActivePathDocument = Document & { hasChildren?: boolean };
+export type ActivePathDocument = Document & {
+  hasChildren?: boolean;
+  canMove?: boolean;
+};
 
 function activePathItem(
   document: ActivePathDocument,
@@ -133,7 +138,12 @@ function activePathItem(
     parentId: document.parentId,
     title: document.title,
     icon: serializeIconValue(parseIconValue(document.icon)),
-    type: document.database ? "database" : "page",
+    type:
+      document.source?.kind === "folder"
+        ? "folder"
+        : document.database
+          ? "database"
+          : "page",
     hasChildren:
       document.hasChildren === true ||
       activePathDocuments.some(
@@ -142,6 +152,7 @@ function activePathItem(
     spaceId: null,
     sourceKind: document.source?.kind ?? null,
     isFavorite: document.isFavorite,
+    ...(document.canMove === false ? { canMove: false } : {}),
     canEdit: document.canEdit !== false,
     canManage: document.canManage === true,
     createdAt: document.createdAt,
@@ -306,6 +317,13 @@ function PagedContentFilesBranch({
   const activeDocument = props.activePathDocuments.find(
     (document) => document.id === props.activeDocumentId,
   );
+  const revealsHere = (document: ActivePathDocument) => {
+    if (document.parentId !== props.parentId) return false;
+    const cachedParentId = props.activeDocumentId
+      ? cachedPathParentId(queryClient, props.activeDocumentId, document.id)
+      : undefined;
+    return cachedParentId === undefined || cachedParentId === props.parentId;
+  };
   const locateId = groups && activeDocument ? activeDocument.id : undefined;
   const located = useFilesNavigationPage(
     filesNavigationPageParams({
@@ -395,7 +413,7 @@ function PagedContentFilesBranch({
       ? data.items.length +
         props.activePathDocuments.filter(
           (document) =>
-            document.parentId === props.parentId &&
+            revealsHere(document) &&
             !data.items.some((item) => item.documentId === document.id),
         ).length
       : null;
@@ -446,6 +464,13 @@ function PagedContentFilesBranch({
           depth={props.depth}
           hasChildren={hasChildren}
           isCollection={navigationItem.type === "database"}
+          canMove={
+            navigationItem.canMove !== false &&
+            (navigationItem.parentId === null ||
+              !isLocalSourceDirectoryId(navigationItem.parentId)) &&
+            (props.parentId === null ||
+              !isLocalSourceDirectoryId(props.parentId))
+          }
           expanded={expanded}
           onToggleExpanded={(open) =>
             props.onDocumentExpandedChange(navigationItem.documentId, open)
@@ -677,9 +702,7 @@ function PagedContentFilesBranch({
   const revealedItems = props.activePathDocuments
     .filter(
       (document) =>
-        !flat &&
-        document.parentId === props.parentId &&
-        !pageDocumentIds.has(document.id),
+        !flat && revealsHere(document) && !pageDocumentIds.has(document.id),
     )
     .map((document) => activePathItem(document, props.activePathDocuments));
   const movedInItems =
@@ -1365,10 +1388,12 @@ function DatabaseSidebarRow({
   onToggleExpanded,
   reorder,
   isCollection = Boolean(item.document.database),
+  canMove = true,
   elementTiming,
 }: {
   item: ContentDatabaseItem;
   isCollection?: boolean;
+  canMove?: boolean;
   elementTiming?: string | undefined;
   openPagesIn: ContentDatabaseOpenPagesIn;
   onPreview: (item: ContentDatabaseItem) => void;
@@ -1575,7 +1600,7 @@ function DatabaseSidebarRow({
                     : undefined
                 }
                 onMove={
-                  canChangePage
+                  canChangePage && canMove
                     ? () =>
                         pageActions.movePage({
                           documentId: item.document.id,

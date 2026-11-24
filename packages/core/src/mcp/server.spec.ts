@@ -1218,6 +1218,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(await listed(byHeader)).toEqual(usual);
 
     vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_TOOLS", "true");
+    expect(await listed(byHeader)).toEqual(usual);
+    vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_ORGS", "org_123");
+    expect(await listed(byHeader)).toEqual(usual);
+    resolveOrgIdForEmailMock.mockResolvedValue("org_123");
     expect(await listed(byHeader)).toEqual(["run-script", "search-actions"]);
     expect(await listed(byQuery)).toEqual(["run-script", "search-actions"]);
     // Values are read trimmed and in any case; any other value asks for none.

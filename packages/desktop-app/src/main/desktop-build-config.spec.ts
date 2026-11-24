@@ -23,7 +23,10 @@ const configurations = [
       "zod",
     ],
     entries: ["browser-control-host", "index"],
-    packagingPlugin: "agent-native:assert-electron-is-external",
+    packagingPlugins: [
+      "agent-native:assert-electron-is-external",
+      "agent-native:assert-external-imports-are-packaged",
+    ],
   },
   {
     target: "preload" as const,
@@ -33,7 +36,7 @@ const configurations = [
       "@agent-native/shared-app-config",
     ],
     entries: ["index", "webview", "webview-chat"],
-    packagingPlugin: "agent-native:inline-preload-chunks",
+    packagingPlugins: ["agent-native:inline-preload-chunks"],
   },
 ];
 
@@ -62,7 +65,7 @@ describe("desktop build dependency boundary", () => {
 
   it.each(configurations)(
     "preserves $target canonical externals and packaged entries",
-    async ({ target, exclude, entries, packagingPlugin }) => {
+    async ({ target, exclude, entries, packagingPlugins }) => {
       const config = loaded.config?.[target];
       expect(config).toBeDefined();
       expect(config?.build?.externalizeDeps).toBe(false);
@@ -108,8 +111,8 @@ describe("desktop build dependency boundary", () => {
         format: "cjs",
         entryFileNames: "[name].js",
       });
-      expect(resolved.plugins.map((plugin) => plugin.name)).toContain(
-        packagingPlugin,
+      expect(resolved.plugins.map((plugin) => plugin.name)).toEqual(
+        expect.arrayContaining(packagingPlugins),
       );
       expect(resolved.plugins.map((plugin) => plugin.name)).not.toContain(
         "vite:externalize-deps",
@@ -153,5 +156,6 @@ describe("desktop build dependency boundary", () => {
       "  - node_modules/electron-log/**",
     );
     expect(builderConfig).toContain("node_modules/ws/**");
+    expect(packagedFiles?.split(/\r?\n/)).toContain("  - node_modules/zod/**");
   });
 });

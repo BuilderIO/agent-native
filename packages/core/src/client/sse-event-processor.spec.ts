@@ -5967,4 +5967,39 @@ describe("auto-continue on a deployment that replaces the error message", () => 
       errorCode: "builder_auth_error",
     });
   });
+
+  it("tags a tool_done for an unknown tool so chat UIs can hide it", () => {
+    const content: ContentPart[] = [];
+    const state = {
+      completedToolsAfterLastAssistantText: new Set<string>(),
+      streamProgressDispatched: false,
+    };
+    for (const ev of [
+      {
+        type: "tool_start",
+        id: "bad-call",
+        tool: "tool-search_tool_bm25",
+        input: {},
+      },
+      {
+        type: "tool_done",
+        id: "bad-call",
+        tool: "tool-search_tool_bm25",
+        result: 'Error: Unknown tool "tool-search_tool_bm25"',
+        isError: true,
+        errorCode: "unknown_tool",
+      },
+    ]) {
+      processEvent(ev, content, { value: 0 }, undefined, state);
+    }
+
+    expect(content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        toolCallId: "bad-call",
+        isError: true,
+        errorCode: "unknown_tool",
+      }),
+    );
+  });
 });

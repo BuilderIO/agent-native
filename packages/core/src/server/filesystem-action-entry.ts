@@ -2,6 +2,7 @@ import { isMcpReadOnlyTool } from "../action-call-classification.js";
 import {
   ACTION_EXECUTION_KEY,
   isActionDefinitionError,
+  isMcpScriptWriteContract,
   namedActionDefinitionError,
   validateSearchHints,
 } from "../action.js";
@@ -98,6 +99,13 @@ export function preserveActionFlags(
     out.mcpAnnotations = entry.mcpAnnotations;
   }
   if (entry.mcpScript === "read") out.mcpScript = "read";
+  if (
+    entry.mcpScript === "write" &&
+    isMcpScriptWriteContract(entry.mcpScriptWrite)
+  ) {
+    out.mcpScript = "write";
+    out.mcpScriptWrite = entry.mcpScriptWrite;
+  }
   const outputContract = entry.mcpOutputContract;
   if (
     outputContract &&
