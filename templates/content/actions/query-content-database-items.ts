@@ -1,9 +1,6 @@
-import {
-  defineAction,
-  fail,
-  isActionContractError,
-} from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
+import { withFederatedMembershipSnapshot } from "@agent-native/core/org";
 import { ensureSettingsStore } from "@agent-native/core/settings";
 import { z } from "zod";
 
@@ -150,47 +147,43 @@ export default defineAction({
       // Store readiness must finish before the snapshot: initialization can
       // require DDL and a separate transaction in local and self-hosted mode.
       const [settingsReady] = await Promise.allSettled([ensureSettingsStore()]);
-      const result = await getDb().transaction(
-        async () => {
-          try {
-            const resolved = await resolveContentDatabaseRead({
-              databaseId,
-              documentId,
-            });
-            if (!resolved.available) return { value: resolved } as const;
-            if (!userEmail) throw new Error("Not authenticated.");
-            if (settingsReady?.status === "rejected")
-              throw settingsReady.reason;
-            const overrides = await readPersonalDatabaseViewOverrides(
-              userEmail,
-              resolved.database.id,
-              { transaction: getDbExec(), bypassCache: true },
-            );
-            const value = await getContentDatabaseNavigationPage({
-              database: resolved.database,
-              userEmail,
-              overrides,
-              parentId: navigation.parentId,
-              sort: navigation.sort,
-              viewId: navigation.viewId,
-              limit: limit ?? 20,
-              cursor: navigation.cursor,
-              expand: navigation.expand,
-              pagesOnly: navigation.pagesOnly ?? false,
-              group: navigation.group,
-              locate: navigation.locate,
-            });
-            return { value } as const;
-          } catch (error) {
-            // Federation can persist a revocation before an access refusal.
-            if (isActionContractError(error)) return { error } as const;
-            throw error;
-          }
+      return withFederatedMembershipSnapshot(
+        () => resolveContentDatabaseRead({ databaseId, documentId }),
+        async (preflight) => {
+          if (!preflight.available) return preflight;
+          if (!userEmail) throw new Error("Not authenticated.");
+          if (settingsReady?.status === "rejected") throw settingsReady.reason;
+          return getDb().transaction(
+            async () => {
+              const resolved = await resolveContentDatabaseRead({
+                databaseId,
+                documentId,
+              });
+              if (!resolved.available) return resolved;
+              const overrides = await readPersonalDatabaseViewOverrides(
+                userEmail,
+                resolved.database.id,
+                { transaction: getDbExec(), bypassCache: true },
+              );
+              return getContentDatabaseNavigationPage({
+                database: resolved.database,
+                userEmail,
+                overrides,
+                parentId: navigation.parentId,
+                sort: navigation.sort,
+                viewId: navigation.viewId,
+                limit: limit ?? 20,
+                cursor: navigation.cursor,
+                expand: navigation.expand,
+                pagesOnly: navigation.pagesOnly ?? false,
+                group: navigation.group,
+                locate: navigation.locate,
+              });
+            },
+            { isolationLevel: "repeatable read", accessMode: "read only" },
+          );
         },
-        { isolationLevel: "repeatable read" },
       );
-      if ("error" in result) throw result.error;
-      return result.value;
     }
 
     const resolved = await resolveContentDatabaseRead({

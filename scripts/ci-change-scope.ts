@@ -255,6 +255,11 @@ const CONTENT_DB_CORE_FILES = new Set([
   "packages/core/src/server/release-migrations.ts",
   "packages/core/src/server/release-schema.ts",
   "packages/core/src/server/request-context.ts",
+  "packages/core/src/settings/store.ts",
+  "packages/core/src/settings/index.ts",
+  "packages/core/src/org/federation.ts",
+  "packages/core/src/org/membership.ts",
+  "packages/core/src/org/index.ts",
   "packages/core/src/sharing/indexes.ts",
 ]);
 
@@ -520,6 +525,11 @@ const CONTENT_DB_ACTION_RUNTIME_FILES = new Set([
   "templates/content/actions/_comment-write-pool.test-fixture.ts",
   "templates/content/actions/_blocks-field-identity.ts",
   "templates/content/actions/_content-database-mutation-lock.ts",
+  "templates/content/actions/_content-database-personal-view.ts",
+  "templates/content/actions/_content-space-access.ts",
+  "templates/content/actions/_database-navigation.ts",
+  "templates/content/actions/_database-utils.ts",
+  "templates/content/actions/query-content-database-items.ts",
   "templates/content/actions/_content-favorites.ts",
   "templates/content/actions/_content-files.ts",
   "templates/content/actions/_database-membership-lock.ts",

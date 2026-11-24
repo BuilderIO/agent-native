@@ -2529,7 +2529,11 @@ export function getEnclosingTransactionDbExec(): DbExec | undefined {
   if (scoped && drizzleTransactionExecs.has(scoped)) return scoped;
   const callbackScoped = getScopedTransactionDbExec();
   if (callbackScoped) return callbackScoped;
-  if ((pgliteTransactionStorage?.getStore()?.size ?? 0) > 0) return getDbExec();
+  if ((pgliteTransactionStorage?.getStore()?.size ?? 0) > 0) {
+    return getActivePgliteTransactionExec(
+      getRuntimeDatabaseUrl("pglite:./data/pglite"),
+    );
+  }
   if (insideDbTransactionCallback()) {
     throw new Error(
       "Scope this transaction's handle with withDbExec(tx, …) so the code it calls writes in it.",

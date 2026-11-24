@@ -81,6 +81,7 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CONTENT_NAVIGATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_navigation_test
+          CONTENT_NAVIGATION_POSTGRES_REQUIRED: "1"
         run: |
           rm -rf "$RUNNER_TEMP/gate" && mkdir "$RUNNER_TEMP/gate"
           for f in feedback-fix-proof.ts fix-proof.ts; do
