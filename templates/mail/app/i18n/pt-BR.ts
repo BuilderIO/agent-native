@@ -666,7 +666,7 @@ const messages = {
       instructionsTitle: "Instruções",
       instructionCount: "{{count}} instrução(ões)",
       instructionPlaceholder:
-        "ex. Assuntos como “question for you, Steve” são indesejados",
+        "ex. Assuntos como “quick question for you” são indesejados",
       addInstruction: "Adicionar",
       noInstructions: "Nenhuma instrução ainda.",
       instructionExample:
@@ -944,6 +944,7 @@ const messages = {
     sendAndMarkDone: "Enviar e marcar como concluído",
     autocompleteSaveFailed:
       "Não foi possível salvar a configuração de autocompletar.",
+    signaturePlaceholder: "Abraços,\nSeu nome",
     writingStylePlaceholder:
       "Curto, específico e acolhedor. Evite formalidades vazias.",
     saveDraftingSettings: "Salvar configurações de rascunho",

@@ -653,7 +653,7 @@ const messages = {
       instructionsTitle: "Instructions",
       instructionCount: "{{count}} instruction(s)",
       instructionPlaceholder:
-        "e.g. Subjects like “question for you, Steve” are unwanted",
+        "e.g. Subjects like “quick question for you” are unwanted",
       addInstruction: "Add",
       noInstructions: "No instructions yet.",
       instructionExample: "Try “all political campaign emails are unwanted.”",
@@ -912,6 +912,7 @@ const messages = {
     autocomplete: "Autocomplete",
     sendAndMarkDone: "Send + Mark Done",
     autocompleteSaveFailed: "Could not save the autocomplete setting.",
+    signaturePlaceholder: "Best,\nYour name",
     writingStylePlaceholder: "Short, specific, warm. Avoid formal filler.",
     saveDraftingSettings: "Save drafting settings",
     reset: "Reset",

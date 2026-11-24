@@ -653,7 +653,7 @@ const messages = {
       instructionsTitle: "التعليمات",
       instructionCount: "{{count}} تعليمات",
       instructionPlaceholder:
-        "مثال: اعتبر مواضيع مثل «سؤال لك يا Steve» غير مرغوب فيها",
+        "مثال: اعتبر مواضيع مثل «سؤال سريع لك» غير مرغوب فيها",
       addInstruction: "إضافة",
       noInstructions: "لا توجد تعليمات بعد.",
       instructionExample: "جرّب «كل رسائل الحملات السياسية غير مرغوب فيها».",
@@ -907,6 +907,7 @@ const messages = {
     autocomplete: "الإكمال التلقائي",
     sendAndMarkDone: "إرسال ووضع علامة كمكتمل",
     autocompleteSaveFailed: "تعذر حفظ إعداد الإكمال التلقائي.",
+    signaturePlaceholder: "مع أطيب التحيات،\nاسمك",
     writingStylePlaceholder: "قصير ومحدد ودافئ. تجنب الحشو الرسمي.",
     saveDraftingSettings: "حفظ إعدادات المسودات",
     reset: "إعادة تعيين",
