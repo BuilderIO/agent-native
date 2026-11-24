@@ -162,10 +162,11 @@ export default defineAction({
     const intentCandidates = intentApp
       ? matchDispatchAppCandidates(apps, intentApp)
       : [];
-    if (intentCandidates.length === 1) {
+    const intentCandidate = intentCandidates[0];
+    if (intentCandidates.length === 1 && intentCandidate) {
       return {
         status: "ok",
-        app: intentCandidates[0].id,
+        app: intentCandidate.id,
         confidence: 1,
         provider: "routing",
         model: "data-intent",
