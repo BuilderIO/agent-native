@@ -3191,15 +3191,6 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     ]);
     mocks.managerCallTool.mockImplementation(async (_tool, args) => {
       if (args.runtime) {
-        expect(mocks.managerConstructor).toHaveBeenLastCalledWith(
-          expect.objectContaining({
-            servers: {
-              target: expect.objectContaining({
-                url: "https://beta.agent-workspace.builder.io/customer-ticket-triage/mcp",
-              }),
-            },
-          }),
-        );
         return {
           structuredContent: {
             runtime: "workspace-app-chat",
@@ -3273,7 +3264,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         ),
     );
 
-    expect(mocks.managerConstructor).toHaveBeenCalledWith(
+    expect(mocks.managerConstructor).toHaveBeenLastCalledWith(
       expect.objectContaining({
         servers: {
           target: expect.objectContaining({
