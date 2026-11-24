@@ -40,8 +40,10 @@ import {
   withExecutionLeaseRequested,
   type ExecutionFence,
 } from "./execution-fence.js";
+import { LeaseRenewalDiagnostics } from "./lease-renewal-diagnostics.js";
 import {
   AGENT_RUN_NO_OUTPUT_ERROR_CODE,
+  resolvePrivateSafeError,
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
 } from "./run-errors.js";
 import {
@@ -86,6 +88,7 @@ import {
   releaseTurnExecutionLease,
   TurnExecutionLeaseBusyError,
   terminalEventForAbortReason,
+  type UserStopOptions,
   RUN_RECORD_MISSING_ERROR_EVENT,
   RUN_RECORD_MISSING_GRACE_MS,
   RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT,
@@ -177,6 +180,45 @@ async function flushRunEventsBeforeAbort(
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
 
 const HEARTBEAT_ATTEMPT_DEADLINE_MS = 5_000;
+
+const REVOKED_LEASE_ABORT_STATE_DEADLINE_MS = 2_000;
+
+const ABORT_STATE_READ_RETRY_MS = 200;
+
+/**
+ * Reads a run's abort state, retrying a failed read until the deadline.
+ * Null means it couldn't be read in time, which is not the same as no Stop.
+ * Each failed read goes to `onFailedRead`, so the caller can report the last.
+ */
+export async function readAbortStateBeforeDeadline<TState>(
+  read: () => Promise<TState>,
+  deadlineMs: number,
+  onFailedRead?: (error: unknown) => void,
+): Promise<TState | null> {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<"timed-out">((resolve) => {
+      timer = setTimeout(() => resolve("timed-out"), deadline - Date.now());
+    });
+    try {
+      const result = await Promise.race([
+        read().then((state) => ({ state })),
+        timedOut,
+      ]);
+      if (result === "timed-out") return null;
+      return result.state;
+    } catch (error) {
+      // coercion-ok: a failed read is retried until the deadline, then reported.
+      onFailedRead?.(error);
+      const wait = Math.min(ABORT_STATE_READ_RETRY_MS, deadline - Date.now());
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return null;
+}
 
 const MAX_PENDING_HEARTBEATS = 2;
 
@@ -594,10 +636,15 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
-const PRIVATE_SAFE_ERROR_CODES: ReadonlySet<string> = new Set([
-  "private_history_unrecoverable",
-  "tool_call_journal_unreadable",
-]);
+const retainedPrivateRepliesWithText = new WeakSet<AgentChatEvent>();
+const retainedPrivateCompletedUiTools = new WeakSet<AgentChatEvent>();
+
+export function carriesAssistantText(event: AgentChatEvent): boolean {
+  return (
+    event.type === "text" &&
+    (event.text.trim().length > 0 || retainedPrivateRepliesWithText.has(event))
+  );
+}
 
 /**
  * A tool result with no later assistant text is an unfinished turn, not a
@@ -617,15 +664,14 @@ const PRIVATE_SAFE_ERROR_CODES: ReadonlySet<string> = new Set([
  */
 export function endsAfterToolResultWithoutAssistantFinal(
   run: ActiveRun,
-  privateCompletedUiTools: ReadonlySet<number> = new Set(),
 ): boolean {
   let toolResultAfterLastAssistantText = false;
-  for (const { event, seq } of run.events) {
+  for (const { event } of run.events) {
     if (event.type === "done" && event.reason === "action_settled") {
       toolResultAfterLastAssistantText = false;
       continue;
     }
-    if (event.type === "text" && event.text.trim().length > 0) {
+    if (carriesAssistantText(event)) {
       toolResultAfterLastAssistantText = false;
       continue;
     }
@@ -635,7 +681,7 @@ export function endsAfterToolResultWithoutAssistantFinal(
         event.isError === true ||
         (event.chatUI === undefined &&
           event.mcpApp === undefined &&
-          !privateCompletedUiTools.has(seq));
+          !retainedPrivateCompletedUiTools.has(event));
       continue;
     }
     if (
@@ -664,7 +710,7 @@ export function endsDuringActionPreparation(run: ActiveRun): boolean {
       continue;
     }
     if (
-      (event.type === "text" && event.text.trim().length > 0) ||
+      carriesAssistantText(event) ||
       event.type === "tool_start" ||
       event.type === "tool_done" ||
       event.type === "approval_required" ||
@@ -812,7 +858,11 @@ function emitRunTerminalTrackingEvent(args: {
   );
 }
 
-function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
+function abortInMemoryRun(
+  run: ActiveRun,
+  reason: string = "user",
+  stop?: UserStopOptions,
+) {
   run.abortReason = reason;
   run.status = "aborted";
   if (threadToRun.get(run.threadId) === run.runId) {
@@ -825,7 +875,7 @@ function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
   const terminalRunEvent = existingTerminalEvent ??
     run.pendingAbortEvent ?? {
       seq: allocateRunEventSeq(run),
-      event: terminalEventForAbortReason(reason),
+      event: terminalEventForAbortReason(reason, stop),
     };
   if (!existingTerminalEvent && !run.pendingAbortEvent) {
     run.pendingAbortEvent = terminalRunEvent;
@@ -993,8 +1043,6 @@ export function startRun(
   threadToRun.set(threadId, runId);
 
   let privateTurn = false;
-  const privateAssistantTextSequences = new Set<number>();
-  const privateCompletedUiTools = new Set<number>();
   const safeRunError = (error: unknown) =>
     privateTurn ? new Error("Private content omitted") : error;
 
@@ -1751,13 +1799,20 @@ export function startRun(
   let ownTerminalStatusEstablished = false;
   let terminalStatusWrite: Promise<boolean> | null = null;
   let terminalStatusWriteOutcomeUnknown = false;
+  const adoptPersistedAbort = (state: {
+    reason?: string;
+    shownThroughSeq?: number;
+  }) => {
+    run.abortPersistenceManaged = true;
+    abortInMemoryRun(run, state.reason ?? "user", userStopFrom(state));
+  };
   const inspectSqlAbortState = async (
     includeTerminalStatus: boolean,
   ): Promise<void> => {
     // raw-sql-ok: getRunAbortState binds runId through its query args.
     const state = await getRunAbortState(runId);
     if (state.aborted && !abort.signal.aborted) {
-      abortInMemoryRun(run, state.reason ?? "user");
+      adoptPersistedAbort(state);
       return;
     }
     let status: string | null = null;
@@ -1822,20 +1877,62 @@ export function startRun(
       });
   };
 
+  const abortForRevokedLease = async () => {
+    let lastReadError: unknown;
+    const state = await readAbortStateBeforeDeadline(
+      // raw-sql-ok: getRunAbortState binds runId through its query args.
+      () => getRunAbortState(runId),
+      REVOKED_LEASE_ABORT_STATE_DEADLINE_MS,
+      (error) => {
+        lastReadError = error;
+      },
+    );
+    if (completionInProgress || abort.signal.aborted) return;
+    if (state?.aborted) adoptPersistedAbort(state);
+    else {
+      if (!state) {
+        captureError(
+          new Error("Could not read the run's abort state in time", {
+            cause: lastReadError,
+          }),
+          {
+            route: "/_agent-native/agent-chat",
+            aiTraceId: runId,
+            tags: {
+              source: "agent-run-manager",
+              phase: "revoked-lease-abort-state-read",
+            },
+            extra: { runId, threadId },
+          },
+        );
+      }
+      abortInMemoryRun(run, EXECUTION_LEASE_LOST_ABORT_REASON);
+    }
+  };
+
   let consecutiveHeartbeatFailures = 0;
   let heartbeatInFlight = false;
   let livenessResolved = false;
   let heartbeatAttempt = 0;
   let pendingHeartbeats = 0;
+  const leaseRenewalDiagnostics = options?.executionLease
+    ? new LeaseRenewalDiagnostics(runId, {
+        intervalMs: 1_500,
+        attemptDeadlineMs: HEARTBEAT_ATTEMPT_DEADLINE_MS,
+        maxPending: MAX_PENDING_HEARTBEATS,
+      })
+    : undefined;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     if (!heartbeatInFlight && pendingHeartbeats < MAX_PENDING_HEARTBEATS) {
       heartbeatInFlight = true;
+      const measurement = leaseRenewalDiagnostics?.start(pendingHeartbeats);
       pendingHeartbeats += 1;
       const attempt = ++heartbeatAttempt;
       // One renewal stuck acquiring a connection must not hold the slot until
       // the lease lapses, so a later tick retries while it settles. Only one
       // retry may overlap it, or a stalled pool would fill with renewals.
       const releaseStuckHeartbeat = setTimeout(() => {
+        measurement?.deadlineReached();
         if (heartbeatAttempt === attempt) heartbeatInFlight = false;
       }, HEARTBEAT_ATTEMPT_DEADLINE_MS);
       (options?.executionLease
@@ -1847,6 +1944,9 @@ export function startRun(
         : updateRunHeartbeat(runId).then(() => true)
       )
         .then((livenessConfirmed) => {
+          measurement?.settle(
+            livenessConfirmed ? "renewed" : "fence_unavailable",
+          );
           consecutiveHeartbeatFailures = 0;
           if (livenessConfirmed && !livenessResolved) {
             livenessResolved = true;
@@ -1854,10 +1954,12 @@ export function startRun(
           }
         })
         .catch((error) => {
+          measurement?.settle(
+            error instanceof StaleExecutionFenceError ? "fence_lost" : "error",
+            error,
+          );
           if (error instanceof StaleExecutionFenceError) {
-            if (!completionInProgress) {
-              abortInMemoryRun(run, EXECUTION_LEASE_LOST_ABORT_REASON);
-            }
+            if (!completionInProgress) return abortForRevokedLease();
             return;
           }
           consecutiveHeartbeatFailures += 1;
@@ -2021,18 +2123,18 @@ export function startRun(
         : runEvent;
     if (
       runEvent.event.omitFromPersistedHistory === true &&
-      runEvent.event.type === "text" &&
-      runEvent.event.text.trim().length > 0
-    ) {
-      privateAssistantTextSequences.add(runEvent.seq);
-    }
-    if (
-      runEvent.event.omitFromPersistedHistory === true &&
       runEvent.event.type === "tool_done" &&
       (runEvent.event.chatUI !== undefined ||
         runEvent.event.mcpApp !== undefined)
     ) {
-      privateCompletedUiTools.add(runEvent.seq);
+      retainedPrivateCompletedUiTools.add(retainedEvent.event);
+    }
+    if (
+      runEvent.event.omitFromPersistedHistory === true &&
+      runEvent.event.type === "text" &&
+      runEvent.event.text.trim().length > 0
+    ) {
+      retainedPrivateRepliesWithText.add(retainedEvent.event);
     }
     run.events.push(retainedEvent);
     for (const subscriber of run.subscribers) {
@@ -2220,7 +2322,10 @@ export function startRun(
         await inspectSqlAbortState(false);
         consecutiveAbortCheckFailures = 0;
         if (isRunAborted()) return;
-        await runFn(send, runControl.chunkSignal, runControl);
+        const runBody = () => runFn(send, runControl.chunkSignal, runControl);
+        await (leaseRenewalDiagnostics
+          ? leaseRenewalDiagnostics.run(runBody)
+          : runBody());
       });
       return;
     }
@@ -2464,31 +2569,16 @@ export function startRun(
               ? "truncated"
               : "completed";
       run.status = finalStatus;
-      const runForCompletionChecks: ActiveRun = privateTurn
-        ? {
-            ...run,
-            events: run.events.map((runEvent) =>
-              privateAssistantTextSequences.has(runEvent.seq) &&
-              runEvent.event.type === "text"
-                ? { ...runEvent, event: { ...runEvent.event, text: "..." } }
-                : runEvent,
-            ),
-          }
-        : run;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
-        !privateTurn &&
         !checkpointStatusReadFailed &&
         checkpointUnknownStatus === null &&
         !(
           terminalEventForCompletion?.event.type === "done" &&
           terminalEventForCompletion.event.reason === "action_settled"
         ) &&
-        (endsAfterToolResultWithoutAssistantFinal(
-          runForCompletionChecks,
-          privateCompletedUiTools,
-        ) ||
-          endsDuringActionPreparation(runForCompletionChecks)) &&
+        (endsAfterToolResultWithoutAssistantFinal(run) ||
+          endsDuringActionPreparation(run)) &&
         (!terminalEventForCompletion ||
           (terminalEventForCompletion.event.type === "done" &&
             terminalEventForCompletion.event.reason !== "user"));
@@ -2506,7 +2596,7 @@ export function startRun(
         eventPersistenceFailure && finalStatus !== "aborted"
           ? "error:run_event_persistence_failed"
           : privateTurn && terminalEvent?.type === "error"
-            ? "error:private_content_omitted"
+            ? `error:${resolvePrivateSafeError(terminalEvent.errorCode)?.errorCode ?? "private_content_omitted"}`
             : terminalReasonForRun(
                 finalStatus,
                 terminalEvent,
@@ -2614,6 +2704,10 @@ export function startRun(
             source: "agent-run-manager",
             phase: "terminal-status-persistence",
             errorCode: "run_terminal_status_persistence_failed",
+            terminalErrorKind:
+              error instanceof StaleExecutionFenceError
+                ? "stale_execution_fence"
+                : "unclassified",
           },
           extra: { runId, threadId, turnId: run.turnId },
         });
@@ -2838,11 +2932,13 @@ export function startRun(
             .map(({ event }) => event)
             .reverse()
             .find((event) => event.type === "error")?.errorCode;
-          errorCode =
-            reportedCode && PRIVATE_SAFE_ERROR_CODES.has(reportedCode)
-              ? reportedCode
-              : "private_content_omitted";
-          errorDetail = "Private content omitted";
+          const safeError = resolvePrivateSafeError(reportedCode);
+          errorCode = safeError
+            ? safeError.errorCode
+            : "private_content_omitted";
+          errorDetail = safeError
+            ? safeError.message
+            : "Private content omitted";
         }
         for (let i = diagnosticEvents.length - 1; !privateRun && i >= 0; i--) {
           const ev = diagnosticEvents[i].event as {
@@ -2944,14 +3040,17 @@ export function startRun(
           const fence = await executionFencePromise;
           if (fence) await releaseTurnExecutionLease(fence);
         } catch (error) {
-          captureError(error, {
+          captureError(safeRunError(error), {
             route: "/_agent-native/agent-chat",
             aiTraceId: runId,
             tags: {
               source: "agent-run-manager",
               phase: "execution-lease-release",
-              errorCode:
-                error instanceof Error && "code" in error
+              errorCode: privateTurn
+                ? error instanceof StaleExecutionFenceError
+                  ? "stale_execution_fence"
+                  : "execution_lease_release_failed"
+                : error instanceof Error && "code" in error
                   ? String((error as Error & { code?: unknown }).code)
                   : "execution_lease_release_failed",
             },
@@ -3897,10 +3996,22 @@ export function getRun(runId: string): ActiveRun | null {
   return activeRuns.get(runId) ?? null;
 }
 
-function abortRunInMemory(runId: string, reason: string): boolean {
+function userStopFrom(
+  options: UserStopOptions | undefined,
+): UserStopOptions | undefined {
+  return options?.shownThroughSeq === undefined
+    ? undefined
+    : { shownThroughSeq: options.shownThroughSeq };
+}
+
+function abortRunInMemory(
+  runId: string,
+  reason: string,
+  stop?: UserStopOptions,
+): boolean {
   const run = activeRuns.get(runId);
   if (run) {
-    abortInMemoryRun(run, reason);
+    abortInMemoryRun(run, reason, stop);
   }
   return !!run;
 }
@@ -3944,10 +4055,11 @@ export function abortRun(runId: string, reason: string = "user"): boolean {
 export async function abortRunDurably(
   runId: string,
   reason: string = "user",
-  options?: { allowNotStarted?: boolean },
+  options?: { allowNotStarted?: boolean } & UserStopOptions,
 ): Promise<boolean> {
   const run = activeRuns.get(runId);
-  const abortedInMemory = abortRunInMemory(runId, reason);
+  const stop = userStopFrom(options);
+  const abortedInMemory = abortRunInMemory(runId, reason, stop);
   const persistence = (async () => {
     let eventFlushFailure: AgentRunEventNotPersistedError | null;
     try {
@@ -3958,7 +4070,9 @@ export async function abortRunDurably(
     }
     let abortPersistedDurably = false;
     try {
-      const abortPersisted = await markRunAborted(runId, reason);
+      const abortPersisted = await (stop
+        ? markRunAborted(runId, reason, stop)
+        : markRunAborted(runId, reason));
       abortPersistedDurably = abortPersisted;
       if (!abortPersisted || eventFlushFailure) {
         const persistedStatus = await getRunStatus(runId);
@@ -4025,17 +4139,20 @@ interface SafeBoundaryAbortResult {
 async function abortRunAtSafeBoundaryDurablyResult(
   runId: string,
   reason: string = "user",
+  stop?: UserStopOptions,
 ): Promise<SafeBoundaryAbortResult> {
   const run = activeRuns.get(runId);
   const eventFlushFailure = await flushRunEventsBeforeAbort(run);
   let aborted: boolean;
   try {
-    aborted = await markRunAbortedAtSafeBoundary(runId, reason);
+    aborted = await (stop
+      ? markRunAbortedAtSafeBoundary(runId, reason, stop)
+      : markRunAbortedAtSafeBoundary(runId, reason));
   } catch (error) {
     try {
       const state = await getRunAbortState(runId);
       if (state.aborted && run) {
-        abortRunInMemory(runId, state.reason ?? reason);
+        abortRunInMemory(runId, state.reason ?? reason, userStopFrom(state));
       }
     } catch (stateError) {
       captureError(stateError, {
@@ -4063,7 +4180,7 @@ async function abortRunAtSafeBoundaryDurablyResult(
   if (!aborted) {
     return { aborted: false, eventFlushFailure };
   }
-  if (run) abortInMemoryRun(run, reason);
+  if (run) abortInMemoryRun(run, reason, stop);
   return { aborted: true, eventFlushFailure };
 }
 
@@ -4204,17 +4321,22 @@ export async function abortTurnDurably(
 export async function abortRunAndTurnDurably(
   runId: string,
   reason: string = "user",
-  options?: { safeBoundary?: boolean },
+  options?: { safeBoundary?: boolean } & UserStopOptions,
 ): Promise<boolean> {
   let abortedInMemory = false;
   let terminalFlushFailure: AgentRunEventNotPersistedError | undefined;
+  const stop = userStopFrom(options);
   try {
     if (options?.safeBoundary) {
-      const result = await abortRunAtSafeBoundaryDurablyResult(runId, reason);
+      const result = await abortRunAtSafeBoundaryDurablyResult(
+        runId,
+        reason,
+        stop,
+      );
       abortedInMemory = result.aborted;
       terminalFlushFailure = result.eventFlushFailure ?? undefined;
     } else {
-      abortedInMemory = await abortRunDurably(runId, reason);
+      abortedInMemory = await abortRunDurably(runId, reason, stop);
     }
   } catch (error) {
     if (

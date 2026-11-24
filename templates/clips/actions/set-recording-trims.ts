@@ -46,6 +46,7 @@ export default defineAction({
         "The complete trim list — either a JSON-encoded string (CLI) or an array (agent).",
       ),
   }),
+  mcpTool: "search",
   run: async (args) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),

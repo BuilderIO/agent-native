@@ -10,6 +10,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   persistInBrowser: false,
+  mcpTool: false,
   run: async (_args, ctx): Promise<ApiKeysListing> => {
     const email = ctx?.userEmail?.trim().toLowerCase();
     if (!email) fail("Not authenticated.", { statusCode: 401 });

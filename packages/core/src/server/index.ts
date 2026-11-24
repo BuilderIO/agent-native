@@ -617,8 +617,10 @@ export {
   getRequestRunContext,
   getCredentialContext,
   isIntegrationCallerRequest,
+  normalizeViewportMode,
   type RequestContext,
   type RequestRunContext,
+  type ViewportMode,
 } from "./request-context.js";
 export {
   loadFirstRunBuilderCreditsV2Assignment,
@@ -699,6 +701,7 @@ export {
   NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
   logOAuthStateDecodeFailure,
   resolveOAuthOwner,
+  oauthCallbackOwner,
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
@@ -829,6 +832,7 @@ export {
   BUILDER_CONTENT_WRITE_SCOPE,
   BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
+  hasOwnStoredBuilderOAuthGrantForUse,
   resolveBuilderOAuthRequestAccessState,
   type BuilderOAuthPermissionScope,
   type BuilderOAuthRequestAccessState,
@@ -993,6 +997,7 @@ export {
   runRecurringSweepHandlers,
   type RecurringSweepContext,
   type RecurringSweepHandler,
+  type RecurringSweepHandlerOptions,
 } from "../jobs/sweep-hooks.js";
 export {
   hasJobRunner,

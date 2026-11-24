@@ -6,11 +6,15 @@ the parts; this package decides how they look.
 
 ## Use it
 
-Apps get everything through toolkit's stylesheet, plus their own theme:
+Import the tokens, the Tailwind layer and the part styles after Tailwind, then
+the app's theme. Toolkit's own stylesheet does not include them yet:
 
 ```css
 @import "tailwindcss";
 @import "@agent-native/toolkit/styles.css";
+@import "@agent-native/design-system/tokens.css";
+@import "@agent-native/design-system/main.css";
+@import "@agent-native/design-system/styles.css";
 @import "@agent-native/design-system/themes/mail.css";
 ```
 
@@ -72,6 +76,15 @@ With Tailwind, roles and steps are utilities: `bg-surface-canvas`,
 | `main.css`          | Tailwind v4 mapping of roles and scales to utilities and variants                |
 | `styles.css`        | component CSS, one file per part                                                 |
 | `themes/<name>.css` | one theme's roles, values and part inputs (generated)                            |
+
+For a smaller bundle, import the component stylesheets used by your screen in place of `styles.css`. Focused entries are available for `announcement`, `autocomplete`, `button`, `combobox`, `design-file-panel`, `dialog`, `dock-workspace`, `icon-button`, `image-card`, `layer-tree`, `meter`, `progress`, `tabs`, and `toast`. Each includes its built-in parts, such as the dialog close button and the combobox chips. The dock workspace entry includes the tab strip, split handles, and Arrange menu. The design file panel entry includes its tabs, page list, and editable layer tree. Import styles for controls you place inside a panel separately. Load tokens and the app theme once.
+
+```css
+@import "@agent-native/design-system/tokens.css";
+@import "@agent-native/design-system/components/dialog.css";
+@import "@agent-native/design-system/components/combobox.css";
+@import "@agent-native/design-system/themes/design.css";
+```
 
 ## Developing
 

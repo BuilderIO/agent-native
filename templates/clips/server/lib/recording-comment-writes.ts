@@ -23,6 +23,10 @@ import {
 import { assertCommentAccess } from "./comment-access.js";
 import { resolveCommentMentions } from "./comment-mentions.js";
 import { firstRow } from "./first-row.js";
+import {
+  mirrorRecordingComments,
+  prepareRecordingCommentMirror,
+} from "./recording-comment-mirror.js";
 import { nanoid } from "./recordings.js";
 
 /** The `idempotencyKey` argument of the actions that add a comment. */
@@ -195,49 +199,67 @@ export async function saveRecordingComment(
   }
   const now = new Date().toISOString();
 
-  if (parentId) {
-    const parents = await db
-      .select({ id: schema.recordingComments.id })
-      .from(schema.recordingComments)
-      .where(
-        and(
-          eq(schema.recordingComments.id, parentId),
-          eq(schema.recordingComments.recordingId, args.recordingId),
-          eq(schema.recordingComments.organizationId, rec.organizationId),
-          eq(schema.recordingComments.threadId, threadId),
-        ),
-      )
-      .limit(1);
-    if (parents.length === 0) {
-      throw new Error("Parent comment does not belong to this recording.");
+  await prepareRecordingCommentMirror();
+  const inserted = await db.transaction(async (tx) => {
+    const locked = await tx
+      .select({ id: schema.recordings.id })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, args.recordingId))
+      .for("key share");
+    if (locked.length === 0) {
+      throw new Error(`Recording not found: ${args.recordingId}`);
     }
-  }
+    if (parentId) {
+      const parents = await tx
+        .select({ id: schema.recordingComments.id })
+        .from(schema.recordingComments)
+        .where(
+          and(
+            eq(schema.recordingComments.id, parentId),
+            eq(schema.recordingComments.recordingId, args.recordingId),
+            eq(schema.recordingComments.organizationId, rec.organizationId),
+            eq(schema.recordingComments.threadId, threadId),
+          ),
+        )
+        .limit(1);
+      if (parents.length === 0) {
+        throw new Error("Parent comment does not belong to this recording.");
+      }
+    }
 
-  const insert = db.insert(schema.recordingComments).values({
-    id,
-    recordingId: args.recordingId,
-    organizationId: rec.organizationId,
-    threadId,
-    parentId,
-    authorEmail,
-    authorName,
-    content: args.content,
-    mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
-    videoTimestampMs: args.videoTimestampMs,
-    idempotencyKey: key ?? null,
-    createdAt: now,
-    updatedAt: now,
+    const insert = tx.insert(schema.recordingComments).values({
+      id,
+      recordingId: args.recordingId,
+      organizationId: rec.organizationId,
+      threadId,
+      parentId,
+      authorEmail,
+      authorName,
+      content: args.content,
+      mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
+      videoTimestampMs: args.videoTimestampMs,
+      idempotencyKey: key ?? null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    if (key) {
+      const written = await insert
+        .onConflictDoNothing({
+          target: [
+            schema.recordingComments.authorEmail,
+            schema.recordingComments.idempotencyKey,
+          ],
+        })
+        .returning({ id: schema.recordingComments.id });
+      if (written.length === 0) return false;
+    } else {
+      await insert;
+    }
+    await mirrorRecordingComments(tx, args.recordingId, [id]);
+    return true;
   });
   if (key) {
-    const inserted = await insert
-      .onConflictDoNothing({
-        target: [
-          schema.recordingComments.authorEmail,
-          schema.recordingComments.idempotencyKey,
-        ],
-      })
-      .returning({ id: schema.recordingComments.id });
-    if (inserted.length === 0) {
+    if (!inserted) {
       // A repeat with the same key saved it first, since the lookup above.
       const saved = await savedWithKey(authorEmail, key, target);
       // The unique index refused the insert, so that row was deleted since.
@@ -246,8 +268,6 @@ export async function saveRecordingComment(
       }
       return saved;
     }
-  } else {
-    await insert;
   }
 
   // The comment is saved: a refresh signal that fails must not make its

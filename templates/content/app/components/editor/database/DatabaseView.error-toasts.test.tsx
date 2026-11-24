@@ -245,12 +245,6 @@ vi.mock("@/hooks/use-content-database", async (importOriginal) => ({
   useDisconnectContentDatabaseSource: () => benignMutation,
   useProcessBuilderBodyHydration: () => processBuilderBodiesMutation,
   usePrepareBuilderSourceReview: () => benignMutation,
-  usePreviewBuilderSourceReview: () => ({
-    data: undefined,
-    isLoading: false,
-    isFetching: false,
-    error: null,
-  }),
   useExecuteBuilderSourceExecution: () => benignMutation,
   useCancelPreparedBuilderSourceUpdate: () => benignMutation,
   useSetContentDatabaseSourceWriteMode: () => benignMutation,
@@ -353,6 +347,7 @@ import {
   DatabaseView,
   defaultDatabaseViewConfig,
 } from "./DatabaseView";
+import { RowActionsCell as SharedRowActionsCell } from "./shared";
 
 const databaseViewConfig = defaultDatabaseViewConfig();
 
@@ -729,7 +724,7 @@ describe("DatabaseView UI regressions", () => {
     expect(updateViewMutation.mutateAsync).not.toHaveBeenCalled();
   });
 
-  it("opens the main toolbar Sort and Filter menus with pointer and keyboard activation", async () => {
+  it("opens the toolbar's Sort menu with a pointer and its Filter panel with a click", async () => {
     await renderDatabaseView();
 
     const sortButton = container.querySelector<HTMLButtonElement>(
@@ -741,7 +736,7 @@ describe("DatabaseView UI regressions", () => {
     expect(sortButton).toBeTruthy();
     expect(filterButton).toBeTruthy();
     expect(sortButton?.getAttribute("aria-haspopup")).toBe("menu");
-    expect(filterButton?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(filterButton?.getAttribute("aria-haspopup")).toBe("dialog");
 
     await act(async () => {
       sortButton?.focus();
@@ -768,14 +763,12 @@ describe("DatabaseView UI regressions", () => {
     expect(sortButton?.getAttribute("aria-expanded")).toBe("false");
 
     await act(async () => {
-      filterButton?.dispatchEvent(
-        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
-      );
+      filterButton?.click();
       await Promise.resolve();
     });
 
     expect(filterButton?.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector("[role=menu]")).toBeTruthy();
+    expect(document.querySelector("[role=dialog]")).toBeTruthy();
   });
 
   it("holds the placeholder until the first rows land, then keeps the view through later reads", async () => {
@@ -1601,6 +1594,12 @@ describe("DatabaseView UI regressions", () => {
     await act(async () => {
       findButtonByText(
         document.body,
+        messagesByLocale["en-US"].database.sourceMore,
+      )?.click();
+    });
+    await act(async () => {
+      findButtonByText(
+        document.body,
         messagesByLocale["en-US"].database.addAsItems,
       )?.click();
       await Promise.resolve();
@@ -1771,11 +1770,27 @@ describe("DatabaseView UI regressions", () => {
     };
     databaseQueryState.tableQueryAnswered = true;
     await renderDatabaseView();
-    const chip = [...container.querySelectorAll("button")].find((button) =>
-      button.textContent.trim().startsWith("Status"),
+    const chip = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent.trim() === "agentChat.filters.fieldValue",
     );
     if (!chip) throw new Error("The Status filter chip did not render.");
     return { chip, row, first, third };
+  }
+
+  async function press(target: HTMLElement) {
+    await act(async () => {
+      target.click();
+      await Promise.resolve();
+    });
+  }
+
+  async function pressEscape() {
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+      );
+      await Promise.resolve();
+    });
   }
 
   async function mousePointerDown(target: Element) {
@@ -1796,9 +1811,10 @@ describe("DatabaseView UI regressions", () => {
     expect(cellRendersByItemId.get("item-a")).toBeGreaterThan(0);
 
     cellRendersByItemId.clear();
-    await mousePointerDown(chip);
+    await press(chip);
     expect(chip.getAttribute("aria-expanded")).toBe("true");
     expect([...cellRendersByItemId.keys()]).toEqual([]);
+    await pressEscape();
 
     // Sorting rebuilds the view but leaves every row's data as it was.
     const sortButton = container.querySelector('button[aria-label="Sort"]');
@@ -1832,48 +1848,33 @@ describe("DatabaseView UI regressions", () => {
     expect([...cellRendersByItemId.keys()]).toEqual([]);
   });
 
-  it("closes a filter chip's menu and its click shield when focus moves outside it", async () => {
+  // oracle-change: the click-shield tests went with Content's own chip menus; the kit's modal popovers keep clicks off the table instead, as this test checks
+  it("keeps clicks off the table while a filter chip is open, and gives them back when it closes", async () => {
     const { chip } = await renderStatusFilteredTable();
-    await mousePointerDown(chip);
-    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    await press(chip);
     expect(chip.getAttribute("aria-expanded")).toBe("true");
-    expect(
-      document.querySelector("[data-menu-outside-click-shield]"),
-    ).not.toBeNull();
-    const outside = document.createElement("button");
-    document.body.append(outside);
-    await act(async () => {
-      outside.focus();
-      await Promise.resolve();
-    });
+    expect(document.body.style.pointerEvents).toBe("none");
+    await pressEscape();
     expect(chip.getAttribute("aria-expanded")).toBe("false");
-    expect(
-      document.querySelector("[data-menu-outside-click-shield]"),
-    ).toBeNull();
-    outside.remove();
+    expect(document.body.style.pointerEvents).toBe("");
   });
 
-  it("opens the menu of a filter added from the Filter button", async () => {
+  it("opens the editor of a filter added from the bar's Filter button", async () => {
     await renderStatusFilteredTable();
     const addButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent.trim() === "Filter",
+      (button) => button.textContent.trim() === "agentChat.filters.filter",
     );
     if (!addButton) throw new Error("The bar's Filter button did not render.");
-    await mousePointerDown(addButton);
-    const nameItem = [...document.querySelectorAll("[role=menuitem]")].find(
-      (item) => item.textContent.trim() === "Name",
-    );
-    if (!nameItem) throw new Error("The Filter menu doesn't offer Name.");
-    await act(async () => {
-      nameItem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
-
-    const nameChip = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent.trim() === "Name",
-    );
-    expect(nameChip?.getAttribute("aria-expanded")).toBe("true");
+    await press(addButton);
+    const nameOption = [
+      ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ].find((option) => option.textContent.trim() === "Name");
+    if (!nameOption) throw new Error("The Filter menu doesn't offer Name.");
+    await press(nameOption);
+    expect(addButton.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      document.querySelector('[role="dialog"] input[aria-label="Name"]'),
+    ).not.toBeNull();
   });
 
   it("opens and closes a filter chip without re-rendering the table", async () => {
@@ -1881,41 +1882,11 @@ describe("DatabaseView UI regressions", () => {
     expect(tableGridRenders.count).toBeGreaterThan(0);
 
     tableGridRenders.count = 0;
-    await mousePointerDown(chip);
+    await press(chip);
     expect(chip.getAttribute("aria-expanded")).toBe("true");
-    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
-    const shield = document.querySelector("[data-menu-outside-click-shield]");
-    if (!shield) throw new Error("No click shield covers the page.");
-    await act(async () => {
-      shield.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
+    await pressEscape();
     expect(chip.getAttribute("aria-expanded")).toBe("false");
     expect(tableGridRenders.count).toBe(0);
-  });
-
-  it("keeps a filter chip's click shield in place until an outside click lands, then closes the menu", async () => {
-    const { chip } = await renderStatusFilteredTable();
-    await mousePointerDown(chip);
-    // The menu starts listening for outside pointerdowns on the next task.
-    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
-    const shield = document.querySelector("[data-menu-outside-click-shield]");
-    if (!shield) throw new Error("No click shield covers the page.");
-
-    // Closing on pointerdown would remove the shield before the click, which
-    // would then land on the table underneath.
-    await mousePointerDown(shield);
-    expect(chip.getAttribute("aria-expanded")).toBe("true");
-    expect(shield.isConnected).toBe(true);
-    await act(async () => {
-      shield.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-    expect(chip.getAttribute("aria-expanded")).toBe("false");
-    expect(
-      document.querySelector("[data-menu-outside-click-shield]"),
-    ).toBeNull();
-    expect(document.activeElement).not.toBe(chip);
   });
 
   function commentableRow(
@@ -2026,6 +1997,155 @@ describe("DatabaseView UI regressions", () => {
     expect(toastErrorMock).toHaveBeenCalledWith(
       "editor.toolbar.couldNotCopyLink",
       { description: "editor.toolbar.clipboardAccessUnavailable" },
+    );
+  });
+
+  it.each([
+    {
+      error: Object.assign(
+        new Error("Workspace references cannot be duplicated as pages"),
+        {
+          errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED",
+        },
+      ),
+      description: "sidebar.workspaceReferenceProtected",
+    },
+    { error: new Error("Unrelated failure"), description: "Unrelated failure" },
+  ])(
+    "reports row duplication failures without exposing protected-reference server text",
+    async ({ error, description }) => {
+      const row = commentableRow("a", "Alpha", true);
+      databaseResponse.items = [
+        { ...row, document: { ...row.document, canView: true } },
+      ];
+      benignMutation.mutateAsync.mockRejectedValueOnce(error);
+      await renderDatabaseView();
+      const trigger = container.querySelector(
+        '[aria-label="Row actions for Alpha"]',
+      );
+      if (!trigger) throw new Error("Alpha has no row menu.");
+
+      await mousePointerDown(trigger);
+      await selectMenuItem("Duplicate row");
+      expect(toastErrorMock).toHaveBeenCalledWith("Failed to duplicate row", {
+        description,
+      });
+    },
+  );
+
+  it.each(
+    [
+      {
+        error: Object.assign(new Error("Protected server detail"), {
+          errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED",
+        }),
+        description: "sidebar.workspaceReferenceProtected",
+      },
+      {
+        error: new Error("Unrelated failure"),
+        description: "Unrelated failure",
+      },
+      { error: null, description: "Something went wrong" },
+    ].flatMap((scenario) =>
+      (["duplicate", "remove"] as const).map((operation) => ({
+        ...scenario,
+        operation,
+      })),
+    ),
+  )(
+    "reports shared-view $operation errors without exposing protected details",
+    async ({ error, description, operation }) => {
+      const { QueryClientProvider } = await import("@tanstack/react-query");
+      const row = commentableRow("a", "Alpha", true);
+      const item = { ...row, document: { ...row.document, canView: true } };
+      const onPreviewItem = vi.fn();
+      const onDeletedPreviewItem = vi.fn(() => true);
+      act(() => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <AppToolkitProvider>
+              <SharedRowActionsCell
+                item={item}
+                databaseDocumentId="document-1"
+                onOpenPage={vi.fn()}
+                onPreviewItem={onPreviewItem}
+                onDeletedPreviewItem={onDeletedPreviewItem}
+              />
+            </AppToolkitProvider>
+          </QueryClientProvider>,
+        );
+      });
+      const trigger = container.querySelector(
+        '[aria-label="Row actions for Alpha"]',
+      );
+      if (!trigger) throw new Error("Alpha has no row menu.");
+
+      benignMutation.mutateAsync.mockRejectedValueOnce(error);
+      await mousePointerDown(trigger);
+      if (operation === "duplicate") {
+        await selectMenuItem("Duplicate row");
+      } else {
+        await selectMenuItem("Remove from collection");
+        const dialog = document.querySelector<HTMLElement>(
+          '[role="alertdialog"]',
+        );
+        const confirm = dialog && findButtonByText(dialog, "Remove");
+        if (!confirm) throw new Error("Removal confirmation is not available.");
+        await act(async () => {
+          confirm.click();
+          await Promise.resolve();
+        });
+      }
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        operation === "duplicate"
+          ? "Failed to duplicate row"
+          : "Failed to remove row from collection",
+        { description },
+      );
+      expect(benignMutation.mutateAsync).toHaveBeenCalledWith(
+        operation === "duplicate"
+          ? { itemId: item.id }
+          : { documentId: "document-1", documentIds: [item.document.id] },
+      );
+      expect(onDeletedPreviewItem.mock.calls).toEqual(
+        operation === "remove" ? [[item]] : [],
+      );
+      expect(onPreviewItem.mock.calls).toEqual(
+        operation === "remove" ? [[item]] : [],
+      );
+    },
+  );
+
+  it("shows the protected-reference refusal when removing a row", async () => {
+    const row = commentableRow("a", "Alpha", true);
+    databaseResponse.items = [
+      { ...row, document: { ...row.document, canView: true } },
+    ];
+    benignMutation.mutateAsync.mockRejectedValueOnce(
+      Object.assign(
+        new Error("Workspace references cannot be removed as pages"),
+        {
+          errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED",
+        },
+      ),
+    );
+    await renderDatabaseView();
+    const trigger = container.querySelector(
+      '[aria-label="Row actions for Alpha"]',
+    );
+    if (!trigger) throw new Error("Alpha has no row menu.");
+    await mousePointerDown(trigger);
+    await selectMenuItem("Remove from collection");
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]');
+    const confirm = dialog && findButtonByText(dialog, "Remove");
+    if (!confirm) throw new Error("Removal confirmation is not available.");
+    await act(async () => {
+      confirm.click();
+      await Promise.resolve();
+    });
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "Failed to remove row from collection",
+      { description: "sidebar.workspaceReferenceProtected" },
     );
   });
 

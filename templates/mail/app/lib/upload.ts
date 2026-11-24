@@ -28,6 +28,18 @@ function isStorageSetupReason(value: unknown): value is StorageSetupReason {
   );
 }
 
+export function storageSetupReasonOf(
+  error: unknown,
+): StorageSetupReason | null {
+  const { errorCode, details } = (error ?? {}) as {
+    errorCode?: unknown;
+    details?: { storageSetupReason?: unknown };
+  };
+  if (errorCode !== "storage_setup_required") return null;
+  const reason = details?.storageSetupReason;
+  return isStorageSetupReason(reason) ? reason : "not-configured";
+}
+
 export class UploadError extends Error {
   constructor(
     message: string,

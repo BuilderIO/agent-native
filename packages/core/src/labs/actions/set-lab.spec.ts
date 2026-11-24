@@ -114,3 +114,8 @@ describe("set-lab action", () => {
     },
   );
 });
+
+it("keeps set-lab in the app, off MCP", async () => {
+  const { default: action } = await import("./set-lab.js");
+  expect(action.mcpTool).toBe(false);
+});

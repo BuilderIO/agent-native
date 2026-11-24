@@ -21,11 +21,18 @@
 @layer components {
   .progress {
     --_progress-height: calc(var(--space-2) * 0.75);
-    display: grid;
-    grid-template-columns: 1fr auto;
+    display: flex;
+    flex-wrap: wrap;
+    min-inline-size: 0;
     align-items: baseline;
     gap: var(--space-1) var(--space-2);
     width: 100%;
+  }
+
+  .progress-label,
+  .progress-value {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
   }
 
   .progress-label {
@@ -36,7 +43,7 @@
   }
 
   .progress-value {
-    grid-column: 2;
+    margin-inline-start: auto;
     font-size: var(--font-size-1);
     line-height: var(--line-height-1);
     font-variant-numeric: tabular-nums;
@@ -45,7 +52,7 @@
 
   .progress-track {
     position: relative;
-    grid-column: 1 / -1;
+    flex: 0 0 100%;
     height: var(--_progress-height);
     overflow: hidden;
     border-radius: var(--radius-full);
@@ -102,15 +109,26 @@
 
   .progress[data-indeterminate] .progress-indicator {
     width: 100%;
-    transform-origin: left center;
+    transform-origin: calc((1 - var(--_inline-direction, 1)) * 50%) center;
     animation:
       progress-fill var(--progress-duration, 5s) var(--ease-standard) both,
       progress-pulse 2.5s var(--ease-standard) var(--progress-duration, 5s)
         infinite alternate;
   }
 
-  .progress[data-indeterminate] .progress-indicator:dir(rtl) {
-    transform-origin: right center;
+  @media (forced-colors: active) {
+    .progress[data-variant] .progress-track {
+      background-color: Canvas;
+    }
+
+    .progress-track::after {
+      border: 1px solid CanvasText;
+    }
+
+    .progress[data-variant] .progress-indicator {
+      forced-color-adjust: none;
+      background: Highlight;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -119,7 +137,11 @@
     }
 
     .progress[data-indeterminate] .progress-indicator {
-      opacity: 0.5;
+      mask-image: repeating-linear-gradient(
+        135deg,
+        currentColor 0 var(--space-1),
+        transparent var(--space-1) var(--space-2)
+      );
       animation: none;
     }
   }

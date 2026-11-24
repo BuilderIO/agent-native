@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import {
   getAppProductionUrl,
@@ -35,6 +36,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const PENDING_STALE_MS = 2 * 60 * 1000;
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   description:
     "Email a booking-link co-host asking them to add the link owner back to their calendar, so their real working hours apply instead of free/busy alone. Only works for a peer already in the owner's calendar overlay list, and is rate-limited to one request per peer per hour and 20 per owner per day.",
   schema: z.object({

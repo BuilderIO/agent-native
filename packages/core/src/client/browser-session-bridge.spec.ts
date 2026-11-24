@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentNativeBrowserSessionBridge } from "./browser-session-bridge.js";
 import {
   AGENT_NATIVE_HOST_MESSAGE_TYPES,
+  readAgentNativeScreenContext,
+  type AgentNativeHostContext,
   type AgentNativeHostMessageType,
 } from "./host-bridge.js";
 
@@ -215,6 +217,57 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     }
     expect(bodies[0].context.url).toContain("p-key=%3Credacted%3E");
     expect(JSON.stringify(bodies)).not.toContain("canary-secret");
+  });
+
+  it("scrubs the query and hash in the context's routes, screen, and host session", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/customers/acme?agent_access=canary-page-search&utm_source=news#access_token=canary-page-hash",
+    );
+    const bodies: Array<{ context: AgentNativeHostContext }> = [];
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      bodies.push(body);
+      return jsonResponse({
+        ok: true,
+        session: {
+          sessionId: body.sessionId,
+          session: body.session,
+          actions: [],
+          active: true,
+        },
+      });
+    });
+
+    await createAgentNativeBrowserSessionBridge({
+      getContext: () => ({
+        ...readAgentNativeScreenContext(),
+        route: {
+          name: "customer-detail",
+          search: "?token=canary-route-search&utm_campaign=spring",
+          hash: "#id_token=canary-route-hash",
+        },
+        session: {
+          id: "tab-2",
+          connectedAt: "2026-01-01T00:00:00.000Z",
+          url: "https://host.example/embed?sid=canary-session-search&utm_medium=email#code=canary-session-hash",
+        },
+      }),
+      fetch: fetchMock as unknown as typeof fetch,
+    }).refreshRegistration();
+
+    const context = bodies.at(0)?.context;
+    expect(JSON.stringify(bodies)).not.toContain("canary-");
+    expect(context?.route?.name).toBe("customer-detail");
+    expect(context?.route?.search).toMatch(/^\?token=.*&utm_campaign=spring$/);
+    expect(context?.route?.hash).toMatch(/^#id_token=/);
+    expect(context?.screen?.route?.search).toMatch(
+      /^\?agent_access=.*&utm_source=news$/,
+    );
+    expect(context?.screen?.route?.hash).toMatch(/^#access_token=/);
+    expect(context?.screen?.url).toContain("utm_source=news");
+    expect(context?.session?.url).toContain("utm_medium=email");
   });
 
   it("fails registration when host action discovery fails", async () => {

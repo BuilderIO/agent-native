@@ -23,6 +23,7 @@ import {
 } from "../server/source-workspace.js";
 import {
   ApplyEditConflictError,
+  applyEditsInOrder,
   applyOneEdit,
   type ApplyEditsResult,
   type DesignEdit,
@@ -124,16 +125,7 @@ function applyOneEditWithStableIdFallback(
     if (span) {
       return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
     }
-    throw new DesignEditSearchConflictError(
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-}
-
-class DesignEditSearchConflictError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "DesignEditSearchConflictError";
+    throw error;
   }
 }
 
@@ -145,16 +137,12 @@ export function applySearchReplaceEdits(
   content: string,
   edits: DesignEdit[],
 ): ApplyEditsResult {
-  let next = content;
   try {
-    edits.forEach((edit, index) => {
-      next = applyOneEditWithStableIdFallback(next, edit, index);
-    });
+    return applyEditsInOrder(content, edits, applyOneEditWithStableIdFallback);
   } catch (error) {
-    if (!(error instanceof DesignEditSearchConflictError)) throw error;
+    if (!(error instanceof ApplyEditConflictError)) throw error;
     throw new NoWriteError(error.message, designEditConflictOptions());
   }
-  return { content: next, applied: edits.length };
 }
 
 export function preCheckpointNoWriteError(error: unknown): NoWriteError {

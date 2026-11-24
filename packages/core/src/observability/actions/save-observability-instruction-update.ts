@@ -29,6 +29,7 @@ export default defineAction({
     openWorldHint: false,
   },
   authorize: authorizeObservabilityOrgAdmin,
+  mcpTool: false,
   run: async (args, ctx) => {
     const { userId, orgId } = getObservabilityOrgAdminAccess(ctx);
     requireObservabilityReviewRunScope(args.runId);

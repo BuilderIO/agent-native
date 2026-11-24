@@ -302,6 +302,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "next-themes",
         "openai",
         "qrcode.react",
         "react",
@@ -418,6 +419,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "next-themes",
         "openai",
         "qrcode.react",
         "react",
@@ -510,6 +512,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "next-themes",
         "openai",
         "qrcode.react",
         "react",
@@ -650,6 +653,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "next-themes",
         "openai",
         "qrcode.react",
         "react",
@@ -763,6 +767,7 @@
         "@agent-native/core/client/use-settings-shortcut",
         "@agent-native/core/client/webmcp",
         "@agent-native/core/client/write-failure",
+        "@agent-native/core/config",
         "@agent-native/core/notifications/types",
         "@agent-native/core/shared/document-title",
         "@agent-native/core/shared/mcp-app-widget-embed",
@@ -830,6 +835,7 @@
         "@agent-native/core/client/oauth-popup",
         "@agent-native/core/client/sign-in-return",
         "@agent-native/core/client/use-session",
+        "@agent-native/core/localization/privacy-choice-messages",
         "@agent-native/core/localization/shared",
         "@agent-native/core/shared/analytics-events",
         "@agent-native/core/shared/app-status",
@@ -1028,6 +1034,7 @@
         "clsx",
         "cmdk",
         "culori",
+        "next-themes",
         "openai",
         "linkedom",
         "qrcode.react",
@@ -1102,6 +1109,19 @@
       ]
     },
     {
+      "id": "toolkit/app-filters",
+      "label": "Toolkit app Filters",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["app-filters"],
+      "entrypoints": ["./app/filters"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/app/filters"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": ["@agent-native/core", "@tabler/icons-react", "react"],
+      "verification": ["pnpm typecheck"],
+      "protectedImports": ["@agent-native/core/client/i18n"]
+    },
+    {
       "id": "toolkit/app-integrations",
       "label": "Toolkit app Integrations",
       "catalog": "toolkit-ui",
@@ -1150,6 +1170,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "next-themes",
         "openai",
         "qrcode.react",
         "react",
@@ -1305,6 +1326,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "next-themes",
         "openai",
         "qrcode.react",
         "react",
@@ -1408,6 +1430,7 @@
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/i18n",
+        "@agent-native/core/client/org",
         "@agent-native/core/client/review/use-review",
         "@agent-native/core/client/uploads",
         "@agent-native/core/client/use-avatar",
@@ -1631,6 +1654,9 @@
         "@agent-native/design-system",
         "@base-ui/react",
         "@radix-ui/react-collapsible",
+        "@radix-ui/react-context-menu",
+        "@radix-ui/react-dialog",
+        "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-scroll-area",
         "@radix-ui/react-slot",
         "@radix-ui/react-tooltip",
@@ -1641,6 +1667,7 @@
         "culori",
         "react",
         "react-dom",
+        "react-i18next",
         "react-router",
         "sonner",
         "tailwind-merge"
@@ -2190,6 +2217,7 @@
         "next-themes",
         "react",
         "react-day-picker",
+        "react-dom",
         "react-hook-form",
         "react-resizable-panels",
         "react-router",
@@ -2234,6 +2262,38 @@
       "sourceEntries": ["src/markdown-block-split.ts"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [],
+      "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/craft",
+      "label": "Craft UI primitives and semantic tokens",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["craft"],
+      "entrypoints": ["./craft", "./craft/*"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/craft"],
+      "styles": [
+        {
+          "entrypoint": "./craft-tokens.css",
+          "source": "src/app/styles/craft-tokens.css"
+        },
+        {
+          "entrypoint": "./app/styles/craft-tokens.css",
+          "source": "src/app/styles/craft-tokens.css"
+        }
+      ],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@radix-ui/react-alert-dialog",
+        "@radix-ui/react-dialog",
+        "@radix-ui/react-slot",
+        "@tabler/icons-react",
+        "class-variance-authority",
+        "clsx",
+        "culori",
+        "react",
+        "tailwind-merge"
+      ],
       "verification": ["pnpm typecheck"]
     },
     {

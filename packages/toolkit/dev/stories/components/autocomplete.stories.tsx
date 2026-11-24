@@ -13,6 +13,7 @@ import {
   IconUser,
 } from "@tabler/icons-react";
 import * as React from "react";
+import { expect, waitFor, within } from "storybook/test";
 
 import {
   Autocomplete,
@@ -28,10 +29,14 @@ import {
   type AutocompletePopupProps,
   AutocompleteSeparator,
   AutocompleteStatus,
+  AutocompleteTrigger,
 } from "../../../src/ui/base-ui/autocomplete.js";
-import { InputSlot } from "../../../src/ui/base-ui/input.js";
+import { Button } from "../../../src/ui/base-ui/button.js";
+import { Input, InputSlot } from "../../../src/ui/base-ui/input.js";
 import { Kbd } from "../../../src/ui/base-ui/kbd.js";
+import { searchDelay, useAsyncOptions } from "../async-options.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./autocomplete.docs.md?raw";
 
 type Args = AutocompleteOwnProps & { disabled?: boolean };
 
@@ -59,7 +64,12 @@ const TAGS = [
   "testing",
 ];
 
-const GROUPED = [
+interface SuggestionGroup {
+  value: string;
+  items: readonly string[];
+}
+
+const GROUPED: readonly SuggestionGroup[] = [
   { value: "Pages", items: ["Dashboard", "Inbox", "Reports", "Settings"] },
   { value: "People", items: ["Ada Lovelace", "Grace Hopper", "Alan Turing"] },
   { value: "Files", items: ["Q3 plan.pdf", "Roadmap.md", "Budget.xlsx"] },
@@ -79,12 +89,12 @@ function Rows() {
 
 function Search({ label, disabled, ...input }: Args & { label: string }) {
   return (
-    <Autocomplete items={TAGS} {...(disabled ? { disabled } : {})}>
-      <AutocompleteInput
-        aria-label={label}
-        placeholder="Search tags"
-        {...input}
-      >
+    <Autocomplete
+      aria-label={label}
+      items={TAGS}
+      {...(disabled ? { disabled } : {})}
+    >
+      <AutocompleteInput placeholder="Search tags" {...input}>
         <InputSlot>
           <IconSearch aria-hidden />
         </InputSlot>
@@ -100,37 +110,40 @@ function Search({ label, disabled, ...input }: Args & { label: string }) {
   );
 }
 
-function OpenList({
+function PopupExample({
+  disabled,
   label,
   ...popup
 }: Pick<AutocompletePopupProps, "variant" | "color" | "highContrast"> & {
+  disabled?: boolean;
   label: string;
 }) {
-  const [container, setContainer] = React.useState<HTMLDivElement | null>(null);
+  const id = React.useId();
   return (
     <div className="flex w-44 flex-col gap-1">
-      <span className="text-xs text-fg-muted">{label}</span>
+      <label id={id} htmlFor={id + "-input"} className="text-xs text-fg-muted">
+        {label}
+      </label>
       <Autocomplete
+        aria-labelledby={id}
+        disabled={disabled}
         items={TAGS.slice(0, 4)}
-        open
+        openOnInputClick
         autoHighlight="always"
         defaultValue="a"
       >
-        <AutocompleteInput aria-label={label} />
-        {container ? (
-          <AutocompletePopup {...popup} container={container}>
-            <Rows />
-          </AutocompletePopup>
-        ) : null}
+        <AutocompleteInput id={id + "-input"} />
+        <AutocompletePopup {...popup}>
+          <Rows />
+        </AutocompletePopup>
       </Autocomplete>
-      <div ref={setContainer} className="h-32" />
     </div>
   );
 }
 
 const meta = {
   title: "Components/Autocomplete",
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, disabled: false },
   argTypes: controls.argTypes,
   render: (args) => (
@@ -143,9 +156,159 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof meta>;
+type StoryArgs = Parameters<NonNullable<Story["render"]>>[0];
 
 /** Type to see suggestions; any text is kept. The input takes the controls. */
 export const Playground: Story = {};
+
+function InlineTags({
+  readOnly,
+  defaultValue = "",
+  ...args
+}: Args & { readOnly?: boolean; defaultValue?: string }) {
+  const [value, setValue] = React.useState(defaultValue);
+  return (
+    <div className="grid w-64 gap-2">
+      <Autocomplete
+        aria-label="Tag"
+        items={TAGS}
+        readOnly={readOnly}
+        inline
+        open
+        value={value}
+        onValueChange={setValue}
+        disabled={args.disabled}
+      >
+        <AutocompleteInput {...args} placeholder="Find or enter a tag" />
+        <AutocompleteEmpty>No matching tags.</AutocompleteEmpty>
+        <AutocompleteList variant="solid" color="accent" highContrast>
+          {(tag: string) => (
+            <AutocompleteItem
+              key={tag}
+              value={tag}
+              onClick={
+                readOnly || args.disabled ? undefined : () => setValue(tag)
+              }
+            >
+              {tag}
+            </AutocompleteItem>
+          )}
+        </AutocompleteList>
+      </Autocomplete>
+      <Input aria-label="Note" placeholder="Add a note" />
+    </div>
+  );
+}
+export const Inline: Story = {
+  render: (args) => <InlineTags {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    const input = canvas.getByRole("combobox", { name: "Tag" });
+    const list = canvas.getByRole("listbox", { name: "Tag" });
+    await expect(list).toHaveAttribute("data-variant", "solid");
+    await expect(list).toHaveAttribute("data-color", "accent");
+    await expect(list).toHaveAttribute("data-high-contrast");
+    await userEvent.type(input, "ani");
+    await expect(within(list).getAllByRole("option")).toHaveLength(1);
+    await expect(input).toHaveAttribute("aria-controls", list.id);
+    await userEvent.keyboard("{ArrowDown}");
+    await expect(input).toHaveFocus();
+    const highlighted = within(list).getByRole("option", { name: "animation" });
+    await expect(highlighted.id).not.toBe("");
+    await expect(input).toHaveAttribute(
+      "aria-activedescendant",
+      highlighted.id,
+    );
+    await userEvent.keyboard("{Enter}");
+    await expect(input).toHaveValue("animation");
+    const note = canvas.getByRole("textbox", { name: "Note" });
+    await userEvent.tab();
+    await expect(note).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    await expect(input).toHaveFocus();
+    await userEvent.clear(input);
+    await userEvent.type(input, "custom tag");
+    await expect(canvas.getByText("No matching tags.")).toBeVisible();
+    await expect(input).not.toHaveAttribute("aria-activedescendant");
+    await userEvent.tab();
+    await expect(input).toHaveValue("custom tag");
+    await expect(note).toHaveFocus();
+    await userEvent.clear(input);
+  },
+};
+
+export const ReadOnlyInline: Story = {
+  render: (args) => <InlineTags {...args} readOnly defaultValue="ani" />,
+  play: async ({ canvas, userEvent }) => {
+    const input = canvas.getByRole("combobox", { name: "Tag" });
+    await userEvent.tab();
+    await expect(input).toHaveFocus();
+    await expect(input).toHaveAttribute("readonly");
+    await userEvent.click(canvas.getByRole("option", { name: "animation" }));
+    await expect(input).toHaveValue("ani");
+    await userEvent.keyboard("{ArrowDown}{Enter}");
+    await expect(input).toHaveValue("ani");
+    await userEvent.tab();
+    await expect(canvas.getByRole("textbox", { name: "Note" })).toHaveFocus();
+  },
+};
+export const DisabledInline: Story = {
+  args: { disabled: true },
+  render: (args) => <InlineTags {...args} defaultValue="ani" />,
+  play: async ({ canvas, userEvent }) => {
+    const input = canvas.getByRole("combobox", { name: "Tag" });
+    const option = canvas.getByRole("option", { name: "animation" });
+    await expect(input).toBeDisabled();
+    await expect(option).toHaveAttribute("aria-disabled", "true");
+    await expect(getComputedStyle(option).pointerEvents).toBe("none");
+    await userEvent.tab();
+    await expect(canvas.getByRole("textbox", { name: "Note" })).toHaveFocus();
+    await expect(input).toHaveValue("ani");
+  },
+};
+export const LabeledActions: Story = {
+  render: (args) => (
+    <div className="w-80">
+      <Autocomplete
+        disabled={args.disabled}
+        aria-label="Tag"
+        items={TAGS}
+        defaultValue="design system"
+      >
+        <AutocompleteInput {...args}>
+          <InputSlot side="right">
+            <AutocompleteClear render={<Button variant="ghost" size="sm" />}>
+              Reset
+            </AutocompleteClear>
+            <AutocompleteTrigger
+              render={
+                <Button variant="ghost" size="sm">
+                  Browse
+                </Button>
+              }
+            />
+          </InputSlot>
+        </AutocompleteInput>
+        <AutocompletePopup>
+          <Rows />
+        </AutocompletePopup>
+      </Autocomplete>
+    </div>
+  ),
+  play: async ({ canvas, userEvent, canvasElement }) => {
+    const input = canvas.getByRole("combobox", { name: "Tag" });
+    await userEvent.click(canvas.getByRole("button", { name: "Browse" }));
+    const list = await within(canvasElement.ownerDocument.body).findByRole(
+      "listbox",
+      { name: "Tag" },
+    );
+    await waitFor(() => expect(list).toBeVisible());
+    await expect(input).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(canvas.getByRole("button", { name: "Reset" }));
+    await expect(input).toHaveValue("");
+    await userEvent.keyboard("{Escape}");
+  },
+};
 
 /** md and sm: the field is Input's, and the rows follow its size. */
 export const Sizes: Story = {
@@ -163,7 +326,56 @@ export const Sizes: Story = {
  * fill the highlighted row, in gray and the accent and in high contrast.
  */
 export const Variants: Story = {
-  parameters: { a11y: { test: "todo" } },
+  parameters: {
+    a11y: {
+      config: { rules: [{ id: "aria-hidden-focus", reviewOnFail: true }] },
+    },
+  },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const name = POPUP_VARIANTS[0] + " accent, high contrast";
+    const input = canvas.getByRole("combobox", { name });
+    const fields = canvas.getAllByRole("combobox");
+    const index = fields.indexOf(input);
+    const previous = index > 0 ? fields.at(index - 1) : undefined;
+    const next = fields.at(index + 1);
+    if (!previous || !next) throw new Error("Expected adjacent variant fields");
+    await userEvent.click(input);
+    const page = within(canvasElement.ownerDocument.body);
+    const list = await page.findByRole("listbox", { name });
+    await expect(within(list).getAllByRole("option").length).toBeGreaterThan(0);
+    for (const [from, to] of [
+      [input, next],
+      [next, input],
+    ] as const) {
+      await userEvent.click(to);
+      await waitFor(() =>
+        expect(from).toHaveAttribute("aria-expanded", "false"),
+      );
+      await expect(to).toHaveFocus();
+      await expect(to).toHaveAttribute(
+        "aria-controls",
+        (await page.findByRole("listbox")).id,
+      );
+      await expect(to.closest('[aria-hidden="true"]')).toBeNull();
+    }
+    for (const [tab, target] of [
+      ["{Tab}", next],
+      ["{Shift>}{Tab}{/Shift}", previous],
+    ] as const) {
+      await userEvent.click(input);
+      if (input.getAttribute("aria-expanded") !== "true") {
+        await userEvent.keyboard("{ArrowDown}");
+      }
+      await userEvent.keyboard(tab);
+      await waitFor(() =>
+        expect(input).toHaveAttribute("aria-expanded", "false"),
+      );
+      await expect(target).toHaveFocus();
+      await expect(target.closest('[aria-hidden="true"]')).toBeNull();
+    }
+    await userEvent.click(input);
+    await page.findByRole("listbox", { name });
+  },
   render: (args) => (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3">
@@ -187,7 +399,8 @@ export const Variants: Story = {
         <div key={String(highContrast)} className="flex gap-3">
           {POPUP_VARIANTS.flatMap((variant) =>
             (["gray", "accent"] as const).map((color) => (
-              <OpenList
+              <PopupExample
+                disabled={args.disabled}
                 key={`${variant}-${color}`}
                 variant={variant}
                 color={color}
@@ -206,8 +419,21 @@ export const Variants: Story = {
 export const Groups: Story = {
   render: (args) => (
     <div className="w-72">
-      <Autocomplete items={GROUPED} openOnInputClick>
-        <AutocompleteInput {...args} aria-label="Go to" placeholder="Go to">
+      <Autocomplete
+        disabled={args.disabled}
+        aria-label="Go to"
+        items={GROUPED}
+        filter={(item, query) => {
+          const words = item.toLowerCase().split(/\s+/);
+          return query
+            .trim()
+            .toLowerCase()
+            .split(/\s+/)
+            .every((prefix) => words.some((word) => word.startsWith(prefix)));
+        }}
+        openOnInputClick
+      >
+        <AutocompleteInput {...args} placeholder="Go to">
           <InputSlot>
             <IconSearch aria-hidden />
           </InputSlot>
@@ -233,99 +459,122 @@ export const Groups: Story = {
       </Autocomplete>
     </div>
   ),
-};
-
-/** Text that matches nothing stays, and the popup says so. */
-export const Empty: Story = {
-  render: (args) => {
-    const [container, setContainer] = React.useState<HTMLDivElement | null>(
-      null,
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const input = canvas.getByRole("combobox", { name: "Go to" });
+    await userEvent.type(input, "hop gr");
+    const list = await within(canvasElement.ownerDocument.body).findByRole(
+      "listbox",
     );
-    return (
-      <div className="flex w-72 flex-col gap-1">
-        <Autocomplete items={TAGS} open defaultValue="kubernetes">
-          <AutocompleteInput {...args} aria-label="Tags" />
-          {container ? (
-            <AutocompletePopup container={container}>
-              <AutocompleteEmpty>No tags found.</AutocompleteEmpty>
-              <Rows />
-            </AutocompletePopup>
-          ) : null}
-        </Autocomplete>
-        <div ref={setContainer} className="h-24" />
-      </div>
+    const group = within(list).getByRole("group", { name: "People" });
+    await waitFor(() =>
+      expect(
+        within(group).getByRole("option", { name: "Grace Hopper" }),
+      ).toBeVisible(),
     );
+    await expect(within(list).getAllByRole("option")).toHaveLength(1);
+    await userEvent.keyboard("{ArrowDown}{Enter}");
+    await expect(input).toHaveValue("Grace Hopper");
   },
 };
 
-function searchTags(query: string, signal: AbortSignal): Promise<string[]> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      const needle = query.trim().toLowerCase();
-      resolve(TAGS.filter((tag) => tag.includes(needle)));
-    }, 600);
-    signal.addEventListener("abort", () => {
-      clearTimeout(timer);
-      reject(signal.reason);
-    });
-  });
+function EmptyStory(args: StoryArgs) {
+  const [container, setContainer] = React.useState<HTMLDivElement | null>(null);
+  return (
+    <div className="flex w-72 flex-col gap-1">
+      <Autocomplete
+        disabled={args.disabled}
+        aria-label="Tags"
+        items={TAGS}
+        open
+        defaultValue="kubernetes"
+      >
+        <AutocompleteInput {...args} />
+        {container ? (
+          <AutocompletePopup container={container}>
+            <AutocompleteEmpty>No tags found.</AutocompleteEmpty>
+            <Rows />
+          </AutocompletePopup>
+        ) : null}
+      </Autocomplete>
+      <div ref={setContainer} className="h-24" />
+    </div>
+  );
+}
+/** Text that matches nothing stays, and the popup says so. */
+export const Empty: Story = {
+  render: (args) => <EmptyStory {...args} />,
+};
+
+async function searchTags(
+  query: string,
+  signal: AbortSignal,
+): Promise<string[]> {
+  await searchDelay(signal, 600);
+  const needle = query.toLowerCase();
+  return TAGS.filter((tag) => tag.includes(needle));
 }
 
+function AsyncFilteringStory(args: StoryArgs) {
+  const { results, status, search } = useAsyncOptions(searchTags, 150);
+  const [query, setQuery] = React.useState("");
+  return (
+    <div className="w-72">
+      <Autocomplete
+        disabled={args.disabled}
+        aria-label="Tags"
+        items={results}
+        filter={null}
+        value={query}
+        onValueChange={(value, { reason }) => {
+          setQuery(value);
+          void search(reason === "item-press" ? "" : value);
+        }}
+      >
+        <AutocompleteInput {...args} placeholder="Search">
+          <InputSlot>
+            <IconSearch aria-hidden />
+          </InputSlot>
+        </AutocompleteInput>
+        <AutocompletePopup>
+          <AutocompleteStatus>
+            {status === "pending"
+              ? "Searching…"
+              : status === "error"
+                ? "Search failed. Try again."
+                : null}
+          </AutocompleteStatus>
+          <AutocompleteEmpty>
+            {status === "ready" ? "No tags found." : null}
+          </AutocompleteEmpty>
+          <Rows />
+        </AutocompletePopup>
+      </Autocomplete>
+    </div>
+  );
+}
 /**
  * Suggestions from a server: `filter={null}` turns off local filtering, and
  * the status says what the list is waiting for.
  */
 export const AsyncFiltering: Story = {
-  render: (args) => {
-    const [results, setResults] = React.useState<string[]>([]);
-    const [pending, setPending] = React.useState(false);
-    const [query, setQuery] = React.useState("");
-    const request = React.useRef<AbortController | null>(null);
-
-    function search(value: string) {
-      setQuery(value);
-      request.current?.abort();
-      if (value.trim() === "") {
-        setResults([]);
-        setPending(false);
-        return;
-      }
-      const controller = new AbortController();
-      request.current = controller;
-      setPending(true);
-      searchTags(value, controller.signal).then(
-        (next) => {
-          setResults(next);
-          setPending(false);
-        },
-        () => {},
-      );
-    }
-
-    return (
-      <div className="w-72">
-        <Autocomplete
-          items={results}
-          filter={null}
-          value={query}
-          onValueChange={search}
-        >
-          <AutocompleteInput {...args} aria-label="Tags" placeholder="Search">
-            <InputSlot>
-              <IconSearch aria-hidden />
-            </InputSlot>
-          </AutocompleteInput>
-          <AutocompletePopup>
-            <AutocompleteStatus>
-              {pending ? "Searching…" : null}
-            </AutocompleteStatus>
-            <AutocompleteEmpty>
-              {pending ? null : "No tags found."}
-            </AutocompleteEmpty>
-            <Rows />
-          </AutocompletePopup>
-        </Autocomplete>
-      </div>
+  render: (args) => <AsyncFilteringStory {...args} />,
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const input = canvas.getByRole("combobox", { name: "Tags" });
+    const page = within(canvasElement.ownerDocument.body);
+    await userEvent.type(input, "ani");
+    await expect(
+      await page.findByRole("option", { name: "animation" }),
+    ).toBeVisible();
+    await userEvent.clear(input);
+    await userEvent.type(input, "test");
+    await expect(page.queryByRole("option", { name: "animation" })).toBeNull();
+    await expect(
+      await page.findByRole("option", { name: "testing" }),
+    ).toBeVisible();
+    await userEvent.keyboard("{ArrowDown}{Enter}");
+    await waitFor(() => expect(input).toHaveValue("testing"));
+    await waitFor(() =>
+      expect(input).toHaveAttribute("aria-expanded", "false"),
     );
   },
 };
@@ -356,6 +605,8 @@ export const CommandPalette: Story = {
   render: (args) => (
     <div className="flex h-72 w-96 flex-col gap-2 rounded-lg border border-line-default bg-surface-raised p-2">
       <Autocomplete
+        disabled={args.disabled}
+        aria-label="Command"
         items={COMMANDS}
         inline
         open
@@ -364,11 +615,7 @@ export const CommandPalette: Story = {
           command: (typeof COMMANDS)[number]["items"][number],
         ) => command.label}
       >
-        <AutocompleteInput
-          {...args}
-          aria-label="Command"
-          placeholder="Type a command"
-        >
+        <AutocompleteInput {...args} placeholder="Type a command">
           <InputSlot>
             <IconSearch aria-hidden />
           </InputSlot>

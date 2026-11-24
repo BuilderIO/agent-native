@@ -190,10 +190,6 @@ const DESIGN_BROAD_WORKFLOW_SHARDS = new Map([
     "music-app-workflow",
   ],
   [
-    "templates/design/e2e/home-system-selection.spec.ts",
-    "home-system-selection",
-  ],
-  [
     "templates/design/e2e/interaction-landing-page-build.spec.ts",
     "landing-page-build",
   ],
@@ -982,6 +978,48 @@ export type QueryBudgetShard = { shard: string; apps: string[] };
 
 export function normalizeChangedPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\/+/, "");
+}
+
+export function isStandaloneE2eRunner(
+  path: string,
+  repositoryRoot = process.cwd(),
+): boolean {
+  const normalized = normalizeChangedPath(path);
+  if (
+    !/^(?:templates|packages|community-templates)\/[^/]+\/e2e\//u.test(
+      normalized,
+    ) ||
+    !/\.[cm]?[jt]sx?$/u.test(normalized) ||
+    /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(normalized)
+  )
+    return false;
+  try {
+    const source = readFileSync(join(repositoryRoot, normalized), "utf8");
+    if (/\bexport\b/u.test(source)) return false;
+    const { tokens } = tokenizeE2eSource(source);
+    for (let index = 0; index < tokens.length; index += 1) {
+      const token = tokens[index];
+      if (
+        (token.kind === "string" && token.uncertain) ||
+        (token.kind === "punctuation" && token.value === "/")
+      )
+        return false;
+      if (
+        token.kind === "identifier" &&
+        token.value === "process" &&
+        tokens[index + 1]?.value === "." &&
+        tokens[index + 2]?.kind === "identifier" &&
+        tokens[index + 2]?.value === "argv"
+      )
+        return true;
+    }
+    return false;
+  } catch {
+    console.error(
+      `Cannot read E2E entry ${normalized}; keeping production tests selected.`,
+    );
+    return false;
+  }
 }
 
 export function runtimeSourceChangesInTestTitledPr(
@@ -2444,6 +2482,10 @@ function buildChecks(
   }
 
   const workspaceChanged = changedPaths.some(isWorkspacePath);
+  const fastTestsChanged = changedPaths.some(
+    (path) =>
+      isWorkspacePath(path) && !isStandaloneE2eRunner(path, repositoryRoot),
+  );
   const instructionsChanged = changedPaths.some(isInstructionPath);
   const guardScriptsChanged = changedPaths.some(isGuardScopedScriptPath);
   const readmeChanged = changedPaths.some(isReadmePath);
@@ -2504,7 +2546,7 @@ function buildChecks(
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
     typecheck: workspaceChanged,
-    fast_tests: workspaceChanged || instructionsChanged,
+    fast_tests: fastTestsChanged || instructionsChanged,
     content:
       contentChanged ||
       schedulingChanged ||

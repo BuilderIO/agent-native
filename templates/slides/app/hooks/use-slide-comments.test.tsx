@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import type { ReviewComment } from "@agent-native/core/review";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -11,7 +12,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   callActionWithRetry: mocks.callActionWithRetry,
-  useActionMutation: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/api-surface", () => ({
@@ -29,24 +29,63 @@ function createWrapper() {
   );
 }
 
-function comment(id: string, threadId: string, parentId: string | null = null) {
+function comment(
+  id: string,
+  threadId: string,
+  parentCommentId: string | null = null,
+  extra: Partial<ReviewComment> = {},
+): ReviewComment {
   return {
     id,
-    deck_id: "deck-1",
-    slide_id: "slide-1",
-    thread_id: threadId,
-    parent_id: parentId,
-    content: id,
-    quoted_text: null,
+    resourceType: "deck",
+    resourceId: "deck-1",
+    targetId: null,
+    surfaceId: "slide-1",
+    threadId,
+    parentCommentId,
+    kind: "comment",
     anchor: null,
-    reactions: [],
-    author_email: "author@example.com",
-    author_name: "Author",
-    resolved: false,
-    created_at: "2026-01-01T00:00:00.000Z",
-    updated_at: "2026-01-01T00:00:00.000Z",
+    anchorKind: null,
+    anchorVersion: null,
+    body: id,
+    authorEmail: "author@example.com",
+    authorName: "Author",
+    createdBy: "human",
+    status: "open",
+    resolutionTarget: "human",
+    mentions: [],
+    metadata: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...extra,
+  } as ReviewComment;
+}
+
+function page(
+  comments: ReviewComment[],
+  nextCursor: string | null,
+  reactions: Record<string, unknown[]> = {},
+) {
+  return {
+    comments,
+    nextCursor,
+    discussion: {
+      reactions,
+      threadPreferences: {},
+      canReact: true,
+      canSetThreadPreferences: true,
+    },
+    reviewStatus: null,
+    summary: null,
   };
 }
+
+const deckParams = {
+  resourceType: "deck",
+  resourceId: "deck-1",
+  includeResolved: true,
+  limit: 500,
+};
 
 afterEach(() => cleanup());
 
@@ -57,24 +96,21 @@ beforeEach(() => {
 });
 
 describe("useSlideComments", () => {
-  it("loads all pages and groups replies that cross a page boundary", async () => {
-    const firstPage = Array.from({ length: 200 }, (_, index) =>
+  it("loads every page of the slide and groups replies that cross a page boundary", async () => {
+    const firstPage = Array.from({ length: 500 }, (_, index) =>
       comment(`comment-${index}`, `thread-${index}`),
     );
+    const thumbsUp = { reaction: "👍", count: 1, reactedByMe: true };
+    const heart = { reaction: "❤️", count: 2, reactedByMe: false };
     mocks.callActionWithRetry
-      .mockResolvedValueOnce({
-        comments: firstPage,
-        has_more: true,
-        next_cursor: {
-          createdAt: firstPage[199]!.created_at,
-          id: firstPage[199]!.id,
-        },
-      })
-      .mockResolvedValueOnce({
-        comments: [comment("reply-1", "thread-0", "comment-0")],
-        has_more: false,
-        next_cursor: null,
-      });
+      .mockResolvedValueOnce(
+        page(firstPage, "cursor-1", { "comment-0": [thumbsUp] }),
+      )
+      .mockResolvedValueOnce(
+        page([comment("reply-1", "thread-0", "comment-0")], null, {
+          "reply-1": [heart],
+        }),
+      );
 
     const { result } = renderHook(() => useSlideComments("deck-1", "slide-1"), {
       wrapper: createWrapper(),
@@ -85,43 +121,67 @@ describe("useSlideComments", () => {
 
     expect(mocks.callActionWithRetry).toHaveBeenNthCalledWith(
       1,
-      "list-slide-comments",
-      { deckId: "deck-1", slideId: "slide-1", limit: 200 },
+      "list-review-comments",
+      { ...deckParams, surfaceId: "slide-1" },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(mocks.callActionWithRetry).toHaveBeenNthCalledWith(
       2,
-      "list-slide-comments",
-      {
-        deckId: "deck-1",
-        slideId: "slide-1",
-        limit: 200,
-        cursor: {
-          createdAt: firstPage[199]!.created_at,
-          id: firstPage[199]!.id,
-        },
-      },
+      "list-review-comments",
+      { ...deckParams, surfaceId: "slide-1", cursor: "cursor-1" },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
-    expect(result.current.data).toHaveLength(200);
-    expect(result.current.data?.[0]?.comments.map(({ id }) => id)).toEqual([
-      "comment-0",
-      "reply-1",
-    ]);
+    const threads = result.current.data?.threads ?? [];
+    expect(threads).toHaveLength(500);
+    expect(threads[0]?.root.id).toBe("comment-0");
+    expect(threads[0]?.replies.map(({ id }) => id)).toEqual(["reply-1"]);
+    expect(result.current.data?.discussion.reactions).toEqual({
+      "comment-0": [thumbsUp],
+      "reply-1": [heart],
+    });
   });
 
-  it("preserves loading and surfaces a later page failure without partial data", async () => {
+  it("reads a thread's slide, quoted text, anchor and status from its first comment", async () => {
+    mocks.callActionWithRetry.mockResolvedValueOnce(
+      page(
+        [
+          comment("root", "thread-1", null, {
+            surfaceId: "slide-2",
+            status: "resolved",
+            anchor: { x: 10, y: 20 },
+            anchorKind: "slide-point",
+            metadata: { quotedText: "Quarterly revenue" },
+          }),
+        ],
+        null,
+      ),
+    );
+
+    const { result } = renderHook(
+      () => useSlideComments("deck-1", null, "deck"),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mocks.callActionWithRetry).toHaveBeenCalledWith(
+      "list-review-comments",
+      deckParams,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(result.current.data?.threads[0]).toMatchObject({
+      threadId: "thread-1",
+      slideId: "slide-2",
+      resolved: true,
+      quotedText: "Quarterly revenue",
+      anchor: { x: 10, y: 20 },
+    });
+  });
+
+  it("surfaces a later page failure without partial data", async () => {
     mocks.callActionWithRetry
-      .mockResolvedValueOnce({
-        comments: Array.from({ length: 200 }, (_, index) =>
-          comment(`comment-${index}`, `thread-${index}`),
-        ),
-        has_more: true,
-        next_cursor: {
-          createdAt: "2026-01-01T00:00:00.000Z",
-          id: "comment-199",
-        },
-      })
+      .mockResolvedValueOnce(
+        page([comment("comment-1", "thread-1")], "cursor-1"),
+      )
       .mockRejectedValueOnce(new Error("Second page unavailable"));
 
     const { result } = renderHook(
@@ -129,35 +189,20 @@ describe("useSlideComments", () => {
       { wrapper: createWrapper() },
     );
 
-    expect(result.current.isLoading).toBe(true);
     await waitFor(() => expect(result.current.isError).toBe(true));
 
     expect(result.current.error).toEqual(new Error("Second page unavailable"));
     expect(result.current.data).toBeUndefined();
-    expect(mocks.callActionWithRetry).toHaveBeenNthCalledWith(
-      2,
-      "list-slide-comments",
-      {
-        deckId: "deck-1",
-        limit: 200,
-        cursor: {
-          createdAt: "2026-01-01T00:00:00.000Z",
-          id: "comment-199",
-        },
-      },
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    );
   });
 
-  it("surfaces invalid continuation metadata instead of returning a partial deck", async () => {
-    mocks.callActionWithRetry.mockResolvedValueOnce({
-      comments: [comment("comment-1", "thread-1")],
-      has_more: true,
-      next_cursor: {
-        createdAt: "2026-01-01T00:00:00.000Z",
-        id: "different",
-      },
-    });
+  it("refuses a cursor it has already followed instead of looping", async () => {
+    mocks.callActionWithRetry
+      .mockResolvedValueOnce(
+        page([comment("comment-1", "thread-1")], "cursor-1"),
+      )
+      .mockResolvedValueOnce(
+        page([comment("comment-2", "thread-2")], "cursor-1"),
+      );
 
     const { result } = renderHook(
       () => useSlideComments("deck-1", null, "deck"),
@@ -170,7 +215,7 @@ describe("useSlideComments", () => {
       "Could not load all slide comments: invalid pagination response.",
     );
     expect(result.current.data).toBeUndefined();
-    expect(mocks.callActionWithRetry).toHaveBeenCalledOnce();
+    expect(mocks.callActionWithRetry).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the query disabled when the Agent-Native API is unavailable", () => {

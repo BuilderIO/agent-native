@@ -44,6 +44,12 @@ function eventRuleKey(accountEmail: string, eventId: string) {
 }
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Undo one recent automatic calendar invitation action, restoring its prior RSVP or removing its hidden state.",
   schema: z.object({

@@ -3,6 +3,7 @@ import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
 import type { IconValue } from "@agent-native/core/icons";
 import type {
   ContentDatabaseItem,
+  ContentDatabaseNavigationGroup,
   ContentDatabaseNavigationItem,
   ContentDatabaseNavigationPageResponse,
   ContentDatabaseOpenPagesIn,
@@ -12,6 +13,7 @@ import type {
   ContentSidebarViewOrder,
   Document,
 } from "@shared/api";
+import { isLocalSourceDirectoryId } from "@shared/local-source-directory";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -65,6 +67,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cachedPathParentId } from "@/hooks/use-documents";
 import { usePendingMoves } from "@/hooks/use-pending-moves";
 import { usePendingTrash } from "@/hooks/use-pending-trash";
 import {
@@ -119,7 +122,43 @@ export interface ContentFilesSidebarRenderReorder {
  * A page on the open page's path. The Files tree draws it before its own
  * page of rows loads, so it carries whether it has children.
  */
-export type ActivePathDocument = Document & { hasChildren?: boolean };
+export type ActivePathDocument = Document & {
+  hasChildren?: boolean;
+  canMove?: boolean;
+};
+
+function activePathItem(
+  document: ActivePathDocument,
+  activePathDocuments: readonly ActivePathDocument[],
+): ContentDatabaseNavigationItem {
+  return {
+    membershipId: `active-path-${document.id}`,
+    membershipPosition: document.position,
+    documentId: document.id,
+    parentId: document.parentId,
+    title: document.title,
+    icon: serializeIconValue(parseIconValue(document.icon)),
+    type:
+      document.source?.kind === "folder"
+        ? "folder"
+        : document.database
+          ? "database"
+          : "page",
+    hasChildren:
+      document.hasChildren === true ||
+      activePathDocuments.some(
+        (candidate) => candidate.parentId === document.id,
+      ),
+    spaceId: null,
+    sourceKind: document.source?.kind ?? null,
+    isFavorite: document.isFavorite,
+    ...(document.canMove === false ? { canMove: false } : {}),
+    canEdit: document.canEdit !== false,
+    canManage: document.canManage === true,
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
+  };
+}
 
 export function navigationItemAsDatabaseItem(
   item: ContentDatabaseNavigationItem,
@@ -222,6 +261,7 @@ function PagedContentFilesBranch({
   databaseId: string;
   parentId: string | null;
   cursor?: string;
+  group?: string;
   rootPlaceholder?: SidebarRowsHint;
   onRootPageShown?: (shown: SidebarRowsHint) => void;
   branchPlaceholders?: Readonly<Record<string, SidebarRowsHint>>;
@@ -231,7 +271,7 @@ function PagedContentFilesBranch({
    * Reloads the branch from its first page. Returns false when an automatic
    * reload is refused because the branch reloaded itself moments ago.
    */
-  reloadBranch?: (automatic: boolean) => boolean;
+  reloadBranch?: ((automatic: boolean) => boolean) | undefined;
   depth: number;
   activeDocumentId?: string | null;
   expandedDocumentIds: ReadonlySet<string>;
@@ -251,20 +291,54 @@ function PagedContentFilesBranch({
   const [continuationGeneration, setContinuationGeneration] = useState(0);
   const lastAutomaticReload = useRef(Number.NEGATIVE_INFINITY);
   const [reloadRefused, setReloadRefused] = useState(false);
+  const [collapsedGroupIds, setCollapsedGroupIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const [groupsShowingMore, setGroupsShowingMore] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const pendingTrash = usePendingTrash();
   const pendingMoves = usePendingMoves();
+  const flat = props.group !== undefined;
   const query = useFilesNavigationPage(
     filesNavigationPageParams({
       databaseId: props.databaseId,
       parentId: props.parentId,
       cursor,
+      group: props.group,
     }),
-    props.expandedDocumentIds,
+    flat ? undefined : props.expandedDocumentIds,
   );
   const data =
     query.data && !("available" in query.data)
       ? (query.data as ContentDatabaseNavigationPageResponse)
       : undefined;
+  const groups = cursor === undefined ? data?.groups : undefined;
+  const activeDocument = props.activePathDocuments.find(
+    (document) => document.id === props.activeDocumentId,
+  );
+  const revealsHere = (document: ActivePathDocument) => {
+    if (document.parentId !== props.parentId) return false;
+    const cachedParentId = props.activeDocumentId
+      ? cachedPathParentId(queryClient, props.activeDocumentId, document.id)
+      : undefined;
+    return cachedParentId === undefined || cachedParentId === props.parentId;
+  };
+  const locateId = groups && activeDocument ? activeDocument.id : undefined;
+  const located = useFilesNavigationPage(
+    filesNavigationPageParams({
+      databaseId: props.databaseId,
+      parentId: null,
+      locate: locateId ?? "",
+    }),
+    undefined,
+    { enabled: locateId !== undefined },
+  );
+  const locatedGroupIds = new Set(
+    locateId !== undefined && located.data && !("available" in located.data)
+      ? (located.data.locatedGroupIds ?? [])
+      : [],
+  );
   // Only the first page of a branch reloads it; later pages reach it through
   // the reloadBranch prop.
   const reloadBranch = (automatic: boolean) => {
@@ -317,24 +391,34 @@ function PagedContentFilesBranch({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cursorExpired]);
   const rootRowsShown =
-    props.depth === 0 && !cursor && Boolean(data?.items.length);
+    props.depth === 0 &&
+    !cursor &&
+    (groups
+      ? groups.some((group) => group.page.items.length > 0)
+      : Boolean(data?.items.length));
   useEffect(() => {
     if (rootRowsShown) markStartupMilestone(SIDEBAR_FILES_ROWS_DOM_MARK);
   }, [rootRowsShown]);
 
   const firstRoot = props.depth === 0 && !cursor;
-  const firstPageRowCount =
-    !cursor && data
+  const firstPageRowCount = groups
+    ? groups.reduce(
+        (rows, group) =>
+          rows +
+          1 +
+          (collapsedGroupIds.has(group.id) ? 0 : group.page.items.length),
+        0,
+      )
+    : !cursor && data
       ? data.items.length +
         props.activePathDocuments.filter(
           (document) =>
-            document.parentId === props.parentId &&
+            revealsHere(document) &&
             !data.items.some((item) => item.documentId === document.id),
         ).length
       : null;
-  const firstPageHasMore = Boolean(
-    data?.pagination.hasMore && data.pagination.nextCursor,
-  );
+  const firstPageHasMore =
+    !groups && Boolean(data?.pagination.hasMore && data.pagination.nextCursor);
   useEffect(() => {
     if (firstPageRowCount === null) return;
     const shown = { rows: firstPageRowCount, more: firstPageHasMore };
@@ -351,10 +435,13 @@ function PagedContentFilesBranch({
   const renderRow = (
     navigationItem: ContentDatabaseNavigationItem,
     first: boolean,
+    flatRow = flat,
   ) => {
     const metadata = props.documentMetadata.get(navigationItem.documentId);
     const item = navigationItemAsDatabaseItem(navigationItem, metadata);
-    const expanded = props.expandedDocumentIds.has(navigationItem.documentId);
+    const hasChildren = !flatRow && navigationItem.hasChildren;
+    const expanded =
+      !flatRow && props.expandedDocumentIds.has(navigationItem.documentId);
     return (
       <div
         key={navigationItem.membershipId}
@@ -375,8 +462,15 @@ function PagedContentFilesBranch({
           onToggleFavorite={props.onToggleFavorite}
           untitledLabel={props.untitledLabel}
           depth={props.depth}
-          hasChildren={navigationItem.hasChildren}
+          hasChildren={hasChildren}
           isCollection={navigationItem.type === "database"}
+          canMove={
+            navigationItem.canMove !== false &&
+            (navigationItem.parentId === null ||
+              !isLocalSourceDirectoryId(navigationItem.parentId)) &&
+            (props.parentId === null ||
+              !isLocalSourceDirectoryId(props.parentId))
+          }
           expanded={expanded}
           onToggleExpanded={(open) =>
             props.onDocumentExpandedChange(navigationItem.documentId, open)
@@ -385,7 +479,7 @@ function PagedContentFilesBranch({
             props.depth === 0 ? SIDEBAR_FILES_ROW_ELEMENT_TIMING : undefined
           }
         />
-        {expanded && navigationItem.hasChildren ? (
+        {expanded && hasChildren ? (
           <PagedContentFilesBranch
             {...props}
             key={`${props.databaseId}:${navigationItem.documentId}`}
@@ -458,6 +552,146 @@ function PagedContentFilesBranch({
     );
   }
 
+  const showMoreButton = (onClick: () => void) => (
+    <Button
+      type="button"
+      size="sm"
+      variant="ghost"
+      className={sidebarShowMoreClassName}
+      style={{
+        gridTemplateColumns: `${databaseSidebarRowIndent(props.depth, false)}px 1.75rem minmax(0, 1fr)`,
+      }}
+      onClick={onClick}
+    >
+      <IconChevronDown
+        aria-hidden="true"
+        className="col-start-2 size-3.5 justify-self-center"
+      />
+      <span className="truncate ps-1.5">{t("sidebar.showMore")}</span>
+    </Button>
+  );
+
+  if (groups) {
+    const revealed =
+      activeDocument && locatedGroupIds.size > 0
+        ? activePathItem(activeDocument, props.activePathDocuments)
+        : undefined;
+    const listed = new Set([
+      ...groups.flatMap((group) =>
+        group.page.items.map((item) => item.documentId),
+      ),
+      ...(revealed ? [revealed.documentId] : []),
+    ]);
+    const shownInGroups = (item: ContentDatabaseNavigationItem) => {
+      if (pendingTrash.documentIds.has(item.documentId)) return false;
+      const move = pendingMoves.get(item.documentId);
+      return !move || move.databaseId === props.databaseId;
+    };
+    const kept = [
+      ...[...pendingMoves.values()]
+        .filter(
+          (move) =>
+            move.databaseId === props.databaseId &&
+            move.from.databaseId !== props.databaseId &&
+            move.parentId === null,
+        )
+        .map((move) => move.item),
+      ...keptFilesRows(queryClient, props.databaseId, null),
+    ].filter(
+      (item, index, all) =>
+        !listed.has(item.documentId) &&
+        all.findIndex((other) => other.documentId === item.documentId) ===
+          index,
+    );
+    const keptGroupId = groups.find((group) => group.unset)?.id;
+    const groupRows = (group: ContentDatabaseNavigationGroup) =>
+      [
+        ...group.page.items,
+        ...(revealed &&
+        locatedGroupIds.has(group.id) &&
+        !group.page.items.some(
+          (item) => item.documentId === revealed.documentId,
+        )
+          ? [revealed]
+          : []),
+        ...(group.id === keptGroupId ? kept : []),
+      ].filter(shownInGroups);
+    const firstGroupId = groups.find(
+      (group) =>
+        !collapsedGroupIds.has(group.id) && groupRows(group).length > 0,
+    )?.id;
+    return (
+      <>
+        {groups.map((group) => {
+          const open = !collapsedGroupIds.has(group.id);
+          const nextCursor = group.page.pagination.hasMore
+            ? group.page.pagination.nextCursor
+            : null;
+          return (
+            <Collapsible
+              key={group.id}
+              open={open}
+              onOpenChange={(nextOpen) =>
+                setCollapsedGroupIds((current) => {
+                  const next = new Set(current);
+                  if (nextOpen) next.delete(group.id);
+                  else next.add(group.id);
+                  return next;
+                })
+              }
+            >
+              <CollapsibleTrigger className="group flex h-7 w-full items-center gap-1 rounded px-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                {open ? (
+                  <IconChevronDown className="size-3.5 shrink-0" />
+                ) : (
+                  <IconChevronRight className="size-3.5 shrink-0" />
+                )}
+                <span className="min-w-0 flex-1 truncate">{group.label}</span>
+                <span className="text-[11px] font-normal text-muted-foreground/75">
+                  {group.count}
+                </span>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="grid gap-0.5 pl-2">
+                {groupRows(group).map((item, index) =>
+                  renderRow(
+                    item,
+                    group.id === firstGroupId && index === 0,
+                    true,
+                  ),
+                )}
+                {nextCursor ? (
+                  groupsShowingMore.has(group.id) ? (
+                    <PagedContentFilesBranch
+                      {...props}
+                      key={`${nextCursor}:${continuationGeneration}`}
+                      group={group.id}
+                      cursor={nextCursor}
+                      precedingDocumentIds={
+                        new Set(groupRows(group).map((item) => item.documentId))
+                      }
+                      reloadBranch={branchReload}
+                    />
+                  ) : (
+                    showMoreButton(() =>
+                      setGroupsShowingMore((current) =>
+                        new Set(current).add(group.id),
+                      ),
+                    )
+                  )
+                ) : null}
+              </CollapsibleContent>
+            </Collapsible>
+          );
+        })}
+        {keptGroupId === undefined
+          ? kept
+              .filter(shownInGroups)
+              .map((item) => renderRow(item, false, true))
+          : null}
+      </>
+    );
+  }
+
   const pageItems = data.items.filter(
     (item) => !precedingDocumentIds.has(item.documentId),
   );
@@ -468,30 +702,9 @@ function PagedContentFilesBranch({
   const revealedItems = props.activePathDocuments
     .filter(
       (document) =>
-        document.parentId === props.parentId &&
-        !pageDocumentIds.has(document.id),
+        !flat && revealsHere(document) && !pageDocumentIds.has(document.id),
     )
-    .map((document) => ({
-      membershipId: `active-path-${document.id}`,
-      membershipPosition: document.position,
-      documentId: document.id,
-      parentId: document.parentId,
-      title: document.title,
-      icon: serializeIconValue(parseIconValue(document.icon)),
-      type: document.database ? ("database" as const) : ("page" as const),
-      hasChildren:
-        document.hasChildren === true ||
-        props.activePathDocuments.some(
-          (candidate) => candidate.parentId === document.id,
-        ),
-      spaceId: null,
-      sourceKind: document.source?.kind ?? null,
-      isFavorite: document.isFavorite,
-      canEdit: document.canEdit !== false,
-      canManage: document.canManage === true,
-      createdAt: document.createdAt,
-      updatedAt: document.updatedAt,
-    }));
+    .map((document) => activePathItem(document, props.activePathDocuments));
   const movedInItems =
     cursor === undefined
       ? [...pendingMoves.values()]
@@ -517,7 +730,9 @@ function PagedContentFilesBranch({
     .filter((item) => {
       if (pendingTrash.documentIds.has(item.documentId)) return false;
       const move = pendingMoves.get(item.documentId);
-      return !move || movesHere(move);
+      return (
+        !move || (flat ? move.databaseId === props.databaseId : movesHere(move))
+      );
     })
     .map((item) =>
       !item.hasChildren && movingInto.has(item.documentId)
@@ -545,22 +760,7 @@ function PagedContentFilesBranch({
             reloadBranch={branchReload}
           />
         ) : (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className={sidebarShowMoreClassName}
-            style={{
-              gridTemplateColumns: `${databaseSidebarRowIndent(props.depth, false)}px 1.75rem minmax(0, 1fr)`,
-            }}
-            onClick={() => setNextPageVisible(true)}
-          >
-            <IconChevronDown
-              aria-hidden="true"
-              className="col-start-2 size-3.5 justify-self-center"
-            />
-            <span className="truncate ps-1.5">{t("sidebar.showMore")}</span>
-          </Button>
+          showMoreButton(() => setNextPageVisible(true))
         )
       ) : null}
     </>
@@ -1188,10 +1388,12 @@ function DatabaseSidebarRow({
   onToggleExpanded,
   reorder,
   isCollection = Boolean(item.document.database),
+  canMove = true,
   elementTiming,
 }: {
   item: ContentDatabaseItem;
   isCollection?: boolean;
+  canMove?: boolean;
   elementTiming?: string | undefined;
   openPagesIn: ContentDatabaseOpenPagesIn;
   onPreview: (item: ContentDatabaseItem) => void;
@@ -1398,7 +1600,7 @@ function DatabaseSidebarRow({
                     : undefined
                 }
                 onMove={
-                  canChangePage
+                  canChangePage && canMove
                     ? () =>
                         pageActions.movePage({
                           documentId: item.document.id,

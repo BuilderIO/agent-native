@@ -24,6 +24,19 @@ export type RemoteImageResult =
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
+const PROXYABLE_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+]);
+
+export function proxyableImageContentType(header: string): string | null {
+  const essence = (header.split(";")[0] ?? "").trim().toLowerCase();
+  return PROXYABLE_IMAGE_TYPES.has(essence) ? essence : null;
+}
+
 /**
  * A `lookup` implementation that only ever hands the socket an address we have
  * classified as public.
@@ -155,8 +168,10 @@ export async function fetchRemoteImage(
       return { ok: false, reason: "fetch-failed" };
     }
 
-    const contentType = String(response.headers["content-type"] ?? "");
-    if (!contentType.startsWith("image/")) {
+    const contentType = proxyableImageContentType(
+      String(response.headers["content-type"] ?? ""),
+    );
+    if (!contentType) {
       response.discard();
       return { ok: false, reason: "not-an-image" };
     }

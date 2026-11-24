@@ -90,6 +90,7 @@ export function useUpdateBookingLink() {
       hosts?: BookingHost[];
       customFields?: CustomField[];
       conferencing?: ConferencingConfig;
+      reminderMinutes?: number;
       color?: string;
     }
   >("update-booking-link", {
@@ -109,6 +110,13 @@ export function useUpdateBookingLink() {
       });
     },
   });
+}
+
+export function useCreateSingleUseLink() {
+  return useActionMutation<
+    { token: string; bookingLinkId: string; url: string },
+    { bookingLinkId: string }
+  >("create-single-use-link");
 }
 
 export function useDeleteBookingLink() {

@@ -24,8 +24,10 @@ import {
   parsePropertyOptions,
   serializePropertyOptions,
   normalizePropertyVisibility,
+  type DocumentPropertyOption,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { contentDatabaseSourceWritebackPropertyIds } from "../shared/source-field-policy.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import {
   assertKeepsRuledOptions,
@@ -61,6 +63,40 @@ import {
 } from "./_relation-values.js";
 
 type PropertyCollection = typeof schema.contentDatabases.$inferSelect;
+
+function optionListKey(options: DocumentPropertyOption[] | undefined) {
+  return (options ?? [])
+    .map((option) => `${option.id}\0${option.name}`)
+    .sort()
+    .join("\n");
+}
+
+async function propertySavesValueEditsToSource(
+  tx: ReturnType<typeof getDb>,
+  propertyId: string,
+) {
+  const fields = await tx
+    .select({
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+      readOnly: schema.contentDatabaseSourceFields.readOnly,
+      mappingType: schema.contentDatabaseSourceFields.mappingType,
+      sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+      sourceType: schema.contentDatabaseSources.sourceType,
+      sourceTable: schema.contentDatabaseSources.sourceTable,
+      sourceMetadataJson: schema.contentDatabaseSources.metadataJson,
+    })
+    .from(schema.contentDatabaseSourceFields)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceFields.sourceId,
+      ),
+    )
+    .where(eq(schema.contentDatabaseSourceFields.propertyId, propertyId));
+  return contentDatabaseSourceWritebackPropertyIds(fields).has(propertyId);
+}
 
 /**
  * Lock the collection, and the one a relation links to, then check neither
@@ -238,7 +274,7 @@ export default defineAction({
     }
     // Without an id this creates a property. Edits to one a system collection
     // already has still go through, so it can be renamed or cleaned up.
-    if (!args.id) assertOrdinaryPropertySetupAllowed(database);
+    if (!args.id) assertOrdinaryPropertySetupAllowed(database, type);
     if (args.icon !== undefined) {
       const userEmail = getRequestUserEmail();
       if (!userEmail) throw new Error("Authentication is required.");
@@ -340,6 +376,9 @@ export default defineAction({
         if (lockedDefinition.systemRole) {
           throw new Error("System properties cannot be changed.");
         }
+        if (lockedDefinition.type !== type) {
+          assertOrdinaryPropertySetupAllowed(database, type);
+        }
         if (
           isComputedPropertyType(
             lockedDefinition.type as DocumentPropertyType,
@@ -399,6 +438,20 @@ export default defineAction({
             ruleDefinitions,
             propertyId,
             parsePropertyOptions(optionsJson).options,
+          );
+        }
+        if (
+          lockedDefinition.type === type &&
+          optionListKey(lockedOptions.options) !==
+            optionListKey(parsePropertyOptions(optionsJson).options) &&
+          (await propertySavesValueEditsToSource(
+            tx as unknown as ReturnType<typeof getDb>,
+            propertyId,
+          ))
+        ) {
+          throw new ActionContractError(
+            `The options of "${lockedDefinition.name}" come from Builder. Add the option in Builder, then refresh the source.`,
+            { errorCode: "SOURCE_OPTIONS_LOCKED", statusCode: 400 },
           );
         }
         // The rule isn't part of this action's options: a rename keeps it.

@@ -32,6 +32,7 @@ import {
   MultiFrontierModeControl,
   normalizeChatFirstPreviewUrl,
   shouldBuildLocalAppFromChat,
+  resolveLaunchPreloadedTabIds,
 } from "./CodeAgentsHub.js";
 import {
   initialMultiFrontierRunAutoContinue,
@@ -694,6 +695,31 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       path: "/events/42?mode=week#details",
       view: "event",
     });
+  });
+
+  it("drops launch-preload status once the user owns a tab with the same id", () => {
+    const launchTab = chatFirstAppSurfaceTab(
+      { id: "mail", name: "Mail" },
+      undefined,
+      undefined,
+      "main",
+    );
+    const otherLaunchTab = chatFirstAppSurfaceTab(
+      { id: "calendar", name: "Calendar" },
+      undefined,
+      undefined,
+      "main",
+    );
+    expect(
+      resolveLaunchPreloadedTabIds([launchTab, otherLaunchTab], []),
+    ).toEqual(new Set([launchTab.id, otherLaunchTab.id]));
+    const userOpenedTab = { ...launchTab, title: "Mail" };
+    expect(
+      resolveLaunchPreloadedTabIds(
+        [launchTab, otherLaunchTab],
+        [userOpenedTab],
+      ),
+    ).toEqual(new Set([otherLaunchTab.id]));
   });
 
   it("opens Dispatch control-plane pages without nested navigation chrome", () => {

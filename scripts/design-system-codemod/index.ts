@@ -21,6 +21,7 @@ export function formatOxfmt(files: string[]) {
 }
 
 function unifiedDiff(before: string, after: string, name: string): string {
+  fs.mkdirSync(path.join(REPO, ".tmp"), { recursive: true });
   const scratch = fs.mkdtempSync(path.join(REPO, ".tmp", "codemod-diff-"));
   try {
     const a = path.join(scratch, "a");
@@ -38,6 +39,11 @@ function unifiedDiff(before: string, after: string, name: string): string {
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+function sites(findings: Finding[]): number {
+  return new Set(findings.map((finding) => `${finding.file}:${finding.offset}`))
+    .size;
 }
 
 function group(findings: Finding[], dir: string): string[] {
@@ -93,7 +99,7 @@ export function formatReport(
     `Not transformed (${result.skipped.length} sites), by reason:`,
     ...group(result.skipped, dir),
     "",
-    `Transformed, needs a look (${result.review.length} sites), by reason:`,
+    `Transformed, needs a look (${sites(result.review)} sites), by reason:`,
     ...group(result.review, dir),
     "",
     `Test mocks of a legacy module (${result.mocks.length}):`,

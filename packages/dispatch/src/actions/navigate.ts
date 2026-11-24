@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -17,8 +20,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Chat thread ID to open on the chat route"),
+    intent: navigationIntentSchema,
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const threadId = args.threadId?.trim();
     if (!args.view && !args.path && !threadId) {

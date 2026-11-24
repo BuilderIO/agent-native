@@ -169,6 +169,30 @@ describe("verifying an outside agent's dashboard edit", () => {
     expect(result.blocking).toBe(false);
   });
 
+  it("reads a panel whose query would cross the no-ask allowance as unverified, never asking mid-write", async () => {
+    mocks.admit.mockImplementation(async (_identity, request) => ({
+      status: "refused",
+      code: "approval_required",
+      scope: "person",
+      reservedBytes: request.reservedBytes,
+      budget: today,
+    }));
+    const result = await verifyAs("mcp");
+    for (const panel of result.panels) {
+      expect(panel).toMatchObject({
+        status: "unverified",
+        note: "outside_agent_approval_required",
+      });
+      expect(panel.error).toContain(
+        "Allowing up to $5.00 today needs your approval on Analytics' review page, which this call can't ask for.",
+      );
+    }
+    expect(result.blocking).toBe(false);
+    expect(result.bigQueryBudget).toMatchObject({
+      refusal: { code: "approval_required" },
+    });
+  });
+
   it("returns what its jobs cost and today's budgets", async () => {
     const result = await verifyAs("mcp");
     expect(result.bigQueryBudget).toMatchObject({

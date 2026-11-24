@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ActionError } from "./action-error.js";
 import {
   DESIGN_SYSTEM_TIER_LIMIT_ERROR_CODE,
   isDesignSystemCodeIndexingAllowed,
@@ -79,5 +80,24 @@ describe("readDesignSystemTierLimitFailure", () => {
       max: 3,
       upgradeUrl: "https://builder.io/account/subscription",
     });
+  });
+});
+
+it("uses the caller's tier-limit catalog fallback instead of generic ActionError copy", () => {
+  const error = new ActionError(
+    Object.assign(new Error("Internal tier diagnostic"), {
+      status: 402,
+      errorCode: DESIGN_SYSTEM_TIER_LIMIT_ERROR_CODE,
+      details: { max: 3 },
+    }),
+  );
+  expect(
+    readDesignSystemTierLimitFailure(
+      error,
+      "Upgrade your plan to add another design system.",
+    ),
+  ).toMatchObject({
+    message: "Upgrade your plan to add another design system.",
+    max: 3,
   });
 });

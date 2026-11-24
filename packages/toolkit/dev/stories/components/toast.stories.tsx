@@ -15,6 +15,7 @@ import {
   useToastAnchor,
 } from "../../../src/ui/base-ui/toast.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./toast.docs.md?raw";
 
 const controls = propControls(toastProps);
 
@@ -41,7 +42,10 @@ const meta = {
   component: Toaster,
   parameters: {
     layout: "padded",
-    docs: { story: { inline: false, iframeHeight: 360 } },
+    docs: {
+      description: { component: guide },
+      story: { inline: false, iframeHeight: 360 },
+    },
   },
   args: {
     ...controls.args,
@@ -64,6 +68,7 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof meta>;
+type StoryArgs = Parameters<NonNullable<Story["render"]>>[0];
 
 /** A toast with the props from the controls. */
 export const Playground: Story = {
@@ -288,6 +293,34 @@ function MockEditor({ wide }: { wide: boolean }) {
   );
 }
 
+function AnchoredInACanvasStory(args: StoryArgs) {
+  const [wide, setWide] = React.useState(true);
+  return (
+    <div className="flex items-center gap-3">
+      <Button variant={wide ? "solid" : "soft"} onClick={() => setWide(true)}>
+        Wide canvas
+      </Button>
+      <Button variant={wide ? "soft" : "solid"} onClick={() => setWide(false)}>
+        Narrow canvas
+      </Button>
+      <Button
+        variant="soft"
+        color="gray"
+        onClick={() =>
+          toast.add({
+            ...fromArgs(args),
+            title: "Couldn't place the image",
+            description: "The file is over 20 MB.",
+            color: "danger",
+          })
+        }
+      >
+        Show a toast
+      </Button>
+      <MockEditor wide={wide} />
+    </div>
+  );
+}
 /**
  * Toasts sit at the bottom right of the canvas, clear of the side panels.
  * A canvas 1200px or wider keeps them on the toolbar's baseline; a narrower
@@ -297,35 +330,5 @@ function MockEditor({ wide }: { wide: boolean }) {
 export const AnchoredInACanvas: Story = {
   name: "Anchored in a canvas",
   parameters: { docs: { story: { inline: false, iframeHeight: 600 } } },
-  render: (args) => {
-    const [wide, setWide] = React.useState(true);
-    return (
-      <div className="flex items-center gap-3">
-        <Button variant={wide ? "solid" : "soft"} onClick={() => setWide(true)}>
-          Wide canvas
-        </Button>
-        <Button
-          variant={wide ? "soft" : "solid"}
-          onClick={() => setWide(false)}
-        >
-          Narrow canvas
-        </Button>
-        <Button
-          variant="soft"
-          color="gray"
-          onClick={() =>
-            toast.add({
-              ...fromArgs(args),
-              title: "Couldn't place the image",
-              description: "The file is over 20 MB.",
-              color: "danger",
-            })
-          }
-        >
-          Show a toast
-        </Button>
-        <MockEditor wide={wide} />
-      </div>
-    );
-  },
+  render: (args) => <AnchoredInACanvasStory {...args} />,
 };

@@ -1,6 +1,7 @@
 import { injectedAgentNativeConfig } from "@agent-native/core/client/app-config";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
 import { useSession } from "@agent-native/core/client/use-session";
+import { useThemeChoice } from "@agent-native/toolkit/app/providers/theme-choice";
 import { useEffect, useState } from "react";
 
 import { LanguagePicker } from "../../shared/index.js";
@@ -10,6 +11,7 @@ import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
 import { VoiceChatSettings } from "../VoiceChatSettings.js";
 import { VoiceTranscriptionSection } from "../VoiceTranscriptionSection.js";
 import { ThemeFamilySettings } from "./ThemeFamilySettings.js";
+import { ThemeModeSettings } from "./ThemeModeSettings.js";
 
 const key = (name: string) => `agentChat.settingsShell.account.${name}`;
 
@@ -22,6 +24,8 @@ export function PreferencesSettings() {
   const hasLocale = useOptionalLocale() !== null;
   const { session, status } = useSession();
   const [clientReady, setClientReady] = useState(false);
+  const { choice: themeChoice } = useThemeChoice();
+  const canChooseThemeMode = clientReady && themeChoice !== null;
   const languageLabel = t("agentChat.settingsShell.interfaceLanguage");
   const canSwitchTheme = canShowThemeFamilySwitcher({
     clientReady,
@@ -54,13 +58,22 @@ export function PreferencesSettings() {
           control={<SchedulingTimezoneField compact />}
         />
       </SettingsGroup>
-      {canSwitchTheme ? (
+      {canChooseThemeMode || canSwitchTheme ? (
         <SettingsGroup id="appearance" title={t(key("appearance"))}>
-          <SettingsRow
-            id="theme-family"
-            label={t(key("themeFamily"))}
-            control={<ThemeFamilySettings />}
-          />
+          {canChooseThemeMode ? (
+            <SettingsRow
+              id="theme"
+              label={t(key("theme"))}
+              control={<ThemeModeSettings />}
+            />
+          ) : null}
+          {canSwitchTheme ? (
+            <SettingsRow
+              id="theme-family"
+              label={t(key("themeFamily"))}
+              control={<ThemeFamilySettings />}
+            />
+          ) : null}
         </SettingsGroup>
       ) : null}
       <SettingsGroup id="voice-input" title={t(key("voiceInput"))}>

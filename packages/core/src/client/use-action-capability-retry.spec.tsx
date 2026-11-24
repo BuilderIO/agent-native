@@ -1,3 +1,4 @@
+// oracle-change: failure diagnostics moved from message to ActionError.cause.
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
@@ -97,7 +98,10 @@ it("keeps the first capability proof mandatory when retry is disabled", async ()
       {},
       { uiOnly: true, retryUiCapability: false },
     ),
-  ).rejects.toThrow("Could not establish the browser UI capability.");
+  ).rejects.toHaveProperty(
+    "cause.message",
+    expect.stringContaining("Could not establish the browser UI capability."),
+  );
   expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([MINT]);
 });
 

@@ -30,8 +30,8 @@
  * auto rows keep a cell's height and run past the bottom edge, clipped, to
  * show they continue. The height never changes; past the columns a square
  * tile holds at three eighths of a cell each, the width grows to fit them,
- * rounded up to the 8px grid. In the popover, matrix cells are 16px on a
- * 4px gap, filled in the neutral fill; the size a pointer or the arrow keys
+ * rounded up to the 8px grid. In the popover, matrix cells have 16px marks inside a
+ * 24px target, filled in the neutral fill; the size a pointer or the arrow keys
  * preview, or the committed size while none is previewed, fills in the
  * accent.
  */
@@ -113,6 +113,19 @@
 
   /* ---- popover ---- */
 
+  .popover-popup.grid-size-picker-popup {
+    width: min(
+      calc(12 * var(--size-3) + 2 * var(--space-3)),
+      var(--available-width, 100vi)
+    );
+    padding: var(--space-3);
+    padding-inline: clamp(
+      0px,
+      calc((var(--available-width, 100vi) - 12 * var(--size-3)) / 2),
+      var(--space-3)
+    );
+  }
+
   .grid-size-picker-panel {
     display: flex;
     flex-direction: column;
@@ -139,34 +152,39 @@
   .grid-size-picker-matrix {
     display: flex;
     flex-direction: column;
-    align-self: center;
-    gap: var(--space-1);
+    align-self: stretch;
     outline-style: none;
   }
 
   .grid-size-picker-row {
-    display: flex;
-    gap: var(--space-1);
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
   }
 
   .grid-size-picker-cell {
-    flex: none;
-    width: var(--control-height-1);
+    display: grid;
+    place-items: center;
+    height: var(--size-3);
+    cursor: pointer;
+    outline-style: none;
+  }
+
+  .grid-size-picker-cell::before {
+    content: "";
+    width: min(var(--control-height-1), 100%);
     height: var(--control-height-1);
     box-sizing: border-box;
     border-radius: calc(var(--shape-control) * var(--corner-scale, 1) / 2);
     corner-shape: var(--corner-shape, round);
     background-color: var(--fill-neutral);
-    cursor: pointer;
-    outline-style: none;
     transition: background-color var(--duration-1) var(--ease-standard);
   }
 
-  .grid-size-picker-cell[data-highlighted] {
+  .grid-size-picker-cell[data-highlighted]::before {
     background-color: var(--accent-a5);
   }
 
-  .grid-size-picker-cell:focus-visible {
+  .grid-size-picker-cell:focus-visible::before {
     outline: var(--focus-ring-width) solid var(--line-focus);
     outline-offset: var(--focus-ring-offset);
   }
@@ -177,5 +195,15 @@
     line-height: var(--control-line-height-3);
     font-variant-numeric: tabular-nums;
     text-align: center;
+  }
+  @media (forced-colors: active) {
+    .grid-size-picker-preview-cell,
+    .grid-size-picker-cell::before {
+      border: 1px solid ButtonText;
+    }
+    .grid-size-picker-cell[data-highlighted]::before {
+      forced-color-adjust: none;
+      background: Highlight;
+    }
   }
 }

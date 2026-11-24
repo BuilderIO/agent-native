@@ -15,13 +15,14 @@ import {
   CalloutText,
 } from "../../../src/ui/base-ui/callout.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./callout.docs.md?raw";
 
 const controls = propControls(calloutProps);
 
 const meta = {
   title: "Components/Callout",
   component: Callout,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: {
     ...controls.args,
     children: (

@@ -82,6 +82,48 @@ describe("GridSizePicker trigger", () => {
 });
 
 describe("GridSizePicker matrix", () => {
+  it("leaves modified arrow keys available to assistive navigation", async () => {
+    const { matrix } = await openPicker();
+    const current = within(matrix).getByRole("gridcell", { name: "2 × 1" });
+    current.focus();
+    expect(
+      fireEvent.keyDown(current, {
+        key: "ArrowRight",
+        altKey: true,
+        ctrlKey: true,
+      }),
+    ).toBe(true);
+    expect(document.activeElement).toBe(current);
+  });
+  it.each(["trigger", "fieldset"])(
+    "dismisses an open matrix when the %s is disabled",
+    async (mode) => {
+      const change = vi.fn();
+      const picker = (locked: boolean) => (
+        <fieldset disabled={mode === "fieldset" && locked}>
+          <GridSizePicker
+            disabled={mode === "trigger" && locked}
+            onValueChange={change}
+          />
+        </fieldset>
+      );
+      const view = render(picker(false));
+      const trigger = screen.getByRole("button", { name: "2 × Auto" });
+      await act(async () => press(trigger));
+      const grid = await screen.findByRole("grid");
+      const cell = within(grid).getByRole("gridcell", { name: "4 × 3" });
+      act(() => cell.focus());
+      view.rerender(picker(true));
+      fireEvent.click(cell);
+      expect(change).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByRole("grid")).toBeNull());
+      view.rerender(picker(false));
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      await act(async () => press(trigger));
+      expect(await screen.findByRole("grid")).toBeTruthy();
+    },
+  );
+
   it("is a 12 × 8 grid whose committed cells are selected", async () => {
     const { matrix } = await openPicker({
       defaultValue: { columns: 3, rows: 2 },
@@ -148,6 +190,31 @@ describe("GridSizePicker matrix", () => {
     expect(onValueChange).toHaveBeenLastCalledWith({ columns: 3, rows: 3 });
   });
 
+  it("rebases the matrix preview and tab stop on a controlled edit", async () => {
+    const changed = vi.fn();
+    const picker = (columns: number, rows: GridSize["rows"]) => (
+      <GridSizePicker value={{ columns, rows }} onValueChange={changed} />
+    );
+    const view = render(picker(2, 2));
+    await act(async () => press(screen.getByRole("button", { name: "2 × 2" })));
+    const grid = await screen.findByRole("grid");
+    const cell = (name: string) => within(grid).getByRole("gridcell", { name });
+    act(() => cell("2 × 2").focus());
+    fireEvent.keyDown(focused(), { key: "ArrowRight" });
+    view.rerender(picker(2, 2));
+    expect(readout()).toBe("3 × 2");
+    view.rerender(picker(5, "auto"));
+    expect(focused()).toBe(cell("5 × 1"));
+    expect(readout()).toBe("5 × Auto");
+    const columns = screen.getByRole("textbox", { name: "Columns" });
+    act(() => columns.focus());
+    view.rerender(picker(15, 10));
+    expect(focused()).toBe(columns);
+    expect(cell("12 × 8").tabIndex).toBe(0);
+    expect(readout()).toBe("15 × 10");
+    expect(changed).not.toHaveBeenCalled();
+  });
+
   it("stops at the matrix edges", async () => {
     const { matrix } = await openPicker({
       defaultValue: { columns: 1, rows: 1 },
@@ -167,9 +234,32 @@ describe("GridSizePicker fields", () => {
     const columns = screen.getByRole("textbox", { name: "Columns" });
     fireEvent.change(columns, { target: { value: "14" } });
     expect(onValueChange).toHaveBeenLastCalledWith({ columns: 14, rows: 3 });
+    fireEvent.change(columns, { target: { value: "3.7" } });
+    expect(onValueChange).toHaveBeenLastCalledWith({ columns: 4, rows: 3 });
     const rows = screen.getByRole("textbox", { name: "Rows" });
     fireEvent.change(rows, { target: { value: "9" } });
-    expect(onValueChange).toHaveBeenLastCalledWith({ columns: 14, rows: 9 });
+    expect(onValueChange).toHaveBeenLastCalledWith({ columns: 4, rows: 9 });
+  });
+
+  it("restores the last fixed row count supplied by the host", async () => {
+    const onValueChange = vi.fn();
+    const picker = (rows: GridSize["rows"]) => (
+      <GridSizePicker
+        value={{ columns: 3, rows }}
+        onValueChange={onValueChange}
+      />
+    );
+    const view = render(picker(2));
+    view.rerender(picker(9));
+    view.rerender(picker("auto"));
+    await act(async () =>
+      press(screen.getByRole("button", { name: "3 × Auto" })),
+    );
+    const sizing = await screen.findByRole("combobox", { name: "Row sizing" });
+    fireEvent.keyDown(sizing, { key: "ArrowDown" });
+    const fixed = await screen.findByRole("option", { name: "Fixed" });
+    await act(async () => press(fixed));
+    expect(onValueChange).toHaveBeenLastCalledWith({ columns: 3, rows: 9 });
   });
 
   it("hides the rows field while rows are auto", async () => {
@@ -194,6 +284,7 @@ describe("GridSizePicker settings", () => {
 
   it("takes its copy from labels", async () => {
     await openPicker({
+      onOpenSettings: vi.fn(),
       labels: { popup: "Layout grid", openSettings: "More grid options" },
     });
     expect(

@@ -13,6 +13,7 @@ import {
   type TabNavProps,
 } from "../../../src/ui/base-ui/tab-nav.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./tab-nav.docs.md?raw";
 
 const controls = propControls(tabNavProps);
 
@@ -42,7 +43,7 @@ function Example(props: TabNavProps) {
 const meta = {
   title: "Components/Tab Nav",
   component: TabNav,
-  parameters: { layout: "padded" },
+  parameters: { docs: { description: { component: guide } }, layout: "padded" },
   args: controls.args,
   argTypes: controls.argTypes,
   render: (args) => <Example {...args} />,

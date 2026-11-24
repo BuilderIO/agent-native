@@ -946,7 +946,7 @@ test.describe(
           // same notice after the refresh, or anything else A shows, still fails.
           s.expectedNoise = [
             'A showed "Something went wrong"',
-            'A toasted "Something went wrongAction update-document failed: Failed to fetch"',
+            'A toasted "Something went wrongSomething went wrong. Try again."',
           ];
           await expect
             .poll(() => noiseFailures([s.tabs.record(a)]), {

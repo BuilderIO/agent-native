@@ -164,6 +164,7 @@ export default defineAction({
     .strict(),
   agentTool: true,
   authorize: authorizeObservabilityOrgAdmin,
+  mcpTool: false,
   run: async (args, ctx) => {
     const access = getObservabilityOrgAdminAccess(ctx);
     const { userId } = access;

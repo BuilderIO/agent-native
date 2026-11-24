@@ -2667,6 +2667,9 @@ importers:
       cron-parser:
         specifier: ^5.5.0
         version: 5.6.0
+      cross-spawn:
+        specifier: 7.0.6
+        version: 7.0.6
       diff:
         specifier: ^9.0.0
         version: 9.0.0
@@ -2866,6 +2869,9 @@ importers:
       '@tanstack/react-query':
         specifier: 5.101.2
         version: 5.101.2(react@19.2.7)
+      '@types/cross-spawn':
+        specifier: 6.0.6
+        version: 6.0.6
       '@types/diff-match-patch':
         specifier: ^1.0.36
         version: 1.0.36
@@ -3169,6 +3175,9 @@ importers:
 
   packages/dispatch:
     dependencies:
+      '@agent-native/agentkit':
+        specifier: workspace:*
+        version: link:../agentkit
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../toolkit
@@ -5814,7 +5823,7 @@ importers:
     dependencies:
       '@agent-native/core':
         specifier: ^0.219.0
-        version: 0.219.0(a648518d7a042e9044c08fbeb0432973)
+        version: 0.219.0(4d6a45cf59d61eee17b36c6f3cc4d47a)
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -5972,6 +5981,9 @@ importers:
       isbot:
         specifier: ^5
         version: 5.1.44
+      jspdf:
+        specifier: 4.2.1
+        version: 4.2.1
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -6277,6 +6289,9 @@ importers:
       '@noble/hashes':
         specifier: ^2.3.0
         version: 2.3.0
+      '@radix-ui/react-icons':
+        specifier: ^1.3.2
+        version: 1.3.2(react@19.2.7)
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
@@ -7482,6 +7497,9 @@ importers:
       node-pty:
         specifier: ^1.1.0
         version: 1.1.0
+      parse5:
+        specifier: 8.0.1
+        version: 8.0.1
       react:
         specifier: 19.2.7
         version: 19.2.7
@@ -8299,9 +8317,6 @@ packages:
 
   '@agent-native/agentkit@0.219.0':
     resolution: {integrity: sha512-aMCbnImC617tDfQrEyUuSy5gbdaBILacVgnHBIVYF5jikIWqCIUyYHvQMvhNCsMYlrcjkWBL9Y7ETs3ub5Cm5w==}
-
-  '@agent-native/core-corpus@0.231.0':
-    resolution: {integrity: sha512-gfiX3K095T1wmctzSIhCjzi+qS9IxVqXvijdaAlAYd39qnATSCnSzdL9pr6DAcj9/Fbg8duo7zrC4ZDntypIdQ==}
 
   '@agent-native/core@0.219.0':
     resolution: {integrity: sha512-twQ73+RmBujEvC4O1ezowkADUK83jfMO71E7KMqBbNENWbItZfBmS1czOEtT1MVEgyZOFRtrQ0lyCQBgpSFWTA==}
@@ -13775,6 +13790,11 @@ packages:
       '@types/react-dom':
         optional: true
 
+  '@radix-ui/react-icons@1.3.2':
+    resolution: {integrity: sha512-fyQIhGDhzfc9pK2kH6Pl9c4BDJGfMkPqkyIgYDthyNYoNg3wVhoJMMh19WS4Up/1KMPFVpNsT2q3WmXn2N1m6g==}
+    peerDependencies:
+      react: 19.2.7
+
   '@radix-ui/react-id@1.0.0':
     resolution: {integrity: sha512-Q6iAB/U7Tq3NTolBBQbHTgclPmGWE3OlktGGqrClPozSw4vkQ1DfQAOtzgRPecKsMdJINE05iaoDUG8tRzCBjw==}
     peerDependencies:
@@ -17317,6 +17337,9 @@ packages:
 
   '@types/connect@3.4.38':
     resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
+
+  '@types/cross-spawn@6.0.6':
+    resolution: {integrity: sha512-fXRhhUkG4H3TQk5dBhQ7m/JDdSNHKwR2BBia62lhwEIq9xGiQKLxd6LymNhn47SjXhsUEPmxi+PKw2OkW4LLjA==}
 
   '@types/css-font-loading-module@0.0.7':
     resolution: {integrity: sha512-nl09VhutdjINdWyXxHWN/w9zlNCfr60JUqJbd24YXUuCwgeL0TpFSdElCwb6cxfB6ybE19Gjj4g0jsgkXxKv1Q==}
@@ -25904,10 +25927,7 @@ snapshots:
       '@ag-ui/core': 0.0.59
       '@noble/hashes': 2.4.0
 
-  '@agent-native/core-corpus@0.231.0':
-    optional: true
-
-  '@agent-native/core@0.219.0(a648518d7a042e9044c08fbeb0432973)':
+  '@agent-native/core@0.219.0(4d6a45cf59d61eee17b36c6f3cc4d47a)':
     dependencies:
       '@agent-native/agentkit': 0.219.0
       '@agent-native/recap-cli': 0.5.88(playwright@1.63.0)
@@ -25962,7 +25982,6 @@ snapshots:
       yjs: 13.6.33
       zod: 4.6.7
     optionalDependencies:
-      '@agent-native/core-corpus': 0.231.0
       '@ai-sdk/anthropic': 3.0.86(zod@4.6.7)
       '@ai-sdk/cohere': 3.0.39(zod@4.6.7)
       '@ai-sdk/google': 3.0.83(zod@4.6.7)
@@ -31414,6 +31433,10 @@ snapshots:
       '@types/react': 19.2.17
       '@types/react-dom': 19.2.3(@types/react@19.2.17)
 
+  '@radix-ui/react-icons@1.3.2(react@19.2.7)':
+    dependencies:
+      react: 19.2.7
+
   '@radix-ui/react-id@1.0.0(react@19.2.7)':
     dependencies:
       '@babel/runtime': 7.29.2
@@ -35549,6 +35572,10 @@ snapshots:
       '@types/har-format': 1.2.16
 
   '@types/connect@3.4.38':
+    dependencies:
+      '@types/node': 25.9.3
+
+  '@types/cross-spawn@6.0.6':
     dependencies:
       '@types/node': 25.9.3
 

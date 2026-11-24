@@ -19,12 +19,17 @@ const PRUNE_BATCH_SIZE = 50;
 // (`tool`), because direct A2A action mode is read-only.
 const EXTERNAL_MCP_CALLER = "mcp";
 
-export type GuardedTargetKind = "dashboard" | "analysis" | "dashboard-folder";
+export type GuardedTargetKind =
+  | "dashboard"
+  | "analysis"
+  | "dashboard-folder"
+  | "report-subscription";
 
 const TARGET_NOUN: Record<GuardedTargetKind, string> = {
   dashboard: "dashboard",
   analysis: "analysis",
   "dashboard-folder": "dashboard folder",
+  "report-subscription": "report subscription",
 };
 
 export const IDEMPOTENCY_KEY_DESCRIPTION = `A new unique string for this write, such as a UUID. Required from external MCP clients. Resending the same key with the same arguments returns the first write's receipt (replayed: true) instead of writing again, even after later edits; the same key with different arguments fails with IDEMPOTENCY_KEY_REUSED. Retries are guaranteed to replay for ${WRITE_RECEIPT_RETRY_WINDOW_DAYS} days; receipts are deleted after ${WRITE_RECEIPT_RETENTION_DAYS} days.`;
@@ -114,7 +119,7 @@ export interface GuardedWriteInput {
 }
 
 /** The first row a query returned, or undefined when it returned none. */
-function firstRow<T>(rows: readonly T[]): T | undefined {
+export function firstRow<T>(rows: readonly T[]): T | undefined {
   return rows[0];
 }
 

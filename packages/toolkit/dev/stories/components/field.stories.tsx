@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { IconAt } from "@tabler/icons-react";
+import { useId } from "react";
+import { expect, within } from "storybook/test";
 
 import {
   Field,
@@ -16,10 +18,11 @@ import {
   SelectValue,
 } from "../../../src/ui/base-ui/select.js";
 import { TextArea } from "../../../src/ui/base-ui/text-area.js";
+import guide from "./field.docs.md?raw";
 
 const meta = {
   title: "Components/Field",
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
 } satisfies Meta;
 
 export default meta;
@@ -58,36 +61,51 @@ const ROLES = [
 
 /** Each control a Field labels: an Input with a slot, a Text Area and a Select. */
 export const Controls: StoryObj = {
-  render: () => (
-    <div className="flex w-80 flex-col gap-4">
-      <Field>
-        <FieldLabel>Handle</FieldLabel>
-        <Input defaultValue="ada">
-          <InputSlot>
-            <IconAt aria-hidden />
-          </InputSlot>
-        </Input>
-      </Field>
-      <Field>
-        <FieldLabel>Bio</FieldLabel>
-        <TextArea placeholder="A line about you" />
-        <FieldDescription>Shown on your profile.</FieldDescription>
-      </Field>
-      <Field>
-        <FieldLabel>Role</FieldLabel>
-        <Select items={ROLES} defaultValue="editor">
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectPopup>
-            {ROLES.map((role) => (
-              <SelectItem key={role.value} value={role.value}>
-                {role.label}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-      </Field>
-    </div>
-  ),
+  render: function Controls() {
+    const roleLabel = useId();
+    return (
+      <div className="flex w-80 flex-col gap-4">
+        <Field>
+          <FieldLabel>Handle</FieldLabel>
+          <Input defaultValue="ada">
+            <InputSlot>
+              <IconAt aria-hidden />
+            </InputSlot>
+          </Input>
+        </Field>
+        <Field>
+          <FieldLabel>Bio</FieldLabel>
+          <TextArea placeholder="A line about you" />
+          <FieldDescription>Shown on your profile.</FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel id={roleLabel}>Role</FieldLabel>
+          <Select
+            aria-labelledby={roleLabel}
+            items={ROLES}
+            defaultValue="editor"
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup>
+              {ROLES.map((role) => (
+                <SelectItem key={role.value} value={role.value}>
+                  {role.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        </Field>
+      </div>
+    );
+  },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const trigger = canvas.getByRole("combobox", { name: "Role" });
+    await userEvent.click(trigger);
+    const page = within(canvasElement.ownerDocument.body);
+    const list = await page.findByRole("listbox", { name: "Role" });
+    await userEvent.click(within(list).getByRole("option", { name: "Viewer" }));
+    await expect(trigger).toHaveTextContent("Viewer");
+  },
 };
