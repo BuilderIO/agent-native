@@ -4294,7 +4294,7 @@ describe("design connect bridge endpoints", () => {
             `import(// comment${end}'./module.js?case=${index}');`,
         )
         .join("\n") +
-      `\nimport/* before */('./module.js?case=before');\nimport(${"/* x */".repeat(16)}computed);`;
+      `\nimport/* before */('./module.js?case=before');\nimport(${"/* x */".repeat(16)}computed);\nimport(${"// comment\r\n".repeat(28)}computed);`;
     const devServer = http.createServer((_req, res) => {
       res
         .writeHead(200, { "content-type": "application/javascript" })
@@ -4310,10 +4310,12 @@ describe("design connect bridge endpoints", () => {
     });
     const bridge = await startDesignConnectBridge(manifest);
     try {
+      const started = performance.now();
       const module = await getText(
         `http://127.0.0.1:${port}/main.js?previewToken=${bridge.previewToken}`,
         { origin: "null", "sec-fetch-dest": "script" },
       );
+      expect(performance.now() - started).toBeLessThan(3000);
       expect(module.status).toBe(200);
       for (let index = 0; index < 5; index++) {
         expect(module.body).toContain(
@@ -4324,6 +4326,9 @@ describe("design connect bridge endpoints", () => {
         `case=before&previewToken=${bridge.previewToken}`,
       );
       expect(module.body).toContain(`import(${"/* x */".repeat(16)}computed)`);
+      expect(module.body).toContain(
+        `import(${"// comment\r\n".repeat(28)}computed)`,
+      );
     } finally {
       await bridge.close();
       await new Promise<void>((resolve) => devServer.close(() => resolve()));

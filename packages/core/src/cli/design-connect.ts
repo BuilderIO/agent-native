@@ -1767,7 +1767,7 @@ function addOpaqueFrameJavaScriptResourceTokens(
         rewrite(prefix, quote, resourceUrl),
     )
     .replace(
-      /(\bimport(?:\s|\/\*(?:[^*]|\*(?!\/))*\*\/|\/\/[^\r\n\u2028\u2029]*(?:\r\n|[\r\n\u2028\u2029]|$))*\((?:\s|\/\*(?:[^*]|\*(?!\/))*\*\/|\/\/[^\r\n\u2028\u2029]*(?:\r\n|[\r\n\u2028\u2029]|$))*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
+      /(\bimport(?:\s|\/\*(?:[^*]|\*(?!\/))*\*\/|\/\/[^\r\n\u2028\u2029]*(?:\r\n|\r(?!\n)|[\n\u2028\u2029]|(?![\s\S])))*\((?:\s|\/\*(?:[^*]|\*(?!\/))*\*\/|\/\/[^\r\n\u2028\u2029]*(?:\r\n|\r(?!\n)|[\n\u2028\u2029]|(?![\s\S])))*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>
         rewrite(prefix, quote, resourceUrl),
     )
