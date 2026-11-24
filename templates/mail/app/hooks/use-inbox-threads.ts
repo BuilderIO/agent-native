@@ -1287,6 +1287,13 @@ export function markInboxThreadReadOptimistic(
   return mutation.id;
 }
 
+export function inboxThreadShowsRead(
+  qc: QueryClient,
+  threadId: string,
+): boolean {
+  return currentInboxItem(qc, threadId)?.unreadCount === 0;
+}
+
 export function adjustInboxThreadUnreadOptimistic(
   qc: QueryClient,
   threadId: string,
