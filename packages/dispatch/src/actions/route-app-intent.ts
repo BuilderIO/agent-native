@@ -153,6 +153,28 @@ export default defineAction({
       }
     }
 
+    const intentApp = /\b(?:e-?mails?|messages?|inbox)\b/i.test(text)
+      ? "mail"
+      : /\bgithub\b/i.test(text) &&
+          /\b(?:issues?|pull requests?|prs?)\b/i.test(text)
+        ? "tasks"
+        : null;
+    const intentCandidates = intentApp
+      ? matchDispatchAppCandidates(apps, intentApp)
+      : [];
+    const intentCandidate = intentCandidates.at(0);
+    if (intentCandidates.length === 1 && intentCandidate) {
+      return {
+        status: "ok",
+        app: intentCandidate.id,
+        confidence: 1,
+        provider: "routing",
+        model: "data-intent",
+        cached: false,
+        latencyMs: 0,
+      };
+    }
+
     const hit = matchPointer(text, grantedPointers);
     if (hit && !openApp) {
       return {
