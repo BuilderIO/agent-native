@@ -103,6 +103,36 @@ describe("client application-state helpers", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("rejects a retry if the session changes while its response is pending", async () => {
+    const { recordSessionIdentity } = await import("./session-identity.js");
+    recordSessionIdentity(undefined);
+    let respond!: (response: Response) => void;
+    let started!: () => void;
+    const requestStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        started();
+        return new Promise<Response>((resolve) => {
+          respond = resolve;
+        });
+      }),
+    );
+    const read = readClientAppState("chat-first-pane");
+    recordSessionIdentity("first-user", "first-org");
+    await requestStarted;
+    recordSessionIdentity("second-user", "second-org");
+    respond(
+      jsonResponse({
+        values: { "chat-first-pane": { appId: "mail" } },
+        missing: [],
+      }),
+    );
+    await expect(read).rejects.toThrow("scope changed before reading");
+  });
+
   it("coalesces same-tick reads into one batched request", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

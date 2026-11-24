@@ -1103,6 +1103,7 @@ export async function readClientAppState<T = unknown>(
   }
   const initialIdentityUnknown = currentSessionIdentity() === undefined;
   let scopeChanges = 0;
+  let readScope = currentSessionScope();
   const unsubscribe = subscribeSessionScope(() => scopeChanges++);
   try {
     let batch: ClientAppStateBatch;
@@ -1117,7 +1118,11 @@ export async function readClientAppState<T = unknown>(
       ) {
         throw error;
       }
+      readScope = currentSessionScope();
       batch = await awaitWithAbort(scheduleBatchedRead(key), options.signal);
+    }
+    if (currentSessionScope() !== readScope) {
+      throw new AppStateScopeChangedError();
     }
     return (batch.values[key] ?? null) as T | null;
   } finally {
