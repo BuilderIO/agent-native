@@ -44,6 +44,7 @@ import type {
   DocumentProperty,
   DocumentSyncStatus,
 } from "@shared/api";
+import type { EditorBlockIds } from "@shared/block-identity-ids";
 import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import type { CommentAiRequest } from "@shared/comment-ai";
 import { commentPropertyTarget } from "@shared/comment-property-target";
@@ -3335,6 +3336,10 @@ function PageEditorSessionBody({
   );
   const navigate = useNavigate();
   const location = useLocation();
+  const linkedBlockId = useMemo(
+    () => new URLSearchParams(location.search).get("block"),
+    [location.search],
+  );
   const mcpDirectoryWidgetReadOnly =
     document.mcpDirectoryWidgetReadOnly === true;
   const widgetEditability = directoryWidgetEditability(document);
@@ -3901,6 +3906,16 @@ function PageEditorSessionBody({
     updatedAt: null,
     revision: undefined,
   });
+  const editorBlockIdsRef = useRef<{
+    markdown: string;
+    ids: EditorBlockIds;
+  } | null>(null);
+  const handleBlockIdentityIds = useCallback(
+    (markdown: string, ids: EditorBlockIds) => {
+      editorBlockIdsRef.current = { markdown, ids };
+    },
+    [],
+  );
   const isInitializedRef = useRef(false);
   const prevDocIdRef = useRef<string | null>(null);
   const localSnapshotEpochRef = useRef(0);
@@ -4767,6 +4782,10 @@ function PageEditorSessionBody({
                     )
                   : undefined,
               ...updates,
+              ...(updates.content !== undefined &&
+              editorBlockIdsRef.current?.markdown === updates.content
+                ? { editorBlockIds: editorBlockIdsRef.current.ids }
+                : {}),
               historySessionId:
                 options.historySessionId ??
                 historySessionRef.current.activity(documentId),
@@ -12545,6 +12564,7 @@ function PageEditorSessionBody({
                                     : document.collabContentRevision
                                 }
                                 requestCollabSync={requestCollabSync}
+                                flushCollabUpdates={flushCollabUpdates}
                                 onChange={
                                   isSuggesting
                                     ? handleSuggestionDraftChange
@@ -12649,6 +12669,16 @@ function PageEditorSessionBody({
                                 }
                                 onSuggestionPlacementsChange={
                                   handleSuggestionPlacementsChange
+                                }
+                                blockLinks={
+                                  !isLocalFileDocument &&
+                                  !mcpDirectoryWidgetReadOnly
+                                }
+                                linkedBlockId={linkedBlockId}
+                                onBlockIdentityIds={
+                                  isSuggesting
+                                    ? undefined
+                                    : handleBlockIdentityIds
                                 }
                               />
                             </WidgetVisualEditorBoundary>

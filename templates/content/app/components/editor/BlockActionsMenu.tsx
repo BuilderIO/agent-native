@@ -188,6 +188,7 @@ export function BlockActionsMenu({
   onComment,
   onTurnTableIntoCollection,
   onTurnCollectionIntoTable,
+  onCopyLink,
   documentId,
 }: {
   editor: Editor;
@@ -196,6 +197,7 @@ export function BlockActionsMenu({
   onComment?: BubbleToolbarProps["onComment"];
   onTurnTableIntoCollection?: (table: BlockAt) => void;
   onTurnCollectionIntoTable?: (collection: BlockAt) => void;
+  onCopyLink?: (block: BlockAt) => void;
   /** The page, named to the agent a block is attached to. */
   documentId?: string | null;
 }) {
@@ -637,6 +639,14 @@ export function BlockActionsMenu({
         if (latest) moveBlock.start(latest);
       },
       lock: locks.move,
+    },
+    !!onCopyLink && {
+      id: "copy-link",
+      label: t("editor.blockMenu.copyLink"),
+      onSelect: () => {
+        const latest = request.getBlock();
+        if (latest) onCopyLink(latest);
+      },
     },
     {
       id: "delete",
