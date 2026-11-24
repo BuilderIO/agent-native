@@ -3006,13 +3006,17 @@ export function ReviewCanvasPins({
     if (!planeMounted) clearHoverNode();
   }, [clearHoverNode, planeMounted]);
 
-  rendersNothingRef.current =
+  const rendersNothing =
     hidden ||
     !canvas ||
     (!active &&
       !draftPin &&
       !deleteCandidate &&
       !threads.some((thread) => thread.root.anchor));
+  rendersNothingRef.current = rendersNothing;
+  useEffect(() => {
+    if (!rendersNothing) setLayoutTick((current) => current + 1);
+  }, [rendersNothing]);
   if (hidden || !canvas) return null;
   if (
     !active &&

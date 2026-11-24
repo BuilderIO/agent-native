@@ -7742,6 +7742,7 @@ describe("ReviewCanvasPins chrome observation", () => {
     document
       .querySelectorAll("[data-design-chrome-region]")
       .forEach((region) => region.remove());
+    reviewComments = [comment];
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
@@ -7777,5 +7778,60 @@ describe("ReviewCanvasPins chrome observation", () => {
       await vi.advanceTimersByTimeAsync(300);
     });
     expect(observed).toContain(region);
+  });
+
+  it("re-measures anchored pins when they are shown again after the camera moved while hidden", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    canvas.appendChild(iframe);
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+    reviewComments = [
+      {
+        ...comment,
+        targetId: null,
+        anchor: {
+          nodeId: "src:pin",
+          relativePoint: { xPct: 50, yPct: 50 },
+          point: { xPct: 50, yPct: 50 },
+        },
+      },
+    ];
+    const pins = (hidden: boolean) => (
+      <ReviewCanvasPins
+        active={false}
+        hidden={hidden}
+        onClose={vi.fn()}
+        canvasSelector=".review-chrome-canvas"
+        resourceType="design"
+        resourceId="design-1"
+        targetId={null}
+        canPost
+        canResolve
+      />
+    );
+    const rectRequests = () =>
+      postMessage.mock.calls.filter(
+        ([message]) => message?.type === "agent-native:review-node-rects",
+      ).length;
+
+    await act(async () => {
+      root.render(pins(true));
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("scroll"));
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    const requestsWhileHidden = rectRequests();
+
+    await act(async () => {
+      root.render(pins(false));
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(rectRequests()).toBeGreaterThan(requestsWhileHidden);
   });
 });
