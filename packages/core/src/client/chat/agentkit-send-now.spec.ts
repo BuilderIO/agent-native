@@ -178,6 +178,53 @@ describe("Send now", () => {
     await missing.dispose();
   });
 
+  it("returns the run of a message the server already promoted, for claim and steer", async () => {
+    for (const deliverInActiveRun of [true, false]) {
+      const writes: Array<Record<string, unknown>> = [];
+      const fetcher = vi.fn(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input);
+          if (url.startsWith(`${apiUrl}/runs/active?`)) {
+            return json({
+              active: deliverInActiveRun,
+              status: deliverInActiveRun ? "running" : "idle",
+              runId: "run-active",
+            });
+          }
+          if (url.endsWith(`/threads/${threadId}/queued`)) {
+            writes.push(JSON.parse(String(init?.body)).mutation);
+            return json({
+              queuedMessages: [],
+              alreadySubmitted: true,
+              submittedRunId: "run-promoted",
+            });
+          }
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              queuedMessages: [
+                { id: messageId, threadId, text: "Use the blue theme" },
+              ],
+            }),
+          });
+        },
+      );
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+      });
+      await expect(
+        transport.steerQueuedMessage?.({
+          threadId,
+          messageId,
+          deliverInActiveRun,
+        }),
+      ).resolves.toEqual({ runId: "run-promoted", alreadySubmitted: true });
+      expect(writes).toHaveLength(1);
+      await transport.dispose();
+    }
+  });
+
   it("puts it first for after the reply when the runtime cannot take it mid-turn", async () => {
     const queueWrites: Array<Record<string, unknown>> = [];
     const fetcher = vi.fn(
