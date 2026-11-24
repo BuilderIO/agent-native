@@ -126,8 +126,82 @@ describe.runIf(Boolean(url))("PostgreSQL navigation snapshots", () => {
     if (writer) await writer.end();
     const { closeDbExec } = await import("@agent-native/core/db");
     await closeDbExec();
+    await (
+      await import("../../../packages/core/src/db/client.js")
+    ).closeDbExec();
     delete process.env.DATABASE_URL;
     vi.doUnmock(postgresModule);
+  });
+
+  it("keeps prewarmed store readiness usable in unscoped executor transactions", async () => {
+    const { getDbExec } =
+      await import("../../../packages/core/src/db/client.js");
+    const { defineStore } =
+      await import("../../../packages/core/src/db/store-registry.js");
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const table = `store_probe_${suffix}`;
+    const store = defineStore({
+      id: table,
+      migrations: [{ name: "initial", sql: `CREATE TABLE ${table} (id TEXT)` }],
+    });
+    await store.ready();
+    const exec = getDbExec();
+    await expect(
+      exec.transaction!(async (tx) => {
+        await store.ready();
+        await tx.execute(`INSERT INTO ${table} (id) VALUES ('rolled-back')`);
+        throw new Error("intentional rollback");
+      }),
+    ).rejects.toThrow("intentional rollback");
+    const { rows } = await exec.execute(`SELECT id FROM ${table}`);
+    expect(rows).toEqual([]);
+    await exec.execute(`DROP TABLE ${table}`);
+  });
+
+  it("keeps cold unscoped setup independent and retries scoped setup after rollback", async () => {
+    const { getDbExec, withDbExec } =
+      await import("../../../packages/core/src/db/client.js");
+    const { defineStore } =
+      await import("../../../packages/core/src/db/store-registry.js");
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const coldTable = `cold_probe_${suffix}`;
+    const scopedTable = `scoped_probe_${suffix}`;
+    const storeFor = (id: string) =>
+      defineStore({
+        id,
+        migrations: [{ name: "initial", sql: `CREATE TABLE ${id} (id TEXT)` }],
+      });
+    const cold = storeFor(coldTable);
+    const scoped = storeFor(scopedTable);
+    const exec = getDbExec();
+    await expect(
+      exec.transaction!(async () => {
+        await cold.ready();
+        throw new Error("roll back unscoped");
+      }),
+    ).rejects.toThrow("roll back unscoped");
+    expect(
+      (await exec.execute(`SELECT to_regclass('${coldTable}') AS name`)).rows[0]
+        ?.name,
+    ).toBe(coldTable);
+    await expect(
+      exec.transaction!(async (tx) =>
+        withDbExec(tx, async () => {
+          await scoped.ready();
+          throw new Error("roll back scoped");
+        }),
+      ),
+    ).rejects.toThrow("roll back scoped");
+    expect(
+      (await exec.execute(`SELECT to_regclass('${scopedTable}') AS name`))
+        .rows[0]?.name,
+    ).toBeNull();
+    await scoped.ready();
+    expect(
+      (await exec.execute(`SELECT to_regclass('${scopedTable}') AS name`))
+        .rows[0]?.name,
+    ).toBe(scopedTable);
+    await exec.execute(`DROP TABLE ${coldTable}, ${scopedTable}`);
   });
 
   async function fixture(id: string, sourcePath: string) {

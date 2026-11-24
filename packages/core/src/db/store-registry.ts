@@ -915,7 +915,12 @@ export function defineStore(definition: StoreDefinition): Store {
       const mode = readiness();
       if (mode === "apply") {
         return tolerateRefusedDatabase(id, () => {
-          const transaction = getEnclosingTransactionDbExec();
+          // An unscoped executor transaction historically leaves store setup on
+          // the shared executor. Scoped transactions must instead own setup so
+          // rolled-back migrations cannot be memoized as committed.
+          const transaction = getEnclosingTransactionDbExec({
+            allowUnscoped: true,
+          });
           const exec = transaction ?? getDbExec();
           const memo = isReleaseStep() ? appliedAtRelease : applied;
           const existing = memo.get(exec);
