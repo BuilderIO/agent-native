@@ -108,7 +108,7 @@ export async function readOrganizationVisibilityPolicy(
     .from(schema.organizationSettings)
     .where(eq(schema.organizationSettings.organizationId, organizationId))
     .limit(1);
-  const row = rows.at(0);
+  const [row] = rows as Array<(typeof rows)[number] | undefined>;
   return {
     defaultVisibility: isRecordingVisibility(row?.defaultVisibility)
       ? row.defaultVisibility
