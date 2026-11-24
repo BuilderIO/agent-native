@@ -19,25 +19,11 @@ app id: `/an slides` opens the Slides editor.
 
 ## Pick the app
 
-Use the app the user names. Otherwise pick it from the job:
-
-| Request | App id |
-| --- | --- |
-| Decks, slides, presentations | `slides` |
-| Docs, pages, notes, articles | `content` |
-| UI designs, mockups, prototypes | `design` |
-| Email triage, replies, drafts | `mail` |
-| Events, availability, booking links | `calendar` |
-| Screen recordings, meeting notes, dictation | `clips` |
-| Dashboards, charts, metrics | `analytics` |
-| Forms and surveys | `forms` |
-| Brand images and videos | `assets` |
-| Company knowledge from meetings and decisions | `brain` |
-
-Call `list_apps` to confirm the id is granted before opening it. When a request
-fits more than one app or none, ask one short question rather than guessing. If
-the app is not listed, explain that it must be granted in Dispatch's Agents
-access settings. Do not invent a URL, use a localhost URL, or route around the
+Use the app the user names. Otherwise call `list_apps` and pick the granted app
+whose name and description fit the request, using its exact id. When a request fits
+more than one app or none, ask one short question rather than guessing. If the
+app is not listed, explain that it must be granted in Dispatch's Agents access
+settings. Do not invent a URL, use a localhost URL, or route around the
 Dispatch grant.
 
 ## Open the app
@@ -141,7 +127,9 @@ step for their host:
   `agent-native-dispatch` connector.
 - Codex, Cursor and other local clients: run
   `npx @agent-native/core@latest reconnect https://dispatch.agent-native.com`,
-  then reload the client. Codex needs a new session before the tools return.
+  then reload the client. Codex needs a new session before the tools return. If
+  it reports no existing entry, as it can for a plugin install, authenticate the
+  connector from the client's own MCP settings.
 - Claude, Claude Desktop, Cowork and ChatGPT: reconnect the Agent-Native
   connector in the host's connector settings, then rescan its tools.
 
