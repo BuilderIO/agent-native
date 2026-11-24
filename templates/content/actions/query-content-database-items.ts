@@ -1,13 +1,19 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
+import { getDb } from "../server/db/index.js";
 import type {
   ContentDatabaseItemsPagePayload,
   ContentDatabaseNavigationPageResponse,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
 import { compactContentDatabaseResponse } from "../shared/database-row-properties.js";
-import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
+import {
+  personalDatabaseViewSettingKey,
+  readPersonalDatabaseViewOverrides,
+} from "./_content-database-personal-view.js";
 import {
   getContentDatabaseNavigationPage,
   MAX_NAVIGATION_EXPAND_IDS,
@@ -139,44 +145,58 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    // A person's saved order is theirs alone, so it is read while the
-    // database's access check runs; it is used only if that check passes.
-    // The check answers first: an unavailable database returns its typed
-    // response even when the saved order cannot be read.
-    const [resolved, [earlyOverrides]] = await Promise.all([
-      resolveContentDatabaseRead({ databaseId, documentId }),
-      Promise.allSettled(
-        navigation && userEmail && databaseId
-          ? [readPersonalDatabaseViewOverrides(userEmail, databaseId)]
-          : [],
-      ),
-    ]);
-    if (!resolved.available) return resolved;
-
     if (navigation) {
-      if (!userEmail) throw new Error("Not authenticated.");
-      if (earlyOverrides?.status === "rejected") throw earlyOverrides.reason;
-      return getContentDatabaseNavigationPage({
-        database: resolved.database,
-        userEmail,
-        overrides: earlyOverrides
-          ? earlyOverrides.value
-          : await readPersonalDatabaseViewOverrides(
-              userEmail,
-              resolved.database.id,
-            ),
-        parentId: navigation.parentId,
-        sort: navigation.sort,
-        viewId: navigation.viewId,
-        limit: limit ?? 20,
-        cursor: navigation.cursor,
-        expand: navigation.expand,
-        pagesOnly: navigation.pagesOnly ?? false,
-        group: navigation.group,
-        locate: navigation.locate,
-      });
+      // The settings store may initialize its schema lazily, which cannot run
+      // inside a read-only transaction. The value is read again in the snapshot.
+      const [settingsReady] = await Promise.allSettled(
+        userEmail
+          ? [
+              getUserSetting(
+                userEmail,
+                personalDatabaseViewSettingKey(databaseId ?? documentId ?? ""),
+                { bypassCache: true },
+              ),
+            ]
+          : [],
+      );
+      return getDb().transaction(
+        async () => {
+          const resolved = await resolveContentDatabaseRead({
+            databaseId,
+            documentId,
+          });
+          if (!resolved.available) return resolved;
+          if (!userEmail) throw new Error("Not authenticated.");
+          if (settingsReady?.status === "rejected") throw settingsReady.reason;
+          const overrides = await readPersonalDatabaseViewOverrides(
+            userEmail,
+            resolved.database.id,
+            { transaction: getDbExec(), bypassCache: true },
+          );
+          return getContentDatabaseNavigationPage({
+            database: resolved.database,
+            userEmail,
+            overrides,
+            parentId: navigation.parentId,
+            sort: navigation.sort,
+            viewId: navigation.viewId,
+            limit: limit ?? 20,
+            cursor: navigation.cursor,
+            expand: navigation.expand,
+            pagesOnly: navigation.pagesOnly ?? false,
+            group: navigation.group,
+            locate: navigation.locate,
+          });
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
     }
 
+    const resolved = await resolveContentDatabaseRead({
+      databaseId,
+      documentId,
+    });
+    if (!resolved.available) return resolved;
     let database = resolved.database;
     if (await refreshGitHubSourceBeforeRead(database.id)) {
       const reread = await resolveContentDatabaseRead({
