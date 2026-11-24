@@ -17,6 +17,7 @@ import {
   accountDescriptionFor,
   getAccountDescriptions,
 } from "../server/lib/calendar-descriptions.js";
+import { calendarReadFailure } from "../server/lib/calendar-read-error.js";
 import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
@@ -103,6 +104,7 @@ interface ListCalendarEventsArgs {
   calendarSourceKeys?: string[];
   sources?: CalendarInventorySource[];
   providerPageSize?: number;
+  incremental?: boolean;
 }
 
 interface ListCalendarEventsOptions {
@@ -132,6 +134,7 @@ interface CalendarEventsResult {
     email: string;
     status: "ok" | "error";
     error?: string;
+    code?: string;
   }>;
   requestedAccounts: string[] | null;
   resolvedAccounts: string[];
@@ -670,6 +673,9 @@ export async function listCalendarEvents(
           accountEmails: args.accountEmails,
           calendarSourceKeys: args.calendarSourceKeys,
           maxResults: args.providerPageSize,
+          ...(args.incremental === undefined
+            ? {}
+            : { incremental: args.incremental }),
         })
       : Promise.resolve({ events: [], errors: [] });
   const overlayRead =
@@ -679,7 +685,14 @@ export async function listCalendarEvents(
           range.to,
           requestedOverlayEmails,
           email,
-          { accountEmails: args.accountEmails },
+          {
+            ...(args.accountEmails
+              ? { accountEmails: args.accountEmails }
+              : {}),
+            ...(args.incremental === undefined
+              ? {}
+              : { incremental: args.incremental }),
+          },
         )
       : Promise.resolve({ events: [], errors: [], accountErrors: [] });
   const icalRead = sources.includes("ics")
@@ -716,6 +729,7 @@ export async function listCalendarEvents(
             email: overlayEmail,
             status: "error" as const,
             error: error.error,
+            ...(error.code ? { code: error.code } : {}),
           }
         : { email: overlayEmail, status: "ok" as const };
     });
@@ -877,6 +891,10 @@ export default defineAction({
       .enum(["legacy", "inventory"])
       .optional()
       .describe("Use inventory for compact, coverage-aware external reads"),
+    incremental: z
+      .union([z.boolean(), z.enum(["true", "false"])])
+      .transform((value) => value === true || value === "true")
+      .optional(),
     cursor: z
       .string()
       .max(4096)
@@ -1129,29 +1147,24 @@ export default defineAction({
       };
     }
 
-    if (result.primaryErrors.length > 0) {
-      const rateLimited = result.primaryErrors.some(
-        (e) => e.code === "RATE_LIMITED",
-      );
-      const authRequired = result.primaryErrors.some(
-        (e) =>
-          e.code === "AUTH_REQUIRED" ||
-          /invalid_grant|refresh token revoked/i.test(e.error),
-      );
-      throw Object.assign(
-        new Error(
-          result.primaryErrors.map((e) => `${e.email}: ${e.error}`).join("; "),
-        ),
-        {
-          expected: true,
-          errorCode: rateLimited
-            ? "calendar_rate_limited"
-            : authRequired
-              ? "calendar_auth_required"
-              : "calendar_read_failed",
-          statusCode: rateLimited ? 429 : authRequired ? 401 : 503,
-        },
-      );
+    const readFailures = [
+      ...result.primaryErrors,
+      ...(args.incremental
+        ? result.overlaySources.flatMap((source) =>
+            source.error
+              ? [
+                  {
+                    error: source.error,
+                    ...(source.code ? { code: source.code } : {}),
+                  },
+                ]
+              : [],
+          )
+        : []),
+      ...(args.incremental ? result.icalErrors : []),
+    ];
+    if (readFailures.length > 0) {
+      throw calendarReadFailure(readFailures);
     }
 
     if (!result.googleConnected && !args.from && !args.to) {

@@ -3,7 +3,7 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 export default {
   common: {
     calendarRateLimited:
-      "Google Kalender begrenzt Anfragen. Gespeicherte Termine werden angezeigt, sofern verfügbar; ein erneuter Versuch erfolgt automatisch.",
+      "Google Kalender begrenzt Anfragen. Gespeicherte Termine sind möglicherweise nicht aktuell.",
     connect: "Verbinden",
     connected: "Verbunden",
     connecting: "Verbinden...",

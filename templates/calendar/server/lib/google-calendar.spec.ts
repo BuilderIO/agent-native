@@ -19,6 +19,7 @@ const peopleGetProfileMock = vi.hoisted(() => vi.fn());
 const calendarGetEventMock = vi.hoisted(() => vi.fn());
 const calendarGetCalendarMock = vi.hoisted(() => vi.fn());
 const calendarListEventsMock = vi.hoisted(() => vi.fn());
+const calendarBatchListEventsMock = vi.hoisted(() => vi.fn());
 const calendarListCalendarsMock = vi.hoisted(() => vi.fn());
 const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
 const calendarInsertEventMock = vi.hoisted(() => vi.fn());
@@ -105,11 +106,14 @@ vi.mock("./provider-api.js", () => ({
   }),
 }));
 
-vi.mock("./google-api.js", () => ({
+vi.mock("./google-api.js", async (importOriginal) => ({
+  GoogleApiError: (await importOriginal<typeof import("./google-api.js")>())
+    .GoogleApiError,
   createOAuth2Client: createOAuth2ClientMock,
   oauth2GetUserInfo: oauth2GetUserInfoMock,
   peopleGetProfile: peopleGetProfileMock,
   calendarListEvents: calendarListEventsMock,
+  calendarBatchListEvents: calendarBatchListEventsMock,
   calendarListCalendars: calendarListCalendarsMock,
   calendarGetEvent: calendarGetEventMock,
   calendarGetCalendar: calendarGetCalendarMock,
@@ -123,6 +127,7 @@ vi.mock("./google-api.js", () => ({
     /^Google API error \((?:404|410)\):/.test(error.message),
 }));
 
+import { GoogleApiError } from "./google-api.js";
 import {
   exchangeCode,
   exchangeSignInCode,
@@ -560,6 +565,17 @@ describe("calendar event listing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     calendarListEventsMock.mockReset();
+    calendarBatchListEventsMock.mockImplementation(
+      (
+        accessToken: string,
+        requests: Array<{ calendarId: string; params: unknown }>,
+      ) =>
+        Promise.allSettled(
+          requests.map(({ calendarId, params }) =>
+            calendarListEventsMock(accessToken, calendarId, params),
+          ),
+        ),
+    );
     calendarListCalendarsMock.mockReset();
     listOAuthAccountsByOwnerMock.mockResolvedValue([
       {
@@ -570,6 +586,221 @@ describe("calendar event listing", () => {
         },
       },
     ]);
+  });
+
+  it("batches selected calendar reads for the same account", async () => {
+    calendarListCalendarsMock.mockResolvedValue({
+      items: [
+        { id: "a@example.test", summary: "A", accessRole: "reader" },
+        { id: "b@example.test", summary: "B", accessRole: "reader" },
+      ],
+    });
+    calendarListEventsMock.mockImplementation(
+      async (_accessToken: string, calendarId: string) => ({
+        items: [
+          {
+            id: calendarId,
+            summary: calendarId,
+            start: { dateTime: "2027-05-03T10:00:00Z" },
+            end: { dateTime: "2027-05-03T11:00:00Z" },
+          },
+        ],
+        nextSyncToken: "fixture-cursor",
+      }),
+    );
+    const sources = (await listGoogleCalendars("owner@example.com")).calendars;
+    const result = await listEvents(
+      "2027-05-01T00:00:00Z",
+      "2027-05-08T00:00:00Z",
+      "owner@example.com",
+      {
+        incremental: true,
+        calendarSourceKeys: sources.map((source) => source.sourceKey),
+      },
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.events).toHaveLength(2);
+    expect(calendarBatchListEventsMock).toHaveBeenCalledTimes(1);
+    expect(calendarBatchListEventsMock.mock.calls[0]?.[1]).toHaveLength(2);
+  });
+
+  it("applies incremental changes and deletions after an initial range read", async () => {
+    const makeEvent = (id: string, hour: number) => ({
+      id,
+      summary: id,
+      start: { dateTime: `2027-02-03T${hour}:00:00Z` },
+      end: { dateTime: `2027-02-03T${hour}:30:00Z` },
+    });
+    calendarListEventsMock
+      .mockResolvedValueOnce({
+        items: [makeEvent("first", 10)],
+        nextSyncToken: "initial-cursor",
+      })
+      .mockResolvedValueOnce({
+        items: [{ id: "first", status: "cancelled" }, makeEvent("second", 11)],
+        nextSyncToken: "next-cursor",
+      });
+    const from = "2027-02-01T00:00:00Z";
+    const to = "2027-02-08T00:00:00Z";
+    const first = await listEvents(from, to, "owner@example.com", {
+      incremental: true,
+    });
+    const second = await listEvents(from, to, "owner@example.com", {
+      incremental: true,
+    });
+    expect(first.events.map((event) => event.title)).toEqual(["first"]);
+    expect(second.events.map((event) => event.title)).toEqual(["second"]);
+    expect(calendarListEventsMock.mock.calls[1]?.[2]).toMatchObject({
+      syncToken: "initial-cursor",
+    });
+    expect(calendarListEventsMock.mock.calls[1]?.[2]).not.toHaveProperty(
+      "timeMin",
+    );
+    expect(calendarListEventsMock.mock.calls[1]?.[2]).not.toHaveProperty(
+      "timeMax",
+    );
+  });
+
+  it("rebuilds the range after an expired sync cursor", async () => {
+    const event = (id: string) => ({
+      id,
+      summary: id,
+      start: { dateTime: "2027-03-03T10:00:00Z" },
+      end: { dateTime: "2027-03-03T11:00:00Z" },
+    });
+    calendarListEventsMock
+      .mockResolvedValueOnce({
+        items: [event("old")],
+        nextSyncToken: "expired-cursor",
+      })
+      .mockRejectedValueOnce(new GoogleApiError(410, "Expired"))
+      .mockResolvedValueOnce({
+        items: [event("current")],
+        nextSyncToken: "new-cursor",
+      });
+    const from = "2027-03-01T00:00:00Z";
+    const to = "2027-03-08T00:00:00Z";
+    await listEvents(from, to, "owner@example.com", { incremental: true });
+    const result = await listEvents(from, to, "owner@example.com", {
+      incremental: true,
+    });
+    expect(result.events.map((item) => item.title)).toEqual(["current"]);
+    expect(calendarListEventsMock.mock.calls[1]?.[2]).toMatchObject({
+      syncToken: "expired-cursor",
+    });
+    expect(calendarListEventsMock.mock.calls[2]?.[2]).toMatchObject({
+      timeMin: from,
+      timeMax: to,
+    });
+  });
+
+  it("does not advance a sync cursor when a later page is throttled", async () => {
+    const event = (id: string) => ({
+      id,
+      summary: id,
+      start: { dateTime: "2027-06-03T10:00:00Z" },
+      end: { dateTime: "2027-06-03T11:00:00Z" },
+    });
+    calendarListEventsMock
+      .mockResolvedValueOnce({
+        items: [event("original")],
+        nextSyncToken: "original-cursor",
+      })
+      .mockResolvedValueOnce({
+        items: [event("partial")],
+        nextPageToken: "second-page",
+      })
+      .mockRejectedValueOnce(new GoogleApiError(429, "Throttled"))
+      .mockResolvedValueOnce({
+        items: [event("complete")],
+        nextSyncToken: "complete-cursor",
+      });
+    const from = "2027-06-01T00:00:00Z";
+    const to = "2027-06-08T00:00:00Z";
+    await listEvents(from, to, "owner@example.com", { incremental: true });
+    const failed = await listEvents(from, to, "owner@example.com", {
+      incremental: true,
+    });
+    const retried = await listEvents(from, to, "owner@example.com", {
+      incremental: true,
+    });
+    expect(failed.errors).toEqual([
+      expect.objectContaining({ code: "RATE_LIMITED" }),
+    ]);
+    expect(calendarListEventsMock.mock.calls[3]?.[2]).toMatchObject({
+      syncToken: "original-cursor",
+    });
+    expect(retried.events.map((item) => item.title).sort()).toEqual([
+      "complete",
+      "original",
+    ]);
+  });
+
+  it("does not reuse a synced range in a different organization", async () => {
+    const event = (id: string) => ({
+      id,
+      summary: id,
+      start: { dateTime: "2027-04-03T10:00:00Z" },
+      end: { dateTime: "2027-04-03T11:00:00Z" },
+    });
+    calendarListEventsMock
+      .mockResolvedValueOnce({
+        items: [event("first")],
+        nextSyncToken: "first-cursor",
+      })
+      .mockResolvedValueOnce({
+        items: [event("second")],
+        nextSyncToken: "second-cursor",
+      });
+    const from = "2027-04-01T00:00:00Z";
+    const to = "2027-04-08T00:00:00Z";
+    getRequestOrgIdMock.mockReturnValueOnce("org-one");
+    const first = await listEvents(from, to, "owner@example.com", {
+      incremental: true,
+    });
+    getRequestOrgIdMock.mockReturnValueOnce("org-two");
+    const second = await listEvents(from, to, "owner@example.com", {
+      incremental: true,
+    });
+    expect(first.events.map((item) => item.title)).toEqual(["first"]);
+    expect(second.events.map((item) => item.title)).toEqual(["second"]);
+    expect(calendarListEventsMock.mock.calls[1]?.[2]).not.toHaveProperty(
+      "syncToken",
+    );
+  });
+
+  it.each([
+    new GoogleApiError(429, "Too many requests"),
+    new GoogleApiError(403, "Quota exceeded", "rateLimitExceeded"),
+  ])(
+    "preserves rate-limit classification when reading events",
+    async (error) => {
+      calendarListEventsMock.mockRejectedValueOnce(error);
+      const result = await listEvents(
+        "2026-07-06T00:00:00Z",
+        "2026-07-07T00:00:00Z",
+        "owner@example.com",
+      );
+      expect(result.errors).toEqual([
+        expect.objectContaining({ code: "RATE_LIMITED" }),
+      ]);
+    },
+  );
+
+  it("preserves a throttled calendar discovery failure instead of reporting a missing source", async () => {
+    calendarListCalendarsMock.mockRejectedValueOnce(
+      new GoogleApiError(429, "Too many requests"),
+    );
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-07T00:00:00Z",
+      "owner@example.com",
+      { calendarSourceKeys: ["synthetic-source"] },
+    );
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: "RATE_LIMITED" }),
+    ]);
+    expect(calendarListEventsMock).not.toHaveBeenCalled();
   });
 
   it("paginates CalendarList entries across connected accounts", async () => {
@@ -3036,7 +3267,7 @@ describe("calendar Google OAuth exchange", () => {
   });
 });
 
-describe("connection status reads a broken managed connection as disconnected", () => {
+describe("connection status preserves managed connection failures", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     listOAuthAccountsByOwnerMock.mockResolvedValue([]);
@@ -3048,26 +3279,31 @@ describe("connection status reads a broken managed connection as disconnected", 
     resolveWorkspaceConnectionForAppMock.mockResolvedValue({ available: true });
   });
 
-  // A workspace connection can be registered and marked "connected" in the
-  // catalog while the token it backs can no longer be resolved (revoked,
-  // mid-authorization, misconfigured credential). `isConnected` and
-  // `getConnectedAccounts` are read as a plain yes/no by every read and write
-  // action (list-events included), so a thrown resolution error here must not
-  // surface as a 500 - it must read the same as "not connected".
-  it("isConnected returns false instead of throwing", async () => {
+  it("keeps an available workspace connection distinct from a transient credential failure", async () => {
     resolveOAuthAccessTokenMock.mockRejectedValue(
-      new Error("no workspace token available"),
+      new GoogleApiError(429, "Throttled"),
     );
-
-    await expect(isConnected("user@example.com")).resolves.toBe(false);
+    await expect(isConnected("user@example.com")).resolves.toBe(true);
+    expect(resolveOAuthAccessTokenMock).not.toHaveBeenCalled();
   });
 
-  it("getConnectedAccounts returns an empty list instead of throwing", async () => {
+  it("checks connection availability without resolving the credential", async () => {
     resolveOAuthAccessTokenMock.mockRejectedValue(
       new Error("no workspace token available"),
     );
 
-    await expect(getConnectedAccounts("user@example.com")).resolves.toEqual([]);
+    await expect(isConnected("user@example.com")).resolves.toBe(true);
+    expect(resolveOAuthAccessTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("getConnectedAccounts reports a credential failure", async () => {
+    resolveOAuthAccessTokenMock.mockRejectedValue(
+      new Error("no workspace token available"),
+    );
+
+    await expect(getConnectedAccounts("user@example.com")).rejects.toThrow(
+      "no workspace token available",
+    );
   });
 
   it("still reports connected once the managed token resolves", async () => {
@@ -3082,15 +3318,14 @@ describe("connection status reads a broken managed connection as disconnected", 
     ]);
   });
 
-  it("getAuthStatus reports disconnected instead of throwing", async () => {
+  it("getAuthStatus reports a credential failure", async () => {
     resolveOAuthAccessTokenMock.mockRejectedValue(
       new Error("no workspace token available"),
     );
 
-    await expect(getAuthStatus("user@example.com")).resolves.toEqual({
-      connected: false,
-      accounts: [],
-    });
+    await expect(getAuthStatus("user@example.com")).rejects.toThrow(
+      "no workspace token available",
+    );
   });
 
   it("listEvents surfaces the failure instead of throwing or going silent", async () => {

@@ -1027,6 +1027,29 @@ describe("list-events inventory contract", () => {
     expect(result).toEqual([]);
   });
 
+  it("reports a throttled overlay read to the calendar instead of presenting incomplete coverage", async () => {
+    listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
+    listOverlayEventsMock.mockResolvedValue({
+      events: [],
+      errors: [
+        {
+          email: "guest@example.test",
+          error: "Throttled",
+          code: "RATE_LIMITED",
+        },
+      ],
+      accountErrors: [],
+    });
+    await expect(
+      listEventsAction.run({
+        from: "2026-06-17",
+        to: "2026-06-18",
+        overlayEmails: ["guest@example.test"],
+        incremental: true,
+      }),
+    ).rejects.toMatchObject({ errorCode: "calendar_rate_limited" });
+  });
+
   it("still fails the whole request when the primary account read itself errors with no events", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [],
@@ -1041,7 +1064,10 @@ describe("list-events inventory contract", () => {
         },
         {},
       ),
-    ).rejects.toThrow("Refresh token revoked");
+    ).rejects.toMatchObject({
+      errorCode: "calendar_auth_required",
+      statusCode: 409,
+    });
   });
 
   it("fails when one account errors and another account read succeeds with no events", async () => {
@@ -1056,7 +1082,10 @@ describe("list-events inventory contract", () => {
 
     await expect(
       listEventsAction.run({ from: "2026-06-17", to: "2026-06-18" }),
-    ).rejects.toThrow("broken@example.com: Refresh failed");
+    ).rejects.toMatchObject({
+      errorCode: "calendar_read_failed",
+      statusCode: 503,
+    });
   });
 
   it("still fails when the primary read errors even if a supplementary overlay event exists", async () => {
@@ -1095,7 +1124,10 @@ describe("list-events inventory contract", () => {
         },
         {},
       ),
-    ).rejects.toThrow("Refresh token revoked");
+    ).rejects.toMatchObject({
+      errorCode: "calendar_auth_required",
+      statusCode: 409,
+    });
   });
 
   it("trusts a successful primary read over a local booking fallback even when an overlay account errors", async () => {

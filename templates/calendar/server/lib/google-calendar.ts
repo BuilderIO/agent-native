@@ -45,6 +45,7 @@ import {
   GoogleApiError,
   peopleGetProfile,
 } from "./google-api.js";
+import { listSyncedGoogleEvents } from "./google-event-sync.js";
 import { getCalendarProviderApiRuntime } from "./provider-api.js";
 import {
   alignSeriesRecurrenceToStart,
@@ -56,14 +57,18 @@ type ManagedCalendarClient = {
   accessToken: string;
 };
 
-async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | null> {
-  if (!getCredentialContext()) return null;
+async function hasManagedCalendarConnection(): Promise<boolean> {
+  if (!getCredentialContext()) return false;
   const connection = await resolveWorkspaceConnectionForApp({
     appId: "calendar",
     provider: "google_calendar",
     requireConnected: true,
   });
-  if (!connection.available) return null;
+  return connection.available;
+}
+
+async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | null> {
+  if (!(await hasManagedCalendarConnection())) return null;
   const credential =
     await getCalendarProviderApiRuntime().resolveOAuthAccessToken({
       provider: "google_calendar",
@@ -74,26 +79,6 @@ async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | n
     );
   }
   return { email: credential.accountId, accessToken: credential.accessToken };
-}
-
-/**
- * A workspace connection can be registered and marked "connected" while its
- * token still can't be resolved (revoked, mid-authorization, misconfigured
- * credential). Callers that only need a yes/no read of connection status must
- * see that as "not connected", not as a thrown error — otherwise a single
- * flaky managed-token resolution turns every read action (list-events
- * included) into a 500 instead of the same not-connected state the UI already
- * shows.
- */
-async function resolveManagedCalendarClientOrNull(): Promise<ManagedCalendarClient | null> {
-  try {
-    return await resolveManagedCalendarClient();
-  } catch {
-    // coercion-ok: null is the same typed "not connected" result callers
-    // already get for "no managed connection configured" - isConnected and
-    // getConnectedAccounts never distinguish it from a genuine read success.
-    return null;
-  }
 }
 
 const SCOPES = [
@@ -1003,7 +988,7 @@ export async function getClientsForAccountsWithErrors(
   accountEmails?: string[],
 ): Promise<{
   clients: Array<{ email: string; accessToken: string }>;
-  errors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; code?: string }>;
   requestedAccounts: string[];
   resolvedAccounts: string[];
 }> {
@@ -1020,24 +1005,25 @@ export async function getClientsForAccountsWithErrors(
   );
   if (accounts.length === 0) {
     let managed: ManagedCalendarClient | null = null;
-    let managedError: string | undefined;
+    let managedError: { error: string; code?: string } | undefined;
     try {
       managed = await resolveManagedCalendarClient();
     } catch (err: any) {
-      managedError =
-        err?.message || "Workspace Google Calendar connection failed";
+      const code = googleReadErrorCode(err);
+      managedError = {
+        error: err?.message || "Workspace Google Calendar connection failed",
+        ...(code ? { code } : {}),
+      };
     }
     if (!managed) {
-      if (accountEmails?.length) {
+      if (accountEmails?.length && !managedError) {
         throw new Error(
           `Google Calendar account not connected for this user: ${accountEmails.join(", ")}`,
         );
       }
       return {
         clients: [],
-        errors: managedError
-          ? [{ email: "workspace", error: managedError }]
-          : [],
+        errors: managedError ? [{ email: "workspace", ...managedError }] : [],
         requestedAccounts: [],
         resolvedAccounts: [],
       };
@@ -1086,7 +1072,7 @@ export async function getClientsForAccountsWithErrors(
   }
   const selected = requestedAccounts.map((email) => byNormalized.get(email)!);
   const clients: Array<{ email: string; accessToken: string }> = [];
-  const errors: Array<{ email: string; error: string }> = [];
+  const errors: Array<{ email: string; error: string; code?: string }> = [];
   await mapWithConcurrency(selected, async (account) => {
     try {
       const accessToken = await getValidAccessToken(
@@ -1096,9 +1082,11 @@ export async function getClientsForAccountsWithErrors(
       );
       clients.push({ email: account.accountId, accessToken });
     } catch (err: any) {
+      const code = googleReadErrorCode(err);
       errors.push({
         email: account.accountId,
         error: err?.message || "Unknown refresh error",
+        ...(code ? { code } : {}),
       });
     }
   });
@@ -1185,17 +1173,20 @@ export async function resolveGoogleCalendarSource(
   return source;
 }
 
-function googleReadErrorCode(error: unknown): string {
-  if (!(error instanceof GoogleApiError)) return "PROVIDER_READ_FAILED";
+function googleReadErrorCode(error: unknown): string | undefined {
+  if (!(error instanceof GoogleApiError)) return undefined;
   if (
     error.status === 429 ||
     (error.status === 403 &&
-      ["rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"].includes(
-        error.reason ?? "",
-      ))
+      [
+        "rateLimitExceeded",
+        "userRateLimitExceeded",
+        "quotaExceeded",
+        "rate_limit_exceeded",
+      ].includes(error.reason ?? ""))
   )
     return "RATE_LIMITED";
-  return error.status === 401 ? "AUTH_REQUIRED" : "PROVIDER_READ_FAILED";
+  return error.status === 401 ? "AUTH_REQUIRED" : undefined;
 }
 
 export async function listGoogleCalendars(forEmail?: string): Promise<{
@@ -1248,9 +1239,10 @@ export async function listGoogleCalendars(forEmail?: string): Promise<{
           ];
         });
     } catch (error: any) {
+      const code = googleReadErrorCode(error);
       errors.push({
         email: client.email,
-        code: googleReadErrorCode(error),
+        ...(code ? { code } : {}),
         error: error?.message || "Unable to list Google calendars",
       });
       return [];
@@ -1288,7 +1280,7 @@ export async function isConnected(forEmail?: string): Promise<boolean> {
   if (!forEmail) return false;
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
   if (accounts.some((account) => hasCalendarScope(account.tokens))) return true;
-  return Boolean(await resolveManagedCalendarClientOrNull());
+  return hasManagedCalendarConnection();
 }
 
 export async function getConnectedAccounts(
@@ -1299,7 +1291,7 @@ export async function getConnectedAccounts(
     (account) => hasCalendarScope(account.tokens),
   );
   if (accounts.length > 0) return accounts.map((a) => a.accountId);
-  const managed = await resolveManagedCalendarClientOrNull();
+  const managed = await resolveManagedCalendarClient();
   return managed ? [managed.email] : [];
 }
 
@@ -1339,7 +1331,7 @@ export async function getAuthStatus(
   );
 
   if (oauthAccounts.length === 0) {
-    const managed = await resolveManagedCalendarClientOrNull();
+    const managed = await resolveManagedCalendarClient();
     return managed
       ? { connected: true, accounts: [{ email: managed.email, shared: true }] }
       : { connected: false, accounts: [] };
@@ -1414,6 +1406,7 @@ export async function listEvents(
     accountEmails?: string[];
     calendarSourceKeys?: string[];
     maxResults?: number;
+    incremental?: boolean;
   } = {},
 ): Promise<{
   events: CalendarEvent[];
@@ -1504,8 +1497,28 @@ export async function listEvents(
         const sources = selectedSourcesByAccount.size
           ? (selectedSourcesByAccount.get(email.trim().toLowerCase()) ?? [])
           : [undefined];
+        const preloaded =
+          options.incremental && forEmail
+            ? await Promise.allSettled(
+                sources.map((source) =>
+                  source?.accessRole === "freeBusyReader"
+                    ? Promise.resolve([])
+                    : listSyncedGoogleEvents({
+                        owner: forEmail,
+                        orgId: getRequestOrgId() ?? undefined,
+                        account: email,
+                        accessToken,
+                        calendarId: source?.calendarId ?? "primary",
+                        timeMin,
+                        timeMax,
+                        eventTypes: LIST_EVENT_TYPES,
+                        maxResults: options.maxResults ?? 2500,
+                      }),
+                ),
+              )
+            : null;
         const events: any[] = [];
-        for (const source of sources) {
+        for (const [index, source] of sources.entries()) {
           if (source?.accessRole === "freeBusyReader") {
             errors.push({
               email,
@@ -1514,6 +1527,21 @@ export async function listEvents(
             continue;
           }
           try {
+            if (preloaded) {
+              const result = preloaded.find(
+                (_, position) => position === index,
+              );
+              if (!result)
+                throw new Error("Google Calendar batch response is incomplete");
+              if (result.status === "rejected") throw result.reason;
+              events.push(
+                ...result.value.map((event) => ({
+                  ...event,
+                  __calendarSource: source,
+                })),
+              );
+              continue;
+            }
             let pageToken: string | undefined;
             do {
               const response = await calendarListEvents(
@@ -1541,9 +1569,10 @@ export async function listEvents(
                   : undefined;
             } while (pageToken);
           } catch (error: any) {
+            const code = googleReadErrorCode(error);
             errors.push({
               email,
-              code: googleReadErrorCode(error),
+              ...(code ? { code } : {}),
               error: source
                 ? `Unable to read Google Calendar source ${source.name} (${source.calendarId}): ${error?.message || "Unknown provider error"}`
                 : error?.message || "Unable to load Google Calendar events",
@@ -1771,14 +1800,14 @@ export async function listOverlayEvents(
   timeMax: string,
   overlayEmails: string[],
   forEmail?: string,
-  options: { accountEmails?: string[] } = {},
+  options: { accountEmails?: string[]; incremental?: boolean } = {},
 ): Promise<{
   events: CalendarEvent[];
-  errors: Array<{ email: string; error: string }>;
-  accountErrors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; code?: string }>;
+  accountErrors: Array<{ email: string; error: string; code?: string }>;
 }> {
   let clients: Array<{ email: string; accessToken: string }>;
-  let refreshErrors: Array<{ email: string; error: string }>;
+  let refreshErrors: Array<{ email: string; error: string; code?: string }>;
   try {
     const resolved = await getClientsForAccountsWithErrors(
       forEmail,
@@ -1794,13 +1823,17 @@ export async function listOverlayEvents(
       accountErrors: [{ email: forEmail ?? "google", error: message }],
     };
   }
-  const errors: Array<{ email: string; error: string }> = [];
+  const errors: Array<{ email: string; error: string; code?: string }> = [];
   if (clients.length === 0) {
     const message =
       refreshErrors[0]?.error ?? "Google Calendar is not connected";
     return {
       events: [],
-      errors: overlayEmails.map((email) => ({ email, error: message })),
+      errors: overlayEmails.map((email) => ({
+        email,
+        error: message,
+        ...(refreshErrors[0]?.code ? { code: refreshErrors[0].code } : {}),
+      })),
       accountErrors: refreshErrors,
     };
   }
@@ -1808,26 +1841,43 @@ export async function listOverlayEvents(
   const allResults = await Promise.all(
     overlayEmails.map(async (overlayEmail) => {
       const accessErrors: string[] = [];
+      const failureCodes: string[] = [];
       for (const client of clients) {
         try {
           const events: any[] = [];
-          let pageToken: string | undefined;
-          do {
-            const response = await calendarListEvents(
-              client.accessToken,
-              overlayEmail,
-              {
+          if (options.incremental && forEmail) {
+            events.push(
+              ...(await listSyncedGoogleEvents({
+                owner: forEmail,
+                orgId: getRequestOrgId() ?? undefined,
+                account: client.email,
+                accessToken: client.accessToken,
+                calendarId: overlayEmail,
                 timeMin,
                 timeMax,
-                singleEvents: true,
-                orderBy: "startTime",
                 eventTypes: LIST_EVENT_TYPES,
-                pageToken,
-              },
+                maxResults: 2500,
+              })),
             );
-            events.push(...(response.items || []));
-            pageToken = response.nextPageToken;
-          } while (pageToken);
+          } else {
+            let pageToken: string | undefined;
+            do {
+              const response = await calendarListEvents(
+                client.accessToken,
+                overlayEmail,
+                {
+                  timeMin,
+                  timeMax,
+                  singleEvents: true,
+                  orderBy: "startTime",
+                  eventTypes: LIST_EVENT_TYPES,
+                  pageToken,
+                },
+              );
+              events.push(...(response.items || []));
+              pageToken = response.nextPageToken;
+            } while (pageToken);
+          }
           return events.map((event: any) => ({
             id: `overlay-${overlayEmail}-${event.id}`,
             title: event.summary || "Busy",
@@ -1853,6 +1903,8 @@ export async function listOverlayEvents(
             updatedAt: event.updated || new Date().toISOString(),
           }));
         } catch (error: any) {
+          const code = googleReadErrorCode(error);
+          if (code) failureCodes.push(code);
           const message = error?.message || "Unable to read overlay calendar";
           console.error(
             `[listOverlayEvents] Error fetching ${overlayEmail} via ${client.email}:`,
@@ -1865,6 +1917,11 @@ export async function listOverlayEvents(
       errors.push({
         email: overlayEmail,
         error: `No selected Google account could read this overlay (${accessErrors.join("; ")})`,
+        ...(failureCodes.includes("RATE_LIMITED")
+          ? { code: "RATE_LIMITED" }
+          : failureCodes.includes("AUTH_REQUIRED")
+            ? { code: "AUTH_REQUIRED" }
+            : {}),
       });
       return [];
     }),

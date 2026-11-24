@@ -3,7 +3,7 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 export default {
   common: {
     calendarRateLimited:
-      "Google Agenda limite les requêtes. Les événements enregistrés sont affichés si disponibles ; une nouvelle tentative sera effectuée automatiquement.",
+      "Google Agenda limite les requêtes. Les événements enregistrés peuvent ne pas être à jour.",
     connect: "Connecter",
     connected: "Connecté",
     connecting: "Connexion...",

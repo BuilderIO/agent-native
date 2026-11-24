@@ -3,6 +3,10 @@ import type { GoogleCalendarSource } from "@shared/api";
 import { useQuery } from "@tanstack/react-query";
 
 import {
+  calendarReadRetryDelay,
+  shouldRetryCalendarRead,
+} from "@/lib/calendar-read-retry";
+import {
   isSharedCalendarDemo,
   SHARED_CALENDAR_DEMO_SOURCES,
 } from "@/lib/shared-calendar-demo";
@@ -15,10 +19,11 @@ export function useGoogleCalendars(options?: { enabled?: boolean }) {
     errors: Array<{ email: string; error: string }>;
   }>(
     "list-google-calendars",
-    {},
+    { strict: true },
     {
       enabled: enabled && !demo,
-      retry: false,
+      retry: shouldRetryCalendarRead,
+      retryDelay: calendarReadRetryDelay,
       staleTime: 30_000,
     },
   );

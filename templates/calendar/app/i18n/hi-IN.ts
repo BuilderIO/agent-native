@@ -3,7 +3,7 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 export default {
   common: {
     calendarRateLimited:
-      "Google Calendar ने अनुरोध सीमित कर दिए हैं। उपलब्ध होने पर सहेजे गए इवेंट दिखाए जाते हैं; अपने आप फिर कोशिश की जाएगी।",
+      "Google Calendar ने अनुरोध सीमित कर दिए हैं। सहेजे गए इवेंट पुराने हो सकते हैं।",
     connect: "कनेक्ट करें",
     connected: "कनेक्टेड",
     connecting: "कनेक्ट कर रहे हैं...",

@@ -3,7 +3,7 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 export default {
   common: {
     calendarRateLimited:
-      "Google カレンダーのリクエストが制限されています。保存済みの予定があれば表示し、自動的に再試行します。",
+      "Google カレンダーのリクエストが制限されています。保存済みの予定は最新でない可能性があります。",
     connect: "接続",
     connected: "接続済み",
     connecting: "接続中...",
