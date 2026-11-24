@@ -280,6 +280,14 @@ export interface LabelTreeRow {
   displayName: string;
 }
 
+export function sidebarLabelTabs<
+  T extends { pinnedId?: string; filterId?: string },
+>(tabs: readonly T[]): T[] {
+  return tabs.filter(
+    (tab) => tab.pinnedId !== undefined || tab.filterId !== undefined,
+  );
+}
+
 export function labelTreeRows(labels: readonly Label[]): LabelTreeRow[] {
   return [...labels]
     .sort((a, b) =>
@@ -331,6 +339,10 @@ const collapsibleViews = [
   { id: "drafts", labelKey: "mail.views.drafts" },
   { id: "archive", labelKey: "mail.views.archive" },
   { id: "trash", labelKey: "mail.views.trash" },
+];
+const headerOnlyViews = [
+  { id: "snoozed", labelKey: "mail.views.snoozed" },
+  { id: "scheduled", labelKey: "mail.views.scheduled" },
 ];
 const filteredView = {
   id: AI_FILTER_LABEL,
@@ -834,7 +846,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const sidebarLabels = useMemo<MailSidebarLabel[]>(
     () =>
-      dataTabs.map((tab) => ({
+      sidebarLabelTabs(dataTabs).map((tab) => ({
         id: tab.id,
         href: tab.href,
         label: tab.label,
@@ -848,13 +860,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
 
   // Is current view one of the hidden ones? If so force-show it
-  const currentHiddenView = hiddenViews.find(
-    (v) =>
-      v.id === view ||
-      (v.id === AI_FILTER_LABEL &&
-        view === "all" &&
-        activeLabel === AI_FILTER_LABEL),
-  );
+  const currentHiddenView =
+    hiddenViews.find(
+      (v) =>
+        v.id === view ||
+        (v.id === AI_FILTER_LABEL &&
+          view === "all" &&
+          activeLabel === AI_FILTER_LABEL),
+    ) ?? headerOnlyViews.find((v) => v.id === view);
   const currentInHidden = currentHiddenView !== undefined;
 
   const userLabels = useMemo(() => {
