@@ -142,7 +142,7 @@ describe("move-document linked folders", () => {
       const id = await linkedFile({ path: "notes/today.md", parentId });
       await expect(
         runWithRequestContext({ userEmail: OWNER }, () =>
-          moveDocumentAction.run({ id, parentId: target } as any),
+          moveDocumentAction.run({ id, parentId: target }),
         ),
       ).rejects.toMatchObject({ errorCode: "LOCAL_FOLDER_FILE_MOVE" });
       const [saved] = await getDb()
@@ -157,7 +157,7 @@ describe("move-document linked folders", () => {
     const target = await createDocument({});
     const nested = await linkedFile({ path: "notes/today.md" });
     await runWithRequestContext({ userEmail: OWNER }, () =>
-      moveDocumentAction.run({ id: nested, position: 0 } as any),
+      moveDocumentAction.run({ id: nested, position: 0 }),
     );
     for (const args of [
       { path: "readme.md" },
@@ -170,7 +170,7 @@ describe("move-document linked folders", () => {
     ]) {
       const id = await linkedFile(args);
       await runWithRequestContext({ userEmail: OWNER }, () =>
-        moveDocumentAction.run({ id, parentId: target } as any),
+        moveDocumentAction.run({ id, parentId: target }),
       );
       const [saved] = await getDb()
         .select()

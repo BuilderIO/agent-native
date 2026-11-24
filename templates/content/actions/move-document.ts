@@ -408,13 +408,15 @@ export default defineAction({
             args.parentId !== undefined &&
             args.parentId !== current.parentId
           ) {
-            const [linked] = await tx
-              .select({ id: schema.documents.id })
-              .from(schema.documents)
-              .where(
-                and(eq(schema.documents.id, id), linkedNestedLocalFile(tx)),
-              )
-              .limit(1);
+            const linked = (
+              await tx
+                .select({ id: schema.documents.id })
+                .from(schema.documents)
+                .where(
+                  and(eq(schema.documents.id, id), linkedNestedLocalFile(tx)),
+                )
+                .limit(1)
+            ).at(0);
             if (linked) {
               throw new ActionContractError(
                 "This page follows a file in a local subfolder, so it stays in that folder.",
