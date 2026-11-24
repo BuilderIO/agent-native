@@ -109,7 +109,7 @@ jobs:
           '
 
       - name: Run signed-in Labs smoke test
-        run: node --experimental-strip-types e2e/labs/labs-qa-smoke.ts
+        run: pnpm exec tsx e2e/labs/labs-qa-smoke.ts
 
       - name: Upload screenshots
         if: always()
