@@ -1,5 +1,11 @@
 # @agent-native/recap-cli
 
+## 0.5.108
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.107
 
 ### Patch Changes
@@ -627,12 +633,6 @@
   error the other way), and `parseOpenAiCompatibleUsage` was already correct.
 
 ## 0.5.9
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-
-## 0.5.8
 
 ### Patch Changes
 
