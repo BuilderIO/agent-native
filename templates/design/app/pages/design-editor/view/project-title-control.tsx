@@ -38,6 +38,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
 import type { EditorCore } from "../domains/use-editor-core";
@@ -218,14 +223,21 @@ function ProjectTitleControl({
 
   if (titleEditing && canEditDesign) {
     return (
-      <Input
-        autoFocus
-        value={titleDraft}
-        onChange={(e) => setTitleDraft(e.target.value)}
-        onBlur={commitTitleEdit}
-        onKeyDown={handleTitleInputKeyDown}
-        className="-mx-1 h-7 min-w-0 flex-1 border-transparent bg-[var(--design-editor-panel-raised-bg)] px-1 py-0 text-[13px] font-medium text-foreground shadow-none ring-offset-0 focus-visible:border-[var(--design-editor-control-border)] focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0"
-      />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Input
+            autoFocus
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={commitTitleEdit}
+            onKeyDown={handleTitleInputKeyDown}
+            className="-mx-1 h-7 min-w-0 flex-1 border-transparent bg-[var(--design-editor-panel-raised-bg)] px-1 py-0 text-[13px] font-medium text-foreground shadow-none ring-offset-0 focus-visible:border-[var(--design-editor-control-border)] focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0"
+          />
+        </TooltipTrigger>
+        <TooltipContent className="max-w-sm break-words">
+          <span>{titleDraft}</span>
+        </TooltipContent>
+      </Tooltip>
     );
   }
 
@@ -239,9 +251,19 @@ function ProjectTitleControl({
   if (!canEditDesign) {
     if (briefs.length === 0) {
       return (
-        <span className="-mx-1 block truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90">
-          {design.title}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              tabIndex={0}
+              className="-mx-1 block truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90"
+            >
+              {design.title}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-sm break-words">
+            <span>{design.title}</span>
+          </TooltipContent>
+        </Tooltip>
       );
     }
     // People who can only view the design get a menu with just the pages it
@@ -250,15 +272,22 @@ function ProjectTitleControl({
       <>
         {briefPrefetches}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="-mx-1 flex min-w-0 max-w-full cursor-pointer items-center gap-1 self-start rounded px-1 text-left text-[13px] font-medium text-foreground/90 hover:bg-accent/50"
-            >
-              <span className="truncate">{design.title}</span>
-              <IconChevronDown className="size-3 shrink-0" />
-            </button>
-          </DropdownMenuTrigger>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="-mx-1 flex min-w-0 max-w-full cursor-pointer items-center gap-1 self-start rounded px-1 text-left text-[13px] font-medium text-foreground/90 hover:bg-accent/50"
+                >
+                  <span className="truncate">{design.title}</span>
+                  <IconChevronDown className="size-3 shrink-0" />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-sm break-words">
+              <span>{design.title}</span>
+            </TooltipContent>
+          </Tooltip>
           <DropdownMenuContent
             align="start"
             className="design-editor-app-menu-content w-[220px]"
@@ -274,15 +303,22 @@ function ProjectTitleControl({
     <>
       {briefPrefetches}
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="-mx-1 flex min-w-0 max-w-full cursor-pointer items-center gap-1 self-start rounded px-1 text-left text-xs leading-4 text-foreground hover:bg-accent/50"
-          >
-            <span className="truncate">{design.title}</span>
-            <IconChevronDown className="size-3 shrink-0" />
-          </button>
-        </DropdownMenuTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="-mx-1 flex min-w-0 max-w-full cursor-pointer items-center gap-1 self-start rounded px-1 text-left text-xs leading-4 text-foreground hover:bg-accent/50"
+              >
+                <span className="truncate">{design.title}</span>
+                <IconChevronDown className="size-3 shrink-0" />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-sm break-words">
+            <span>{design.title}</span>
+          </TooltipContent>
+        </Tooltip>
         <DropdownMenuContent
           align="start"
           className="design-editor-app-menu-content w-[220px]"

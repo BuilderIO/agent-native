@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import tailwindcss from "@tailwindcss/vite";
 import { chromium, type Browser, type Locator } from "playwright";
@@ -78,7 +78,25 @@ async function expectEllipsis(titleElement: Locator) {
 beforeAll(async () => {
   vite = await createServer({
     configFile: false,
-    plugins: [tailwindcss()],
+    plugins: [
+      {
+        name: "title-layout-styles",
+        enforce: "pre",
+        load(id) {
+          if (!id.endsWith("/app/global.css")) return;
+          return readFileSync(id, "utf8")
+            .replace(
+              '@import "tailwindcss";',
+              '@import "tailwindcss" source(none);',
+            )
+            .replace(
+              '@source "./**/*.{ts,tsx}";',
+              '@source "./pages/design-editor/view/left-sidebar.tsx";\n@source "./pages/design-editor/view/project-title-control.tsx";\n@source "./components/ui/input.tsx";',
+            );
+        },
+      },
+      tailwindcss(),
+    ],
     server: { middlewareMode: true },
     appType: "custom",
   });
@@ -180,6 +198,15 @@ describe("Design left header title", () => {
         expect(titleBox.width).toBeGreaterThan(0);
         expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(toggleBox.x);
         if (!editing) await expectEllipsis(titleElement);
+        const trigger = editing
+          ? titleElement
+          : titleElement.locator("xpath=ancestor-or-self::*[@data-state][1]");
+        expect(await trigger.getAttribute("data-state")).not.toBeNull();
+        expect(
+          await trigger.evaluate(
+            (element) => (element as HTMLElement).tabIndex,
+          ),
+        ).toBeGreaterThanOrEqual(0);
       } finally {
         await page.close();
       }
