@@ -3186,10 +3186,15 @@ describe("design connect bridge endpoints", () => {
     const endings = ["\r", "\r\n", "\n", "\u2028", "\u2029"];
     const devPort = await freePort();
     const requests: string[] = [];
+    const unrelated = `// import('./comment.js')\nconst text = "import('./string.js')";\nexport { text };`;
     const dev = http.createServer((req, res) => {
       const url = req.url ?? "";
       requests.push(url);
-      if (url === "/stress.js") {
+      if (url === "/unrelated.js") {
+        res
+          .writeHead(200, { "content-type": "text/javascript" })
+          .end(unrelated);
+      } else if (url === "/stress.js") {
         res
           .writeHead(200, { "content-type": "text/javascript" })
           .end(`import(${"/*a*/".repeat(200)}nonliteral);`);
@@ -3248,6 +3253,11 @@ describe("design connect bridge endpoints", () => {
         .toBe("0,1,2,3,4");
       for (let index = 0; index < endings.length; index++)
         expect(requests).toContain(`/dep${index}.js?mode=${index}`);
+      const untouched = await getText(
+        `http://127.0.0.1:${port}/unrelated.js?previewToken=${bridge.previewToken}`,
+      );
+      expect(untouched.status).toBe(200);
+      expect(untouched.body).toBe(unrelated);
       const stress = await getText(
         `http://127.0.0.1:${port}/stress.js?previewToken=${bridge.previewToken}`,
       );
