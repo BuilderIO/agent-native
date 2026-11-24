@@ -77,6 +77,7 @@ const REASON_VALUES = [
   "builder_editor_changes",
   "checking_last_save",
   "another_save_running",
+  "builder_body_unread",
   "published",
   "needs_review",
   "edit_conflict",
@@ -733,7 +734,7 @@ export interface BuilderArticleAutosaveDeps {
     database: DatabaseRecord;
     sourceId: string;
     documentId: string;
-    pendingBodyDocumentIds: Set<string>;
+    unreadBodyDocumentIds: Set<string>;
   }) => Promise<ContentDatabaseSource | null>;
   prepareReview: (args: {
     databaseId: string;
@@ -830,12 +831,12 @@ async function saveArticle(args: {
 }): Promise<SaveOutcome> {
   const { database, row, deps } = args;
   const { sourceId } = row;
-  const pendingBodyDocumentIds = new Set<string>();
+  const unreadBodyDocumentIds = new Set<string>();
   const snapshot = await deps.getSourceSnapshot({
     database,
     sourceId,
     documentId: row.documentId,
-    pendingBodyDocumentIds,
+    unreadBodyDocumentIds,
   });
   if (!snapshot || snapshot.sourceType !== "builder-cms") {
     return {
@@ -888,11 +889,13 @@ async function saveArticle(args: {
       !hasExecution(candidate, ["succeeded"]),
   );
   const changeSet = firstOf(pending);
-  const moreToSave =
-    pending.length > 1 || pendingBodyDocumentIds.has(row.documentId);
+  const bodyUnread = unreadBodyDocumentIds.has(row.documentId);
   if (!changeSet) {
-    return { state: row.record?.lastSavedAt ? "saved" : "idle", moreToSave };
+    return bodyUnread
+      ? { state: "waiting", reason: "builder_body_unread" }
+      : { state: row.record?.lastSavedAt ? "saved" : "idle" };
   }
+  const moreToSave = pending.length > 1 || bodyUnread;
   const sourceRow = snapshot.rows.find(
     (candidate) => candidate.documentId === row.documentId,
   );

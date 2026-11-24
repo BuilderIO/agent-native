@@ -4401,6 +4401,10 @@ export async function builderBodyChangeForLocalContent(args: {
     return null;
   }
   const currentBodyExcerpt = liveBaseline ? null : bodyExcerpt(currentContent);
+  const emptyBaseline: Pick<ContentDatabaseSourceBodyChange, "currentEmpty"> =
+    !liveBaseline && !currentHash && builderCmsBodyKnownEmpty(sourceValues)
+      ? { currentEmpty: true }
+      : {};
 
   if (args.comparison === "text") {
     args.onNeedsBlocks?.();
@@ -4425,6 +4429,7 @@ export async function builderBodyChangeForLocalContent(args: {
       sidecarsJson,
       warnings: [],
       textOnly: true,
+      ...emptyBaseline,
     };
   }
 
@@ -4494,6 +4499,7 @@ export async function builderBodyChangeForLocalContent(args: {
       proposedBlocksJson: proposed.blocksJson,
       sidecarsJson,
       warnings: proposed.warnings,
+      ...emptyBaseline,
     };
   } catch (error) {
     const message =
@@ -4589,6 +4595,26 @@ export async function builderBodyChangeForUnsourcedLocalCreate(args: {
   }
 }
 
+function builderBodyDiffersFromStored(
+  row: { sourceValuesJson: string },
+  localContent: string | null | undefined,
+) {
+  const sourceValues =
+    parseObject<Record<string, DocumentPropertyValue>>(row.sourceValuesJson) ??
+    {};
+  const local = normalizeBuilderBodyBaselineContent(localContent);
+  const lossless = normalizeBuilderBodyBaselineContent(
+    stringSourceValue(sourceValues, BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY),
+  );
+  return (
+    local !==
+      normalizeBuilderBodyBaselineContent(
+        stringSourceValue(sourceValues, BUILDER_CMS_BODY_CONTENT_KEY),
+      ) &&
+    (!lossless || local !== lossless)
+  );
+}
+
 export async function builderBodyChangeForSourceSnapshotDocument(args: {
   row?: {
     documentId: string;
@@ -4604,6 +4630,7 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
   liveBaseline?: { blocksHash: string | null; bodyEmpty: boolean } | null;
   comparison?: "text" | "blocks";
   onNeedsBlocks?: () => void;
+  onBodyUnread?: () => void;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   if (args.row) {
     const identity = builderCmsSourceRowIdentityState({ row: args.row });
@@ -4614,7 +4641,12 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
         onNeedsBlocks: args.onNeedsBlocks,
       });
     }
-    if (!args.isHydrated) return null;
+    if (!args.isHydrated) {
+      if (builderBodyDiffersFromStored(args.row, args.localContent)) {
+        args.onBodyUnread?.();
+      }
+      return null;
+    }
     return builderBodyChangeForLocalContent({
       row: args.row,
       localContent: args.localContent,
@@ -5114,7 +5146,7 @@ export async function getContentDatabaseSourceSnapshotById(
 export type BuilderReviewBodyComparisonOptions = {
   builderBodyComparison?: "text" | "blocks";
   blocksCheckDocumentIds?: Set<string>;
-  pendingBodyDocumentIds?: Set<string>;
+  unreadBodyDocumentIds?: Set<string>;
 };
 
 export async function getContentDatabaseSourceSnapshotForWrite(
@@ -6000,15 +6032,6 @@ async function loadSourceSnapshot(
         item.bodyHydrationVersion,
       ]),
     );
-    for (const item of databaseItemRows) {
-      if (
-        (item.bodyHydrationStatus === "pending" ||
-          item.bodyHydrationStatus === "hydrating") &&
-        sourceRowByDocumentId.has(item.documentId)
-      ) {
-        options.pendingBodyDocumentIds?.add(item.documentId);
-      }
-    }
     await Promise.all(
       allDocumentIds.map(async (documentId) => {
         const row = sourceRowByDocumentId.get(documentId);
@@ -6034,6 +6057,7 @@ async function loadSourceSnapshot(
               : null,
           comparison: options.builderBodyComparison,
           onNeedsBlocks: () => options.blocksCheckDocumentIds?.add(documentId),
+          onBodyUnread: () => options.unreadBodyDocumentIds?.add(documentId),
         });
         if (bodyChange) bodyChangeByDocumentId.set(documentId, bodyChange);
       }),

@@ -812,10 +812,7 @@ function livePreflightBlockMessage(args: {
     }
   }
   const reviewedBodyEmpty =
-    written.wroteBody &&
-    !!args.bodyChange &&
-    !baselineBlocksHash &&
-    !args.bodyChange.currentExcerpt;
+    written.wroteBody && args.bodyChange?.currentEmpty === true;
   if (
     (baselineBlocksHash || reviewedBodyEmpty) &&
     args.liveState.blocksHash &&

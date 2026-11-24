@@ -31,13 +31,13 @@ export function realBuilderArticleAutosaveDeps(): BuilderArticleAutosaveDeps {
       database,
       sourceId,
       documentId,
-      pendingBodyDocumentIds,
+      unreadBodyDocumentIds,
     }) =>
       getContentDatabaseSourceSnapshotForWrite(
         database,
         sourceId,
         [documentId],
-        { pendingBodyDocumentIds },
+        { unreadBodyDocumentIds },
       ),
     prepareReview: async (args) => prepareBuilderSourceReview.run(args),
     execute: (args) =>

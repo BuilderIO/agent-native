@@ -44,6 +44,7 @@ const REASON_KEYS: Record<BuilderArticleAutosaveReason, string> = {
   builder_editor_changes: "builderAutosave.reasonBuilderEditorChanges",
   checking_last_save: "builderAutosave.reasonCheckingLastSave",
   another_save_running: "builderAutosave.reasonAnotherSaveRunning",
+  builder_body_unread: "builderAutosave.reasonBuilderBodyUnread",
   published: "builderAutosave.reasonPublished",
   needs_review: "builderAutosave.reasonNeedsReview",
   edit_conflict: "builderAutosave.reasonEditConflict",

@@ -472,6 +472,18 @@ describe("builderAutosaveView", () => {
     });
     expect(
       builderAutosaveView(
+        status({ state: "waiting", reason: "builder_body_unread" }),
+        false,
+        t,
+      ),
+    ).toMatchObject({
+      tone: "waiting",
+      label: "builderAutosave.stateWaiting",
+      detail: "builderAutosave.reasonBuilderBodyUnread",
+      canRetry: false,
+    });
+    expect(
+      builderAutosaveView(
         status({
           state: "failed",
           reason: "builder_changed",
