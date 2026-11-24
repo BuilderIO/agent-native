@@ -47,7 +47,7 @@ const messages = {
         "Transforme esse padrão em uma regra de importância ou arquivamento automático.",
       priorityFeedbackAskAgent: "Pedir ao agente que sugira regras",
       aiSetupTitle: "Configure sua caixa de entrada com IA",
-      aiSetupTagLabel: "Criar uma etiqueta de IA",
+      aiSetupTagLabel: "Criar um marcador de IA",
       aiSetupImportanceLabel: "Emails importantes",
       aiSetupSpamLabel: "Spam",
       aiSetupArchiveLabel: "Pular caixa de entrada",
@@ -163,7 +163,7 @@ const messages = {
       accounts: "Accounts",
       closeSidebar: "Fechar barra lateral",
       settings: "Configurações",
-      aiSettings: "Gerenciar tags e regras",
+      aiSettings: "Gerenciar marcadores e regras",
     },
     search: {
       label: "Buscar",
@@ -187,7 +187,7 @@ const messages = {
       combinedInbox: "Caixa de entrada combinada",
       allTab: "Aba Todas",
       help: "Mostra as visualizações, marcadores e filtros salvos que você escolheu como abas separadas da caixa de entrada. Desative para ver todos os e-mails da caixa de entrada em uma só aba.",
-      aiSetup: "Configurar tags e regras de IA",
+      aiSetup: "Configurar marcadores e regras de IA",
     },
     accounts: {
       remove: "Remover",
@@ -469,6 +469,7 @@ const messages = {
       tryDifferentKeywords: "Tente palavras-chave diferentes",
       nothingHere: "Nada aqui ainda",
       loadingMore: "Carregando mais...",
+      loadOlder: "Carregar conversas anteriores",
       openAllMailForOlder: "Abrir todo o e-mail para mensagens mais antigas",
     },
     toasts: {
@@ -565,6 +566,8 @@ const messages = {
       tryAgain: "Tentar novamente",
       rateLimitTitle: "Limite de taxa do Gmail atingido",
       loadTitle: "Não foi possível carregar emails",
+      staleSaved:
+        "Não foi possível atualizar o e-mail. Exibindo conversas salvas.",
       rateLimitDescription:
         "Muitas solicitações recentes ao Google. Aguardando um momento antes de tentar novamente.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
@@ -712,23 +715,24 @@ const messages = {
       autoArchiveMode: "Arquivar automaticamente",
       skipInboxMode: "Pular caixa de entrada",
       spamMode: "Spam",
-      tagMode: "Tag",
-      aiTagsTitle: "Tags de IA",
+      tagMode: "Marcador",
+      aiTagsTitle: "Marcadores de IA",
       ruleHelpLabel: "Explicar regras de {{mode}}",
       aiTagRuleHelp:
-        "Escreva uma instrução em linguagem natural. O Jev adiciona esta tag aos e-mails correspondentes.",
+        "Escreva uma instrução em linguagem natural. O Mail adiciona este marcador aos e-mails correspondentes.",
       importantRuleHelp:
-        "Escreva uma instrução em linguagem natural. O Jev marca como importantes os e-mails correspondentes.",
+        "Escreva uma instrução em linguagem natural. O Mail marca como importantes os e-mails correspondentes.",
       skipInboxRuleHelp:
-        "Escreva uma instrução em linguagem natural. O Jev arquiva os e-mails correspondentes para que não apareçam na caixa de entrada.",
+        "Escreva uma instrução em linguagem natural. O Mail arquiva os e-mails correspondentes para que não apareçam na caixa de entrada.",
       spamRuleHelp:
-        "Escreva uma instrução em linguagem natural. O Jev adiciona a etiqueta agent-native-filtered e arquiva os e-mails correspondentes. Isso não é o Spam do Gmail.",
+        "Escreva uma instrução em linguagem natural. O Mail adiciona o marcador agent-native-filtered e arquiva os e-mails correspondentes. Isso não é o Spam do Gmail.",
       filteredMode: "Filtrado",
       manageSettings: "Gerenciar",
-      askJev: "Perguntar ao Jev",
+      askJev: "Perguntar ao agente do Mail",
       askJevPrompt:
         "Ajude a ajustar esta regra do Mail: {{condition}}. Pergunte o que quero mudar e depois atualize a regra.",
-      composerPlaceholder: "Peça ao Jev para organizar sua caixa de entrada…",
+      composerPlaceholder:
+        "Peça ao agente do Mail para organizar sua caixa de entrada…",
       chatSuggestionFilter: "Filtrar mensagens como esta",
       chatSuggestionPriority: "Priorizar e-mails de…",
       chatSuggestionArchive: "Arquivar notificações de bots automaticamente",
@@ -761,7 +765,7 @@ const messages = {
         "ex.: mensagens que precisam de resposta ou têm prazo",
       ruleAdded: "Regra de IA adicionada.",
       instructionHelp: "Use linguagem natural",
-      tagNamePlaceholder: "Nome da tag",
+      tagNamePlaceholder: "Nome do marcador",
       spamLabelHint:
         "As correspondências recebem uma etiqueta e saem da Caixa de entrada.",
       spamPlaceholder: "ex.: mensagens claramente promocionais ou indesejadas",
@@ -792,8 +796,8 @@ const messages = {
       previewEmpty: "Execute uma prévia para ver possíveis correspondências.",
       previewFailed: "Não foi possível visualizar os emails recentes.",
       promptRulesCleared: "Regras de triagem removidas.",
-      tagTabsHelp: "Cada tag se torna uma aba da caixa de entrada",
-      addTag: "Adicionar tag",
+      tagTabsHelp: "Cada marcador se torna uma aba da caixa de entrada",
+      addTag: "Adicionar marcador",
       triageTitle: "Triagem com IA",
       connectJev: "Conectar um provedor de IA",
       connectJevToRunTriage:
@@ -874,7 +878,8 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "Pergunte qualquer coisa sobre seus emails",
+    emptyState:
+      "Sou o agente do Mail. Pergunte sobre seus e-mails ou peça para eu organizá-los.",
     suggestionSummarize: "Resuma meus emails nao lidos",
     suggestionReplies: "O que precisa da minha resposta hoje?",
     suggestionWidget:

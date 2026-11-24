@@ -3114,6 +3114,22 @@ export function createOpenAiAppsChallengeHandler(
   });
 }
 
+/**
+ * Sends a connect popup on to Builder with the waiting page's opener policy.
+ * The framework's own policy would sever a popup that came from that page, and
+ * its opener would read it as closed while the person is still signing in.
+ */
+export function redirectToBuilderAuthorization(
+  event: H3Event,
+  authorizationUrl: string,
+): string {
+  setResponseStatus(event, 302);
+  setResponseHeader(event, "Cache-Control", "no-store");
+  setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
+  setResponseHeader(event, "Location", authorizationUrl);
+  return "";
+}
+
 export function createOAuthPopupWaitingHandler() {
   return defineEventHandler((event: H3Event) => {
     if (getMethod(event) !== "GET") {
@@ -5149,10 +5165,7 @@ export function createCoreRoutesPlugin(
                 !connectTokenOwner || connectTokenOwner === ownerEmail,
             },
           );
-          setResponseStatus(event, 302);
-          setResponseHeader(event, "Cache-Control", "no-store");
-          setResponseHeader(event, "Location", authorizationUrl);
-          return "";
+          return redirectToBuilderAuthorization(event, authorizationUrl);
         }),
       );
 

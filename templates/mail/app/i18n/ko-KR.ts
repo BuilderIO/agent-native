@@ -47,7 +47,7 @@ const messages = {
         "이 피드백 패턴을 중요도 또는 자동 보관 규칙으로 만들 수 있습니다.",
       priorityFeedbackAskAgent: "에이전트에 규칙 제안 요청",
       aiSetupTitle: "AI 받은편지함 설정",
-      aiSetupTagLabel: "AI 태그 만들기",
+      aiSetupTagLabel: "AI 라벨 만들기",
       aiSetupImportanceLabel: "중요한 메일",
       aiSetupSpamLabel: "스팸",
       aiSetupArchiveLabel: "받은편지함 건너뛰기",
@@ -113,7 +113,7 @@ const messages = {
       aiSetupSortInbox: "받은편지함 정리하기",
       aiSetupImportantExample: "상사 Priya(priya@company.com)의 모든 메일…",
       aiSetupTagsDescription:
-        "AI가 조건에 맞는 메일에 태그를 붙이고 받은편지함 옆에 태그별 탭을 만듭니다.",
+        "AI가 조건에 맞는 메일에 라벨을 붙이고 받은편지함 옆에 라벨별 탭을 만듭니다.",
       aiSetupImportantDescription:
         "AI가 조건에 맞는 메일에 중요 라벨을 추가해 중요 탭에 표시합니다.",
       aiSetupSkipInboxDescription:
@@ -151,7 +151,7 @@ const messages = {
       accounts: "Accounts",
       closeSidebar: "사이드바 닫기",
       settings: "설정",
-      aiSettings: "태그 및 규칙 관리",
+      aiSettings: "라벨 및 규칙 관리",
     },
     search: {
       label: "검색",
@@ -175,7 +175,7 @@ const messages = {
       combinedInbox: "통합 받은편지함",
       allTab: "전체 탭",
       help: "선택한 보기, 라벨, 저장된 필터를 받은편지함의 별도 탭으로 표시합니다. 끄면 받은편지함의 모든 메일을 하나의 탭에서 봅니다.",
-      aiSetup: "AI 태그 및 규칙 설정",
+      aiSetup: "AI 라벨 및 규칙 설정",
     },
     accounts: {
       remove: "제거",
@@ -456,6 +456,7 @@ const messages = {
       tryDifferentKeywords: "다른 키워드 시도",
       nothingHere: "아직 아무것도 없습니다",
       loadingMore: "더 불러오는 중...",
+      loadOlder: "이전 대화 불러오기",
       openAllMailForOlder: "이전 메시지는 전체 메일에서 열기",
     },
     toasts: {
@@ -552,6 +553,7 @@ const messages = {
       tryAgain: "다시 시도",
       rateLimitTitle: "Gmail 속도 제한에 도달했습니다",
       loadTitle: "이메일을 불러올 수 없습니다",
+      staleSaved: "메일을 새로고침하지 못했습니다. 저장된 대화를 표시합니다.",
       rateLimitDescription:
         "최근 Google 요청이 너무 많습니다. 잠시 후 다시 시도합니다.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
@@ -695,23 +697,23 @@ const messages = {
       autoArchiveMode: "자동 보관",
       skipInboxMode: "받은편지함 건너뛰기",
       spamMode: "스팸",
-      tagMode: "태그",
-      aiTagsTitle: "AI 태그",
+      tagMode: "라벨",
+      aiTagsTitle: "AI 라벨",
       ruleHelpLabel: "{{mode}} 규칙 설명",
       aiTagRuleHelp:
-        "자연어로 지침을 작성하세요. 일치하는 메일에 이 태그를 추가합니다.",
+        "자연어로 지침을 작성하세요. 일치하는 메일에 이 라벨을 추가합니다.",
       importantRuleHelp:
         "자연어로 지침을 작성하세요. 일치하는 메일을 중요 메일로 표시합니다.",
       skipInboxRuleHelp:
         "자연어로 지침을 작성하세요. 일치하는 메일을 보관해 받은편지함을 건너뜁니다.",
       spamRuleHelp:
-        "자연어로 지침을 작성하세요. Jev는 일치하는 메일에 agent-native-filtered 라벨을 추가하고 보관합니다. Gmail 스팸으로 보내지는 않습니다.",
+        "자연어로 지침을 작성하세요. Mail은 일치하는 메일에 agent-native-filtered 라벨을 추가하고 보관합니다. Gmail 스팸으로 보내지는 않습니다.",
       filteredMode: "필터됨",
       manageSettings: "관리",
-      askJev: "Jev에게 묻기",
+      askJev: "Mail 에이전트에게 묻기",
       askJevPrompt:
         "이 Mail 규칙을 다듬어 주세요: {{condition}}. 무엇을 바꾸고 싶은지 물어본 다음 업데이트해 주세요.",
-      composerPlaceholder: "Jev에게 받은편지함 정리를 요청하세요…",
+      composerPlaceholder: "Mail 에이전트에게 받은편지함 정리를 요청하세요…",
       chatSuggestionFilter: "이런 메시지 필터링",
       chatSuggestionPriority: "다음 발신자의 이메일 우선순위 지정…",
       chatSuggestionArchive: "봇 알림 자동 보관",
@@ -739,7 +741,7 @@ const messages = {
       importantPlaceholder: "예: 답장이 필요하거나 기한이 있는 메시지",
       ruleAdded: "AI 규칙을 추가했습니다.",
       instructionHelp: "자연어로 입력하세요",
-      tagNamePlaceholder: "태그 이름",
+      tagNamePlaceholder: "라벨 이름",
       spamLabelHint:
         "일치하는 메일에 라벨을 지정하고 받은편지함 밖으로 이동합니다.",
       spamPlaceholder: "예: 명백한 홍보성 또는 원치 않는 메시지",
@@ -767,8 +769,8 @@ const messages = {
       previewEmpty: "미리보기를 실행하면 일치 가능성이 표시됩니다.",
       previewFailed: "최근 메일을 미리 보지 못했습니다.",
       promptRulesCleared: "분류 규칙을 삭제했습니다.",
-      tagTabsHelp: "각 태그가 받은편지함 탭이 됩니다",
-      addTag: "태그 추가",
+      tagTabsHelp: "각 라벨이 받은편지함 탭이 됩니다",
+      addTag: "라벨 추가",
       triageTitle: "AI 분류",
       connectJev: "AI 제공자 연결",
       connectJevToRunTriage: "분류를 실행하려면 AI 제공자를 연결하세요",
@@ -846,7 +848,7 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "이메일에 대해 무엇이든 물어보세요",
+    emptyState: "Mail 에이전트입니다. 이메일에 대해 묻거나 정리를 맡겨 보세요.",
     suggestionSummarize: "읽지 않은 이메일 요약하기",
     suggestionReplies: "오늘 답장해야 할 것은 무엇인가요?",
     suggestionWidget: "내 받은편지함용 맞춤 위젯 만들기",

@@ -1874,8 +1874,6 @@ export default {
         "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
       saveConflict:
         "Cette page a été modifiée ailleurs. Votre dernière modification n’a pas été enregistrée.",
-      versionHistoryUnavailable:
-        "L'historique des versions n'est pas disponible pour ce design. Votre modification a quand même été enregistrée.",
       removeAutoLayoutFailed: "Impossible de supprimer l'auto layout",
       autoLayoutScreensUnsupported:
         "L’ajout de la mise en page automatique ne s’applique pas aux pages",

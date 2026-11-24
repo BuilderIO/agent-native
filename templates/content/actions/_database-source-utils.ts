@@ -5187,6 +5187,7 @@ export function builderReviewSourceValueTextProjection(
 async function findBuilderReviewBodyCandidateDocumentIds(args: {
   database: ContentDatabaseRow | ContentDatabase;
   source: ContentDatabaseSourceRowDb;
+  limit?: number;
 }) {
   const sourceRows = schema.contentDatabaseSourceRows;
   const items = schema.contentDatabaseItems;
@@ -5209,13 +5210,9 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
       eq(sourceRows.provenance, BUILDER_CMS_FIXTURE_ROW_PROVENANCE),
     ),
   );
-  const rows = await getDb()
-    .select({
-      documentId: sourceRows.documentId,
-      isSyntheticFixture: sql<boolean>`COALESCE(${isSyntheticFixture}, false)`,
-      localContentDiffers,
-      bodyHydrationVersion: items.bodyHydrationVersion,
-    })
+  const codecSuffix = `:${BUILDER_BODY_HYDRATION_CODEC_VERSION}`;
+  const query = getDb()
+    .select({ documentId: sourceRows.documentId })
     .from(sourceRows)
     .innerJoin(
       items,
@@ -5242,28 +5239,24 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
             or(localContentDiffers, usesCurrentMediaConverter),
           ),
         ),
+        or(
+          isSyntheticFixture,
+          localContentDiffers,
+          isNull(items.bodyHydrationVersion),
+          sql<boolean>`RIGHT(${items.bodyHydrationVersion}, CHAR_LENGTH(${codecSuffix})) <> ${codecSuffix}`,
+        ),
       ),
-    );
-  return rows
-    .filter(
-      (row) =>
-        row.isSyntheticFixture ||
-        row.localContentDiffers ||
-        !row.bodyHydrationVersion ||
-        builderBodyHydrationIsCodecMigration(row.bodyHydrationVersion),
     )
-    .map((row) => row.documentId);
+    .orderBy(asc(sourceRows.createdAt));
+  const rows =
+    args.limit === undefined ? await query : await query.limit(args.limit);
+  return rows.map((row) => row.documentId);
 }
 
-export async function builderReviewDocumentScope(
+async function builderReviewSource(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
-): Promise<{
-  source: ContentDatabaseSourceRowDb;
-  lightweight: ContentDatabaseSource;
-  reviewableChangeSetIds: string[];
-  documentIds: string[] | null;
-} | null> {
+): Promise<ContentDatabaseSourceRowDb | undefined> {
   const db = getDb();
   const [source] = sourceId
     ? await db
@@ -5283,17 +5276,91 @@ export async function builderReviewDocumentScope(
           asc(schema.contentDatabaseSources.createdAt),
           asc(schema.contentDatabaseSources.id),
         );
+  return source;
+}
+
+export function isReviewableBuilderChangeSet(changeSet: {
+  direction: string;
+  state: string;
+}) {
+  return (
+    changeSet.direction === "outbound" &&
+    (changeSet.state === "pending_push" ||
+      changeSet.state === "staged_revision" ||
+      changeSet.state === "approved")
+  );
+}
+
+export async function builderReviewFirstDocumentIds(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId: string | null | undefined,
+  limit: number,
+): Promise<{
+  sourceId: string;
+  sourceTable: string;
+  sourceType: ContentDatabaseSourceType;
+  documentIds: string[];
+} | null> {
+  const source = await builderReviewSource(database, sourceId);
+  if (!source) return null;
+  const found = {
+    sourceId: source.id,
+    sourceTable: source.sourceTable,
+    sourceType: normalizeSourceType(source.sourceType),
+  };
+  const changeSets = await getDb()
+    .select({
+      documentId: schema.contentDatabaseSourceChangeSets.documentId,
+      direction: schema.contentDatabaseSourceChangeSets.direction,
+      state: schema.contentDatabaseSourceChangeSets.state,
+    })
+    .from(schema.contentDatabaseSourceChangeSets)
+    .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id));
+  if (changeSets.some(isReviewableBuilderChangeSet)) {
+    return { ...found, documentIds: [] };
+  }
+  const rejected = new Set(
+    changeSets.flatMap((changeSet) =>
+      changeSet.state === "rejected" && changeSet.documentId
+        ? [changeSet.documentId]
+        : [],
+    ),
+  );
+  const bodyDocumentIds = [
+    ...new Set(
+      await findBuilderReviewBodyCandidateDocumentIds({
+        database,
+        source,
+        limit: limit + rejected.size,
+      }),
+    ),
+  ];
+  return {
+    ...found,
+    documentIds: [
+      ...bodyDocumentIds.filter((documentId) => !rejected.has(documentId)),
+      ...bodyDocumentIds.filter((documentId) => rejected.has(documentId)),
+    ].slice(0, limit),
+  };
+}
+
+export async function builderReviewDocumentScope(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId?: string | null,
+): Promise<{
+  source: ContentDatabaseSourceRowDb;
+  lightweight: ContentDatabaseSource;
+  reviewableChangeSetIds: string[];
+  documentIds: string[] | null;
+} | null> {
+  const source = await builderReviewSource(database, sourceId);
   if (!source) return null;
 
   const lightweight = await loadSourceSnapshot(source, database, {
     includeHeavyBuilderBodyValues: false,
   });
   const reviewableChanges = lightweight.changeSets.filter(
-    (changeSet) =>
-      changeSet.direction === "outbound" &&
-      (changeSet.state === "pending_push" ||
-        changeSet.state === "staged_revision" ||
-        changeSet.state === "approved"),
+    isReviewableBuilderChangeSet,
   );
   const reviewableChangeSetIds = reviewableChanges.map(
     (changeSet) => changeSet.id,
@@ -5313,22 +5380,12 @@ export async function builderReviewDocumentScope(
   if (reviewableChanges.some((changeSet) => !changeSet.documentId)) {
     return { source, lightweight, reviewableChangeSetIds, documentIds: null };
   }
-  const candidateDocumentIds = new Set(
-    reviewableChanges.flatMap((changeSet) =>
+  const candidateDocumentIds = new Set([
+    ...reviewableChanges.flatMap((changeSet) =>
       changeSet.documentId ? [changeSet.documentId] : [],
     ),
-  );
-  const bodyCandidateDocumentIds = new Set(
-    await findBuilderReviewBodyCandidateDocumentIds({ database, source }),
-  );
-  for (const row of lightweight.rows) {
-    if (bodyCandidateDocumentIds.delete(row.documentId)) {
-      candidateDocumentIds.add(row.documentId);
-    }
-  }
-  for (const documentId of bodyCandidateDocumentIds) {
-    candidateDocumentIds.add(documentId);
-  }
+    ...(await findBuilderReviewBodyCandidateDocumentIds({ database, source })),
+  ]);
   return {
     source,
     lightweight,

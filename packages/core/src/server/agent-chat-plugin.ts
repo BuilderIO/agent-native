@@ -355,7 +355,10 @@ import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
 import { loadHostedHarnessConfig } from "./hosted-harness-policy.js";
 import { startIntervalJob } from "./interval-job.js";
-import { isDirectLoopbackRequest } from "./loopback.js";
+import {
+  isDirectLoopbackRequest,
+  isLoopbackTrustedEnvironment,
+} from "./loopback.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
 import { scheduleQueuedSubmissionInboxDrain } from "./queued-submission-inbox-drain.js";
 import {
@@ -1619,7 +1622,8 @@ export function createAgentChatPlugin(
       // AGENT_MODE=production forces production agent constraints even in dev
       const canToggle =
         (env === "development" || env === "test") &&
-        getAppConfig().agent.mode !== "production";
+        getAppConfig().agent.mode !== "production" &&
+        isLoopbackTrustedEnvironment();
       const routePath = options?.path ?? "/_agent-native/agent-chat";
       const streamTokenPath =
         routePath.replace(/\/+$/, "") + AGENT_CHAT_STREAM_TOKEN_SUFFIX;
@@ -3776,6 +3780,7 @@ export function createAgentChatPlugin(
             ? { taskCandidates: mcpOptions.taskCandidates }
             : {}),
           ...(mcpOptions.readOnlyResources ? { readOnlyResources: true } : {}),
+          ...(mcpOptions.servesAnSkill ? { servesAnSkill: true } : {}),
           ...(mcpOptions.connectorCatalog
             ? { connectorCatalog: mcpOptions.connectorCatalog }
             : {}),

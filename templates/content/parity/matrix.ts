@@ -730,6 +730,25 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["local-file-source-truth"],
   },
   {
+    id: "sharing.titles-in-other-apps",
+    surface: "sharing",
+    label: "Show a page's title where another app links to it",
+    uiEntrypoints: ["app/routes/_app.page.$id.tsx"],
+    durableEffect:
+      "None. Content answers each request with the title the caller may see, and the asking app stores nothing.",
+    uiImplementation:
+      "Design's Built from line asks read-link-summary for the titles of the pages a design was built from, over A2A as the signed-in reader, and links each one to its page here.",
+    status: "action-backed",
+    actions: ["read-link-summary"],
+    exception:
+      "read-link-summary is for other apps only (agentTool: false, mcpTool: \"search\"), under the caller's own access. Content's own UI has no entry point for it, and its agent reads pages with get-document.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/read-link-summary.db.test.ts"],
+  },
+  {
     id: "sharing.agent-text-lock",
     surface: "sharing",
     label: "Set what agents can do on a page",

@@ -47,7 +47,7 @@ const messages = {
         "इस पैटर्न को महत्व या अपने-आप संग्रह करने के नियम में बदलें।",
       priorityFeedbackAskAgent: "एजेंट से नियम सुझाने को कहें",
       aiSetupTitle: "अपना AI इनबॉक्स सेट करें",
-      aiSetupTagLabel: "AI टैग बनाएँ",
+      aiSetupTagLabel: "AI लेबल बनाएँ",
       aiSetupImportanceLabel: "महत्वपूर्ण मेल",
       aiSetupSpamLabel: "स्पैम",
       aiSetupArchiveLabel: "इनबॉक्स छोड़ें",
@@ -113,7 +113,7 @@ const messages = {
       aiSetupSortInbox: "मेरा इनबॉक्स व्यवस्थित करें",
       aiSetupImportantExample: "मेरे बॉस Priya (priya@company.com) के सभी ईमेल…",
       aiSetupTagsDescription:
-        "AI मेल से मेल खाने वाले संदेशों पर टैग लगाता है और हर टैग के लिए इनबॉक्स के पास अलग टैब बनाता है।",
+        "AI मेल से मेल खाने वाले संदेशों पर लेबल लगाता है और हर लेबल के लिए इनबॉक्स के पास अलग टैब बनाता है।",
       aiSetupImportantDescription:
         "AI मेल से मेल खाने वाले संदेशों पर महत्वपूर्ण लेबल लगाता है, ताकि वे महत्वपूर्ण टैब में दिखें।",
       aiSetupSkipInboxDescription:
@@ -151,7 +151,7 @@ const messages = {
       accounts: "Accounts",
       closeSidebar: "साइडबार बंद करें",
       settings: "सेटिंग्स",
-      aiSettings: "टैग और नियम प्रबंधित करें",
+      aiSettings: "लेबल और नियम प्रबंधित करें",
     },
     search: {
       label: "खोजें",
@@ -175,7 +175,7 @@ const messages = {
       combinedInbox: "संयुक्त इनबॉक्स",
       allTab: "सभी टैब",
       help: "आपके चुने हुए व्यू, लेबल और सहेजे गए फ़िल्टर को इनबॉक्स के अलग-अलग टैब में दिखाता है। सारा इनबॉक्स मेल एक ही टैब में देखने के लिए इसे बंद करें।",
-      aiSetup: "AI टैग और नियम सेट करें",
+      aiSetup: "AI लेबल और नियम सेट करें",
     },
     accounts: {
       remove: "हटाएं",
@@ -456,6 +456,7 @@ const messages = {
       tryDifferentKeywords: "अलग कीवर्ड आज़माएँ",
       nothingHere: "अभी यहाँ कुछ नहीं",
       loadingMore: "और लोड हो रहा है...",
+      loadOlder: "पुरानी बातचीत लोड करें",
       openAllMailForOlder: "पुराने संदेशों के लिए सभी मेल खोलें",
     },
     toasts: {
@@ -551,6 +552,7 @@ const messages = {
       tryAgain: "फिर कोशिश करें",
       rateLimitTitle: "Gmail दर सीमा लगी",
       loadTitle: "ईमेल लोड नहीं हो सके",
+      staleSaved: "मेल रिफ़्रेश नहीं हो सका। सहेजी गई बातचीत दिखाई जा रही हैं।",
       rateLimitDescription:
         "Google को हाल में बहुत अधिक अनुरोध भेजे गए। फिर कोशिश से पहले थोड़ा इंतज़ार किया जा रहा है।",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
@@ -692,23 +694,23 @@ const messages = {
       autoArchiveMode: "अपने आप संग्रहित करें",
       skipInboxMode: "इनबॉक्स छोड़ें",
       spamMode: "स्पैम",
-      tagMode: "टैग",
-      aiTagsTitle: "AI टैग",
+      tagMode: "लेबल",
+      aiTagsTitle: "AI लेबल",
       ruleHelpLabel: "{{mode}} नियम समझाएँ",
       aiTagRuleHelp:
-        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल पर यह टैग जोड़ता है।",
+        "सामान्य भाषा में निर्देश लिखें। Mail मेल खाने वाले ईमेल पर यह लेबल जोड़ता है।",
       importantRuleHelp:
-        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल को महत्वपूर्ण चिह्नित करता है।",
+        "सामान्य भाषा में निर्देश लिखें। Mail मेल खाने वाले ईमेल को महत्वपूर्ण चिह्नित करता है।",
       skipInboxRuleHelp:
-        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल को संग्रहित करके इनबॉक्स से बाहर रखता है।",
+        "सामान्य भाषा में निर्देश लिखें। Mail मेल खाने वाले ईमेल को संग्रहित करके इनबॉक्स से बाहर रखता है।",
       spamRuleHelp:
-        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल पर agent-native-filtered लेबल लगाकर उन्हें संग्रहित करता है। यह Gmail Spam नहीं है।",
+        "सामान्य भाषा में निर्देश लिखें। Mail मेल खाने वाले ईमेल पर agent-native-filtered लेबल लगाकर उन्हें संग्रहित करता है। यह Gmail Spam नहीं है।",
       filteredMode: "फ़िल्टर किए गए",
       manageSettings: "प्रबंधित करें",
-      askJev: "Jev से पूछें",
+      askJev: "Mail के एजेंट से पूछें",
       askJevPrompt:
         "इस Mail नियम को बेहतर बनाने में मेरी मदद करें: {{condition}}। पूछें कि मैं क्या बदलना चाहता हूँ, फिर इसे अपडेट करें।",
-      composerPlaceholder: "Jev से अपना इनबॉक्स व्यवस्थित करने को कहें…",
+      composerPlaceholder: "Mail के एजेंट से अपना इनबॉक्स व्यवस्थित करने को कहें…",
       chatSuggestionFilter: "ऐसे संदेश फ़िल्टर करें",
       chatSuggestionPriority: "इनसे आने वाले ईमेल को प्राथमिकता दें…",
       chatSuggestionArchive: "बॉट सूचनाओं को अपने-आप संग्रहित करें",
@@ -736,7 +738,7 @@ const messages = {
       importantPlaceholder: "उदा. ऐसे संदेश जिनका जवाब देना है या जिनकी समय-सीमा है",
       ruleAdded: "AI नियम जोड़ा गया।",
       instructionHelp: "सामान्य भाषा का उपयोग करें",
-      tagNamePlaceholder: "टैग का नाम",
+      tagNamePlaceholder: "लेबल का नाम",
       spamLabelHint: "मिलान वाले संदेशों को टैग करके इनबॉक्स से बाहर ले जाया जाएगा।",
       spamPlaceholder: "उदा. स्पष्ट रूप से प्रचारात्मक या अनचाहे संदेश",
       tagPlaceholder: "उदा. ऑनलाइन दुकानों की रसीदें और ऑर्डर पुष्टिकरण",
@@ -763,8 +765,8 @@ const messages = {
       previewEmpty: "संभावित मिलान देखने के लिए पूर्वावलोकन चलाएँ।",
       previewFailed: "हाल के ईमेल का पूर्वावलोकन नहीं किया जा सका।",
       promptRulesCleared: "ट्रायेज नियम हटाए गए।",
-      tagTabsHelp: "हर टैग इनबॉक्स टैब बन जाता है",
-      addTag: "टैग जोड़ें",
+      tagTabsHelp: "हर लेबल इनबॉक्स टैब बन जाता है",
+      addTag: "लेबल जोड़ें",
       triageTitle: "AI ट्रायेज",
       connectJev: "AI प्रदाता कनेक्ट करें",
       connectJevToRunTriage: "ट्रायेज चलाने के लिए AI प्रदाता कनेक्ट करें",
@@ -842,7 +844,7 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "अपने emails के बारे में कुछ भी पूछें",
+    emptyState: "मैं Mail का एजेंट हूँ। अपने ईमेल के बारे में पूछें या मुझसे उन्हें व्यवस्थित करवाएँ।",
     suggestionSummarize: "मेरे unread emails का सारांश दें",
     suggestionReplies: "आज किन चीजों पर मेरा reply चाहिए?",
     suggestionWidget: "मेरे inbox के लिए custom widget बनाएं",

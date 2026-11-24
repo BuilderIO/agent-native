@@ -1778,7 +1778,6 @@ export default {
       undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
       redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
       saveConflict: "此页面已在别处更改。你的上一次编辑未保存。",
-      versionHistoryUnavailable: "此设计暂无法使用版本历史。您的编辑已保存。",
       removeAutoLayoutFailed: "无法移除自动布局",
       autoLayoutScreensUnsupported: "添加自动布局不适用于页面",
       booleanSubtractUnsupported:

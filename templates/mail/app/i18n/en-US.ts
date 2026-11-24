@@ -46,7 +46,7 @@ const messages = {
         "Turn this feedback pattern into an importance or auto-archive rule.",
       priorityFeedbackAskAgent: "Ask agent to suggest rules",
       aiSetupTitle: "Set up your AI inbox",
-      aiSetupTagLabel: "Create an AI tag",
+      aiSetupTagLabel: "Create an AI label",
       aiSetupImportanceLabel: "Important mail",
       aiSetupSpamLabel: "Spam",
       aiSetupArchiveLabel: "Skip inbox",
@@ -115,7 +115,7 @@ const messages = {
       aiSetupImportantExample:
         "Anything from my boss, Priya (priya@company.com)…",
       aiSetupTagsDescription:
-        "AI tags matching mail and gives each tag its own tab next to your inbox.",
+        "AI labels matching mail and gives each label its own tab next to your inbox.",
       aiSetupImportantDescription:
         "AI adds the Important label to matching mail so it appears in your Important tab.",
       aiSetupSkipInboxDescription:
@@ -153,7 +153,7 @@ const messages = {
       accounts: "Accounts",
       closeSidebar: "Close sidebar",
       settings: "Settings",
-      aiSettings: "Manage tags and rules",
+      aiSettings: "Manage labels and rules",
     },
     search: {
       label: "Search",
@@ -177,7 +177,7 @@ const messages = {
       combinedInbox: "Combined inbox",
       allTab: "All tab",
       help: "Shows your chosen views, labels, and saved filters as separate inbox tabs. Turn it off to see all inbox mail in one Inbox tab.",
-      aiSetup: "Set up AI tags and rules",
+      aiSetup: "Set up AI labels and rules",
     },
     accounts: {
       remove: "Remove",
@@ -456,6 +456,7 @@ const messages = {
       tryDifferentKeywords: "Try different keywords",
       nothingHere: "Nothing here yet",
       loadingMore: "Loading more...",
+      loadOlder: "Load older conversations",
       openAllMailForOlder: "Open All Mail for older messages",
     },
     toasts: {
@@ -552,6 +553,7 @@ const messages = {
       tryAgain: "Try again",
       rateLimitTitle: "Gmail rate limit hit",
       loadTitle: "Unable to load emails",
+      staleSaved: "Couldn't refresh mail. Showing saved conversations.",
       rateLimitDescription:
         "Too many recent requests to Google. Waiting a moment before retrying.",
       failedToConnect: "Failed to connect. Try again.",
@@ -695,23 +697,23 @@ const messages = {
       autoArchiveMode: "Auto-archive",
       skipInboxMode: "Skip inbox",
       spamMode: "Spam",
-      tagMode: "Tag",
-      aiTagsTitle: "AI tags",
+      tagMode: "Label",
+      aiTagsTitle: "AI labels",
       ruleHelpLabel: "Explain {{mode}} rules",
       aiTagRuleHelp:
-        "Write a natural-language prompt. Jev adds this tag to matching mail.",
+        "Write a natural-language prompt. Mail adds this label to matching mail.",
       importantRuleHelp:
-        "Write a natural-language prompt. Jev marks matching mail as Important.",
+        "Write a natural-language prompt. Mail marks matching mail as Important.",
       skipInboxRuleHelp:
-        "Write a natural-language prompt. Jev archives matching mail so it skips Inbox.",
+        "Write a natural-language prompt. Mail archives matching mail so it skips Inbox.",
       spamRuleHelp:
-        "Write a natural-language prompt. Jev adds the agent-native-filtered label and archives matching mail. This is not Gmail Spam.",
+        "Write a natural-language prompt. Mail adds the agent-native-filtered label and archives matching mail. This is not Gmail Spam.",
       filteredMode: "Filtered",
       manageSettings: "Manage",
-      askJev: "Ask Jev",
+      askJev: "Ask Mail's agent",
       askJevPrompt:
         "Help me refine this Mail rule: {{condition}}. Ask what I want changed, then update it.",
-      composerPlaceholder: "Ask Jev to organize your inbox…",
+      composerPlaceholder: "Ask Mail's agent to organize your inbox…",
       chatSuggestionFilter: "Filter out messages like this",
       chatSuggestionPriority: "Prioritize emails from…",
       chatSuggestionArchive: "Auto-archive bot notifications",
@@ -737,7 +739,7 @@ const messages = {
       reviewImportant: "View important",
       ruleAdded: "AI rule added.",
       instructionHelp: "Use plain language",
-      tagNamePlaceholder: "Tag name",
+      tagNamePlaceholder: "Label name",
       spamLabelHint: "Matches are labeled and moved out of Inbox.",
       spamPlaceholder: "e.g. Messages that are clearly promotional or unwanted",
       tagPlaceholder: "e.g. Receipts and order confirmations from online shops",
@@ -767,8 +769,8 @@ const messages = {
       previewEmpty: "Run a preview to see likely matches here.",
       previewFailed: "Could not preview recent mail.",
       promptRulesCleared: "Triage rules removed.",
-      tagTabsHelp: "Each tag becomes an inbox tab",
-      addTag: "Add tag",
+      tagTabsHelp: "Each label becomes an inbox tab",
+      addTag: "Add label",
       triageTitle: "AI triage",
       connectJev: "Connect an AI provider",
       connectJevToRunTriage: "Connect an AI provider to run triage",
@@ -847,7 +849,8 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "Ask me anything about your emails",
+    emptyState:
+      "I'm Mail's agent. Ask me about your email, or to sort it for you.",
     suggestionSummarize: "Summarize my unread emails",
     suggestionReplies: "What needs my reply today?",
     suggestionWidget: "Build me a custom widget for my inbox",

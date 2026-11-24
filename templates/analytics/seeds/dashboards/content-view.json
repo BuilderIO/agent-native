@@ -34,7 +34,7 @@
       "chartType": "callout",
       "source": "first-party",
       "width": 6,
-      "sql": "WITH sources AS (SELECT 'builder_blog' AS step, 'Articles' AS label, 1 AS position UNION ALL SELECT 'ga4', 'Pageviews', 2 UNION ALL SELECT 'search_console', 'Search clicks and impressions', 3 UNION ALL SELECT 'search_console_queries', 'Search queries', 4 UNION ALL SELECT 'signups', 'Builder signups', 5 UNION ALL SELECT 'agent_native_signups', 'Agent-Native signups', 6), latest AS (SELECT step, status, started_at FROM (SELECT step, status, started_at, ROW_NUMBER() OVER (PARTITION BY step ORDER BY started_at DESC) AS rn FROM analytics_content_collection_runs WHERE started_at >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) ranked WHERE rn = 1), runs AS (SELECT COALESCE(sources.step, latest.step) AS step, COALESCE(sources.label, latest.step) AS label, COALESCE(sources.position, 7) AS position, latest.status, latest.started_at FROM sources FULL JOIN latest ON latest.step = sources.step) SELECT severity, message FROM ( SELECT CASE WHEN status IN ('failed', 'cost_limited') THEN 'critical' WHEN status IS NULL OR status = 'not_configured' THEN 'warning' ELSE 'info' END AS severity, '**' || label || CASE WHEN status IS NULL THEN ' haven''t been collected in the last 30 days' WHEN status = 'failed' THEN ' failed' WHEN status = 'cost_limited' THEN ' stopped at the cost cap' WHEN status = 'not_configured' THEN ' aren''t connected yet' WHEN status = 'running' THEN ' are collecting now' ELSE ' ' || status END || '**' || CASE WHEN status = 'not_configured' AND step IN ('search_console', 'search_console_queries') THEN ': waiting for Search Console access.' WHEN status = 'not_configured' AND step = 'ga4' THEN ': waiting for a GA4 property.' WHEN status IS NULL OR status IN ('not_configured', 'running') THEN '.' ELSE ' on the ' || to_char(substr(started_at, 1, 10)::date, 'Mon FMDD') || ' run.' END AS message, position FROM runs WHERE COALESCE(status, '') <> 'succeeded' UNION ALL SELECT 'info', 'Nothing is missing: every source collected on its last run.', 0 WHERE NOT EXISTS (SELECT 1 FROM runs WHERE COALESCE(status, '') <> 'succeeded') ) notices ORDER BY position",
+      "sql": "WITH sources AS (SELECT 'builder_blog' AS step, 'Articles' AS label, 1 AS position, false AS opt_in UNION ALL SELECT 'ga4', 'Pageviews', 2, false UNION ALL SELECT 'daily_dev', 'daily.dev visits', 3, false UNION ALL SELECT 'search_console', 'Search clicks and impressions', 4, false UNION ALL SELECT 'search_console_queries', 'Search queries', 5, false UNION ALL SELECT 'signups', 'Builder signups', 6, false UNION ALL SELECT 'agent_native_signups', 'Agent-Native signups', 7, false UNION ALL SELECT 'youtube', 'YouTube views', 8, true), latest AS (SELECT step, status, started_at FROM (SELECT step, status, started_at, ROW_NUMBER() OVER (PARTITION BY step ORDER BY started_at DESC) AS rn FROM analytics_content_collection_runs WHERE started_at >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) ranked WHERE rn = 1), runs AS (SELECT COALESCE(sources.step, latest.step) AS step, COALESCE(sources.label, latest.step) AS label, COALESCE(sources.position, 9) AS position, latest.status, latest.started_at FROM sources FULL JOIN latest ON latest.step = sources.step WHERE NOT (COALESCE(sources.opt_in, false) AND latest.status IS NULL)) SELECT severity, message FROM ( SELECT CASE WHEN status IN ('failed', 'cost_limited') THEN 'critical' WHEN status IS NULL OR status = 'not_configured' THEN 'warning' ELSE 'info' END AS severity, '**' || label || CASE WHEN status IS NULL THEN ' haven''t been collected in the last 30 days' WHEN status = 'failed' THEN ' failed' WHEN status = 'cost_limited' THEN ' stopped at the cost cap' WHEN status = 'not_configured' THEN ' aren''t connected yet' WHEN status = 'running' THEN ' are collecting now' ELSE ' ' || status END || '**' || CASE WHEN status = 'not_configured' AND step IN ('search_console', 'search_console_queries') THEN ': waiting for Search Console access.' WHEN status = 'not_configured' AND step IN ('ga4', 'daily_dev') THEN ': waiting for a GA4 property.' WHEN status = 'not_configured' AND step = 'youtube' THEN ': waiting for channels and a YouTube Data API key.' WHEN status IS NULL OR status IN ('not_configured', 'running') THEN '.' ELSE ' on the ' || to_char(substr(started_at, 1, 10)::date, 'Mon FMDD') || ' run.' END AS message, position FROM runs WHERE COALESCE(status, '') <> 'succeeded' UNION ALL SELECT 'info', 'Nothing is missing: every source collected on its last run.', 0 WHERE NOT EXISTS (SELECT 1 FROM runs WHERE COALESCE(status, '') <> 'succeeded') ) notices ORDER BY position",
       "config": {
         "timeScope": "fixed-window"
       }
@@ -119,7 +119,7 @@
       "source": "first-party",
       "width": 6,
       "tab": "Articles",
-      "sql": "WITH per_article AS (SELECT i.id, i.title, i.url AS href, COALESCE(i.author, 'No author') AS author, i.published_at, SUM(s.value) FILTER (WHERE s.metric = 'signups_first_touch') AS signups, SUM(s.value) FILTER (WHERE s.metric = 'agent_native_signups') AS agent_native_signups, SUM(s.value) FILTER (WHERE s.metric = 'ga4_pageviews') AS pageviews, SUM(s.value) FILTER (WHERE s.metric = 'search_console_clicks') AS clicks, SUM(s.value) FILTER (WHERE s.metric = 'search_console_impressions') AS impressions, SUM(s.value) FILTER (WHERE s.metric = 'search_console_position_weighted') AS position_weighted, SUM(s.value) FILTER (WHERE s.metric = 'search_console_impressions' AND positioned.item_id IS NOT NULL) AS positioned_impressions FROM analytics_content_items i LEFT JOIN analytics_content_metric_snapshots s ON s.item_id = i.id AND (s.metric_date < to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) LEFT JOIN analytics_content_metric_snapshots positioned ON s.metric = 'search_console_impressions' AND positioned.item_id = s.item_id AND positioned.metric_date = s.metric_date AND positioned.metric = 'search_console_position_weighted' WHERE i.source = 'builder_blog' GROUP BY i.id, i.title, i.url, i.author, i.published_at) SELECT title, href, author, substr(published_at, 1, 10) AS published, signups, agent_native_signups, pageviews, clicks, impressions, ROUND((position_weighted / NULLIF(positioned_impressions, 0))::numeric, 1)::float8 AS position FROM per_article ORDER BY signups DESC NULLS LAST, published_at DESC NULLS LAST",
+      "sql": "WITH per_article AS (SELECT i.id, i.title, i.url AS href, COALESCE(i.author, 'No author') AS author, i.published_at, SUM(s.value) FILTER (WHERE s.metric = 'signups_first_touch') AS signups, SUM(s.value) FILTER (WHERE s.metric = 'agent_native_signups') AS agent_native_signups, SUM(s.value) FILTER (WHERE s.metric = 'ga4_pageviews') AS pageviews, SUM(s.value) FILTER (WHERE s.metric = 'daily_dev_sessions') AS daily_dev_visits, SUM(s.value) FILTER (WHERE s.metric = 'search_console_clicks') AS clicks, SUM(s.value) FILTER (WHERE s.metric = 'search_console_impressions') AS impressions, SUM(s.value) FILTER (WHERE s.metric = 'search_console_position_weighted') AS position_weighted, SUM(s.value) FILTER (WHERE s.metric = 'search_console_impressions' AND positioned.item_id IS NOT NULL) AS positioned_impressions FROM analytics_content_items i LEFT JOIN analytics_content_metric_snapshots s ON s.item_id = i.id AND (s.metric_date < to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) LEFT JOIN analytics_content_metric_snapshots positioned ON s.metric = 'search_console_impressions' AND positioned.item_id = s.item_id AND positioned.metric_date = s.metric_date AND positioned.metric = 'search_console_position_weighted' WHERE i.source = 'builder_blog' GROUP BY i.id, i.title, i.url, i.author, i.published_at) SELECT title, href, author, substr(published_at, 1, 10) AS published, signups, agent_native_signups, pageviews, CASE WHEN EXISTS (SELECT 1 FROM analytics_content_collection_runs r WHERE r.step = 'daily_dev' AND r.status = 'succeeded') THEN COALESCE(daily_dev_visits, 0) END AS daily_dev_visits, clicks, impressions, ROUND((position_weighted / NULLIF(positioned_impressions, 0))::numeric, 1)::float8 AS position FROM per_article ORDER BY signups DESC NULLS LAST, published_at DESC NULLS LAST",
       "config": {
         "timeScope": "dashboard",
         "sortable": true,
@@ -158,6 +158,11 @@
           {
             "key": "pageviews",
             "label": "Pageviews",
+            "format": "number"
+          },
+          {
+            "key": "daily_dev_visits",
+            "label": "daily.dev visits",
             "format": "number"
           },
           {
@@ -602,12 +607,94 @@
       }
     },
     {
+      "id": "youtube-views-per-day",
+      "title": "YouTube views gained per day",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 6,
+      "tab": "YouTube",
+      "sql": "WITH latest AS (SELECT MAX(started_at) AS read_at FROM analytics_content_collection_runs WHERE step = 'youtube' AND status = 'succeeded'), reads AS (SELECT s.item_id, s.metric, s.metric_date, s.value, MAX(s.value) OVER (PARTITION BY s.item_id, s.metric ORDER BY s.metric_date ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS previous, MIN(s.metric_date) OVER (PARTITION BY COALESCE(i.metadata::jsonb ->> 'channelId', ''), s.metric) AS channel_first_read, substr(i.published_at, 1, 10) AS published, COALESCE(i.author, 'No channel') AS channel, COALESCE(i.metadata::jsonb ->> 'channelId', '') AS channel_id, i.updated_at FROM analytics_content_metric_snapshots s JOIN analytics_content_items i ON i.id = s.item_id WHERE i.source = 'youtube' AND s.metric IN ('youtube_views')), gains AS (SELECT channel_id, to_char(metric_date::date - 1, 'YYYY-MM-DD') AS date, value - COALESCE(previous, CASE WHEN metric_date > channel_first_read AND published >= channel_first_read THEN 0 END) AS views FROM reads), channels AS (SELECT r.channel_id, MAX(r.channel) AS channel FROM reads r JOIN latest l ON r.updated_at >= l.read_at GROUP BY r.channel_id), named AS (SELECT channel, COUNT(*) AS sharing FROM channels GROUP BY channel) SELECT g.date, CASE WHEN n.sharing > 1 THEN c.channel || ' (' || g.channel_id || ')' ELSE c.channel END AS channel, SUM(g.views) AS views FROM gains g JOIN channels c ON c.channel_id = g.channel_id JOIN named n ON n.channel = c.channel WHERE g.views IS NOT NULL AND (date < to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND date >= '{{timeRangeStart}}' AND date <= '{{timeRangeEnd}}'))) GROUP BY g.date, c.channel, g.channel_id, n.sharing ORDER BY g.date, channel",
+      "config": {
+        "timeScope": "dashboard",
+        "xKey": "date",
+        "colors": ["#f43f5e", "#38bdf8", "#f59e0b", "#10b981", "#a78bfa"],
+        "pivot": {
+          "xKey": "date",
+          "seriesKey": "channel",
+          "valueKey": "views"
+        },
+        "stacked": true,
+        "description": "YouTube reports each video's views to date, read once a day; a day's views are what that count gained by the next day's read, so a missed read leaves a day without a bar and folds its views into the next one. A video published after its channel's first read counts from 0. A channel that shares its name with another is labeled with its channel ID too. Bars end the day before the newest read. Only channels the newest read covered are drawn, so a channel taken off the list drops off."
+      }
+    },
+    {
+      "id": "youtube-videos",
+      "title": "Videos",
+      "chartType": "table",
+      "source": "first-party",
+      "width": 6,
+      "tab": "YouTube",
+      "sql": "WITH latest AS (SELECT MAX(started_at) AS read_at FROM analytics_content_collection_runs WHERE step = 'youtube' AND status = 'succeeded'), reads AS (SELECT s.item_id, s.metric, s.metric_date, s.value, MAX(s.value) OVER (PARTITION BY s.item_id, s.metric ORDER BY s.metric_date ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS previous, MIN(s.metric_date) OVER (PARTITION BY COALESCE(i.metadata::jsonb ->> 'channelId', ''), s.metric) AS channel_first_read, substr(i.published_at, 1, 10) AS published, COALESCE(i.author, 'No channel') AS channel FROM analytics_content_metric_snapshots s JOIN analytics_content_items i ON i.id = s.item_id WHERE i.source = 'youtube' AND s.metric IN ('youtube_views', 'youtube_likes', 'youtube_comments')), ranked AS (SELECT item_id, metric, value, value - COALESCE(previous, CASE WHEN metric_date > channel_first_read AND published >= channel_first_read THEN 0 END) AS gained, to_char(metric_date::date - 1, 'YYYY-MM-DD') AS gain_date, metric_date, MAX(metric_date) OVER (PARTITION BY item_id) AS last_read FROM reads), per_video AS (SELECT item_id, SUM(gained) FILTER (WHERE metric = 'youtube_views' AND (gain_date < to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND gain_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND gain_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND gain_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND gain_date >= '{{timeRangeStart}}' AND gain_date <= '{{timeRangeEnd}}')))) AS views_gained, MAX(value) FILTER (WHERE metric = 'youtube_views' AND metric_date = last_read) AS views, MAX(value) FILTER (WHERE metric = 'youtube_likes' AND metric_date = last_read) AS likes, MAX(value) FILTER (WHERE metric = 'youtube_comments' AND metric_date = last_read) AS comments FROM ranked GROUP BY item_id) SELECT i.title, i.url AS href, COALESCE(i.author, 'No channel') AS channel, substr(i.published_at, 1, 10) AS published, CASE WHEN (i.metadata::jsonb ->> 'durationSeconds')::int >= 3600 THEN ((i.metadata::jsonb ->> 'durationSeconds')::int / 3600) || ':' || to_char(((i.metadata::jsonb ->> 'durationSeconds')::int / 60) % 60, 'FM00') || ':' || to_char((i.metadata::jsonb ->> 'durationSeconds')::int % 60, 'FM00') ELSE ((i.metadata::jsonb ->> 'durationSeconds')::int / 60) || ':' || to_char((i.metadata::jsonb ->> 'durationSeconds')::int % 60, 'FM00') END AS length, p.views_gained, p.views, p.likes, p.comments FROM analytics_content_items i JOIN per_video p ON p.item_id = i.id JOIN latest l ON i.updated_at >= l.read_at WHERE i.source = 'youtube' ORDER BY p.views_gained DESC NULLS LAST, p.views DESC NULLS LAST, i.published_at DESC NULLS LAST",
+      "config": {
+        "timeScope": "dashboard",
+        "sortable": true,
+        "columns": [
+          {
+            "key": "title",
+            "label": "Video",
+            "format": "link",
+            "linkKey": "href",
+            "width": 180
+          },
+          {
+            "key": "href",
+            "hidden": true
+          },
+          {
+            "key": "channel",
+            "label": "Channel",
+            "width": 160
+          },
+          {
+            "key": "published",
+            "label": "Published",
+            "format": "date"
+          },
+          {
+            "key": "length",
+            "label": "Length"
+          },
+          {
+            "key": "views_gained",
+            "label": "Views gained",
+            "format": "number"
+          },
+          {
+            "key": "views",
+            "label": "Views to date",
+            "format": "number"
+          },
+          {
+            "key": "likes",
+            "label": "Likes",
+            "format": "number"
+          },
+          {
+            "key": "comments",
+            "label": "Comments",
+            "format": "number"
+          }
+        ],
+        "description": "Views gained in the time range, then each video's views, likes and comments as of the latest read. A blank count is one the channel hides. Only videos the newest read covered are listed."
+      }
+    },
+    {
       "id": "collection-status",
       "title": "Sources",
       "chartType": "table",
       "source": "first-party",
       "width": 6,
-      "sql": "WITH sources AS (SELECT 'builder_blog' AS step, 'Blog articles' AS label, 1 AS position, 'Titles, authors and publish dates.' AS about UNION ALL SELECT 'ga4', 'GA4 pageviews', 2, 'Daily pageviews per article, as GA4 counts them.' UNION ALL SELECT 'search_console', 'Search Console', 3, 'Daily clicks, impressions and average position, 2 days behind. History fills back up to 16 months, about 90 days a run.' UNION ALL SELECT 'search_console_queries', 'Search queries', 4, 'Each article''s top queries per week, Monday to Sunday, once Search Console has the whole week. History fills back a few weeks a run.' UNION ALL SELECT 'signups', 'Builder signups', 5, 'Credited to the first article each person read.' UNION ALL SELECT 'agent_native_signups', 'Agent-Native signups', 6, 'Credited to the article tagged on their link.'), latest AS (SELECT step, status, started_at, error_message, detail FROM (SELECT step, status, started_at, error_message, detail, ROW_NUMBER() OVER (PARTITION BY step ORDER BY started_at DESC) AS rn FROM analytics_content_collection_runs WHERE started_at >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) ranked WHERE rn = 1) SELECT COALESCE(sources.label, latest.step) AS source, CASE WHEN latest.status IS NULL THEN 'No run in 30 days' WHEN latest.status = 'succeeded' THEN 'Collected' WHEN latest.status = 'failed' THEN 'Failed' WHEN latest.status = 'cost_limited' THEN 'Cost-limited' WHEN latest.status = 'not_configured' THEN 'Not set up' WHEN latest.status = 'running' THEN 'Running' ELSE latest.status END AS status, COALESCE(latest.started_at, (SELECT MAX(any_run.started_at) FROM analytics_content_collection_runs any_run WHERE any_run.step = sources.step)) AS last_run, (SELECT successful.window_end FROM analytics_content_collection_runs successful WHERE successful.step = COALESCE(sources.step, latest.step) AND successful.status = 'succeeded' ORDER BY successful.started_at DESC LIMIT 1) AS data_through, COALESCE((SELECT MIN(earliest.metric_date) FROM analytics_content_metric_snapshots earliest WHERE earliest.source = COALESCE(sources.step, latest.step)), (SELECT MIN(week.week_start) FROM analytics_content_search_queries week WHERE COALESCE(sources.step, latest.step) = 'search_console_queries'), (SELECT substr(MIN(item.first_seen_at), 1, 10) FROM analytics_content_items item WHERE item.source = 'builder_blog' AND COALESCE(sources.step, latest.step) = 'builder_blog')) AS first_data, COALESCE(latest.error_message, latest.detail, sources.about) AS detail FROM sources FULL JOIN latest ON latest.step = sources.step ORDER BY COALESCE(sources.position, 7), source",
+      "sql": "WITH sources AS (SELECT 'builder_blog' AS step, 'Blog articles' AS label, 1 AS position, 'Titles, authors and publish dates.' AS about UNION ALL SELECT 'ga4', 'GA4 pageviews', 2, 'Daily pageviews per article, as GA4 counts them.' UNION ALL SELECT 'daily_dev', 'daily.dev visits', 3, 'Daily visits daily.dev sent each article, counted in the same GA4 property: sessions that landed with daily.dev''s via=dailydev tag or whose source was daily.dev.' UNION ALL SELECT 'search_console', 'Search Console', 4, 'Daily clicks, impressions and average position, 2 days behind. History fills back up to 16 months, about 90 days a run.' UNION ALL SELECT 'search_console_queries', 'Search queries', 5, 'Each article''s top queries per week, Monday to Sunday, once Search Console has the whole week. History fills back a few weeks a run.' UNION ALL SELECT 'signups', 'Builder signups', 6, 'Credited to the first article each person read.' UNION ALL SELECT 'agent_native_signups', 'Agent-Native signups', 7, 'Credited to the article tagged on their link.' UNION ALL SELECT 'youtube', 'YouTube videos', 8, 'Every video on the collection''s channels, with its views, likes and comments to date, read once a day.'), latest AS (SELECT step, status, started_at, error_message, detail FROM (SELECT step, status, started_at, error_message, detail, ROW_NUMBER() OVER (PARTITION BY step ORDER BY started_at DESC) AS rn FROM analytics_content_collection_runs WHERE started_at >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) ranked WHERE rn = 1) SELECT COALESCE(sources.label, latest.step) AS source, CASE WHEN latest.status IS NULL THEN 'No run in 30 days' WHEN latest.status = 'succeeded' THEN 'Collected' WHEN latest.status = 'failed' THEN 'Failed' WHEN latest.status = 'cost_limited' THEN 'Cost-limited' WHEN latest.status = 'not_configured' THEN 'Not set up' WHEN latest.status = 'running' THEN 'Running' ELSE latest.status END AS status, COALESCE(latest.started_at, (SELECT MAX(any_run.started_at) FROM analytics_content_collection_runs any_run WHERE any_run.step = sources.step)) AS last_run, (SELECT successful.window_end FROM analytics_content_collection_runs successful WHERE successful.step = COALESCE(sources.step, latest.step) AND successful.status = 'succeeded' ORDER BY successful.started_at DESC LIMIT 1) AS data_through, COALESCE((SELECT MIN(earliest.metric_date) FROM analytics_content_metric_snapshots earliest WHERE earliest.source = COALESCE(sources.step, latest.step)), (SELECT MIN(week.week_start) FROM analytics_content_search_queries week WHERE COALESCE(sources.step, latest.step) = 'search_console_queries'), (SELECT substr(MIN(item.first_seen_at), 1, 10) FROM analytics_content_items item WHERE item.source = 'builder_blog' AND COALESCE(sources.step, latest.step) = 'builder_blog')) AS first_data, COALESCE(latest.error_message, latest.detail, sources.about) AS detail FROM sources FULL JOIN latest ON latest.step = sources.step ORDER BY COALESCE(sources.position, 9), source",
       "config": {
         "timeScope": "fixed-window",
         "columns": [

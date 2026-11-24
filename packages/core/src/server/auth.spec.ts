@@ -14341,6 +14341,82 @@ describe("server/auth", () => {
       });
     });
 
+    it("refuses local-dev sign-in to proxied requests and in a public dev container", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      delete process.env.AUTH_DISABLED;
+      delete process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT;
+      delete process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT;
+      delete process.env.AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV;
+      delete process.env.FUSION_ENVIRONMENT;
+      delete process.env.FUSION_POD_UID;
+      const createBetterAuthSessionForEmail = vi.fn(async (email: string) => ({
+        email,
+        token: "better-auth-dev-session",
+        userId: "dev-user",
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        createBetterAuthSessionForEmail,
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+        isDeployPreview: vi.fn(() => false),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const localDevHandler = app.use.mock.calls.find(
+        (call: unknown[]) => call[0] === "/_agent-native/auth/local-dev",
+      )?.[1];
+
+      const signIn = (headers: Record<string, string> = {}) => {
+        const event = createMockEvent({
+          path: "/_agent-native/auth/local-dev",
+          headers: { host: "localhost:8080", ...headers },
+        });
+        event.req.method = "POST";
+        event.node.req.method = "POST";
+        const socket = { remoteAddress: "127.0.0.1" };
+        event.req.context = { clientAddress: "127.0.0.1" };
+        event.req.ip = "127.0.0.1";
+        event.node.req.socket = socket;
+        event.node.req.connection = socket;
+        return localDevHandler(event);
+      };
+
+      for (const headers of [
+        { "x-forwarded-for": "203.0.113.7" },
+        { "x-forwarded-host": "preview.example.dev" },
+        { forwarded: "for=203.0.113.7" },
+        { "x-real-ip": "203.0.113.7" },
+        { host: "preview.example.dev" },
+      ]) {
+        await expect(signIn(headers)).resolves.toEqual({ error: "Not found" });
+      }
+
+      vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
+      await expect(signIn()).resolves.toEqual({ error: "Not found" });
+      expect(createBetterAuthSessionForEmail).not.toHaveBeenCalled();
+
+      vi.stubEnv("AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV", "1");
+      await expect(signIn()).resolves.toEqual({ ok: true });
+
+      vi.stubEnv("FUSION_ENVIRONMENT", "");
+      vi.stubEnv("AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV", "");
+      await expect(signIn()).resolves.toEqual({ ok: true });
+    });
+
     it("keeps the endpoint out of custom auth and rejects production, previews, and remote peers", async () => {
       vi.stubEnv("NODE_ENV", "development");
       delete process.env.AUTH_DISABLED;

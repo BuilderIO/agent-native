@@ -480,7 +480,15 @@ rows different values, such as a distinct rank per row, call
 `patch-database-items` once with up to 250 rows, each carrying its own item ID,
 document ID, row revision, and sparse patch from the same fresh read. The batch
 writes every row or none; after a conflict, reread only the rows its error
-lists. Do not loop `update-database-item` for multi-row edits. Removing a row from a
+lists. Do not loop `update-database-item` for multi-row edits. An external MCP
+connection whose server instructions offer the script catalog can do bulk work
+that spans calls, such as reading several collections and patching rows from
+what they return, as one script on that catalog: it calls `get-document`,
+`get-content-database`, `list-content-databases`, `search-documents`,
+`search-content-database-rows` and `patch-database-items` as functions. Each
+patch still carries its own idempotency key, and one script's patches share a
+row budget (200 rows unless the deployment sets another): a patch past it is
+refused, and the script's earlier patches stay committed. Removing a row from a
 collection preserves its Page, descendants, other collection memberships, and
 unrelated property values.
 

@@ -1,10 +1,9 @@
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
 
-import { getDb, schema } from "../server/db/index.js";
 import {
+  COMPONENT_DELETE_CHECKPOINT_LABEL,
   createDesignVersionSnapshot,
-  readDesignVersionSnapshot,
+  readDesignVersionFile,
 } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
@@ -141,34 +140,23 @@ async function checkpointFile(args: {
   versionId: string;
   fileId: string;
 }) {
-  const [version] = await getDb()
-    .select({ snapshot: schema.designVersions.snapshot })
-    .from(schema.designVersions)
-    .where(
-      and(
-        eq(schema.designVersions.id, args.versionId),
-        eq(schema.designVersions.designId, args.designId),
-      ),
-    )
-    .limit(1);
-  if (!version) {
+  const checkpoint = await readDesignVersionFile(args);
+  if (!checkpoint) {
     throw new ComponentArchiveMutationError(
       "snapshot-not-found",
       "The component archive checkpoint was not persisted.",
     );
   }
-  const snapshot = await readDesignVersionSnapshot(
-    version.snapshot,
-    args.designId,
-  );
-  const file = snapshot.files.find((candidate) => candidate.id === args.fileId);
-  if (!file) {
+  if (!checkpoint.file) {
     throw new ComponentArchiveMutationError(
       "snapshot-file-not-found",
       "The component archive checkpoint does not contain the source file.",
     );
   }
-  return { file, deletionGeometry: snapshot.deletionGeometry };
+  return {
+    file: checkpoint.file,
+    deletionGeometry: checkpoint.deletionGeometry,
+  };
 }
 
 function validateDeletionGeometry(args: {
@@ -204,7 +192,7 @@ async function verifiedDeleteCheckpoint(
     mainNodeId,
   });
   const checkpoint = await createDesignVersionSnapshot(designId, {
-    label: "Before component delete",
+    label: COMPONENT_DELETE_CHECKPOINT_LABEL,
     ...(geometry ? { deletionGeometry: geometry } : {}),
   });
   const checkpointData = await checkpointFile({
