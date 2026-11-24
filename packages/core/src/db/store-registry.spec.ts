@@ -133,7 +133,7 @@ describe("apply (release runtime)", () => {
       /migration "broken" failed/,
     );
     const { rows } = await getDbExec().execute({
-      sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
+      sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
       args: [store.id],
     });
     expect(rows.map((row) => row.name)).toEqual(["baseline"]);
@@ -264,7 +264,7 @@ describe("hosted runtime without release migrations", () => {
     });
     if (rows[0]?.present) {
       const recorded = await getDbExec().execute({
-        sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
+        sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
         args: [table],
       });
       expect(recorded.rows).toEqual([]);
@@ -379,10 +379,12 @@ describe("local and self-hosted runtimes", () => {
   });
 
   it("retries a failed migration rather than retaining its rejected readiness", async () => {
-    const table = `widgets_${++seq}`;
+    const table = "widgets_retry_failed_migration";
     const migrate = vi
       .fn(async (exec: ReturnType<typeof getDbExec>) => {
-        await exec.execute(`CREATE TABLE ${table} (id TEXT)`);
+        await exec.execute(
+          "CREATE TABLE widgets_retry_failed_migration (id TEXT)",
+        );
       })
       .mockRejectedValueOnce(new Error("transient migration failure"));
     const store = defineStore({
@@ -393,7 +395,7 @@ describe("local and self-hosted runtimes", () => {
     await expect(store.ready()).rejects.toThrow("transient migration failure");
     expect(await tableExists(table)).toBe(false);
     const before = await getDbExec().execute({
-      sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
+      sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
       args: [table],
     });
     expect(before.rows).toEqual([]);
@@ -403,7 +405,7 @@ describe("local and self-hosted runtimes", () => {
     expect(migrate).toHaveBeenCalledTimes(2);
     expect(await tableExists(table)).toBe(true);
     const after = await getDbExec().execute({
-      sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
+      sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
       args: [table],
     });
     expect(after.rows).toEqual([{ name: "baseline" }]);
@@ -413,9 +415,11 @@ describe("local and self-hosted runtimes", () => {
     const { createGetDb } = await import("./create-get-db.js");
     const { withDbExec } = await import("./client.js");
     const db = await createGetDb({})();
-    const table = `widgets_${++seq}`;
+    const table = "widgets_transaction_readiness";
     const migrate = vi.fn(async () => {
-      await getDbExec().execute(`CREATE TABLE ${table} (id TEXT)`);
+      await getDbExec().execute(
+        "CREATE TABLE widgets_transaction_readiness (id TEXT)",
+      );
     });
     const store = defineStore({
       id: table,
@@ -435,7 +439,7 @@ describe("local and self-hosted runtimes", () => {
         );
         expect(await tableExists(table)).toBe(true);
         const { rows } = await getDbExec().execute({
-          sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
+          sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
           args: [table],
         });
         expect(rows).toEqual([{ name: "baseline" }]);
@@ -445,7 +449,7 @@ describe("local and self-hosted runtimes", () => {
 
     expect(await tableExists(table)).toBe(false);
     const rolledBack = await getDbExec().execute({
-      sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
+      sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
       args: [table],
     });
     expect(rolledBack.rows).toEqual([]);
@@ -459,7 +463,7 @@ describe("local and self-hosted runtimes", () => {
     expect(migrate).toHaveBeenCalledTimes(2);
     expect(await tableExists(table)).toBe(true);
     const committed = await getDbExec().execute({
-      sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
+      sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
       args: [table],
     });
     expect(committed.rows).toEqual([{ name: "baseline" }]);
