@@ -347,9 +347,18 @@ async function defaultDistillationRunner(context: DistillationAgentContext) {
     ),
   );
   const tools = core.actionsToEngineTools(actions);
-  const userApiKey = await core.getOwnerActiveApiKey(context.source.ownerEmail);
+  const ownerKey = await core.resolveOwnerEngineApiKey({
+    ownerEmail: context.source.ownerEmail,
+  });
   const engine = await core.resolveEngine({
-    apiKey: userApiKey,
+    apiKey: ownerKey.apiKey,
+    apiKeyEnvVar: ownerKey.apiKeyEnvVar,
+    apiKeyEngineBinding: ownerKey.apiKeyEngineBinding,
+    apiKeyProvenance: ownerKey.credentialProvenance,
+    credentialIdentity: {
+      userEmail: context.source.ownerEmail,
+      ...(context.source.orgId ? { orgId: context.source.orgId } : {}),
+    },
     appId: "brain",
   });
   const model =
@@ -465,7 +474,9 @@ export async function processBrainIngestQueueOnce(
           await runWithRequestContext(
             {
               userEmail: contextRows.source.ownerEmail,
-              orgId: contextRows.source.orgId ?? undefined,
+              ...(contextRows.source.orgId
+                ? { orgId: contextRows.source.orgId }
+                : { orgScope: "personal" as const }),
             },
             () =>
               runner({

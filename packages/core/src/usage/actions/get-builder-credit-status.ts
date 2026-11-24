@@ -80,6 +80,9 @@ export default defineAction({
         engine: engine.name,
         engineUsable: await isResolvedEngineUsableForRequest(engine, {
           apiKey: ownerKey.apiKey,
+          apiKeyEnvVar: ownerKey.apiKeyEnvVar,
+          apiKeyEngineBinding: ownerKey.apiKeyEngineBinding,
+          apiKeyProvenance: ownerKey.credentialProvenance,
           credentialIdentity,
         }),
         builderCredits: usage,

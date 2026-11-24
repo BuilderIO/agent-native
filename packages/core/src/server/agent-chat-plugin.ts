@@ -2927,6 +2927,7 @@ export function createAgentChatPlugin(
             apiKey: ownerApiKey,
             apiKeyEnvVar: ownerApiKeyEnvVar,
             credentialProvenance: ownerApiKeyProvenance,
+            apiKeyEngineBinding: ownerApiKeyEngineBinding,
           } = await resolveOwnerEngineApiKey({
             engineOption: options?.engine,
             ownerEmail: userEmail,
@@ -2967,6 +2968,7 @@ export function createAgentChatPlugin(
             apiKey: ownerApiKey,
             apiKeyEnvVar: ownerApiKeyEnvVar,
             apiKeyProvenance: ownerApiKeyProvenance,
+            apiKeyEngineBinding: ownerApiKeyEngineBinding,
             appId: options?.appId,
           });
 
@@ -3811,6 +3813,7 @@ export function createAgentChatPlugin(
               apiKey: ownerApiKey.apiKey,
               apiKeyEnvVar: ownerApiKey.apiKeyEnvVar,
               apiKeyProvenance: ownerApiKey.credentialProvenance,
+              apiKeyEngineBinding: ownerApiKey.apiKeyEngineBinding,
               appId: options?.appId,
             });
             const mcpModelCandidate =
@@ -6194,7 +6197,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               mode,
               event,
               noProgressCount,
-              resolveConfig: async ({ payload, ownerEmail, orgId: _orgId }) => {
+              resolveConfig: async ({ payload, ownerEmail, orgId }) => {
                 // Resolve the owner's API key so BYO-key sub-agents use the
                 // same credentials as the parent chat.
                 let resolvedKey: ResolvedOwnerApiKey = {
@@ -6220,6 +6223,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   apiKey: resolvedKey.apiKey,
                   apiKeyEnvVar: resolvedKey.apiKeyEnvVar,
                   apiKeyProvenance: resolvedKey.credentialProvenance,
+                  apiKeyEngineBinding: resolvedKey.apiKeyEngineBinding,
+                  credentialIdentity: { userEmail: ownerEmail, orgId },
                   appId: options?.appId,
                 });
                 const modelCandidate =

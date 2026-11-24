@@ -773,13 +773,17 @@ vi.mock("drizzle-orm", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestUserEmail: () => mocks.userEmail,
-  getRequestOrgId: () => mocks.orgId,
-  getRequestContext: () => undefined,
-  runWithRequestContext: async (_context: Row, fn: () => Promise<unknown>) =>
-    fn(),
-}));
+vi.mock(
+  "@agent-native/core/server/request-context",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/server/request-context")
+    >()),
+    getRequestUserEmail: () => mocks.userEmail,
+    getRequestOrgId: () => mocks.orgId,
+    getRequestContext: () => undefined,
+  }),
+);
 
 vi.mock("@agent-native/core/server", () => ({
   getCredentialContext: () => ({
@@ -3316,6 +3320,54 @@ describe("Brain knowledge quality gates", () => {
     });
     expect(mocks.rows.captures[0]).toMatchObject({ status: "distilled" });
   });
+
+  it.each([
+    { orgId: null, expectedScope: "personal" },
+    { orgId: "org-1", expectedScope: undefined },
+  ])(
+    "runs distillation with the source's credential scope: $expectedScope",
+    async ({ orgId, expectedScope }) => {
+      const source = seedSource({ orgId });
+      const capture = seedCapture({ status: "distilling" });
+      mocks.rows.ingestQueue.push({
+        id: "queue-1",
+        sourceId: source.id,
+        captureId: capture.id,
+        operation: "distill",
+        status: "queued",
+        priority: 50,
+        attempts: 0,
+        payloadJson: "{}",
+        error: null,
+        runAfter: null,
+        createdAt: "2026-05-15T12:00:00.000Z",
+        updatedAt: "2026-05-15T12:00:00.000Z",
+      });
+      const actual = await vi.importActual<
+        typeof import("@agent-native/core/server/request-context")
+      >("@agent-native/core/server/request-context");
+      const seen: Row[] = [];
+      await processBrainIngestQueueOnce({
+        limit: 1,
+        runDistillation: true,
+        distillationRunner: async () => {
+          const ctx = actual.getRequestContext();
+          seen.push({
+            userEmail: ctx?.userEmail,
+            orgId: ctx?.orgId,
+            orgScope: ctx?.orgScope,
+          });
+        },
+      });
+      expect(seen).toEqual([
+        {
+          userEmail: source.ownerEmail,
+          orgId: orgId ?? undefined,
+          orgScope: expectedScope,
+        },
+      ]);
+    },
+  );
 
   it("runs headless distillation and treats mark-capture completion as processed", async () => {
     const now = "2026-05-15T12:00:00.000Z";

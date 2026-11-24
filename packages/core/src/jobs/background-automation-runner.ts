@@ -26,6 +26,7 @@ import {
   runAgentLoop,
   appendAgentLoopContinuation,
   type ActionEntry,
+  type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
 import { foldReapedRunIntoThread } from "../agent/reaped-run-thread.js";
 import {
@@ -516,14 +517,17 @@ function missingCredentialsMessage(ownerEmail: string, orgId?: string): string {
 
 async function assertLlmCredentialsUsable(input: {
   engine: AgentEngine;
-  apiKey: string | undefined;
+  ownerKey: ResolvedOwnerApiKey;
   ownerEmail: string;
   orgId?: string;
 }): Promise<void> {
   let usable: boolean;
   try {
     usable = await isResolvedEngineUsableForRequest(input.engine, {
-      apiKey: input.apiKey,
+      apiKey: input.ownerKey.apiKey,
+      apiKeyEnvVar: input.ownerKey.apiKeyEnvVar,
+      apiKeyEngineBinding: input.ownerKey.apiKeyEngineBinding,
+      apiKeyProvenance: input.ownerKey.credentialProvenance,
       credentialIdentity: { userEmail: input.ownerEmail, orgId: input.orgId },
     });
   } catch (error) {
@@ -1406,24 +1410,27 @@ async function resolveUsableBackgroundEngine(
 ): Promise<AgentEngine> {
   const { ownerEmail, orgId } = identity;
   assertDeadline();
-  const ownerApiKey = await resolveOwnerEngineApiKey({ ownerEmail });
+  const ownerApiKey = await resolveOwnerEngineApiKey({
+    ownerEmail,
+    ...(deps.apiKey ? { anthropicFallback: deps.apiKey } : {}),
+  });
   assertDeadline();
-  const apiKey = ownerApiKey.apiKey ?? deps.apiKey;
-  const apiKeyProvenance = ownerApiKey.apiKey
-    ? ownerApiKey.credentialProvenance
-    : deps.apiKey
-      ? { scope: "deployment" as const }
-      : undefined;
   const engine =
     deps.engine ??
     (await resolveEngine({
-      apiKey,
-      apiKeyEnvVar: ownerApiKey.apiKey ? ownerApiKey.apiKeyEnvVar : undefined,
-      apiKeyProvenance,
+      apiKey: ownerApiKey.apiKey,
+      apiKeyEnvVar: ownerApiKey.apiKeyEnvVar,
+      apiKeyEngineBinding: ownerApiKey.apiKeyEngineBinding,
+      apiKeyProvenance: ownerApiKey.credentialProvenance,
       appId: deps.appId,
       credentialIdentity: { userEmail: ownerEmail, orgId },
     }));
-  await assertLlmCredentialsUsable({ engine, apiKey, ownerEmail, orgId });
+  await assertLlmCredentialsUsable({
+    engine,
+    ownerKey: ownerApiKey,
+    ownerEmail,
+    ...(orgId ? { orgId } : {}),
+  });
   return engine;
 }
 

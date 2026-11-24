@@ -1607,6 +1607,130 @@ describe("typed A2A receiver failures", () => {
   );
 });
 
+describe("A2A receiver owner credential selection", () => {
+  it("selects the saved engine using its legacy owner credential", async () => {
+    const { runWithRequestContext } = await import("./request-context.js");
+    const registry = await import("../agent/engine/registry.js");
+    const settings = await import("../settings/store.js");
+    const secrets = await import("../secrets/storage.js");
+    const credentials = await import("./credential-provider.js");
+    const policy = await import("./personal-provider-key-policy.js");
+    const appDefaults = await import("../agent/app-model-defaults.js");
+    const closers: Array<() => void | Promise<void>> = [];
+    const nitroApp = {
+      h3App: createApp(),
+      hooks: {
+        hook(name: string, callback: () => void | Promise<void>) {
+          if (name === "close") closers.push(callback);
+        },
+      },
+    };
+    vi.stubEnv("AGENT_ENGINE", "");
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })(nitroApp);
+    await a2aReceiver.initPromises.at(-1);
+    const originalEntries = registry.listAgentEngines();
+    for (const entry of originalEntries)
+      registry.unregisterAgentEngine(entry.name);
+    const selected = vi.fn(() => {
+      throw new Error("saved engine selected");
+    });
+    const fallback = vi.fn(() => {
+      throw new Error("fallback engine selected");
+    });
+    const capabilities = {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    };
+    registry.registerAgentEngine({
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      capabilities,
+      defaultModel: "test",
+      supportedModels: [],
+      requiredEnvVars: ["OPENAI_API_KEY"],
+      create: selected,
+    });
+    registry.registerAgentEngine({
+      name: "anthropic",
+      label: "Anthropic",
+      description: "",
+      capabilities,
+      defaultModel: "test",
+      supportedModels: [],
+      requiredEnvVars: ["ANTHROPIC_API_KEY"],
+      create: fallback,
+    });
+    vi.spyOn(settings, "getSetting").mockImplementation(async (key) => {
+      if (key === "agent-engine") return { engine: "ai-sdk:openai" };
+      if (key === "user-api-key:openai:owner@example.test")
+        return { key: "fake-owner-key" };
+      return null;
+    });
+    vi.spyOn(secrets, "readAppSecret").mockResolvedValue(null);
+    vi.spyOn(credentials, "resolveSecretDetailed").mockResolvedValue({
+      value: null,
+      lookupFailed: false,
+    });
+    vi.spyOn(credentials, "prefetchSecrets").mockResolvedValue(undefined);
+    vi.spyOn(credentials, "getProviderCredentialAuthFailure").mockResolvedValue(
+      null,
+    );
+    vi.spyOn(
+      credentials,
+      "canUseDeployCredentialFallbackForRequest",
+    ).mockReturnValue(false);
+    vi.spyOn(policy, "isPersonalProviderKeyUseRestricted").mockResolvedValue(
+      false,
+    );
+    vi.spyOn(
+      appDefaults,
+      "getAgentAppModelDefaultForCurrentRequest",
+    ).mockResolvedValue(null);
+    try {
+      const handler = a2aReceiver.config!.handler;
+      await expect(
+        runWithRequestContext(
+          {
+            userEmail: "owner@example.test",
+            defaultAgentEngineScope: "deployment",
+          },
+          () =>
+            handler(
+              { role: "user", parts: [{ type: "text", text: "test" }] },
+              {
+                taskId: "test-task",
+                metadata: {},
+                event: { context: {} },
+                writeArtifact: () => "",
+              },
+            ).next(),
+        ),
+      ).rejects.toThrow("saved engine selected");
+      expect(selected).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: "fake-owner-key" }),
+      );
+      expect(fallback).not.toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
+      for (const entry of registry.listAgentEngines())
+        registry.unregisterAgentEngine(entry.name);
+      for (const entry of originalEntries) registry.registerAgentEngine(entry);
+      vi.unstubAllEnvs();
+      await Promise.all(closers.map((close) => close()));
+    }
+  });
+});
+
 describe("A2A receiver handler with no verified user", () => {
   const CLAIMED_EMAIL = "julia@example.test";
   const message = {
