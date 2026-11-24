@@ -260,6 +260,7 @@ function StrokeLayerControl({
             <Select value={position} onValueChange={movePosition}>
               <SelectTrigger
                 aria-label={t("editPanel.labels.position")}
+                // guard:allow-part-geometry unchanged 24px inspector trigger classes, reflowed only to add aria-label
                 className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
               >
                 <SelectValue />
