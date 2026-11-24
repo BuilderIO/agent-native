@@ -1136,7 +1136,7 @@ export function EditorWorkspace({
           minSize={200}
           maxSize={416}
           snapToStep
-          minContentSize={500}
+          minContentSize={(separatorSize) => 500 + separatorSize}
           collapsible
         >
           <SplitPane
