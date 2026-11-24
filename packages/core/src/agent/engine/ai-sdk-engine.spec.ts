@@ -1346,3 +1346,55 @@ describe("withAnthropicThinkingBlockBinding", () => {
     expect(old.body.thinking.block_binding).toBeUndefined();
   });
 });
+
+describe("AISDKEngine provider fetch wiring", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  it("routes Anthropic requests through the thinking-binding fetch", async () => {
+    mockAiSdk();
+    const { createAnthropic } = mockAnthropicProvider();
+    const requestFetch = vi.fn().mockResolvedValue(new Response("{}"));
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    await drain(
+      createAISDKEngine("anthropic", { apiKey: "key", requestFetch }).stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-sonnet-5-5",
+      }),
+    );
+
+    const config = createAnthropic.mock.calls[0][0];
+    expect(config.fetch).not.toBe(requestFetch);
+    await config.fetch("https://x/messages", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-sonnet-5-5",
+        thinking: { type: "adaptive" },
+      }),
+    });
+    const sent = JSON.parse(requestFetch.mock.calls[0][1].body);
+    expect(sent.thinking.block_binding.prefix_mismatch_behavior).toBe(
+      "drop_block",
+    );
+  });
+
+  it("leaves non-JSON and malformed bodies untouched", async () => {
+    const base = vi.fn().mockResolvedValue(new Response("{}"));
+    const { withAnthropicThinkingBlockBinding } =
+      await import("./ai-sdk-engine.js");
+    const wrapped = withAnthropicThinkingBlockBinding(
+      base as unknown as typeof fetch,
+    );
+    await wrapped("https://x/messages", { method: "POST", body: "not json" });
+    await wrapped("https://x/messages", { method: "GET" });
+    await wrapped("https://x/messages", { method: "POST", body: "null" });
+    expect(base.mock.calls.map((call) => call[1]?.body)).toEqual([
+      "not json",
+      undefined,
+      "null",
+    ]);
+  });
+});
