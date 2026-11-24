@@ -4,6 +4,11 @@ import {
   normalizeLocalizationPreference,
   normalizeTimezonePreference,
 } from "@agent-native/core/localization";
+import {
+  changedRowCount,
+  countSaveOutcome,
+  saveConflict,
+} from "@agent-native/core/save-conflict/server";
 import { formatDateInTimezone } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
@@ -41,14 +46,31 @@ import { getDb, schema } from "../db/index.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
 import {
   assertDerivedAudienceAccess,
+  decideKnowledgeSave,
+  firstRow,
   getAccessibleCapture,
+  knowledgeRevision,
+  knowledgeWriteIsStored,
+  lockKnowledgeWriteSet,
+  runAfterCommitEffects,
+  transactWithResourceStore,
+  type AfterCommitEffects,
   nowIso,
+  postCommitWarnings,
   searchKnowledgePage,
   serializeKnowledge,
   sha256Hex,
+  touchKnowledgeRevision,
   validateEvidence,
-  writeKnowledgeRecord,
+  type WriteKnowledgeInput,
+  writeKnowledgeRecordInTransaction,
 } from "./brain.js";
+import {
+  checkKnowledgeProvenance,
+  type CaptureDigestCache,
+  evidenceCaptureIds,
+  isEvidenceBackedKnowledge,
+} from "./knowledge-provenance.js";
 import { personalGoogleSourceFilter } from "./source-access.js";
 
 type KnowledgeRow = typeof schema.brainKnowledge.$inferSelect;
@@ -169,6 +191,23 @@ async function currentEvidence(
   return true;
 }
 
+async function ordinaryKnowledgeIsCurrent(
+  row: KnowledgeRow,
+  loaded: Awaited<ReturnType<typeof loadCurrentEvidence>>,
+  digestCache: CaptureDigestCache,
+) {
+  const cited = evidenceCaptureIds(row.evidenceJson);
+  const captureIds = new Set(cited.readable ? cited.captureIds : []);
+  if (row.captureId) captureIds.add(row.captureId);
+  const liveContent = new Map<string, string>();
+  for (const captureId of captureIds) {
+    const capture = loaded.get(captureId);
+    if (capture) liveContent.set(captureId, capture.content);
+  }
+  return (await checkKnowledgeProvenance(row, liveContent, digestCache))
+    .current;
+}
+
 async function intelligenceRevision(row: KnowledgeRow, detail: DetailRow) {
   return sha256Hex(
     JSON.stringify([
@@ -183,20 +222,33 @@ async function intelligenceRevision(row: KnowledgeRow, detail: DetailRow) {
   );
 }
 
-function verificationFor(row: VerificationRow | null, revision: string) {
+function verificationFor(
+  row: VerificationRow | null | undefined,
+  revision: string,
+) {
   if (!row || row.knowledgeRevision !== revision) {
-    return { state: "unverified" as const, verifiedBy: null, verifiedAt: null };
+    return {
+      state: "unverified" as const,
+      verifiedBy: null,
+      verifiedAt: null,
+      remindAt: null,
+    };
   }
   const state = z
     .enum(["verified", "deprecated", "unverified"])
     .parse(row.state);
-  return { state, verifiedBy: row.actorEmail, verifiedAt: row.actedAt };
+  return {
+    state,
+    verifiedBy: row.actorEmail,
+    verifiedAt: row.actedAt,
+    remindAt: state === "verified" ? (row.remindAt ?? null) : null,
+  };
 }
 
 async function itemFromRows(
   row: KnowledgeRow,
   detail: DetailRow,
-  verification: VerificationRow | null,
+  verification: VerificationRow | null | undefined,
   loaded?: Awaited<ReturnType<typeof loadCurrentEvidence>>,
 ): Promise<IntelligenceItem | null> {
   const revision = await knowledgeContentRevision(row);
@@ -223,7 +275,7 @@ async function itemFromRows(
     evidence: knowledge.evidence,
     audienceId: row.audienceId,
     updatedAt: detail.updatedAt,
-    revision: await intelligenceRevision(row, detail),
+    revision: knowledgeRevision(row),
     verification: verificationFor(
       verification,
       await intelligenceRevision(row, detail),
@@ -425,34 +477,50 @@ export interface WriteIntelligenceInput {
 
 export async function writeIntelligence(input: WriteIntelligenceInput) {
   requireEmail();
-  return getDb().transaction(async () => writeIntelligenceLocked(input));
+  const { value: result, effects } = await transactWithResourceStore(
+    getDb(),
+    false,
+    async (_scoped, effects) => writeIntelligenceLocked(input, effects),
+  );
+  return {
+    ...result,
+    ...postCommitWarnings(await runAfterCommitEffects(effects)),
+  };
 }
 
-async function writeIntelligenceLocked(input: WriteIntelligenceInput) {
-  if (input.id) {
-    await assertAccess("brain-knowledge", input.id, "editor");
-    await getDb()
-      .select({ id: schema.brainKnowledge.id })
-      .from(schema.brainKnowledge)
-      .where(eq(schema.brainKnowledge.id, input.id))
-      .limit(1)
-      .for("update");
-    const current = (
-      await listIntelligence({ id: input.id, limit: 1 })
-    ).records.find((record) => record.id === input.id);
-    if (!current)
-      fail("The intelligence record is unavailable or its evidence changed.", {
-        errorCode: "evidence_unavailable",
-        statusCode: 403,
-      });
-    if (input.expectedRevision !== current.revision)
-      fail("The intelligence record changed. Read it again before saving.", {
-        errorCode: "save_conflict",
-        statusCode: 409,
-        details: { current, currentRevision: current.revision },
-      });
-  }
-  const evidence = await validateEvidence(input.evidence);
+function knowledgeInputForIntelligence(
+  input: WriteIntelligenceInput,
+): WriteKnowledgeInput {
+  const publishTier = input.publishTier ?? (input.id ? undefined : "private");
+  return {
+    ...(input.id
+      ? { knowledgeId: input.id, expectedRevision: input.expectedRevision }
+      : {}),
+    kind: input.kind === "decision" ? "decision" : "open-question",
+    title: input.title,
+    body: input.body,
+    summary: "",
+    entities: input.entities,
+    evidence: input.evidence,
+    confidence: input.confidence,
+    ...(publishTier ? { publishTier } : {}),
+  };
+}
+
+function intelligenceDetailFields(input: WriteIntelligenceInput) {
+  return {
+    kind: input.kind,
+    owner: input.owner?.trim() || null,
+    dueDate: input.dueDate ?? null,
+    taskStatus: input.status,
+    ownershipConfidence: input.ownershipConfidence,
+  };
+}
+
+function assertIntelligenceGrounded(
+  input: WriteIntelligenceInput,
+  evidence: BrainEvidence[],
+) {
   if (!evidence.length)
     fail("At least one exact evidence quote is required.", {
       errorCode: "evidence_required",
@@ -469,7 +537,7 @@ async function writeIntelligenceLocked(input: WriteIntelligenceInput) {
         statusCode: 400,
       });
   }
-  const owner = input.owner?.trim() || null;
+  const { owner } = intelligenceDetailFields(input);
   if (
     (owner && !hasDistinctMention(quotes, owner)) ||
     (input.ownershipConfidence === "explicit" && !owner)
@@ -485,6 +553,82 @@ async function writeIntelligenceLocked(input: WriteIntelligenceInput) {
       { errorCode: "due_date_not_in_evidence", statusCode: 400 },
     );
   }
+}
+
+async function intelligenceWriteIsStored(
+  input: WriteIntelligenceInput,
+  row: KnowledgeRow,
+  effects: AfterCommitEffects,
+) {
+  assertIntelligenceGrounded(input, await validateEvidence(input.evidence));
+  const detail = firstRow(
+    await getDb()
+      .select()
+      .from(schema.brainKnowledgeIntelligence)
+      .where(eq(schema.brainKnowledgeIntelligence.knowledgeId, row.id))
+      .limit(1),
+  );
+  const verification = firstRow(
+    await getDb()
+      .select({ knowledgeId: schema.brainKnowledgeVerifications.knowledgeId })
+      .from(schema.brainKnowledgeVerifications)
+      .where(eq(schema.brainKnowledgeVerifications.knowledgeId, row.id))
+      .limit(1),
+  );
+  if (!detail || verification || row.intelligenceKind !== input.kind)
+    return false;
+  const expected = Object.entries(intelligenceDetailFields(input)) as Array<
+    [keyof DetailRow, unknown]
+  >;
+  if (expected.some(([key, value]) => detail[key] !== value)) return false;
+  return knowledgeWriteIsStored(
+    knowledgeInputForIntelligence(input),
+    row,
+    effects,
+  );
+}
+
+async function writeIntelligenceLocked(
+  input: WriteIntelligenceInput,
+  effects: AfterCommitEffects,
+) {
+  if (input.id) {
+    const { evidenceLocked } = await lockKnowledgeWriteSet({
+      knowledgeId: input.id,
+      evidence: input.evidence,
+    });
+    const access = await assertAccess("brain-knowledge", input.id, "editor");
+    const row = access.resource as KnowledgeRow;
+    const current = (
+      await listIntelligence({ id: input.id, limit: 1 })
+    ).records.find((record) => record.id === input.id);
+    if (!current)
+      fail("The intelligence record is unavailable or its evidence changed.", {
+        errorCode: "evidence_unavailable",
+        statusCode: 403,
+      });
+    const decision = await decideKnowledgeSave({
+      record: "intelligence_record",
+      expectedRevision: input.expectedRevision,
+      requireRevision: true,
+      row,
+      current,
+      evidenceLocked,
+      alreadyStored: () => intelligenceWriteIsStored(input, row, effects),
+    });
+    if (decision === "already_applied") return { item: current };
+  }
+  const evidence = await validateEvidence(input.evidence);
+  assertIntelligenceGrounded(input, evidence);
+  const result = await writeKnowledgeRecordInTransaction(
+    knowledgeInputForIntelligence(input),
+    effects,
+  );
+  if (result.knowledge.status === "redacted")
+    fail(
+      "Privacy settings require redacting this record. Use an exact excerpt without email addresses and omit an email owner, then try again.",
+      { errorCode: "intelligence_redaction_required", statusCode: 400 },
+    );
   const snapshots: z.infer<typeof snapshotSchema> = [];
   for (const captureId of [
     ...new Set(evidence.map((entry) => entry.captureId)),
@@ -501,27 +645,20 @@ async function writeIntelligenceLocked(input: WriteIntelligenceInput) {
         access.capture.contentHash ?? (await sha256Hex(access.capture.content)),
     });
   }
-  const publishTier = input.publishTier ?? (input.id ? undefined : "private");
-  const result = await writeKnowledgeRecord({
-    ...(input.id ? { knowledgeId: input.id } : {}),
-    kind: input.kind === "decision" ? "decision" : "open-question",
-    title: input.title,
-    body: input.body,
-    summary: "",
-    entities: input.entities,
-    evidence: input.evidence,
-    confidence: input.confidence,
-    ...(publishTier ? { publishTier } : {}),
-  });
-  if (result.knowledge.status === "redacted")
-    fail(
-      "Privacy settings require redacting this record. Use an exact excerpt without email addresses and omit an email owner, then try again.",
-      { errorCode: "intelligence_redaction_required", statusCode: 400 },
-    );
-  await getDb()
+  const marked = await getDb()
     .update(schema.brainKnowledge)
     .set({ intelligenceKind: input.kind })
-    .where(eq(schema.brainKnowledge.id, result.knowledge.id));
+    .where(
+      and(
+        eq(schema.brainKnowledge.id, result.knowledge.id),
+        eq(schema.brainKnowledge.updatedAt, result.knowledge.updatedAt),
+      ),
+    )
+    .returning({ id: schema.brainKnowledge.id });
+  if (changedRowCount(marked) !== 1)
+    throw new Error(
+      `Marking knowledge ${result.knowledge.id} as intelligence did not change exactly one row.`,
+    );
   const savedKnowledge = await getDb()
     .select()
     .from(schema.brainKnowledge)
@@ -542,22 +679,23 @@ async function writeIntelligenceLocked(input: WriteIntelligenceInput) {
     });
   const detail = {
     knowledgeId: knowledge.id,
-    kind: input.kind,
-    owner,
-    dueDate: input.dueDate ?? null,
-    taskStatus: input.status,
-    ownershipConfidence: input.ownershipConfidence,
+    ...intelligenceDetailFields(input),
     knowledgeRevision: await knowledgeContentRevision(knowledge),
     evidenceSnapshotsJson: JSON.stringify(snapshots),
     updatedAt: nowIso(),
   };
-  await getDb()
+  const savedDetail = await getDb()
     .insert(schema.brainKnowledgeIntelligence)
     .values(detail)
     .onConflictDoUpdate({
       target: schema.brainKnowledgeIntelligence.knowledgeId,
       set: detail,
-    });
+    })
+    .returning({ knowledgeId: schema.brainKnowledgeIntelligence.knowledgeId });
+  if (changedRowCount(savedDetail) !== 1)
+    throw new Error(
+      `Saving intelligence detail for ${knowledge.id} did not change exactly one row.`,
+    );
   const savedVerifications = await getDb()
     .select()
     .from(schema.brainKnowledgeVerifications)
@@ -663,9 +801,23 @@ export async function verifyKnowledge(input: {
   state: "verified" | "deprecated" | "unverified";
   attested: true;
   expectedRevision: string;
+  remindInDays?: number | undefined;
 }) {
   requireEmail();
   return getDb().transaction(async () => verifyKnowledgeLocked(input));
+}
+
+function verificationReminder(
+  input: {
+    state: "verified" | "deprecated" | "unverified";
+    remindInDays?: number | undefined;
+  },
+  actedAtMs: number,
+  carried: string | null,
+) {
+  if (input.state !== "verified") return null;
+  if (input.remindInDays === undefined) return carried;
+  return new Date(actedAtMs + input.remindInDays * 86_400_000).toISOString();
 }
 
 async function verifyKnowledgeLocked(input: {
@@ -673,6 +825,7 @@ async function verifyKnowledgeLocked(input: {
   state: "verified" | "deprecated" | "unverified";
   attested: true;
   expectedRevision: string;
+  remindInDays?: number | undefined;
 }) {
   const actorEmail = requireEmail();
   await getDb()
@@ -708,28 +861,77 @@ async function verifyKnowledgeLocked(input: {
       errorCode: "evidence_unavailable",
       statusCode: 403,
     });
+  const existingVerifications = await getDb()
+    .select()
+    .from(schema.brainKnowledgeVerifications)
+    .where(eq(schema.brainKnowledgeVerifications.knowledgeId, row.id))
+    .limit(1);
+  const existingVerification = existingVerifications.find(
+    (entry) => entry.knowledgeId === row.id,
+  );
   const revision = await intelligenceRevision(row, detail);
-  if (input.expectedRevision !== revision)
-    fail(
-      "The knowledge changed. Review its current content before verifying.",
-      { errorCode: "save_conflict", statusCode: 409 },
-    );
+  if (input.expectedRevision !== knowledgeRevision(row)) {
+    if (
+      existingVerification?.knowledgeRevision === revision &&
+      existingVerification.state === input.state &&
+      existingVerification.actorEmail === actorEmail &&
+      existingVerification.remindAt ===
+        verificationReminder(
+          input,
+          Date.parse(existingVerification.actedAt),
+          existingVerification.remindAt,
+        )
+    ) {
+      countSaveOutcome("intelligence_record", "already_applied");
+      return {
+        verification: verificationFor(existingVerification, revision),
+        revision: knowledgeRevision(row),
+      };
+    }
+    const current = await itemFromRows(row, detail, existingVerification);
+    if (!current)
+      fail(
+        "This intelligence record no longer matches its structured details, so it cannot be verified. Read it again and save it with write-intelligence before verifying.",
+        { errorCode: "intelligence_out_of_date", statusCode: 409 },
+      );
+    throw saveConflict("intelligence_record", current, knowledgeRevision(row));
+  }
+  const touched = await touchKnowledgeRevision(row);
+  if (!touched) throw new Error(`Knowledge ${row.id} changed while locked.`);
+  const actedAt = nowIso();
+  const actedAtMs = Date.parse(actedAt);
+  const existingRemindAt =
+    existingVerification?.state === "verified" &&
+    existingVerification.knowledgeRevision === revision &&
+    existingVerification.remindAt &&
+    Date.parse(existingVerification.remindAt) > actedAtMs
+      ? existingVerification.remindAt
+      : null;
+  const remindAt = verificationReminder(input, actedAtMs, existingRemindAt);
   const verification = {
     knowledgeId: row.id,
     knowledgeRevision: revision,
     state: input.state,
     actorEmail,
-    actedAt: nowIso(),
+    actedAt,
+    remindAt,
   };
-  await getDb()
+  const saved = await getDb()
     .insert(schema.brainKnowledgeVerifications)
     .values(verification)
     .onConflictDoUpdate({
       target: schema.brainKnowledgeVerifications.knowledgeId,
       set: verification,
-    });
+    })
+    .returning({ knowledgeId: schema.brainKnowledgeVerifications.knowledgeId });
+  if (changedRowCount(saved) !== 1)
+    throw new Error(
+      `Saving the verification of ${row.id} did not change exactly one row.`,
+    );
+  countSaveOutcome("intelligence_record", "written");
   return {
     verification: verificationFor(verification, verification.knowledgeRevision),
+    revision: knowledgeRevision(touched),
   };
 }
 
@@ -745,7 +947,7 @@ export async function getEntityGraph(
   const { rows, scanLimited } = await searchKnowledgePage({
     query: input.query,
     includeDrafts: true,
-    statuses: ["draft", "published"],
+    statuses: ["draft", "published", "redacted"],
     limit: 101,
   });
   const entities = new Map<
@@ -791,7 +993,12 @@ export async function getEntityGraph(
     rows.flatMap((row) => serializeKnowledge(row).evidence),
   );
   for (const row of rows) {
-    if (row.status !== "published" && row.status !== "draft") continue;
+    if (
+      row.status !== "published" &&
+      row.status !== "draft" &&
+      row.status !== "redacted"
+    )
+      continue;
     const knowledge = serializeKnowledge(row);
     const detail = details.get(row.id);
     if (
@@ -799,11 +1006,13 @@ export async function getEntityGraph(
       detail.knowledgeRevision !== (await knowledgeContentRevision(row))
     )
       continue;
-    const snapshots = detail
-      ? snapshotSchema.parse(JSON.parse(detail.evidenceSnapshotsJson))
-      : undefined;
-    if (!(await currentEvidence(knowledge.evidence, snapshots, loaded)))
-      continue;
+    if (detail) {
+      const snapshots = snapshotSchema.parse(
+        JSON.parse(detail.evidenceSnapshotsJson),
+      );
+      if (!(await currentEvidence(knowledge.evidence, snapshots, loaded)))
+        continue;
+    }
     const quotes = knowledge.evidence
       .map((entry) => entry.quote)
       .join("\n")
@@ -931,13 +1140,14 @@ export async function filterCurrentKnowledgeRows(
   }
   const loaded = await loadCurrentEvidence(evidenceForLookup);
   const current: KnowledgeRow[] = [];
+  const digestCache: CaptureDigestCache = new Map();
   for (const row of rows) {
     const evidence = evidenceById.get(row.id);
     if (!evidence || (row.captureId && !loaded.has(row.captureId))) continue;
     if (!row.intelligenceKind) {
       if (
-        evidence.length &&
-        !(await currentEvidence(evidence, undefined, loaded))
+        isEvidenceBackedKnowledge(row) &&
+        !(await ordinaryKnowledgeIsCurrent(row, loaded, digestCache))
       )
         continue;
       current.push(row);

@@ -77,7 +77,7 @@ export default defineEventHandler(async (event: H3Event) => {
         "Your sign-in link expired or is invalid. Please try again.",
       );
     }
-    const { owner } = await resolveOAuthOwner(event, state.owner);
+    const { owner } = await resolveOAuthOwner(event, state.owner, state);
     const session = await getSession(event);
     const ownerEmail = owner ?? session?.email;
     if (!ownerEmail) {

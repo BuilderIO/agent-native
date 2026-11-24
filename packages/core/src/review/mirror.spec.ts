@@ -170,6 +170,53 @@ describe("mirrorReviewComments", () => {
     });
   });
 
+  it("writes the kind, routing and pickup an app keeps, and leaves the kit's when it doesn't say", async () => {
+    const deck = { ...DECK, resourceId: "deck-app-kept" };
+    const question = copy({
+      kind: "question",
+      resolutionTarget: "human",
+      consumedAt: null,
+    });
+    const plain = copy();
+    await mirrorReviewComments(deck, [question, plain]);
+    expect(await stored(question.id)).toMatchObject({
+      kind: "question",
+      resolutionTarget: "human",
+      consumedAt: null,
+    });
+    expect(await stored(plain.id)).toMatchObject({
+      kind: "comment",
+      resolutionTarget: null,
+      consumedAt: null,
+    });
+
+    const taken = {
+      ...question,
+      resolutionTarget: "agent" as const,
+      consumedAt: "2026-11-02T09:00:00.000Z",
+    };
+    expect(await mirrorReviewComments(deck, [taken])).toEqual({ written: 1 });
+    expect(await stored(question.id)).toMatchObject({
+      kind: "question",
+      resolutionTarget: "agent",
+      consumedAt: "2026-11-02T09:00:00.000Z",
+      revision: 2,
+    });
+    expect(await mirrorReviewComments(deck, [taken])).toEqual({ written: 0 });
+
+    await getDbExec().execute({
+      sql: "UPDATE agent_review_comments SET resolution_target = 'agent' WHERE id = ?",
+      args: [plain.id],
+    });
+    expect(
+      await mirrorReviewComments(deck, [{ ...plain, body: "Reworded" }]),
+    ).toEqual({ written: 1 });
+    expect(await stored(plain.id)).toMatchObject({
+      body: "Reworded",
+      resolutionTarget: "agent",
+    });
+  });
+
   it("brings back a comment the kit deleted when the app still has it", async () => {
     const comment = copy();
     await mirrorReviewComments(DECK, [comment]);
@@ -504,6 +551,45 @@ describe("compareMirroredReviewComments", () => {
       ...comment,
       resolvedBy: undefined,
       resolvedAt: undefined,
+    };
+    expect(await compareMirroredReviewComments(deck, [unstated])).toEqual({
+      checked: 1,
+      differences: [],
+    });
+  });
+
+  it("checks the kind, routing and pickup only where the app says", async () => {
+    const deck = { ...DECK, resourceId: "deck-app-kept-compare" };
+    const comment = copy({
+      kind: "correction",
+      resolutionTarget: "agent",
+      consumedAt: "2026-11-02T09:00:00.000Z",
+    });
+    await mirrorReviewComments(deck, [comment]);
+
+    expect(
+      await compareMirroredReviewComments(deck, [
+        {
+          ...comment,
+          kind: "question",
+          resolutionTarget: "human",
+          consumedAt: null,
+        },
+      ]),
+    ).toMatchObject({
+      differences: [
+        {
+          id: comment.id,
+          problem: "different",
+          fields: ["kind", "resolutionTarget", "consumedAt"],
+        },
+      ],
+    });
+    const unstated = {
+      ...comment,
+      kind: undefined,
+      resolutionTarget: undefined,
+      consumedAt: undefined,
     };
     expect(await compareMirroredReviewComments(deck, [unstated])).toEqual({
       checked: 1,

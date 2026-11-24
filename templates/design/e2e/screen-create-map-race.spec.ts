@@ -134,7 +134,7 @@ test("a delayed Screen create preserves concurrent geometry edits", async ({
     await route.continue();
   });
 
-  await pickFrameMode(page, "Screen");
+  await pickFrameMode(page, "Page");
   const start = await emptyBoardPoint(page);
   // Home's iframe origin is world 0,0, so it maps page px to world px.
   const origin = await app.pagePoint(0, 0, "index.html");

@@ -193,7 +193,10 @@ describe("sendToAgentChat", () => {
     sendToAgentChat({ message: "Use GitHub", references: [reference] });
     const payload = parentPostMessageSpy.mock.calls[0][0];
     expect(
-      parseSubmitChatMessage({ data: payload } as MessageEvent)?.references,
+      parseSubmitChatMessage({
+        data: payload,
+        origin: window.location.origin,
+      } as MessageEvent)?.references,
     ).toEqual([reference]);
     expect(() =>
       parseSubmitChatMessage({
@@ -228,7 +231,10 @@ describe("sendToAgentChat", () => {
       targetTabId: "generation-tab",
     });
     const payload = parentPostMessageSpy.mock.calls[0][0];
-    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+    const parsed = parseSubmitChatMessage({
+      data: payload,
+      origin: window.location.origin,
+    } as MessageEvent);
 
     expect(payload.data.targetTabId).toBe("generation-tab");
     expect(parsed?.targetTabId).toBe("generation-tab");
@@ -238,7 +244,10 @@ describe("sendToAgentChat", () => {
     const submissionExpiresAt = Date.now() + 20_000;
     sendToAgentChat({ message: "Create a deck", submissionExpiresAt });
     const payload = parentPostMessageSpy.mock.calls[0][0];
-    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+    const parsed = parseSubmitChatMessage({
+      data: payload,
+      origin: window.location.origin,
+    } as MessageEvent);
 
     expect(payload.data.submissionExpiresAt).toBe(submissionExpiresAt);
     expect(parsed?.submissionExpiresAt).toBe(submissionExpiresAt);
@@ -250,7 +259,10 @@ describe("sendToAgentChat", () => {
       actionScope: { kind: "content-comment-ai", requestId: "request-1" },
     });
     const payload = parentPostMessageSpy.mock.calls[0][0];
-    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+    const parsed = parseSubmitChatMessage({
+      data: payload,
+      origin: window.location.origin,
+    } as MessageEvent);
 
     expect(parsed?.actionScope).toEqual({
       kind: "content-comment-ai",
@@ -266,7 +278,10 @@ describe("sendToAgentChat", () => {
       submit: false,
     });
     const payload = parentPostMessageSpy.mock.calls[0][0];
-    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+    const parsed = parseSubmitChatMessage({
+      data: payload,
+      origin: window.location.origin,
+    } as MessageEvent);
 
     expect(parsed?.contextLabel).toBe("Spider-Man: Brand New Day");
     expect(parsed?.context).toBe('{"movieId":969681}');
@@ -340,6 +355,25 @@ describe("sendToAgentChat", () => {
     ).toBeNull();
   });
 
+  it("keeps approval keys only from this app's own documents", () => {
+    const data = {
+      type: "agentNative.submitChat",
+      data: { message: "Approved.", approvedToolCalls: ["publish:{}"] },
+    };
+    expect(
+      parseSubmitChatMessage({
+        data,
+        origin: window.location.origin,
+      } as MessageEvent)?.approvedToolCalls,
+    ).toEqual(["publish:{}"]);
+    const fromParent = parseSubmitChatMessage({
+      data,
+      origin: "https://builder.io",
+    } as MessageEvent);
+    expect(fromParent?.message).toBe("Approved.");
+    expect(fromParent?.approvedToolCalls).toBeUndefined();
+  });
+
   it("drops a blank usageLabel instead of forwarding an empty label", () => {
     const parsed = parseSubmitChatMessage({
       data: {
@@ -358,7 +392,10 @@ describe("sendToAgentChat", () => {
     const payload = parentPostMessageSpy.mock.calls[0][0];
     expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
 
-    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+    const parsed = parseSubmitChatMessage({
+      data: payload,
+      origin: window.location.origin,
+    } as MessageEvent);
     expect(parsed?.approvedToolCalls).toEqual(["publish-release:{}"]);
   });
 
@@ -369,6 +406,7 @@ describe("sendToAgentChat", () => {
           type: "agentNative.submitChat",
           data: { message: "Approved.", approvedToolCalls },
         },
+        origin: window.location.origin,
       } as MessageEvent)?.approvedToolCalls;
 
     expect(parse(["a:{}", "", "   ", 7, null, { key: "b" }, " c:{} "])).toEqual(
@@ -643,8 +681,10 @@ describe("sendToAgentChat", () => {
     expect(payload.data.tabId).toBe(tabId);
     expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
     expect(
-      parseSubmitChatMessage({ data: payload } as MessageEvent)
-        ?.approvedToolCalls,
+      parseSubmitChatMessage({
+        data: payload,
+        origin: window.location.origin,
+      } as MessageEvent)?.approvedToolCalls,
     ).toEqual(["publish-release:{}"]);
   });
 
@@ -922,8 +962,10 @@ describe("sendToAgentChat", () => {
       expect(payload.type).toBe("agentNative.submitChat");
       expect(payload.data.tabId).toBe(tabId);
       expect(
-        parseSubmitChatMessage({ data: payload } as MessageEvent)
-          ?.approvedToolCalls,
+        parseSubmitChatMessage({
+          data: payload,
+          origin: window.location.origin,
+        } as MessageEvent)?.approvedToolCalls,
       ).toEqual(["publish-release:{}"]);
     },
   );
@@ -1418,8 +1460,10 @@ describe("sendToAgentChat", () => {
     expect(targetOrigin).toBe("http://localhost:3000");
     expect(payload.data.tabId).toBe(tabId);
     expect(
-      parseSubmitChatMessage({ data: payload } as MessageEvent)
-        ?.approvedToolCalls,
+      parseSubmitChatMessage({
+        data: payload,
+        origin: window.location.origin,
+      } as MessageEvent)?.approvedToolCalls,
     ).toEqual(["publish-release:{}"]);
   });
 

@@ -61,7 +61,10 @@ vi.mock("../server/crm/native-adapter.js", async (importOriginal) => {
     },
   };
 });
-vi.mock("@agent-native/core/application-state", () => ({
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
   readAppStateForCurrentTab: applicationState.read,
   writeAppStateForCurrentTab: applicationState.write,
 }));

@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 import type { ActionRunContext } from "../action.js";
 import { getDbExec } from "../db/client.js";
 import { effectiveOrgMemberRole } from "../server/personal-provider-key-policy.js";
@@ -73,6 +75,51 @@ export interface AppRoles<
 
 const registry = new Map<string, AppRolesDescriptor<string, string>>();
 
+function equalRoleDescriptors(left: unknown, right: unknown): boolean {
+  const seen = new WeakMap<object, WeakSet<object>>();
+  const equal = (a: unknown, b: unknown): boolean => {
+    if (Object.is(a, b)) return true;
+    if (!isDeepStrictEqual(a, b)) return false;
+    if (
+      typeof a !== "object" ||
+      a === null ||
+      typeof b !== "object" ||
+      b === null
+    )
+      return false;
+
+    const prototype = Object.getPrototypeOf(a);
+    if (
+      prototype !== Object.prototype &&
+      prototype !== null &&
+      prototype !== Array.prototype
+    )
+      return false;
+
+    if (seen.get(a)?.has(b)) return true;
+    if (!seen.has(a)) seen.set(a, new WeakSet());
+    seen.get(a)?.add(b);
+
+    const keys = Reflect.ownKeys(a);
+    if (keys.length !== Reflect.ownKeys(b).length) return false;
+    for (const key of keys) {
+      const first = Object.getOwnPropertyDescriptor(a, key);
+      const second = Object.getOwnPropertyDescriptor(b, key);
+      if (!first || !second || !("value" in first) || !("value" in second))
+        return false;
+      if (
+        first.enumerable !== second.enumerable ||
+        first.configurable !== second.configurable ||
+        first.writable !== second.writable ||
+        !equal(first.value, second.value)
+      )
+        return false;
+    }
+    return true;
+  };
+  return equal(left, right);
+}
+
 export function getRegisteredAppRoles(
   appId: string,
 ): AppRolesDescriptor<string, string> | undefined {
@@ -138,10 +185,7 @@ export function defineAppRoles<
   }
 
   const existing = registry.get(appId);
-  if (
-    existing &&
-    existing !== (descriptor as unknown as AppRolesDescriptor<string, string>)
-  ) {
+  if (existing && !equalRoleDescriptors(existing, descriptor)) {
     throw new Error(
       `defineAppRoles: appId "${appId}" is already declared with a different descriptor`,
     );

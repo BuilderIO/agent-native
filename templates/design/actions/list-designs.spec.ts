@@ -215,6 +215,12 @@ beforeEach(() => {
 });
 
 describe("list-designs", () => {
+  it("points an agent at navigate for showing the matches, since a read cannot move the view", () => {
+    expect(action.tool.description).toMatch(
+      /navigate with view=list and search/,
+    );
+  });
+
   it("returns a bounded page with total count metadata without selecting data", async () => {
     mocks.designRows = [
       design("design-1", "One"),

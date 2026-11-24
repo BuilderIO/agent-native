@@ -77,6 +77,7 @@ import {
   CLIPS_LABS,
   CLIPS_LOOKBACK_CONTEXT,
   CLIPS_MEETINGS,
+  CLIPS_RICH_RECORDINGS,
   CLIPS_VOICE_DICTATION,
   isLabEnabled,
 } from "../../shared/labs";
@@ -1385,6 +1386,8 @@ export function App({
     authStatus === "authed" && isLabEnabled(labValues, CLIPS_VOICE_DICTATION);
   const lookbackLabEnabled =
     authStatus === "authed" && isLabEnabled(labValues, CLIPS_LOOKBACK_CONTEXT);
+  const richRecordingsLabEnabled =
+    authStatus === "authed" && isLabEnabled(labValues, CLIPS_RICH_RECORDINGS);
   const rewindOn = featureConfig?.screenMemory?.enabled === true;
   const voiceDictationEnabled =
     voiceDictationLabEnabled && featureConfig?.voiceEnabled !== false;
@@ -4365,6 +4368,7 @@ export function App({
           mode,
           source,
           cameraId,
+          cameraLabel: cameraLabel || undefined,
           micId: selectedMicId || undefined,
           micLabel: selectedMicLabel || micLabel || undefined,
           authToken: loadDesktopAuthToken(serverUrl),
@@ -4374,6 +4378,7 @@ export function App({
           systemAudioOn,
           voiceCleanupEnabled,
           lookbackEnabled: lookbackSecondsForRecording > 0,
+          richTracks: richRecordingsLabEnabled,
           localRecordingMode: recordingLocalMode,
           preAcquiredCameraStream,
           preAcquiredDisplayStream:

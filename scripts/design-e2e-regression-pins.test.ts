@@ -27,6 +27,7 @@ import {
   resolveDesignE2ERegressionPinsForShard,
 } from "./design-e2e-regression-pins.ts";
 import {
+  isDesignOverlaidFromPublicPin,
   loadBasePins,
   loadBasePinExceptions,
   resolveDesignE2ECoverageBase,
@@ -3733,6 +3734,46 @@ test("the resolver CLI distinguishes disabled pins from unreadable sources", () 
     assert.equal(unavailable.status, 2, unavailable.stderr);
     assert.match(unavailable.stderr, /ENOENT/);
     assert.equal(unavailable.stdout, "");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+void test("detects PUBLIC_PIN overlay of templates/design/ only when both markers declare it", () => {
+  const root = mkdtempSync(join(tmpdir(), "design-pins-overlay-"));
+  try {
+    assert.equal(isDesignOverlaidFromPublicPin(root), false);
+
+    mkdirSync(join(root, "guard-allowlists"), { recursive: true });
+    writeFileSync(
+      join(root, "guard-allowlists/untracked-import-roots.json"),
+      JSON.stringify(["templates/design/"]),
+    );
+    assert.equal(isDesignOverlaidFromPublicPin(root), false);
+
+    writeFileSync(join(root, "PUBLIC_PIN"), "21c90bdff1\n");
+    assert.equal(isDesignOverlaidFromPublicPin(root), true);
+
+    writeFileSync(
+      join(root, "guard-allowlists/untracked-import-roots.json"),
+      JSON.stringify(["packages/core/"]),
+    );
+    assert.equal(isDesignOverlaidFromPublicPin(root), false);
+
+    writeFileSync(
+      join(root, "guard-allowlists/untracked-import-roots.json"),
+      "{not json",
+    );
+    assert.throws(
+      () => isDesignOverlaidFromPublicPin(root),
+      (error: unknown) =>
+        Boolean(
+          error &&
+          typeof error === "object" &&
+          "exitCode" in error &&
+          error.exitCode === 2,
+        ),
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

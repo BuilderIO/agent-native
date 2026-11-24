@@ -273,7 +273,6 @@ export function useBlockFieldComments({
   threads,
   suggestions,
   draftSuggestions,
-  anchoredSuggestionIds,
   selectedThreadId,
   selectedSuggestionId,
   focusSuggestionId,
@@ -291,8 +290,6 @@ export function useBlockFieldComments({
   /** Every tab's suggestions, the body's included. */
   suggestions: readonly ResourceSuggestion[];
   draftSuggestions: readonly DraftSuggestion[];
-  /** The body's suggestions its editor shows. */
-  anchoredSuggestionIds: readonly string[] | null | undefined;
   selectedThreadId: string | null;
   selectedSuggestionId: string | null;
   focusSuggestionId: string | null;
@@ -431,9 +428,8 @@ export function useBlockFieldComments({
         threads,
         suggestions,
         draftSuggestions,
-        anchoredSuggestionIds,
       }),
-    [anchoredSuggestionIds, draftSuggestions, suggestions, threads],
+    [draftSuggestions, suggestions, threads],
   );
   const fieldPending = useMemo(
     () =>

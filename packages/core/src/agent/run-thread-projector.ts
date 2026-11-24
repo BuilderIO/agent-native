@@ -6,7 +6,9 @@ import {
   buildAssistantMessage,
   buildAssistantTurnSegments,
   foldAssistantTurn,
+  isStreamedAfterStop,
   type SteeredRunSegment,
+  userStopShownThroughSeq,
 } from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
 
@@ -75,10 +77,16 @@ export async function buildAssistantTurnFromRunJournal(input: {
       event.runId === input.runId && event.seq < CHECKPOINT_TERMINAL_EVENT_SEQ,
   );
   const persistedSequences = new Set(currentRunPersisted.map(({ seq }) => seq));
+  const shownThroughSeq = userStopShownThroughSeq([
+    ...currentRunPersisted,
+    ...input.runEvents,
+  ]);
   const missingSequences = input.runEvents
     .filter(
-      ({ seq, event }) =>
-        !isTerminalProjectionEvent(event) && !persistedSequences.has(seq),
+      (runEvent) =>
+        !isTerminalProjectionEvent(runEvent.event) &&
+        !isStreamedAfterStop(runEvent, shownThroughSeq) &&
+        !persistedSequences.has(runEvent.seq),
     )
     .map(({ seq }) => seq);
   if (missingSequences.length > 0) {

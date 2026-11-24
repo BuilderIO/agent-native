@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { OverlayPerson } from "../shared/api.js";
 
 export default defineAction({
+  mcpTool: false,
   description:
     "Change the display color of one person on the caller's calendar overlay list.",
   schema: z.object({

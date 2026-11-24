@@ -70,7 +70,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { filter?: string }) =>
     options?.filter === undefined ? key : `${key}:${options.filter}`,
 }));
-vi.mock("@agent-native/toolkit/app/review", () => ({
+vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/review")
+  >()),
   CommentBody: ({ body }: { body: string }) => body,
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
@@ -231,6 +234,7 @@ describe("the Discussion panel", () => {
   // Sort and Filter are Content's menus, which open on a press or Enter, not a
   // bare click().
   const openMenu = async (selector: string) => {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
     await act(async () => {
       button(selector).dispatchEvent(
         new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),

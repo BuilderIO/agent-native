@@ -67,6 +67,16 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "line-variant tabs with underline active state for Slides home filters",
   ],
 
+  [
+    "context-menu.tsx",
+    "design",
+    "24px-row menu spec and destructive item variant for the Design editor",
+  ],
+  [
+    "dropdown-menu.tsx",
+    "design",
+    "24px-row menu spec and destructive item variant for the Design editor",
+  ],
   ["textarea.tsx", "assets", "autoGrow behavior for asset forms"],
   [
     "textarea.tsx",
@@ -84,6 +94,16 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
     "disables animation and transition so custom menus open instantly",
   ],
   ["assets", "textarea.tsx", "adds auto-grow behavior for asset forms"],
+  [
+    "design",
+    "context-menu.tsx",
+    "wraps the Toolkit menu with Design's 24px rows and destructive item variant",
+  ],
+  [
+    "design",
+    "dropdown-menu.tsx",
+    "wraps the Toolkit menu with Design's 24px rows and destructive item variant",
+  ],
   [
     "brain",
     "dropdown-menu.tsx",

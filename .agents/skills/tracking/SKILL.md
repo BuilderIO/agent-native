@@ -272,7 +272,9 @@ together.
 
 Visitors in the consent region (`shared/consent.ts`, copied from builder.io's
 banner rules) see `ConsentBanner`, which `AppProviders` and the docs root
-mount, and choose two categories: `performance` (Google Analytics,
+mount, and choose two categories (the sign-in page shows the same banner
+under its card, through `ConsentBannerPanel` with the page's own language,
+so a visitor can accept before signing up): `performance` (Google Analytics,
 Amplitude, Ahrefs) and `targeting` (Google Tag Manager, attribution).
 Everyone else gets no banner and every tag at once.
 
@@ -394,7 +396,7 @@ These fields land in the `analytics_events.anonymous_id`, `analytics_events.sess
 
 `configureTracking()` also captures an anonymous visitor's **first-touch** referral context once, on first page load, and persists it across the signup boundary so the server-side `signup` event records where the user came from. This powers virality metrics for every template (Clips share links, Plans public pages, etc.).
 
-There is one capture implementation, `captureAttribution()` from `@agent-native/core/client/analytics`. Every page that can be someone's first visit calls it, including the server-rendered sign-in page, which never runs `configureTracking()` and passes `{ landingPath }` so `landing_path` names the app path behind the sign-in page. Never copy the capture into a page: the sign-in page's private copy silently dropped ad click ids, site handoff fields, and last touch for every visitor who landed on it.
+There is one capture implementation, `captureAttribution()` from `@agent-native/core/client/analytics`. Every page that can be someone's first visit calls it, including the server-rendered sign-in page, which never runs `configureTracking()` and passes `{ landingPath, landingSearch }` so `landing_path` names the app path behind the sign-in page and that path's source fields (`utm_*`, `ref`, `via`, click ids) count when the sign-in URL has no source of its own. A consent-region visitor sent to sign-in from an app page has the source only there, in the `c` continuation, since the app page couldn't store it before they accepted. Never copy the capture into a page: the sign-in page's private copy silently dropped ad click ids, site handoff fields, and last touch for every visitor who landed on it.
 
 **Share-link params** (set by whatever generates the link; read client-side only):
 
@@ -418,11 +420,20 @@ There is one capture implementation, `captureAttribution()` from `@agent-native/
 - `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term` (raw passthrough)
 - `first_touch_path` (= `landing_path`), `landing_referrer`
 
-Attribution parsing is fully defensive and never blocks signup — a missing/malformed cookie falls back to `referral_source: "direct"`.
+Attribution parsing is defensive and never blocks signup. A request with no attribution context (no `an_fts`, `an_ft`, `an_lt` or `an_aid`) adds no attribution fields at all, not `referral_source: "direct"`, so a signup we couldn't attribute stays distinct from a direct visit.
+
+**Consent markers.** When the signup request's consent kept attribution or analytics ids off the event, the event says so: `attribution_consent` when `targeting` wasn't allowed, `analytics_consent` when `performance` wasn't. Each is `"withheld"` (a stored `an_consent` choice said no, or the request's country is in the consent region and no choice was made) or `"unknown"` (no stored choice and no usable country: missing, `XX` or `ZZ`). An allowed category adds no marker, and a marker never brings back what consent withheld. `requestConsentCategoryState` in `server/consent-route.ts` decides both; the boolean helpers are its `"allowed"` case. An account another signed-in user created carries no markers, as it carries no attribution.
 
 Other framework-level baseline events:
 
-- `session status` from `useSession()`, with `signed_in`
+- `session status` from `useSession()`, with `signed_in` and `trigger`: what
+  made the tab read the session. `load` is its first read in the page, `focus`
+  a return to the tab (focus or visibility) once the answer was stale,
+  `expired` a component mounting after the answer expired, `auth_change` a
+  sign-in, sign-out, or account or organization switch here or in another tab,
+  `unauthorized` a request answered 401, and `transport_change` requests
+  moving to another transport, such as an embed's token. Only `load` is a page
+  load; count visits from it, not from every `session status`.
 - `action.response` from the browser action transport, with action name,
   the `route` template of the page that made the request (omitted when no
   manifest route matches),
@@ -463,7 +474,7 @@ Other framework-level baseline events:
   database work) and an `X-Agent-Native-Request-Id` header where applicable.
   Query text and parameters are never captured. There is no sampling knob for
   this span; export volume is governed by the OpenTelemetry sampler.
-- `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
+- `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above), and `attribution_consent` / `analytics_consent` when consent withheld them
 - `builder connect clicked` and `builder connect popup blocked` from browser Use Builder.io CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
 - `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent-Native query fields such as `run_id`, `thread_id`, `turn_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Run failure messages are omitted from every tracking provider even with content capture enabled. `$ai_error` carries a fixed message derived from `terminal_code`, a named `cause`, terminal state, and retryability. The `error_message` field and tool error output text are absent. Local trace SQL retains debugging detail under the observability capture settings.
@@ -489,7 +500,15 @@ framework also emits `action_started`, `action_completed`, and
 `action_failed` for mutating `defineAction()` calls so UI, agent, MCP, A2A,
 automation, and CLI activity share one action-level trail. Read-only actions
 and high-frequency refresh, polling, navigation, and application-state actions
-are excluded.
+are excluded. `action_kind` says what kind of call it was: `write` for one
+someone asked for, `read` for a call the action's `planMode` declares a read,
+and `automatic` for a write the app made on its own, declared with
+`automatic` on `defineAction` (a predicate of the input and the call's
+context when only some calls are automatic). Only a call from the app's own UI
+can be automatic; an agent's, MCP client's, or CLI call stays `write`.
+Product-use counts keep `write` only. A new action that runs
+on load, on mount, on a timer, or as experiment or usage bookkeeping must
+declare `automatic`.
 
 App entry is emitted once per app and browser session. Tracking is action-level
 only: it does not install mouse, pointer, scroll, keypress, or DOM autocapture.

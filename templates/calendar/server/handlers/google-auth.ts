@@ -14,6 +14,7 @@ import {
   decodeOAuthState,
   logOAuthStateDecodeFailure,
   ensureGoogleAuthIdentity,
+  oauthCallbackOwner,
   resolveOAuthOwner,
   resolveSecret,
   createOAuthSession,
@@ -40,8 +41,13 @@ import {
 } from "h3";
 
 import {
+  accountDescriptionFor,
+  getAccountDescriptions,
+} from "../lib/calendar-descriptions.js";
+import {
   getAuthUrl,
   exchangeCode,
+  exchangeSignInCode,
   getAuthStatus,
   disconnect,
 } from "../lib/google-calendar.js";
@@ -56,6 +62,8 @@ const GOOGLE_IDENTITY_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.profile",
 ];
 
+const CALENDAR_SIGN_IN_STATE_SCOPE = "calendar";
+
 type CalendarOAuthStateOptions = {
   redirectUri: string;
   owner?: string;
@@ -63,6 +71,7 @@ type CalendarOAuthStateOptions = {
   desktop?: boolean;
   mobile?: boolean;
   addAccount?: boolean;
+  scope?: string;
   app?: string;
   returnUrl?: string;
   flowId?: string;
@@ -267,9 +276,12 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       return { error: "Invalid desktop exchange challenge." };
     }
     const calendarConnect = isCalendarConnectRequest(q, owner);
-    const credentials = calendarConnect
-      ? await resolveCalendarOAuthCredentials(event)
-      : resolveGoogleSignInCredentials();
+    const calendarCredentials = await resolveCalendarOAuthCredentials(event);
+    const calendarSignIn = !calendarConnect && !!calendarCredentials;
+    const credentials =
+      calendarConnect || calendarSignIn
+        ? calendarCredentials
+        : resolveGoogleSignInCredentials();
 
     if (!credentials) {
       return missingCredentialsResponse(
@@ -324,6 +336,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       desktop,
       mobile,
       addAccount: calendarConnect,
+      scope: calendarSignIn ? CALENDAR_SIGN_IN_STATE_SCOPE : undefined,
       builderSignupAttemptId:
         !calendarConnect && typeof q.builder_signup_attempt === "string"
           ? q.builder_signup_attempt.slice(0, 128)
@@ -336,17 +349,20 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     });
     const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
 
-    const url = calendarConnect
-      ? await getAuthUrl(undefined, redirectUri, oauthState, owner, orgId)
-      : `${GOOGLE_AUTH_URL}?${new URLSearchParams({
-          client_id: credentials.clientId,
-          redirect_uri: redirectUri,
-          response_type: "code",
-          scope: GOOGLE_IDENTITY_SCOPES.join(" "),
-          access_type: "online",
-          prompt: "select_account",
-          state: oauthState,
-        })}`;
+    const url =
+      calendarConnect || calendarSignIn
+        ? await getAuthUrl(undefined, redirectUri, oauthState, owner, orgId, {
+            selectAccount: calendarSignIn,
+          })
+        : `${GOOGLE_AUTH_URL}?${new URLSearchParams({
+            client_id: credentials.clientId,
+            redirect_uri: redirectUri,
+            response_type: "code",
+            scope: GOOGLE_IDENTITY_SCOPES.join(" "),
+            access_type: "online",
+            prompt: "select_account",
+            state: oauthState,
+          })}`;
     if (q.redirect === "1") {
       return oauthRedirectResponse(url);
     }
@@ -417,10 +433,17 @@ export const handleGoogleCallback = defineEventHandler(
       const { owner, hasProductionSession } = await resolveOAuthOwner(
         event,
         stateOwner,
+        state,
       );
 
       if (!addAccount) {
-        const identity = await exchangeIdentityCode(code, redirectUri);
+        const identity =
+          state.scope === CALENDAR_SIGN_IN_STATE_SCOPE
+            ? await exchangeSignInCode(code, redirectUri, stateOrgId)
+            : {
+                ...(await exchangeIdentityCode(code, redirectUri)),
+                connectCalendar: async () => false,
+              };
         if (!identity.id) {
           throw new Error("Could not get Google account id");
         }
@@ -430,6 +453,27 @@ export const handleGoogleCallback = defineEventHandler(
           name: identity.name,
           image: identity.picture,
         });
+        let calendarConnected = false;
+        try {
+          calendarConnected = await identity.connectCalendar();
+        } catch (error) {
+          console.error(
+            "[google-auth] Sign-in couldn't connect Google Calendar:",
+            error,
+          );
+        }
+        if (calendarConnected) {
+          track(
+            "account_connected",
+            {
+              app_name: "calendar",
+              template_name: "calendar",
+              connector_name: "google_calendar",
+              is_additional_account: false,
+            },
+            { userId: identity.email },
+          );
+        }
         const { sessionToken } = await createOAuthSession(
           event,
           identity.email,
@@ -691,10 +735,10 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         });
       }
 
-      const { redirectUri, owner: stateOwner } = state;
+      const { redirectUri } = state;
       const stateOrgId = getCalendarOAuthStateOrgId(state);
 
-      const ownerEmail = session?.email || stateOwner;
+      const ownerEmail = oauthCallbackOwner(session?.email, state);
       if (!ownerEmail) {
         return oauthErrorPage("Session expired. Please log in again.");
       }
@@ -765,6 +809,13 @@ export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
     const session = await getSession(event);
     const status = await getAuthStatus(session?.email, session?.orgId);
+    if (session?.email && status.accounts.length > 0) {
+      const descriptions = await getAccountDescriptions(session.email);
+      status.accounts = status.accounts.map((account) => {
+        const description = accountDescriptionFor(descriptions, account.email);
+        return description ? { ...account, description } : account;
+      });
+    }
     const configured = await runWithRequestContext(
       { userEmail: session?.email, orgId: session?.orgId },
       () => hasWorkspaceProviderOAuthCredentials("google_calendar"),

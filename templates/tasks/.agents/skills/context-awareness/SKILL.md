@@ -24,6 +24,30 @@ state.
 
 Without context awareness, the agent is blind. It asks "which email?" when the user is staring at one. It cannot act on the current selection, cannot provide relevant suggestions, and cannot modify what the user sees. Context awareness is what makes the agent feel like a collaborator rather than a disconnected chatbot.
 
+## Manifest and live context
+
+Register `app.manifest.ts` through app config. Declare the actual landing
+screen, app-relative screen routes and typed params, entity-to-screen mapping,
+`viewPolicy`, and only the capabilities the app can execute. Keep its routing
+intents and guide consistent with real actions and current screen state.
+
+Use `navigationMode` `open` for an explicit request to show a destination,
+`reveal` for a result the chat host may surface without disrupting current
+work, and `keep` for background work or a request to stay put. Prefer a
+manifest screen ID with validated params. Keep the read-only and write
+guards, report whether the command was kept, queued, or confirmed, and
+verify the destination with a fresh screen read.
+
+Use `useDbSync({ realtime: { reason } })` when another client or background
+actor can update the visible surface and it should refresh immediately. Keep
+same-thread action invalidation and preserve the focused editor, dirty draft,
+and selection during refresh. Use `defineViewScreen` for the route, view,
+title, active filters, selection and visible items, plus `liveDraft` and
+`userEditedSince` when available. Expose only bounded, authorized context.
+Verify UI-to-chat context after a manual edit and chat-to-UI updates without
+reload. Use this live context to ground an `ActionSuggestion` in a declared
+capability and the user's current permission before offering it.
+
 ## The Core Patterns
 
 ### 1. Navigation State (`navigation` key)
@@ -214,7 +238,8 @@ when it needs a fresh read after context has changed.
 
 ### 4. The `navigate` Action
 
-The agent writes a one-shot `navigate` command to application-state. The UI reads it, performs the navigation, and deletes the entry.
+Use `createNavigateAction` to validate and queue one app-local command. The UI
+consumes the command, applies navigation, and deletes the entry.
 
 **Agent side:**
 
@@ -228,6 +253,28 @@ await writeAppStateForCurrentTab("navigate", {
   threadId: "abc123",
 });
 ```
+
+**Agents keep the user's view.** Every agent caller counts — built-in chat,
+MCP, WebMCP, A2A (`isAgentCaller(ctx)`), not just `caller === "tool"`:
+
+- Reads never navigate: any read-only action writing `navigate` during an agent
+  call is refused at the app-state store.
+- Writes stay put by default: an agent write that tries to write `navigate`
+  without `intent: "open"` is refused. Use
+  `navigateAfterWrite(navigation, { ctx, intent })` when a write should open
+  its result for a person while skipping the move for an agent unless
+  `intent: "open"` is set (or set `allowsAgentNavigation: true` on an action
+  whose job is opening a UI).
+- Opening one item needs `intent: "open"`, set only when the user asked to see
+  it. `createNavigateAction()`, `defineAction()`, and the app-state store
+  enforce this by default for item ID fields (`id`, `*Id`) and detail paths
+  without per-app code; pass `isDetailView` to `createNavigateAction()` only
+  when an app needs custom matching. When a dispatched `navigate` action
+  (`actionName: "navigate"`) or `createNavigateAction()` is called by an agent
+  without `intent: "open"` and would move the user's view (for a detail item or
+  during/after agent writes), it keeps the current view and returns a
+  successful typed result (`{ kept: true, navigated: false, reason, currentView, message }`)
+  instead of throwing an error.
 
 **UI side** — use `useAgentRouteState`, shown above. It polls command keys,
 dedupes `_writeId`, deletes consumed commands, and applies app-local routing.
@@ -327,6 +374,7 @@ The mail template demonstrates these patterns working together:
   navigation state when context is missing or stale
 - Don't hardcode navigation paths in scripts — read the current state and branch
 - Don't write to the `navigation` key from the agent — it belongs to the UI. Use `navigate` instead.
+- Don't move the user's view from a read or a write; open an item only when the user asked to see it.
 - Don't write both `navigate` and `__set_url__` for one app navigation; competing consumers can make the browser URL change before React Router commits the page.
 - Don't ignore the `<current-screen>` block — it tells you where the user is
 - Don't duplicate whole URL query strings into `navigation` when `<current-url>` already exposes them

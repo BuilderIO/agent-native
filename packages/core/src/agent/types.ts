@@ -12,6 +12,8 @@ import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 
+export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
+
 export interface AgentNativeJsonSchema {
   type?: string | string[];
   description?: string;
@@ -447,6 +449,7 @@ type AgentChatEventPayload =
         | "tool_use"
         | "max_tokens"
         | "stop_sequence"
+        | "refusal"
         | "error";
       errorCode?: string;
     }
@@ -471,6 +474,7 @@ type AgentChatEventPayload =
       isError?: boolean;
       errorCode?: string;
       completedSideEffect?: boolean;
+      navigationKeys?: string[];
       /** The call was skipped without executing or serving a result. */
       notExecuted?: true;
       /** Compact action write evidence retained even when `result` is truncated. */
@@ -486,6 +490,8 @@ type AgentChatEventPayload =
        * continued turn replays a committed call only for the same identity.
        */
       argumentsHash?: string;
+      /** Keyed HMAC identity for deterministic replay of a committed private tool call. */
+      privateReplayIdentity?: string;
       /** False marks current completed events; absence is reserved for older journals. */
       approvalPause?: boolean;
       outcomeUnknown?: true;
@@ -586,6 +592,13 @@ type AgentChatEventPayload =
       type: "done";
       reason?: "user" | "loop_breaker" | "action_settled";
       message?: string;
+      /**
+       * On a user's Stop: the last event of the run their browser had shown,
+       * or -1 for none. The saved reply keeps no text or reasoning written
+       * after it.
+       */
+      shownThroughSeq?: number;
+      durationMs?: number;
     }
   | {
       type: "error";
@@ -654,6 +667,10 @@ export const CONTINUATION_REASONS = [
 ] as const;
 
 export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];
+
+export const RESPONSE_GUARD_RICH_EVENT_NAMESPACE =
+  "agent-native.response-guard";
+export const RESPONSE_GUARD_DRAFT_KEPT_EVENT = "draft_kept_after_failure";
 
 export function isContinuationTerminalReason(reason: unknown): boolean {
   return (

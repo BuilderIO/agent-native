@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,
@@ -40,8 +40,11 @@ export default defineAction({
     "branch and hands the prompt to the Builder cloud agent to scaffold a real " +
     "running app. Use this when the user wants a real app (not an HTML " +
     "prototype) built from scratch for a design. Requires Builder.io (free tier available) to be " +
-    "connected with a branch project ID configured; when not configured " +
-    "returns a connect CTA — never throws. If the design already has a " +
+    "connected with a branch project ID configured; when Builder isn't " +
+    "configured returns a connect CTA, and when full-app building is " +
+    "disabled it fails with `full_app_building_disabled`; a connected " +
+    "workspace with no branch project ID fails with " +
+    "`builder_project_not_configured`. If the design already has a " +
     "fusion app, returns the existing linkage instead of creating a second " +
     "branch. The branch container may still be booting after this call — " +
     "call sync-builder-app to poll for the preview URL.",
@@ -62,7 +65,10 @@ export default defineAction({
   }),
   run: async ({ designId, prompt, branchName }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
-      throw new Error("Full app building is not enabled");
+      fail("Full app building is not enabled", {
+        errorCode: "full_app_building_disabled",
+        statusCode: 412,
+      });
     }
 
     const access = await assertAccess("design", designId, "editor");
@@ -132,10 +138,11 @@ export default defineAction({
 
     const projectId = await resolveBuilderBranchProjectId();
     if (!projectId) {
-      throw new Error(
+      fail(
         "Builder branch project ID is not configured. " +
           "Set DISPATCH_BUILDER_PROJECT_ID, BUILDER_BRANCH_PROJECT_ID, or " +
           "BUILDER_PROJECT_ID and try again.",
+        { errorCode: "builder_project_not_configured", statusCode: 412 },
       );
     }
 

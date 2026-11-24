@@ -219,6 +219,7 @@ export interface ComposerRuntimeAdapters {
     ) => Promise<ComposerAgentEngineState>;
     BuilderSetupCard?: ComponentType<any>;
     BuilderSetupContent?: ComponentType<any>;
+    ProviderSettingsLink?: ComponentType;
     /** Catalog facts for the picker rows, hover card, and effort control. */
     describe?: (model: string, engine?: string) => ComposerModelDescription;
     /**

@@ -10,6 +10,10 @@ import {
 
 import { getAppConfig } from "../app-config/store.js";
 import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
+import {
+  readBrowserTabIdHeader,
+  readViewportModeHeader,
+} from "../server/agent-run-context.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   describeBearerCredentialRefusal,
@@ -21,7 +25,7 @@ import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { isDirectLoopbackRequest } from "../server/loopback.js";
-import { registerMcpAppCardsLab } from "./app-cards-lab.js";
+import { warnIfRetiredInlineEnvSet } from "./app-cards.js";
 import { mcpApprovalRoute, mountMcpApprovalRoute } from "./approval-route.js";
 import { mcpApprovalAppId } from "./approval-store.js";
 import {
@@ -134,9 +138,13 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
       .toLowerCase() === "script" || requestsScriptCatalogByQuery(event);
   const basePath = getConfiguredAppBasePath();
   const turnGrant = getRequestHeader(event, MCP_TURN_GRANT_HEADER);
+  const browserTabId = readBrowserTabIdHeader(event);
+  const viewportMode = readViewportModeHeader(event);
   return {
     origin,
     ...(turnGrant !== undefined ? { turnGrant } : {}),
+    ...(browserTabId ? { browserTabId } : {}),
+    ...(viewportMode ? { viewportMode } : {}),
     ...(isAgentTurnGrantContext() ? { turnGrantExcluded: true } : {}),
     ...(basePath ? { basePath } : {}),
     target,
@@ -573,7 +581,7 @@ export function mountMCP(
   config: MCPConfig,
   routePrefix = "/_agent-native",
 ): void {
-  registerMcpAppCardsLab();
+  warnIfRetiredInlineEnvSet();
   const routePaths =
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]

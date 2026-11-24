@@ -268,6 +268,8 @@ const messages = {
         "يتم تعطيل الروابط أثناء المراجعة حتى تظل الوثيقة في مكانها.",
       visualPromptCopied: "تم نسخ موجه الإدخال المرئي",
       sentAnswers: "تم إرسال الإجابات إلى الوكيل",
+      sendAnswersPrompt: "هل تريد إرسال إجاباتك إلى الوكيل؟",
+      sendAnswersAction: "إرسال",
       recapLinkCopied: "تم نسخ رابط التلخيص",
       planLinkCopied: "تم نسخ الرابط Plan",
       localPathCopied: "تم نسخ المسار المحلي",

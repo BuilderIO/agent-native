@@ -38,7 +38,7 @@ export function LocalNetworkAccessPrompt({
   const isStalePreviewToken = kind === "stalePreviewToken";
   const title = proactive
     ? t("designCanvas.localBridge.permissionPromptTitle", {
-        defaultValue: "Connect your local screens",
+        defaultValue: "Connect your local pages",
       })
     : isStalePreviewToken
       ? "Reconnect this screen" /* i18n-ignore stale local dev preview token title */

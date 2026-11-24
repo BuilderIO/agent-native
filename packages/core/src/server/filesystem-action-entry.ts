@@ -74,6 +74,13 @@ export function preserveActionFlags(
     out.schema = entry.schema;
   }
   if (
+    entry.outputSchema &&
+    typeof entry.outputSchema === "object" &&
+    "~standard" in entry.outputSchema
+  ) {
+    out.outputSchema = entry.outputSchema as Flag<"outputSchema">;
+  }
+  if (
     entry.agentInputSchema &&
     typeof entry.agentInputSchema === "object" &&
     "~standard" in entry.agentInputSchema
@@ -84,7 +91,9 @@ export function preserveActionFlags(
     out.access = entry.access as Flag<"access">;
   }
   if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
-  if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
+  if (typeof entry.mcpTool === "boolean" || entry.mcpTool === "search") {
+    out.mcpTool = entry.mcpTool;
+  }
   if (isMcpAnnotations(entry.mcpAnnotations)) {
     out.mcpAnnotations = entry.mcpAnnotations;
   }
@@ -207,6 +216,15 @@ export function preserveActionFlags(
   }
   if (typeof entry.approvalLabel === "function") {
     out.approvalLabel = entry.approvalLabel as Flag<"approvalLabel">;
+  }
+  if (typeof entry.mcpNeedsApproval === "function") {
+    out.mcpNeedsApproval = entry.mcpNeedsApproval as Flag<"mcpNeedsApproval">;
+  }
+  if (typeof entry.approvalNotice === "function") {
+    out.approvalNotice = entry.approvalNotice as Flag<"approvalNotice">;
+  }
+  if (entry.approvalProof === "review-page") {
+    out.approvalProof = entry.approvalProof;
   }
   if (typeof entry.allowPersistentApproval === "boolean") {
     out.allowPersistentApproval = entry.allowPersistentApproval;
