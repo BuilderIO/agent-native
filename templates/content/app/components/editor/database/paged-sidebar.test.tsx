@@ -91,9 +91,11 @@ function Harness({
   branchPlaceholders,
   onBranchShown,
   pageActions = null,
+  documentMetadata = new Map(),
   queryClient: providedQueryClient,
 }: {
   pageActions?: SidebarPageActions | null;
+  documentMetadata?: ReadonlyMap<string, Document>;
   activeDocumentId?: string;
   activePathDocuments?: ActivePathDocument[];
   onDeleteItem?: (item: ContentDatabaseItem) => void;
@@ -146,7 +148,7 @@ function Harness({
                     return next;
                   })
                 }
-                documentMetadata={new Map()}
+                documentMetadata={documentMetadata}
                 onCreateChildPage={() => {}}
                 navigationLabel="Files"
                 untitledLabel="Untitled"
@@ -1498,6 +1500,198 @@ describe("PagedContentFilesSidebarView", () => {
       await openMenuOf(top.container, "readme");
       expect(menuItems()).toContain("Move to");
       await act(async () => top.root.unmount());
+    });
+
+    it("keeps linked subfolder files immovable in grouped pages, including previously reparented files", async () => {
+      const linked = {
+        ...navigationItem("linked"),
+        sourceKind: "file",
+        canMove: false,
+      };
+      const moved = {
+        ...navigationItem("moved", "ordinary-parent"),
+        sourceKind: "file",
+        canMove: false,
+      };
+      useFilesNavigationPage.mockImplementation((args) => ({
+        data: args.navigation.group
+          ? page([moved, navigationItem("ordinary")])
+          : {
+              ...page([]),
+              groups: [
+                {
+                  id: "stage:draft",
+                  label: "Draft",
+                  unset: false,
+                  count: 3,
+                  page: page([linked], "next"),
+                },
+              ],
+            },
+        isLoading: false,
+        isError: false,
+        isFetching: false,
+        refetch: vi.fn(),
+      }));
+      const { container, root } = await renderHarness({
+        pageActions,
+        onDeleteItem: vi.fn(),
+      });
+      await openMenuOf(container, "linked");
+      expect(menuItems()).not.toContain("Move to");
+      await act(async () =>
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        ),
+      );
+      await act(async () =>
+        Array.from(container.querySelectorAll("button"))
+          .find((button) => button.textContent === "Show more")
+          ?.click(),
+      );
+      await openMenuOf(container, "moved");
+      expect(menuItems()).not.toContain("Move to");
+      await act(async () =>
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        ),
+      );
+      await openMenuOf(container, "ordinary");
+      expect(menuItems()).toContain("Move to");
+      await act(async () => root.unmount());
+    });
+
+    it.each([
+      [
+        "nested linked without metadata",
+        "notes/linked.md",
+        false,
+        false,
+        false,
+      ],
+      ["nested linked with metadata", "notes/linked.md", false, false, true],
+      [
+        "top-level linked without metadata",
+        "readme.md",
+        undefined,
+        true,
+        false,
+      ],
+      ["top-level linked with metadata", "readme.md", undefined, false, true],
+      [
+        "nested unlinked without metadata",
+        "notes/unlinked.md",
+        undefined,
+        true,
+        false,
+      ],
+      [
+        "nested unlinked with metadata",
+        "notes/unlinked.md",
+        undefined,
+        false,
+        true,
+      ],
+    ])(
+      "uses the server's move eligibility for a grouped active reveal: %s",
+      async (_label, path, canMove, movable, withMetadata) => {
+        useFilesNavigationPage.mockImplementation((args) => ({
+          data: args.navigation.locate
+            ? { ...page([]), locatedGroupIds: ["stage:draft"] }
+            : {
+                ...page([]),
+                groups: [
+                  {
+                    id: "stage:draft",
+                    label: "Draft",
+                    unset: false,
+                    count: 1,
+                    page: page([], "next"),
+                  },
+                ],
+              },
+          isLoading: false,
+          isError: false,
+          isFetching: false,
+          refetch: vi.fn(),
+        }));
+        const activeDocument: ActivePathDocument & { canMove?: boolean } = {
+          id: "revealed",
+          parentId: "ordinary-parent",
+          title: "Revealed",
+          content: "",
+          icon: null,
+          position: 0,
+          isFavorite: false,
+          hideFromSearch: false,
+          canEdit: true,
+          canManage: true,
+          databaseMembership: {
+            databaseId: "files",
+            databaseDocumentId: "files-document",
+            databaseTitle: null,
+            position: null,
+          },
+          ...(canMove === false ? { canMove } : {}),
+          source: {
+            mode: "local-files",
+            kind: "file",
+            path,
+            rootPath: "vault",
+          },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+        const { container, root } = await renderHarness({
+          activeDocumentId: activeDocument.id,
+          activePathDocuments: [activeDocument],
+          ...(withMetadata
+            ? {
+                documentMetadata: new Map([
+                  [activeDocument.id, activeDocument],
+                ]),
+              }
+            : {}),
+          pageActions,
+          onDeleteItem: vi.fn(),
+        });
+        await openMenuOf(container, activeDocument.id);
+        expect(menuItems().includes("Move to")).toBe(movable);
+        await act(async () => root.unmount());
+      },
+    );
+
+    it("keeps local-file menu behavior when full metadata is available", async () => {
+      serveFolderTree();
+      const metadata: Document = {
+        id: "readme",
+        parentId: null,
+        title: "Readme",
+        content: "",
+        icon: null,
+        position: 0,
+        isFavorite: false,
+        hideFromSearch: false,
+        canEdit: true,
+        canManage: true,
+        source: {
+          mode: "local-files",
+          kind: "file",
+          path: "README.md",
+          rootPath: "vault",
+        },
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+      const { container, root } = await renderHarness({
+        pageActions,
+        onDeleteItem: vi.fn(),
+        documentMetadata: new Map([["readme", metadata]]),
+      });
+      await openMenuOf(container, "readme");
+      expect(menuItems()).not.toContain("Move to");
+      expect(menuItems()).not.toContain("Rename");
+      await act(async () => root.unmount());
     });
 
     it("reveals the open page inside its folder when the folder isn't on the loaded page", async () => {
