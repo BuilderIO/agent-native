@@ -807,13 +807,20 @@ export function useChatThreads(
     [],
   );
 
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(
+  const [activeThreadId, setActiveThreadIdState] = useState<string | null>(
     initialActiveThreadRef.current.id,
   );
-  const [isLoading, setIsLoading] = useState(true);
-  const fetchedRef = useRef(false);
   const activeThreadIdRef = useRef(activeThreadId);
   activeThreadIdRef.current = activeThreadId;
+  // Restore can settle before React commits a newer selection.
+  const activeThreadSelectionRevisionRef = useRef(0);
+  const setActiveThreadId = useCallback((id: string | null) => {
+    activeThreadSelectionRevisionRef.current += 1;
+    activeThreadIdRef.current = id;
+    setActiveThreadIdState(id);
+  }, []);
+  const [isLoading, setIsLoading] = useState(true);
+  const fetchedRef = useRef(false);
   const initialDraftMarkerWrittenRef = useRef(false);
 
   const persistActiveThreadId = useCallback(
@@ -960,6 +967,7 @@ export function useChatThreads(
       if (!isCurrentRequest()) return;
 
       const restoredId = activeThreadIdRef.current;
+      const selectionRevision = activeThreadSelectionRevisionRef.current;
       if (loadedThreads === undefined) {
         initialLoadRequestIdRef.current = null;
         loadingRequestIdRef.current = null;
@@ -1006,6 +1014,13 @@ export function useChatThreads(
         lookupRestored
       ) {
         initialRouteConfirmationPendingRef.current = null;
+      }
+      if (selectionRevision !== activeThreadSelectionRevisionRef.current) {
+        initialLoadRequestIdRef.current = null;
+        loadingRequestIdRef.current = null;
+        initialRouteConfirmationPendingRef.current = null;
+        setIsLoading(false);
+        return;
       }
       if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
         initialLoadRequestIdRef.current = null;
