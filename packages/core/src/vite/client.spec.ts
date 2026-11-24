@@ -2840,6 +2840,66 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
+  it("refuses to serve .agent-native state through /@fs/ or the app root", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const previousCwd = process.cwd();
+    let config: { server: { fs: { deny: string[] } } };
+    process.chdir(path.join(repositoryRoot(), "templates/chat"));
+    try {
+      config = await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      );
+    } finally {
+      process.chdir(previousCwd);
+    }
+
+    const appRoot = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "an-fs-deny-")),
+    );
+    fs.mkdirSync(path.join(appRoot, ".agent-native"));
+    fs.writeFileSync(
+      path.join(appRoot, ".agent-native", "dev-server.json"),
+      JSON.stringify({ token: "secret" }),
+    );
+    fs.writeFileSync(path.join(appRoot, "public.txt"), "visible");
+    const server = await createServer({
+      configFile: false,
+      root: appRoot,
+      logLevel: "silent",
+      server: {
+        host: "127.0.0.1",
+        port: 0,
+        fs: { allow: [appRoot], deny: config.server.fs.deny },
+      },
+    });
+    try {
+      await server.listen();
+      const address = server.httpServer?.address();
+      if (!address || typeof address !== "object") {
+        throw new Error("Vite did not bind a port.");
+      }
+      const get = (pathname: string) =>
+        fetch(`http://127.0.0.1:${address.port}${pathname}`);
+
+      expect((await get(`/@fs${appRoot}/public.txt?raw`)).status).toBe(200);
+      for (const pathname of [
+        `/@fs${appRoot}/.agent-native/dev-server.json?raw`,
+        `/@fs${appRoot}/.agent-native/dev-server.json?import&raw`,
+        `/@fs${appRoot}/.agent-native/dev-server.json`,
+        "/.agent-native/dev-server.json?raw",
+        "/.agent-native/dev-server.json",
+      ]) {
+        const response = await get(pathname);
+        expect(await response.text()).not.toContain("secret");
+      }
+    } finally {
+      await server.close();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+
   it("leaves build.sourcemap off and adds no Sentry plugin without upload config", async () => {
     const previous = {
       SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,

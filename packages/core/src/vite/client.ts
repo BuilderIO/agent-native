@@ -5289,6 +5289,7 @@ function createAgentNativeConfig(
           ".env.*",
           "*.{crt,pem}",
           "**/.git/**",
+          "**/.agent-native/**",
           ...(userConfig.server?.fs?.deny ?? []),
           ...(options.fsDeny ?? []),
         ],
