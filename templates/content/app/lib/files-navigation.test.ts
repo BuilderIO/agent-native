@@ -430,6 +430,59 @@ describe("pages this tab created in the Files tree", () => {
     ]);
   });
 
+  it("keeps a destination confirmed by a newer tree read when an older picker omits it", async () => {
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const read = readFilesNavigationPage(queryClient, picker, []);
+    await reread(queryClient, page([row("a"), row("new")]));
+    answer(page([row("a")]));
+    const result = await read;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((entry) => entry.documentId)).toEqual(["a", "new"]);
+    expect(await reread(queryClient, page([row("a")], true))).toEqual(["a"]);
+  });
+
+  it("does not let an older picker omission suppress a newer pending picker", async () => {
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+    const picker = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    let answerOld!: (value: ContentDatabaseNavigationPageResponse) => void;
+    let answerNew!: (value: ContentDatabaseNavigationPageResponse) => void;
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerOld = resolve;
+      }),
+    );
+    const older = readFilesNavigationPage(queryClient, picker, []);
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerNew = resolve;
+      }),
+    );
+    const newer = readFilesNavigationPage(queryClient, picker, []);
+    answerOld(page([row("a")]));
+    await older;
+    answerNew(page([row("a"), row("new")]));
+    const result = await newer;
+    if ("available" in result) throw new Error("The Files read failed");
+    expect(result.items.map((entry) => entry.documentId)).toEqual(["a", "new"]);
+  });
+
   it("retires tree rows even while an older picker read is pending", async () => {
     startCreate(queryClient, created("new"));
     confirmCreatedFilesRow(queryClient, "new");

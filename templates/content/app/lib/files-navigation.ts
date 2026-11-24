@@ -35,6 +35,7 @@ const pendingExpansionReads = new WeakMap<QueryClient, Set<string>>();
 type PendingPagesOnlyRead = {
   databaseId: string;
   parentId: string | null;
+  readStartMark: number;
   retained: Map<string, { row: CreatedFilesRow; readMark: number }>;
   movedOut: Set<string>;
 };
@@ -406,7 +407,11 @@ function withCreatedFilesRows(
   ) => {
     if (navigation.pagesOnly && present) return;
     for (const read of pendingPagesOnlyReads.get(queryClient) ?? []) {
-      if (read.databaseId !== databaseId || read.parentId !== row.item.parentId)
+      if (
+        read.databaseId !== databaseId ||
+        read.parentId !== row.item.parentId ||
+        read.readStartMark >= readStartMark
+      )
         continue;
       if (!present) {
         read.retained.delete(documentId);
@@ -437,8 +442,11 @@ function withCreatedFilesRows(
       (navigation.pagesOnly && row.item.type !== "page")
     )
       continue;
+    const retained = pendingRead?.retained.get(documentId);
     const readAfterCreate =
-      row.confirmedMark !== null && row.confirmedMark < readStartMark;
+      row.confirmedMark !== null &&
+      row.confirmedMark < readStartMark &&
+      !(retained?.row === row && retained.readMark > readStartMark);
     if (listed.has(documentId)) {
       if (readAfterCreate) retire(documentId, row, true);
       continue;
@@ -764,6 +772,7 @@ export async function readFilesNavigationPage(
     pendingRead = {
       databaseId: params.databaseId,
       parentId: params.navigation.parentId,
+      readStartMark,
       retained: new Map(),
       movedOut: new Set(),
     };
