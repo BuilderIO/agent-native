@@ -68,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 4
-      matrix: ${{ fromJSON(needs.smoke ? needs.discover.outputs.matrix : needs.discover.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     env:
       LABS_APP: ${{ matrix.app }}
       QA_SLOT: ${{ matrix.slot }}

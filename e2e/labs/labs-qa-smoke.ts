@@ -1,5 +1,7 @@
 import { mkdirSync } from "node:fs";
+
 import { chromium } from "playwright";
+
 import {
   verificationLinkFor,
   waitForVerificationEmail,
@@ -19,10 +21,13 @@ const artifactDir = `artifacts/labs-qa-${app}`;
 mkdirSync(artifactDir, { recursive: true });
 
 async function readSession(context: import("playwright").BrowserContext) {
-  const res = await context.request.get(`${origin}/${app}/_agent-native/auth/session`, {
-    headers: { Accept: "application/json" },
-    timeout: 30_000,
-  });
+  const res = await context.request.get(
+    `${origin}/${app}/_agent-native/auth/session`,
+    {
+      headers: { Accept: "application/json" },
+      timeout: 30_000,
+    },
+  );
   if (!res.ok()) return null;
   try {
     return (await res.json()) as { email?: string };
@@ -64,7 +69,9 @@ async function ensureSignedIn(
 
   if (!signUpRes.ok()) {
     const text = await signUpRes.text();
-    throw new Error(`Sign-up failed for ${app} (${signUpRes.status()}): ${text.slice(0, 300)}`);
+    throw new Error(
+      `Sign-up failed for ${app} (${signUpRes.status()}): ${text.slice(0, 300)}`,
+    );
   }
 
   let session = await readSession(context);
@@ -87,7 +94,9 @@ async function ensureSignedIn(
 
 async function run() {
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+  });
   const page = await context.newPage();
 
   try {
