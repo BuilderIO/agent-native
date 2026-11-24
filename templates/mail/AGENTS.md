@@ -52,7 +52,6 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 | `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` | Team drafts |
 | `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `label-email` / `move-email` | Change mail state (`label-email` keeps Inbox) |
 | `manage-gmail-filters` / `manage-automations` / `manage-email-rules` / `trigger-automations` | Filters and automation |
-| `add-split` | Add a split (AI rule, human authors only), backfill, return its view |
 | `get-ai-filter` / `apply-ai-filter` / `refine-ai-filter` / `record-ai-priority-feedback` / `get-ai-priority` | AI filtering and priority |
 | `respond-calendar-invite` | Reply to invite |
 | `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` / `manage-snippets` | Settings and snippets |

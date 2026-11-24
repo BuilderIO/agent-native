@@ -50,8 +50,6 @@ async function runBackfill(
   let runId: string | undefined;
   try {
     ({ runId } = await startMailAiFilterBackfill(ownerEmail, [ruleId]));
-    // Without a durable background worker nothing else picks the run up
-    // until the next job tick, so drive it here within a bounded budget.
     await processMailAiFilterBackfills(
       ownerEmail,
       runId,
@@ -71,7 +69,10 @@ async function runBackfill(
     }
     return { status: "completed", runId };
   } catch (error) {
-    const code = (error as { errorCode?: unknown })?.errorCode;
+    const code =
+      error instanceof Error
+        ? (error as Error & { errorCode?: unknown }).errorCode
+        : undefined;
     return {
       status: "failed",
       ...(runId ? { runId } : {}),

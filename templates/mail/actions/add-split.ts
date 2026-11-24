@@ -3,6 +3,39 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { addSplit } from "../server/lib/add-split.js";
+import { automationActionSchema } from "../shared/automation-schema.js";
+
+const backfillOutputSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("skipped") }),
+  z.object({
+    status: z.enum(["queued", "running", "completed"]),
+    runId: z.string(),
+  }),
+  z.object({
+    status: z.literal("failed"),
+    runId: z.string().optional(),
+    errorCode: z.string(),
+    error: z.string(),
+  }),
+]);
+
+const addSplitOutputSchema = z.object({
+  created: z.boolean(),
+  rule: z.object({
+    id: z.string(),
+    ownerEmail: z.string(),
+    domain: z.string(),
+    kind: z.enum(["automation", "ai-filter"]),
+    name: z.string(),
+    condition: z.string(),
+    actions: z.array(automationActionSchema),
+    enabled: z.boolean(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+  backfill: backfillOutputSchema,
+  appView: z.object({ route: z.string() }),
+});
 
 export default defineAction({
   description:
@@ -17,6 +50,7 @@ export default defineAction({
       .optional()
       .describe("Apply the split to recent mail (default true)"),
   }),
+  outputSchema: addSplitOutputSchema,
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Unauthenticated");

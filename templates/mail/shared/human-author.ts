@@ -1,8 +1,3 @@
-/**
- * The author rule every split carries. It describes who wrote the mail rather
- * than naming senders, so a new bot or notification service is excluded
- * without anyone listing it.
- */
 export const HUMAN_AUTHOR_CLAUSE =
   "Only match conversations whose latest message was written by a person. Never match mail from noreply, notifications, or bot senders, or automated mail such as newsletters, receipts, alerts, and mailing lists.";
 
