@@ -1697,6 +1697,34 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
   });
 
+  it("keeps the open email's row current when a new message arrives in it", () => {
+    const { rerender } = render(<Harness />);
+    mocks.threadId = "thread-middle";
+    rerender(<Harness />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+
+    const reply = {
+      id: "middle-reply",
+      threadId: "thread-middle",
+      from: { name: "Sender reply", email: "reply@example.test" },
+      to: [{ name: "Synthetic User", email: "user@example.test" }],
+      subject: "Subject middle",
+      snippet: "Snippet reply",
+      body: "Body reply",
+      date: new Date(Date.UTC(2026, 0, 2, 12)).toISOString(),
+      isRead: true,
+      isStarred: false,
+      isArchived: false,
+      isTrashed: false,
+      labelIds: [],
+      accountEmail: "synthetic@example.test",
+    };
+    rerender(<Harness emails={[...messages, reply]} />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe(
+      "middle-reply",
+    );
+  });
+
   it("replaces history for clicks and Enter once the route shows an email", () => {
     const { rerender } = render(<Harness readingPane />);
     mocks.threadId = "thread-first";

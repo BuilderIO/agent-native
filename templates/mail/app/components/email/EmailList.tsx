@@ -1341,6 +1341,7 @@ export function EmailList({
   );
 
   const syncedThreadIdRef = useRef<string | null>(null);
+  const syncedMessageIdRef = useRef<string | null>(null);
   const closedThreadIdRef = useRef<string | null>(null);
 
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
@@ -2121,14 +2122,18 @@ export function EmailList({
       return;
     }
     closedThreadIdRef.current = null;
-    if (syncedThreadIdRef.current === threadId) return;
     const open = threads.find(
       (t) => (t.latestMessage.threadId || t.latestMessage.id) === threadId,
     );
     if (!open) return;
+    if (syncedThreadIdRef.current === threadId) {
+      const rowChanged = open.latestMessage.id !== syncedMessageIdRef.current;
+      if (!rowChanged || focusedId !== syncedMessageIdRef.current) return;
+    }
     syncedThreadIdRef.current = threadId;
+    syncedMessageIdRef.current = open.latestMessage.id;
     setFocusedId(open.latestMessage.id);
-  }, [threadId, threads, setFocusedId]);
+  }, [threadId, threads, focusedId, setFocusedId]);
 
   useEffect(() => {
     if (threads.length === 0) return;
