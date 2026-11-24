@@ -3896,8 +3896,6 @@ export function createAgentKitProtocolAdapter(
       reduceAgentEvent,
       createAgentThreadState(run.threadId),
     );
-    // The saved reply is the run's latest assistant message, not every one it
-    // emitted, so compare it with the latest one shown.
     const shown = (
       state.messages.filter((message) => message.role === "assistant").at(-1)
         ?.parts ?? []
@@ -3927,7 +3925,6 @@ export function createAgentKitProtocolAdapter(
     return { type: "terminal", outcome: "succeeded" };
   }
 
-  /** The run the server ended, which may be a successor of the one this turn started. */
   function savedReplyRunId(
     run: ProtocolRun,
     decision: Extract<StreamClosedDecision, { type: "terminal" }>,
