@@ -125,6 +125,7 @@ import {
   resolveInboxEmailQueryScope,
   filterInboxTabEmails,
 } from "@/lib/inbox-tabs";
+import { mailViewHasThreadLinks } from "@/lib/mail-routes";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   clearThreadCache,
@@ -1066,11 +1067,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [threadId, targetEmail, muteThread, dismissEmail, t]);
 
   const copyEmailLink = useCopyEmailLink();
-  const copyLinkThreadId =
-    !isKnownMailView(view) || view === "drafts" || view === "scheduled"
-      ? undefined
-      : (threadId ??
-        (targetEmail ? targetEmail.threadId || targetEmail.id : undefined));
+  const copyLinkThreadId = mailViewHasThreadLinks(view) ? threadId : undefined;
 
   const applyLabel = useApplyLabel();
   const [newLabelOpen, setNewLabelOpen] = useState(false);
@@ -2099,9 +2096,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             ? () =>
                 void copyEmailLink(
                   copyLinkThreadId,
-                  targetEmail?.accountEmail ??
-                    searchParams.get("accountEmail") ??
-                    undefined,
+                  searchParams.get("accountEmail") ?? targetEmail?.accountEmail,
                 )
             : undefined
         }

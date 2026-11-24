@@ -109,7 +109,11 @@ import {
 } from "@/lib/email-image-policy";
 import { getLabelStyle } from "@/lib/label-colors";
 import { mailLabelDisplayName } from "@/lib/label-display";
-import { mailThreadHref, mailViewHref } from "@/lib/mail-routes";
+import {
+  mailThreadHref,
+  mailViewHasThreadLinks,
+  mailViewHref,
+} from "@/lib/mail-routes";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   buildForwardDraft,
@@ -1565,7 +1569,7 @@ export function EmailThread({
                     </button>
                   </ActionTooltip>
                 )}
-                {threadId && (
+                {threadId && mailViewHasThreadLinks(view) && (
                   <ActionTooltip label={t("mail.actions.copyLink")}>
                     <button
                       type="button"

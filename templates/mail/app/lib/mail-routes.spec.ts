@@ -4,7 +4,12 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => `/mail${path}`,
 }));
 
-import { mailThreadHref, mailThreadUrl, mailViewHref } from "./mail-routes";
+import {
+  mailThreadHref,
+  mailThreadUrl,
+  mailViewHasThreadLinks,
+  mailViewHref,
+} from "./mail-routes";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -40,6 +45,17 @@ describe("mail thread routes", () => {
     expect(mailThreadUrl("thread-1")).toBe(
       "https://apps.example.test/mail/inbox/thread-1",
     );
+  });
+
+  it("links to threads only where one has a lasting address", () => {
+    expect(
+      [undefined, "inbox", "sent", "archive", "trash", "all"].filter(
+        (view) => !mailViewHasThreadLinks(view),
+      ),
+    ).toEqual([]);
+    expect(
+      ["drafts", "scheduled", "draft-queue"].filter(mailViewHasThreadLinks),
+    ).toEqual([]);
   });
 
   it("clears mailbox scope when leaving a thread", () => {

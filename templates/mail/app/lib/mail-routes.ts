@@ -1,4 +1,5 @@
 import { appPath } from "@agent-native/core/client/api-path";
+import { isKnownMailView } from "@shared/mail-routes";
 
 export function mailThreadHref(
   view: string,
@@ -21,6 +22,10 @@ export function mailThreadUrl(threadId: string, accountEmail?: string) {
     accountEmail,
   );
   return window.location.origin + appPath(href);
+}
+
+export function mailViewHasThreadLinks(view: string | undefined) {
+  return isKnownMailView(view) && view !== "drafts" && view !== "scheduled";
 }
 
 export function mailViewHref(view: string, searchParams: URLSearchParams) {
