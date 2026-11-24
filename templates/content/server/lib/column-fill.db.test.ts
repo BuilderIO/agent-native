@@ -575,6 +575,77 @@ describe("Fill with AI", () => {
     });
   });
 
+  it("ignores an earlier run that starts late after Try again", async () => {
+    const ids = await fixture(1);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let secondStarted!: () => void;
+    const retryStarted = new Promise<void>((resolve) => {
+      secondStarted = resolve;
+    });
+    let releaseSecond!: () => void;
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    agents.onSpawn = async () => {
+      if (agents.spawned.length === 1) {
+        started();
+        await gate;
+      } else {
+        secondStarted();
+        await secondGate;
+      }
+    };
+    const start = asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    await firstStarted;
+    const fillId = (agents.spawned[0]!.scope as { id: string }).id.split(
+      ":",
+    )[0]!;
+    const readCell = async () =>
+      (
+        await getDb()
+          .select()
+          .from(schema.contentColumnFillCells)
+          .where(eq(schema.contentColumnFillCells.fillId, fillId))
+      )[0];
+    await getDb()
+      .update(schema.contentColumnFillCells)
+      .set({ status: "failed", error: "The agent didn't start." })
+      .where(eq(schema.contentColumnFillCells.fillId, fillId));
+    const retry = asOwner(() =>
+      columnFill.retryColumnFillCell({ fillId, documentId: ids.row(0) }),
+    );
+    await retryStarted;
+    release();
+    await start;
+
+    expect(await readCell()).toMatchObject({ attempt: 1, taskId: null });
+
+    releaseSecond();
+    await retry;
+    const afterSecond = await readCell();
+    expect(afterSecond).toMatchObject({
+      attempt: 1,
+      status: "running",
+      taskId: "task-2",
+      agentThreadId: "thread-2",
+    });
+  });
+
   it("stops saving to a row the person can no longer edit", async () => {
     const ids = await fixture(2);
     const fill = await asOwner(() =>

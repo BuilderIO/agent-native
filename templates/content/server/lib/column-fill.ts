@@ -267,8 +267,7 @@ async function databaseTitle(fill: FillRow): Promise<string> {
 }
 
 async function setCell(
-  fillId: string,
-  documentId: string,
+  cell: CellRow,
   values: Partial<CellRow>,
   onlyIf?: ColumnFillCellStatus,
 ) {
@@ -277,8 +276,9 @@ async function setCell(
     .set({ ...values, updatedAt: nowIso() })
     .where(
       and(
-        eq(schema.contentColumnFillCells.fillId, fillId),
-        eq(schema.contentColumnFillCells.documentId, documentId),
+        eq(schema.contentColumnFillCells.fillId, cell.fillId),
+        eq(schema.contentColumnFillCells.documentId, cell.documentId),
+        eq(schema.contentColumnFillCells.attempt, cell.attempt),
         onlyIf ? eq(schema.contentColumnFillCells.status, onlyIf) : undefined,
       ),
     );
@@ -298,8 +298,7 @@ async function reconcileRunningCells(fill: FillRow) {
     if (!cell.taskId) {
       if (Date.now() - Date.parse(cell.updatedAt) > UNSTARTED_CELL_TIMEOUT_MS) {
         await setCell(
-          fill.id,
-          cell.documentId,
+          cell,
           { status: "failed", error: "The agent didn't start." },
           "running",
         );
@@ -320,7 +319,7 @@ async function reconcileRunningCells(fill: FillRow) {
       generations.of(cell.documentId, fill.propertyId) !==
       (cell.baseGeneration ?? 0)
     ) {
-      await setCell(fill.id, cell.documentId, { status: "kept" }, "running");
+      await setCell(cell, { status: "kept" }, "running");
       continue;
     }
     const error = !task
@@ -328,12 +327,7 @@ async function reconcileRunningCells(fill: FillRow) {
       : task.status === "errored"
         ? task.error?.trim() || "The agent stopped with an error."
         : "The agent finished without filling this cell.";
-    await setCell(
-      fill.id,
-      cell.documentId,
-      { status: "failed", error },
-      "running",
-    );
+    await setCell(cell, { status: "failed", error }, "running");
   }
 }
 
@@ -435,12 +429,7 @@ async function startCellAgents(fill: FillRow, cells: CellRow[]) {
     const message =
       error instanceof Error ? error.message : "This column can't be filled.";
     for (const cell of cells) {
-      await setCell(
-        fill.id,
-        cell.documentId,
-        { status: "failed", error: message },
-        "running",
-      );
+      await setCell(cell, { status: "failed", error: message }, "running");
     }
     return;
   }
@@ -481,13 +470,13 @@ async function startCellAgents(fill: FillRow, cells: CellRow[]) {
           and(
             eq(schema.contentColumnFillCells.fillId, fill.id),
             eq(schema.contentColumnFillCells.documentId, cell.documentId),
+            eq(schema.contentColumnFillCells.attempt, cell.attempt),
             isNull(schema.contentColumnFillCells.taskId),
           ),
         );
     } catch (error) {
       await setCell(
-        fill.id,
-        cell.documentId,
+        cell,
         {
           status: "failed",
           error:
@@ -868,8 +857,7 @@ export async function fillColumnCell(
     }
     const reason = args.reason?.trim();
     await setCell(
-      fill.id,
-      cell.documentId,
+      cell,
       {
         status: "failed",
         error: reason
@@ -899,8 +887,7 @@ export async function fillColumnCell(
     const message = "You can no longer edit this row, so nothing was saved.";
     if (followUp || status !== "running") return { status, message };
     await setCell(
-      fill.id,
-      cell.documentId,
+      cell,
       { status: "failed", error: "You can no longer edit this row." },
       "running",
     );
@@ -924,13 +911,13 @@ export async function fillColumnCell(
       error instanceof ActionContractError &&
       error.errorCode === "PROPERTY_GENERATION_CONFLICT"
     ) {
-      await setCell(fill.id, cell.documentId, { status: "kept" }, status);
+      await setCell(cell, { status: "kept" }, status);
       await advanceColumnFill(fill.id);
       return { status: "kept", message: keptMessage };
     }
     throw error;
   }
-  await setCell(fill.id, cell.documentId, { status: "filled", error: null });
+  await setCell(cell, { status: "filled", error: null });
   await advanceColumnFill(fill.id);
   return { status: "filled", message: "Saved." };
 }
