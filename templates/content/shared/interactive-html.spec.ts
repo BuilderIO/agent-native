@@ -4,6 +4,7 @@ import {
   interactiveHtmlBlocks,
   interactiveHtmlProblems,
   interactiveHtmlTitle,
+  MAX_INTERACTIVE_HTML_IMAGES,
   MAX_INTERACTIVE_HTML_LENGTH,
   refusedInteractiveHtml,
 } from "./interactive-html.js";
@@ -116,6 +117,19 @@ describe("what a block can't do is named before it is saved", () => {
       </script>`,
     ],
     [
+      "an import from the library host in any form",
+      `<script type="module">
+        import * as d3 from "//cdn.jsdelivr.net/npm/d3@7/+esm";
+        const name = "three";
+        const three = await import(\`https://cdn.jsdelivr.net/npm/\${name}\`);
+        const later = await import(\`https://\${location.host}/x\`);
+      </script>`,
+    ],
+    [
+      "an address that isn't an import",
+      `<script>const parts = Array.from("/a/b"); const at = "./c.js";</script>`,
+    ],
+    [
       "a page named by an import map's scope",
       `<script type="importmap">{"imports":{"a":"https://cdn.jsdelivr.net/npm/a"},
         "scopes":{"https://app.example.com/":{"b":"https://cdn.jsdelivr.net/npm/b"}}}</script>`,
@@ -167,6 +181,26 @@ describe("what a block can't do is named before it is saved", () => {
       '<script type="module">/* one */ import x from "https://esm.sh/late"</script>',
       "https://esm.sh/late",
     ],
+    [
+      '<script type="module">import x from "//esm.sh/relative"</script>',
+      "//esm.sh/relative",
+    ],
+    ['<script type="module">export * from"./lib/a.js"</script>', "./lib/a.js"],
+    ['<script type="module">import "../b.js"</script>', "../b.js"],
+    ['<script>import("/c.js")</script>', "/c.js"],
+    [
+      "<script>const x = await import(`https://esm.sh/${name}`)</script>",
+      "https://esm.sh/",
+    ],
+    [
+      "<script>await import(`//esm.sh/template`); const html = `<p>`</script>",
+      "//esm.sh/template",
+    ],
+    [
+      '<script type="importmap">{"imports":{"a":"//esm.sh/a"}}</script>',
+      "//esm.sh/a",
+    ],
+    ['<script type="importmap">{"imports":{"a":"./a.js"}}</script>', "./a.js"],
     ['<style>@import "theme.css";</style>', "theme.css"],
     ["<style>@font-face{src:url('fonts/a.woff2')}</style>", "fonts/a.woff2"],
     ["<style>body{background:url(images/a.png)}</style>", "images/a.png"],
@@ -204,6 +238,20 @@ describe("what a block can't do is named before it is saved", () => {
          <script>const html = '<img src="https://tracker.example.net/p.gif">';</script>`,
       ),
     ).toEqual([]);
+  });
+
+  it("refuses more uploaded images than a block shows", () => {
+    const images = (count: number) =>
+      Array.from(
+        { length: count },
+        (_, index) =>
+          `<img src="/api/private-media/11111111-2222-4333-8444-5555555555${10 + index}">`,
+      ).join("");
+
+    expect(problems(images(MAX_INTERACTIVE_HTML_IMAGES))).toEqual([]);
+    expect(problems(images(MAX_INTERACTIVE_HTML_IMAGES + 1))).toEqual([
+      expect.stringContaining("41 images"),
+    ]);
   });
 
   it("refuses an empty block and one too long to keep", () => {

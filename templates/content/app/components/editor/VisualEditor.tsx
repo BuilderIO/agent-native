@@ -6488,6 +6488,7 @@ export function VisualEditor({
               schema={editor.schema}
               content={content}
               documentId={referenceDepth ? undefined : documentId}
+              runInteractiveHtml={runInteractiveHtml}
             />
           ) : null}
           <DrawDiagramsContext.Provider value={drawDiagrams}>

@@ -3341,6 +3341,7 @@ function PageEditorSessionBody({
     () => readBlockLink(location.search),
     [location.search],
   );
+  const runInteractiveHtml = document.accessRole === "owner";
   const closeBlockLink = useCallback(() => {
     if (!blockLink.fullScreen) return;
     void navigate(
@@ -12440,6 +12441,7 @@ function PageEditorSessionBody({
                                 schema={getContentEditorSchema()}
                                 content={visualEditorContent}
                                 documentId={documentId}
+                                runInteractiveHtml={runInteractiveHtml}
                               />
                             </div>
                           ) : (
@@ -12685,9 +12687,7 @@ function PageEditorSessionBody({
                                 linkedBlockId={blockLink.blockId}
                                 linkedBlockFullScreen={blockLink.fullScreen}
                                 onFullScreenClosed={closeBlockLink}
-                                runInteractiveHtml={
-                                  document.accessRole === "owner"
-                                }
+                                runInteractiveHtml={runInteractiveHtml}
                                 onBlockIdentityIds={
                                   isSuggesting
                                     ? undefined
@@ -12732,9 +12732,7 @@ function PageEditorSessionBody({
                                 primaryEditor={primaryEditor}
                                 primaryContent={exportContent}
                                 privateImageUploads={privateImageUploads}
-                                runInteractiveHtml={
-                                  document.accessRole === "owner"
-                                }
+                                runInteractiveHtml={runInteractiveHtml}
                                 onFieldTabChange={
                                   blockFieldComments.onFieldTabChange
                                 }

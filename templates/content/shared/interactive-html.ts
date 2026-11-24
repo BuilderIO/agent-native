@@ -6,11 +6,16 @@ import {
 } from "./import/html-fragment.js";
 import { isInteractiveHtmlLanguage } from "./interactive-html-language.js";
 import { nfmToDoc, type PMNode } from "./nfm.js";
-import { privateMediaIdFromSrc } from "./private-media.js";
+import {
+  privateMediaIdFromSrc,
+  privateMediaIdsInContent,
+} from "./private-media.js";
 
 export const INTERACTIVE_HTML_LIBRARY_ORIGIN = "https://cdn.jsdelivr.net";
 
 export const MAX_INTERACTIVE_HTML_LENGTH = 200_000;
+
+export const MAX_INTERACTIVE_HTML_IMAGES = 40;
 
 const MAX_TITLE_LENGTH = 120;
 
@@ -124,8 +129,8 @@ function mediaProblem(
 }
 
 const MODULE_IMPORT_STRING_OR_COMMENT =
-  /\b(?:from|import)\s*\(?\s*["'](https?:\/\/[^"'\n]+)["']|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\[\s\S]|[^\\`])*`|\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)/g;
-const IMPORT_MAP_ADDRESS = /:\s*"(https?:\/\/[^"]+)"/g;
+  /\b(?:from\s*|import\s*\(?\s*)["']((?:https?:\/|\.{0,2})\/[^"'\n]+)["']|\bimport\s*\(\s*`((?:https?:\/|\.{0,2})\/[^`$\s\\]+)(?:\\[\s\S]|[^\\`])*`|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\[\s\S]|[^\\`])*`|\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)/g;
+const IMPORT_MAP_ADDRESS = /:\s*"((?:https?:\/|\.{0,2})\/[^"]+)"/g;
 
 type Attributes = Readonly<Partial<Record<string, string>>>;
 
@@ -134,8 +139,11 @@ function scriptProblems(attrs: Attributes, code: string): string[] {
     attrs.type?.toLowerCase() === "importmap"
       ? IMPORT_MAP_ADDRESS
       : MODULE_IMPORT_STRING_OR_COMMENT;
-  return [...code.matchAll(imports)].flatMap(([, address]) =>
-    !address || fromLibrary(address) ? [] : [scriptProblem(address)],
+  return [...code.matchAll(imports)].flatMap(
+    ([, quoted = "", template = ""]) => {
+      const address = quoted || template;
+      return !address || fromLibrary(address) ? [] : [scriptProblem(address)];
+    },
   );
 }
 
@@ -240,6 +248,12 @@ export function interactiveHtmlProblems(
     ];
   }
   const problems = new Set<string | null>();
+  const images = privateMediaIdsInContent(source).size;
+  if (images > MAX_INTERACTIVE_HTML_IMAGES) {
+    problems.add(
+      `It uses ${images} images uploaded to Content and a block shows at most ${MAX_INTERACTIVE_HTML_IMAGES}. Use fewer, or split it into two blocks.`,
+    );
+  }
   let skipped: HiddenHtmlElement | null = null;
   let opened: { name: string; attrs: Attributes } | null = null;
   for (const token of tokenizeHtml(source)) {

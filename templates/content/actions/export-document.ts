@@ -17,7 +17,7 @@ import {
 } from "./_collection-export.js";
 import { getDatabaseByDocumentId } from "./_database-utils.js";
 import {
-  interactiveHtmlUrl,
+  interactiveHtmlPageUrl,
   withInteractiveHtmlLinks,
 } from "./_interactive-html-blocks.js";
 import { listPropertiesForAllDocumentDatabases } from "./_property-utils.js";
@@ -174,7 +174,7 @@ export default defineAction({
             fieldId === PRIMARY_BODY_FIELD_ID
               ? await withInteractiveHtmlLinks(record.id, body)
               : interactiveHtmlAsLinks(body, () =>
-                  interactiveHtmlUrl(record.id),
+                  interactiveHtmlPageUrl(record.id),
                 ),
           );
         }

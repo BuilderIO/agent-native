@@ -1344,7 +1344,7 @@ describe("export-document database collections", () => {
     expect((await exported("markdown")).content).toContain(block);
   });
 
-  it("links to each record's own interactive block from a collection's HTML", async () => {
+  it("links to a record's own interactive block, or its page, from a collection's HTML", async () => {
     const databaseId = "interactive-database";
     const propertyId = "interactive-database-content";
     const content =
@@ -1366,11 +1366,28 @@ describe("export-document database collections", () => {
       position: 0,
       optionsJson: serializePropertyOptions({ blocks: { primary: true } }),
     });
+    await addProperty({
+      id: "interactive-database-notes",
+      databaseId,
+      name: "Notes",
+      type: "blocks",
+      position: 1,
+      optionsJson: serializePropertyOptions({ blocks: { primary: false } }),
+    });
     await createDocument({
       id: "interactive-record",
       title: "Interactive record",
       parentId: "interactive-database-page",
       content,
+    });
+    await getDb().insert(schema.documentBlockFieldContents).values({
+      id: "interactive-record-notes",
+      ownerEmail: OWNER,
+      documentId: "interactive-record",
+      propertyId: "interactive-database-notes",
+      content,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
     await addDatabaseItem({
       id: "interactive-record-item",
@@ -1394,17 +1411,21 @@ describe("export-document database collections", () => {
           scope: { kind: "all_members" },
           propertyIds: [],
           includePrimaryBody: true,
-          blockPropertyIds: [],
+          blockPropertyIds: ["interactive-database-notes"],
         },
       }),
     );
 
-    const [, href = ""] =
-      /href="([^"]*\/page\/interactive-record[^"]*)"/.exec(html.content) ?? [];
-    const { search } = new URL(decodeHtmlEntities(href));
-    expect(readBlockLink(search)).toEqual({
-      blockId: idsByPath["1"],
-      fullScreen: true,
-    });
+    const links = [
+      ...html.content.matchAll(
+        /href="([^"]*\/page\/interactive-record[^"]*)"/g,
+      ),
+    ].map(([, href = ""]) =>
+      readBlockLink(new URL(decodeHtmlEntities(href)).search),
+    );
+    expect(links).toEqual([
+      { blockId: idsByPath["1"], fullScreen: true },
+      { blockId: null, fullScreen: false },
+    ]);
   });
 });

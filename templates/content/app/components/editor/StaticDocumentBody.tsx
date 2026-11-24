@@ -9,7 +9,7 @@ import {
   type Node as ProseMirrorNode,
   type Schema,
 } from "@tiptap/pm/model";
-import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -32,7 +32,6 @@ import {
   toggleTitleNode,
 } from "./extensions/NotionExtensions";
 import { isEmptyCell } from "./extensions/TablePresentation";
-import { InteractiveHtmlContext } from "./interactive-html/interactive-html-context";
 import { SEALED_FRAME_FIRST_HEIGHT } from "./interactive-html/SealedFrame";
 import { imageDisplaySrc } from "./private-media-src";
 import {
@@ -56,7 +55,7 @@ export interface StaticBodyLabels {
   interactiveHtmlUntitled: string;
   interactiveHtmlRunHint: string;
   interactiveHtmlRun: string;
-  runsInteractiveHtml: boolean;
+  runInteractiveHtml: boolean;
 }
 
 function sameLabels(a: StaticBodyLabels, b: StaticBodyLabels): boolean {
@@ -788,7 +787,7 @@ function interactiveHtmlBlock(
               document,
               "div",
               { class: "content-interactive-html__body", ...control },
-              labels.runsInteractiveHtml
+              labels.runInteractiveHtml
                 ? h(document, "div", {
                     class: "skeleton-shimmer bg-muted w-full",
                     style: `height: ${SEALED_FRAME_FIRST_HEIGHT}px`,
@@ -918,14 +917,15 @@ export function StaticDocumentBody({
   schema,
   content,
   documentId,
+  runInteractiveHtml,
 }: {
   schema: Schema;
   content: string;
   /** Marks the body-visible startup milestone for this page when given. */
   documentId?: string | undefined;
+  runInteractiveHtml: boolean;
 }) {
   const t = useT();
-  const { runsOnOpen } = useContext(InteractiveHtmlContext);
   const labels = useMemo(
     (): StaticBodyLabels => ({
       imageBroken: t("editor.media.imageBroken"),
@@ -933,9 +933,9 @@ export function StaticDocumentBody({
       interactiveHtmlUntitled: t("editor.interactiveHtml.untitled"),
       interactiveHtmlRunHint: t("editor.interactiveHtml.runHint"),
       interactiveHtmlRun: t("editor.interactiveHtml.run"),
-      runsInteractiveHtml: runsOnOpen,
+      runInteractiveHtml,
     }),
-    [t, runsOnOpen],
+    [t, runInteractiveHtml],
   );
   const bodyRef = useRef<HTMLDivElement>(null);
   const markedRef = useRef(false);

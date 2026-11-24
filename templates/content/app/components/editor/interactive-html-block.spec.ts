@@ -352,6 +352,24 @@ describe("interactive HTML blocks", () => {
     ).toEqual([]);
   });
 
+  it("ask for an uploaded image again each time they are opened", async () => {
+    const image = "/api/private-media/11111111-2222-4333-8444-555555555555";
+    const open = async () => {
+      const { block } = await mountEditor({
+        content: `Text\n\n\`\`\`html interactive\n<img src="${image}">\n\`\`\``,
+      });
+      await until(() =>
+        expect(frameOf(block)?.getAttribute("srcdoc")).toContain("data:"),
+      );
+      return vi
+        .mocked(fetch)
+        .mock.calls.filter(([url]) => String(url).includes(image)).length;
+    };
+
+    expect(await open()).toBe(1);
+    expect(await open()).toBe(1);
+  });
+
   it("show a caption and the empty source before anything is written", async () => {
     const { block } = await mountEditor({
       content: "Text\n\n```html interactive\n```",

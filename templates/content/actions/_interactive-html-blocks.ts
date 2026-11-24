@@ -110,6 +110,10 @@ export function interactiveHtmlUrl(
   return `${base}${contentBlockLinkPath(documentId, blockId, { fullScreen: true })}`;
 }
 
+export function interactiveHtmlPageUrl(documentId: string): string {
+  return `${withConfiguredAppBasePath(readerOrigin())}${contentBlockLinkPath(documentId, null)}`;
+}
+
 export async function interactiveHtmlUrls(
   documentId: string,
   content: string | null,

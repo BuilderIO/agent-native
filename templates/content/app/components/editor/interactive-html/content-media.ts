@@ -1,4 +1,5 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
+import { MAX_INTERACTIVE_HTML_IMAGES } from "@shared/interactive-html";
 import {
   privateMediaIdsInContent,
   privateMediaPath,
@@ -6,9 +7,7 @@ import {
 } from "@shared/private-media";
 import { useEffect, useState } from "react";
 
-const MAX_IMAGES = 40;
-
-const images = new Map<string, Promise<string | null>>();
+type LoadedImages = Map<string, Promise<string | null>>;
 
 async function readAsDataUrl(id: string): Promise<string> {
   const response = await fetch(`${appApiPath(privateMediaPath(id))}?bytes=1`);
@@ -23,7 +22,10 @@ async function readAsDataUrl(id: string): Promise<string> {
   });
 }
 
-function imageDataUrl(id: string): Promise<string | null> {
+function imageDataUrl(
+  images: LoadedImages,
+  id: string,
+): Promise<string | null> {
   const known = images.get(id);
   if (known) return known;
   const read = readAsDataUrl(id).catch((error: unknown) => {
@@ -40,13 +42,17 @@ export function useContentMediaWrittenIn(source: string): string | null {
     source: string;
     html: string;
   } | null>(null);
+  const [images] = useState((): LoadedImages => new Map());
   const needsImages = privateMediaIdsInContent(source).size > 0;
   useEffect(() => {
     if (!needsImages) return;
     let cancelled = false;
-    const ids = [...privateMediaIdsInContent(source)].slice(0, MAX_IMAGES);
+    const ids = [...privateMediaIdsInContent(source)].slice(
+      0,
+      MAX_INTERACTIVE_HTML_IMAGES,
+    );
     void Promise.all(
-      ids.map(async (id) => [id, await imageDataUrl(id)] as const),
+      ids.map(async (id) => [id, await imageDataUrl(images, id)] as const),
     ).then((loaded) => {
       if (cancelled) return;
       const urls = new Map(loaded);
@@ -61,7 +67,7 @@ export function useContentMediaWrittenIn(source: string): string | null {
     return () => {
       cancelled = true;
     };
-  }, [source, needsImages]);
+  }, [source, needsImages, images]);
   if (!needsImages) return source;
   return written?.source === source ? written.html : null;
 }
