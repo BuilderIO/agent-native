@@ -19,6 +19,7 @@ vi.mock("../feature-flags/store.js", () => ({
   evaluateFeatureFlagStrict: evaluateFeatureFlagStrictMock,
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: executeMock }),
 }));
 vi.mock("../a2a/index.js", () => ({

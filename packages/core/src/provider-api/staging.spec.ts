@@ -6,6 +6,7 @@ const _executedSql: string[] = [];
 const _int4Columns = new Map<string, string[]>();
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   isProductionServerlessFunctionRuntime: () => false,
   getDbExec: () => ({
     execute: async (sql: string | { sql: string; args: unknown[] }) => {

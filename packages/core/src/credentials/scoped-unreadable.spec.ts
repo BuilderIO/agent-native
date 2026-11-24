@@ -70,6 +70,7 @@ vi.mock("../secrets/storage.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: (...args: unknown[]) => mocks.getDbExec(...args),
 }));
 
