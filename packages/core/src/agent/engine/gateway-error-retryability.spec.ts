@@ -109,6 +109,18 @@ describe("Builder gateway error retryability", () => {
       retryable: boolean;
     }> = [
       ...["credits-limit-daily", "credits-limit-monthly"].flatMap((code) => [
+        ...[429, 500].map((status) => ({
+          label: `${status} nested ${code} with generic top-level code`,
+          response: () =>
+            jsonErrorResponse(status, {
+              code: "gateway_error",
+              error: { code, message: "quota exceeded" },
+            }),
+          retryable: false,
+          upgradeUrl: true,
+          expectedErrorCode: code,
+          expectedProviderRetryable: false,
+        })),
         ...[402, 429, 500].map((status) => ({
           label: `${status} ${code} with transient wording`,
           response: () =>
@@ -284,6 +296,17 @@ describe("Builder gateway error retryability", () => {
             message: "Daily gateway request cap reached",
           }),
         retryable: false,
+      },
+      {
+        label:
+          "429 non-credit top-level code takes precedence over nested code",
+        response: () =>
+          jsonErrorResponse(429, {
+            code: "too_many_concurrent_requests",
+            error: { code: "other_gateway_error", message: "rate limited" },
+          }),
+        expectedErrorCode: "too_many_concurrent_requests",
+        retryable: true,
       },
       {
         label: "429 org concurrency cap",

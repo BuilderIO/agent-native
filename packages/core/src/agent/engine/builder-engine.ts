@@ -1008,9 +1008,13 @@ async function* emitHttpError(
     [errBody?.message, errBody?.error?.message].find(
       (value): value is string => typeof value === "string",
     ) ?? `Builder gateway returned ${status}`;
-  const providerCode = [errBody?.code, errBody?.error?.code].find(
-    (value): value is string => typeof value === "string",
-  );
+  const providerCodes = [errBody?.code, errBody?.error?.code];
+  const providerCode =
+    providerCodes.find(
+      (value): value is string =>
+        typeof value === "string" && isExplicitCreditsLimitErrorCode(value),
+    ) ??
+    providerCodes.find((value): value is string => typeof value === "string");
   const code =
     canonicalizeBuilderGatewayErrorCode(providerCode, message) ??
     `http_${status}`;
