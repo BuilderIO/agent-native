@@ -134,8 +134,8 @@ step for their host:
 - Claude Code: run `/mcp` and choose **Authenticate** or **Reconnect** for the
   `agent-native-dispatch` connector.
 - Codex, Cursor and other local clients: run
-  `npx @agent-native/core@latest reconnect https://dispatch.agent-native.com`,
-  then reload the client. Codex needs a new session before the tools return. If
+  `npx -y @agent-native/core@latest reconnect https://dispatch.agent-native.com`
+  and reload the client. Codex needs a new session before the tools return. If
   it reports no existing entry, as it can for a plugin install, authenticate the
   connector from the client's own MCP settings.
 - Claude, Claude Desktop, Cowork and ChatGPT: reconnect the Agent-Native
