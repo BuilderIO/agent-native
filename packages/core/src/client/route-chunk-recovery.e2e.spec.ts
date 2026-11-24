@@ -34,12 +34,11 @@ vi.mock("react-router", () => ({
   createRequestHandler: () => (request: Request) => deploy.render(request),
 }));
 
-// Recovery leaves loopback addresses to Vite's own reload, so the page needs a real hostname.
-const HOST = "app.agent-native.test";
+const NON_LOOPBACK_HOST = "app.agent-native.test";
 const CLOUDFLARE_DEFAULT_CACHE_CONTROL = "max-age=14400";
 
 async function launchBrowser(): Promise<Browser> {
-  const args = [`--host-resolver-rules=MAP ${HOST} 127.0.0.1`];
+  const args = [`--host-resolver-rules=MAP ${NON_LOOPBACK_HOST} 127.0.0.1`];
   try {
     return await chromium.launch({ headless: true, args });
   } catch {
@@ -85,9 +84,7 @@ async function entryScript(buildName: Build): Promise<string> {
     write: false,
     logLevel: "silent",
   });
-  const [output] = result.outputFiles;
-  if (!output) throw new Error("esbuild produced no entry script");
-  return output.text;
+  return result.outputFiles[0].text;
 }
 
 describe("stale chunk recovery in a real browser", () => {
@@ -157,14 +154,14 @@ describe("stale chunk recovery in a real browser", () => {
     );
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("No port");
-    origin = `http://${HOST}:${address.port}`;
+    origin = `http://${NON_LOOPBACK_HOST}:${address.port}`;
     browser = await launchBrowser();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.closeAllConnections();
-    await new Promise((resolve) => server?.close(resolve));
+    await browser.close();
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
   }, 60_000);
 
   beforeEach(async () => {
@@ -203,11 +200,10 @@ describe("stale chunk recovery in a real browser", () => {
     await waitForBuild(page, "A");
     deploy.live = "B";
 
-    // The same address still gives the old page, from the browser's cache.
-    const control = await page.context().newPage();
-    await control.goto(address);
-    await waitForBuild(control, "A");
-    await control.close();
+    const tabGivenCachedPage = await page.context().newPage();
+    await tabGivenCachedPage.goto(address);
+    await waitForBuild(tabGivenCachedPage, "A");
+    await tabGivenCachedPage.close();
 
     await page.click("button");
 

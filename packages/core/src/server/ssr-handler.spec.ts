@@ -1102,13 +1102,16 @@ describe("createH3SSRHandler", () => {
   });
 
   it("tells browsers not to keep the answer for a missing file", async () => {
-    const handler = createH3SSRHandler(() => ({})) as any;
+    const handler = createH3SSRHandler(() => ({})) as unknown as (
+      event: ReturnType<typeof createEvent>,
+    ) => Promise<Response>;
 
     const response = await handler(createEvent("/assets/removed-1a2b3c.js"));
 
     expect(response.status).toBe(404);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expectNoDefaultCdnCacheHeaders(response);
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
   });
 
   it("prefixes root-relative links in mounted SSR HTML", async () => {
