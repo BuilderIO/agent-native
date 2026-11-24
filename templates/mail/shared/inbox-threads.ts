@@ -131,7 +131,7 @@ export type InboxThreadItem = EmailMessage & {
   messageCount: number;
   unreadCount: number;
   messageIds: string[];
-  isAutomated: boolean;
+  isAutomated: boolean | null;
 };
 
 export type InboxTabConfig = {

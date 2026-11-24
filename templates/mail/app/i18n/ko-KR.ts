@@ -456,6 +456,7 @@ const messages = {
       tryDifferentKeywords: "다른 키워드 시도",
       nothingHere: "아직 아무것도 없습니다",
       loadingMore: "더 불러오는 중...",
+      loadOlder: "이전 대화 불러오기",
       openAllMailForOlder: "이전 메시지는 전체 메일에서 열기",
     },
     toasts: {
@@ -552,6 +553,7 @@ const messages = {
       tryAgain: "다시 시도",
       rateLimitTitle: "Gmail 속도 제한에 도달했습니다",
       loadTitle: "이메일을 불러올 수 없습니다",
+      staleSaved: "메일을 새로고침하지 못했습니다. 저장된 대화를 표시합니다.",
       rateLimitDescription:
         "최근 Google 요청이 너무 많습니다. 잠시 후 다시 시도합니다.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",

@@ -456,6 +456,7 @@ const messages = {
       tryDifferentKeywords: "अलग कीवर्ड आज़माएँ",
       nothingHere: "अभी यहाँ कुछ नहीं",
       loadingMore: "और लोड हो रहा है...",
+      loadOlder: "पुरानी बातचीत लोड करें",
       openAllMailForOlder: "पुराने संदेशों के लिए सभी मेल खोलें",
     },
     toasts: {
@@ -551,6 +552,7 @@ const messages = {
       tryAgain: "फिर कोशिश करें",
       rateLimitTitle: "Gmail दर सीमा लगी",
       loadTitle: "ईमेल लोड नहीं हो सके",
+      staleSaved: "मेल रिफ़्रेश नहीं हो सका। सहेजी गई बातचीत दिखाई जा रही हैं।",
       rateLimitDescription:
         "Google को हाल में बहुत अधिक अनुरोध भेजे गए। फिर कोशिश से पहले थोड़ा इंतज़ार किया जा रहा है।",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",

@@ -1,6 +1,4 @@
 import { getDbExec } from "@agent-native/core/db";
-import { AI_IMPORTANT_LABEL } from "@shared/ai-priority.js";
-import { mailLabelsInclude } from "@shared/gmail-labels.js";
 import { decodeGmailSnippet } from "@shared/gmail-snippet.js";
 import {
   INBOX_MAX_PAGE_OFFSET,
@@ -44,7 +42,7 @@ export type InboxThreadRow = {
   isUnread: boolean;
   isStarred: boolean;
   isImportant: boolean;
-  isAutomated: boolean;
+  isAutomated: boolean | null;
   latestDate: number;
   latestMessageId: string | null;
   subject: string | null;
@@ -211,6 +209,7 @@ function parseJsonArray<T>(raw: string | null, fallback: T[]): T[] {
 function toInboxThreadRow(
   row: typeof schema.mailInboxThreads.$inferSelect,
 ): InboxThreadRow {
+  const labelIds = parseJsonArray<string>(row.labelIdsJson, []);
   return {
     id: row.id,
     ownerEmail: row.ownerEmail,
@@ -221,7 +220,13 @@ function toInboxThreadRow(
     isUnread: row.isUnread === 1,
     isStarred: row.isStarred === 1,
     isImportant: row.isImportant === 1,
-    isAutomated: row.isAutomated === 1,
+    isAutomated:
+      row.isAutomated === 1
+        ? true
+        : row.isAutomated === 2 ||
+            (row.isAutomated === 0 && labelIds.includes("CATEGORY_PERSONAL"))
+          ? false
+          : null,
     latestDate: row.latestDate,
     latestMessageId: row.latestMessageId,
     subject: row.subject,
@@ -229,7 +234,7 @@ function toInboxThreadRow(
     fromName: row.fromName,
     fromEmail: row.fromEmail,
     to: parseJsonArray<{ name: string; email: string }>(row.toJson, []),
-    labelIds: parseJsonArray<string>(row.labelIdsJson, []),
+    labelIds,
     messageIds: parseJsonArray<string>(row.messageIdsJson, []),
     messageCount: row.messageCount,
     unreadCount: row.unreadCount,
@@ -352,24 +357,6 @@ export async function readInboxThreads(
   return rows.map(toInboxThreadRow);
 }
 
-/**
- * Raw Gmail label ids that `inboxRowToItem` resolves to the AI-important
- * label. Mirrors its name resolution exactly, so the SQL tab membership below
- * agrees with the in-memory partition for the same rows.
- */
-export function aiImportantLabelIds(
-  labelMap: Map<string, string> | undefined,
-): string[] {
-  const candidates = new Set([...(labelMap?.keys() ?? []), AI_IMPORTANT_LABEL]);
-  return [...candidates].filter((id) => {
-    if (id === "UNREAD" || id === "STARRED") return false;
-    const name =
-      CATEGORY_MAP[id] ||
-      (labelMap?.get(id) || id).replace(/_/g, " ").toLowerCase();
-    return mailLabelsInclude([name], AI_IMPORTANT_LABEL);
-  });
-}
-
 export type InboxTabWindowSpec = { id: string; kind: string };
 
 export type InboxTabWindows = {
@@ -378,30 +365,20 @@ export type InboxTabWindows = {
   previews: Map<string, InboxThreadRow[]>;
 };
 
-// Each synced row falls in one of eight groups by these bits. A group's tab
-// membership is fixed, so one ranked read serves every built-in tab.
-const AI_GROUP_BIT = 4;
 const AUTOMATED_GROUP_BIT = 2;
 const UNREAD_GROUP_BIT = 1;
-const GROUP_COUNT = 8;
+const GROUP_COUNT = 4;
 
-/**
- * Membership of the built-in tabs as `inboxTabsForItem` resolves it when no
- * pinned-label or saved-filter tab exists: Important is "AI-important or not
- * automated", Other is "not AI-important and automated". Tabs with a query
- * are not expressible here and must use `readInboxThreads` instead.
- */
 function tabAcceptsGroup(kind: string, group: number): boolean {
-  const aiImportant = (group & AI_GROUP_BIT) !== 0;
   const automated = (group & AUTOMATED_GROUP_BIT) !== 0;
   switch (kind) {
     case "all":
     case "inbox":
       return true;
     case "important":
-      return aiImportant || !automated;
+      return !automated;
     case "other":
-      return !aiImportant && automated;
+      return automated;
     default:
       throw new Error(`inbox tab "${kind}" needs the in-memory partition`);
   }
@@ -417,7 +394,6 @@ export async function readInboxTabWindows(params: {
   ownerEmail: string;
   accountEmails: readonly string[];
   tabs: readonly InboxTabWindowSpec[];
-  aiLabelIdsByAccount: ReadonlyMap<string, readonly string[]>;
   pageTabId: string;
   pageOffset: number;
   pageLimit: number;
@@ -443,43 +419,18 @@ export async function readInboxTabWindows(params: {
   };
   const ownerParam = bind(params.ownerEmail.toLowerCase());
   const accountParams = accounts.map((account) => bind(account));
-  const mappedAiClauses = accounts.flatMap((account) => {
-    const ids = params.aiLabelIdsByAccount.get(account) ?? [];
-    if (ids.length === 0) return [];
-    const accountParam = bind(account);
-    // Whole array elements, not substrings: `Label_ai` must not match
-    // `Label_ai_extra`.
-    const idChecks = ids.map(
-      (id) =>
-        `EXISTS (SELECT 1 FROM jsonb_array_elements_text(t.label_ids_json::jsonb) AS label(value) WHERE label.value = ${bind(id)})`,
-    );
-    return [
-      `(t.account_email = ${accountParam} AND (${idChecks.join(" OR ")}))`,
-    ];
-  });
-  // `inboxRowToItem` reads a raw label id with no synced name as its own name:
-  // lowercased, `_` as a space, `-` equal to a space, and any `prefix/` before
-  // the last segment ignored. This pattern covers those spellings in one
-  // place. Mapped ids use the exact clauses above; a raw id that is mapped to
-  // another name but spelled like the AI label is not covered (Gmail ids are
-  // opaque, so this does not occur).
-  const unmappedAiClause = `t.label_ids_json ~* ${bind(
-    String.raw`"([^"]*/)?\s*agent[ _-]native[ _-]important\s*"`,
-  )}`;
-  const aiClauses = [...mappedAiClauses, unmappedAiClause];
-  const aiImportant = `(${aiClauses.join(" OR ")})`;
   const rankLimit = Math.max(
     params.previewLimit,
     params.pageOffset + params.pageLimit,
   );
   const rankLimitParam = bind(rankLimit);
 
+  // raw-sql-ok: Account values and window limits use bound parameters; interpolated bits are constants.
   const { rows } = await getDbExec().execute({
-    // guard:allow-unbounded-read — the owner/account scope bounds the keys CTE, and only the top rows of each group (at most 8 × rankLimit) return to JS
+    // guard:allow-unbounded-read — the owner/account scope bounds the keys CTE, and only the top rows of each group (at most 4 × rankLimit) return to JS
     sql: `
       WITH keys AS (
-        SELECT t.id, t.latest_date, t.latest_message_id, t.is_automated, t.unread_count,
-          ${aiImportant} AS ai
+        SELECT t.id, t.latest_date, t.latest_message_id, t.is_automated, t.unread_count, t.label_ids_json
         FROM mail_inbox_threads t
         WHERE t.owner_email = ${ownerParam} AND t.in_inbox = 1
           AND t.account_email IN (${accountParams.join(", ")})
@@ -487,8 +438,7 @@ export async function readInboxTabWindows(params: {
       ordered AS (
         SELECT k.id,
           row_number() OVER (ORDER BY k.latest_date DESC, k.latest_message_id DESC, k.id DESC) AS r,
-          (CASE WHEN k.ai THEN ${AI_GROUP_BIT} ELSE 0 END
-            + CASE WHEN coalesce(k.is_automated, 0) = 1 THEN ${AUTOMATED_GROUP_BIT} ELSE 0 END
+          (CASE WHEN k.is_automated = 2 OR (k.is_automated = 0 AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(k.label_ids_json, '[]')::jsonb) AS label(value) WHERE label.value = 'CATEGORY_PERSONAL')) THEN 0 ELSE ${AUTOMATED_GROUP_BIT} END
             + CASE WHEN coalesce(k.unread_count, 0) > 0 THEN ${UNREAD_GROUP_BIT} ELSE 0 END) AS grp
         FROM keys k
       ),
@@ -1110,7 +1060,7 @@ export type ThreadUpsertInput = {
   isUnread: boolean;
   isStarred: boolean;
   isImportant: boolean;
-  isAutomated: boolean;
+  isAutomated: boolean | null;
   latestDate: number;
   latestMessageId: string | null;
   subject: string;
@@ -1148,7 +1098,7 @@ export async function upsertInboxThreadRows(
       isUnread: r.isUnread ? 1 : 0,
       isStarred: r.isStarred ? 1 : 0,
       isImportant: r.isImportant ? 1 : 0,
-      isAutomated: r.isAutomated ? 1 : 0,
+      isAutomated: r.isAutomated == null ? null : r.isAutomated ? 1 : 2,
       latestDate: r.latestDate,
       latestMessageId: r.latestMessageId,
       subject: r.subject,
@@ -1545,8 +1495,9 @@ export async function recordGmailQuotaCooldown(
   const account = accountEmail.toLowerCase();
   const id = account;
   const retryAfter = Math.max(0, Math.ceil(retryAfterMs ?? 0));
+  const jitter = 1 + Math.random();
   const remainingWindow = sql`GREATEST(1, ${budgets.quotaWindowStartedAt} + ${GMAIL_QUOTA_WINDOW_MS} - ${now})`;
-  const exponentialDelay = sql`LEAST(60000, (1000 * POWER(2, LEAST(${budgets.quotaCooldownAttempts}, 6)))::bigint)`;
+  const exponentialDelay = sql`(LEAST(60000, 1000 * POWER(2, LEAST(${budgets.quotaCooldownAttempts}, 6))) * ${jitter})::bigint`;
   const cooldownDelay = sql`GREATEST(${retryAfter}, ${remainingWindow}) + ${exponentialDelay}`;
   const rows = await getDb()
     .insert(budgets)
@@ -1555,7 +1506,7 @@ export async function recordGmailQuotaCooldown(
       ownerEmail: owner,
       accountEmail: account,
       quotaWindowStartedAt: now,
-      quotaCooldownUntil: now + retryAfter + 1_000,
+      quotaCooldownUntil: now + retryAfter + Math.ceil(1_000 * jitter),
       quotaCooldownAttempts: 1,
       createdAt: now,
       updatedAt: now,

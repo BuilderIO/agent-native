@@ -444,6 +444,7 @@ const messages = {
       tryDifferentKeywords: "試試其他關鍵詞",
       nothingHere: "這裡還沒有內容",
       loadingMore: "正在載入更多...",
+      loadOlder: "載入較早的對話",
       openAllMailForOlder: "開啟全部郵件查看較早的郵件",
     },
     toasts: {
@@ -535,6 +536,7 @@ const messages = {
       tryAgain: "重試",
       rateLimitTitle: "觸發 Gmail 速率限制",
       loadTitle: "無法載入郵件",
+      staleSaved: "無法重新整理郵件。正在顯示已儲存的對話。",
       rateLimitDescription: "最近對 Google 的請求過多。稍等片刻後會重試。",
       failedToConnect: "連線失敗。請重試。",
       failedToParseJson: "解析 JSON 失敗",

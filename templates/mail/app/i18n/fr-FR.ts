@@ -473,6 +473,7 @@ const messages = {
       tryDifferentKeywords: "Essayez d’autres mots-clés",
       nothingHere: "Rien ici pour l’instant",
       loadingMore: "Chargement...",
+      loadOlder: "Charger les conversations plus anciennes",
       openAllMailForOlder: "Ouvrir tous les e-mails pour les anciens messages",
     },
     toasts: {
@@ -572,6 +573,8 @@ const messages = {
       tryAgain: "Réessayer",
       rateLimitTitle: "Limite de débit Gmail atteinte",
       loadTitle: "Impossible de charger les emails",
+      staleSaved:
+        "Impossible d’actualiser les messages. Les conversations enregistrées sont affichées.",
       rateLimitDescription:
         "Trop de requêtes récentes vers Google. Attente avant nouvelle tentative.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",

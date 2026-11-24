@@ -469,6 +469,7 @@ const messages = {
       tryDifferentKeywords: "Tente palavras-chave diferentes",
       nothingHere: "Nada aqui ainda",
       loadingMore: "Carregando mais...",
+      loadOlder: "Carregar conversas anteriores",
       openAllMailForOlder: "Abrir todo o e-mail para mensagens mais antigas",
     },
     toasts: {
@@ -565,6 +566,8 @@ const messages = {
       tryAgain: "Tentar novamente",
       rateLimitTitle: "Limite de taxa do Gmail atingido",
       loadTitle: "Não foi possível carregar emails",
+      staleSaved:
+        "Não foi possível atualizar o e-mail. Exibindo conversas salvas.",
       rateLimitDescription:
         "Muitas solicitações recentes ao Google. Aguardando um momento antes de tentar novamente.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",

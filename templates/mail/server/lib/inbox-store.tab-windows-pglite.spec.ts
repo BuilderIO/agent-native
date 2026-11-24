@@ -15,6 +15,7 @@ function syntheticRows(count: number) {
     return seed / 0x7fffffff;
   };
   const labelChoices = [
+    ["CATEGORY_PERSONAL"],
     [],
     [AI_LABEL_ID],
     ["Label_work"],
@@ -49,7 +50,7 @@ function syntheticRows(count: number) {
       isUnread: unread > 0 ? 1 : 0,
       isStarred: 0,
       isImportant: 0,
-      isAutomated: next() < 0.25 ? 1 : 0,
+      isAutomated: i === 0 ? 2 : next() < 0.25 ? 1 : 0,
       latestDate: base + Math.floor(next() * 20) * 60_000,
       latestMessageId: `msg-${i}`,
       subject: `Subject ${i}`,
@@ -97,6 +98,9 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
     await initializeMailDb({});
 
     const rows = syntheticRows(240);
+    expect(
+      rows.some((row) => row.labelIdsJson.includes("CATEGORY_PERSONAL")),
+    ).toBe(true);
     await getDb().insert(schema.mailInboxThreads).values(rows);
 
     const labelMapByAccount = new Map<string, Map<string, string>>([
@@ -108,18 +112,6 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
         ]),
       ],
       [ACCOUNTS[1], new Map([["Label_work", "Work"]])],
-    ]);
-    const aiLabelIdsByAccount = new Map(
-      ACCOUNTS.map((account) => [
-        account,
-        store.aiImportantLabelIds(labelMapByAccount.get(account)),
-      ]),
-    );
-    // The literal label name is a candidate too: inboxRowToItem keeps an
-    // unmapped raw id as its own name.
-    expect(aiLabelIdsByAccount.get(ACCOUNTS[0])).toEqual([
-      AI_LABEL_ID,
-      "agent-native-important",
     ]);
 
     const configs = [
@@ -179,7 +171,6 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
                 ownerEmail: OWNER,
                 accountEmails,
                 tabs: resolved,
-                aiLabelIdsByAccount,
                 pageTabId: tab.id,
                 pageOffset: offset,
                 pageLimit,
@@ -244,13 +235,11 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
       return originalExecute(query);
     }) as typeof exec.execute;
 
-    const aiLabelIdsByAccount = new Map(ACCOUNTS.map((a) => [a, []]));
     const tabs = [{ id: "__inbox_all__", kind: "all" }];
     const base = {
       ownerEmail: OWNER,
       accountEmails: ACCOUNTS,
       tabs,
-      aiLabelIdsByAccount,
       pageTabId: "__inbox_all__",
       pageUnreadOnly: false,
       previewLimit: 50,
