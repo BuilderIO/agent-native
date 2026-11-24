@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { classifyDataIntent } from "../lib/data-intent.js";
 import { matchDispatchAppCandidates } from "../lib/dispatch-app-identity.js";
 import { listGrantedDispatchMcpApps } from "../server/lib/mcp-gateway.js";
 import { listPointers, matchPointer } from "../server/lib/pointers-store.js";
@@ -153,12 +154,7 @@ export default defineAction({
       }
     }
 
-    const intentApp = /\b(?:e-?mails?|messages?|inbox)\b/i.test(text)
-      ? "mail"
-      : /\bgithub\b/i.test(text) &&
-          /\b(?:issues?|pull requests?|prs?)\b/i.test(text)
-        ? "tasks"
-        : null;
+    const intentApp = classifyDataIntent(text);
     const intentCandidates = intentApp
       ? matchDispatchAppCandidates(apps, intentApp)
       : [];
