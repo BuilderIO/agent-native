@@ -14,7 +14,22 @@ let client: PGliteClient;
 
 const mocks = vi.hoisted(() => ({
   shared: false,
+  email: "me@example.com",
+  editorIds: [] as string[],
+  inaccessibleThreads: [] as string[],
   appState: [] as Array<{ key: string; value: unknown }>,
+  otherAppState: [] as Array<{ key: string; value: unknown }>,
+  runRefs: new Map<string, { threadId: string; turnId: string }>(),
+  turnRuns: new Map<string, string[]>(),
+  runStatuses: new Map<string, string>(),
+  runEvents: new Map<
+    string,
+    Array<{ runId: string; seq: number; event: { type: string } }>
+  >(),
+  runReadError: null as Error | null,
+  beforeCompare: null as (() => void) | null,
+  compare: vi.fn(),
+  readRun: vi.fn(),
 }));
 
 vi.mock("../server/db/index.js", async () => {
@@ -24,16 +39,92 @@ vi.mock("../server/db/index.js", async () => {
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
 }));
-vi.mock("@agent-native/core/application-state", () => ({
-  listAppState: async (prefix: string) =>
-    mocks.appState.filter((entry) => entry.key.startsWith(prefix)),
+vi.mock("@agent-native/core/application-state", () => {
+  const entries = () =>
+    mocks.email === "me@example.com" ? mocks.appState : mocks.otherAppState;
+  return {
+    listAppState: async (prefix: string) =>
+      structuredClone(
+        entries().filter((entry) => entry.key.startsWith(prefix)),
+      ),
+    readAppState: async (key: string) =>
+      structuredClone(
+        entries().find((entry) => entry.key === key)?.value ?? null,
+      ),
+    compareAndSetAppState: async (
+      key: string,
+      expected: unknown,
+      next: unknown,
+    ) => {
+      mocks.compare(key, expected, next);
+      mocks.beforeCompare?.();
+      const entry = entries().find((item) => item.key === key);
+      if (!entry || JSON.stringify(entry.value) !== JSON.stringify(expected))
+        return false;
+      entry.value = structuredClone(next);
+      return true;
+    },
+  };
+});
+vi.mock("@agent-native/core/server", () => ({
+  callerHasThreadAccess: async (
+    email: string,
+    threadId: string,
+    role: string,
+    context: unknown,
+    scope: unknown,
+  ) => {
+    if (
+      email !== mocks.email ||
+      role !== "owner" ||
+      JSON.stringify(scope) !== JSON.stringify({ sourceAppId: "clips" })
+    )
+      return false;
+    return !mocks.inaccessibleThreads.includes(threadId);
+  },
+  getRunTurnRef: async (id: string) => {
+    mocks.readRun(id);
+    if (mocks.runReadError) throw mocks.runReadError;
+    return mocks.runRefs.get(id) ?? null;
+  },
+  getCurrentTurnRunIdsForThread: async (threadId: string, turnId: string) => {
+    mocks.readRun(`${threadId}/${turnId}`);
+    if (mocks.runReadError) throw mocks.runReadError;
+    return mocks.turnRuns.get(`${threadId}/${turnId}`) ?? [];
+  },
+  getRunStatus: async (id: string) => {
+    mocks.readRun(id);
+    if (mocks.runReadError) throw mocks.runReadError;
+    return mocks.runStatuses.get(id) ?? null;
+  },
+  getCurrentTurnRunEventsForThread: async (
+    threadId: string,
+    turnId: string,
+  ) => {
+    if (mocks.runReadError) throw mocks.runReadError;
+    return mocks.runEvents.get(`${threadId}/${turnId}`) ?? [];
+  },
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestUserEmail: () => "me@example.com",
+  getRequestUserEmail: () => mocks.email,
+  getRequestOrgId: () => undefined,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
-  accessFilter: (table: { ownerEmail: unknown }) =>
-    mocks.shared ? sql`true` : sql`${table.ownerEmail} = 'me@example.com'`,
+  accessFilter: (
+    table: { ownerEmail: unknown; id: unknown },
+    _shares: unknown,
+    _ctx: unknown,
+    role?: string,
+  ) => {
+    if (role !== "editor" && mocks.shared) return sql`true`;
+    const editorIds = sql.join(
+      mocks.editorIds.map((id) => sql`${id}`),
+      sql`, `,
+    );
+    return mocks.editorIds.length
+      ? sql`(${table.ownerEmail} = ${mocks.email} or ${table.id} in (${editorIds}))`
+      : sql`${table.ownerEmail} = ${mocks.email}`;
+  },
 }));
 
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
@@ -61,7 +152,19 @@ beforeEach(async () => {
     full_text TEXT NOT NULL, segments_json TEXT NOT NULL
   )`);
   mocks.appState = [];
+  mocks.otherAppState = [];
   mocks.shared = false;
+  mocks.email = "me@example.com";
+  mocks.editorIds = [];
+  mocks.inaccessibleThreads = [];
+  mocks.runRefs.clear();
+  mocks.turnRuns.clear();
+  mocks.runStatuses.clear();
+  mocks.runEvents.clear();
+  mocks.runReadError = null;
+  mocks.beforeCompare = null;
+  mocks.compare.mockReset();
+  mocks.readRun.mockReset();
 });
 
 afterEach(async () => {
@@ -318,6 +421,223 @@ describe("list-ai-requests", () => {
         turnId: backgroundAgentTurnIdForReceipt(tabId, tabId),
       },
     ]);
+  });
+});
+
+describe("server-side AI request reconciliation", () => {
+  const statusKey = (id: string) => `clips-ai-request-status-${id}`;
+  const receipt = (id: string, runId: string | undefined = `run-${id}`) => ({
+    kind: "generate-metadata",
+    status: "working",
+    requestedAt: "2026-09-28T12:00:00.000Z",
+    operationId: `operation-${id}`,
+    threadId: `thread-${id}`,
+    turnId: `turn-${id}`,
+    ...(runId ? { runId } : {}),
+    message: "working",
+  });
+  const seed = async (id: string, status: string, owner = "me@example.com") => {
+    await insertRecording(id, id, owner);
+    const state = receipt(id);
+    mocks.appState.push({ key: statusKey(id), value: state });
+    mocks.runRefs.set(`run-${id}`, {
+      threadId: state.threadId,
+      turnId: state.turnId,
+    });
+    mocks.turnRuns.set(`${state.threadId}/${state.turnId}`, [`run-${id}`]);
+    mocks.runStatuses.set(`run-${id}`, status);
+    return state;
+  };
+
+  it.each([
+    ["completed", "completed"],
+    ["errored", "failed"],
+    ["truncated", "truncated"],
+    ["aborted", "cancelled"],
+  ])("reconciles durable %s as %s", async (runStatus, expected) => {
+    const original = await seed("rec", runStatus);
+    const result = await listAiRequests.run({});
+    expect(result.activeSessions).toEqual([]);
+    expect(mocks.appState[0].value).toEqual({
+      ...original,
+      status: expected,
+      message: null,
+      updatedAt: expect.any(String),
+    });
+    expect(mocks.compare).toHaveBeenCalledWith(
+      statusKey("rec"),
+      original,
+      mocks.appState[0].value,
+    );
+  });
+
+  it("finds a receipt without a run ID and uses the newest same-turn continuation", async () => {
+    const original = await seed("rec", "completed");
+    mocks.appState[0].value = receipt("rec", "");
+    mocks.turnRuns.set(`${original.threadId}/${original.turnId}`, [
+      "run-rec",
+      "run-next",
+    ]);
+    mocks.runStatuses.set("run-next", "running");
+    expect((await listAiRequests.run({})).activeSessions).toHaveLength(1);
+    expect(mocks.compare).not.toHaveBeenCalled();
+    mocks.runStatuses.set("run-next", "completed");
+    expect((await listAiRequests.run({})).activeSessions).toEqual([]);
+    expect(mocks.appState[0].value).toMatchObject({
+      status: "completed",
+      runId: "run-next",
+    });
+  });
+
+  it.each([
+    "missing",
+    "wrong-thread",
+    "wrong-turn",
+    "missing-from-turn",
+    "unknown-status",
+  ])("leaves an unverified run active: %s", async (reason) => {
+    const original = await seed("rec", "completed");
+    if (reason === "missing") mocks.runRefs.delete("run-rec");
+    if (reason === "wrong-thread")
+      mocks.runRefs.set("run-rec", {
+        threadId: "other",
+        turnId: original.turnId,
+      });
+    if (reason === "wrong-turn")
+      mocks.runRefs.set("run-rec", {
+        threadId: original.threadId,
+        turnId: "other",
+      });
+    if (reason === "missing-from-turn")
+      mocks.turnRuns.set(`${original.threadId}/${original.turnId}`, []);
+    if (reason === "unknown-status") mocks.runStatuses.delete("run-rec");
+    expect((await listAiRequests.run({})).activeSessions).toEqual([
+      expect.objectContaining(original),
+    ]);
+    expect(mocks.appState[0].value).toEqual(original);
+    expect(mocks.compare).not.toHaveBeenCalled();
+  });
+
+  it("keeps a receipt without any durable run available for browser monitoring", async () => {
+    await seed("rec", "completed");
+    const original = receipt("rec", "");
+    mocks.appState[0].value = original;
+    mocks.turnRuns.clear();
+    expect((await listAiRequests.run({})).activeSessions).toEqual([
+      expect.objectContaining(original),
+    ]);
+    expect(mocks.compare).not.toHaveBeenCalled();
+  });
+
+  it("leaves a truncated continuation boundary to the browser monitor", async () => {
+    const original = await seed("rec", "truncated");
+    mocks.runEvents.set(`${original.threadId}/${original.turnId}`, [
+      { runId: "run-rec", seq: 1, event: { type: "auto_continue" } },
+    ]);
+    expect((await listAiRequests.run({})).activeSessions).toEqual([
+      expect.objectContaining(original),
+    ]);
+    expect(mocks.compare).not.toHaveBeenCalled();
+  });
+
+  it("does not settle a predecessor when a continuation appears during the read", async () => {
+    const original = await seed("rec", "completed");
+    let reads = 0;
+    mocks.readRun.mockImplementation((id: string) => {
+      if (id === "run-rec" && ++reads === 2) {
+        mocks.turnRuns.set(`${original.threadId}/${original.turnId}`, [
+          "run-rec",
+          "run-next",
+        ]);
+      }
+    });
+    expect((await listAiRequests.run({})).activeSessions).toEqual([
+      expect.objectContaining(original),
+    ]);
+    expect(mocks.compare).not.toHaveBeenCalled();
+  });
+
+  it("does not settle a run whose durable status changes during the read", async () => {
+    const original = await seed("rec", "completed");
+    let reads = 0;
+    mocks.readRun.mockImplementation((id: string) => {
+      if (id === `${original.threadId}/${original.turnId}` && ++reads === 2) {
+        mocks.runStatuses.set("run-rec", "running");
+      }
+    });
+    expect((await listAiRequests.run({})).activeSessions).toEqual([
+      expect.objectContaining(original),
+    ]);
+    expect(mocks.compare).not.toHaveBeenCalled();
+  });
+
+  it("does not treat an unreadable durable run as a terminal result", async () => {
+    const original = await seed("rec", "completed");
+    mocks.runReadError = new Error("run store unavailable");
+    await expect(listAiRequests.run({})).rejects.toThrow(
+      "run store unavailable",
+    );
+    expect(mocks.appState[0].value).toEqual(original);
+    expect(mocks.compare).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite a newer receipt after a compare-and-set race", async () => {
+    const original = await seed("rec", "completed");
+    const newer = {
+      ...original,
+      operationId: "new-operation",
+      requestedAt: "2026-09-29T12:00:00.000Z",
+      threadId: "new-thread",
+      turnId: "new-turn",
+    };
+    mocks.beforeCompare = () => {
+      mocks.appState[0].value = newer;
+    };
+    const result = await listAiRequests.run({});
+    expect(mocks.appState[0].value).toEqual(newer);
+    expect(result.activeSessions).toEqual([expect.objectContaining(newer)]);
+  });
+
+  it("does not inspect a receipt pointing at another user's thread", async () => {
+    const original = await seed("rec", "completed");
+    mocks.inaccessibleThreads = [original.threadId];
+    expect((await listAiRequests.run({})).activeSessions).toEqual([
+      expect.objectContaining(original),
+    ]);
+    expect(mocks.readRun).not.toHaveBeenCalled();
+    expect(mocks.compare).not.toHaveBeenCalled();
+  });
+
+  it("does not inspect sessions for inaccessible or expired recordings", async () => {
+    await seed("private", "completed", "owner@example.com");
+    await seed("expired", "completed", "owner@example.com");
+    mocks.editorIds = ["expired"];
+    await client.query(
+      "update recordings set expires_at = '2000-01-01T00:00:00Z' where id = 'expired'",
+    );
+    const result = await listAiRequests.run({});
+    expect(result.activeSessions).toEqual([]);
+    expect(mocks.readRun).not.toHaveBeenCalled();
+    expect(mocks.compare).not.toHaveBeenCalled();
+  });
+
+  it("reconciles editor-authorized recordings only in the caller's app state", async () => {
+    mocks.shared = true;
+    mocks.editorIds = ["editor"];
+    await seed("owned", "completed");
+    await seed("editor", "completed", "owner@example.com");
+    const viewer = await seed("viewer", "completed", "owner@example.com");
+    const other = receipt("owned");
+    mocks.otherAppState = [{ key: statusKey("owned"), value: other }];
+    const result = await listAiRequests.run({});
+    expect(
+      mocks.appState.map((entry) => (entry.value as { status: string }).status),
+    ).toEqual(["completed", "completed", "working"]);
+    expect(result.activeSessions).toEqual([
+      expect.objectContaining({ recordingId: "viewer", ...viewer }),
+    ]);
+    expect(mocks.otherAppState[0].value).toEqual(other);
+    expect(mocks.readRun).not.toHaveBeenCalledWith("run-viewer");
   });
 });
 

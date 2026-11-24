@@ -19,6 +19,7 @@ import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import {
   assertAiModelAvailable,
+  hasUnsuccessfulTitleRequest,
   queueAiRequest,
   withAiRequestStatusInstructions,
 } from "./lib/ai-request-status.js";
@@ -73,6 +74,7 @@ export async function queueTitleRegenerationRequest({
   ownerEmail,
   includeFullVideoInAi,
   includeSummary = false,
+  automatic = false,
 }: {
   recordingId: string;
   currentTitle: string | null | undefined;
@@ -83,6 +85,7 @@ export async function queueTitleRegenerationRequest({
   ownerEmail?: string | null | undefined;
   includeFullVideoInAi?: boolean;
   includeSummary?: boolean;
+  automatic?: boolean;
 }) {
   const agentsContext = await loadAgentsMdContext({
     ownerEmail,
@@ -128,16 +131,21 @@ export async function queueTitleRegenerationRequest({
     kind,
     requestedAt,
     request,
+    automaticTitle: automatic,
   });
   return request;
 }
 
-type ModelRefusal = "ai_model_unavailable" | "ai_model_lookup_unavailable";
+type ModelRefusal =
+  | "ai_model_unavailable"
+  | "ai_model_lookup_unavailable"
+  | "title_request_unsuccessful";
 
 function modelRefusalCode(error: unknown): ModelRefusal | null {
   const code = (error as { errorCode?: unknown } | null)?.errorCode;
   return code === "ai_model_unavailable" ||
-    code === "ai_model_lookup_unavailable"
+    code === "ai_model_lookup_unavailable" ||
+    code === "title_request_unsuccessful"
     ? code
     : null;
 }
@@ -181,6 +189,13 @@ export default defineAction({
       await assertAccess("recording", args.recordingId, "editor"),
     );
 
+    if (
+      args.automatic &&
+      (await hasUnsuccessfulTitleRequest(args.recordingId))
+    ) {
+      return queueRefusedResult(args.recordingId, "title_request_unsuccessful");
+    }
+
     // A manual request cannot succeed without a model, and the local fallback
     // below writes a title: refuse before that write, not after it.
     if (!args.automatic) await assertAiModelAvailable();
@@ -203,7 +218,10 @@ export default defineAction({
       input: Parameters<typeof queueTitleRegenerationRequest>[0],
     ) => {
       try {
-        return await queueTitleRegenerationRequest(input);
+        return await queueTitleRegenerationRequest({
+          ...input,
+          automatic: args.automatic,
+        });
       } catch (error) {
         const code = modelRefusalCode(error);
         if (args.automatic && code) {

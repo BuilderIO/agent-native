@@ -1,6 +1,20 @@
 import { defineAction } from "@agent-native/core/action";
-import { listAppState } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  compareAndSetAppState,
+  listAppState,
+  readAppState,
+} from "@agent-native/core/application-state";
+import {
+  callerHasThreadAccess,
+  getCurrentTurnRunEventsForThread,
+  getCurrentTurnRunIdsForThread,
+  getRunStatus,
+  getRunTurnRef,
+} from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
@@ -31,6 +45,115 @@ interface ActiveAiRequestSession {
   turnId: string;
   runId?: string;
   updatedAt?: string;
+}
+
+function requestSession(
+  recordingId: string,
+  value: Record<string, unknown> | null,
+): (ActiveAiRequestSession & Record<string, unknown>) | null {
+  if (
+    !value ||
+    !(CLIPS_AI_REQUEST_KINDS as readonly unknown[]).includes(value.kind) ||
+    value.status !== "working" ||
+    typeof value.requestedAt !== "string" ||
+    typeof value.operationId !== "string" ||
+    typeof value.threadId !== "string" ||
+    typeof value.turnId !== "string"
+  ) {
+    return null;
+  }
+  return { ...value, recordingId } as ActiveAiRequestSession &
+    Record<string, unknown>;
+}
+
+async function reconcileRequestSession(
+  session: ActiveAiRequestSession,
+  expected: Record<string, unknown>,
+  requesterEmail: string,
+): Promise<ActiveAiRequestSession | null> {
+  if (!session.threadId.trim() || !session.turnId.trim()) return session;
+  if (
+    !(await callerHasThreadAccess(
+      requesterEmail,
+      session.threadId,
+      "owner",
+      { orgId: getRequestOrgId() },
+      { sourceAppId: "clips" },
+    ))
+  )
+    return session;
+  if (
+    session.runId !== undefined &&
+    (typeof session.runId !== "string" || !session.runId.trim())
+  ) {
+    return session;
+  }
+  if (session.runId) {
+    const ref = await getRunTurnRef(session.runId);
+    if (
+      !ref ||
+      ref.threadId !== session.threadId ||
+      ref.turnId !== session.turnId
+    ) {
+      return session;
+    }
+  }
+  const runs = await getCurrentTurnRunIdsForThread(
+    session.threadId,
+    session.turnId,
+  );
+  if (session.runId && !runs.includes(session.runId)) return session;
+  const latestRunId = runs[runs.length - 1];
+  if (!latestRunId) return session;
+  const runStatus = await getRunStatus(latestRunId);
+  const status =
+    runStatus === "completed"
+      ? "completed"
+      : runStatus === "errored"
+        ? "failed"
+        : runStatus === "truncated"
+          ? "truncated"
+          : runStatus === "aborted"
+            ? "cancelled"
+            : null;
+  if (!status) return session;
+  if (runStatus === "truncated") {
+    const events = await getCurrentTurnRunEventsForThread(
+      session.threadId,
+      session.turnId,
+    );
+    const lastEvent = events
+      .filter((event) => event.runId === latestRunId)
+      .pop();
+    if (
+      lastEvent?.event.type === "auto_continue" ||
+      lastEvent?.event.type === "loop_limit"
+    ) {
+      return session;
+    }
+  }
+
+  // A receipt may name an earlier chunk; a same-turn successor owns the outcome.
+  const currentRuns = await getCurrentTurnRunIdsForThread(
+    session.threadId,
+    session.turnId,
+  );
+  if (
+    currentRuns[currentRuns.length - 1] !== latestRunId ||
+    (session.runId && !currentRuns.includes(session.runId)) ||
+    (await getRunStatus(latestRunId)) !== runStatus
+  )
+    return session;
+  const key = `${STATUS_PREFIX}${session.recordingId}`;
+  const next = {
+    ...expected,
+    status,
+    message: null,
+    runId: latestRunId,
+    updatedAt: new Date().toISOString(),
+  };
+  if (await compareAndSetAppState(key, expected, next)) return null;
+  return requestSession(session.recordingId, await readAppState(key));
 }
 
 async function listQueuedRequests(requesterEmail?: string | null): Promise<{
@@ -98,21 +221,13 @@ async function listQueuedRequests(requesterEmail?: string | null): Promise<{
       );
     });
 
-  const kinds: readonly unknown[] = CLIPS_AI_REQUEST_KINDS;
-  const requestSessions = statusEntries
-    .map((entry): Record<string, unknown> & { recordingId: string } => ({
-      ...(entry.value as Record<string, unknown>),
-      recordingId: entry.key.slice(STATUS_PREFIX.length),
-    }))
-    .filter(
-      (status): status is ActiveAiRequestSession & Record<string, unknown> =>
-        kinds.includes(status.kind) &&
-        status.status === "working" &&
-        typeof status.requestedAt === "string" &&
-        typeof status.operationId === "string" &&
-        typeof status.threadId === "string" &&
-        typeof status.turnId === "string",
+  const requestSessions = statusEntries.flatMap((entry) => {
+    const session = requestSession(
+      entry.key.slice(STATUS_PREFIX.length),
+      entry.value,
     );
+    return session ? [session] : [];
+  });
 
   const workflowSessions = workflowEntries.flatMap(
     (entry): ActiveAiRequestSession[] => {
@@ -166,6 +281,39 @@ async function listQueuedRequests(requesterEmail?: string | null): Promise<{
     );
 
   const titles = new Map(accessible.map((r) => [r.id, r.title]));
+  const visibleRequestSessions = requestSessions.filter((session) =>
+    titles.has(session.recordingId),
+  );
+  const editorRecordingIds = visibleRequestSessions.map(
+    (session) => session.recordingId,
+  );
+  const editable = editorRecordingIds.length
+    ? await db
+        .select({ id: schema.recordings.id })
+        .from(schema.recordings)
+        .where(
+          and(
+            accessFilter(
+              schema.recordings,
+              schema.recordingShares,
+              undefined,
+              "editor",
+            ),
+            inArray(schema.recordings.id, editorRecordingIds),
+            eq(schema.recordings.status, "ready"),
+            recordingExpiryQuery(getRequestUserEmail()).available,
+          ),
+        )
+    : [];
+  const editableIds = new Set(editable.map((recording) => recording.id));
+  const reconciled = await Promise.all(
+    visibleRequestSessions.map((session) => {
+      const expected = statusByRecordingId.get(session.recordingId);
+      return requesterEmail && editableIds.has(session.recordingId) && expected
+        ? reconcileRequestSession(session, expected, requesterEmail)
+        : session;
+    }),
+  );
 
   // Not every request kind stores `currentTitle` when queued; fill it from the
   // recording so every delivered request tells the agent what the clip is.
@@ -176,9 +324,12 @@ async function listQueuedRequests(requesterEmail?: string | null): Promise<{
         ...request,
         currentTitle: request.currentTitle ?? titles.get(request.recordingId),
       })),
-    activeSessions: activeSessions.filter((session) =>
-      titles.has(session.recordingId),
-    ),
+    activeSessions: [
+      ...reconciled.filter(
+        (session): session is ActiveAiRequestSession => session !== null,
+      ),
+      ...workflowSessions.filter((session) => titles.has(session.recordingId)),
+    ],
   };
 }
 
