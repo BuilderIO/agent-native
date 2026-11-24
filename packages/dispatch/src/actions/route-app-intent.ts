@@ -162,7 +162,7 @@ export default defineAction({
     const intentCandidates = intentApp
       ? matchDispatchAppCandidates(apps, intentApp)
       : [];
-    const intentCandidate = intentCandidates[0];
+    const intentCandidate = intentCandidates.at(0);
     if (intentCandidates.length === 1 && intentCandidate) {
       return {
         status: "ok",
