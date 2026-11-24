@@ -6,11 +6,13 @@ import {
 } from "../../server/credential-provider.js";
 import {
   allowsSamplingParams,
+  ANTHROPIC_THINKING_BINDING_BETA,
   anthropicManualThinkingBudget,
   claudeAdaptiveThinking,
   isGPTReasoningModel,
   isUnsetReasoningEffort,
   normalizeReasoningEffortForModel,
+  supportsAnthropicThinkingBlockBinding,
   supportsClaudeAdaptiveThinking,
 } from "../../shared/reasoning-effort.js";
 import { isNodeRuntime } from "../../shared/runtime.js";
@@ -801,6 +803,9 @@ class AISDKEngine implements AgentEngine {
     if (this.apiKey !== undefined) config.apiKey = this.apiKey;
     if (this.baseUrl) config.baseURL = this.baseUrl;
     if (this.requestFetch) config.fetch = this.requestFetch;
+    if (this.provider === "anthropic") {
+      config.fetch = withAnthropicThinkingBlockBinding(this.requestFetch);
+    }
     if (this.provider === "openrouter") {
       config.fetch = createOpenRouterToolFetch(this.requestFetch);
       if (this.appName) config.appName = this.appName;
@@ -812,6 +817,47 @@ class AISDKEngine implements AgentEngine {
       ? provider.chat(model)
       : provider(model);
   }
+}
+
+/**
+ * @ai-sdk/anthropic forwards only `type` and `budgetTokens` of the thinking
+ * option, so `block_binding` and its beta header are added to the outgoing
+ * request here. A replayed signed thinking block is rejected with a 400 when
+ * the tool list changed mid-turn; "drop_block" makes the API drop just that
+ * block instead.
+ */
+export function withAnthropicThinkingBlockBinding(
+  baseFetch: typeof fetch = globalThis.fetch,
+): typeof fetch {
+  return (async (input: any, init?: RequestInit) => {
+    if (typeof init?.body !== "string") return baseFetch(input, init);
+    let body: any;
+    try {
+      body = JSON.parse(init.body);
+    } catch {
+      return baseFetch(input, init);
+    }
+    if (
+      body?.thinking?.type !== "adaptive" ||
+      body.thinking.block_binding !== undefined ||
+      !supportsAnthropicThinkingBlockBinding(body.model)
+    ) {
+      return baseFetch(input, init);
+    }
+    body.thinking.block_binding = { prefix_mismatch_behavior: "drop_block" };
+    const headers = new Headers(init.headers);
+    const beta = headers.get("anthropic-beta");
+    const betas = beta ? beta.split(",").map((b) => b.trim()) : [];
+    if (!betas.includes(ANTHROPIC_THINKING_BINDING_BETA)) {
+      betas.push(ANTHROPIC_THINKING_BINDING_BETA);
+    }
+    headers.set("anthropic-beta", betas.join(","));
+    return baseFetch(input, {
+      ...init,
+      headers,
+      body: JSON.stringify(body),
+    });
+  }) as typeof fetch;
 }
 
 export function createAISDKEngine(
