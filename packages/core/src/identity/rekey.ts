@@ -384,13 +384,6 @@ function appIdentityRegistry(): Map<string, AppIdentityColumn> {
   return (appIdentityGlobal[APP_IDENTITY_COLUMNS_KEY] ??= new Map());
 }
 
-/**
- * Policies for first-party apps that share one database with other apps in a
- * workspace. Declarations made through `registerIdentityColumns()` live in the
- * registering process only, but the rekey scans every table in the shared
- * database, so an app that never loads Dispatch's plugin would refuse every
- * email change on Dispatch's tables.
- */
 const FIRST_PARTY_APP_IDENTITY_COLUMNS: readonly AppIdentityColumn[] = [
   {
     table: "dispatch_identity_links",
@@ -428,8 +421,6 @@ const FIRST_PARTY_APP_IDENTITY_COLUMNS: readonly AppIdentityColumn[] = [
     "dispatch_destinations",
     "dispatch_dreams",
     "dispatch_link_tokens",
-    // No longer read or written. The table stays in existing databases until
-    // it is dropped, and identity migrations refuse any column without a policy.
     "vault_secrets",
     "workspace_resources",
   ].map(
@@ -468,7 +459,6 @@ export function registerIdentityColumns(
   const registry = appIdentityRegistry();
   for (const entry of columns) {
     const key = `${entry.table}.${entry.column}`;
-    // An app released before its policy moved into core still declares it.
     const builtIn = firstParty.get(key);
     if (builtIn && samePolicy(builtIn, entry)) continue;
     const identifiers = [entry.table, entry.column];

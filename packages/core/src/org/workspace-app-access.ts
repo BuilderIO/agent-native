@@ -434,9 +434,6 @@ async function resolveHostedWorkspaceAppAuth(
       requestContext?.a2aIdentityAssurance === "org-member";
     const orgDomain = orgId ? await cachedOrgDomain(orgId) : null;
     const normalizedOrgDomain = orgDomain?.trim() || undefined;
-    // Only the delegated-member token is keyed by domain. A user token for an
-    // org with no allowed domain names the org by id, which Dispatch resolves
-    // against its own membership table.
     if (orgId && !normalizedOrgDomain && delegatedMember) {
       return workspaceAppAccessUnavailable("org-domain-missing", { audience });
     }

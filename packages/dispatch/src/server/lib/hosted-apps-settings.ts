@@ -65,7 +65,6 @@ function hostedAppsSettingsScope() {
 export async function readHostedAppsSettings(): Promise<
   HostedAppsSettings & { invalid: boolean }
 > {
-  // The deployment turned the hosted catalog off; no stored setting can undo it.
   if (!hostedCatalogEnabled()) {
     return { showHostedApps: false, invalid: false };
   }

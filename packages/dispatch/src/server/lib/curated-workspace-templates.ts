@@ -168,7 +168,6 @@ export function getCuratedWorkspaceTemplate(
 export async function listCuratedWorkspaceTemplates(): Promise<
   CuratedWorkspaceTemplateStatus[]
 > {
-  // These entries link to Builder-hosted live apps.
   if (!hostedCatalogEnabled()) return [];
   const installedIds = new Set(
     (

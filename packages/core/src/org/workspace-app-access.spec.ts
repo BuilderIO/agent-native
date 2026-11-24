@@ -1317,7 +1317,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       .headers as Record<string, string>;
     const claims = JSON.parse(
       Buffer.from(
-        authorization.Authorization.replace(/^Bearer /, "").split(".")[1]!,
+        authorization.Authorization.replace(/^Bearer /, "").split(".")[1] ?? "",
         "base64url",
       ).toString("utf8"),
     ) as Record<string, unknown>;
