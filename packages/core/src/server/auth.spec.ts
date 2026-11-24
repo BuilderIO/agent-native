@@ -8928,6 +8928,103 @@ describe("server/auth", () => {
       expect(JSON.stringify(body)).not.toContain('select "id"');
     });
 
+    describe("auth schema probe on Better Auth 5xx", () => {
+      async function callBa(
+        path: string,
+        probe: () => Promise<{ rows: Array<{ table_name: string }> }>,
+        status = 500,
+      ) {
+        vi.stubEnv("NODE_ENV", "production");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+        const execute = vi.fn(async (query: { sql?: string } | string) =>
+          typeof query !== "string" &&
+          query.sql?.includes("information_schema.tables")
+            ? probe()
+            : { rows: [] },
+        );
+        vi.doMock("./better-auth-instance.js", () => ({
+          getBetterAuth: vi.fn(async () => ({
+            handler: vi.fn(async () => new Response("", { status })),
+            api: {
+              getSession: vi.fn(async () => null),
+              signInEmail: vi.fn(),
+              signUpEmail: vi.fn(),
+              signOut: vi.fn(),
+            },
+          })),
+          getBetterAuthSync: vi.fn(() => undefined),
+        }));
+        vi.doMock("../db/client.js", () => ({
+          getDbExec: () => ({ execute }),
+          isLocalDatabase: () => true,
+          retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        }));
+        const { autoMountAuth } = await import("./auth.js");
+        const app = createMockApp();
+        await autoMountAuth(app);
+        const baHandler = app.use.mock.calls.find(
+          (call: unknown[]) => call[0] === "/_agent-native/auth/ba",
+        )?.[1];
+        const response = (await baHandler(
+          createJsonPostEvent(`/_agent-native/auth/ba${path}`, {
+            email: "person@example.test",
+            password: "secret-password",
+          }),
+        )) as Response;
+        return { response, execute };
+      }
+      const probeCalls = (execute: { mock: { calls: unknown[][] } }) =>
+        execute.mock.calls.filter(([query]) =>
+          String((query as { sql?: string }).sql).includes(
+            "information_schema.tables",
+          ),
+        ).length;
+
+      it.each(["/sign-up/email", "/sign-in/email"])(
+        "answers a typed 503 on %s when auth tables are missing",
+        async (path) => {
+          const { response, execute } = await callBa(path, async () => ({
+            rows: [{ table_name: "account" }],
+          }));
+          expect(response.status).toBe(503);
+          const body = await response.json();
+          expect(body.code).toBe("AUTH_SCHEMA_NOT_MIGRATED");
+          expect(body.message).toContain("temporarily unavailable");
+          expect(probeCalls(execute)).toBe(1);
+        },
+      );
+
+      it("keeps the original 5xx when the catalog cannot be read", async () => {
+        const { response } = await callBa("/sign-up/email", async () => {
+          throw new Error("catalog unavailable");
+        });
+        expect(response.status).toBe(500);
+        expect(await response.text()).not.toContain("AUTH_SCHEMA_NOT_MIGRATED");
+      });
+
+      it("does not probe a 4xx on an email route", async () => {
+        const { response, execute } = await callBa(
+          "/sign-up/email",
+          async () => ({ rows: [] }),
+          400,
+        );
+        expect(response.status).toBe(400);
+        expect(probeCalls(execute)).toBe(0);
+      });
+
+      it("does not probe a 5xx on other auth routes", async () => {
+        const { response, execute } = await callBa(
+          "/get-session",
+          async () => ({
+            rows: [],
+          }),
+        );
+        expect(response.status).toBe(500);
+        expect(probeCalls(execute)).toBe(0);
+      });
+    });
+
     it("logs the real Better Auth code/message and reports to Sentry before sanitizing an error body", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
