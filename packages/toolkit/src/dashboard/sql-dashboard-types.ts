@@ -8,7 +8,8 @@ export type DataSourceType =
   | "first-party"
   | "demo"
   | "prometheus"
-  | "program";
+  | "program"
+  | "postgres";
 
 export const PANEL_CHART_TYPES = [
   "line",
