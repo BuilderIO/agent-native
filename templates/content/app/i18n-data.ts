@@ -822,6 +822,7 @@ const databaseMessages = {
   fillWithAiNoRows: "There are no rows to fill in this view.",
   fillWithAiTooMany:
     "Fill with AI fills up to {{max}} cells at a time. Filter the view to fewer rows.",
+  fillWithAiLoadedOnly: "Only the rows loaded so far are included.",
   fillWithAiAlreadyRunning: "This column is already filling.",
   fillWithAiNeedsSetup: "Set up AI to fill cells.",
   fillWithAiSetUp: "Set up AI",

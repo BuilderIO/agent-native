@@ -115,6 +115,7 @@ export function ColumnFillProvider({
   databaseId,
   databaseDocumentId,
   items,
+  moreRows,
   properties,
   enabled,
   children,
@@ -122,6 +123,7 @@ export function ColumnFillProvider({
   databaseId: string;
   databaseDocumentId: string;
   items: readonly ContentDatabaseItem[];
+  moreRows: boolean;
   properties: readonly DocumentProperty[];
   enabled: boolean;
   children: ReactNode;
@@ -238,6 +240,7 @@ export function ColumnFillProvider({
           databaseId={databaseId}
           property={dialogProperty}
           items={items}
+          moreRows={moreRows}
           running={isColumnFillActive(
             entries.get(dialogProperty.definition.id)?.fill.status,
           )}
@@ -277,6 +280,7 @@ function FillWithAiDialog({
   databaseId,
   property,
   items,
+  moreRows,
   running,
   onClose,
   onStarted,
@@ -284,6 +288,7 @@ function FillWithAiDialog({
   databaseId: string;
   property: DocumentProperty;
   items: readonly ContentDatabaseItem[];
+  moreRows: boolean;
   running: boolean;
   onClose: () => void;
   onStarted: (fill: ColumnFill) => void;
@@ -410,6 +415,14 @@ function FillWithAiDialog({
           >
             {running ? t("database.fillWithAiAlreadyRunning") : countText}
           </p>
+          {moreRows && !running ? (
+            <p
+              className="text-sm text-muted-foreground"
+              data-column-fill-more-rows=""
+            >
+              {t("database.fillWithAiLoadedOnly")}
+            </p>
+          ) : null}
           {needsSetup ? (
             <div
               role="alert"
@@ -617,19 +630,21 @@ export function ColumnFillCellActions({
         <span>{cell.error || t("database.fillCellFailed")}</span>
       </p>
       <div className="flex gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="gap-1.5"
-          onClick={() => {
-            onDone();
-            controller.retry(fill, documentId);
-          }}
-        >
-          <IconRefresh className="size-3.5" aria-hidden="true" />
-          {t("database.fillTryAgain")}
-        </Button>
+        {fill.status === "stopping" ? null : (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => {
+              onDone();
+              controller.retry(fill, documentId);
+            }}
+          >
+            <IconRefresh className="size-3.5" aria-hidden="true" />
+            {t("database.fillTryAgain")}
+          </Button>
+        )}
         <Button
           type="button"
           size="sm"

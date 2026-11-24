@@ -3907,6 +3907,7 @@ function DatabaseTable({
           databaseId,
           databaseDocumentId: document.id,
           items: visibleItems,
+          moreRows: data?.pagination?.hasMore === true,
           properties: orderedProperties,
           enabled:
             activeView.type === "table" &&

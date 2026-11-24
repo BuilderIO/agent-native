@@ -563,6 +563,7 @@ const database = {
   fillWithAiNoRows: "Não há linhas para preencher nesta visualização.",
   fillWithAiTooMany:
     "Preencher com IA preenche até {{max}} células por vez. Filtre a visualização para ter menos linhas.",
+  fillWithAiLoadedOnly: "Só as linhas carregadas até agora estão incluídas.",
   fillWithAiAlreadyRunning: "Esta coluna já está sendo preenchida.",
   fillWithAiNeedsSetup: "Configure a IA para preencher células.",
   fillWithAiSetUp: "Configurar IA",

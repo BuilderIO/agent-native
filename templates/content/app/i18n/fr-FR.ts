@@ -570,6 +570,7 @@ const database = {
   fillWithAiNoRows: "Aucune ligne à remplir dans cette vue.",
   fillWithAiTooMany:
     "Remplir avec l'IA remplit jusqu'à {{max}} cellules à la fois. Filtrez la vue pour avoir moins de lignes.",
+  fillWithAiLoadedOnly: "Seules les lignes déjà chargées sont incluses.",
   fillWithAiAlreadyRunning: "Cette colonne est déjà en cours de remplissage.",
   fillWithAiNeedsSetup: "Configurez l'IA pour remplir les cellules.",
   fillWithAiSetUp: "Configurer l'IA",

@@ -61,11 +61,11 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function cellScopeId(fillId: string, documentId: string) {
-  return `${fillId}:${documentId}`;
+function cellScopeId(fillId: string, documentId: string, attempt: number) {
+  return `${fillId}:${documentId}:${attempt}`;
 }
 
-async function canEditRow(documentId: string): Promise<boolean> {
+async function canEditDocument(documentId: string): Promise<boolean> {
   try {
     await assertAccess("document", documentId, "editor");
     return true;
@@ -80,6 +80,28 @@ function alreadyFilling(): ActionContractError {
     errorCode: "COLUMN_FILL_ALREADY_RUNNING",
     statusCode: 409,
   });
+}
+
+function fillStopping(): ActionContractError {
+  return new ActionContractError(
+    "This fill is stopping. Try again once it has stopped.",
+    { errorCode: "COLUMN_FILL_STOPPING", statusCode: 409 },
+  );
+}
+
+async function cellIsEmpty(documentId: string, propertyId: string) {
+  const row = firstRow(
+    await getDb()
+      .select({ valueJson: schema.documentPropertyValues.valueJson })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, documentId),
+          eq(schema.documentPropertyValues.propertyId, propertyId),
+        ),
+      ),
+  );
+  return !row || isEmptyPropertyValue(parsePropertyValue(row.valueJson));
 }
 
 function fillNotFound(): ActionContractError {
@@ -385,8 +407,7 @@ async function claimCells(fillId: string): Promise<{
   });
 }
 
-async function startCellAgents(fill: FillRow, cells: CellRow[]) {
-  if (!cells.length) return;
+async function cellTaskContext(fill: FillRow, cells: CellRow[]) {
   const definition = await loadFillProperty(fill.databaseId, fill.propertyId);
   const collectionTitle = await databaseTitle(fill);
   const pages = await getDb()
@@ -402,6 +423,28 @@ async function startCellAgents(fill: FillRow, cells: CellRow[]) {
       ),
     );
   const titles = new Map(pages.map((page) => [page.id, page.title]));
+  return { definition, collectionTitle, titles };
+}
+
+async function startCellAgents(fill: FillRow, cells: CellRow[]) {
+  if (!cells.length) return;
+  let context: Awaited<ReturnType<typeof cellTaskContext>>;
+  try {
+    context = await cellTaskContext(fill, cells);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "This column can't be filled.";
+    for (const cell of cells) {
+      await setCell(
+        fill.id,
+        cell.documentId,
+        { status: "failed", error: message },
+        "running",
+      );
+    }
+    return;
+  }
+  const { definition, collectionTitle, titles } = context;
   for (const cell of cells) {
     const { description, instructions } = cellTask({
       fill,
@@ -418,7 +461,7 @@ async function startCellAgents(fill: FillRow, cells: CellRow[]) {
         name: `Fill ${definition.name}`,
         scope: {
           type: COLUMN_FILL_SCOPE_TYPE,
-          id: cellScopeId(fill.id, cell.documentId),
+          id: cellScopeId(fill.id, cell.documentId, cell.attempt),
           label: definition.name,
         },
         quiet: true,
@@ -467,6 +510,12 @@ export async function advanceColumnFill(fillId: string): Promise<void> {
       ...(fill.orgId ? { orgId: fill.orgId } : {}),
     },
     async () => {
+      if (
+        fill.status === "running" &&
+        !(await canEditDocument(fill.databaseDocumentId))
+      ) {
+        await requestStop(fill.id);
+      }
       await reconcileRunningCells(fill);
       for (;;) {
         const result = await claimCells(fillId);
@@ -654,31 +703,33 @@ export async function startColumnFill(args: {
   return readColumnFill(fillId);
 }
 
+async function requestStop(fillId: string) {
+  const stamp = nowIso();
+  await getDb().transaction(async (tx) => {
+    await tx
+      .update(schema.contentColumnFills)
+      .set({ status: "stopping", updatedAt: stamp })
+      .where(
+        and(
+          eq(schema.contentColumnFills.id, fillId),
+          eq(schema.contentColumnFills.status, "running"),
+        ),
+      );
+    await tx
+      .update(schema.contentColumnFillCells)
+      .set({ status: "skipped", updatedAt: stamp })
+      .where(
+        and(
+          eq(schema.contentColumnFillCells.fillId, fillId),
+          eq(schema.contentColumnFillCells.status, "waiting"),
+        ),
+      );
+  });
+}
+
 export async function stopColumnFill(fillId: string): Promise<ColumnFill> {
   const fill = await loadOwnFill(fillId);
-  if (fill.status === "running") {
-    const stamp = nowIso();
-    await getDb().transaction(async (tx) => {
-      await tx
-        .update(schema.contentColumnFills)
-        .set({ status: "stopping", updatedAt: stamp })
-        .where(
-          and(
-            eq(schema.contentColumnFills.id, fillId),
-            eq(schema.contentColumnFills.status, "running"),
-          ),
-        );
-      await tx
-        .update(schema.contentColumnFillCells)
-        .set({ status: "skipped", updatedAt: stamp })
-        .where(
-          and(
-            eq(schema.contentColumnFillCells.fillId, fillId),
-            eq(schema.contentColumnFillCells.status, "waiting"),
-          ),
-        );
-    });
-  }
+  if (fill.status === "running") await requestStop(fillId);
   await advanceColumnFill(fillId);
   return readColumnFill(fillId);
 }
@@ -706,20 +757,37 @@ export async function retryColumnFillCell(args: {
       [cell.documentId],
       { propertyIds: [fill.propertyId] },
     );
+    const generation = generations.of(cell.documentId, fill.propertyId);
+    const kept =
+      generation !== (cell.baseGeneration ?? 0) &&
+      !(await cellIsEmpty(cell.documentId, fill.propertyId));
     const stamp = nowIso();
     try {
       await getDb().transaction(async (tx) => {
+        const current = firstRow(
+          await tx
+            .select({ status: schema.contentColumnFills.status })
+            .from(schema.contentColumnFills)
+            .where(eq(schema.contentColumnFills.id, fill.id))
+            .for("update"),
+        );
+        if (current?.status === "stopping") throw fillStopping();
         await tx
           .update(schema.contentColumnFillCells)
-          .set({
-            status: "waiting",
-            error: null,
-            taskId: null,
-            agentThreadId: null,
-            runId: null,
-            baseGeneration: generations.of(cell.documentId, fill.propertyId),
-            updatedAt: stamp,
-          })
+          .set(
+            kept
+              ? { status: "kept", error: null, updatedAt: stamp }
+              : {
+                  status: "waiting",
+                  error: null,
+                  taskId: null,
+                  agentThreadId: null,
+                  runId: null,
+                  attempt: cell.attempt + 1,
+                  baseGeneration: generation,
+                  updatedAt: stamp,
+                },
+          )
           .where(
             and(
               eq(schema.contentColumnFillCells.fillId, fill.id),
@@ -727,6 +795,7 @@ export async function retryColumnFillCell(args: {
               eq(schema.contentColumnFillCells.status, "failed"),
             ),
           );
+        if (kept) return;
         await tx
           .update(schema.contentColumnFills)
           .set({ status: "running", updatedAt: stamp })
@@ -764,18 +833,17 @@ export async function fillColumnCell(
   );
   if (!cell) throw fillNotFound();
   const status = cell.status as ColumnFillCellStatus;
-  if (ctx?.threadId) {
-    const thread = await getThread(ctx.threadId);
-    if (
-      thread?.scope?.type !== COLUMN_FILL_SCOPE_TYPE ||
-      thread.scope.id !== cellScopeId(fill.id, cell.documentId) ||
-      (cell.agentThreadId && ctx.threadId !== cell.agentThreadId)
-    ) {
-      return {
-        status,
-        message: "This cell belongs to another run, so nothing was saved.",
-      };
-    }
+  const thread = ctx?.threadId ? await getThread(ctx.threadId) : null;
+  if (
+    !ctx?.threadId ||
+    thread?.scope?.type !== COLUMN_FILL_SCOPE_TYPE ||
+    thread.scope.id !== cellScopeId(fill.id, cell.documentId, cell.attempt) ||
+    (cell.agentThreadId && ctx.threadId !== cell.agentThreadId)
+  ) {
+    return {
+      status,
+      message: "This cell belongs to another run, so nothing was saved.",
+    };
   }
   if (status === "waiting" || status === "skipped") {
     return {
@@ -787,7 +855,6 @@ export async function fillColumnCell(
     };
   }
   const followUp = Boolean(
-    ctx?.threadId &&
     ctx.turnId &&
     cell.runId &&
     ctx.threadId === cell.agentThreadId &&
@@ -828,7 +895,7 @@ export async function fillColumnCell(
   }
 
   const value = columnFillValue(definition, args.value);
-  if (!(await canEditRow(cell.documentId))) {
+  if (!(await canEditDocument(cell.documentId))) {
     const message = "You can no longer edit this row, so nothing was saved.";
     if (followUp || status !== "running") return { status, message };
     await setCell(
@@ -875,26 +942,31 @@ export async function listColumnFills(
   if (!database) return [];
   await assertAccess("document", database.documentId, "viewer");
   const ownerEmail = currentUserEmail();
-  const fills = await getDb()
+  const owned = and(
+    eq(schema.contentColumnFills.databaseId, database.id),
+    sql`LOWER(${schema.contentColumnFills.ownerEmail}) = LOWER(${ownerEmail})`,
+  );
+  const active = await getDb()
     .select()
     .from(schema.contentColumnFills)
     .where(
       and(
-        eq(schema.contentColumnFills.databaseId, database.id),
-        sql`LOWER(${schema.contentColumnFills.ownerEmail}) = LOWER(${ownerEmail})`,
+        owned,
+        inArray(schema.contentColumnFills.status, ["running", "stopping"]),
       ),
-    )
+    );
+  const recent = await getDb()
+    .select()
+    .from(schema.contentColumnFills)
+    .where(owned)
     .orderBy(desc(schema.contentColumnFills.createdAt))
     .limit(50);
   const latest = new Map<string, FillRow>();
-  for (const fill of fills) {
+  for (const fill of [...active, ...recent]) {
     if (!latest.has(fill.propertyId)) latest.set(fill.propertyId, fill);
   }
   const result: ColumnFill[] = [];
   for (const fill of latest.values()) {
-    if (isColumnFillActive(fill.status as ColumnFillStatus)) {
-      await advanceColumnFill(fill.id);
-    }
     result.push(await readColumnFill(fill.id));
   }
   return result;

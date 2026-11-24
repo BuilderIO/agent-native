@@ -570,6 +570,7 @@ const database = {
   fillWithAiNoRows: "In dieser Ansicht gibt es keine Zeilen zum Ausfüllen.",
   fillWithAiTooMany:
     "Mit KI ausfüllen füllt bis zu {{max}} Zellen auf einmal. Filtern Sie die Ansicht auf weniger Zeilen.",
+  fillWithAiLoadedOnly: "Nur die bisher geladenen Zeilen sind enthalten.",
   fillWithAiAlreadyRunning: "Diese Spalte wird bereits ausgefüllt.",
   fillWithAiNeedsSetup: "Richten Sie KI ein, um Zellen auszufüllen.",
   fillWithAiSetUp: "KI einrichten",

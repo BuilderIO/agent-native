@@ -1352,6 +1352,7 @@ export const contentColumnFillCells = table(
     taskId: text("task_id"),
     agentThreadId: text("agent_thread_id"),
     runId: text("run_id"),
+    attempt: integer("attempt").notNull().default(0),
     error: text("error"),
     updatedAt: text("updated_at").notNull().default(now()),
   },

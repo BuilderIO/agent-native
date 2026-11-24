@@ -547,6 +547,7 @@ const database = {
   fillWithAiNoRows: "이 보기에는 채울 행이 없습니다.",
   fillWithAiTooMany:
     "AI로 채우기는 한 번에 최대 {{max}}개 셀까지 채웁니다. 보기를 필터링해 행 수를 줄이세요.",
+  fillWithAiLoadedOnly: "지금까지 불러온 행만 포함됩니다.",
   fillWithAiAlreadyRunning: "이 열은 이미 채우는 중입니다.",
   fillWithAiNeedsSetup: "셀을 채우려면 AI를 설정하세요.",
   fillWithAiSetUp: "AI 설정",

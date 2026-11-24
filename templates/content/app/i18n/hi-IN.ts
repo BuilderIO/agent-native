@@ -525,6 +525,7 @@ const database = {
   fillWithAiNoRows: "इस व्यू में भरने के लिए कोई पंक्ति नहीं है।",
   fillWithAiTooMany:
     "AI से भरें एक बार में {{max}} सेल तक भरता है। कम पंक्तियों के लिए व्यू फ़िल्टर करें।",
+  fillWithAiLoadedOnly: "सिर्फ़ अब तक लोड हुई पंक्तियाँ शामिल हैं।",
   fillWithAiAlreadyRunning: "यह कॉलम पहले से भरा जा रहा है।",
   fillWithAiNeedsSetup: "सेल भरने के लिए AI सेट अप करें।",
   fillWithAiSetUp: "AI सेट अप करें",

@@ -244,7 +244,10 @@ describe("Fill with AI", () => {
       quiet: true,
       parentDelegationDepth: 0,
       allowedActionNames: ["get-document", "fill-column-cell"],
-      scope: { type: "content-column-fill", id: `${fill.id}:${ids.row(2)}` },
+      scope: {
+        type: "content-column-fill",
+        id: `${fill.id}:${ids.row(2)}:0`,
+      },
     });
     let statuses = await cells(fill.id);
     expect(running(statuses)).toHaveLength(5);
@@ -257,7 +260,7 @@ describe("Fill with AI", () => {
           documentId: ids.row(2),
           value: "About sourdough.",
         },
-        undefined,
+        run(1),
       ),
     );
     expect(saved.status).toBe("filled");
@@ -323,7 +326,7 @@ describe("Fill with AI", () => {
     const late = await asOwner(() =>
       columnFill.fillColumnCell(
         { fillId: fill.id, documentId: first, value: "The agent's" },
-        undefined,
+        run(1),
       ),
     );
     expect(late.status).toBe("kept");
@@ -332,7 +335,7 @@ describe("Fill with AI", () => {
     await asOwner(() =>
       columnFill.fillColumnCell(
         { fillId: fill.id, documentId: second, value: "Filled" },
-        undefined,
+        run(2),
       ),
     );
     const statuses = await cells(fill.id);
@@ -597,6 +600,206 @@ describe("Fill with AI", () => {
     expect(await cellValue(ids.row(0), ids.summary)).toBeNull();
   });
 
+  it("saves nothing without a run behind the save", async () => {
+    const ids = await fixture(1);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    const saved = await asOwner(() =>
+      columnFill.fillColumnCell(
+        { fillId: fill.id, documentId: ids.row(0), value: "Direct" },
+        undefined,
+      ),
+    );
+    expect(saved.status).toBe("running");
+    expect(await cellValue(ids.row(0), ids.summary)).toBeNull();
+  });
+
+  it("keeps a value typed into a failed cell when it's tried again", async () => {
+    const ids = await fixture(1);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    agents.statuses.set("task-1", "errored");
+    await columnFill.sweepColumnFills({ deadlineAt: Date.now() + 10_000 });
+    expect((await cells(fill.id)).get(ids.row(0))).toBe("failed");
+    await asOwner(() =>
+      setProperty.run({
+        documentId: ids.row(0),
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        value: "Mine",
+      }),
+    );
+
+    const retried = await asOwner(() =>
+      columnFill.retryColumnFillCell({
+        fillId: fill.id,
+        documentId: ids.row(0),
+      }),
+    );
+    expect(retried.cells[0]?.status).toBe("kept");
+    expect(agents.spawned).toHaveLength(1);
+    expect(await cellValue(ids.row(0), ids.summary)).toBe("Mine");
+  });
+
+  it("refuses a save from a cell's earlier run after Try again", async () => {
+    const ids = await fixture(1);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    agents.statuses.set("task-1", "errored");
+    await columnFill.sweepColumnFills({ deadlineAt: Date.now() + 10_000 });
+    let stale: { status: string } | undefined;
+    agents.onSpawn = async () => {
+      stale = await columnFill.fillColumnCell(
+        { fillId: fill.id, documentId: ids.row(0), value: "Stale" },
+        run(1),
+      );
+    };
+
+    await asOwner(() =>
+      columnFill.retryColumnFillCell({
+        fillId: fill.id,
+        documentId: ids.row(0),
+      }),
+    );
+    expect(stale?.status).toBe("running");
+    expect(await cellValue(ids.row(0), ids.summary)).toBeNull();
+  });
+
+  it("won't try a cell again while its fill is stopping", async () => {
+    const ids = await fixture(6);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    agents.statuses.set("task-1", "errored");
+    await columnFill.sweepColumnFills({ deadlineAt: Date.now() + 10_000 });
+    await asOwner(() => columnFill.stopColumnFill(fill.id));
+
+    await expect(
+      asOwner(() =>
+        columnFill.retryColumnFillCell({
+          fillId: fill.id,
+          documentId: ids.row(0),
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "COLUMN_FILL_STOPPING" });
+    expect((await cells(fill.id)).get(ids.row(0))).toBe("failed");
+  });
+
+  it("fails a fill's next cells when its column can't be filled anymore", async () => {
+    const ids = await fixture(6);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    await getDb()
+      .update(schema.documentPropertyDefinitions)
+      .set({ type: "date" })
+      .where(eq(schema.documentPropertyDefinitions.id, ids.summary));
+    agents.statuses.set("task-1", "errored");
+    await columnFill.sweepColumnFills({ deadlineAt: Date.now() + 10_000 });
+
+    const read = await asOwner(() => columnFill.readColumnFill(fill.id));
+    expect(
+      read.cells.find((cell) => cell.documentId === ids.row(5)),
+    ).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("Fill with AI works on"),
+    });
+    expect(agents.spawned).toHaveLength(5);
+  });
+
+  it("stops a fill when its owner can no longer edit the collection", async () => {
+    const ids = await fixture(6);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    await getDb()
+      .update(schema.documents)
+      .set({ ownerEmail: "someone-else@example.com", visibility: "public" })
+      .where(eq(schema.documents.id, ids.databaseDocumentId));
+    await columnFill.sweepColumnFills({ deadlineAt: Date.now() + 10_000 });
+
+    const read = await asOwner(() => columnFill.readColumnFill(fill.id));
+    expect(read.status).toBe("stopping");
+    expect((await cells(fill.id)).get(ids.row(5))).toBe("skipped");
+    expect(agents.spawned).toHaveLength(5);
+  });
+
+  it("lists a running fill behind newer fills of other columns", async () => {
+    const ids = await fixture(1);
+    const fill = await asOwner(() =>
+      columnFill.startColumnFill({
+        databaseId: ids.databaseId,
+        propertyId: ids.summary,
+        instruction: "Summarize",
+        rewrite: false,
+        documentIds: ids.rows,
+      }),
+    );
+    const later = new Date(Date.now() + 60_000).toISOString();
+    await getDb()
+      .insert(schema.contentColumnFills)
+      .values(
+        Array.from({ length: 50 }, (_, index) => ({
+          id: `${fill.id}-old-${index}`,
+          ownerEmail: OWNER,
+          orgId: null,
+          databaseId: ids.databaseId,
+          databaseDocumentId: ids.databaseDocumentId,
+          propertyId: ids.kind,
+          instruction: "Pick a kind",
+          rewrite: false,
+          status: "done",
+          total: 0,
+          createdAt: later,
+          updatedAt: later,
+        })),
+      );
+
+    const listed = await asOwner(() =>
+      columnFill.listColumnFills(ids.databaseId),
+    );
+    expect(listed.map((item) => item.id)).toContain(fill.id);
+  });
+
   it("leaves out rows the person can't edit", async () => {
     const ids = await fixture(3);
     await getDb()
@@ -687,7 +890,7 @@ describe("Fill with AI", () => {
       asOwner(() =>
         columnFill.fillColumnCell(
           { fillId: fill.id, documentId: row, value: "Opinion" },
-          undefined,
+          run(1),
         ),
       ),
     ).rejects.toMatchObject({ errorCode: "COLUMN_FILL_INVALID_VALUE" });
@@ -696,7 +899,7 @@ describe("Fill with AI", () => {
     await asOwner(() =>
       columnFill.fillColumnCell(
         { fillId: fill.id, documentId: row, value: "Guide" },
-        undefined,
+        run(1),
       ),
     );
     expect(await cellValue(row, ids.kind)).toBe("kind-guide");
@@ -719,11 +922,11 @@ describe("Fill with AI", () => {
     expect(statuses.get(ids.row(5))).toBe("skipped");
     expect(statuses.get(ids.row(6))).toBe("skipped");
 
-    for (const row of ids.rows.slice(0, 5)) {
+    for (const [index, row] of ids.rows.slice(0, 5).entries()) {
       await asOwner(() =>
         columnFill.fillColumnCell(
           { fillId: fill.id, documentId: row, value: "Done" },
-          undefined,
+          run(index + 1),
         ),
       );
     }
@@ -772,7 +975,7 @@ describe("Fill with AI", () => {
     await asOwner(() =>
       columnFill.fillColumnCell(
         { fillId: fill.id, documentId: ids.row(1), value: "Done" },
-        undefined,
+        run(2),
       ),
     );
     expect((await cells(fill.id)).get(ids.row(0))).toBe("running");

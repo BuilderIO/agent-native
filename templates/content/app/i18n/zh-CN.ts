@@ -501,6 +501,7 @@ const database = {
   fillWithAiNoRows: "此视图中没有可填充的行。",
   fillWithAiTooMany:
     "用 AI 填充一次最多填充 {{max}} 个单元格。请筛选视图以减少行数。",
+  fillWithAiLoadedOnly: "仅包含目前已加载的行。",
   fillWithAiAlreadyRunning: "此列已在填充中。",
   fillWithAiNeedsSetup: "设置 AI 以填充单元格。",
   fillWithAiSetUp: "设置 AI",

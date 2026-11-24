@@ -2206,6 +2206,7 @@ const overrides = {
     fillWithAiNoRows: "此檢視中沒有可填入的列。",
     fillWithAiTooMany:
       "用 AI 填入一次最多填入 {{max}} 個儲存格。請篩選檢視以減少列數。",
+    fillWithAiLoadedOnly: "僅包含目前已載入的列。",
     fillWithAiAlreadyRunning: "此欄已在填入中。",
     fillWithAiNeedsSetup: "設定 AI 以填入儲存格。",
     fillWithAiSetUp: "設定 AI",

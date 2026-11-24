@@ -102,6 +102,7 @@ let root: ReturnType<typeof createRoot>;
 let client: QueryClient;
 let stored: ColumnFill[];
 let startRefusal: string | null;
+let moreRows: boolean;
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), {
     headers: { "content-type": "application/json" },
@@ -146,6 +147,7 @@ beforeEach(() => {
   });
   stored = [];
   startRefusal = null;
+  moreRows = false;
   client = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
@@ -204,6 +206,7 @@ async function render() {
           databaseId="db-1"
           databaseDocumentId="db-doc-1"
           items={items}
+          moreRows={moreRows}
           properties={[summary, created]}
           enabled
         >
@@ -280,6 +283,9 @@ describe("Fill with AI", () => {
 
     const count = inside(shownDialog(), "[data-column-fill-count]");
     expect(count.textContent).toBe('database.fillWithAiCount:{"count":3}');
+    expect(
+      shownDialog().querySelector("[data-column-fill-more-rows]"),
+    ).toBeNull();
     const fill = button(shownDialog(), "database.fillWithAiStart");
     expect(fill.disabled).toBe(true);
 
@@ -305,6 +311,16 @@ describe("Fill with AI", () => {
     expect(announcement()).toBe(
       'database.fillStarted:{"name":"Summary","count":3}',
     );
+  });
+
+  it("says only the loaded rows are included when the view has more", async () => {
+    moreRows = true;
+    await render();
+    await openDialog();
+
+    expect(
+      inside(shownDialog(), "[data-column-fill-more-rows]").textContent,
+    ).toBe("database.fillWithAiLoadedOnly");
   });
 
   it("says AI isn't set up before anything starts", async () => {
@@ -404,6 +420,23 @@ describe("Fill with AI", () => {
       threadId: "thread-row-1",
     });
     expect(inside(container, "[data-header]").textContent).toBe("");
+  });
+
+  it("offers no Try again while a fill is stopping", async () => {
+    stored = [
+      fillOf("stopping", [
+        ["row-1", "running"],
+        ["row-3", "failed", "Nothing to fill from the page."],
+      ]),
+    ];
+    await render();
+
+    const failed = inside(container, '[data-row="row-3"]');
+    const labels = [...failed.querySelectorAll("button")].map(
+      (candidate) => candidate.textContent,
+    );
+    expect(labels).toContain("database.fillOpenChat");
+    expect(labels).not.toContain("database.fillTryAgain");
   });
 
   it("announces when a fill finishes", async () => {

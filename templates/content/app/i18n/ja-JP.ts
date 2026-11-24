@@ -554,6 +554,7 @@ const database = {
   fillWithAiNoRows: "このビューには入力する行がありません。",
   fillWithAiTooMany:
     "AIで入力できるのは一度に {{max}} セルまでです。ビューを絞り込んで行を減らしてください。",
+  fillWithAiLoadedOnly: "これまでに読み込まれた行だけが対象です。",
   fillWithAiAlreadyRunning: "この列はすでに入力中です。",
   fillWithAiNeedsSetup: "セルに入力するには AI を設定してください。",
   fillWithAiSetUp: "AI を設定",

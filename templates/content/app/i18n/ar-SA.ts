@@ -526,6 +526,7 @@ const database = {
   fillWithAiNoRows: "لا توجد صفوف لتعبئتها في هذا العرض.",
   fillWithAiTooMany:
     "تعبئ ميزة التعبئة بالذكاء الاصطناعي ما يصل إلى {{max}} خلية في المرة الواحدة. صفِّ العرض إلى صفوف أقل.",
+  fillWithAiLoadedOnly: "تُضمَّن الصفوف التي تم تحميلها حتى الآن فقط.",
   fillWithAiAlreadyRunning: "هذا العمود قيد التعبئة بالفعل.",
   fillWithAiNeedsSetup: "أعدّ الذكاء الاصطناعي لتعبئة الخلايا.",
   fillWithAiSetUp: "إعداد الذكاء الاصطناعي",

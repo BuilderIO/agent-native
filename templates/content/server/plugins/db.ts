@@ -1873,6 +1873,7 @@ export const runContentMigrations = runMigrations(
         task_id TEXT,
         agent_thread_id TEXT,
         run_id TEXT,
+        attempt INTEGER NOT NULL DEFAULT 0,
         error TEXT,
         updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
       );
