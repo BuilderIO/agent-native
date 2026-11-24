@@ -246,8 +246,8 @@ it("surfaces an actionable approval review instead of a success receipt", async 
 });
 
 it.each([
-  [automation, "daily"],
-  [build, build.execution.domainSpec],
+  [automation, "daily", "Cadence"],
+  [build, build.execution.domainSpec, "Create app in this workspace"],
   [
     {
       ...build,
@@ -260,10 +260,11 @@ it.each([
       },
     } satisfies ActionSuggestion,
     "Set the default inbox column.",
+    "Customize",
   ],
 ])(
   "shows the concrete payload and waits for confirmation for $id",
-  async (suggestion, payload) => {
+  async (suggestion, payload, label) => {
     const thread = doneThread();
     thread.tools.turn = {
       id: "turn",
@@ -284,10 +285,8 @@ it.each([
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog?.textContent).toContain(payload);
     expect(dialog?.querySelector("pre")).toBeNull();
-    if (suggestion.execution.type === "action") {
-      expect(dialog?.textContent).toContain("Cadence");
-      expect(dialog?.textContent).not.toContain("{\n");
-    }
+    expect(dialog?.textContent).toContain(label);
+    expect(dialog?.textContent).not.toContain("{\n");
     const run = [...(dialog?.querySelectorAll("button") ?? [])].find(
       (button) => button.textContent === "Run action",
     );
