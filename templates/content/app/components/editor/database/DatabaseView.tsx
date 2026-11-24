@@ -16091,7 +16091,11 @@ function DatabasePropertyHeader({
             </DropdownMenu>
           )}
           {!readOnlyPresentation ? (
-            <ColumnFillHeaderStatus property={property} narrow={narrow} />
+            <ColumnFillHeaderStatus
+              property={property}
+              width={width}
+              narrow={narrow}
+            />
           ) : null}
           {!readOnlyPresentation ? (
             <ColumnResizeHandle

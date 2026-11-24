@@ -473,11 +473,15 @@ export function useColumnFillMenu(property: DocumentProperty) {
   return () => controller.openFill(property);
 }
 
+const COMPACT_FILL_STATUS_WIDTH = 260;
+
 export function ColumnFillHeaderStatus({
   property,
+  width,
   narrow,
 }: {
   property: DocumentProperty;
+  width: number;
   narrow: boolean;
 }) {
   const t = useT();
@@ -489,13 +493,26 @@ export function ColumnFillHeaderStatus({
     fill.status === "stopping"
       ? t("database.fillStopping")
       : t("database.fillProgress", { done: fill.settled, total: fill.total });
+  const compact =
+    !narrow && fill.status === "running" && width < COMPACT_FILL_STATUS_WIDTH;
   return (
     <span
       className="flex shrink-0 items-center gap-1 ps-1 text-xs text-muted-foreground"
       data-column-fill-status={fill.status}
     >
       <Spinner className="size-3" aria-hidden="true" />
-      <span className={cn("whitespace-nowrap", narrow && "sr-only")}>
+      {compact ? (
+        <span
+          className="whitespace-nowrap tabular-nums"
+          aria-hidden="true"
+          data-column-fill-compact=""
+        >
+          {`${fill.settled}/${fill.total}`}
+        </span>
+      ) : null}
+      <span
+        className={cn("whitespace-nowrap", (narrow || compact) && "sr-only")}
+      >
         {label}
       </span>
       {fill.status === "running" ? (

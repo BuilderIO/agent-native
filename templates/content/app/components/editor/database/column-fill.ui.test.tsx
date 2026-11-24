@@ -103,6 +103,7 @@ let client: QueryClient;
 let stored: ColumnFill[];
 let startRefusal: string | null;
 let moreRows: boolean;
+let headerWidth: number;
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), {
     headers: { "content-type": "application/json" },
@@ -148,6 +149,7 @@ beforeEach(() => {
   stored = [];
   startRefusal = null;
   moreRows = false;
+  headerWidth = 320;
   client = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
@@ -179,7 +181,11 @@ function Table() {
         </button>
       ) : null}
       <div data-header>
-        <ColumnFillHeaderStatus property={summary} narrow={false} />
+        <ColumnFillHeaderStatus
+          property={summary}
+          width={headerWidth}
+          narrow={false}
+        />
       </div>
       {items.map((item) => (
         <div key={item.id} data-row={item.document.id} className="relative">
@@ -374,6 +380,7 @@ describe("Fill with AI", () => {
     expect(header.textContent).toContain(
       'database.fillProgress:{"done":1,"total":3}',
     );
+    expect(header.querySelector("[data-column-fill-compact]")).toBeNull();
     const cellStatus = (id: string) =>
       container
         .querySelector(`[data-row="${id}"] [data-column-fill-cell]`)
@@ -389,6 +396,27 @@ describe("Fill with AI", () => {
     await act(async () => stop.click());
     await settle();
     expect(sentBody("stop-column-fill")).toEqual({ fillId: "fill-1" });
+  });
+
+  it("shortens the header's count at the default column width, with the full text for screen readers", async () => {
+    stored = [
+      fillOf("running", [
+        ["row-1", "filled"],
+        ["row-3", "running"],
+        ["row-4", "waiting"],
+      ]),
+    ];
+    headerWidth = 180;
+    await render();
+
+    const header = inside(container, "[data-header]");
+    const short = inside(header, "[data-column-fill-compact]");
+    expect(short.textContent).toBe("1/3");
+    expect(short.getAttribute("aria-hidden")).toBe("true");
+    const full = required(short.nextElementSibling, "full count");
+    expect(full.textContent).toBe('database.fillProgress:{"done":1,"total":3}');
+    expect(full.classList.contains("sr-only")).toBe(true);
+    inside(header, "[data-column-fill-stop]");
   });
 
   it("offers Try again and Open chat on a failed cell, and Edit in chat on a filled one", async () => {
