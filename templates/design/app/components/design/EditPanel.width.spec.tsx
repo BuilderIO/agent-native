@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -12,6 +12,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
+}));
+
+vi.mock("./inspector/NativeShaderCatalogPreview", () => ({
+  NativeShaderCatalogPreview: () => null,
+  NativeShaderCatalogPreviewProvider: ({ children }: { children: ReactNode }) =>
+    children,
 }));
 
 let container: HTMLDivElement;
