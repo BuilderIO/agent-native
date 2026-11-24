@@ -2332,7 +2332,6 @@ export function resolveStructuredHistoryLimits(
     configured?.maxBytes,
     MAX_ADDED_TOOL_HISTORY_BYTES,
   );
-  // One value can never be larger than the whole history budget.
   const maxValueBytes = Math.min(
     positiveWholeNumber(
       configured?.maxValueBytes,

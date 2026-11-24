@@ -3567,7 +3567,6 @@ describe("createAgentNativeChatRuntime", () => {
         {
           type: "tool-result" as const,
           toolCallId: id,
-          // Over the 64 KiB default, under the raised per-value limit.
           result: index === 0 ? "x".repeat(80 * 1024) : { result: id },
         },
       ];
