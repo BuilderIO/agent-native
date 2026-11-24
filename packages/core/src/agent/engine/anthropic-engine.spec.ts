@@ -694,7 +694,6 @@ describe("createAnthropicEngine", () => {
       "thinking-binding-controls-2026-08-01",
     );
 
-    // Older models reject the field.
     const [oldParams, oldOptions] = await run("claude-sonnet-4-6");
     expect(oldParams.thinking).toEqual({ type: "adaptive" });
     expect(oldOptions.headers).toBeUndefined();

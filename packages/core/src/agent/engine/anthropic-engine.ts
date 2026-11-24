@@ -234,8 +234,6 @@ class AnthropicEngine implements AgentEngine {
       }
     }
 
-    // Replayed signed thinking is bound to the tool list it was written under;
-    // let the API drop a mismatched block instead of failing the whole turn.
     const bindThinking =
       (extra.thinking as { type?: string } | undefined)?.type === "adaptive" &&
       supportsAnthropicThinkingBlockBinding(opts.model);

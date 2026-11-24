@@ -819,32 +819,34 @@ class AISDKEngine implements AgentEngine {
   }
 }
 
-/**
- * @ai-sdk/anthropic forwards only `type` and `budgetTokens` of the thinking
- * option, so `block_binding` and its beta header are added to the outgoing
- * request here. A replayed signed thinking block is rejected with a 400 when
- * the tool list changed mid-turn; "drop_block" makes the API drop just that
- * block instead.
- */
+interface AnthropicRequestBody {
+  model?: string;
+  thinking?: {
+    type?: string;
+    block_binding?: { prefix_mismatch_behavior: string };
+  };
+}
+
 export function withAnthropicThinkingBlockBinding(
   baseFetch: typeof fetch = globalThis.fetch,
 ): typeof fetch {
-  return (async (input: any, init?: RequestInit) => {
+  return (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     if (typeof init?.body !== "string") return baseFetch(input, init);
-    let body: any;
+    let body: AnthropicRequestBody | null;
     try {
-      body = JSON.parse(init.body);
+      body = JSON.parse(init.body) as AnthropicRequestBody | null;
     } catch {
       return baseFetch(input, init);
     }
+    const thinking = body?.thinking;
     if (
-      body?.thinking?.type !== "adaptive" ||
-      body.thinking.block_binding !== undefined ||
-      !supportsAnthropicThinkingBlockBinding(body.model)
+      thinking?.type !== "adaptive" ||
+      thinking.block_binding !== undefined ||
+      !supportsAnthropicThinkingBlockBinding(body?.model)
     ) {
       return baseFetch(input, init);
     }
-    body.thinking.block_binding = { prefix_mismatch_behavior: "drop_block" };
+    thinking.block_binding = { prefix_mismatch_behavior: "drop_block" };
     const headers = new Headers(init.headers);
     const beta = headers.get("anthropic-beta");
     const betas = beta ? beta.split(",").map((b) => b.trim()) : [];

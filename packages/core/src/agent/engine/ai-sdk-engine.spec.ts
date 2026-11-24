@@ -1304,11 +1304,14 @@ describe("withAnthropicThinkingBlockBinding", () => {
     const base = vi.fn().mockResolvedValue(new Response("{}"));
     const { withAnthropicThinkingBlockBinding } =
       await import("./ai-sdk-engine.js");
-    await withAnthropicThinkingBlockBinding(base as any)("https://x/messages", {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
+    await withAnthropicThinkingBlockBinding(base as unknown as typeof fetch)(
+      "https://x/messages",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      },
+    );
     const init = base.mock.calls[0][1];
     return {
       body: JSON.parse(init.body),
